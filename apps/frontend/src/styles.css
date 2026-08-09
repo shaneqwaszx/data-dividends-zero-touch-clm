@@ -1,0 +1,114 @@
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #e8eef8;
+  background: #07111f;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.page-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background:
+    radial-gradient(circle at 15% 15%, rgb(44 115 160 / 26%), transparent 38%),
+    linear-gradient(145deg, #07111f 0%, #0c1b2f 100%);
+}
+
+.status-card {
+  width: min(100%, 700px);
+  padding: clamp(2rem, 6vw, 4rem);
+  border: 1px solid rgb(132 191 216 / 24%);
+  border-radius: 24px;
+  background: rgb(10 27 47 / 86%);
+  box-shadow: 0 28px 80px rgb(0 0 0 / 32%);
+}
+
+.eyebrow {
+  margin: 0 0 1.5rem;
+  color: #84bfd8;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: #8ce0ad;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.status-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: #5ed58b;
+  box-shadow: 0 0 0 5px rgb(94 213 139 / 12%);
+}
+
+h1 {
+  margin: 1rem 0;
+  max-width: 600px;
+  color: #fff;
+  font-size: clamp(2.2rem, 7vw, 4.4rem);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+}
+
+.summary {
+  max-width: 580px;
+  margin: 1.5rem 0 2rem;
+  color: #b7c7da;
+  font-size: 1.1rem;
+  line-height: 1.65;
+}
+
+ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+li {
+  padding: 0.9rem 1rem;
+  border: 1px solid rgb(132 191 216 / 15%);
+  border-radius: 12px;
+  color: #dce7f3;
+  background: rgb(255 255 255 / 3%);
+}
+
+.scope-note {
+  margin: 2rem 0 0;
+  color: #8194aa;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 560px) {
+  .page-shell {
+    padding: 1rem;
+  }
+
+  ul {
+    grid-template-columns: 1fr;
+  }
+}

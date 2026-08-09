@@ -25,19 +25,33 @@ The implementation must remain extensible to additional corporate registries lat
 - Do not push unless explicitly instructed.
 - Do not modify unrelated files.
 
-## Source-of-truth priority
+## Source-of-truth and development-conflict policy
 
-When supplied project artefacts disagree, use this priority:
+When supplied project artefacts disagree, apply this provisional development policy:
 
-1. Latest direct Delta Capita sponsor clarification recorded in `docs/decisions/DECISION_LOG.md`
-2. Corrected/canonical standalone API artefacts and agreed JSON examples
-3. EDS-GoldTier Integration API Specification
-4. GoldTier EDS Data Dictionary
-5. GoldTier connection guide / Postman examples
-6. Approved FYP proposal
+1. Latest direct Delta Capita sponsor clarification recorded in
+   `docs/decisions/DECISION_LOG.md` remains the highest authority.
+2. For endpoint paths, schemas, property names, enums, and other
+   machine-validation structure, use the corrected standalone operation OpenAPI.
+3. Where Delta Capita explicitly directs the team to a different artefact for a
+   specific question, follow that direction. In particular, the sponsor has directed
+   the team to the EDS-GoldTier Integration API Specification for each operation's
+   minimum mandatory fields; apply that mandatory-field overlay provisionally and
+   record any difference from the standalone OpenAPI.
+4. A JSON example is reference material only if it validates against this provisional
+   canonical contract. A contradictory example is `INVALID / QUARANTINED` and must
+   not become a canonical fixture, DTO enum source, or contract assertion.
+5. The combined OpenAPI bundle is lower-confidence wherever it conflicts with a
+   corrected standalone operation file or direct sponsor decision.
+6. The GoldTier EDS Data Dictionary provides candidate mapping evidence only unless
+   a mapping is separately sponsor-confirmed. The connection guide, sanitised
+   Postman examples, and approved FYP proposal are supporting evidence in that order.
 
-Never resolve a material conflict silently. Record it in:
-`docs/decisions/DECISION_LOG.md` or `docs/sponsor-questions/OPEN_QUESTIONS.md`.
+This ordering is a **project development decision pending sponsor/API-owner
+confirmation**. It is not a claim that Delta Capita has formally corrected the
+conflicting artefacts. Never resolve a material conflict silently: catalogue contract
+differences in `docs/contracts/GOLDTIER_CONTRACT_DISCREPANCIES.md` and record decisions
+or unanswered sponsor questions in the relevant project logs.
 
 ## Current implementation scope
 

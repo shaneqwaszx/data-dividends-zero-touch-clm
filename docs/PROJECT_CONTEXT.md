@@ -53,6 +53,13 @@ Do not generate clients/tests against the stale `{goldTierId}:amend` form.
 
 Current sponsor direction is PingFed authentication. Exact sandbox connection details/token request will be supplied when Nutmeg is provisioned.
 
+The supplied authentication collection is quarantined because it contains
+credential/token material. Do not use, test, copy, or sanitise it in place. Real
+GoldTier authentication is blocked until the sponsor confirms rotation/revocation,
+provides a sanitised reference collection, and supplies fresh credentials through an
+approved mechanism when real sandbox integration begins. This does not block
+credential-free mock development.
+
 Never commit credentials or token material.
 
 ## Local sponsor artefacts
