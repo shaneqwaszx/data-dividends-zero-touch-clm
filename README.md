@@ -4,9 +4,10 @@ Proof of concept for Delta Capita's Singapore new-to-bank flow:
 
 `ACRA Singapore -> EDS/orchestration layer -> GoldTier -> human review gate`
 
-Phase 01 provides a runnable, credential-free end-to-end slice using synthetic Mock
-ACRA records and a deterministic Mock GoldTier connector. It contains no live ACRA or
-GoldTier integration, authentication, IDP, or UBO calculation.
+Phase 02 preserves the runnable Phase 01 slice and adds a production-shaped ACRA
+sandbox adapter behind the same connector boundary. Mock ACRA remains the safe default,
+GoldTier remains fully mocked, and no live ACRA interoperability is claimed without the
+authoritative subscriber contract and authorized sandbox access.
 
 ## Repository layout
 
@@ -48,6 +49,30 @@ and a `scenarios` array. Onboarding UEN input is trimmed and uppercased; blank o
 outside the Phase 01 synthetic `nine digits plus one letter` format return 422. This is
 a demo validation rule, not a production ACRA UEN specification.
 
+### ACRA connector modes
+
+`ACRA_CONNECTOR_MODE=mock` is the default and requires no credentials or network.
+`ACRA_CONNECTOR_MODE=sandbox` validates an HTTPS base URL, a company path template with
+one `{uen}` placeholder, a bounded timeout, and a backend-only authorization provider.
+See `.env.example` for names only; populate them only from authorized ACRA subscriber
+documentation and never commit `.env`.
+
+The exact ACRA Business Profile operation/auth schema is currently Q-012. The generic
+static-header adapter and tracked response fixture are integration seams, not claims
+about ACRA's contract. Sandbox mode fails closed if required settings are absent. TLS
+verification remains enabled and cannot be disabled.
+
+The provisional decoder trims and rejects blank required company/address text before
+canonical mapping. Small source-neutral canonical checks independently prevent blank
+minimum business values from reaching Mock GoldTier. Current HTTP/status translations
+are project-defined provisional adapter policy pending Q-012, not confirmed ACRA
+subscriber semantics. Connector exceptions use fixed public codes/messages; private
+diagnostic context is never copied automatically into case history or API errors.
+
+Internal canonical provenance retains the query-free registry endpoint for later proof
+mapping. Browser case responses intentionally omit that endpoint and expose only the
+source system, source environment, and sourcing timestamp needed by the UI.
+
 Run backend and mock-contract checks:
 
 ```powershell
@@ -82,7 +107,7 @@ npm run build
 TypeScript strict mode is the frontend static check. A dedicated frontend lint ruleset
 remains deferred until the team selects and locks the required packages.
 
-## Phase 01 mock scenarios
+## Mock ACRA scenarios
 
 | UEN | Outcome |
 |---|---|
@@ -93,8 +118,25 @@ remains deferred until the team selects and locks the required packages.
 | Any other UEN | Mock ACRA not found |
 
 All scenario data is synthetic. See
-`docs/architecture/PHASE_01_VERTICAL_SLICE.md` for boundaries, workflow states, and
-later-phase replacements.
+`docs/architecture/PHASE_02_ACRA_INGESTION.md` for the current connector, source DTO,
+mapping, provenance, error, and mode-switching boundaries.
+
+## Optional ACRA sandbox smoke verification
+
+The smoke script is manual, excluded from CI, and disabled by default. Run it only
+after Q-012 is resolved and authorized configuration is available locally:
+
+```powershell
+$env:ACRA_LIVE_SMOKE_ENABLED="true"
+$env:ACRA_SMOKE_UEN="<authorised test UEN>"
+python scripts/acra_sandbox_smoke.py
+```
+
+It reports only `EXECUTED`, `NOT EXECUTED`, or `FAILED` with a safe summary. It never
+prints the UEN, credentials, headers, configuration, or response payload. Its disabled
+guard runs before settings validation or connector construction, so missing/invalid
+sandbox configuration is contained as a sanitized status rather than an import-time
+traceback.
 
 ## Secret check
 

@@ -86,3 +86,16 @@ Do not copy credential values from sponsor artefacts into tracked files.
 
 See:
 `docs/sponsor-questions/OPEN_QUESTIONS.md`
+
+## Phase 02 implementation status
+
+The ACRA ingestion foundation supports deterministic Mock ACRA mode and a
+production-shaped sandbox adapter behind the existing `AcraConnector` boundary.
+Source DTOs, canonical mapping, authorization, HTTP transport, response decoding, and
+safe connector errors are separate concerns. GoldTier remains mocked.
+
+Exact live ACRA binding and sandbox verification remain blocked by Q-012 because the
+approved project material does not contain the subscribed Business Profile API
+operation schema, authentication contract, sandbox URL, or authorized credentials.
+Tracked Phase 02 ACRA response fixtures are synthetic adapter-contract data and are not
+represented as captured ACRA responses.

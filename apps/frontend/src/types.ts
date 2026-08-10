@@ -20,7 +20,7 @@ export interface MockScenario {
 export interface SimulationProfile {
   is_simulated: true;
   registry_system: "ACRA";
-  registry_environment: "MOCK";
+  registry_environment: "MOCK" | "SANDBOX";
   target_system: "GOLDTIER";
   target_environment: "MOCK";
 }
@@ -42,11 +42,12 @@ export interface CanonicalEntity {
   legal_name: string | null;
   country_of_incorporation: string | null;
   party_type: string | null;
+  registration_date: string | null;
+  entity_status: string | null;
   registered_address: RegisteredAddress | null;
   source: {
     source_system: "ACRA";
-    environment: "MOCK" | "SANDBOX" | "LIVE";
-    registry_source_link: string;
+    environment: "MOCK" | "SANDBOX";
     retrieved_at: string;
   };
 }

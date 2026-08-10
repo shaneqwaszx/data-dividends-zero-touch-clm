@@ -28,6 +28,9 @@ async def test_create_and_retrieve_happy_path_case() -> None:
     assert create_response.json()["requested_uen"] == VALID_SME_UEN
     assert get_response.status_code == 200
     assert get_response.json() == create_response.json()
+    assert "registry_source_link" not in create_response.text
+    assert "mock.acra.gov.sg" not in create_response.text
+    assert "registry_source_link" not in get_response.text
 
 
 @pytest.mark.anyio

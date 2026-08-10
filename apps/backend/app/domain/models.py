@@ -1,6 +1,6 @@
-"""Minimal canonical models for the Phase 01 onboarding vertical slice."""
+"""Minimal canonical models for the current onboarding vertical slice."""
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from uuid import UUID
 
@@ -42,7 +42,6 @@ class SourceEnvironment(StrEnum):
 
     MOCK = "MOCK"
     SANDBOX = "SANDBOX"
-    LIVE = "LIVE"
 
 
 class RegisteredAddress(BaseModel):
@@ -70,6 +69,8 @@ class CanonicalLegalEntity(BaseModel):
     legal_name: str | None = None
     country_of_incorporation: str | None = None
     party_type: str | None = None
+    registration_date: date | None = None
+    entity_status: str | None = None
     registered_address: RegisteredAddress | None = None
     source: SourceMetadata
 

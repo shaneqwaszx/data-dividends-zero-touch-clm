@@ -24,7 +24,7 @@ class SimulationProfile(BaseModel):
 
     is_simulated: Literal[True] = True
     registry_system: Literal["ACRA"] = "ACRA"
-    registry_environment: Literal["MOCK"] = "MOCK"
+    registry_environment: Literal["MOCK", "SANDBOX"] = "MOCK"
     target_system: Literal["GOLDTIER"] = "GOLDTIER"
     target_environment: Literal["MOCK"] = "MOCK"
 
@@ -39,7 +39,9 @@ class MockScenarioDiscovery(BaseModel):
 class MockScenarioCatalogue(Protocol):
     """Demo-only boundary, intentionally separate from `AcraConnector`."""
 
-    def discovery(self) -> MockScenarioDiscovery: ...
+    def discovery(
+        self, registry_environment: Literal["MOCK", "SANDBOX"] = "MOCK"
+    ) -> MockScenarioDiscovery: ...
 
     def policy_validation_failure_uens(self) -> frozenset[str]: ...
 
@@ -76,10 +78,16 @@ class Phase01MockScenarioCatalogue:
         ),
     )
 
-    def discovery(self) -> MockScenarioDiscovery:
+    def discovery(
+        self, registry_environment: Literal["MOCK", "SANDBOX"] = "MOCK"
+    ) -> MockScenarioDiscovery:
         return MockScenarioDiscovery(
-            simulation=SimulationProfile(),
-            scenarios=[scenario.model_copy(deep=True) for scenario in self._scenarios],
+            simulation=SimulationProfile(registry_environment=registry_environment),
+            scenarios=(
+                [scenario.model_copy(deep=True) for scenario in self._scenarios]
+                if registry_environment == "MOCK"
+                else []
+            ),
         )
 
     def policy_validation_failure_uens(self) -> frozenset[str]:

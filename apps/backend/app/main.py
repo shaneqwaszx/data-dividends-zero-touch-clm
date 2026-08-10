@@ -1,4 +1,4 @@
-"""FastAPI application and Phase 01 application-facing endpoints."""
+"""FastAPI application and Phase 02 application-facing endpoints."""
 
 from typing import Annotated, Literal
 from uuid import UUID
@@ -6,18 +6,21 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
+from app.api_models import OnboardingCaseResponse
+from app.composition import (
+    build_acra_connector as build_acra_connector,
+)
+from app.composition import (
+    build_onboarding_service,
+)
 from app.config import Settings, get_settings
-from app.connectors.mock_acra import MockAcraConnector
-from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.demo.scenarios import (
     MockScenarioCatalogue,
     MockScenarioDiscovery,
     Phase01MockScenarioCatalogue,
 )
-from app.domain.models import OnboardingCase
 from app.services.errors import OnboardingInfrastructureError
 from app.services.onboarding import OnboardingService
-from app.services.repository import InMemoryOnboardingCaseRepository
 
 
 class HealthResponse(BaseModel):
@@ -55,22 +58,6 @@ class InfrastructureFailureDetail(BaseModel):
     correlation_id: UUID
 
 
-def build_onboarding_service(
-    scenario_catalogue: MockScenarioCatalogue | None = None,
-) -> OnboardingService:
-    """Compose the credential-free Phase 01 connector implementations."""
-
-    catalogue = scenario_catalogue or Phase01MockScenarioCatalogue()
-    return OnboardingService(
-        acra=MockAcraConnector(),
-        goldtier=MockGoldTierConnector(
-            policy_validation_failure_keys=catalogue.policy_validation_failure_uens(),
-            partial_amend_external_keys=catalogue.partial_amend_uens(),
-        ),
-        repository=InMemoryOnboardingCaseRepository(),
-    )
-
-
 def create_app(
     settings: Settings | None = None,
     onboarding_service: OnboardingService | None = None,
@@ -81,7 +68,7 @@ def create_app(
     active_settings = settings or get_settings()
     application = FastAPI(title=active_settings.app_name, version="0.1.0")
     catalogue = scenario_catalogue or Phase01MockScenarioCatalogue()
-    service = onboarding_service or build_onboarding_service(catalogue)
+    service = onboarding_service or build_onboarding_service(catalogue, active_settings)
 
     def get_onboarding_service() -> OnboardingService:
         return service
@@ -100,20 +87,23 @@ def create_app(
         tags=["onboarding"],
     )
     def mock_scenarios() -> MockScenarioDiscovery:
-        return catalogue.discovery()
+        registry_environment: Literal["MOCK", "SANDBOX"] = (
+            "MOCK" if active_settings.acra_connector_mode == "mock" else "SANDBOX"
+        )
+        return catalogue.discovery(registry_environment)
 
     @application.post(
         "/api/onboarding/cases",
-        response_model=OnboardingCase,
+        response_model=OnboardingCaseResponse,
         status_code=status.HTTP_201_CREATED,
         tags=["onboarding"],
     )
     def create_onboarding_case(
         request: StartOnboardingRequest,
         active_service: Annotated[OnboardingService, Depends(get_onboarding_service)],
-    ) -> OnboardingCase:
+    ) -> OnboardingCaseResponse:
         try:
-            return active_service.create_case(request.uen)
+            return OnboardingCaseResponse.from_domain(active_service.create_case(request.uen))
         except OnboardingInfrastructureError as exc:
             detail = InfrastructureFailureDetail(
                 code=exc.code,
@@ -128,17 +118,17 @@ def create_app(
 
     @application.get(
         "/api/onboarding/cases/{case_id}",
-        response_model=OnboardingCase,
+        response_model=OnboardingCaseResponse,
         tags=["onboarding"],
     )
     def get_onboarding_case(
         case_id: UUID,
         active_service: Annotated[OnboardingService, Depends(get_onboarding_service)],
-    ) -> OnboardingCase:
+    ) -> OnboardingCaseResponse:
         case = active_service.get_case(case_id)
         if case is None:
             raise HTTPException(status_code=404, detail="Onboarding case not found")
-        return case
+        return OnboardingCaseResponse.from_domain(case)
 
     return application
 

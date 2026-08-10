@@ -1,31 +1,51 @@
 """ACRA connector contract expressed in source-boundary models."""
 
-from datetime import datetime
-from typing import Literal, Protocol
+from datetime import date, datetime
+from typing import Annotated, Literal, Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, BeforeValidator, ConfigDict, StringConstraints
+
+NonBlankSourceText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+TrimmedSourceText = Annotated[str, StringConstraints(strip_whitespace=True)]
+
+
+def _normalize_optional_source_text(value: object) -> object:
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or None
+    return value
+
+
+OptionalSourceText = Annotated[str | None, BeforeValidator(_normalize_optional_source_text)]
 
 
 class AcraAddressPayload(BaseModel):
-    """Address shape owned by the mock source connector."""
+    """Narrow ACRA source address used by the current POC."""
 
-    block: str
-    street: str
-    unit: str | None = None
-    postal_code: str
-    country_code: str
+    model_config = ConfigDict(extra="forbid")
+
+    block: NonBlankSourceText
+    street: NonBlankSourceText
+    unit: OptionalSourceText = None
+    building_name: OptionalSourceText = None
+    postal_code: NonBlankSourceText
+    country_code: NonBlankSourceText
 
 
 class AcraCompanyPayload(BaseModel):
-    """Synthetic ACRA-like payload that must be mapped before business use."""
+    """Validated ACRA source DTO that must be mapped before business use."""
 
-    uen: str
-    entity_name: str | None
-    country_code: str | None
-    entity_type: str | None
+    model_config = ConfigDict(extra="forbid")
+
+    uen: NonBlankSourceText
+    entity_name: NonBlankSourceText
+    country_code: NonBlankSourceText
+    entity_type: NonBlankSourceText
+    registration_date: date | None = None
+    entity_status: TrimmedSourceText | None = None
     registered_address: AcraAddressPayload | None
-    source_environment: Literal["MOCK", "SANDBOX", "LIVE"]
-    source_endpoint: str
+    source_environment: Literal["MOCK", "SANDBOX"]
+    source_endpoint: NonBlankSourceText
     retrieved_at: datetime
 
 
