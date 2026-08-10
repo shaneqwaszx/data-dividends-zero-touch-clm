@@ -1,4 +1,4 @@
-name: Phase 00 checks
+name: Phase 01 checks
 
 on:
   pull_request:
@@ -24,6 +24,7 @@ jobs:
       - run: python -m ruff check .
       - run: python -m mypy app
       - run: python -m pytest
+      - run: python -m unittest discover -s ../../tests/contract -p "test_*.py"
 
   frontend:
     runs-on: ubuntu-latest
