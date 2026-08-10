@@ -1,0 +1,4 @@
+interface:
+  display_name: "POC Regression Check"
+  short_description: "Verify canonical POC outcomes and invariants"
+  default_prompt: "Use $poc-regression-check to verify the canonical POC scenarios and workflow invariants."

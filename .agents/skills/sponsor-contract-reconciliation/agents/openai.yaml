@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sponsor Contract Reconciliation"
+  short_description: "Reconcile sponsor and API contract evidence"
+  default_prompt: "Use $sponsor-contract-reconciliation to reconcile the relevant sponsor and API contract evidence."
