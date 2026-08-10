@@ -20,3 +20,9 @@ Do not silently choose between conflicting artefacts. Record discrepancies and t
 Phase 02's explicitly provisional ACRA source-to-canonical field boundary is recorded
 in `ACRA_CANONICAL_MAPPING.md`. It must not be treated as an ACRA-published API schema;
 the exact subscribed endpoint/auth/response contract remains Q-012.
+
+Phase 03's synthetic IDP provider/API boundary is recorded in
+`IDP_REVIEW_CONTRACT.md`; its four-field project-defined profile, threshold,
+normalization, comparison, and review rules are recorded in `IDP_FIELD_PROFILE.md`.
+Neither is a sponsor document schema or vendor OCR contract; Q-003, Q-005, Q-013, and
+Q-014 remain unresolved.
