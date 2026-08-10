@@ -11,7 +11,7 @@ ENV_FILE = REPOSITORY_ROOT / ".env"
 
 
 class Settings(BaseSettings):
-    """Non-secret settings used by the Phase 00 application shell."""
+    """Non-secret settings used by the mock-only application."""
 
     app_name: str = "Zero-Touch CLM API"
     app_env: Literal["development", "test", "production"] = "development"

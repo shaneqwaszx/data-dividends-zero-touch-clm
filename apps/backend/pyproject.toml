@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "zero-touch-clm-backend"
 version = "0.1.0"
-description = "Phase 00 FastAPI foundation for the Zero-Touch CLM proof of concept"
+description = "Mock-first FastAPI orchestration for the Zero-Touch CLM proof of concept"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.141.1",
