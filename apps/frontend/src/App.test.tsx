@@ -32,6 +32,8 @@ function makeCase(state: WorkflowState): OnboardingCase {
       legal_name: "MERLION CIRCULAR LABS PTE. LTD.",
       country_of_incorporation: "SG",
       party_type: "PRIVATE_COMPANY_LIMITED_BY_SHARES",
+      registration_date: "2024-01-02",
+      entity_status: "LIVE",
       registered_address:
         state === "REVIEW_REQUIRED"
           ? null
@@ -44,7 +46,6 @@ function makeCase(state: WorkflowState): OnboardingCase {
       source: {
         source_system: "ACRA",
         environment: "MOCK",
-        registry_source_link: "https://mock.acra.gov.sg/api/entities/202400001A",
         retrieved_at: timestamp,
       },
     },
@@ -93,8 +94,7 @@ describe("Phase 01 onboarding UI", () => {
   it("clearly labels all data and systems as simulated mocks", () => {
     const markup = renderToStaticMarkup(<App />);
 
-    expect(markup).toContain("Simulated environment");
-    expect(markup).toContain("Loading backend simulation profile");
+    expect(markup).toContain("Loading backend connector profile");
     expect(markup).toContain("Start onboarding");
   });
 
@@ -111,8 +111,8 @@ describe("Phase 01 onboarding UI", () => {
       />,
     );
 
-    expect(markup).toContain("ACRA (MOCK) + GOLDTIER (MOCK)");
-    expect(markup).toContain("No real customer data");
+    expect(markup).toContain("ACRA Mock | GoldTier Mock");
+    expect(markup).toContain("Registry access is backend-managed");
   });
 
   it("loads simulation metadata through the backend discovery contract", async () => {
@@ -179,7 +179,27 @@ describe("Phase 01 onboarding UI", () => {
     }
     expect(markup).toContain("GT-MOCK-00000001");
     expect(markup).toContain("MERLION CIRCULAR LABS PTE. LTD.");
-    expect(markup).toContain("ACRA · MOCK");
+    expect(markup).toContain("ACRA Mock");
+    expect(markup).toContain("2024-01-02");
+    expect(markup).toContain("LIVE");
+  });
+
+  it("renders ACRA Sandbox without exposing private configuration", () => {
+    const markup = renderToStaticMarkup(
+      <SimulationBanner
+        profile={{
+          is_simulated: true,
+          registry_system: "ACRA",
+          registry_environment: "SANDBOX",
+          target_system: "GOLDTIER",
+          target_environment: "MOCK",
+        }}
+      />,
+    );
+
+    expect(markup).toContain("ACRA Sandbox | GoldTier Mock");
+    expect(markup.toLowerCase()).not.toContain("credential");
+    expect(markup.toLowerCase()).not.toContain("authorization");
   });
 
   it.each([

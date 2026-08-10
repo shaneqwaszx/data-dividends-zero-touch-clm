@@ -50,8 +50,8 @@ The Phase 01 domain deliberately contains only:
 - case ID, source case ID, and correlation ID;
 - requested UEN/registration number;
 - legal name, country of incorporation, party type, and registered address;
-- business source system (`ACRA`), separate environment (`MOCK`, `SANDBOX`, or
-  `LIVE`), registry source link, and UTC retrieval time;
+- business source system (`ACRA`), separate environment (`MOCK` or `SANDBOX`),
+  registry source link, and UTC retrieval time;
 - current workflow state and safe ordered workflow events;
 - a small mock GoldTier result summary; and
 - an optional sanitised error code/message.
@@ -74,8 +74,8 @@ labels, backend simulation metadata, and explicit cross-mock behavior configurat
 A future real ACRA connector therefore does not need to implement mock-lab discovery.
 
 Canonical provenance always identifies the business source as `ACRA`; mockness is the
-separate `environment=MOCK` value. A future connector can emit `SANDBOX` or `LIVE`
-without changing the business source or canonical model.
+separate `environment=MOCK` value. Phase 02's connector can emit `SANDBOX` without
+changing the business source or orchestration boundary.
 
 ### GoldTier
 
@@ -206,8 +206,8 @@ local FastAPI during development.
 - Basic validation checks only the documented Phase 01 synthetic UEN format and the presence of legal
   name, Singapore country, party type, and registered address. It is not the sponsor's
   still-unresolved final validation responsibility split.
-- A later ACRA phase replaces `MockAcraConnector` with an authorised real connector;
-  the canonical mapper/service boundary remains.
+- Phase 02 adds a selectable `AcraSandboxConnector` behind the same retrieval boundary;
+  exact subscribed-contract binding and live verification remain separately blocked.
 - A later GoldTier phase replaces `MockGoldTierConnector` only after the TLS 1.3,
   PingFed, environment, and credential-containment blockers are resolved.
 - IDP, confidence scoring, related parties, deterministic ownership/UBO processing,

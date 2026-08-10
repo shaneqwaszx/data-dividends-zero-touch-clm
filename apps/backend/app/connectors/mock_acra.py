@@ -1,7 +1,7 @@
 """Credential-free deterministic ACRA connector for Phase 01."""
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from app.connectors.acra import AcraAddressPayload, AcraCompanyPayload
 from app.demo.scenarios import (
@@ -55,6 +55,8 @@ class MockAcraConnector:
             entity_name=entity_name,
             country_code="SG",
             entity_type="PRIVATE_COMPANY_LIMITED_BY_SHARES",
+            registration_date=date(2024, 1, 2),
+            entity_status="LIVE",
             registered_address=registered_address,
             source_environment="MOCK",
             source_endpoint=f"https://mock.acra.gov.sg/api/entities/{normalised_uen}",

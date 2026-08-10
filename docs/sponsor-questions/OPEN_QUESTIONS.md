@@ -3,6 +3,22 @@
 Remove or mark a question resolved only after an explicit sponsor answer. These
 questions do not block credential-free Phase 01 mock development unless stated.
 
+## ACRA SANDBOX BINDING AND ACCESS
+
+### Q-012 - Authoritative ACRA Business Profile API contract and access
+
+Please provide or identify the authoritative subscriber documentation for the ACRA
+Business Profile / Entity Information Query API used by this POC, including the
+sandbox base URL, company-by-UEN operation path, request/response schema, not-found and
+error semantics, authentication/authorization mechanism, timeout/rate-limit guidance,
+and any TLS/mTLS/private-CA requirements.
+
+Please also confirm that the team has an authorized subscription/sandbox account and
+deliver any required credential only through an approved secret mechanism. This blocks
+exact subscriber-contract binding and live ACRA sandbox verification. It does not block
+the Phase 02 connector/auth/decoder interfaces, synthetic contract tests, or Mock ACRA
+mode.
+
 ## A. BLOCKING REAL GOLDTIER INTEGRATION
 
 ### Q-008 — Authentication containment and replacement

@@ -1,12 +1,13 @@
-"""Synchronous Phase 01 orchestration across the two mock connector boundaries."""
+"""Synchronous onboarding across configured ACRA and Mock GoldTier boundaries."""
 
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import TypeVar
+from typing import Never, TypeVar
 from uuid import UUID, uuid4
 
 from app.connectors.acra import AcraConnector
+from app.connectors.errors import ConnectorError, public_connector_error
 from app.connectors.goldtier import GoldTierConnector
 from app.connectors.goldtier_models import (
     GoldTierOutcome,
@@ -23,6 +24,7 @@ from app.domain.models import (
     WorkflowState,
 )
 from app.mappers.acra import map_acra_company
+from app.mappers.errors import MappingError
 from app.mappers.goldtier import (
     build_amend_request,
     build_policy_request,
@@ -85,21 +87,29 @@ class OnboardingService:
                 WorkflowState.FAILED,
                 EventOutcome.FAILED,
                 "ACRA_ENTITY_NOT_FOUND",
-                "No synthetic ACRA entity was found for this UEN.",
+                "No ACRA entity was found for this UEN.",
             )
 
-        entity = self._run_required_stage(
-            case,
-            code="ACRA_MAPPING_UNEXPECTED_FAILURE",
-            message="Registry data could not be mapped safely.",
-            operation=lambda: map_acra_company(source_payload),
-        )
+        try:
+            entity = map_acra_company(source_payload)
+        except MappingError:
+            self._raise_terminal_infrastructure(
+                case,
+                code="ACRA_SOURCE_MAPPING_FAILED",
+                message="Registry data could not be mapped safely.",
+            )
+        except Exception:
+            self._raise_terminal_infrastructure(
+                case,
+                code="ACRA_MAPPING_UNEXPECTED_FAILURE",
+                message="Registry data could not be mapped safely.",
+            )
         case.entity = entity
         self._record(
             case,
             WorkflowState.REGISTRY_FETCHED,
             EventOutcome.SUCCEEDED,
-            "Synthetic company information retrieved through the ACRA mock connector.",
+            f"Company information retrieved from ACRA {entity.source.environment.value}.",
         )
 
         validation_errors = validate_entity(entity)
@@ -115,7 +125,7 @@ class OnboardingService:
             case,
             WorkflowState.VALIDATED,
             EventOutcome.SUCCEEDED,
-            "Phase 01 canonical presence checks passed.",
+            "Canonical presence checks passed.",
         )
 
         search = self._run_required_stage(
@@ -246,7 +256,7 @@ class OnboardingService:
             case,
             WorkflowState.COMPLETED,
             EventOutcome.SUCCEEDED,
-            "Required Phase 01 mock stages completed.",
+            "Required onboarding stages completed with Mock GoldTier.",
         )
         return case.model_copy(deep=True)
 
@@ -270,20 +280,36 @@ class OnboardingService:
     ) -> T:
         try:
             return operation()
-        except Exception:
-            self._terminate(
+        except ConnectorError as exc:
+            public_error = public_connector_error(exc)
+            self._raise_terminal_infrastructure(
                 case,
-                WorkflowState.FAILED,
-                EventOutcome.FAILED,
-                code,
-                message,
+                code=public_error.code,
+                message=public_error.message,
             )
-            raise OnboardingInfrastructureError(
-                case_id=case.case_id,
-                correlation_id=case.correlation_id,
-                code=code,
-                public_message=message,
-            ) from None
+        except Exception:
+            self._raise_terminal_infrastructure(case, code=code, message=message)
+
+    def _raise_terminal_infrastructure(
+        self,
+        case: OnboardingCase,
+        *,
+        code: str,
+        message: str,
+    ) -> Never:
+        self._terminate(
+            case,
+            WorkflowState.FAILED,
+            EventOutcome.FAILED,
+            code,
+            message,
+        )
+        raise OnboardingInfrastructureError(
+            case_id=case.case_id,
+            correlation_id=case.correlation_id,
+            code=code,
+            public_message=message,
+        ) from None
 
     def _record(
         self,
@@ -335,17 +361,25 @@ class OnboardingService:
 
 
 def validate_entity(entity: CanonicalLegalEntity) -> list[str]:
-    """Run deliberately small, deterministic Phase 01 demo checks."""
+    """Enforce small source-neutral minimums before any GoldTier operation."""
 
     errors: list[str] = []
     if not UEN_PATTERN.fullmatch(entity.registration_number):
         errors.append("registration number is not in the Phase 01 synthetic UEN format")
-    if not entity.legal_name:
+    if entity.legal_name is None or not entity.legal_name.strip():
         errors.append("legal name is missing")
     if entity.country_of_incorporation != "SG":
         errors.append("country of incorporation must be SG for this phase")
-    if not entity.party_type:
+    if entity.party_type is None or not entity.party_type.strip():
         errors.append("party type is missing")
     if entity.registered_address is None:
         errors.append("registered address is missing")
+    else:
+        address = entity.registered_address
+        if not address.address_line_1.strip():
+            errors.append("registered address line 1 is missing")
+        if not address.postal_code.strip():
+            errors.append("registered address postal code is missing")
+        if not address.country_code.strip():
+            errors.append("registered address country is missing")
     return errors

@@ -21,13 +21,20 @@ function formatAddress(caseData: OnboardingCase): string {
     .join(", ");
 }
 
+function titleCaseEnvironment(value: "MOCK" | "SANDBOX"): string {
+  return value === "MOCK" ? "Mock" : "Sandbox";
+}
+
 export function SimulationBanner({ profile }: { profile: SimulationProfile | null }) {
+  const sourceLabel = profile
+    ? `${profile.registry_system} ${titleCaseEnvironment(profile.registry_environment)}`
+    : null;
   return (
     <div className="environment-banner" role="status">
       <span aria-hidden="true" />
       {profile
-        ? `Simulated environment · ${profile.registry_system} (${profile.registry_environment}) + ${profile.target_system} (${profile.target_environment}) · No real customer data`
-        : "Simulated environment · Loading backend simulation profile…"}
+        ? `${sourceLabel} | GoldTier Mock | Registry access is backend-managed`
+        : "Loading backend connector profile..."}
     </div>
   );
 }
@@ -67,6 +74,14 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
               <dd>{caseData.entity?.party_type ?? "Not available"}</dd>
             </div>
             <div>
+              <dt>Registration date</dt>
+              <dd>{caseData.entity?.registration_date ?? "Not available"}</dd>
+            </div>
+            <div>
+              <dt>Registry status</dt>
+              <dd>{caseData.entity?.entity_status ?? "Not available"}</dd>
+            </div>
+            <div>
               <dt>Registered address</dt>
               <dd>{formatAddress(caseData)}</dd>
             </div>
@@ -74,7 +89,7 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
               <dt>Registry source</dt>
               <dd>
                 {caseData.entity
-                  ? `${caseData.entity.source.source_system} · ${caseData.entity.source.environment}`
+                  ? `${caseData.entity.source.source_system} ${titleCaseEnvironment(caseData.entity.source.environment)}`
                   : "Not available"}
               </dd>
             </div>
@@ -141,7 +156,7 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
       </article>
 
       <p className="case-identifiers">
-        Case {caseData.case_id} · Correlation {caseData.correlation_id}
+        Case {caseData.case_id} | Correlation {caseData.correlation_id}
       </p>
     </section>
   );
@@ -161,7 +176,7 @@ export default function App() {
         setScenarios(discovery.scenarios);
         setSimulationProfile(discovery.simulation);
       })
-      .catch(() => setRequestError("Mock scenario discovery is unavailable."));
+      .catch(() => setRequestError("Connector profile discovery is unavailable."));
   }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -182,19 +197,27 @@ export default function App() {
     <main className="page-shell">
       <header className="hero">
         <SimulationBanner profile={simulationProfile} />
-        <p className="eyebrow">Data Dividends · Phase 01</p>
+        <p className="eyebrow">Data Dividends | Phase 02</p>
         <h1>Singapore onboarding, end to end.</h1>
         <p className="summary">
-          Start a synthetic case and follow its data from the registry boundary through the
-          canonical model into a credential-free GoldTier simulation.
+          Retrieve a Singapore entity through the configured ACRA boundary, map it into the
+          canonical model, and continue into a credential-free GoldTier simulation.
         </p>
       </header>
 
       <section className="launch-card" aria-labelledby="launch-heading">
         <div>
-          <p className="section-label">Mock case launcher</p>
-          <h2 id="launch-heading">Choose a synthetic UEN</h2>
-          <p>Known scenarios are selectable, and any other value exercises the not-found path.</p>
+          <p className="section-label">Registry case launcher</p>
+          <h2 id="launch-heading">
+            {simulationProfile?.registry_environment === "SANDBOX"
+              ? "Enter an authorised sandbox UEN"
+              : "Choose a synthetic UEN"}
+          </h2>
+          <p>
+            {simulationProfile?.registry_environment === "SANDBOX"
+              ? "The backend owns ACRA access and returns only safe onboarding case state."
+              : "Known scenarios are selectable; any other valid value exercises not found."}
+          </p>
         </div>
         <form onSubmit={(event) => void handleSubmit(event)}>
           <label htmlFor="uen">Singapore UEN</label>
@@ -212,16 +235,18 @@ export default function App() {
             <datalist id="mock-uens">
               {scenarios.map((scenario) => (
                 <option key={scenario.uen} value={scenario.uen}>
-                  {scenario.label} — {scenario.expected_outcome}
+                  {scenario.label} - {scenario.expected_outcome}
                 </option>
               ))}
             </datalist>
             <button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Running mock flow…" : "Start onboarding"}
+              {isSubmitting ? "Running onboarding..." : "Start onboarding"}
             </button>
           </div>
           <p className="input-help">
-            Try {DEFAULT_UEN} for the happy path or select another synthetic scenario.
+            {simulationProfile?.registry_environment === "SANDBOX"
+              ? "Sandbox requests require authorised backend configuration; no credentials reach this page."
+              : `Try ${DEFAULT_UEN} for the happy path or select another synthetic scenario.`}
           </p>
         </form>
       </section>

@@ -9,13 +9,13 @@ description = "Mock-first FastAPI orchestration for the Zero-Touch CLM proof of 
 requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.141.1",
+    "httpx==0.28.1",
     "pydantic-settings==2.15.0",
     "uvicorn[standard]==0.52.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "httpx==0.28.1",
     "mypy==1.20.2",
     "pytest==8.4.2",
     "ruff==0.16.2",

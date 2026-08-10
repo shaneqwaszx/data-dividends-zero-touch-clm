@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Literal
 
 import httpx
@@ -6,6 +6,7 @@ import pytest
 
 from app.config import Settings
 from app.connectors.acra import AcraCompanyPayload
+from app.connectors.errors import AcraTimeoutError
 from app.connectors.goldtier_models import (
     AmendPartyRequest,
     CreatePolicyRequest,
@@ -44,6 +45,25 @@ class RaisingAcraConnector:
         del uen
         self.calls.append("acra")
         raise RuntimeError(INTERNAL_SENTINEL)
+
+
+class TimeoutAcraConnector:
+    def fetch_company(self, uen: str) -> AcraCompanyPayload | None:
+        del uen
+        raise AcraTimeoutError
+
+
+class NonUtcAcraConnector:
+    def fetch_company(self, uen: str) -> AcraCompanyPayload | None:
+        payload = MockAcraConnector(clock=lambda: FIXED_TIME).fetch_company(uen)
+        assert payload is not None
+        return payload.model_copy(
+            update={
+                "retrieved_at": datetime(
+                    2026, 8, 10, 12, 0, tzinfo=timezone(timedelta(hours=8))
+                )
+            }
+        )
 
 
 class RecordingGoldTierConnector:
@@ -134,7 +154,13 @@ class RecordingGoldTierConnector:
 def build_recording_service(
     goldtier: RecordingGoldTierConnector,
     *,
-    acra: MockAcraConnector | RaisingAcraConnector | None = None,
+    acra: (
+        MockAcraConnector
+        | RaisingAcraConnector
+        | TimeoutAcraConnector
+        | NonUtcAcraConnector
+        | None
+    ) = None,
 ) -> OnboardingService:
     return OnboardingService(
         acra=acra or MockAcraConnector(clock=lambda: FIXED_TIME),
@@ -181,6 +207,38 @@ async def test_acra_exception_persists_retrievable_failed_case_and_stops() -> No
     assert retrieved.status_code == 200
     assert retrieved.json()["state"] == "FAILED"
     assert retrieved.json()["events"][-1]["code"] == "ACRA_RETRIEVAL_UNEXPECTED_FAILURE"
+
+
+@pytest.mark.anyio
+async def test_typed_acra_failure_persists_safe_code_and_stops_goldtier() -> None:
+    goldtier = RecordingGoldTierConnector()
+    service = build_recording_service(goldtier, acra=TimeoutAcraConnector())
+
+    response, client = await post_case(service)
+    case_id = assert_safe_terminal_failure(response)
+    retrieved = await client.get(f"/api/onboarding/cases/{case_id}")
+    await client.aclose()
+
+    assert response.json()["detail"]["code"] == "ACRA_TIMEOUT"
+    assert retrieved.json()["state"] == "FAILED"
+    assert retrieved.json()["events"][-1]["code"] == "ACRA_TIMEOUT"
+    assert goldtier.calls == []
+
+
+@pytest.mark.anyio
+async def test_acra_source_mapping_failure_terminalizes_and_stops_goldtier() -> None:
+    goldtier = RecordingGoldTierConnector()
+    service = build_recording_service(goldtier, acra=NonUtcAcraConnector())
+
+    response, client = await post_case(service)
+    case_id = assert_safe_terminal_failure(response)
+    retrieved = await client.get(f"/api/onboarding/cases/{case_id}")
+    await client.aclose()
+
+    assert response.json()["detail"]["code"] == "ACRA_SOURCE_MAPPING_FAILED"
+    assert retrieved.json()["state"] == "FAILED"
+    assert retrieved.json()["events"][-1]["code"] == "ACRA_SOURCE_MAPPING_FAILED"
+    assert goldtier.calls == []
 
 
 @pytest.mark.anyio
