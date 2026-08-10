@@ -1,0 +1,4 @@
+interface:
+  display_name: "Integration Security Review"
+  short_description: "Review FYP integration security boundaries"
+  default_prompt: "Use $integration-security-review to assess the changed integration boundaries for project-specific security risks."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "CI Failure Triage"
+  short_description: "Find and fix the first causal CI failure"
+  default_prompt: "Use $ci-failure-triage to diagnose the failing CI job and apply the smallest maintainable correction."

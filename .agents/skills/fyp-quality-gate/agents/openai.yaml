@@ -1,0 +1,4 @@
+interface:
+  display_name: "FYP Quality Gate"
+  short_description: "Run an independent combined phase gate"
+  default_prompt: "Use $fyp-quality-gate to review the current FYP phase and write its quality-gate report."
