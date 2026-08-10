@@ -52,6 +52,9 @@ async def test_mock_scenario_discovery_and_review_response() -> None:
         "registry_environment": "MOCK",
         "target_system": "GOLDTIER",
         "target_environment": "MOCK",
+        "idp_system": "IDP",
+        "idp_environment": "MOCK",
+        "idp_review_confidence_threshold": 0.85,
     }
     assert {scenario["expected_outcome"] for scenario in discovery["scenarios"]} == {
         "COMPLETED",

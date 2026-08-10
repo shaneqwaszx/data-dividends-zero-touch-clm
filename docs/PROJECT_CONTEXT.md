@@ -99,3 +99,28 @@ approved project material does not contain the subscribed Business Profile API
 operation schema, authentication contract, sandbox URL, or authorized credentials.
 Tracked Phase 02 ACRA response fixtures are synthetic adapter-contract data and are not
 represented as captured ACRA responses.
+
+## Phase 03 implementation status
+
+The document-processing foundation accepts bounded transient PDFs beneath an existing
+onboarding case and passes them through a replaceable `IdpProvider`. The active Mock
+IDP is credential-free, network-free, and produces deterministic synthetic candidates
+for four project-defined provisional corporate fields. Uploaded bytes and raw provider
+output are not retained; a validated display name is retained but never used as a path.
+Mock scenarios are isolated to a dedicated demo control/endpoint. Generic provider
+input, metadata, environment, extraction results, processing, domain, and review
+contracts contain no Mock scenario requirement.
+
+Candidates retain original value, independent confidence/provenance, deterministic
+canonical comparison, and separate human accept/reject/correct results. The document
+workflow is supplementary and does not alter the accepted onboarding terminal state or
+call GoldTier. Its four fields, normalization/comparison, `0.85` confidence threshold,
+completion rule, and upload limit are configurable project defaults, not sponsor-
+approved policy. Q-003 and Q-005 still block final document types/fields, validation
+ownership, and required workflow sequencing. Reviewer identity/authentication, real
+OCR/IDP, production PDF security, and retention policy are not implemented.
+
+The accepted-upload failure boundary covers all processing work through
+`REVIEW_REQUIRED`. Recoverable provider, comparison, provenance/model, clock, and
+repository-update failures persist one safe terminal failure without changing the
+parent case or invoking downstream operations.

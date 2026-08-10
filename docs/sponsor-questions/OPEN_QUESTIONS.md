@@ -63,6 +63,28 @@ What configurable rule should demonstrate the sponsor's “20–25% UBO” requi
 Which validation/business rules belong in the EDS/orchestration layer and which should
 be delegated to GoldTier's seeded policy/rule configuration?
 
+### Q-013 — Document privacy, retention, and upload security
+
+Please confirm the data classification and lawful test-data source for each Phase 03
+document type, together with allowed environments, retention/deletion schedule,
+encryption and storage-jurisdiction requirements, reviewer access controls, and whether
+malware scanning/content-disarm or an approved PDF processing service is required.
+
+The current foundation retains no uploaded bytes or raw provider output. It retains a
+validated display name that is never used as a filesystem path and performs only narrow
+size/signature/EOF checks. Those checks are not production PDF security.
+
+### Q-014 — Confidence and authenticated review policy
+
+Please confirm the sponsor-approved extraction confidence policy, including whether the
+threshold is overall, per field, document-type-specific, or tiered; which conflict or
+missing-field conditions require review; permitted reviewer decisions; reviewer role
+and authentication; separation-of-duties requirements; and audit-retention rules.
+
+The Phase 03 default `0.85` threshold, four-field profile, deterministic comparison,
+all-field completion rule, and unauthenticated local accept/reject/correct control are
+project-only POC behavior and are not approval or Ready-for-Approval semantics.
+
 ### Q-007 — Singapore mapping sign-off
 
 Which subset of candidate GoldTier EDS Data Dictionary field/value-list mappings is

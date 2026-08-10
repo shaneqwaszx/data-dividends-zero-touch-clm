@@ -4,10 +4,10 @@ Proof of concept for Delta Capita's Singapore new-to-bank flow:
 
 `ACRA Singapore -> EDS/orchestration layer -> GoldTier -> human review gate`
 
-Phase 02 preserves the runnable Phase 01 slice and adds a production-shaped ACRA
-sandbox adapter behind the same connector boundary. Mock ACRA remains the safe default,
-GoldTier remains fully mocked, and no live ACRA interoperability is claimed without the
-authoritative subscriber contract and authorized sandbox access.
+Phase 03 preserves the runnable ACRA-to-Mock-GoldTier slice and adds a separate,
+case-linked PDF/Mock-IDP/human-review foundation. Mock ACRA and Mock IDP remain safe
+defaults, GoldTier remains fully mocked, uploaded bytes are transient, and no live ACRA,
+real OCR, final document contract, or Ready-for-Approval interoperability is claimed.
 
 ## Repository layout
 
@@ -42,6 +42,11 @@ The backend runs at `http://127.0.0.1:8000` and exposes:
 - `GET /api/onboarding/mock-scenarios`
 - `POST /api/onboarding/cases`
 - `GET /api/onboarding/cases/{case_id}`
+- `POST /api/onboarding/cases/{case_id}/documents`
+- `POST /api/demo/onboarding/cases/{case_id}/documents`
+- `GET /api/onboarding/cases/{case_id}/documents`
+- `GET /api/onboarding/cases/{case_id}/documents/{document_id}`
+- `POST /api/onboarding/cases/{case_id}/documents/{document_id}/reviews`
 
 Cases are process-local and are cleared when the backend restarts.
 The mock-scenario endpoint returns an object containing the backend simulation profile
@@ -120,6 +125,49 @@ remains deferred until the team selects and locks the required packages.
 All scenario data is synthetic. See
 `docs/architecture/PHASE_02_ACRA_INGESTION.md` for the current connector, source DTO,
 mapping, provenance, error, and mode-switching boundaries.
+
+## Mock IDP document workflow
+
+### Phase 03 demo procedure
+
+1. Start the backend and frontend using the commands above.
+2. Create the synthetic case `202400001A`, or reopen an existing case by UUID.
+3. In **Document review**, choose one of `ALL_FIELDS_MATCH`, `FIELD_MISMATCH`,
+   `LOW_CONFIDENCE`, `MISSING_FIELD`, or `PROCESSOR_FAILURE`.
+4. Upload a small synthetic PDF. A minimal development fixture can contain
+   `%PDF-1.4`, a newline, and `%%EOF`; never use a sponsor/customer document.
+5. Inspect the four provisional candidates, independent confidence, Mock provenance,
+   and ACRA/canonical comparison.
+6. Accept, reject, or correct every field. Observe that the original IDP suggestion
+   remains visible and the document reaches `REVIEWED` only after all four decisions.
+7. Reopen the case to confirm that process-local document list/detail state is shown.
+
+The UI uses the dedicated `/api/demo/.../documents` endpoint. It accepts a raw
+`application/pdf` body, validates a safe display-only `.pdf` name supplied in
+`X-Document-Name`, and selects a fixed synthetic scenario at the Mock-only demo
+boundary. The generic `/api/onboarding/.../documents` endpoint uses the composed
+provider and exposes no Mock scenario in its contract. `IdpProvider`, its input,
+metadata, extraction result, and the processing/review service remain provider-neutral.
+
+The PDF is bounded (5 MiB by default), with each streamed chunk checked against
+remaining capacity before buffering, checked for a PDF signature and terminal EOF
+marker, retained only for the synchronous request, and never stored or returned. The
+validated name is retained only as a display label and never used as a path. These
+checks are not antivirus, CDR, or complete production PDF validation. The extraction
+values are deterministic synthetic scenario data and are not derived from the file;
+scanned PDFs and OCR are not supported.
+
+Every field remains `PENDING` for explicit review. Low confidence and mismatch/missing
+comparisons are highlighted. The local UI can accept, reject, or correct each field,
+while preserving the original extraction separately; this action has no authenticated
+reviewer identity and is not a four-eye or compliance approval. The onboarding case
+state and history remain unchanged and document operations make no GoldTier call.
+
+See `docs/architecture/PHASE_03_IDP_REVIEW.md` and
+`docs/contracts/IDP_FIELD_PROFILE.md`. The four fields, `0.85` development threshold,
+normalization, comparison, and completion rules are PROJECT-DEFINED / PROVISIONAL and
+not Delta Capita-approved. Q-003, Q-005, Q-013, and Q-014 block a real document
+contract, policy, production upload boundary, and authenticated review flow.
 
 ## Optional ACRA sandbox smoke verification
 

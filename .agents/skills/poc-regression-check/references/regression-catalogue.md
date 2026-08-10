@@ -1,7 +1,9 @@
 # Accepted POC regression catalogue
 
 This catalogue records the accepted Phase 01 mock scenarios preserved by the final
-Phase 01 and Phase 02 quality gates. All identifiers and data are synthetic.
+Phase 01 and Phase 02 quality gates, plus the separately scoped Phase 03 document
+scenarios established by its planner and implementation. All identifiers and data are
+synthetic.
 
 ## Canonical mock scenarios
 
@@ -17,6 +19,19 @@ Whitespace-only or malformed API input is rejected before case creation. Padded
 lowercase `202400001a` normalizes to the canonical happy-path UEN; the
 nine-digits-plus-letter rule is a synthetic demo rule, not a production ACRA contract
 claim.
+
+## Phase 03 supplementary document scenarios
+
+Each scenario starts beneath an existing onboarding case and uses a structurally valid
+synthetic PDF request. It does not change the parent case or call ACRA/GoldTier.
+
+| Mock IDP scenario | Document terminal result | Required document calls/events | Prohibited calls/claims |
+|---|---|---|---|
+| `ALL_FIELDS_MATCH` | `REVIEW_REQUIRED`, then `REVIEWED` only after four field decisions | Mock IDP once; four `MATCH` candidates; upload/start/process/review-required; field events; review-completed | No automatic approval, canonical overwrite, Ready-for-Approval, or GoldTier call |
+| `FIELD_MISMATCH` | `REVIEW_REQUIRED`; legal name is `MISMATCH` | Mock IDP once; all original/canonical values retained for field review | High confidence cannot suppress explicit review |
+| `LOW_CONFIDENCE` | `REVIEW_REQUIRED`; registered address confidence `0.54` | Mock IDP once; low-confidence field visibly reviewable | Confidence cannot approve a field/customer |
+| `MISSING_FIELD` | `REVIEW_REQUIRED`; address is `MISSING_FROM_DOCUMENT` | Mock IDP once; nullable original retained; field must be rejected or corrected | Missing suggestion cannot be accepted or silently filled |
+| `PROCESSOR_FAILURE` | `FAILED` with safe `IDP_PROCESSING_FAILED` | Mock IDP once; retrievable upload/start/processing-failed history | No field result/review/later event; no bytes/name/private exception in event/error |
 
 ## Accepted cross-scenario invariants
 
@@ -38,6 +53,31 @@ claim.
   where any connector is mocked.
 - `COMPLETED` means only completion of the currently accepted required mock stages. The
   sponsor-defined Ready-for-Approval transition remains unresolved.
+- Document input rejected for type, name, size, or narrow structure stops before Mock
+  IDP; connector/output failures terminalize a retrievable document without changing
+  the parent onboarding case.
+- Every recoverable failure after upload acceptance, including invalid canonical
+  comparison input, comparison/model construction, clock usage, and document update,
+  produces exactly one sanitized terminal failure event and no stranded `PROCESSING`
+  document.
+- Provider name and source reference are trimmed, bounded, nonempty, control-free, and
+  provider-neutral. Malformed provenance terminalizes safely without retaining the
+  unsafe value.
+- The generic IDP input/provider/service/domain/API contracts contain no Mock scenario.
+  A non-Mock provider can produce identical comparison and review behavior.
+- Streaming size enforcement checks a chunk against remaining capacity before append;
+  single-chunk and cumulative overflow stop before provider invocation.
+- Review API field and decision values use the domain enums, reject unknown properties,
+  and bound correction/note text. UEN comparison alone removes internal whitespace and
+  normalizes case.
+- Uploaded bytes are transient and absent from repositories, events, API responses,
+  and browser models. A validated display name may be retained and returned, but is
+  never used as a path or copied into events/errors.
+- Document ownership is enforced by parent case ID; IDs, UTC timestamps, event order,
+  and final review decisions remain isolated and coherent.
+- Mock IDP output is explicitly synthetic and never represented as OCR derived from the
+  uploaded file. Every provisional field requires an explicit local decision;
+  `REVIEWED` is not customer/compliance approval.
 
 ## Catalogue evolution record
 
@@ -45,3 +85,5 @@ claim.
 |---|---|
 | Phase 01 final gate | Accepted the five canonical outcomes and call-stopping, search, and terminal invariants |
 | Phase 02 final gate | Preserved all five outcomes; added ACRA source-validation, safe-error, provenance-minimization, and sandbox-shaped synthetic-mode regressions |
+| Phase 03 implementation | Preserved all onboarding outcomes; added the verified all-match, mismatch, low-confidence, missing-field, and processor-failure scenarios, four-field comparisons, field decisions/original preservation, transient upload, and parent-case isolation invariants |
+| Phase 03 remediation | Preserved the five document scenarios and added adversarial post-acceptance terminalization, provider replacement, provenance validation, pre-append stream-bound, typed review-contract, and UEN-normalization invariants |

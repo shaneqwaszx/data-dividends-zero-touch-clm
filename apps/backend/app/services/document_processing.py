@@ -1,0 +1,564 @@
+"""Transient PDF processing, deterministic comparison, and field review service."""
+
+import re
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Never, Protocol
+from unicodedata import category
+from uuid import UUID, uuid4
+
+from pydantic import ValidationError
+
+from app.connectors.idp import (
+    IdpDocumentInput,
+    IdpProcessingError,
+    IdpProvider,
+    IdpProviderMetadata,
+    IdpSourceResult,
+)
+from app.domain.documents import (
+    ComparisonStatus,
+    DocumentEventType,
+    DocumentFieldKey,
+    DocumentProcessingRecord,
+    DocumentProcessingState,
+    DocumentProfile,
+    DocumentWorkflowEvent,
+    ExtractedField,
+    FieldProvenance,
+    FieldReviewStatus,
+    ReviewDecision,
+)
+from app.domain.models import CanonicalLegalEntity, EventOutcome, OnboardingCase, SafeError
+from app.services.document_errors import (
+    DocumentProcessingInfrastructureError,
+    DocumentRequestError,
+)
+from app.services.document_repository import DocumentProcessingRepository
+
+SAFE_PDF_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,94}\.pdf$", re.IGNORECASE)
+WHITESPACE = re.compile(r"\s+")
+MAX_RETAINED_FIELD_VALUE = 512
+
+
+class DocumentComparisonInputError(Exception):
+    """Known invalid canonical input that cannot enter the bounded review model."""
+
+
+class OnboardingCaseReader(Protocol):
+    def get_case(self, case_id: UUID) -> OnboardingCase | None: ...
+
+
+class DocumentProcessingService:
+    """Own document safety, provider output, comparison, and human decisions."""
+
+    def __init__(
+        self,
+        *,
+        cases: OnboardingCaseReader,
+        idp: IdpProvider,
+        repository: DocumentProcessingRepository,
+        max_upload_bytes: int,
+        review_confidence_threshold: float,
+        clock: Callable[[], datetime] | None = None,
+        uuid_factory: Callable[[], UUID] | None = None,
+    ) -> None:
+        if max_upload_bytes <= 0:
+            raise ValueError("max_upload_bytes must be positive")
+        if not 0.0 <= review_confidence_threshold <= 1.0:
+            raise ValueError("review confidence threshold must be between zero and one")
+        self._cases = cases
+        self._idp = idp
+        self._repository = repository
+        self.max_upload_bytes = max_upload_bytes
+        self.review_confidence_threshold = review_confidence_threshold
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._uuid_factory = uuid_factory or uuid4
+
+    def validate_upload_metadata(
+        self, *, case_id: UUID, display_name: str, content_type: str
+    ) -> None:
+        """Reject missing ownership and unsafe headers before reading request bytes."""
+
+        if self._cases.get_case(case_id) is None:
+            raise DocumentRequestError(
+                code="ONBOARDING_CASE_NOT_FOUND",
+                message="The onboarding case was not found.",
+            )
+        if content_type.lower().strip() != "application/pdf":
+            raise DocumentRequestError(
+                code="DOCUMENT_MEDIA_TYPE_UNSUPPORTED",
+                message="Only application/pdf uploads are accepted.",
+            )
+        if not SAFE_PDF_NAME.fullmatch(display_name):
+            raise DocumentRequestError(
+                code="DOCUMENT_NAME_INVALID",
+                message="The upload must use a safe PDF display name.",
+            )
+
+    def create_document(
+        self,
+        *,
+        case_id: UUID,
+        display_name: str,
+        content_type: str,
+        content: bytes,
+        provider: IdpProvider | None = None,
+    ) -> DocumentProcessingRecord:
+        self.validate_upload_metadata(
+            case_id=case_id,
+            display_name=display_name,
+            content_type=content_type,
+        )
+        self._validate_content(content)
+        parent_case = self._cases.get_case(case_id)
+        if parent_case is None:  # Defensive against an in-process deletion race.
+            raise DocumentRequestError(
+                code="ONBOARDING_CASE_NOT_FOUND",
+                message="The onboarding case was not found.",
+            )
+
+        now = self._clock()
+        record = DocumentProcessingRecord(
+            case_id=case_id,
+            document_id=self._uuid_factory(),
+            correlation_id=self._uuid_factory(),
+            display_name=display_name.strip(),
+            media_type="application/pdf",
+            profile=DocumentProfile.PROVISIONAL_CORPORATE,
+            state=DocumentProcessingState.UPLOADED,
+            created_at=now,
+            updated_at=now,
+        )
+        record = self._record(
+            record,
+            event_type=DocumentEventType.DOCUMENT_UPLOADED,
+            state=DocumentProcessingState.UPLOADED,
+            outcome=EventOutcome.SUCCEEDED,
+            message="PDF accepted for transient document processing.",
+        )
+        return self._process_accepted_document(
+            record=record,
+            parent_case=parent_case,
+            content=content,
+            provider=provider or self._idp,
+        )
+
+    def _process_accepted_document(
+        self,
+        *,
+        record: DocumentProcessingRecord,
+        parent_case: OnboardingCase,
+        content: bytes,
+        provider: IdpProvider,
+    ) -> DocumentProcessingRecord:
+        """Run every required post-acceptance step inside a safe terminal boundary."""
+
+        try:
+            record = self._record(
+                record,
+                event_type=DocumentEventType.DOCUMENT_PROCESSING_STARTED,
+                state=DocumentProcessingState.PROCESSING,
+                outcome=EventOutcome.SUCCEEDED,
+                message="IDP processing started.",
+            )
+            try:
+                metadata = IdpProviderMetadata.model_validate(provider.metadata)
+            except ValidationError:
+                self._raise_terminal_failure(
+                    record,
+                    code="IDP_MALFORMED_OUTPUT",
+                    message="IDP output could not be validated safely.",
+                )
+            record.provider_environment = metadata.environment
+
+            try:
+                provider_output = provider.process(
+                    IdpDocumentInput(
+                        profile=DocumentProfile.PROVISIONAL_CORPORATE,
+                        content=content,
+                    )
+                )
+            except IdpProcessingError:
+                self._raise_terminal_failure(
+                    record,
+                    code="IDP_PROCESSING_FAILED",
+                    message="IDP processing could not be completed.",
+                )
+            try:
+                source_result = IdpSourceResult.model_validate(provider_output)
+            except ValidationError:
+                self._raise_terminal_failure(
+                    record,
+                    code="IDP_MALFORMED_OUTPUT",
+                    message="IDP output could not be validated safely.",
+                )
+
+            record.fields = [
+                self._build_field(item, parent_case.entity, metadata)
+                for item in source_result.fields
+            ]
+            record.processed_at = self._clock()
+            record = self._record(
+                record,
+                event_type=DocumentEventType.DOCUMENT_PROCESSED,
+                state=DocumentProcessingState.PROCESSING,
+                outcome=EventOutcome.SUCCEEDED,
+                message="Provider output validated and compared with canonical data.",
+            )
+            record = self._record(
+                record,
+                event_type=DocumentEventType.DOCUMENT_REVIEW_REQUIRED,
+                state=DocumentProcessingState.REVIEW_REQUIRED,
+                outcome=EventOutcome.REVIEW_REQUIRED,
+                message="Human field review is required for this provisional document profile.",
+                code="DOCUMENT_REVIEW_REQUIRED",
+            )
+            return record.model_copy(deep=True)
+        except DocumentProcessingInfrastructureError:
+            raise
+        except DocumentComparisonInputError:
+            self._raise_terminal_failure(
+                record,
+                code="DOCUMENT_COMPARISON_INPUT_INVALID",
+                message="Canonical comparison data could not be processed safely.",
+            )
+        except Exception:
+            self._raise_terminal_failure(
+                record,
+                code="IDP_UNEXPECTED_FAILURE",
+                message="IDP processing could not be completed.",
+            )
+
+    def list_documents(self, *, case_id: UUID) -> list[DocumentProcessingRecord]:
+        if self._cases.get_case(case_id) is None:
+            raise DocumentRequestError(
+                code="ONBOARDING_CASE_NOT_FOUND",
+                message="The onboarding case was not found.",
+            )
+        return self._repository.list_for_case(case_id)
+
+    def get_document(
+        self, *, case_id: UUID, document_id: UUID
+    ) -> DocumentProcessingRecord | None:
+        record = self._repository.get(document_id)
+        if record is None or record.case_id != case_id:
+            return None
+        return record
+
+    def review_field(
+        self,
+        *,
+        case_id: UUID,
+        document_id: UUID,
+        field_key: DocumentFieldKey,
+        decision: ReviewDecision,
+        corrected_value: str | None = None,
+        note: str | None = None,
+    ) -> DocumentProcessingRecord:
+        record = self.get_document(case_id=case_id, document_id=document_id)
+        if record is None:
+            raise DocumentRequestError(
+                code="DOCUMENT_NOT_FOUND",
+                message="The document review record was not found.",
+            )
+        if record.state not in {
+            DocumentProcessingState.REVIEW_REQUIRED,
+            DocumentProcessingState.REVIEWED,
+        }:
+            raise DocumentRequestError(
+                code="DOCUMENT_NOT_REVIEWABLE",
+                message="This document is not awaiting field review.",
+            )
+
+        field = next((item for item in record.fields if item.field_key == field_key), None)
+        if field is None:
+            raise DocumentRequestError(
+                code="DOCUMENT_FIELD_NOT_FOUND",
+                message="The provisional document field was not found.",
+            )
+
+        reviewed_value = self._validate_review_input(
+            field=field,
+            decision=decision,
+            corrected_value=corrected_value,
+        )
+        normalized_note = _safe_optional_review_text(note)
+        target_status = FieldReviewStatus(decision.value)
+        if field.review_status != FieldReviewStatus.PENDING:
+            if (
+                field.review_status == target_status
+                and field.reviewed_value == reviewed_value
+                and field.review_note == normalized_note
+            ):
+                return record
+            raise DocumentRequestError(
+                code="DOCUMENT_FIELD_REVIEW_CONFLICT",
+                message="A different final review decision already exists for this field.",
+            )
+
+        field.review_status = target_status
+        field.reviewed_value = reviewed_value
+        field.reviewed_at = self._clock()
+        field.review_note = normalized_note
+        event_type = {
+            ReviewDecision.ACCEPTED: DocumentEventType.DOCUMENT_FIELD_ACCEPTED,
+            ReviewDecision.REJECTED: DocumentEventType.DOCUMENT_FIELD_REJECTED,
+            ReviewDecision.CORRECTED: DocumentEventType.DOCUMENT_FIELD_CORRECTED,
+        }[decision]
+        record = self._record(
+            record,
+            event_type=event_type,
+            state=DocumentProcessingState.REVIEW_REQUIRED,
+            outcome=(
+                EventOutcome.PARTIAL
+                if decision == ReviewDecision.REJECTED
+                else EventOutcome.SUCCEEDED
+            ),
+            message={
+                ReviewDecision.ACCEPTED: "A document field suggestion was accepted.",
+                ReviewDecision.REJECTED: "A document field suggestion was rejected.",
+                ReviewDecision.CORRECTED: "A document field suggestion was corrected.",
+            }[decision],
+            code=event_type.value,
+            field_key=field_key,
+        )
+
+        if all(item.review_status != FieldReviewStatus.PENDING for item in record.fields):
+            record.reviewed_at = self._clock()
+            record = self._record(
+                record,
+                event_type=DocumentEventType.DOCUMENT_REVIEW_COMPLETED,
+                state=DocumentProcessingState.REVIEWED,
+                outcome=EventOutcome.SUCCEEDED,
+                message="All provisional document fields received a human review decision.",
+                code="DOCUMENT_REVIEW_COMPLETED",
+            )
+        return record.model_copy(deep=True)
+
+    def _build_field(
+        self,
+        source_field: object,
+        entity: CanonicalLegalEntity | None,
+        metadata: IdpProviderMetadata,
+    ) -> ExtractedField:
+        from app.connectors.idp import IdpSourceField
+
+        item = IdpSourceField.model_validate(source_field)
+        canonical_value = validate_canonical_comparison_value(
+            canonical_value_for_field(entity, item.field_key)
+        )
+        normalized_value = normalize_document_value(item.field_key, item.value)
+        comparison = compare_values(item.field_key, item.value, canonical_value)
+        return ExtractedField(
+            field_key=item.field_key,
+            original_extracted_value=item.value,
+            normalized_value=normalized_value,
+            confidence=item.confidence,
+            provenance=FieldProvenance(
+                provider=metadata.provider_name,
+                environment=metadata.environment,
+                page_number=item.page_number,
+                source_reference=item.source_reference,
+            ),
+            canonical_value=canonical_value,
+            comparison_status=comparison,
+        )
+
+    def _validate_review_input(
+        self,
+        *,
+        field: ExtractedField,
+        decision: ReviewDecision,
+        corrected_value: str | None,
+    ) -> str | None:
+        normalized_correction = _safe_optional_review_text(corrected_value, max_length=512)
+        if decision == ReviewDecision.CORRECTED:
+            if normalized_correction is None:
+                raise DocumentRequestError(
+                    code="DOCUMENT_CORRECTION_REQUIRED",
+                    message="A corrected field decision requires a nonblank corrected value.",
+                )
+            return normalized_correction
+        if normalized_correction is not None:
+            raise DocumentRequestError(
+                code="DOCUMENT_CORRECTION_NOT_ALLOWED",
+                message="A corrected value is allowed only for a corrected field decision.",
+            )
+        if decision == ReviewDecision.ACCEPTED:
+            if field.original_extracted_value is None:
+                raise DocumentRequestError(
+                    code="DOCUMENT_MISSING_VALUE_CANNOT_BE_ACCEPTED",
+                    message="A missing document value must be rejected or corrected.",
+                )
+            return field.original_extracted_value
+        return None
+
+    def _validate_content(self, content: bytes) -> None:
+        if not content:
+            raise DocumentRequestError(
+                code="DOCUMENT_EMPTY",
+                message="The uploaded PDF is empty.",
+            )
+        if len(content) > self.max_upload_bytes:
+            raise DocumentRequestError(
+                code="DOCUMENT_TOO_LARGE",
+                message="The uploaded PDF exceeds the configured size limit.",
+            )
+        if not content.startswith(b"%PDF-") or not content.rstrip().endswith(b"%%EOF"):
+            raise DocumentRequestError(
+                code="DOCUMENT_STRUCTURE_INVALID",
+                message="The uploaded content does not pass the Phase 03 PDF structure checks.",
+            )
+
+    def _record(
+        self,
+        record: DocumentProcessingRecord,
+        *,
+        event_type: DocumentEventType,
+        state: DocumentProcessingState,
+        outcome: EventOutcome,
+        message: str,
+        code: str | None = None,
+        field_key: DocumentFieldKey | None = None,
+    ) -> DocumentProcessingRecord:
+        timestamp = self._clock()
+        candidate = record.model_copy(deep=True)
+        candidate.state = state
+        candidate.updated_at = timestamp
+        candidate.events.append(
+            DocumentWorkflowEvent(
+                sequence=len(candidate.events) + 1,
+                event_type=event_type,
+                state=state,
+                outcome=outcome,
+                timestamp=timestamp,
+                case_id=candidate.case_id,
+                document_id=candidate.document_id,
+                correlation_id=candidate.correlation_id,
+                field_key=field_key,
+                code=code,
+                message=message,
+            )
+        )
+        self._repository.save(candidate)
+        return candidate
+
+    def _raise_terminal_failure(
+        self,
+        record: DocumentProcessingRecord,
+        *,
+        code: str,
+        message: str,
+    ) -> Never:
+        failed_record = record.model_copy(deep=True)
+        failed_record.fields = []
+        failed_record.processed_at = None
+        failed_record.reviewed_at = None
+        failed_record.error = SafeError(code=code, message=message)
+        failed_record = self._record(
+            failed_record,
+            event_type=DocumentEventType.DOCUMENT_PROCESSING_FAILED,
+            state=DocumentProcessingState.FAILED,
+            outcome=EventOutcome.FAILED,
+            message=message,
+            code=code,
+        )
+        raise DocumentProcessingInfrastructureError(
+            case_id=failed_record.case_id,
+            document_id=failed_record.document_id,
+            correlation_id=failed_record.correlation_id,
+            code=code,
+            message=message,
+        ) from None
+
+
+def canonical_value_for_field(
+    entity: CanonicalLegalEntity | None, field_key: DocumentFieldKey
+) -> str | None:
+    if entity is None:
+        return None
+    if field_key == DocumentFieldKey.REGISTRATION_NUMBER:
+        return entity.registration_number
+    if field_key == DocumentFieldKey.LEGAL_NAME:
+        return entity.legal_name
+    if field_key == DocumentFieldKey.COUNTRY_OF_INCORPORATION:
+        return entity.country_of_incorporation
+    address = entity.registered_address
+    if address is None:
+        return None
+    return ", ".join(
+        part
+        for part in (
+            address.address_line_1,
+            address.address_line_2,
+            address.postal_code,
+            address.country_code,
+        )
+        if part
+    )
+
+
+def validate_canonical_comparison_value(value: str | None) -> str | None:
+    """Bound and sanitize canonical text before constructing retained review models."""
+
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if len(normalized) > MAX_RETAINED_FIELD_VALUE:
+        raise DocumentComparisonInputError
+    if any(category(character).startswith("C") for character in normalized):
+        raise DocumentComparisonInputError
+    return normalized
+
+
+def normalize_document_value(field_key: DocumentFieldKey, value: str | None) -> str | None:
+    if value is None:
+        return None
+    if field_key == DocumentFieldKey.REGISTRATION_NUMBER:
+        normalized_uen = WHITESPACE.sub("", value.strip())
+        return normalized_uen.upper() or None
+    collapsed = WHITESPACE.sub(" ", value.strip())
+    if not collapsed:
+        return None
+    if field_key in {
+        DocumentFieldKey.LEGAL_NAME,
+        DocumentFieldKey.REGISTERED_ADDRESS,
+        DocumentFieldKey.COUNTRY_OF_INCORPORATION,
+    }:
+        return collapsed.upper()
+    return collapsed
+
+
+def compare_values(
+    field_key: DocumentFieldKey,
+    document_value: str | None,
+    canonical_value: str | None,
+) -> ComparisonStatus:
+    normalized_document = normalize_document_value(field_key, document_value)
+    normalized_canonical = normalize_document_value(field_key, canonical_value)
+    if normalized_document is None and normalized_canonical is None:
+        return ComparisonStatus.NOT_COMPARABLE
+    if normalized_document is None:
+        return ComparisonStatus.MISSING_FROM_DOCUMENT
+    if normalized_canonical is None:
+        return ComparisonStatus.MISSING_FROM_REGISTRY
+    if normalized_document == normalized_canonical:
+        return ComparisonStatus.MATCH
+    return ComparisonStatus.MISMATCH
+
+
+def _safe_optional_review_text(value: str | None, *, max_length: int = 240) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if len(normalized) > max_length or any(ord(character) < 32 for character in normalized):
+        raise DocumentRequestError(
+            code="DOCUMENT_REVIEW_TEXT_INVALID",
+            message="Review text is invalid or exceeds the configured limit.",
+        )
+    return normalized

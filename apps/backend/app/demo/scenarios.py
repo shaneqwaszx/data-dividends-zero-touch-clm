@@ -27,6 +27,9 @@ class SimulationProfile(BaseModel):
     registry_environment: Literal["MOCK", "SANDBOX"] = "MOCK"
     target_system: Literal["GOLDTIER"] = "GOLDTIER"
     target_environment: Literal["MOCK"] = "MOCK"
+    idp_system: Literal["IDP"] = "IDP"
+    idp_environment: Literal["MOCK"] = "MOCK"
+    idp_review_confidence_threshold: float = 0.85
 
 
 class MockScenarioDiscovery(BaseModel):

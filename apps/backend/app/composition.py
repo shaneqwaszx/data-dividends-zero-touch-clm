@@ -1,4 +1,4 @@
-"""Side-effect-free connector and service composition for Phase 02."""
+"""Side-effect-free connector and service composition through Phase 03."""
 
 from app.config import Settings, get_settings
 from app.connectors.acra import AcraConnector
@@ -15,10 +15,14 @@ from app.connectors.acra_sandbox import (
 from app.connectors.errors import AcraConfigurationError
 from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
+from app.connectors.mock_idp import MockIdpProvider
+from app.demo.idp_control import MockIdpDemoControl
 from app.demo.scenarios import (
     MockScenarioCatalogue,
     Phase01MockScenarioCatalogue,
 )
+from app.services.document_processing import DocumentProcessingService
+from app.services.document_repository import InMemoryDocumentProcessingRepository
 from app.services.onboarding import OnboardingService
 from app.services.repository import InMemoryOnboardingCaseRepository
 
@@ -83,3 +87,24 @@ def build_acra_connector(
         authorizer=active_authorizer,
         decoder=decoder or ProjectAcraResponseDecoder(),
     )
+
+
+def build_document_processing_service(
+    onboarding_service: OnboardingService,
+    settings: Settings,
+) -> DocumentProcessingService:
+    """Compose the explicit credential-free Mock IDP document boundary."""
+
+    return DocumentProcessingService(
+        cases=onboarding_service,
+        idp=MockIdpProvider(),
+        repository=InMemoryDocumentProcessingRepository(),
+        max_upload_bytes=settings.idp_max_upload_bytes,
+        review_confidence_threshold=settings.idp_review_confidence_threshold,
+    )
+
+
+def build_mock_idp_demo_control() -> MockIdpDemoControl:
+    """Build the dedicated Mock-only UI scenario control."""
+
+    return MockIdpDemoControl()

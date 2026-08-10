@@ -1,4 +1,4 @@
-name: Phase 02 checks
+name: Phase 03 checks
 
 on:
   pull_request:
