@@ -26,3 +26,8 @@ Phase 03's synthetic IDP provider/API boundary is recorded in
 normalization, comparison, and review rules are recorded in `IDP_FIELD_PROFILE.md`.
 Neither is a sponsor document schema or vendor OCR contract; Q-003, Q-005, Q-013, and
 Q-014 remain unresolved.
+
+Phase 04's source-neutral party/relationship, Decimal path/aggregation, provisional
+threshold, cycle/incomplete, provenance, and graph-limit rules are recorded in
+`OWNERSHIP_UBO_PROFILE.md`. They are project-defined pending Q-002/Q-004/Q-006/Q-007,
+not a sponsor-approved UBO or GoldTier hierarchy contract.

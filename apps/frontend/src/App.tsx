@@ -1,10 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import {
+  analyzeOwnership,
   createOnboardingCase,
   fetchDocuments,
   fetchMockScenarios,
   fetchOnboardingCase,
+  fetchOwnership,
+  loadMockOwnership,
   reviewDocument,
   uploadDocument,
 } from "./api";
@@ -12,8 +15,11 @@ import type {
   DocumentFieldKey,
   DocumentProcessingRecord,
   MockIdpScenario,
+  MockOwnershipScenario,
   MockScenario,
   OnboardingCase,
+  OwnershipAnalysisRecord,
+  OwnershipCandidate,
   ReviewDecision,
   SimulationProfile,
 } from "./types";
@@ -49,6 +55,15 @@ function confidencePercent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
+function ownershipPercent(value: string): string {
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?$/.exec(value.trim());
+  if (!match) return "Invalid";
+  const sign = match[1] === "-" ? "-" : "";
+  const integer = match[2].replace(/^0+(?=\d)/, "");
+  const fraction = (match[3] ?? "").replace(/0+$/, "");
+  return `${sign}${integer}${fraction ? `.${fraction}` : ""}%`;
+}
+
 function fieldLabel(value: string): string {
   return value
     .split("_")
@@ -64,7 +79,7 @@ export function SimulationBanner({ profile }: { profile: SimulationProfile | nul
     <div className="environment-banner" role="status">
       <span aria-hidden="true" />
       {profile
-        ? `${sourceLabel} | GoldTier Mock | IDP Mock | External access is backend-managed`
+        ? `${sourceLabel} | GoldTier Mock | IDP Mock | Ownership Mock | External access is backend-managed`
         : "Loading backend connector profile..."}
     </div>
   );
@@ -411,6 +426,252 @@ function DocumentPanel({
   );
 }
 
+function OwnershipCandidateCard({ candidate }: { candidate: OwnershipCandidate }) {
+  return (
+    <article
+      className={`ownership-candidate ownership-candidate--${candidate.classification}`}
+    >
+      <header className="ownership-candidate__heading">
+        <div>
+          <h3>{candidate.party.display_name}</h3>
+          <span>{candidate.party.party_id}</span>
+        </div>
+        <strong>{fieldLabel(candidate.classification)}</strong>
+      </header>
+      <dl className="ownership-totals">
+        <div>
+          <dt>Direct ownership</dt>
+          <dd>{ownershipPercent(candidate.direct_ownership_percent)}</dd>
+        </div>
+        <div>
+          <dt>Indirect ownership</dt>
+          <dd>{ownershipPercent(candidate.indirect_ownership_percent)}</dd>
+        </div>
+        <div>
+          <dt>Aggregated ownership</dt>
+          <dd>{ownershipPercent(candidate.aggregated_ownership_percent)}</dd>
+        </div>
+        <div>
+          <dt>Threshold result</dt>
+          <dd>{candidate.threshold_result}</dd>
+        </div>
+      </dl>
+      <div className="ownership-paths">
+        <h4>Deterministic calculation evidence</h4>
+        {candidate.paths.map((path) => (
+          <div className="ownership-path" key={path.path_id}>
+            <ol>
+              {path.edges.map((edge) => (
+                <li key={edge.relationship_id}>
+                  <strong>{edge.parent_display_name}</strong>
+                  <span>{ownershipPercent(edge.ownership_percent)} →</span>
+                  <strong>{edge.child_display_name}</strong>
+                </li>
+              ))}
+            </ol>
+            <p>{path.calculation}</p>
+            <span>{path.is_direct ? "Direct path" : "Indirect path"}</span>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+export function OwnershipSummary({ record }: { record: OwnershipAnalysisRecord }) {
+  const parties = new Map(record.parties.map((party) => [party.party_id, party]));
+  const root = record.root_party_id ? parties.get(record.root_party_id) : null;
+  return (
+    <article className="ownership-result" aria-live="polite">
+      <div className="ownership-result__heading">
+        <div>
+          <p className="section-label">Ownership-only provisional analysis</p>
+          <h3>{root?.display_name ?? "Ownership source result"}</h3>
+          <span>
+            {record.provider_name ?? "Provider pending"} / {record.provider_environment ?? "Pending"}
+          </span>
+        </div>
+        <strong>{record.state}</strong>
+      </div>
+      <p className="synthetic-notice">
+        This Phase 04 result evaluates ownership only. It is not a legal/controller,
+        compliance, GoldTier, or Ready-for-Approval determination.
+      </p>
+      <div className="provisional-threshold">
+        <strong>
+          {ownershipPercent(record.threshold_percent)} project-defined provisional threshold
+        </strong>
+        <span>Inclusive comparator: aggregated ownership ≥ threshold · PENDING Q-004</span>
+      </div>
+
+      {record.error && (
+        <div className="request-error" role="alert">
+          {record.error.code}: {record.error.message}
+        </div>
+      )}
+      {record.issues.length > 0 && (
+        <div className="ownership-warnings" role="alert">
+          <strong>Human review required — calculation is not definitive.</strong>
+          <ul>
+            {record.issues.map((issue) => (
+              <li key={`${issue.code}-${issue.affected_party_ids.join("-")}`}>
+                {issue.code}: {issue.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {record.relationships.length > 0 && (
+        <div className="ownership-relationships">
+          <h4>Ownership structure</h4>
+          <div className="ownership-table" role="table" aria-label="Ownership relationships">
+            {record.relationships.map((relationship) => (
+              <div className="ownership-row" role="row" key={relationship.relationship_id}>
+                <div role="cell">
+                  <strong>{parties.get(relationship.parent_party_id)?.display_name}</strong>
+                  <span>Owned party</span>
+                </div>
+                <div className="ownership-edge" role="cell">
+                  {ownershipPercent(relationship.ownership_percent)} →
+                </div>
+                <div role="cell">
+                  <strong>{parties.get(relationship.child_party_id)?.display_name}</strong>
+                  <span>
+                    {parties.get(relationship.child_party_id)?.party_type === "NATURAL_PERSON"
+                      ? "Natural-person owner"
+                      : "Legal-entity owner"}
+                  </span>
+                </div>
+                <div role="cell">
+                  <strong>
+                    {relationship.provenance.provider} / {relationship.provenance.environment}
+                  </strong>
+                  <span>Sourced {formatTimestamp(relationship.provenance.sourced_at)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {record.candidates.length > 0 && (
+        <div className="ownership-candidates">
+          <h4>Natural-person ownership threshold results</h4>
+          {record.candidates.map((candidate) => (
+            <OwnershipCandidateCard candidate={candidate} key={candidate.party.party_id} />
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function OwnershipPanel({
+  caseData,
+  configuredThreshold,
+}: {
+  caseData: OnboardingCase;
+  configuredThreshold: string;
+}) {
+  const [scenario, setScenario] = useState<MockOwnershipScenario>("DIRECT_OWNER");
+  const [record, setRecord] = useState<OwnershipAnalysisRecord | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
+  const [ownershipError, setOwnershipError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchOwnership(caseData.case_id)
+      .then(setRecord)
+      .catch(() => setOwnershipError("Ownership analysis is unavailable."));
+  }, [caseData.case_id]);
+
+  async function refreshAfterFailure() {
+    try {
+      setRecord(await fetchOwnership(caseData.case_id));
+    } catch {
+      // Keep the sanitized request failure visible when refresh is unavailable.
+    }
+  }
+
+  async function handleLoad() {
+    setIsBusy(true);
+    setOwnershipError(null);
+    try {
+      setRecord(await loadMockOwnership(caseData.case_id, scenario));
+    } catch (error) {
+      setOwnershipError(error instanceof Error ? error.message : "Ownership loading failed.");
+      await refreshAfterFailure();
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleAnalyze() {
+    setIsBusy(true);
+    setOwnershipError(null);
+    try {
+      setRecord(await analyzeOwnership(caseData.case_id));
+    } catch (error) {
+      setOwnershipError(error instanceof Error ? error.message : "Ownership analysis failed.");
+      await refreshAfterFailure();
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  return (
+    <section className="ownership-card" aria-labelledby="ownership-heading">
+      <div>
+        <p className="section-label">Phase 04 case sub-workflow</p>
+        <h2 id="ownership-heading">Ownership &amp; UBO</h2>
+        <p>
+          Load a fictional related-party graph, calculate direct and indirect paths, and
+          review ownership-based provisional candidates without changing the onboarding case.
+        </p>
+      </div>
+      {!record && (
+        <div className="ownership-controls">
+          <label htmlFor="ownership-scenario">Synthetic Mock ownership scenario</label>
+          <select
+            id="ownership-scenario"
+            value={scenario}
+            onChange={(event) => setScenario(event.target.value as MockOwnershipScenario)}
+          >
+            <option value="DIRECT_OWNER">Direct natural-person owners</option>
+            <option value="INDIRECT_OWNER">Indirect owners through a holding company</option>
+            <option value="MULTIPLE_PATHS">One person through multiple paths</option>
+            <option value="BELOW_THRESHOLD">Owners below threshold</option>
+            <option value="INCOMPLETE_CHAIN">Incomplete legal-entity chain</option>
+            <option value="CYCLE">Circular ownership data</option>
+            <option value="PROVIDER_FAILURE">Provider failure</option>
+          </select>
+          <button type="button" disabled={isBusy} onClick={() => void handleLoad()}>
+            {isBusy ? "Loading ownership source..." : "Load synthetic ownership"}
+          </button>
+          <p className="input-help">
+            Default threshold: {ownershipPercent(configuredThreshold)} — project-defined,
+            inclusive, and pending sponsor confirmation Q-004.
+          </p>
+        </div>
+      )}
+      {record?.state === "LOADED" && (
+        <div className="ownership-controls">
+          <p>Source validation passed. Run the deterministic calculation engine.</p>
+          <button type="button" disabled={isBusy} onClick={() => void handleAnalyze()}>
+            {isBusy ? "Calculating bounded ownership paths..." : "Analyze ownership paths"}
+          </button>
+        </div>
+      )}
+      {ownershipError && (
+        <div className="request-error" role="alert">
+          {ownershipError}
+        </div>
+      )}
+      {record && <OwnershipSummary record={record} />}
+    </section>
+  );
+}
+
 export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
   const terminalTone =
     caseData.state === "COMPLETED"
@@ -430,6 +691,7 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
       <p className="completion-boundary">
         This state covers the accepted registry and Mock GoldTier stages only. It does not
         include document review or Ready-for-Approval.
+        Ownership analysis is an independent provisional sub-workflow.
       </p>
 
       <div className="panel-grid">
@@ -549,11 +811,11 @@ export default function App() {
     <main className="page-shell">
       <header className="hero">
         <SimulationBanner profile={simulationProfile} />
-        <p className="eyebrow">Data Dividends | Phase 03</p>
-        <h1>Singapore onboarding, with document review.</h1>
+        <p className="eyebrow">Data Dividends | Phase 04</p>
+        <h1>Singapore onboarding, with explainable ownership.</h1>
         <p className="summary">
-          Open a case, run a transient PDF through Mock IDP, compare provisional field
-          candidates with canonical ACRA data, and retain explicit human review decisions.
+          Open a case, review document candidates, map fictional related parties, and inspect
+          deterministic ownership-only provisional UBO calculations.
         </p>
       </header>
 
@@ -607,6 +869,13 @@ export default function App() {
             key={caseData.case_id}
             caseData={caseData}
             threshold={simulationProfile?.idp_review_confidence_threshold ?? 0.85}
+          />
+          <OwnershipPanel
+            key={`ownership-${caseData.case_id}`}
+            caseData={caseData}
+            configuredThreshold={
+              simulationProfile?.ubo_ownership_threshold_percent ?? "25"
+            }
           />
         </>
       )}

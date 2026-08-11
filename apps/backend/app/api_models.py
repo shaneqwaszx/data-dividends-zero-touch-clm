@@ -1,6 +1,7 @@
 """Browser-facing API models that exclude internal registry proof references."""
 
 from datetime import date, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -24,6 +25,17 @@ from app.domain.models import (
     SourceSystem,
     WorkflowEvent,
     WorkflowState,
+)
+from app.domain.ownership import (
+    OwnershipAnalysisIssue,
+    OwnershipAnalysisRecord,
+    OwnershipAnalysisState,
+    OwnershipBasis,
+    OwnershipCandidate,
+    OwnershipEnvironment,
+    OwnershipRelationshipType,
+    OwnershipWorkflowEvent,
+    Party,
 )
 
 
@@ -129,3 +141,60 @@ class DocumentProcessingResponse(BaseModel):
     @classmethod
     def from_domain(cls, record: DocumentProcessingRecord) -> "DocumentProcessingResponse":
         return cls.model_validate(record)
+
+
+class OwnershipAnalysisResponse(BaseModel):
+    """Browser-required ownership graph and deterministic evidence only."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    case_id: UUID
+    analysis_id: UUID
+    correlation_id: UUID
+    root_party_id: str | None
+    provider_name: str | None
+    provider_environment: OwnershipEnvironment | None
+    state: OwnershipAnalysisState
+    parties: list[Party]
+    relationships: list["BrowserOwnershipRelationship"]
+    candidates: list[OwnershipCandidate]
+    issues: list[OwnershipAnalysisIssue]
+    threshold_percent: Decimal
+    threshold_comparator: str
+    events: list[OwnershipWorkflowEvent]
+    error: SafeError | None = None
+    created_at: datetime
+    loaded_at: datetime | None = None
+    analyzed_at: datetime | None = None
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(cls, record: OwnershipAnalysisRecord) -> "OwnershipAnalysisResponse":
+        return cls.model_validate(record)
+
+
+class BrowserOwnershipProvenance(BaseModel):
+    """Browser-safe provenance without internal source routing/reference data."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    provider: str
+    environment: OwnershipEnvironment
+    sourced_at: datetime
+
+
+class BrowserOwnershipRelationship(BaseModel):
+    """Ownership edge projection with minimized provenance."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    relationship_id: str
+    parent_party_id: str
+    child_party_id: str
+    ownership_percent: Decimal
+    relationship_type: OwnershipRelationshipType
+    basis: OwnershipBasis
+    provenance: BrowserOwnershipProvenance
+
+
+OwnershipAnalysisResponse.model_rebuild()

@@ -4,10 +4,11 @@ Proof of concept for Delta Capita's Singapore new-to-bank flow:
 
 `ACRA Singapore -> EDS/orchestration layer -> GoldTier -> human review gate`
 
-Phase 03 preserves the runnable ACRA-to-Mock-GoldTier slice and adds a separate,
-case-linked PDF/Mock-IDP/human-review foundation. Mock ACRA and Mock IDP remain safe
-defaults, GoldTier remains fully mocked, uploaded bytes are transient, and no live ACRA,
-real OCR, final document contract, or Ready-for-Approval interoperability is claimed.
+Phase 04 preserves the runnable onboarding and document-review foundations and adds a
+separate case-linked ownership graph and deterministic ownership-based provisional UBO
+calculation. Mock ACRA, Mock IDP, Mock ownership, and Mock GoldTier remain safe defaults.
+No live hierarchy, sponsor-approved UBO rule, legal controller decision, real GoldTier,
+or Ready-for-Approval interoperability is claimed.
 
 ## Repository layout
 
@@ -47,6 +48,11 @@ The backend runs at `http://127.0.0.1:8000` and exposes:
 - `GET /api/onboarding/cases/{case_id}/documents`
 - `GET /api/onboarding/cases/{case_id}/documents/{document_id}`
 - `POST /api/onboarding/cases/{case_id}/documents/{document_id}/reviews`
+- `POST /api/onboarding/cases/{case_id}/ownership/load`
+- `POST /api/demo/onboarding/cases/{case_id}/ownership/load`
+- `POST /api/onboarding/cases/{case_id}/ownership/analyze`
+- `GET /api/onboarding/cases/{case_id}/ownership`
+- `GET /api/onboarding/cases/{case_id}/ubo-candidates`
 
 Cases are process-local and are cleared when the backend restarts.
 The mock-scenario endpoint returns an object containing the backend simulation profile
@@ -168,6 +174,47 @@ See `docs/architecture/PHASE_03_IDP_REVIEW.md` and
 normalization, comparison, and completion rules are PROJECT-DEFINED / PROVISIONAL and
 not Delta Capita-approved. Q-003, Q-005, Q-013, and Q-014 block a real document
 contract, policy, production upload boundary, and authenticated review flow.
+
+## Mock ownership and provisional UBO workflow
+
+### Phase 04 demo procedure
+
+1. Start the backend and frontend, then create or reopen synthetic case `202400001A`.
+2. In **Ownership & UBO**, choose `DIRECT_OWNER`, `INDIRECT_OWNER`, `MULTIPLE_PATHS`,
+   `BELOW_THRESHOLD`, `INCOMPLETE_CHAIN`, `CYCLE`, or `PROVIDER_FAILURE`.
+3. Select **Load synthetic ownership**. The dedicated demo endpoint configures the Mock
+   provider; the generic ownership API contains no scenario input.
+4. For a `LOADED` record, select **Analyze ownership paths**.
+5. Inspect owned-party -> owner relationships, intermediate legal entities, natural
+   persons, safe provenance, direct/indirect paths, path multiplication, aggregated
+   ownership, and the provisional threshold classification.
+6. Use `MULTIPLE_PATHS` to see independent paths aggregate once, `INCOMPLETE_CHAIN` and
+   `CYCLE` to see truthful `REVIEW_REQUIRED`, and `PROVIDER_FAILURE` to see a retrievable
+   sanitized `FAILED` record.
+
+The calculation engine uses Decimal arithmetic and retains deterministic evidence; the
+frontend does not recalculate percentages. The default
+`UBO_OWNERSHIP_THRESHOLD_PERCENT=25` and inclusive `aggregated ownership >= threshold`
+comparator are **PROJECT-DEFINED / PROVISIONAL / PENDING Q-004**. `ANALYZED` means only
+that the ownership calculation completed. A `PROVISIONAL_UBO_CANDIDATE` is not a legal
+UBO/controller finding, compliance approval, GoldTier approval, or Ready-for-Approval.
+
+Phase 04 quality-gate remediation also enforces legal-entity owned parents, fresh nested
+revalidation of every untrusted provider result, opaque server-only source references,
+atomic versioned terminal-state writes, bounded digest path IDs, six-decimal threshold
+configuration, and exact string-based Decimal display. Concurrent duplicate operations
+return a conflict rather than overwriting an accepted terminal result.
+
+Graph limits default to 100 parties, 200 relationships, depth 8, 64 paths per candidate,
+and 256 total paths. Excess depth/path enumeration routes to review instead of silently
+truncating a definitive result; malformed/oversized provider graphs fail safely. The
+ownership workflow never mutates the canonical ACRA entity, onboarding state, or Phase
+03 documents and makes no ACRA/GoldTier call.
+
+See `docs/architecture/PHASE_04_RELATED_PARTIES_UBO.md` and
+`docs/contracts/OWNERSHIP_UBO_PROFILE.md`. Q-002/Q-004/Q-006/Q-007 still block an
+authoritative hierarchy adapter, sponsor-approved UBO policy, related-party writes, and
+final Singapore mappings.
 
 ## Optional ACRA sandbox smoke verification
 

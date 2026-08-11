@@ -47,6 +47,9 @@ the agreed EDS calls, or is another workflow API/action required?
 Which GoldTier endpoint/schema should the UI use to retrieve the seeded multi-level
 corporate hierarchy, ownership links, and UBO-related data for the complex demo?
 
+Phase 04 therefore uses only a credential-free provider-neutral Mock graph. No GoldTier
+hierarchy route, schema, identifier, pagination, or provenance behavior is inferred.
+
 ### Q-003 — IDP document target
 
 Which document types must the final IDP demo process—for example, a trust deed,
@@ -57,6 +60,10 @@ extracted from each?
 
 What configurable rule should demonstrate the sponsor's “20–25% UBO” requirement:
 `>= 25%`, `> 20%`, jurisdiction/policy-dependent, or another rule?
+
+The Phase 04 development default is `aggregated ownership >= 25%`. Both the value and
+inclusive comparator are explicitly project-defined/provisional and must not be treated
+as the sponsor's final threshold or complete legal controller test.
 
 ### Q-005 — Validation responsibility split
 
@@ -93,6 +100,9 @@ automatically inferred and not a confirmed data contract. Please confirm Singapo
 entity-specific conditional fields, values, proof-category codes, and ACRA mappings
 before they become implementation assertions.
 
+Phase 04 synthetic party/relationship fields and `SHARE_OWNERSHIP` basis are source-
+neutral POC concepts only and do not resolve or pre-empt these GoldTier mappings.
+
 ## C. CONTRACT ARTEFACT CORRECTIONS
 
 ### Q-006 — `createRelatedParty` direct-link semantics
@@ -103,6 +113,9 @@ inputs. The API specification lists `rpRole` as mandatory, standalone OpenAPI de
 relationship fields without marking them required, and older specification text says
 the operation does not auto-link. This question does not propose `createRelationship`
 or multi-level hierarchy creation.
+
+Phase 04 performs no related-party write. Its ownership relationships are provider
+results used only for local deterministic analysis and are not a model of this operation.
 
 ### Q-009 — Authoritative values and casing
 

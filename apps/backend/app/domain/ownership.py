@@ -1,0 +1,307 @@
+"""Source-neutral ownership graph and provisional ownership-based UBO models."""
+
+from datetime import UTC, datetime
+from decimal import Decimal
+from enum import StrEnum
+from typing import Annotated
+from unicodedata import category
+from uuid import UUID
+
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
+
+from app.domain.models import EventOutcome, SafeError
+
+
+def _normalize_safe_text(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("ownership text must not be blank")
+    if any(category(character).startswith("C") for character in normalized):
+        raise ValueError("ownership text must not contain control characters")
+    return normalized
+
+
+SafePartyId = Annotated[
+    str,
+    BeforeValidator(_normalize_safe_text),
+    StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"),
+]
+SafeRelationshipId = Annotated[
+    str,
+    BeforeValidator(_normalize_safe_text),
+    StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"),
+]
+SafePartyName = Annotated[
+    str,
+    BeforeValidator(_normalize_safe_text),
+    StringConstraints(min_length=1, max_length=160),
+]
+SafeProviderName = Annotated[
+    str,
+    BeforeValidator(_normalize_safe_text),
+    StringConstraints(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+    ),
+]
+
+
+def _normalize_source_reference(value: object) -> object:
+    normalized = _normalize_safe_text(value)
+    if not isinstance(normalized, str):
+        return normalized
+    reserved_terms = {
+        "apikey",
+        "authorization",
+        "bearer",
+        "credential",
+        "password",
+        "passwd",
+        "secret",
+        "token",
+    }
+    compact = normalized.casefold().replace(".", "").replace("_", "").replace("-", "")
+    if any(term in compact for term in reserved_terms):
+        raise ValueError("ownership source reference must not contain credential-like terms")
+    return normalized
+
+
+SafeSourceReference = Annotated[
+    str,
+    BeforeValidator(_normalize_source_reference),
+    StringConstraints(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+    ),
+]
+SafeOptionalIdentifier = Annotated[
+    str,
+    BeforeValidator(_normalize_safe_text),
+    StringConstraints(min_length=1, max_length=64),
+]
+OwnershipPercent = Annotated[
+    Decimal,
+    Field(gt=Decimal("0"), le=Decimal("100"), allow_inf_nan=False, max_digits=12, decimal_places=6),
+]
+CalculatedPercent = Annotated[
+    Decimal,
+    Field(ge=Decimal("0"), le=Decimal("100"), allow_inf_nan=False),
+]
+
+
+class PartyType(StrEnum):
+    LEGAL_ENTITY = "LEGAL_ENTITY"
+    NATURAL_PERSON = "NATURAL_PERSON"
+
+
+class OwnershipRelationshipType(StrEnum):
+    OWNERSHIP = "OWNERSHIP"
+
+
+class OwnershipBasis(StrEnum):
+    SHARE_OWNERSHIP = "SHARE_OWNERSHIP"
+
+
+class OwnershipEnvironment(StrEnum):
+    MOCK = "MOCK"
+    LOCAL = "LOCAL"
+    SANDBOX = "SANDBOX"
+    LIVE = "LIVE"
+
+
+class OwnershipAnalysisState(StrEnum):
+    LOADING = "LOADING"
+    LOADED = "LOADED"
+    ANALYZING = "ANALYZING"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    ANALYZED = "ANALYZED"
+    FAILED = "FAILED"
+
+
+class OwnershipEventType(StrEnum):
+    OWNERSHIP_LOAD_STARTED = "OWNERSHIP_LOAD_STARTED"
+    OWNERSHIP_LOADED = "OWNERSHIP_LOADED"
+    OWNERSHIP_ANALYSIS_STARTED = "OWNERSHIP_ANALYSIS_STARTED"
+    OWNERSHIP_ANALYSIS_COMPLETED = "OWNERSHIP_ANALYSIS_COMPLETED"
+    OWNERSHIP_REVIEW_REQUIRED = "OWNERSHIP_REVIEW_REQUIRED"
+    OWNERSHIP_ANALYSIS_FAILED = "OWNERSHIP_ANALYSIS_FAILED"
+
+
+class OwnershipIssueCode(StrEnum):
+    CYCLE_DETECTED = "CYCLE_DETECTED"
+    INCOMPLETE_LEGAL_ENTITY = "INCOMPLETE_LEGAL_ENTITY"
+    MAXIMUM_DEPTH_EXCEEDED = "MAXIMUM_DEPTH_EXCEEDED"
+    PATH_LIMIT_EXCEEDED = "PATH_LIMIT_EXCEEDED"
+
+
+class OwnershipThresholdResult(StrEnum):
+    MET = "MET"
+    NOT_MET = "NOT_MET"
+    INDETERMINATE = "INDETERMINATE"
+
+
+class OwnershipCandidateClassification(StrEnum):
+    PROVISIONAL_UBO_CANDIDATE = "PROVISIONAL_UBO_CANDIDATE"
+    BELOW_PROVISIONAL_THRESHOLD = "BELOW_PROVISIONAL_THRESHOLD"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    INDETERMINATE = "INDETERMINATE"
+
+
+class Party(BaseModel):
+    """A source-neutral legal entity or natural person in an ownership graph."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    party_id: SafePartyId
+    display_name: SafePartyName
+    party_type: PartyType
+    registration_number: SafeOptionalIdentifier | None = None
+    country: (
+        Annotated[
+            str,
+            BeforeValidator(_normalize_safe_text),
+            StringConstraints(min_length=2, max_length=3, pattern=r"^[A-Z]{2,3}$"),
+        ]
+        | None
+    ) = None
+
+
+class OwnershipProvenance(BaseModel):
+    """Bounded relationship provenance without raw source data or private URLs."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    provider: SafeProviderName
+    environment: OwnershipEnvironment
+    source_reference: SafeSourceReference
+    sourced_at: datetime
+
+    @field_validator("sourced_at")
+    @classmethod
+    def sourced_at_must_be_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("ownership sourcing timestamp must be timezone-aware UTC")
+        return value
+
+
+class OwnershipRelationship(BaseModel):
+    """Directed edge from an owned party to one of its owners."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    relationship_id: SafeRelationshipId
+    parent_party_id: SafePartyId
+    child_party_id: SafePartyId
+    ownership_percent: OwnershipPercent
+    relationship_type: OwnershipRelationshipType = OwnershipRelationshipType.OWNERSHIP
+    basis: OwnershipBasis = OwnershipBasis.SHARE_OWNERSHIP
+    provenance: OwnershipProvenance
+
+
+class OwnershipPathEdge(BaseModel):
+    """One immutable edge in deterministic calculation evidence."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    relationship_id: SafeRelationshipId
+    parent_party_id: SafePartyId
+    parent_display_name: SafePartyName
+    child_party_id: SafePartyId
+    child_display_name: SafePartyName
+    ownership_percent: OwnershipPercent
+
+
+class OwnershipPathEvidence(BaseModel):
+    """Ordered path and exact effective ownership for one natural person."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    path_id: str = Field(pattern=r"^path-v1-[a-f0-9]{64}$")
+    edges: list[OwnershipPathEdge] = Field(min_length=1, max_length=64)
+    effective_ownership_percent: CalculatedPercent
+    is_direct: bool
+    calculation: str = Field(min_length=1, max_length=1024)
+
+
+class OwnershipAnalysisIssue(BaseModel):
+    """Safe deterministic diagnostic that avoids raw provider content."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    code: OwnershipIssueCode
+    message: str = Field(min_length=1, max_length=200)
+    affected_party_ids: list[SafePartyId] = Field(default_factory=list, max_length=16)
+
+
+class OwnershipCandidate(BaseModel):
+    """Ownership-only natural-person result under a provisional project rule."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    party: Party
+    direct_ownership_percent: CalculatedPercent
+    indirect_ownership_percent: CalculatedPercent
+    aggregated_ownership_percent: CalculatedPercent
+    threshold_percent: OwnershipPercent
+    threshold_comparator: str = Field(pattern=r"^GREATER_THAN_OR_EQUAL_TO$")
+    threshold_result: OwnershipThresholdResult
+    classification: OwnershipCandidateClassification
+    paths: list[OwnershipPathEvidence]
+
+
+class OwnershipWorkflowEvent(BaseModel):
+    """Audit-safe lifecycle event containing counts and identifiers, not graph data."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    sequence: int = Field(ge=1)
+    event_type: OwnershipEventType
+    state: OwnershipAnalysisState
+    outcome: EventOutcome
+    timestamp: datetime
+    case_id: UUID
+    analysis_id: UUID
+    correlation_id: UUID
+    code: str | None = Field(default=None, max_length=64)
+    message: str = Field(min_length=1, max_length=200)
+    party_count: int | None = Field(default=None, ge=0)
+    relationship_count: int | None = Field(default=None, ge=0)
+    candidate_count: int | None = Field(default=None, ge=0)
+
+
+class OwnershipAnalysisRecord(BaseModel):
+    """Case-linked ownership record isolated from onboarding and document aggregates."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: UUID
+    version: int = Field(default=0, ge=0)
+    analysis_id: UUID
+    correlation_id: UUID
+    root_party_id: SafePartyId | None = None
+    provider_name: SafeProviderName | None = None
+    provider_environment: OwnershipEnvironment | None = None
+    state: OwnershipAnalysisState
+    parties: list[Party] = Field(default_factory=list)
+    relationships: list[OwnershipRelationship] = Field(default_factory=list)
+    candidates: list[OwnershipCandidate] = Field(default_factory=list)
+    issues: list[OwnershipAnalysisIssue] = Field(default_factory=list)
+    threshold_percent: OwnershipPercent
+    threshold_comparator: str = Field(default="GREATER_THAN_OR_EQUAL_TO")
+    events: list[OwnershipWorkflowEvent] = Field(default_factory=list)
+    error: SafeError | None = None
+    created_at: datetime
+    loaded_at: datetime | None = None
+    analyzed_at: datetime | None = None
+    updated_at: datetime

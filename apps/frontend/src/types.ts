@@ -26,6 +26,9 @@ export interface SimulationProfile {
   idp_system: "IDP";
   idp_environment: "MOCK";
   idp_review_confidence_threshold: number;
+  ownership_system: "OWNERSHIP_PROVIDER";
+  ownership_environment: "MOCK";
+  ubo_ownership_threshold_percent: string;
 }
 
 export interface MockScenarioDiscovery {
@@ -170,5 +173,125 @@ export interface DocumentProcessingRecord {
   created_at: string;
   processed_at: string | null;
   reviewed_at: string | null;
+  updated_at: string;
+}
+
+export type MockOwnershipScenario =
+  | "DIRECT_OWNER"
+  | "INDIRECT_OWNER"
+  | "MULTIPLE_PATHS"
+  | "BELOW_THRESHOLD"
+  | "INCOMPLETE_CHAIN"
+  | "CYCLE"
+  | "PROVIDER_FAILURE";
+
+export type OwnershipAnalysisState =
+  | "LOADING"
+  | "LOADED"
+  | "ANALYZING"
+  | "REVIEW_REQUIRED"
+  | "ANALYZED"
+  | "FAILED";
+
+export interface OwnershipParty {
+  party_id: string;
+  display_name: string;
+  party_type: "LEGAL_ENTITY" | "NATURAL_PERSON";
+  registration_number: string | null;
+  country: string | null;
+}
+
+export interface OwnershipRelationship {
+  relationship_id: string;
+  parent_party_id: string;
+  child_party_id: string;
+  ownership_percent: string;
+  relationship_type: "OWNERSHIP";
+  basis: "SHARE_OWNERSHIP";
+  provenance: {
+    provider: string;
+    environment: "MOCK" | "LOCAL" | "SANDBOX" | "LIVE";
+    sourced_at: string;
+  };
+}
+
+export interface OwnershipPath {
+  path_id: string;
+  edges: Array<{
+    relationship_id: string;
+    parent_party_id: string;
+    parent_display_name: string;
+    child_party_id: string;
+    child_display_name: string;
+    ownership_percent: string;
+  }>;
+  effective_ownership_percent: string;
+  is_direct: boolean;
+  calculation: string;
+}
+
+export interface OwnershipCandidate {
+  party: OwnershipParty;
+  direct_ownership_percent: string;
+  indirect_ownership_percent: string;
+  aggregated_ownership_percent: string;
+  threshold_percent: string;
+  threshold_comparator: "GREATER_THAN_OR_EQUAL_TO";
+  threshold_result: "MET" | "NOT_MET" | "INDETERMINATE";
+  classification:
+    | "PROVISIONAL_UBO_CANDIDATE"
+    | "BELOW_PROVISIONAL_THRESHOLD"
+    | "REVIEW_REQUIRED"
+    | "INDETERMINATE";
+  paths: OwnershipPath[];
+}
+
+export interface OwnershipAnalysisRecord {
+  case_id: string;
+  analysis_id: string;
+  correlation_id: string;
+  root_party_id: string | null;
+  provider_name: string | null;
+  provider_environment: "MOCK" | "LOCAL" | "SANDBOX" | "LIVE" | null;
+  state: OwnershipAnalysisState;
+  parties: OwnershipParty[];
+  relationships: OwnershipRelationship[];
+  candidates: OwnershipCandidate[];
+  issues: Array<{
+    code:
+      | "CYCLE_DETECTED"
+      | "INCOMPLETE_LEGAL_ENTITY"
+      | "MAXIMUM_DEPTH_EXCEEDED"
+      | "PATH_LIMIT_EXCEEDED";
+    message: string;
+    affected_party_ids: string[];
+  }>;
+  threshold_percent: string;
+  threshold_comparator: "GREATER_THAN_OR_EQUAL_TO";
+  events: Array<{
+    sequence: number;
+    event_type:
+      | "OWNERSHIP_LOAD_STARTED"
+      | "OWNERSHIP_LOADED"
+      | "OWNERSHIP_ANALYSIS_STARTED"
+      | "OWNERSHIP_ANALYSIS_COMPLETED"
+      | "OWNERSHIP_REVIEW_REQUIRED"
+      | "OWNERSHIP_ANALYSIS_FAILED";
+    state: OwnershipAnalysisState;
+    outcome: "SUCCEEDED" | "PARTIAL" | "REVIEW_REQUIRED" | "FAILED";
+    timestamp: string;
+    case_id: string;
+    analysis_id: string;
+    correlation_id: string;
+    code: string | null;
+    message: string;
+    party_count: number | null;
+    relationship_count: number | null;
+    candidate_count: number | null;
+  }>;
+  error: { code: string; message: string } | null;
+  created_at: string;
+  loaded_at: string | null;
+  analyzed_at: string | null;
   updated_at: string;
 }
