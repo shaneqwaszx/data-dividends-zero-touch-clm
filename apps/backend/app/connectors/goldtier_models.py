@@ -7,6 +7,13 @@ from uuid import UUID
 
 from pydantic import UUID4, BaseModel, ConfigDict, Field
 
+from app.domain.target_safety import (
+    SafeTargetErrorCode,
+    SafeTargetIdentifier,
+    SafeTargetMessage,
+    SafeTargetStatus,
+)
+
 
 class ContractModel(BaseModel):
     """Base model that serialises Python names to canonical contract properties."""
@@ -138,18 +145,22 @@ class GoldTierSearchOutcome(StrEnum):
 
 
 class GoldTierSearchResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
     outcome: GoldTierSearchOutcome
     status_code: Annotated[int, Field(ge=200, le=599)]
-    matched_party_id: str | None = None
-    error_code: str | None = None
-    message: str
+    matched_party_id: SafeTargetIdentifier | None = None
+    error_code: SafeTargetErrorCode | None = None
+    message: SafeTargetMessage
 
 
 class GoldTierOperationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
     outcome: GoldTierOutcome
     status_code: Annotated[int, Field(ge=200, le=599)]
-    party_id: str | None = None
-    policy_id: str | None = None
-    status: str
-    error_code: str | None = None
-    message: str
+    party_id: SafeTargetIdentifier | None = None
+    policy_id: SafeTargetIdentifier | None = None
+    status: SafeTargetStatus
+    error_code: SafeTargetErrorCode | None = None
+    message: SafeTargetMessage

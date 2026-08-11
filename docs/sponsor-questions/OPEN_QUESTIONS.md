@@ -42,6 +42,9 @@ What exact GoldTier action/state transition moves a successfully populated Singa
 NTB customer to the Ready-for-Approval / four-eye-check stage? Is it automatic after
 the agreed EDS calls, or is another workflow API/action required?
 
+Phase 05 therefore ends at `MOCK_GOLDTIER_SUBMITTED` after the Mock base operations and
+does not claim or expose an achieved Ready-for-Approval transition.
+
 ### Q-002 — Seeded hierarchy retrieval
 
 Which GoldTier endpoint/schema should the UI use to retrieve the seeded multi-level
@@ -69,6 +72,11 @@ as the sponsor's final threshold or complete legal controller test.
 
 Which validation/business rules belong in the EDS/orchestration layer and which should
 be delegated to GoldTier's seeded policy/rule configuration?
+
+Pending confirmation, Phase 05 uses a conservative project POC rule: canonical ACRA
+data remains the base submission source, reviewed document evidence must agree for
+automatic Mock submission, and any conflicting correction/rejection is blocked as
+`SOURCE_CONFLICT_REQUIRES_POLICY` without overwriting either source.
 
 ### Q-013 — Document privacy, retention, and upload security
 
@@ -116,6 +124,10 @@ or multi-level hierarchy creation.
 
 Phase 04 performs no related-party write. Its ownership relationships are provider
 results used only for local deterministic analysis and are not a model of this operation.
+
+Phase 05 likewise performs no related-party write. It reports only a minimized internal
+preparation summary with `PENDING_SPONSOR_CONFIRMATION` and
+`RELATED_PARTY_WRITE_NOT_EXECUTED`.
 
 ### Q-009 — Authoritative values and casing
 

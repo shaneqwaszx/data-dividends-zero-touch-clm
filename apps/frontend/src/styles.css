@@ -36,6 +36,7 @@ select {
 .result-panel,
 .document-card,
 .ownership-card,
+.clm-card,
 .request-error {
   width: min(100%, 1120px);
   margin-inline: auto;
@@ -112,6 +113,7 @@ h2 {
 .launch-card,
 .document-card,
 .ownership-card,
+.clm-card,
 .detail-card,
 .timeline-card {
   border: 1px solid #cfdbd3;
@@ -414,6 +416,221 @@ dd {
   gap: clamp(1.5rem, 5vw, 4rem);
   margin-top: 1rem;
   padding: clamp(1.35rem, 4vw, 2.5rem);
+}
+
+.clm-card {
+  width: min(100%, 1120px);
+  margin: 1rem auto 3rem;
+  padding: clamp(1.35rem, 4vw, 2.5rem);
+}
+
+.clm-heading,
+.clm-actions,
+.submission-plan > div,
+.mock-submission-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.clm-heading .section-label,
+.submission-plan .section-label {
+  margin-top: 0;
+}
+
+.clm-heading p:not(.section-label) {
+  max-width: 680px;
+  color: #687871;
+  line-height: 1.55;
+}
+
+.clm-overall {
+  padding: 0.55rem 0.75rem;
+  border-radius: 999px;
+  color: #65440d;
+  background: #fae8c5;
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.clm-overall--READY_FOR_MOCK_SUBMISSION,
+.clm-overall--MOCK_GOLDTIER_SUBMITTED {
+  color: #174c3c;
+  background: #dff1e8;
+}
+
+.clm-overall--FAILED {
+  color: #772a2a;
+  background: #f6d9d9;
+}
+
+.clm-stepper {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 1.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clm-stepper li {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid #d5e3dc;
+  border-radius: 10px;
+  background: #f5f8f6;
+}
+
+.clm-stepper li > span {
+  display: grid;
+  flex: 0 0 1.75rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #6f8078;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.clm-stepper li[data-stage-status="READY"] > span,
+.clm-stepper li[data-stage-status="SUBMITTED"] > span,
+.clm-stepper li[data-stage-status="READY_FOR_MOCK_SUBMISSION"] > span,
+.clm-stepper li[data-stage-status="MOCK_GOLDTIER_SUBMITTED"] > span {
+  background: #2e7a5c;
+}
+
+.clm-stepper li[data-stage-status="FAILED"] > span,
+.clm-stepper li[data-stage-status="REVIEW_REQUIRED"] > span {
+  background: #b55c32;
+}
+
+.clm-stepper li div {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+
+.clm-stepper strong,
+.clm-stepper small {
+  overflow-wrap: anywhere;
+}
+
+.clm-stepper small {
+  color: #687871;
+  font-size: 0.66rem;
+}
+
+.clm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.clm-grid article,
+.submission-plan,
+.clm-timeline {
+  padding: 1rem;
+  border: 1px solid #d5e3dc;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.clm-grid h3,
+.submission-plan h3,
+.clm-timeline h3 {
+  margin: 0;
+}
+
+.clm-list {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 0;
+  padding-left: 1.2rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.clm-list--blockers {
+  color: #7a3021;
+}
+
+.clm-list--warnings {
+  color: #65440d;
+}
+
+.ready-copy {
+  margin: 1rem 0 0;
+  color: #2e6e55;
+  font-weight: 750;
+}
+
+.submission-plan,
+.clm-timeline {
+  margin-top: 1rem;
+}
+
+.submission-plan ol {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  padding: 0;
+  counter-reset: plan;
+  list-style: none;
+}
+
+.submission-plan ol li {
+  padding: 0.7rem;
+  border-radius: 8px;
+  color: #174c3c;
+  background: #e8f5ee;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.clm-actions {
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.mock-submission-result {
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  padding: 1rem;
+  border-left: 5px solid #2e7a5c;
+  border-radius: 10px;
+  color: #174c3c;
+  background: #e8f5ee;
+  font-size: 0.78rem;
+}
+
+.clm-timeline ol {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clm-timeline li {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.4fr) minmax(180px, 0.35fr) 1fr;
+  gap: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #e1e7e2;
+}
+
+.clm-timeline li span,
+.clm-timeline li p {
+  margin: 0;
+  color: #687871;
+  font-size: 0.78rem;
 }
 
 .ownership-card > div > p:not(.section-label),
@@ -821,10 +1038,14 @@ dd {
   .launch-card,
   .document-card,
   .ownership-card,
+  .clm-card,
   .panel-grid,
   .case-access-forms,
   .comparison-grid,
-  .ownership-totals {
+  .ownership-totals,
+  .clm-grid,
+  .clm-stepper,
+  .submission-plan ol {
     grid-template-columns: 1fr;
   }
 
@@ -843,6 +1064,18 @@ dd {
   .correction-row {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .clm-heading,
+  .clm-actions,
+  .submission-plan > div,
+  .mock-submission-result {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .clm-timeline li {
+    grid-template-columns: 1fr;
   }
 }
 

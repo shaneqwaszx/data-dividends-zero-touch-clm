@@ -2,6 +2,7 @@
 
 from collections import defaultdict, deque
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -356,6 +357,12 @@ class OwnershipAnalysisService:
     def load(
         self, *, case_id: UUID, provider: OwnershipProvider | None = None
     ) -> OwnershipAnalysisRecord:
+        with self._case_lock(case_id):
+            return self._load_locked(case_id=case_id, provider=provider)
+
+    def _load_locked(
+        self, *, case_id: UUID, provider: OwnershipProvider | None
+    ) -> OwnershipAnalysisRecord:
         parent = self._cases.get_case(case_id)
         if parent is None:
             raise OwnershipRequestError(
@@ -473,6 +480,10 @@ class OwnershipAnalysisService:
             )
 
     def analyze(self, *, case_id: UUID) -> OwnershipAnalysisRecord:
+        with self._case_lock(case_id):
+            return self._analyze_locked(case_id=case_id)
+
+    def _analyze_locked(self, *, case_id: UUID) -> OwnershipAnalysisRecord:
         record = self._repository.get_for_case(case_id)
         if record is None:
             if self._cases.get_case(case_id) is None:
@@ -593,6 +604,10 @@ class OwnershipAnalysisService:
                 message="The onboarding case was not found.",
             )
         return None
+
+    def _case_lock(self, case_id: UUID) -> AbstractContextManager[object]:
+        lock_factory = getattr(self._cases, "case_lock", None)
+        return lock_factory(case_id) if callable(lock_factory) else nullcontext()
 
     def _validate_source(
         self,

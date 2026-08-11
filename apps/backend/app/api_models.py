@@ -6,6 +6,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.domain.clm import (
+    ClmOrchestrationRecord,
+    ClmReadinessAssessment,
+    ClmStatus,
+    ClmWorkflowEvent,
+    GoldTierSubmissionPlan,
+    RelatedPartySubmissionPreparation,
+)
 from app.domain.documents import (
     ComparisonStatus,
     DocumentFieldKey,
@@ -198,3 +206,71 @@ class BrowserOwnershipRelationship(BaseModel):
 
 
 OwnershipAnalysisResponse.model_rebuild()
+
+
+class BrowserClmSubmission(BaseModel):
+    """Safe immutable-snapshot references without the internal business snapshot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: UUID
+    submission_id: UUID
+    created_at: datetime
+    readiness_policy_version: str
+    document_reference_count: int
+    ownership_reference_id: UUID
+
+
+class ClmCaseSummaryResponse(BaseModel):
+    """Unified operational picture without raw subsystem/provider evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case: OnboardingCaseResponse
+    orchestration_id: UUID
+    correlation_id: UUID
+    version: int
+    status: ClmStatus
+    readiness: ClmReadinessAssessment
+    submission_plan: GoldTierSubmissionPlan
+    related_party_preparation: RelatedPartySubmissionPreparation | None
+    submission: BrowserClmSubmission | None
+    goldtier_result: GoldTierResult | None
+    timeline: list[ClmWorkflowEvent]
+    error: SafeError | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(
+        cls, record: ClmOrchestrationRecord, case: OnboardingCase
+    ) -> "ClmCaseSummaryResponse":
+        snapshot = record.submission_snapshot
+        submission = (
+            BrowserClmSubmission(
+                snapshot_id=snapshot.snapshot_id,
+                submission_id=snapshot.submission_id,
+                created_at=snapshot.created_at,
+                readiness_policy_version=snapshot.readiness_policy_version,
+                document_reference_count=len(snapshot.document_references),
+                ownership_reference_id=snapshot.ownership_reference.reference_id,
+            )
+            if snapshot is not None
+            else None
+        )
+        return cls(
+            case=OnboardingCaseResponse.from_domain(case),
+            orchestration_id=record.orchestration_id,
+            correlation_id=record.correlation_id,
+            version=record.version,
+            status=record.status,
+            readiness=record.readiness,
+            submission_plan=record.submission_plan,
+            related_party_preparation=record.related_party_preparation,
+            submission=submission,
+            goldtier_result=record.goldtier_result,
+            timeline=record.events,
+            error=record.error,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )

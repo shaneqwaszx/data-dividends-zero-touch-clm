@@ -1,4 +1,4 @@
-"""Side-effect-free connector and service composition through Phase 04."""
+"""Side-effect-free connector and service composition through Phase 05."""
 
 from app.config import Settings, get_settings
 from app.connectors.acra import AcraConnector
@@ -23,6 +23,8 @@ from app.demo.scenarios import (
     MockScenarioCatalogue,
     Phase01MockScenarioCatalogue,
 )
+from app.services.clm_orchestration import ClmOrchestrationService
+from app.services.clm_repository import InMemoryClmOrchestrationRepository
 from app.services.document_processing import DocumentProcessingService
 from app.services.document_repository import InMemoryDocumentProcessingRepository
 from app.services.onboarding import OnboardingService
@@ -137,3 +139,18 @@ def build_mock_ownership_demo_control() -> MockOwnershipDemoControl:
     """Build the dedicated Mock-only ownership scenario control."""
 
     return MockOwnershipDemoControl()
+
+
+def build_clm_orchestration_service(
+    onboarding_service: OnboardingService,
+    document_service: DocumentProcessingService,
+    ownership_service: OwnershipAnalysisService,
+) -> ClmOrchestrationService:
+    """Compose staged readiness and serialized Mock GoldTier submission."""
+
+    return ClmOrchestrationService(
+        cases=onboarding_service,
+        documents=document_service,
+        ownership=ownership_service,
+        repository=InMemoryClmOrchestrationRepository(),
+    )

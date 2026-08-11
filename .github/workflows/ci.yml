@@ -1,4 +1,4 @@
-name: Phase 03 checks
+name: Project CI
 
 on:
   pull_request:

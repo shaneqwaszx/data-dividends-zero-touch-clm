@@ -16,6 +16,7 @@ from app.connectors.goldtier_models import (
     SourceContext,
 )
 from app.domain.models import CanonicalLegalEntity
+from app.domain.target_submission import SubmissionCanonicalEntity
 from app.mappers.errors import MappingError
 
 MOCK_POLICY = "SINGAPORE_NTB_MOCK"
@@ -39,14 +40,17 @@ def build_source_context(source_case_id: str, accepted_at: datetime) -> SourceCo
     )
 
 
-def build_search_request(entity: CanonicalLegalEntity) -> SearchPartyRequest:
+TargetEntity = CanonicalLegalEntity | SubmissionCanonicalEntity
+
+
+def build_search_request(entity: TargetEntity) -> SearchPartyRequest:
     return SearchPartyRequest(
         registration_number=_required(entity.registration_number, "registration number")
     )
 
 
 def build_shell_request(
-    entity: CanonicalLegalEntity, source_case_id: str, accepted_at: datetime
+    entity: TargetEntity, source_case_id: str, accepted_at: datetime
 ) -> CreateShellCustomerRequest:
     legal_name = _required(entity.legal_name, "legal name")
     country_of_incorporation = _required(
@@ -66,7 +70,7 @@ def build_shell_request(
 
 
 def build_policy_request(
-    entity: CanonicalLegalEntity,
+    entity: TargetEntity,
     party_id: str,
     source_case_id: str,
     accepted_at: datetime,
@@ -81,7 +85,7 @@ def build_policy_request(
 
 
 def build_amend_request(
-    entity: CanonicalLegalEntity, source_case_id: str, accepted_at: datetime
+    entity: TargetEntity, source_case_id: str, accepted_at: datetime
 ) -> AmendPartyRequest:
     legal_name = _required(entity.legal_name, "legal name")
     if entity.registered_address is None:

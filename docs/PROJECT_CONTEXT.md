@@ -152,3 +152,37 @@ records with atomic expected-version writes, uses bounded digest path IDs, valid
 shared six-decimal threshold contract at configuration time, and renders exact Decimal
 strings without JavaScript numeric rounding. These are technical controls and do not
 change the provisional sponsor-policy boundary above.
+
+## Phase 05 implementation status
+
+The first integrated CLM workflow adds a staged registry path that stops at validated
+canonical evidence, while preserving the original Phase 01 onboarding API as the same
+staged intake plus the existing Mock GoldTier sequence. Existing document and ownership
+APIs remain the source of truth for their records.
+
+A source-neutral orchestration aggregate evaluates current registry, document,
+ownership, and Mock GoldTier readiness with typed blockers and separate real-integration
+warnings. It requires a fully reviewed registry-compatible document and terminal
+`ANALYZED` ownership result under the project-defined provisional Phase 05 policy.
+Document corrections/rejections that conflict with ACRA do not overwrite canonical
+data and route to `SOURCE_CONFLICT_REQUIRES_POLICY` pending Q-005/Q-014.
+
+Submission revalidates current evidence server-side, creates a minimized immutable
+snapshot, and serializes the accepted Mock search/conditional-shell/policy/amend path.
+Duplicate/concurrent requests do not duplicate business operations. Related-party
+preparation is reported as pending Q-006/Q-007 and performs no write.
+
+Phase 05 quality-gate remediation now reuses one canonical minimum validator during
+onboarding, readiness, and final pre-submit evaluation; compares reviewed document
+evidence with the current canonical entity; makes the frozen snapshot the exact target
+mapper input; and records a minimal safe process-local target outcome before fallible
+rich receipt/result/error mapping so post-target finalization can be retried without
+duplicate Mock operations. The frontend immediately
+invalidates stale readiness after document/ownership mutation and refetches the backend
+summary. These are technical integrity controls and do not change the provisional
+sponsor-policy boundary.
+
+The integrated success status is `MOCK_GOLDTIER_SUBMITTED`. It is not legal/compliance
+approval, production GoldTier acceptance, or Ready-for-Approval. Live ACRA remains
+blocked by Q-012; live hierarchy by Q-002; sponsor IDP/UBO policies remain unconfirmed;
+and real GoldTier/PingFed remains not ready.

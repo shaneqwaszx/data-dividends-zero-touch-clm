@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
 from typing import Never, Protocol
 from unicodedata import category
@@ -104,6 +105,24 @@ class DocumentProcessingService:
         content_type: str,
         content: bytes,
         provider: IdpProvider | None = None,
+    ) -> DocumentProcessingRecord:
+        with self._case_lock(case_id):
+            return self._create_document_locked(
+                case_id=case_id,
+                display_name=display_name,
+                content_type=content_type,
+                content=content,
+                provider=provider,
+            )
+
+    def _create_document_locked(
+        self,
+        *,
+        case_id: UUID,
+        display_name: str,
+        content_type: str,
+        content: bytes,
+        provider: IdpProvider | None,
     ) -> DocumentProcessingRecord:
         self.validate_upload_metadata(
             case_id=case_id,
@@ -256,6 +275,26 @@ class DocumentProcessingService:
         corrected_value: str | None = None,
         note: str | None = None,
     ) -> DocumentProcessingRecord:
+        with self._case_lock(case_id):
+            return self._review_field_locked(
+                case_id=case_id,
+                document_id=document_id,
+                field_key=field_key,
+                decision=decision,
+                corrected_value=corrected_value,
+                note=note,
+            )
+
+    def _review_field_locked(
+        self,
+        *,
+        case_id: UUID,
+        document_id: UUID,
+        field_key: DocumentFieldKey,
+        decision: ReviewDecision,
+        corrected_value: str | None,
+        note: str | None,
+    ) -> DocumentProcessingRecord:
         record = self.get_document(case_id=case_id, document_id=document_id)
         if record is None:
             raise DocumentRequestError(
@@ -335,6 +374,10 @@ class DocumentProcessingService:
                 code="DOCUMENT_REVIEW_COMPLETED",
             )
         return record.model_copy(deep=True)
+
+    def _case_lock(self, case_id: UUID) -> AbstractContextManager[object]:
+        lock_factory = getattr(self._cases, "case_lock", None)
+        return lock_factory(case_id) if callable(lock_factory) else nullcontext()
 
     def _build_field(
         self,

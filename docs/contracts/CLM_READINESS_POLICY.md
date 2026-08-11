@@ -1,0 +1,85 @@
+# Phase 05 CLM Readiness Policy
+
+## Status and claim boundary
+
+This policy governs credential-free Phase 05 Mock submission only. It is not a legal,
+compliance, customer-approval, production GoldTier, or four-eye policy. The integrated
+sequence is a **PROJECT-DEFINED / PROVISIONAL** POC decision pending Q-003, Q-004,
+Q-005, Q-006, Q-007, Q-013, and Q-014 where noted.
+
+`READY_FOR_MOCK_SUBMISSION` means only that the deterministic local Phase 05
+prerequisites are satisfied. `MOCK_GOLDTIER_SUBMITTED` means only that the accepted
+Mock base operations completed. Neither status is Ready-for-Approval.
+
+## Evidence classification
+
+| Policy area | Rule | Classification |
+|---|---|---|
+| Registry scope | ACRA is the POC corporate registry and canonical business source. | **SPONSOR-CONFIRMED** (D-001/D-002) |
+| Registry prerequisite | A staged case must have a current canonical entity that passes the shared source-neutral canonical minimum validator on every evaluation and immediately before snapshot creation; historical `VALIDATED` state alone is insufficient. | **PROJECT-CONFIRMED TECHNICAL CONTROL** applying the accepted Phase 01/02 provisional minimums |
+| Document prerequisite | At least one document is `REVIEWED`; none may be `PROCESSING`, `REVIEW_REQUIRED`, or `FAILED`. | **PROJECT-DEFINED / PROVISIONAL**, pending Q-003/Q-005/Q-014 |
+| Document agreement | Every human-reviewed retained value must deterministically agree with the current canonical registry value for automatic Mock submission. Original extraction and the canonical value captured during Phase 03 remain immutable historical evidence. | **PROJECT-DEFINED / PROVISIONAL** conservative rule |
+| Source conflict | A rejected value, accepted mismatch, or correction that does not agree with canonical ACRA data yields `SOURCE_CONFLICT_REQUIRES_POLICY`; canonical data is not overwritten. | **PROJECT-DEFINED / PROVISIONAL** containment pending Q-005/Q-014 |
+| Ownership prerequisite | The latest case-linked Phase 04 analysis must be `ANALYZED`. `REVIEW_REQUIRED`, `FAILED`, unloaded, loading, loaded-only, or analyzing results block. | **PROJECT-DEFINED / PROVISIONAL** sequencing |
+| Ownership calculation | Decimal path calculation and the configured Phase 04 threshold are used as supporting provisional evidence only. | Technical calculation is project-confirmed; threshold/legal UBO policy remains **UNRESOLVED** under Q-004 |
+| Mock GoldTier sequence | Search, shell only on `NO_MATCH`, policy, and amend reuse the accepted Mock behavior. | Mock contract implementation under confirmed/provisional baseline |
+| Related-party write | No related-party payload or write is executed. | **UNRESOLVED** under Q-006/Q-007; `PENDING_SPONSOR_CONFIRMATION` |
+| Real integration | Real GoldTier/PingFed, live hierarchy, and approval transition remain unavailable. | **UNRESOLVED / BLOCKED** under Q-001/Q-002/Q-008 and environment dependencies |
+
+## Lifecycle
+
+| Status | Meaning |
+|---|---|
+| `COLLECTING_EVIDENCE` | Required local evidence is missing or still in a nonterminal collection/analysis state. |
+| `REVIEW_REQUIRED` | Registry, document, ownership, source-conflict, or Mock target outcome needs a human/policy decision. |
+| `READY_FOR_MOCK_SUBMISSION` | Current authoritative local evidence satisfies this policy. |
+| `SUBMITTING` | One serialized Mock base submission owns the case transition. |
+| `MOCK_GOLDTIER_SUBMITTED` | The accepted Mock search/shell/policy/amend base path completed. |
+| `FAILED` | Registry intake or Mock submission reached a safe terminal failure. |
+
+## Typed Mock-submission blockers
+
+| Code | Meaning |
+|---|---|
+| `REGISTRY_NOT_READY` | Canonical registry evidence requires review or is incomplete. |
+| `REGISTRY_FAILED` | Registry intake failed. |
+| `CANONICAL_DATA_INVALID` | The current canonical entity no longer satisfies the shared minimum validation rules. |
+| `DOCUMENT_REQUIRED` | No case-linked document exists. |
+| `DOCUMENT_PROCESSING` | A case-linked document is still processing. |
+| `DOCUMENT_REVIEW_INCOMPLETE` | No reviewed document exists or a review remains unresolved. |
+| `DOCUMENT_PROCESSING_FAILED` | A document processing record failed. |
+| `SOURCE_CONFLICT_REQUIRES_POLICY` | Reviewed document evidence conflicts with canonical ACRA data. |
+| `OWNERSHIP_REQUIRED` | No case-linked ownership record exists. |
+| `OWNERSHIP_ANALYSIS_INCOMPLETE` | Ownership has not reached a supported terminal analyzed state. |
+| `OWNERSHIP_REVIEW_REQUIRED` | Cycle, incomplete chain, graph limit, or another issue makes ownership indeterminate. |
+| `OWNERSHIP_ANALYSIS_FAILED` | Ownership processing failed. |
+
+All applicable blockers are returned together. A valid candidate on one ownership path
+does not cancel a graph-wide cycle, incompleteness, or limit issue.
+
+## Real-integration warnings
+
+- `IDP_PROFILE_PROVISIONAL`
+- `UBO_POLICY_NOT_SPONSOR_CONFIRMED`
+- `LIVE_HIERARCHY_UNAVAILABLE`
+- `RELATED_PARTY_MAPPING_PENDING`
+- `REAL_GOLDTIER_NOT_CONFIGURED`
+- `READY_FOR_APPROVAL_UNAVAILABLE`
+
+These do not block a bounded Mock happy path, but remain visible and distinct.
+
+## Stale-readiness and finality policy
+
+The server ignores client-authored readiness. Submission re-reads the current case,
+document, and ownership records inside a per-case serialized boundary and re-runs the
+shared canonical validator. It creates the immutable minimized snapshot only after that
+revalidation. An earlier ready evaluation or historical `VALIDATED` state cannot
+authorize submission after evidence changes.
+
+One process-local case lock permits one accepted Mock execution. The snapshot is the
+mapper input. A minimal safe target outcome is retained before fallible rich receipt or
+CLM terminal translation, allowing duplicate, simultaneous, or recovery requests to
+finalize the existing submission without repeating business operations. Repository
+versions prevent stale orchestration writes. This is process-local Mock idempotency;
+durable or multi-process deployment still requires transactional/distributed
+equivalents.
