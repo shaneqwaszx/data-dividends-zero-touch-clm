@@ -2,8 +2,10 @@ import type {
   DocumentProcessingRecord,
   DocumentFieldKey,
   MockIdpScenario,
+  MockOwnershipScenario,
   MockScenarioDiscovery,
   OnboardingCase,
+  OwnershipAnalysisRecord,
   ReviewDecision,
 } from "./types";
 
@@ -79,4 +81,34 @@ export async function reviewDocument(
     },
   );
   return parseResponse<DocumentProcessingRecord>(response);
+}
+
+export async function fetchOwnership(
+  caseId: string,
+): Promise<OwnershipAnalysisRecord | null> {
+  const response = await fetch(`${API_BASE_URL}/api/onboarding/cases/${caseId}/ownership`);
+  if (response.status === 404) return null;
+  return parseResponse<OwnershipAnalysisRecord>(response);
+}
+
+export async function loadMockOwnership(
+  caseId: string,
+  scenario: MockOwnershipScenario,
+): Promise<OwnershipAnalysisRecord> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/demo/onboarding/cases/${caseId}/ownership/load`,
+    {
+      method: "POST",
+      headers: { "X-Mock-Ownership-Scenario": scenario },
+    },
+  );
+  return parseResponse<OwnershipAnalysisRecord>(response);
+}
+
+export async function analyzeOwnership(caseId: string): Promise<OwnershipAnalysisRecord> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/onboarding/cases/${caseId}/ownership/analyze`,
+    { method: "POST" },
+  );
+  return parseResponse<OwnershipAnalysisRecord>(response);
 }

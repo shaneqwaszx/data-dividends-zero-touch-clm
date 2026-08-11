@@ -1,5 +1,6 @@
 """Scenario catalogue kept outside corporate-registry connector protocols."""
 
+from decimal import Decimal
 from typing import Literal, Protocol
 
 from pydantic import BaseModel
@@ -30,6 +31,9 @@ class SimulationProfile(BaseModel):
     idp_system: Literal["IDP"] = "IDP"
     idp_environment: Literal["MOCK"] = "MOCK"
     idp_review_confidence_threshold: float = 0.85
+    ownership_system: Literal["OWNERSHIP_PROVIDER"] = "OWNERSHIP_PROVIDER"
+    ownership_environment: Literal["MOCK"] = "MOCK"
+    ubo_ownership_threshold_percent: Decimal = Decimal("25")
 
 
 class MockScenarioDiscovery(BaseModel):

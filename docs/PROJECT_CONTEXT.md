@@ -124,3 +124,31 @@ The accepted-upload failure boundary covers all processing work through
 `REVIEW_REQUIRED`. Recoverable provider, comparison, provenance/model, clock, and
 repository-update failures persist one safe terminal failure without changing the
 parent case or invoking downstream operations.
+
+## Phase 04 implementation status
+
+The ownership foundation attaches a separate process-local analysis record to an
+existing case and consumes a replaceable `OwnershipProvider`. The default Mock provider
+is credential-free/network-free and supplies seven explicit fictional scenarios.
+Generic provider, source, graph, service, domain, and API contracts contain no Mock
+scenario.
+
+Direct and indirect ownership paths use bounded iterative traversal and Decimal
+arithmetic; unique paths aggregate once and retain deterministic edge/calculation
+evidence. The configurable default `25%` inclusive threshold, graph limits, and
+cycle/incomplete handling are project-defined and provisional pending Q-004. Cyclic,
+incomplete, or calculation-limit data routes to review without a definitive candidate;
+malformed/unsafe data terminalizes to retrievable sanitized `FAILED`.
+
+The ownership sub-workflow never mutates the canonical ACRA entity, onboarding state, or
+Phase 03 document records and makes no ACRA/GoldTier call. Q-002/Q-004/Q-006/Q-007 still
+block live hierarchy binding, sponsor-approved UBO policy, related-party writes, and
+final Singapore mappings.
+
+Phase 04 quality-gate remediation additionally rejects natural-person owned-parent
+edges, reconstructs all provider output into fresh nested trusted models, retains only
+opaque server-side source references, minimizes browser provenance, protects terminal
+records with atomic expected-version writes, uses bounded digest path IDs, validates the
+shared six-decimal threshold contract at configuration time, and renders exact Decimal
+strings without JavaScript numeric rounding. These are technical controls and do not
+change the provisional sponsor-policy boundary above.

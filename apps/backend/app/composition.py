@@ -1,4 +1,4 @@
-"""Side-effect-free connector and service composition through Phase 03."""
+"""Side-effect-free connector and service composition through Phase 04."""
 
 from app.config import Settings, get_settings
 from app.connectors.acra import AcraConnector
@@ -16,7 +16,9 @@ from app.connectors.errors import AcraConfigurationError
 from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.mock_idp import MockIdpProvider
+from app.connectors.mock_ownership import MockOwnershipProvider
 from app.demo.idp_control import MockIdpDemoControl
+from app.demo.ownership_control import MockOwnershipDemoControl
 from app.demo.scenarios import (
     MockScenarioCatalogue,
     Phase01MockScenarioCatalogue,
@@ -24,6 +26,8 @@ from app.demo.scenarios import (
 from app.services.document_processing import DocumentProcessingService
 from app.services.document_repository import InMemoryDocumentProcessingRepository
 from app.services.onboarding import OnboardingService
+from app.services.ownership_analysis import OwnershipAnalysisService
+from app.services.ownership_repository import InMemoryOwnershipAnalysisRepository
 from app.services.repository import InMemoryOnboardingCaseRepository
 
 
@@ -108,3 +112,28 @@ def build_mock_idp_demo_control() -> MockIdpDemoControl:
     """Build the dedicated Mock-only UI scenario control."""
 
     return MockIdpDemoControl()
+
+
+def build_ownership_analysis_service(
+    onboarding_service: OnboardingService,
+    settings: Settings,
+) -> OwnershipAnalysisService:
+    """Compose the credential-free provider-neutral ownership boundary."""
+
+    return OwnershipAnalysisService(
+        cases=onboarding_service,
+        provider=MockOwnershipProvider(),
+        repository=InMemoryOwnershipAnalysisRepository(),
+        threshold_percent=settings.ubo_ownership_threshold_percent,
+        max_parties=settings.ownership_max_parties,
+        max_relationships=settings.ownership_max_relationships,
+        max_depth=settings.ownership_max_depth,
+        max_paths_per_candidate=settings.ownership_max_paths_per_candidate,
+        max_total_paths=settings.ownership_max_total_paths,
+    )
+
+
+def build_mock_ownership_demo_control() -> MockOwnershipDemoControl:
+    """Build the dedicated Mock-only ownership scenario control."""
+
+    return MockOwnershipDemoControl()

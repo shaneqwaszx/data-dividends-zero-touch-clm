@@ -1,4 +1,4 @@
-"""FastAPI application and Phase 03 application-facing endpoints."""
+"""FastAPI application and Phase 04 application-facing endpoints."""
 
 from typing import Annotated, Literal
 from uuid import UUID
@@ -9,24 +9,33 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.api_models import DocumentProcessingResponse, OnboardingCaseResponse
+from app.api_models import (
+    DocumentProcessingResponse,
+    OnboardingCaseResponse,
+    OwnershipAnalysisResponse,
+)
 from app.composition import (
     build_acra_connector as build_acra_connector,
 )
 from app.composition import (
     build_document_processing_service,
     build_mock_idp_demo_control,
+    build_mock_ownership_demo_control,
     build_onboarding_service,
+    build_ownership_analysis_service,
 )
 from app.config import Settings, get_settings
 from app.connectors.idp import IdpProvider
+from app.connectors.ownership import OwnershipProvider
 from app.demo.idp_control import MockIdpDemoControl
+from app.demo.ownership_control import MockOwnershipDemoControl
 from app.demo.scenarios import (
     MockScenarioCatalogue,
     MockScenarioDiscovery,
     Phase01MockScenarioCatalogue,
 )
 from app.domain.documents import DocumentFieldKey, ReviewDecision
+from app.domain.ownership import OwnershipCandidate
 from app.services.document_errors import (
     DocumentProcessingInfrastructureError,
     DocumentRequestError,
@@ -34,6 +43,11 @@ from app.services.document_errors import (
 from app.services.document_processing import DocumentProcessingService
 from app.services.errors import OnboardingInfrastructureError
 from app.services.onboarding import OnboardingService
+from app.services.ownership_analysis import OwnershipAnalysisService
+from app.services.ownership_errors import (
+    OwnershipInfrastructureError,
+    OwnershipRequestError,
+)
 
 
 class HealthResponse(BaseModel):
@@ -81,6 +95,16 @@ class DocumentFailureDetail(BaseModel):
     correlation_id: UUID | None = None
 
 
+class OwnershipFailureDetail(BaseModel):
+    """Stable safe detail for ownership request and terminal failures."""
+
+    code: str
+    message: str
+    case_id: UUID | None = None
+    analysis_id: UUID | None = None
+    correlation_id: UUID | None = None
+
+
 class DocumentFieldReviewRequest(BaseModel):
     """Bounded field decision with no caller-asserted reviewer identity."""
 
@@ -97,6 +121,8 @@ def create_app(
     onboarding_service: OnboardingService | None = None,
     document_processing_service: DocumentProcessingService | None = None,
     idp_demo_control: MockIdpDemoControl | None = None,
+    ownership_analysis_service: OwnershipAnalysisService | None = None,
+    ownership_demo_control: MockOwnershipDemoControl | None = None,
     scenario_catalogue: MockScenarioCatalogue | None = None,
 ) -> FastAPI:
     """Build the application with injectable settings for deterministic tests."""
@@ -109,6 +135,10 @@ def create_app(
         service, active_settings
     )
     demo_idp = idp_demo_control or build_mock_idp_demo_control()
+    ownership = ownership_analysis_service or build_ownership_analysis_service(
+        service, active_settings
+    )
+    demo_ownership = ownership_demo_control or build_mock_ownership_demo_control()
 
     @application.exception_handler(RequestValidationError)
     async def safe_request_validation(
@@ -117,11 +147,7 @@ def create_app(
         """Project invalid request data through fixed messages without echoing input."""
 
         if request.url.path.endswith("/reviews"):
-            locations = {
-                str(part)
-                for error in exc.errors()
-                for part in error.get("loc", ())
-            }
+            locations = {str(part) for error in exc.errors() for part in error.get("loc", ())}
             if "field_key" in locations:
                 detail = DocumentFailureDetail(
                     code="DOCUMENT_FIELD_INVALID",
@@ -153,6 +179,33 @@ def create_app(
 
     def get_document_processing_service() -> DocumentProcessingService:
         return documents
+
+    def get_ownership_analysis_service() -> OwnershipAnalysisService:
+        return ownership
+
+    def load_ownership_request(
+        *,
+        case_id: UUID,
+        active_ownership: OwnershipAnalysisService,
+        provider: OwnershipProvider | None,
+    ) -> OwnershipAnalysisResponse:
+        try:
+            record = active_ownership.load(case_id=case_id, provider=provider)
+        except OwnershipRequestError as exc:
+            raise _ownership_http_error(exc) from None
+        except OwnershipInfrastructureError as exc:
+            detail = OwnershipFailureDetail(
+                code=exc.code,
+                message=exc.public_message,
+                case_id=exc.case_id,
+                analysis_id=exc.analysis_id,
+                correlation_id=exc.correlation_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=detail.model_dump(mode="json", exclude_none=True),
+            ) from None
+        return OwnershipAnalysisResponse.from_domain(record)
 
     async def process_document_request(
         *,
@@ -220,7 +273,10 @@ def create_app(
                     update={
                         "idp_review_confidence_threshold": (
                             active_settings.idp_review_confidence_threshold
-                        )
+                        ),
+                        "ubo_ownership_threshold_percent": (
+                            active_settings.ubo_ownership_threshold_percent
+                        ),
                     }
                 )
             }
@@ -265,6 +321,133 @@ def create_app(
         return OnboardingCaseResponse.from_domain(case)
 
     @application.post(
+        "/api/onboarding/cases/{case_id}/ownership/load",
+        response_model=OwnershipAnalysisResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["ownership"],
+    )
+    def load_ownership(
+        case_id: UUID,
+        active_ownership: Annotated[
+            OwnershipAnalysisService, Depends(get_ownership_analysis_service)
+        ],
+    ) -> OwnershipAnalysisResponse:
+        """Generic provider-neutral load using the composed ownership provider."""
+
+        return load_ownership_request(
+            case_id=case_id,
+            active_ownership=active_ownership,
+            provider=None,
+        )
+
+    @application.post(
+        "/api/demo/onboarding/cases/{case_id}/ownership/load",
+        response_model=OwnershipAnalysisResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["demo"],
+    )
+    def load_mock_ownership(
+        case_id: UUID,
+        active_ownership: Annotated[
+            OwnershipAnalysisService, Depends(get_ownership_analysis_service)
+        ],
+        x_mock_ownership_scenario: Annotated[
+            str | None, Header(alias="X-Mock-Ownership-Scenario")
+        ] = None,
+    ) -> OwnershipAnalysisResponse:
+        try:
+            provider = demo_ownership.provider_for(x_mock_ownership_scenario)
+        except ValueError:
+            raise _ownership_http_error(
+                OwnershipRequestError(
+                    code="OWNERSHIP_SCENARIO_INVALID",
+                    message="The Mock ownership scenario is not supported.",
+                )
+            ) from None
+        return load_ownership_request(
+            case_id=case_id,
+            active_ownership=active_ownership,
+            provider=provider,
+        )
+
+    @application.post(
+        "/api/onboarding/cases/{case_id}/ownership/analyze",
+        response_model=OwnershipAnalysisResponse,
+        tags=["ownership"],
+    )
+    def analyze_ownership(
+        case_id: UUID,
+        active_ownership: Annotated[
+            OwnershipAnalysisService, Depends(get_ownership_analysis_service)
+        ],
+    ) -> OwnershipAnalysisResponse:
+        try:
+            record = active_ownership.analyze(case_id=case_id)
+        except OwnershipRequestError as exc:
+            raise _ownership_http_error(exc) from None
+        except OwnershipInfrastructureError as exc:
+            detail = OwnershipFailureDetail(
+                code=exc.code,
+                message=exc.public_message,
+                case_id=exc.case_id,
+                analysis_id=exc.analysis_id,
+                correlation_id=exc.correlation_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=detail.model_dump(mode="json", exclude_none=True),
+            ) from None
+        return OwnershipAnalysisResponse.from_domain(record)
+
+    @application.get(
+        "/api/onboarding/cases/{case_id}/ownership",
+        response_model=OwnershipAnalysisResponse,
+        tags=["ownership"],
+    )
+    def get_ownership(
+        case_id: UUID,
+        active_ownership: Annotated[
+            OwnershipAnalysisService, Depends(get_ownership_analysis_service)
+        ],
+    ) -> OwnershipAnalysisResponse:
+        try:
+            record = active_ownership.get(case_id=case_id)
+        except OwnershipRequestError as exc:
+            raise _ownership_http_error(exc) from None
+        if record is None:
+            raise _ownership_http_error(
+                OwnershipRequestError(
+                    code="OWNERSHIP_NOT_LOADED",
+                    message="Ownership data has not been loaded for this case.",
+                )
+            )
+        return OwnershipAnalysisResponse.from_domain(record)
+
+    @application.get(
+        "/api/onboarding/cases/{case_id}/ubo-candidates",
+        response_model=list[OwnershipCandidate],
+        tags=["ownership"],
+    )
+    def get_ubo_candidates(
+        case_id: UUID,
+        active_ownership: Annotated[
+            OwnershipAnalysisService, Depends(get_ownership_analysis_service)
+        ],
+    ) -> list[OwnershipCandidate]:
+        try:
+            record = active_ownership.get(case_id=case_id)
+        except OwnershipRequestError as exc:
+            raise _ownership_http_error(exc) from None
+        if record is None:
+            raise _ownership_http_error(
+                OwnershipRequestError(
+                    code="OWNERSHIP_NOT_LOADED",
+                    message="Ownership data has not been loaded for this case.",
+                )
+            )
+        return [candidate.model_copy(deep=True) for candidate in record.candidates]
+
+    @application.post(
         "/api/onboarding/cases/{case_id}/documents",
         response_model=DocumentProcessingResponse,
         status_code=status.HTTP_201_CREATED,
@@ -301,9 +484,7 @@ def create_app(
             DocumentProcessingService, Depends(get_document_processing_service)
         ],
         x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
-        x_mock_idp_scenario: Annotated[
-            str | None, Header(alias="X-Mock-IDP-Scenario")
-        ] = None,
+        x_mock_idp_scenario: Annotated[str | None, Header(alias="X-Mock-IDP-Scenario")] = None,
     ) -> DocumentProcessingResponse:
         try:
             provider = demo_idp.provider_for(x_mock_idp_scenario)
@@ -448,6 +629,25 @@ def _document_http_error(exc: DocumentRequestError) -> HTTPException:
     }:
         status_code = status.HTTP_409_CONFLICT
     detail = DocumentFailureDetail(code=exc.code, message=exc.public_message)
+    return HTTPException(
+        status_code=status_code,
+        detail=detail.model_dump(mode="json", exclude_none=True),
+    )
+
+
+def _ownership_http_error(exc: OwnershipRequestError) -> HTTPException:
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    if exc.code in {"ONBOARDING_CASE_NOT_FOUND", "OWNERSHIP_NOT_LOADED"}:
+        status_code = status.HTTP_404_NOT_FOUND
+    elif exc.code in {
+        "OWNERSHIP_ALREADY_LOADED",
+        "OWNERSHIP_NOT_ANALYZABLE",
+        "OWNERSHIP_ROOT_UNAVAILABLE",
+        "OWNERSHIP_LOAD_CONFLICT",
+        "OWNERSHIP_ANALYSIS_CONFLICT",
+    }:
+        status_code = status.HTTP_409_CONFLICT
+    detail = OwnershipFailureDetail(code=exc.code, message=exc.public_message)
     return HTTPException(
         status_code=status_code,
         detail=detail.model_dump(mode="json", exclude_none=True),

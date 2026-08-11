@@ -53,9 +53,12 @@ async def test_mock_scenario_discovery_and_review_response() -> None:
         "target_system": "GOLDTIER",
         "target_environment": "MOCK",
         "idp_system": "IDP",
-        "idp_environment": "MOCK",
-        "idp_review_confidence_threshold": 0.85,
-    }
+            "idp_environment": "MOCK",
+            "idp_review_confidence_threshold": 0.85,
+            "ownership_system": "OWNERSHIP_PROVIDER",
+            "ownership_environment": "MOCK",
+            "ubo_ownership_threshold_percent": "25",
+        }
     assert {scenario["expected_outcome"] for scenario in discovery["scenarios"]} == {
         "COMPLETED",
         "REVIEW_REQUIRED",
