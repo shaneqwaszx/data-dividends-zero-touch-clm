@@ -2,16 +2,19 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import {
   analyzeOwnership,
-  createOnboardingCase,
+  createClmCase,
+  evaluateClmReadiness,
+  fetchClmCase,
   fetchDocuments,
   fetchMockScenarios,
-  fetchOnboardingCase,
   fetchOwnership,
   loadMockOwnership,
   reviewDocument,
+  submitClmCase,
   uploadDocument,
 } from "./api";
 import type {
+  ClmCaseSummary,
   DocumentFieldKey,
   DocumentProcessingRecord,
   MockIdpScenario,
@@ -25,6 +28,19 @@ import type {
 } from "./types";
 
 const DEFAULT_UEN = "202400001A";
+
+export async function runEvidenceMutation<T>(
+  onStart: () => void,
+  operation: () => Promise<T>,
+  onSettled: () => Promise<void>,
+): Promise<T> {
+  onStart();
+  try {
+    return await operation();
+  } finally {
+    await onSettled();
+  }
+}
 
 function formatTimestamp(value: string): string {
   return new Intl.DateTimeFormat("en-SG", {
@@ -270,12 +286,16 @@ export function DocumentReviewSummary({
   );
 }
 
-function DocumentPanel({
+export function DocumentPanel({
   caseData,
   threshold,
+  onMutationStart,
+  onMutationSettled,
 }: {
   caseData: OnboardingCase;
   threshold: number;
+  onMutationStart: () => void;
+  onMutationSettled: () => Promise<void>;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [scenario, setScenario] = useState<MockIdpScenario>("ALL_FIELDS_MATCH");
@@ -308,7 +328,13 @@ function DocumentPanel({
     setIsProcessing(true);
     setDocumentError(null);
     try {
-      replaceDocument(await uploadDocument(caseData.case_id, file, scenario));
+      replaceDocument(
+        await runEvidenceMutation(
+          onMutationStart,
+          () => uploadDocument(caseData.case_id, file, scenario),
+          onMutationSettled,
+        ),
+      );
     } catch (error) {
       setDocumentError(error instanceof Error ? error.message : "Document processing failed.");
       try {
@@ -334,13 +360,18 @@ function DocumentPanel({
     setDocumentError(null);
     try {
       replaceDocument(
-        await reviewDocument(
-          caseData.case_id,
-          activeDocument.document_id,
-          fieldKey,
-          decision,
-          correctedValue,
-          note,
+        await runEvidenceMutation(
+          onMutationStart,
+          () =>
+            reviewDocument(
+              caseData.case_id,
+              activeDocument.document_id,
+              fieldKey,
+              decision,
+              correctedValue,
+              note,
+            ),
+          onMutationSettled,
         ),
       );
     } catch (error) {
@@ -567,12 +598,16 @@ export function OwnershipSummary({ record }: { record: OwnershipAnalysisRecord }
   );
 }
 
-function OwnershipPanel({
+export function OwnershipPanel({
   caseData,
   configuredThreshold,
+  onMutationStart,
+  onMutationSettled,
 }: {
   caseData: OnboardingCase;
   configuredThreshold: string;
+  onMutationStart: () => void;
+  onMutationSettled: () => Promise<void>;
 }) {
   const [scenario, setScenario] = useState<MockOwnershipScenario>("DIRECT_OWNER");
   const [record, setRecord] = useState<OwnershipAnalysisRecord | null>(null);
@@ -597,7 +632,13 @@ function OwnershipPanel({
     setIsBusy(true);
     setOwnershipError(null);
     try {
-      setRecord(await loadMockOwnership(caseData.case_id, scenario));
+      setRecord(
+        await runEvidenceMutation(
+          onMutationStart,
+          () => loadMockOwnership(caseData.case_id, scenario),
+          onMutationSettled,
+        ),
+      );
     } catch (error) {
       setOwnershipError(error instanceof Error ? error.message : "Ownership loading failed.");
       await refreshAfterFailure();
@@ -610,7 +651,13 @@ function OwnershipPanel({
     setIsBusy(true);
     setOwnershipError(null);
     try {
-      setRecord(await analyzeOwnership(caseData.case_id));
+      setRecord(
+        await runEvidenceMutation(
+          onMutationStart,
+          () => analyzeOwnership(caseData.case_id),
+          onMutationSettled,
+        ),
+      );
     } catch (error) {
       setOwnershipError(error instanceof Error ? error.message : "Ownership analysis failed.");
       await refreshAfterFailure();
@@ -672,6 +719,161 @@ function OwnershipPanel({
   );
 }
 
+export function ClmJourney({
+  summary,
+  onUpdate,
+  onRefresh,
+}: {
+  summary: ClmCaseSummary;
+  onUpdate?: (summary: ClmCaseSummary) => void;
+  onRefresh?: () => Promise<void>;
+}) {
+  const [isBusy, setIsBusy] = useState(false);
+  const [clmError, setClmError] = useState<string | null>(null);
+  const stages = [
+    ["Registry", summary.readiness.registry.status],
+    ["Document Review", summary.readiness.document.status],
+    ["Ownership & UBO", summary.readiness.ownership.status],
+    ["Readiness", summary.status],
+    ["Mock GoldTier", summary.readiness.goldtier.status],
+  ];
+
+  async function run(
+    operation: () => Promise<ClmCaseSummary>,
+    refreshOnError = false,
+  ) {
+    setIsBusy(true);
+    setClmError(null);
+    try {
+      onUpdate?.(await operation());
+    } catch (error) {
+      setClmError(error instanceof Error ? error.message : "CLM operation failed.");
+      if (refreshOnError) await onRefresh?.();
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  return (
+    <section className="clm-card" aria-labelledby="clm-heading">
+      <div className="clm-heading">
+        <div>
+          <p className="section-label">Phase 05 integrated orchestration</p>
+          <h2 id="clm-heading">Unified CLM journey</h2>
+          <p>
+            Backend readiness is authoritative and is revalidated immediately before
+            the serialized Mock GoldTier submission.
+          </p>
+        </div>
+        <strong className={`clm-overall clm-overall--${summary.status}`}>
+          {summary.status}
+        </strong>
+      </div>
+
+      <ol className="clm-stepper" aria-label="CLM stages">
+        {stages.map(([label, stageStatus], index) => (
+          <li key={label} data-stage-status={stageStatus}>
+            <span>{index + 1}</span>
+            <div><strong>{label}</strong><small>{stageStatus}</small></div>
+          </li>
+        ))}
+      </ol>
+
+      <div className="clm-grid">
+        <article>
+          <h3>Mock-submission blockers</h3>
+          {summary.readiness.blockers.length ? (
+            <ul className="clm-list clm-list--blockers">
+              {summary.readiness.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+            </ul>
+          ) : <p className="ready-copy">No current Mock-submission blockers.</p>}
+        </article>
+        <article>
+          <h3>Real-integration warnings</h3>
+          <ul className="clm-list clm-list--warnings">
+            {summary.readiness.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        </article>
+      </div>
+
+      <article className="submission-plan">
+        <div>
+          <p className="section-label">Safe pre-submission plan</p>
+          <h3>GoldTier base operations · {summary.submission_plan.environment}</h3>
+        </div>
+        <ol>
+          {summary.submission_plan.base_operations.map((operation) => (
+            <li key={operation}>{operation}</li>
+          ))}
+        </ol>
+        <dl>
+          <div><dt>Existing match</dt><dd>{summary.submission_plan.match_found_behavior}</dd></div>
+          <div><dt>Related-party integration</dt><dd>{summary.submission_plan.related_party_integration}</dd></div>
+          <div><dt>Real approval transition</dt><dd>{summary.submission_plan.real_ready_for_approval}</dd></div>
+        </dl>
+      </article>
+
+      <div className="clm-actions">
+        <button
+          className="button-secondary"
+          type="button"
+          disabled={isBusy || summary.submission !== null}
+          onClick={() => void run(() => evaluateClmReadiness(summary.case.case_id))}
+        >
+          {isBusy ? "Checking authoritative evidence..." : "Evaluate current readiness"}
+        </button>
+        <button
+          type="button"
+          disabled={isBusy || summary.status !== "READY_FOR_MOCK_SUBMISSION"}
+          onClick={() =>
+            void run(() => submitClmCase(summary.case.case_id), true)
+          }
+        >
+          {summary.status === "MOCK_GOLDTIER_SUBMITTED"
+            ? "Mock GoldTier submitted"
+            : "Submit to Mock GoldTier"}
+        </button>
+      </div>
+
+      {clmError && <div className="request-error" role="alert">{clmError}</div>}
+      {summary.submission && (
+        <div className="mock-submission-result" role="status">
+          <strong>{summary.status}</strong>
+          <span>Submission {summary.submission.submission_id}</span>
+          <span>{summary.submission.document_reference_count} reviewed document reference(s)</span>
+          <span>
+            Related-party write: {summary.related_party_preparation?.write_status ?? "NOT_PREPARED"}
+          </span>
+        </div>
+      )}
+
+      <article className="clm-timeline">
+        <h3>Unified safe timeline</h3>
+        <ol>
+          {summary.timeline.map((event) => (
+            <li key={event.sequence}>
+              <strong>{event.event_type}</strong>
+              <span>{event.status}</span>
+              <p>{event.message}</p>
+            </li>
+          ))}
+        </ol>
+      </article>
+    </section>
+  );
+}
+
+export function ClmRefreshingState() {
+  return (
+    <section className="clm-card" aria-live="polite" aria-label="CLM readiness refresh">
+      <p className="section-label">Phase 05 integrated orchestration</p>
+      <h2>Refreshing authoritative CLM readiness</h2>
+      <p>Evidence changed. Submission remains disabled until the backend summary returns.</p>
+      <button type="button" disabled>Submit to Mock GoldTier</button>
+    </section>
+  );
+}
+
 export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
   const terminalTone =
     caseData.state === "COMPLETED"
@@ -689,9 +891,8 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
         <strong>{caseData.state}</strong>
       </div>
       <p className="completion-boundary">
-        This state covers the accepted registry and Mock GoldTier stages only. It does not
-        include document review or Ready-for-Approval.
-        Ownership analysis is an independent provisional sub-workflow.
+        This underlying case state is not an approval claim. Phase 05 readiness and Mock
+        GoldTier submission are reported separately by the unified orchestration summary.
       </p>
 
       <div className="panel-grid">
@@ -767,6 +968,8 @@ export default function App() {
   const [scenarios, setScenarios] = useState<MockScenario[]>([]);
   const [simulationProfile, setSimulationProfile] = useState<SimulationProfile | null>(null);
   const [caseData, setCaseData] = useState<OnboardingCase | null>(null);
+  const [clmSummary, setClmSummary] = useState<ClmCaseSummary | null>(null);
+  const [isClmRefreshing, setIsClmRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
 
@@ -784,8 +987,11 @@ export default function App() {
     setIsSubmitting(true);
     setRequestError(null);
     setCaseData(null);
+    setClmSummary(null);
     try {
-      setCaseData(await createOnboardingCase(uen));
+      const created = await createClmCase(uen);
+      setClmSummary(created);
+      setCaseData(created.case);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Unable to start onboarding.");
     } finally {
@@ -798,8 +1004,11 @@ export default function App() {
     setIsSubmitting(true);
     setRequestError(null);
     setCaseData(null);
+    setClmSummary(null);
     try {
-      setCaseData(await fetchOnboardingCase(caseId.trim()));
+      const opened = await fetchClmCase(caseId.trim());
+      setClmSummary(opened);
+      setCaseData(opened.case);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Unable to open the case.");
     } finally {
@@ -807,22 +1016,42 @@ export default function App() {
     }
   }
 
+  function invalidateClmReadiness() {
+    setClmSummary(null);
+    setIsClmRefreshing(true);
+  }
+
+  async function refreshClmSummary() {
+    if (!caseData) return;
+    setClmSummary(null);
+    setIsClmRefreshing(true);
+    try {
+      const refreshed = await fetchClmCase(caseData.case_id);
+      setClmSummary(refreshed);
+      setCaseData(refreshed.case);
+    } catch {
+      setRequestError("Authoritative CLM readiness could not be refreshed.");
+    } finally {
+      setIsClmRefreshing(false);
+    }
+  }
+
   return (
     <main className="page-shell">
       <header className="hero">
         <SimulationBanner profile={simulationProfile} />
-        <p className="eyebrow">Data Dividends | Phase 04</p>
-        <h1>Singapore onboarding, with explainable ownership.</h1>
+        <p className="eyebrow">Data Dividends | Phase 05</p>
+        <h1>One coherent, evidence-led CLM journey.</h1>
         <p className="summary">
-          Open a case, review document candidates, map fictional related parties, and inspect
-          deterministic ownership-only provisional UBO calculations.
+          Stage registry intake, review synthetic document evidence, analyze ownership,
+          evaluate typed blockers, and submit an eligible case to Mock GoldTier.
         </p>
       </header>
 
       <section className="launch-card" aria-labelledby="launch-heading">
         <div>
           <p className="section-label">Case access</p>
-          <h2 id="launch-heading">Start or reopen an onboarding case</h2>
+          <h2 id="launch-heading">Start or reopen a staged CLM case</h2>
           <p>All demo data is synthetic. Existing cases remain process-local.</p>
         </div>
         <div className="case-access-forms">
@@ -869,6 +1098,8 @@ export default function App() {
             key={caseData.case_id}
             caseData={caseData}
             threshold={simulationProfile?.idp_review_confidence_threshold ?? 0.85}
+            onMutationStart={invalidateClmReadiness}
+            onMutationSettled={refreshClmSummary}
           />
           <OwnershipPanel
             key={`ownership-${caseData.case_id}`}
@@ -876,7 +1107,21 @@ export default function App() {
             configuredThreshold={
               simulationProfile?.ubo_ownership_threshold_percent ?? "25"
             }
+            onMutationStart={invalidateClmReadiness}
+            onMutationSettled={refreshClmSummary}
           />
+          {isClmRefreshing ? (
+            <ClmRefreshingState />
+          ) : clmSummary && (
+            <ClmJourney
+              summary={clmSummary}
+              onRefresh={refreshClmSummary}
+              onUpdate={(updated) => {
+                setClmSummary(updated);
+                setCaseData(updated.case);
+              }}
+            />
+          )}
         </>
       )}
     </main>

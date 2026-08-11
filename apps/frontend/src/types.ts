@@ -295,3 +295,93 @@ export interface OwnershipAnalysisRecord {
   analyzed_at: string | null;
   updated_at: string;
 }
+
+export type ClmStatus =
+  | "COLLECTING_EVIDENCE"
+  | "REVIEW_REQUIRED"
+  | "READY_FOR_MOCK_SUBMISSION"
+  | "SUBMITTING"
+  | "MOCK_GOLDTIER_SUBMITTED"
+  | "FAILED";
+
+export type ReadinessStageStatus =
+  | "READY"
+  | "MISSING"
+  | "IN_PROGRESS"
+  | "REVIEW_REQUIRED"
+  | "FAILED"
+  | "BLOCKED"
+  | "NOT_SUBMITTED"
+  | "SUBMITTED";
+
+export interface ClmStageReadiness {
+  status: ReadinessStageStatus;
+  reference_id: string | null;
+}
+
+export interface GoldTierSubmissionPlan {
+  environment: "MOCK";
+  base_operations: string[];
+  match_found_behavior: "REVIEW_REQUIRED_NO_WRITES";
+  related_party_integration: "PENDING_SPONSOR_CONFIRMATION";
+  real_ready_for_approval: "NOT_AVAILABLE";
+}
+
+export interface ClmCaseSummary {
+  case: OnboardingCase;
+  orchestration_id: string;
+  correlation_id: string;
+  version: number;
+  status: ClmStatus;
+  readiness: {
+    policy_version: string;
+    registry: ClmStageReadiness;
+    document: ClmStageReadiness;
+    ownership: ClmStageReadiness;
+    goldtier: ClmStageReadiness;
+    blockers: string[];
+    warnings: string[];
+    evaluated_at: string;
+  };
+  submission_plan: GoldTierSubmissionPlan;
+  related_party_preparation: {
+    provisional_candidate_count: number;
+    internal_party_ids: string[];
+    analysis_reference: string;
+    mapping_status: "PENDING_SPONSOR_CONFIRMATION";
+    write_status: "RELATED_PARTY_WRITE_NOT_EXECUTED";
+  } | null;
+  submission: {
+    snapshot_id: string;
+    submission_id: string;
+    created_at: string;
+    readiness_policy_version: string;
+    document_reference_count: number;
+    ownership_reference_id: string;
+  } | null;
+  goldtier_result: OnboardingCase["goldtier_result"];
+  timeline: Array<{
+    sequence: number;
+    event_type:
+      | "CLM_CASE_CREATED"
+      | "REGISTRY_READY"
+      | "CLM_REVIEW_REQUIRED"
+      | "CLM_CASE_FAILED"
+      | "READINESS_EVALUATED"
+      | "MOCK_SUBMISSION_STARTED"
+      | "MOCK_TARGET_EXECUTION_RECORDED"
+      | "MOCK_SUBMISSION_COMPLETED"
+      | "CLM_SUBMISSION_FAILED";
+    status: ClmStatus;
+    outcome: "SUCCEEDED" | "PARTIAL" | "REVIEW_REQUIRED" | "FAILED";
+    timestamp: string;
+    case_id: string;
+    orchestration_id: string;
+    correlation_id: string;
+    code: string | null;
+    message: string;
+  }>;
+  error: { code: string; message: string } | null;
+  created_at: string;
+  updated_at: string;
+}

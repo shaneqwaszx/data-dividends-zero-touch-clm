@@ -3,22 +3,30 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App, {
   CaseSummary,
+  ClmJourney,
+  ClmRefreshingState,
   DocumentReviewSummary,
   OwnershipSummary,
   SimulationBanner,
+  runEvidenceMutation,
 } from "./App";
 import {
   analyzeOwnership,
+  createClmCase,
   createOnboardingCase,
   fetchDocuments,
+  evaluateClmReadiness,
+  fetchClmCase,
   fetchMockScenarios,
   fetchOnboardingCase,
   fetchOwnership,
   loadMockOwnership,
   reviewDocument,
+  submitClmCase,
   uploadDocument,
 } from "./api";
 import type {
+  ClmCaseSummary,
   DocumentProcessingRecord,
   OnboardingCase,
   OwnershipAnalysisRecord,
@@ -277,6 +285,104 @@ const simulation = {
   ubo_ownership_threshold_percent: "25",
 };
 
+function makeClm(
+  status: ClmCaseSummary["status"] = "COLLECTING_EVIDENCE",
+): ClmCaseSummary {
+  const ready = status === "READY_FOR_MOCK_SUBMISSION";
+  const submitted = status === "MOCK_GOLDTIER_SUBMITTED";
+  const caseData = makeCase(submitted ? "GT_ENRICHED" : "VALIDATED");
+  return {
+    case: caseData,
+    orchestration_id: "00000000-0000-4000-8000-000000000030",
+    correlation_id: "00000000-0000-4000-8000-000000000031",
+    version: 4,
+    status,
+    readiness: {
+      policy_version: "PHASE_05_POC_V1",
+      registry: { status: "READY", reference_id: caseData.case_id },
+      document: {
+        status: ready || submitted ? "READY" : "MISSING",
+        reference_id: ready || submitted ? "document-reference" : null,
+      },
+      ownership: {
+        status: ready || submitted ? "READY" : "MISSING",
+        reference_id: ready || submitted ? "ownership-reference" : null,
+      },
+      goldtier: {
+        status: submitted ? "SUBMITTED" : ready ? "READY" : "BLOCKED",
+        reference_id: submitted ? "submission-reference" : null,
+      },
+      blockers: ready || submitted ? [] : ["DOCUMENT_REQUIRED", "OWNERSHIP_REQUIRED"],
+      warnings: [
+        "IDP_PROFILE_PROVISIONAL",
+        "UBO_POLICY_NOT_SPONSOR_CONFIRMED",
+        "LIVE_HIERARCHY_UNAVAILABLE",
+        "RELATED_PARTY_MAPPING_PENDING",
+        "REAL_GOLDTIER_NOT_CONFIGURED",
+        "READY_FOR_APPROVAL_UNAVAILABLE",
+      ],
+      evaluated_at: timestamp,
+    },
+    submission_plan: {
+      environment: "MOCK",
+      base_operations: [
+        "searchParty",
+        "createShellCustomer if NO_MATCH",
+        "createPolicy",
+        "amendParty",
+      ],
+      match_found_behavior: "REVIEW_REQUIRED_NO_WRITES",
+      related_party_integration: "PENDING_SPONSOR_CONFIRMATION",
+      real_ready_for_approval: "NOT_AVAILABLE",
+    },
+    related_party_preparation: submitted
+      ? {
+          provisional_candidate_count: 1,
+          internal_party_ids: ["PERSON_A"],
+          analysis_reference: "00000000-0000-4000-8000-000000000020",
+          mapping_status: "PENDING_SPONSOR_CONFIRMATION",
+          write_status: "RELATED_PARTY_WRITE_NOT_EXECUTED",
+        }
+      : null,
+    submission: submitted
+      ? {
+          snapshot_id: "00000000-0000-4000-8000-000000000040",
+          submission_id: "00000000-0000-4000-8000-000000000041",
+          created_at: timestamp,
+          readiness_policy_version: "PHASE_05_POC_V1",
+          document_reference_count: 1,
+          ownership_reference_id: "00000000-0000-4000-8000-000000000020",
+        }
+      : null,
+    goldtier_result: submitted
+      ? {
+          party_id: "GT-MOCK-SYNTHETIC",
+          shell_status: "SHELL_CREATED",
+          policy_id: "POL-MOCK-SYNTHETIC",
+          policy_status: "POLICY_CREATED",
+          amend_status: "ENRICHED",
+        }
+      : null,
+    timeline: [
+      {
+        sequence: 1,
+        event_type: "CLM_CASE_CREATED",
+        status: "COLLECTING_EVIDENCE",
+        outcome: "SUCCEEDED",
+        timestamp,
+        case_id: caseData.case_id,
+        orchestration_id: "00000000-0000-4000-8000-000000000030",
+        correlation_id: "00000000-0000-4000-8000-000000000031",
+        code: "CLM_CASE_CREATED",
+        message: "Staged CLM orchestration record created.",
+      },
+    ],
+    error: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Phase 04 onboarding, document review, and ownership UI", () => {
@@ -384,7 +490,8 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
   it("renders canonical workflow and truthful completion boundary", () => {
     const markup = renderToStaticMarkup(<CaseSummary caseData={makeCase("COMPLETED")} />);
     expect(markup).toContain("GT-MOCK-00000001");
-    expect(markup).toContain("does not include document review or Ready-for-Approval");
+    expect(markup).toContain("underlying case state is not an approval claim");
+    expect(markup).toContain("unified orchestration summary");
     expect(markup).toContain("18 INNOVATION WAY, #04-01, 018956, SG");
   });
 
@@ -512,5 +619,127 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     expect(reviewMarkup).toContain("calculation is not definitive");
     expect(reviewMarkup).not.toContain("PROVISIONAL_UBO_CANDIDATE");
     expect(failureMarkup).toContain("OWNERSHIP_PROVIDER_FAILED");
+  });
+});
+
+describe("Phase 05 unified CLM journey", () => {
+  it("creates, retrieves, evaluates, and submits through the staged CLM API", async () => {
+    const created = makeClm();
+    const ready = makeClm("READY_FOR_MOCK_SUBMISSION");
+    const submitted = makeClm("MOCK_GOLDTIER_SUBMITTED");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(created), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(created), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(ready), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(submitted), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClmCase("202400001A");
+    await fetchClmCase(created.case.case_id);
+    await evaluateClmReadiness(created.case.case_id);
+    await submitClmCase(created.case.case_id);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/clm/cases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uen: "202400001A" }),
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      `/api/clm/cases/${created.case.case_id}/readiness/evaluate`,
+      { method: "POST" },
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      `/api/clm/cases/${created.case.case_id}/submit`,
+      { method: "POST" },
+    );
+  });
+
+  it("renders all stages, typed blockers, warnings, and a disabled blocked submit", () => {
+    const markup = renderToStaticMarkup(<ClmJourney summary={makeClm()} />);
+    expect(markup).toContain("Unified CLM journey");
+    expect(markup).toContain("Registry");
+    expect(markup).toContain("Document Review");
+    expect(markup).toContain("Ownership &amp; UBO");
+    expect(markup).toContain("Mock GoldTier");
+    expect(markup).toContain("DOCUMENT_REQUIRED");
+    expect(markup).toContain("REAL_GOLDTIER_NOT_CONFIGURED");
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Submit to Mock GoldTier<\/button>/);
+  });
+
+  it("enables submission only for backend-ready status and shows the safe plan", () => {
+    const markup = renderToStaticMarkup(
+      <ClmJourney summary={makeClm("READY_FOR_MOCK_SUBMISSION")} />,
+    );
+    expect(markup).toContain("READY_FOR_MOCK_SUBMISSION");
+    expect(markup).toContain("createShellCustomer if NO_MATCH");
+    expect(markup).toContain("PENDING_SPONSOR_CONFIRMATION");
+    expect(markup).toContain("Real approval transition");
+    expect(markup).toMatch(/<button type="button">Submit to Mock GoldTier<\/button>/);
+  });
+
+  it("shows Mock submission result and related-party write limitation truthfully", () => {
+    const markup = renderToStaticMarkup(
+      <ClmJourney summary={makeClm("MOCK_GOLDTIER_SUBMITTED")} />,
+    );
+    expect(markup).toContain("MOCK_GOLDTIER_SUBMITTED");
+    expect(markup).toContain("RELATED_PARTY_WRITE_NOT_EXECUTED");
+    expect(markup).toContain("1 reviewed document reference(s)");
+    expect(markup).not.toContain("Real GoldTier submitted");
+  });
+
+  it("invalidates ready display immediately during a document mutation", async () => {
+    let release: ((record: DocumentProcessingRecord) => void) | undefined;
+    const operation = new Promise<DocumentProcessingRecord>((resolve) => {
+      release = resolve;
+    });
+    let invalidated = false;
+    let refreshed = false;
+
+    const pending = runEvidenceMutation(
+      () => { invalidated = true; },
+      () => operation,
+      async () => { refreshed = true; },
+    );
+    expect(invalidated).toBe(true);
+    const refreshing = renderToStaticMarkup(<ClmRefreshingState />);
+    expect(refreshing).not.toContain("READY_FOR_MOCK_SUBMISSION");
+    expect(refreshing).toContain("Refreshing authoritative CLM readiness");
+    expect(refreshing).toMatch(/<button[^>]*disabled=""[^>]*>Submit to Mock GoldTier/);
+
+    release?.(makeDocument());
+    await pending;
+    expect(refreshed).toBe(true);
+    const blocked = renderToStaticMarkup(<ClmJourney summary={makeClm()} />);
+    expect(blocked).toContain("DOCUMENT_REQUIRED");
+    expect(blocked).toMatch(/<button[^>]*disabled=""[^>]*>Submit to Mock GoldTier/);
+  });
+
+  it("invalidates ready display immediately during an ownership mutation", async () => {
+    let release: ((record: OwnershipAnalysisRecord) => void) | undefined;
+    const operation = new Promise<OwnershipAnalysisRecord>((resolve) => {
+      release = resolve;
+    });
+    let invalidated = false;
+    let refreshed = false;
+
+    const pending = runEvidenceMutation(
+      () => { invalidated = true; },
+      () => operation,
+      async () => { refreshed = true; },
+    );
+    expect(invalidated).toBe(true);
+    const refreshing = renderToStaticMarkup(<ClmRefreshingState />);
+    expect(refreshing).not.toContain("READY_FOR_MOCK_SUBMISSION");
+    expect(refreshing).toContain("Submission remains disabled");
+
+    release?.(makeOwnership("REVIEW_REQUIRED"));
+    await pending;
+    expect(refreshed).toBe(true);
+    const blocked = renderToStaticMarkup(<ClmJourney summary={makeClm()} />);
+    expect(blocked).toContain("OWNERSHIP_REQUIRED");
+    expect(blocked).toMatch(/<button[^>]*disabled=""[^>]*>Submit to Mock GoldTier/);
   });
 });

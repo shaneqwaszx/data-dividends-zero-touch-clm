@@ -4,11 +4,12 @@ Proof of concept for Delta Capita's Singapore new-to-bank flow:
 
 `ACRA Singapore -> EDS/orchestration layer -> GoldTier -> human review gate`
 
-Phase 04 preserves the runnable onboarding and document-review foundations and adds a
-separate case-linked ownership graph and deterministic ownership-based provisional UBO
-calculation. Mock ACRA, Mock IDP, Mock ownership, and Mock GoldTier remain safe defaults.
-No live hierarchy, sponsor-approved UBO rule, legal controller decision, real GoldTier,
-or Ready-for-Approval interoperability is claimed.
+Phase 05 connects the runnable registry, document-review, and deterministic
+ownership/UBO foundations into a staged five-step CLM journey with backend readiness,
+an immutable submission snapshot, and Mock GoldTier submission. Mock ACRA, Mock IDP,
+Mock ownership, and Mock GoldTier remain safe defaults. No live hierarchy,
+sponsor-approved document/UBO policy, real GoldTier, or Ready-for-Approval
+interoperability is claimed.
 
 ## Repository layout
 
@@ -53,6 +54,11 @@ The backend runs at `http://127.0.0.1:8000` and exposes:
 - `POST /api/onboarding/cases/{case_id}/ownership/analyze`
 - `GET /api/onboarding/cases/{case_id}/ownership`
 - `GET /api/onboarding/cases/{case_id}/ubo-candidates`
+- `POST /api/clm/cases`
+- `GET /api/clm/cases/{case_id}`
+- `POST /api/clm/cases/{case_id}/readiness/evaluate`
+- `GET /api/clm/cases/{case_id}/submission-plan`
+- `POST /api/clm/cases/{case_id}/submit`
 
 Cases are process-local and are cleared when the backend restarts.
 The mock-scenario endpoint returns an object containing the backend simulation profile
@@ -215,6 +221,34 @@ See `docs/architecture/PHASE_04_RELATED_PARTIES_UBO.md` and
 `docs/contracts/OWNERSHIP_UBO_PROFILE.md`. Q-002/Q-004/Q-006/Q-007 still block an
 authoritative hierarchy adapter, sponsor-approved UBO policy, related-party writes, and
 final Singapore mappings.
+
+## Phase 05 staged CLM demo
+
+1. Start the backend and frontend, then create staged case `202400001A` through the UI
+   or `POST /api/clm/cases`.
+2. Upload a synthetic PDF and explicitly review all document fields.
+3. Load and analyze the `DIRECT_OWNER` synthetic ownership scenario.
+4. Evaluate the current backend readiness. The five stages are Registry, Document
+   Review, Ownership & UBO, Readiness, and Mock GoldTier.
+5. When the backend returns `READY_FOR_MOCK_SUBMISSION`, submit once to Mock GoldTier.
+   The happy path runs search, conditional shell creation, policy creation, and amend,
+   then returns `MOCK_GOLDTIER_SUBMITTED` in the unified CLM summary.
+
+Other principal statuses are `COLLECTING_EVIDENCE`, `REVIEW_REQUIRED`, `SUBMITTING`,
+and `FAILED`. Current canonical data and document/ownership evidence are revalidated by
+the backend immediately before submission; React does not decide eligibility. Mock
+submission is snapshot-bound and recoverable after process-local terminal-finalization
+failure without repeating the accepted business sequence.
+
+`MOCK_GOLDTIER_SUBMITTED` means only that credential-free synthetic Mock operations
+completed. It is not real GoldTier interoperability, customer/compliance approval, or
+Ready-for-Approval. Sponsor questions still block the final IDP/readiness and UBO
+policies, live ACRA binding, seeded hierarchy retrieval, related-party writes, PingFed,
+real GoldTier, and the approval transition.
+
+See `docs/architecture/PHASE_05_CLM_ORCHESTRATION.md`,
+`docs/contracts/CLM_READINESS_POLICY.md`, and
+`docs/contracts/GOLDTIER_SUBMISSION_PREPARATION.md` for the detailed boundaries.
 
 ## Optional ACRA sandbox smoke verification
 

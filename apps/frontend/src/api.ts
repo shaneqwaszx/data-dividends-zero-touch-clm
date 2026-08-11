@@ -1,4 +1,5 @@
 import type {
+  ClmCaseSummary,
   DocumentProcessingRecord,
   DocumentFieldKey,
   MockIdpScenario,
@@ -35,6 +36,34 @@ export async function createOnboardingCase(uen: string): Promise<OnboardingCase>
 export async function fetchOnboardingCase(caseId: string): Promise<OnboardingCase> {
   const response = await fetch(`${API_BASE_URL}/api/onboarding/cases/${caseId}`);
   return parseResponse<OnboardingCase>(response);
+}
+
+export async function createClmCase(uen: string): Promise<ClmCaseSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/clm/cases`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ uen }),
+  });
+  return parseResponse<ClmCaseSummary>(response);
+}
+
+export async function fetchClmCase(caseId: string): Promise<ClmCaseSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/clm/cases/${caseId}`);
+  return parseResponse<ClmCaseSummary>(response);
+}
+
+export async function evaluateClmReadiness(caseId: string): Promise<ClmCaseSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/clm/cases/${caseId}/readiness/evaluate`, {
+    method: "POST",
+  });
+  return parseResponse<ClmCaseSummary>(response);
+}
+
+export async function submitClmCase(caseId: string): Promise<ClmCaseSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/clm/cases/${caseId}/submit`, {
+    method: "POST",
+  });
+  return parseResponse<ClmCaseSummary>(response);
 }
 
 export async function fetchDocuments(caseId: string): Promise<DocumentProcessingRecord[]> {

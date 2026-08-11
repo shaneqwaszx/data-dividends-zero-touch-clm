@@ -1,4 +1,4 @@
-"""FastAPI application and Phase 04 application-facing endpoints."""
+"""FastAPI application and Phase 05 application-facing endpoints."""
 
 from typing import Annotated, Literal
 from uuid import UUID
@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api_models import (
+    ClmCaseSummaryResponse,
     DocumentProcessingResponse,
     OnboardingCaseResponse,
     OwnershipAnalysisResponse,
@@ -18,6 +19,7 @@ from app.composition import (
     build_acra_connector as build_acra_connector,
 )
 from app.composition import (
+    build_clm_orchestration_service,
     build_document_processing_service,
     build_mock_idp_demo_control,
     build_mock_ownership_demo_control,
@@ -34,8 +36,11 @@ from app.demo.scenarios import (
     MockScenarioDiscovery,
     Phase01MockScenarioCatalogue,
 )
+from app.domain.clm import GoldTierSubmissionPlan
 from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.ownership import OwnershipCandidate
+from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
+from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.document_errors import (
     DocumentProcessingInfrastructureError,
     DocumentRequestError,
@@ -105,6 +110,16 @@ class OwnershipFailureDetail(BaseModel):
     correlation_id: UUID | None = None
 
 
+class ClmFailureDetail(BaseModel):
+    """Stable CLM error projection without evidence or connector detail."""
+
+    code: str
+    message: str
+    case_id: UUID | None = None
+    orchestration_id: UUID | None = None
+    correlation_id: UUID | None = None
+
+
 class DocumentFieldReviewRequest(BaseModel):
     """Bounded field decision with no caller-asserted reviewer identity."""
 
@@ -123,6 +138,7 @@ def create_app(
     idp_demo_control: MockIdpDemoControl | None = None,
     ownership_analysis_service: OwnershipAnalysisService | None = None,
     ownership_demo_control: MockOwnershipDemoControl | None = None,
+    clm_orchestration_service: ClmOrchestrationService | None = None,
     scenario_catalogue: MockScenarioCatalogue | None = None,
 ) -> FastAPI:
     """Build the application with injectable settings for deterministic tests."""
@@ -139,6 +155,11 @@ def create_app(
         service, active_settings
     )
     demo_ownership = ownership_demo_control or build_mock_ownership_demo_control()
+    clm = clm_orchestration_service or build_clm_orchestration_service(
+        service,
+        documents,
+        ownership,
+    )
 
     @application.exception_handler(RequestValidationError)
     async def safe_request_validation(
@@ -182,6 +203,18 @@ def create_app(
 
     def get_ownership_analysis_service() -> OwnershipAnalysisService:
         return ownership
+
+    def get_clm_orchestration_service() -> ClmOrchestrationService:
+        return clm
+
+    def clm_response(record: object) -> ClmCaseSummaryResponse:
+        from app.domain.clm import ClmOrchestrationRecord
+
+        orchestration = ClmOrchestrationRecord.model_validate(record)
+        case = service.get_case(orchestration.case_id)
+        if case is None:
+            raise HTTPException(status_code=404, detail="CLM case not found")
+        return ClmCaseSummaryResponse.from_domain(orchestration, case)
 
     def load_ownership_request(
         *,
@@ -319,6 +352,116 @@ def create_app(
         if case is None:
             raise HTTPException(status_code=404, detail="Onboarding case not found")
         return OnboardingCaseResponse.from_domain(case)
+
+    @application.post(
+        "/api/clm/cases",
+        response_model=ClmCaseSummaryResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["clm"],
+    )
+    def create_clm_case(
+        request: StartOnboardingRequest,
+        active_clm: Annotated[
+            ClmOrchestrationService, Depends(get_clm_orchestration_service)
+        ],
+    ) -> ClmCaseSummaryResponse:
+        try:
+            return clm_response(active_clm.create_case(request.uen))
+        except ClmInfrastructureError as exc:
+            detail = ClmFailureDetail(
+                code=exc.code,
+                message=exc.public_message,
+                case_id=exc.case_id,
+                orchestration_id=exc.orchestration_id,
+                correlation_id=exc.correlation_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=detail.model_dump(mode="json", exclude_none=True),
+            ) from None
+        except ClmRequestError as exc:
+            raise _clm_http_error(exc) from None
+
+    @application.get(
+        "/api/clm/cases/{case_id}",
+        response_model=ClmCaseSummaryResponse,
+        tags=["clm"],
+    )
+    def get_clm_case(
+        case_id: UUID,
+        active_clm: Annotated[
+            ClmOrchestrationService, Depends(get_clm_orchestration_service)
+        ],
+    ) -> ClmCaseSummaryResponse:
+        record = active_clm.get(case_id=case_id)
+        if record is None:
+            raise _clm_http_error(
+                ClmRequestError(
+                    code="CLM_CASE_NOT_FOUND",
+                    message="The staged CLM case was not found.",
+                )
+            )
+        return clm_response(record)
+
+    @application.post(
+        "/api/clm/cases/{case_id}/readiness/evaluate",
+        response_model=ClmCaseSummaryResponse,
+        tags=["clm"],
+    )
+    def evaluate_clm_readiness(
+        case_id: UUID,
+        active_clm: Annotated[
+            ClmOrchestrationService, Depends(get_clm_orchestration_service)
+        ],
+    ) -> ClmCaseSummaryResponse:
+        try:
+            return clm_response(active_clm.evaluate(case_id=case_id))
+        except ClmRequestError as exc:
+            raise _clm_http_error(exc) from None
+
+    @application.get(
+        "/api/clm/cases/{case_id}/submission-plan",
+        response_model=GoldTierSubmissionPlan,
+        tags=["clm"],
+    )
+    def get_clm_submission_plan(
+        case_id: UUID,
+        active_clm: Annotated[
+            ClmOrchestrationService, Depends(get_clm_orchestration_service)
+        ],
+    ) -> GoldTierSubmissionPlan:
+        try:
+            return active_clm.submission_plan(case_id=case_id)
+        except ClmRequestError as exc:
+            raise _clm_http_error(exc) from None
+
+    @application.post(
+        "/api/clm/cases/{case_id}/submit",
+        response_model=ClmCaseSummaryResponse,
+        tags=["clm"],
+    )
+    def submit_clm_case(
+        case_id: UUID,
+        active_clm: Annotated[
+            ClmOrchestrationService, Depends(get_clm_orchestration_service)
+        ],
+    ) -> ClmCaseSummaryResponse:
+        try:
+            return clm_response(active_clm.submit(case_id=case_id))
+        except ClmRequestError as exc:
+            raise _clm_http_error(exc) from None
+        except ClmInfrastructureError as exc:
+            detail = ClmFailureDetail(
+                code=exc.code,
+                message=exc.public_message,
+                case_id=exc.case_id,
+                orchestration_id=exc.orchestration_id,
+                correlation_id=exc.correlation_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=detail.model_dump(mode="json", exclude_none=True),
+            ) from None
 
     @application.post(
         "/api/onboarding/cases/{case_id}/ownership/load",
@@ -648,6 +791,17 @@ def _ownership_http_error(exc: OwnershipRequestError) -> HTTPException:
     }:
         status_code = status.HTTP_409_CONFLICT
     detail = OwnershipFailureDetail(code=exc.code, message=exc.public_message)
+    return HTTPException(
+        status_code=status_code,
+        detail=detail.model_dump(mode="json", exclude_none=True),
+    )
+
+
+def _clm_http_error(exc: ClmRequestError) -> HTTPException:
+    status_code = status.HTTP_409_CONFLICT
+    if exc.code == "CLM_CASE_NOT_FOUND":
+        status_code = status.HTTP_404_NOT_FOUND
+    detail = ClmFailureDetail(code=exc.code, message=exc.public_message)
     return HTTPException(
         status_code=status_code,
         detail=detail.model_dump(mode="json", exclude_none=True),
