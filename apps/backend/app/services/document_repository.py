@@ -1,5 +1,6 @@
 """Process-local repository for minimum document review records only."""
 
+from threading import Lock
 from typing import Protocol
 from uuid import UUID
 
@@ -19,18 +20,28 @@ class InMemoryDocumentProcessingRepository:
 
     def __init__(self) -> None:
         self._records: dict[UUID, DocumentProcessingRecord] = {}
+        self._insertion_sequence: dict[UUID, int] = {}
+        self._next_sequence = 1
+        self._lock = Lock()
 
     def save(self, record: DocumentProcessingRecord) -> None:
-        self._records[record.document_id] = record.model_copy(deep=True)
+        candidate = record.model_copy(deep=True)
+        with self._lock:
+            if record.document_id not in self._insertion_sequence:
+                self._insertion_sequence[record.document_id] = self._next_sequence
+                self._next_sequence += 1
+            self._records[record.document_id] = candidate
 
     def get(self, document_id: UUID) -> DocumentProcessingRecord | None:
-        record = self._records.get(document_id)
-        return record.model_copy(deep=True) if record is not None else None
+        with self._lock:
+            record = self._records.get(document_id)
+            return record.model_copy(deep=True) if record is not None else None
 
     def list_for_case(self, case_id: UUID) -> list[DocumentProcessingRecord]:
-        records = [
-            record.model_copy(deep=True)
-            for record in self._records.values()
-            if record.case_id == case_id
-        ]
-        return sorted(records, key=lambda item: (item.created_at, str(item.document_id)))
+        with self._lock:
+            records = [
+                (self._insertion_sequence[document_id], record.model_copy(deep=True))
+                for document_id, record in self._records.items()
+                if record.case_id == case_id
+            ]
+        return [record for _, record in sorted(records, key=lambda item: item[0])]

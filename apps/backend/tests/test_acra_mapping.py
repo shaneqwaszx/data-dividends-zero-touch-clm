@@ -1,11 +1,11 @@
 from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
+from pydantic import ValidationError
 
 from app.connectors.acra import AcraAddressPayload, AcraCompanyPayload
 from app.domain.models import SourceEnvironment, SourceSystem
 from app.mappers.acra import map_acra_company
-from app.mappers.errors import MappingError
 
 FIXED_TIME = datetime(2026, 8, 10, 5, 0, tzinfo=UTC)
 
@@ -63,5 +63,5 @@ def test_acra_source_dto_maps_to_source_neutral_canonical_entity() -> None:
     ],
 )
 def test_non_utc_source_timestamp_is_rejected(retrieved_at: datetime) -> None:
-    with pytest.raises(MappingError, match="UTC|timezone-aware"):
-        map_acra_company(source_payload(retrieved_at))
+    with pytest.raises(ValidationError, match="UTC|timezone-aware"):
+        source_payload(retrieved_at)

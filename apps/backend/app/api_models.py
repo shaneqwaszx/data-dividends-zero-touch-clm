@@ -45,6 +45,17 @@ from app.domain.ownership import (
     OwnershipWorkflowEvent,
     Party,
 )
+from app.domain.zero_touch import (
+    AutomationEvent,
+    AutomationMetrics,
+    AutomationStage,
+    AutomationStatus,
+    BusinessExceptionStatus,
+    BusinessExceptionType,
+    ExceptionResolutionAction,
+    SafeExceptionEvidence,
+    ZeroTouchAutomationRecord,
+)
 
 
 class BrowserSourceMetadata(BaseModel):
@@ -271,6 +282,74 @@ class ClmCaseSummaryResponse(BaseModel):
             goldtier_result=record.goldtier_result,
             timeline=record.events,
             error=record.error,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+
+class BusinessExceptionResponse(BaseModel):
+    """Browser-safe exception projection; server authority digests never leave the API."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    exception_id: UUID
+    case_id: UUID
+    exception_type: BusinessExceptionType
+    stage: AutomationStage
+    status: BusinessExceptionStatus
+    blocker_code: str
+    blocker_codes: tuple[str, ...]
+    explanation: str
+    evidence_version: str
+    automation_version: int
+    evidence: tuple[SafeExceptionEvidence, ...]
+    available_actions: tuple[ExceptionResolutionAction, ...]
+    created_at: datetime
+    resolved_at: datetime | None
+    resolution: ExceptionResolutionAction | None
+
+
+class ZeroTouchCaseSummaryResponse(BaseModel):
+    """Sponsor-facing authoritative automation and bounded CLM summary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case: OnboardingCaseResponse
+    clm: ClmCaseSummaryResponse
+    automation_id: UUID
+    version: int
+    status: AutomationStatus
+    current_stage: AutomationStage
+    completed_stages: tuple[AutomationStage, ...]
+    active_exceptions: list[BusinessExceptionResponse]
+    technical_failure: SafeError | None
+    metrics: AutomationMetrics
+    timeline: list[AutomationEvent]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(
+        cls,
+        record: ZeroTouchAutomationRecord,
+        clm_record: ClmOrchestrationRecord,
+        case: OnboardingCase,
+    ) -> "ZeroTouchCaseSummaryResponse":
+        return cls(
+            case=OnboardingCaseResponse.from_domain(case),
+            clm=ClmCaseSummaryResponse.from_domain(clm_record, case),
+            automation_id=record.automation_id,
+            version=record.version,
+            status=record.status,
+            current_stage=record.current_stage,
+            completed_stages=record.completed_stages,
+            active_exceptions=[
+                BusinessExceptionResponse.model_validate(item)
+                for item in record.active_exceptions
+            ],
+            technical_failure=record.technical_failure,
+            metrics=record.metrics,
+            timeline=record.events,
             created_at=record.created_at,
             updated_at=record.updated_at,
         )

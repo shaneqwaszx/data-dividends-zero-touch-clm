@@ -1,18 +1,24 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import {
   analyzeOwnership,
+  ApiError,
+  attachZeroTouchDocument,
   createClmCase,
   evaluateClmReadiness,
   fetchClmCase,
   fetchDocuments,
   fetchMockScenarios,
   fetchOwnership,
+  fetchZeroTouchCase,
   loadMockOwnership,
   reviewDocument,
+  resolveZeroTouchException,
   submitClmCase,
   uploadDocument,
+  createZeroTouchCase,
 } from "./api";
+import { startAutomationPolling } from "./automationPolling";
 import type {
   ClmCaseSummary,
   DocumentFieldKey,
@@ -25,6 +31,10 @@ import type {
   OwnershipCandidate,
   ReviewDecision,
   SimulationProfile,
+  ExceptionResolutionAction,
+  ZeroTouchCaseSummary,
+  ZeroTouchDemoScenario,
+  ZeroTouchException,
 } from "./types";
 
 const DEFAULT_UEN = "202400001A";
@@ -874,6 +884,135 @@ export function ClmRefreshingState() {
   );
 }
 
+const AUTOMATION_STAGES = [
+  ["REGISTRY", "Registry"],
+  ["DOCUMENT", "Document verification"],
+  ["OWNERSHIP", "Ownership & UBO"],
+  ["READINESS", "Readiness"],
+  ["MOCK_GOLDTIER", "Mock GoldTier"],
+] as const;
+
+export function shouldPollAutomation(status: ZeroTouchCaseSummary["status"]): boolean {
+  return status === "RUNNING" || status === "RESUMING";
+}
+
+export function automationStageState(
+  summary: ZeroTouchCaseSummary,
+  stage: (typeof AUTOMATION_STAGES)[number][0],
+): string {
+  if (summary.completed_stages.includes(stage)) return "Completed";
+  if (summary.current_stage !== stage) return "Pending";
+  if (summary.status === "PENDING_INPUTS") return "Awaiting input";
+  if (summary.status === "WAITING_FOR_REVIEW") return "Review required";
+  if (summary.status === "TECHNICAL_FAILURE") return "Failed";
+  if (summary.status === "RESUMING") return "Resuming";
+  if (summary.status === "RECOVERY_PENDING") return "Finalization recovery pending";
+  return "Processing";
+}
+
+export function OnboardingProgress({ summary }: { summary: ZeroTouchCaseSummary }) {
+  return (
+    <section className="automation-card" aria-labelledby="progress-heading" aria-live="polite">
+      <div className="automation-heading">
+        <div>
+          <p className="section-label">Onboarding progress</p>
+          <h2 id="progress-heading">{summary.case.entity?.legal_name ?? summary.case.requested_uen}</h2>
+        </div>
+        <span className={`automation-status automation-status--${summary.status.toLowerCase()}`}>
+          {summary.status.replaceAll("_", " ")}
+        </span>
+      </div>
+      <ol className="automation-steps">
+        {AUTOMATION_STAGES.map(([stage, label]) => {
+          const complete = summary.completed_stages.includes(stage);
+          const current = summary.current_stage === stage;
+          const state = automationStageState(summary, stage);
+          return (
+            <li key={stage} className={complete ? "is-complete" : current ? "is-current" : ""}>
+              <span aria-hidden="true" />
+              <strong>{label}</strong>
+              <small>{state}</small>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="touch-metrics" aria-label="Onboarding metrics">
+        <div><strong>{summary.metrics.automated_stages_completed}</strong><span>Automated stages</span></div>
+        <div><strong>{summary.metrics.human_interventions}</strong><span>Human interventions</span></div>
+        <div><strong>{summary.metrics.exceptions_resolved}</strong><span>Exceptions resolved</span></div>
+        <div>
+          <strong>{summary.metrics.total_duration_ms === null ? "—" : `${summary.metrics.total_duration_ms} ms`}</strong>
+          <span>Local run duration</span>
+        </div>
+      </div>
+      {summary.status === "COMPLETED" && (
+        <div className="automation-complete" role="status">
+          <strong>Mock submission completed</strong>
+          <span>Zero human interventions means deterministic processing only—not approval.</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function HumanReviewPanel({
+  exception,
+  isResolving,
+  onResolve,
+}: {
+  exception: ZeroTouchException;
+  isResolving: boolean;
+  onResolve: (action: ExceptionResolutionAction) => void;
+}) {
+  return (
+    <section className="human-review-card" aria-labelledby="review-required-heading">
+      <p className="section-label">Human review required</p>
+      <h2 id="review-required-heading">{exception.stage.replaceAll("_", " ")}</h2>
+      <strong className="review-reason">{exception.blocker_code.replaceAll("_", " ")}</strong>
+      <p>{exception.explanation}</p>
+      {exception.evidence.map((evidence, index) => (
+        <article className="exception-evidence" key={`${evidence.field_key ?? "evidence"}-${index}`}>
+          <h3>{fieldLabel(evidence.field_key ?? "Evidence")}</h3>
+          <dl>
+            <div><dt>Registry</dt><dd>{evidence.registry_value ?? "Not available"}</dd></div>
+            <div><dt>Document</dt><dd>{evidence.document_value ?? "Not available"}</dd></div>
+            {evidence.confidence !== null && (
+              <div><dt>Confidence</dt><dd>{confidencePercent(evidence.confidence)}</dd></div>
+            )}
+          </dl>
+        </article>
+      ))}
+      <div className="exception-actions">
+        {exception.available_actions.map((action) => (
+          <button key={action} type="button" disabled={isResolving} onClick={() => onResolve(action)}>
+            {action === "KEEP_REGISTRY_VALUE" ? "Keep registry values" : "Request more information"}
+          </button>
+        ))}
+        {exception.available_actions.length === 0 && (
+          <p>Corrected or replacement evidence is required; automatic target replay is disabled.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function AutomationTimeline({ summary }: { summary: ZeroTouchCaseSummary }) {
+  return (
+    <section className="automation-timeline">
+      <p className="section-label">Safe automation history</p>
+      <ol>
+        {summary.timeline.map((event) => (
+          <li key={event.sequence}>
+            <strong>{event.event_type.replaceAll("_", " ")}</strong>
+            <span>{event.message}</span>
+            <time dateTime={event.timestamp}>{formatTimestamp(event.timestamp)}</time>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
   const terminalTone =
     caseData.state === "COMPLETED"
@@ -962,7 +1101,7 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
   );
 }
 
-export default function App() {
+export function LegacyApp() {
   const [uen, setUen] = useState(DEFAULT_UEN);
   const [caseId, setCaseId] = useState("");
   const [scenarios, setScenarios] = useState<MockScenario[]>([]);
@@ -1122,6 +1261,265 @@ export default function App() {
               }}
             />
           )}
+        </>
+      )}
+    </main>
+  );
+}
+
+export interface AppProps {
+  demoControlsEnabled?: boolean;
+}
+
+export default function App({
+  demoControlsEnabled = import.meta.env.VITE_DEMO_CONTROLS_ENABLED === "true",
+}: AppProps = {}) {
+  const [uen, setUen] = useState(DEFAULT_UEN);
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [caseId, setCaseId] = useState("");
+  const [demoScenario, setDemoScenario] = useState<ZeroTouchDemoScenario>("STRAIGHT_THROUGH");
+  const [simulationProfile, setSimulationProfile] = useState<SimulationProfile | null>(null);
+  const [summary, setSummary] = useState<ZeroTouchCaseSummary | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResolving, setIsResolving] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [pollingWarning, setPollingWarning] = useState<string | null>(null);
+  const journeyGeneration = useRef(0);
+  const resolutionActive = useRef(false);
+
+  useEffect(() => {
+    if (!demoControlsEnabled) return;
+    void fetchMockScenarios()
+      .then((discovery) => setSimulationProfile(discovery.simulation))
+      .catch(() => setRequestError("Connector profile discovery is unavailable."));
+  }, [demoControlsEnabled]);
+
+  useEffect(() => {
+    if (!summary || !shouldPollAutomation(summary.status)) return;
+    const generation = journeyGeneration.current;
+    const activeCaseId = summary.case.case_id;
+    return startAutomationPolling({
+      caseId: activeCaseId,
+      generation,
+      currentGeneration: () => journeyGeneration.current,
+      fetchCase: fetchZeroTouchCase,
+      onUpdate: setSummary,
+      onWarning: setPollingWarning,
+      shouldContinue: shouldPollAutomation,
+    });
+  }, [summary?.case.case_id, summary?.status, summary?.version]);
+
+  async function handleStart(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (resolutionActive.current) return;
+    if (!documentFile) {
+      setRequestError("Select the required synthetic PDF before starting onboarding.");
+      return;
+    }
+    setIsSubmitting(true);
+    journeyGeneration.current += 1;
+    setRequestError(null);
+    setSummary(null);
+    let created: ZeroTouchCaseSummary | null = null;
+    try {
+      created = await createZeroTouchCase(
+        uen,
+        demoControlsEnabled ? demoScenario : undefined,
+      );
+      setSummary(created);
+      const completed = await attachZeroTouchDocument(
+        created.case.case_id,
+        documentFile,
+        demoControlsEnabled,
+      );
+      setSummary(completed);
+    } catch (error) {
+      if (created) {
+        try {
+          setSummary(await fetchZeroTouchCase(created.case.case_id));
+        } catch {
+          // The safe original error remains the operator-facing result.
+        }
+      }
+      setRequestError(error instanceof Error ? error.message : "Unable to start onboarding.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleOpenCase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (resolutionActive.current) return;
+    const generation = ++journeyGeneration.current;
+    setIsSubmitting(true);
+    setRequestError(null);
+    setPollingWarning(null);
+    setSummary(null);
+    try {
+      const opened = await fetchZeroTouchCase(caseId.trim());
+      if (generation === journeyGeneration.current) setSummary(opened);
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Unable to open the case.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleResolution(
+    exception: ZeroTouchException,
+    action: ExceptionResolutionAction,
+  ) {
+    if (!summary || resolutionActive.current) return;
+    const generation = journeyGeneration.current;
+    const activeCaseId = summary.case.case_id;
+    resolutionActive.current = true;
+    setIsResolving(true);
+    setRequestError(null);
+    try {
+      const updated = await resolveZeroTouchException(
+        summary,
+        exception.exception_id,
+        action,
+        exception.evidence_version,
+      );
+      if (
+        generation === journeyGeneration.current
+        && activeCaseId === updated.case.case_id
+      ) setSummary(updated);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        try {
+          const refreshed = await fetchZeroTouchCase(activeCaseId);
+          if (generation === journeyGeneration.current) setSummary(refreshed);
+        } catch {
+          // Keep the stable stale-resolution message below.
+        }
+      }
+      if (generation === journeyGeneration.current) {
+        setRequestError(error instanceof Error ? error.message : "Exception resolution failed.");
+      }
+    } finally {
+      resolutionActive.current = false;
+      if (generation === journeyGeneration.current) setIsResolving(false);
+    }
+  }
+
+  return (
+    <main className="page-shell sponsor-shell">
+      <header className="hero sponsor-hero">
+        <SimulationBanner profile={simulationProfile} />
+        <p className="eyebrow">Data Dividends | Corporate onboarding</p>
+        <h1>Onboarding that moves by itself—and pauses when judgment matters.</h1>
+        <p className="summary">
+          Supply the initial registry identity and supporting document once. Deterministic
+          verification, ownership analysis, readiness, and Mock submission then progress
+          automatically.
+        </p>
+      </header>
+
+      <section className="launch-card zero-touch-launch" aria-labelledby="onboarding-heading">
+        <div>
+          <p className="section-label">Corporate onboarding</p>
+          <h2 id="onboarding-heading">Start onboarding</h2>
+          <p>Only fictional, synthetic PDF evidence is permitted in this local POC.</p>
+        </div>
+        <form onSubmit={(event) => void handleStart(event)} className="zero-touch-form">
+          <label htmlFor="zero-touch-uen">Singapore UEN</label>
+          <input
+            id="zero-touch-uen"
+            value={uen}
+            onChange={(event) => setUen(event.target.value.toUpperCase())}
+            maxLength={10}
+            required
+          />
+          <label htmlFor="zero-touch-document">Supporting PDF</label>
+          <input
+            id="zero-touch-document"
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={(event) => setDocumentFile(event.target.files?.[0] ?? null)}
+            required
+          />
+          <button type="submit" disabled={isSubmitting || isResolving}>
+            {isSubmitting ? "Starting onboarding…" : "Start onboarding"}
+          </button>
+        </form>
+        <form onSubmit={(event) => void handleOpenCase(event)} className="reopen-form">
+          <label htmlFor="zero-touch-case-id">Reopen case ID</label>
+          <div className="form-row">
+            <input
+              id="zero-touch-case-id"
+              value={caseId}
+              onChange={(event) => setCaseId(event.target.value)}
+              placeholder="00000000-0000-4000-8000-000000000000"
+              required
+            />
+            <button type="submit" disabled={isSubmitting || isResolving}>Open onboarding</button>
+          </div>
+        </form>
+      </section>
+
+      {demoControlsEnabled && (
+        <details className="demo-controls">
+          <summary>Demo/Test Controls</summary>
+          <p>These deterministic selectors are synthetic and are not part of normal operations.</p>
+          <label htmlFor="zero-touch-scenario">Integrated synthetic scenario</label>
+          <select
+            id="zero-touch-scenario"
+            value={demoScenario}
+            onChange={(event) => setDemoScenario(event.target.value as ZeroTouchDemoScenario)}
+          >
+            <option value="STRAIGHT_THROUGH">Straight through</option>
+            <option value="DOCUMENT_DISCREPANCY">Document discrepancy</option>
+            <option value="LOW_CONFIDENCE_DOCUMENT">Low-confidence document</option>
+            <option value="OWNERSHIP_EXCEPTION">Ownership cycle</option>
+            <option value="OWNERSHIP_INCOMPLETE">Incomplete ownership</option>
+            <option value="EXISTING_PARTY">Existing Mock party</option>
+            <option value="TARGET_FAILURE">Mock target failure</option>
+            <option value="TECHNICAL_FAILURE">IDP technical failure</option>
+          </select>
+          <details className="legacy-controls">
+            <summary>Legacy manual diagnostics</summary>
+            <LegacyApp />
+          </details>
+        </details>
+      )}
+
+      {requestError && <div className="request-error" role="alert">{requestError}</div>}
+      {pollingWarning && <div className="polling-warning" role="status">{pollingWarning}</div>}
+      {summary && (
+        <>
+          <OnboardingProgress summary={summary} />
+          {summary.status === "RESUMING" && (
+            <div className="resuming-banner" role="status">Resuming onboarding…</div>
+          )}
+          {summary.status === "RECOVERY_PENDING" && (
+            <div className="resuming-banner" role="status">
+              Mock target outcome retained; finalization recovery is pending without target replay.
+            </div>
+          )}
+          {summary.status === "WAITING_FOR_REVIEW" && summary.active_exceptions.map((exception) => (
+            <HumanReviewPanel
+              key={exception.exception_id}
+              exception={exception}
+              isResolving={isResolving}
+              onResolve={(action) => void handleResolution(exception, action)}
+            />
+          ))}
+          {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && (
+            <section className="technical-failure-card" role="alert">
+              <p className="section-label">Technical failure</p>
+              <h2>Automation stopped safely</h2>
+              <strong>{summary.technical_failure.code}</strong>
+              <p>{summary.technical_failure.message}</p>
+              <p>No business-review decision is requested for this technical outage.</p>
+            </section>
+          )}
+          <AutomationTimeline summary={summary} />
+          <p className="claim-boundary">
+            Mock and provisional POC only. This is not Ready-for-Approval, legal UBO
+            determination, customer approval, or evidence of live ACRA/GoldTier interoperability.
+          </p>
         </>
       )}
     </main>

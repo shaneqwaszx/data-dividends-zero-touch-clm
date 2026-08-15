@@ -1034,6 +1034,157 @@ dd {
   background: #f8e4dc;
 }
 
+.zero-touch-launch {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.zero-touch-form {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(10rem, 1fr) minmax(14rem, 1.5fr) auto;
+  align-items: end;
+}
+
+.zero-touch-form label {
+  grid-row: 1;
+}
+
+.zero-touch-form input,
+.zero-touch-form button {
+  grid-row: 2;
+}
+
+.reopen-form {
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+
+.automation-card,
+.human-review-card,
+.technical-failure-card,
+.automation-timeline,
+.demo-controls {
+  margin-top: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  background: var(--surface);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.automation-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.automation-status {
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  background: #e8eef3;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.automation-status--completed { background: #d9f4e7; color: #11613d; }
+.automation-status--waiting_for_review { background: #fff0cf; color: #805000; }
+.automation-status--technical_failure { background: #ffe1df; color: #8b2420; }
+.automation-status--running,
+.automation-status--resuming { background: #dfefff; color: #174f80; }
+
+.automation-steps {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.75rem;
+  padding: 0;
+  margin: 1.5rem 0;
+  list-style: none;
+}
+
+.automation-steps li {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: #f6f8fa;
+}
+
+.automation-steps li > span {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: #a4b0ba;
+}
+
+.automation-steps li.is-complete { border-color: #7ec7a2; background: #edf9f3; }
+.automation-steps li.is-complete > span { background: #188653; }
+.automation-steps li.is-current { border-color: #6fa9d8; background: #eef7ff; }
+.automation-steps li.is-current > span { background: #2978b8; }
+.automation-steps small { color: var(--muted); }
+
+.touch-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+
+.touch-metrics div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem;
+  border-radius: 0.8rem;
+  background: #f2f5f7;
+}
+
+.touch-metrics strong { font-size: 1.25rem; }
+.touch-metrics span { color: var(--muted); font-size: 0.8rem; }
+
+.automation-complete,
+.resuming-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 0.85rem;
+  background: #dff5e9;
+  color: #145f3d;
+}
+
+.human-review-card { border-color: #e5ba61; background: #fffaf0; }
+.review-reason { display: block; margin: 0.75rem 0; color: #805000; }
+
+.exception-evidence {
+  margin: 1rem 0;
+  padding: 1rem;
+  border-radius: 0.85rem;
+  background: white;
+  border: 1px solid #ead6aa;
+}
+
+.exception-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.technical-failure-card { border-color: #d78882; background: #fff4f3; }
+
+.automation-timeline ol { display: grid; gap: 0.75rem; padding-left: 1.25rem; }
+.automation-timeline li { padding-left: 0.5rem; }
+.automation-timeline li strong,
+.automation-timeline li span,
+.automation-timeline li time { display: block; }
+.automation-timeline li span { margin: 0.2rem 0; }
+.automation-timeline li time { color: var(--muted); font-size: 0.75rem; }
+
+.demo-controls { border-style: dashed; background: #f6f7f8; }
+.demo-controls > summary,
+.legacy-controls > summary { cursor: pointer; font-weight: 800; }
+.demo-controls select { display: block; margin-top: 0.5rem; }
+.legacy-controls { margin-top: 1rem; }
+.legacy-controls .page-shell { padding: 1rem 0 0; }
+.claim-boundary { color: var(--muted); font-size: 0.85rem; }
+
 @media (max-width: 760px) {
   .launch-card,
   .document-card,
@@ -1047,6 +1198,18 @@ dd {
   .clm-stepper,
   .submission-plan ol {
     grid-template-columns: 1fr;
+  }
+
+  .zero-touch-form,
+  .automation-steps,
+  .touch-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .zero-touch-form label,
+  .zero-touch-form input,
+  .zero-touch-form button {
+    grid-row: auto;
   }
 
   .ownership-row {

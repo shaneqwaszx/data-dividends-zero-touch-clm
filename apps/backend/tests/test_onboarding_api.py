@@ -13,7 +13,7 @@ def anyio_backend() -> str:
 
 @pytest.mark.anyio
 async def test_create_and_retrieve_happy_path_case() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -35,7 +35,7 @@ async def test_create_and_retrieve_happy_path_case() -> None:
 
 @pytest.mark.anyio
 async def test_mock_scenario_discovery_and_review_response() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -70,7 +70,7 @@ async def test_mock_scenario_discovery_and_review_response() -> None:
 
 @pytest.mark.anyio
 async def test_unknown_case_returns_application_404() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -82,7 +82,7 @@ async def test_unknown_case_returns_application_404() -> None:
 
 @pytest.mark.anyio
 async def test_whitespace_only_uen_is_rejected_before_case_creation() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -94,7 +94,7 @@ async def test_whitespace_only_uen_is_rejected_before_case_creation() -> None:
 
 @pytest.mark.anyio
 async def test_padded_lowercase_uen_is_normalized_before_case_creation() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -109,7 +109,7 @@ async def test_padded_lowercase_uen_is_normalized_before_case_creation() -> None
 
 @pytest.mark.anyio
 async def test_well_formed_unknown_uen_is_a_registry_outcome_not_input_error() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

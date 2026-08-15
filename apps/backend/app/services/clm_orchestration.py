@@ -23,12 +23,11 @@ from app.domain.clm import (
     StageReadiness,
 )
 from app.domain.documents import (
+    DocumentAutoClearBlocker,
     DocumentProcessingRecord,
     DocumentProcessingState,
-    FieldReviewStatus,
 )
 from app.domain.models import (
-    CanonicalLegalEntity,
     EventOutcome,
     GoldTierResult,
     OnboardingCase,
@@ -53,8 +52,7 @@ from app.services.clm_repository import (
 )
 from app.services.document_processing import (
     DocumentProcessingService,
-    canonical_value_for_field,
-    compare_values,
+    document_semantic_assessment,
 )
 from app.services.errors import OnboardingInfrastructureError
 from app.services.onboarding import OnboardingService
@@ -276,6 +274,7 @@ class ClmOrchestrationService:
             case=case,
             documents=documents,
             ownership=ownership,
+            document_confidence_threshold=self._documents.review_confidence_threshold,
             now=self._clock(),
         )
         if readiness.blockers:
@@ -445,6 +444,7 @@ class ClmOrchestrationService:
             case=case,
             documents=documents,
             ownership=ownership,
+            document_confidence_threshold=self._documents.review_confidence_threshold,
             now=now or self._clock(),
         )
 
@@ -570,6 +570,7 @@ def _evaluate_readiness(
     case: OnboardingCase,
     documents: list[DocumentProcessingRecord],
     ownership: OwnershipAnalysisRecord | None,
+    document_confidence_threshold: float,
     now: datetime,
 ) -> ClmReadinessAssessment:
     blockers: list[ClmBlockerCode] = []
@@ -608,10 +609,24 @@ def _evaluate_readiness(
         ]
         if not reviewed:
             block(ClmBlockerCode.DOCUMENT_REVIEW_INCOMPLETE)
-        if any(
-            _reviewed_document_conflicts(item, case.entity) for item in reviewed
-        ):
-            block(ClmBlockerCode.SOURCE_CONFLICT_REQUIRES_POLICY)
+        for item in reviewed:
+            assessment = document_semantic_assessment(
+                record=item,
+                current_entity=case.entity,
+                confidence_threshold=document_confidence_threshold,
+            )
+            if DocumentAutoClearBlocker.SOURCE_CONFLICT in assessment.blockers:
+                block(ClmBlockerCode.SOURCE_CONFLICT_REQUIRES_POLICY)
+            if any(
+                blocker
+                in {
+                    DocumentAutoClearBlocker.LOW_CONFIDENCE,
+                    DocumentAutoClearBlocker.REQUIRED_FIELD_MISSING,
+                    DocumentAutoClearBlocker.REVIEW_STATE_INVALID,
+                }
+                for blocker in assessment.blockers
+            ):
+                block(ClmBlockerCode.DOCUMENT_REVIEW_INCOMPLETE)
         document_blockers = {
             ClmBlockerCode.DOCUMENT_PROCESSING,
             ClmBlockerCode.DOCUMENT_REVIEW_INCOMPLETE,
@@ -662,27 +677,6 @@ def _evaluate_readiness(
         warnings=REAL_INTEGRATION_WARNINGS,
         evaluated_at=now,
     )
-
-
-def _reviewed_document_conflicts(
-    document: DocumentProcessingRecord,
-    current_entity: CanonicalLegalEntity | None,
-) -> bool:
-    for field in document.fields:
-        if field.review_status == FieldReviewStatus.REJECTED:
-            return True
-        if field.review_status not in {
-            FieldReviewStatus.ACCEPTED,
-            FieldReviewStatus.CORRECTED,
-        }:
-            return True
-        if compare_values(
-            field.field_key,
-            field.reviewed_value,
-            canonical_value_for_field(current_entity, field.field_key),
-        ).value != "MATCH":
-            return True
-    return False
 
 
 def _status_for_readiness(

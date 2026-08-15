@@ -44,6 +44,10 @@ class MockAcraConnector:
                 "HARBOUR PARTIAL DEMO PTE. LTD.",
                 _address("MOCK QUAY", "049317", "#12-04"),
             ),
+            "202400005E": (
+                "LION CITY EXISTING CUSTOMER PTE. LTD.",
+                _address("CUSTOMER ROAD", "068914", "#05-02"),
+            ),
         }
         fixture = fixtures.get(normalised_uen)
         if fixture is None:

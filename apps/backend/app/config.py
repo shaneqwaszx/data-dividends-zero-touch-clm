@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     goldtier_connector_mode: Literal["mock"] = "mock"
     idp_connector_mode: Literal["mock"] = "mock"
     ownership_connector_mode: Literal["mock"] = "mock"
+    demo_controls_enabled: bool = False
+    zero_touch_max_transitions_per_run: int = Field(default=12, ge=1, le=32)
     idp_max_upload_bytes: int = Field(default=5 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
     idp_review_confidence_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     ubo_ownership_threshold_percent: OwnershipPercent = Decimal("25")

@@ -7,7 +7,7 @@ from threading import Lock, RLock
 from typing import Never, TypeVar
 from uuid import UUID, uuid4
 
-from app.connectors.acra import AcraConnector
+from app.connectors.acra import AcraCompanyPayload, AcraConnector
 from app.connectors.errors import ConnectorError, public_connector_error
 from app.connectors.goldtier import GoldTierConnector
 from app.connectors.goldtier_models import (
@@ -199,7 +199,27 @@ class OnboardingService:
             )
 
         try:
-            entity = map_acra_company(source_payload)
+            untrusted_payload = (
+                source_payload.model_dump(mode="json", warnings=False)
+                if isinstance(source_payload, AcraCompanyPayload)
+                else source_payload
+            )
+            validated_payload = AcraCompanyPayload.model_validate(untrusted_payload)
+        except Exception:
+            self._raise_terminal_infrastructure(
+                case,
+                code="ACRA_RESPONSE_INVALID",
+                message="Corporate registry response could not be validated safely.",
+            )
+        if validated_payload.uen.strip().upper() != normalised_uen:
+            self._raise_terminal_infrastructure(
+                case,
+                code="ACRA_RESPONSE_IDENTITY_MISMATCH",
+                message="Corporate registry response did not match the requested entity.",
+            )
+
+        try:
+            entity = map_acra_company(validated_payload)
         except MappingError:
             self._raise_terminal_infrastructure(
                 case,

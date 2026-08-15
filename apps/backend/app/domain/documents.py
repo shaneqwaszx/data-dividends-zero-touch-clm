@@ -35,6 +35,8 @@ class DocumentEventType(StrEnum):
     DOCUMENT_FIELD_REJECTED = "DOCUMENT_FIELD_REJECTED"
     DOCUMENT_FIELD_CORRECTED = "DOCUMENT_FIELD_CORRECTED"
     DOCUMENT_REVIEW_COMPLETED = "DOCUMENT_REVIEW_COMPLETED"
+    DOCUMENT_AUTO_CONFIRMED = "DOCUMENT_AUTO_CONFIRMED"
+    DOCUMENT_EXCEPTION_RESOLVED = "DOCUMENT_EXCEPTION_RESOLVED"
     DOCUMENT_PROCESSING_FAILED = "DOCUMENT_PROCESSING_FAILED"
 
 
@@ -100,6 +102,37 @@ class ReviewDecision(StrEnum):
     ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"
     CORRECTED = "CORRECTED"
+
+
+class DocumentCompletionMethod(StrEnum):
+    AUTO_CONFIRMED = "AUTO_CONFIRMED"
+    HUMAN_REVIEWED = "HUMAN_REVIEWED"
+    EXCEPTION_RESOLVED = "EXCEPTION_RESOLVED"
+
+
+class DocumentAutoClearBlocker(StrEnum):
+    SOURCE_CONFLICT = "DOCUMENT_SOURCE_CONFLICT"
+    LOW_CONFIDENCE = "DOCUMENT_LOW_CONFIDENCE"
+    REQUIRED_FIELD_MISSING = "DOCUMENT_REQUIRED_FIELD_MISSING"
+    REVIEW_STATE_INVALID = "DOCUMENT_REVIEW_STATE_INVALID"
+
+
+class DocumentAutoClearAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    eligible: bool
+    blockers: tuple[DocumentAutoClearBlocker, ...] = Field(default_factory=tuple)
+
+
+class DocumentSourceConflictResolution(BaseModel):
+    """Explicit journey decision; extracted and reviewed evidence remains immutable."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    field_key: DocumentFieldKey
+    action: str = Field(pattern=r"^KEEP_REGISTRY_VALUE$")
+    registry_value: str = Field(min_length=1, max_length=512)
+    resolved_at: datetime
 
 
 class FieldProvenance(BaseModel):
@@ -180,4 +213,8 @@ class DocumentProcessingRecord(BaseModel):
     created_at: datetime
     processed_at: datetime | None = None
     reviewed_at: datetime | None = None
+    completion_method: DocumentCompletionMethod | None = None
+    source_conflict_resolutions: list[DocumentSourceConflictResolution] = Field(
+        default_factory=list, max_length=32
+    )
     updated_at: datetime

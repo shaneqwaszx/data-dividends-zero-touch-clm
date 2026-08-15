@@ -19,11 +19,15 @@ from app.connectors.idp import (
 )
 from app.domain.documents import (
     ComparisonStatus,
+    DocumentAutoClearAssessment,
+    DocumentAutoClearBlocker,
+    DocumentCompletionMethod,
     DocumentEventType,
     DocumentFieldKey,
     DocumentProcessingRecord,
     DocumentProcessingState,
     DocumentProfile,
+    DocumentSourceConflictResolution,
     DocumentWorkflowEvent,
     ExtractedField,
     FieldProvenance,
@@ -365,6 +369,7 @@ class DocumentProcessingService:
 
         if all(item.review_status != FieldReviewStatus.PENDING for item in record.fields):
             record.reviewed_at = self._clock()
+            record.completion_method = DocumentCompletionMethod.HUMAN_REVIEWED
             record = self._record(
                 record,
                 event_type=DocumentEventType.DOCUMENT_REVIEW_COMPLETED,
@@ -374,6 +379,167 @@ class DocumentProcessingService:
                 code="DOCUMENT_REVIEW_COMPLETED",
             )
         return record.model_copy(deep=True)
+
+    def assess_auto_clear(
+        self, *, case_id: UUID, document_id: UUID
+    ) -> DocumentAutoClearAssessment:
+        """Evaluate the shared Phase 05/06 semantic document checkpoint."""
+
+        record = self.get_document(case_id=case_id, document_id=document_id)
+        if record is None:
+            raise DocumentRequestError(
+                code="DOCUMENT_NOT_FOUND",
+                message="The document review record was not found.",
+            )
+        parent = self._cases.get_case(case_id)
+        if parent is None:
+            raise DocumentRequestError(
+                code="ONBOARDING_CASE_NOT_FOUND",
+                message="The onboarding case was not found.",
+            )
+        return document_semantic_assessment(
+            record=record,
+            current_entity=parent.entity,
+            confidence_threshold=self.review_confidence_threshold,
+        )
+
+    def auto_confirm_document(
+        self, *, case_id: UUID, document_id: UUID
+    ) -> DocumentProcessingRecord:
+        """Auto-confirm only complete, current, all-match, high-confidence evidence."""
+
+        with self._case_lock(case_id):
+            assessment = self.assess_auto_clear(
+                case_id=case_id, document_id=document_id
+            )
+            if not assessment.eligible:
+                raise DocumentRequestError(
+                    code="DOCUMENT_AUTO_CLEAR_BLOCKED",
+                    message="The document does not satisfy the provisional auto-clear policy.",
+                )
+            record = self.get_document(case_id=case_id, document_id=document_id)
+            if record is None:
+                raise DocumentRequestError(
+                    code="DOCUMENT_NOT_FOUND",
+                    message="The document review record was not found.",
+                )
+            now = self._clock()
+            for field in record.fields:
+                field.review_status = FieldReviewStatus.ACCEPTED
+                field.reviewed_value = field.original_extracted_value
+                field.reviewed_at = now
+            record.reviewed_at = now
+            record.completion_method = DocumentCompletionMethod.AUTO_CONFIRMED
+            return self._record(
+                record,
+                event_type=DocumentEventType.DOCUMENT_AUTO_CONFIRMED,
+                state=DocumentProcessingState.REVIEWED,
+                outcome=EventOutcome.SUCCEEDED,
+                code="DOCUMENT_AUTO_CONFIRMED",
+                message="Document evidence met the provisional automated confirmation rule.",
+            ).model_copy(deep=True)
+
+    def resolve_with_registry_values(
+        self,
+        *,
+        case_id: UUID,
+        document_id: UUID,
+        expected_event_count: int,
+    ) -> DocumentProcessingRecord:
+        """Resolve source conflicts only, preserving every unrelated blocker."""
+
+        with self._case_lock(case_id):
+            record = self.get_document(case_id=case_id, document_id=document_id)
+            parent = self._cases.get_case(case_id)
+            if record is None or parent is None:
+                raise DocumentRequestError(
+                    code="DOCUMENT_NOT_FOUND",
+                    message="The document review record was not found.",
+                )
+            if len(record.events) != expected_event_count:
+                raise DocumentRequestError(
+                    code="DOCUMENT_REVIEW_STALE",
+                    message="The document evidence changed before this resolution.",
+                )
+            if record.state not in {
+                DocumentProcessingState.REVIEW_REQUIRED,
+                DocumentProcessingState.REVIEWED,
+            }:
+                raise DocumentRequestError(
+                    code="DOCUMENT_NOT_REVIEWABLE",
+                    message="This document is not awaiting field review.",
+                )
+            now = self._clock()
+            resolved_any = False
+            for field in record.fields:
+                current_value = validate_canonical_comparison_value(
+                    canonical_value_for_field(parent.entity, field.field_key)
+                )
+                if current_value is None:
+                    raise DocumentRequestError(
+                        code="DOCUMENT_REGISTRY_VALUE_UNAVAILABLE",
+                        message="A required registry value is unavailable for this resolution.",
+                    )
+                effective_value = (
+                    field.reviewed_value
+                    if field.review_status
+                    in {FieldReviewStatus.ACCEPTED, FieldReviewStatus.CORRECTED}
+                    else field.original_extracted_value
+                )
+                matches = (
+                    compare_values(
+                        field.field_key,
+                        effective_value,
+                        current_value,
+                    )
+                    == ComparisonStatus.MATCH
+                )
+                resolution_exists = any(
+                    resolution.field_key == field.field_key
+                    and resolution.action == "KEEP_REGISTRY_VALUE"
+                    and compare_values(
+                        field.field_key, resolution.registry_value, current_value
+                    )
+                    == ComparisonStatus.MATCH
+                    for resolution in record.source_conflict_resolutions
+                )
+                if matches or resolution_exists:
+                    continue
+                record.source_conflict_resolutions.append(
+                    DocumentSourceConflictResolution(
+                        field_key=field.field_key,
+                        action="KEEP_REGISTRY_VALUE",
+                        registry_value=current_value,
+                        resolved_at=now,
+                    )
+                )
+                resolved_any = True
+            if not resolved_any:
+                raise DocumentRequestError(
+                    code="DOCUMENT_SOURCE_CONFLICT_NOT_FOUND",
+                    message="The document no longer contains a resolvable source conflict.",
+                )
+            remaining = document_semantic_assessment(
+                record=record,
+                current_entity=parent.entity,
+                confidence_threshold=self.review_confidence_threshold,
+            )
+            next_state = DocumentProcessingState.REVIEW_REQUIRED
+            if not remaining.blockers:
+                record.reviewed_at = now
+                record.completion_method = DocumentCompletionMethod.EXCEPTION_RESOLVED
+                next_state = DocumentProcessingState.REVIEWED
+            return self._record(
+                record,
+                event_type=DocumentEventType.DOCUMENT_EXCEPTION_RESOLVED,
+                state=next_state,
+                outcome=EventOutcome.SUCCEEDED,
+                code="KEEP_REGISTRY_VALUE",
+                message=(
+                    "Document source conflicts were resolved by retaining current registry "
+                    "values; unrelated review blockers remain authoritative."
+                ),
+            ).model_copy(deep=True)
 
     def _case_lock(self, case_id: UUID) -> AbstractContextManager[object]:
         lock_factory = getattr(self._cases, "case_lock", None)
@@ -514,6 +680,62 @@ class DocumentProcessingService:
             code=code,
             message=message,
         ) from None
+
+
+def document_semantic_assessment(
+    *,
+    record: DocumentProcessingRecord,
+    current_entity: CanonicalLegalEntity | None,
+    confidence_threshold: float,
+) -> DocumentAutoClearAssessment:
+    """Apply one conservative semantic rule to pending and reviewed documents."""
+
+    blockers: list[DocumentAutoClearBlocker] = []
+
+    def block(code: DocumentAutoClearBlocker) -> None:
+        if code not in blockers:
+            blockers.append(code)
+
+    if record.state not in {
+        DocumentProcessingState.REVIEW_REQUIRED,
+        DocumentProcessingState.REVIEWED,
+    }:
+        block(DocumentAutoClearBlocker.REVIEW_STATE_INVALID)
+    fields_by_key = {field.field_key: field for field in record.fields}
+    for field_key in DocumentFieldKey:
+        field = fields_by_key.get(field_key)
+        if field is None or field.original_extracted_value is None:
+            block(DocumentAutoClearBlocker.REQUIRED_FIELD_MISSING)
+            continue
+        if field.confidence < confidence_threshold:
+            block(DocumentAutoClearBlocker.LOW_CONFIDENCE)
+        current_canonical = canonical_value_for_field(current_entity, field_key)
+        resolution_matches = any(
+            resolution.field_key == field_key
+            and resolution.action == "KEEP_REGISTRY_VALUE"
+            and compare_values(
+                field_key, resolution.registry_value, current_canonical
+            )
+            == ComparisonStatus.MATCH
+            for resolution in record.source_conflict_resolutions
+        )
+        if resolution_matches:
+            continue
+        if field.review_status in {
+            FieldReviewStatus.ACCEPTED,
+            FieldReviewStatus.CORRECTED,
+        }:
+            effective_value = field.reviewed_value
+        elif field.review_status == FieldReviewStatus.REJECTED:
+            effective_value = None
+        else:
+            effective_value = field.original_extracted_value
+        if (
+            compare_values(field_key, effective_value, current_canonical)
+            != ComparisonStatus.MATCH
+        ):
+            block(DocumentAutoClearBlocker.SOURCE_CONFLICT)
+    return DocumentAutoClearAssessment(eligible=not blockers, blockers=tuple(blockers))
 
 
 def canonical_value_for_field(

@@ -86,6 +86,46 @@ An unexpected required-stage exception produces retrievable CLM `FAILED` with a 
 safe code/message, preserves document/ownership records, stops later operations, and
 cannot leave `SUBMITTING` stranded.
 
+## Phase 06 zero-touch orchestration scenarios
+
+These scenarios use the integrated zero-touch entry point. Phase 03's historical
+`ALL_FIELDS_MATCH` scenario remains manual; `AUTO_CONFIRMED` applies only to this new
+integrated policy path.
+
+| Scenario | Terminal result | Required calls/evidence | Prohibited calls/claims |
+|---|---|---|---|
+| `STRAIGHT_THROUGH` | `COMPLETED / MOCK_GOLDTIER_SUBMITTED` | Registry, document `AUTO_CONFIRMED`, ownership, readiness, search/shell/policy/amend; zero human interventions | No manual stage clicks, live-system, approval, or exactly-once claim |
+| `DOCUMENT_DISCREPANCY` | `WAITING_FOR_REVIEW / DOCUMENT_SOURCE_CONFLICT`; allowed registry retention auto-resumes to completion | Safe field evidence, version-bound `KEEP_REGISTRY_VALUE`, original extraction preserved, one intervention | No document-as-master overwrite or target call before resolution |
+| `LOW_CONFIDENCE_DOCUMENT` | `WAITING_FOR_REVIEW / DOCUMENT_LOW_CONFIDENCE`; no action advertised | Configured threshold evidence | No registry-retention shortcut, target call, or invented reviewer policy |
+| `MULTIPLE_DOCUMENT_BLOCKERS` | Source conflict resolves narrowly, then `DOCUMENT_LOW_CONFIDENCE` remains blocked | Both blocker codes retained; one conflict intervention | No single action clears unrelated blockers or permits a target call |
+| `OWNERSHIP_EXCEPTION` | `WAITING_FOR_REVIEW / OWNERSHIP_CYCLE` | Bounded ownership diagnostic | No definitive UBO, resolution click, or target call |
+| `OWNERSHIP_INCOMPLETE` | `WAITING_FOR_REVIEW / OWNERSHIP_INCOMPLETE` | Incomplete-chain diagnostic | No inferred evidence, resolution click, or target call |
+| `EXISTING_PARTY` | `WAITING_FOR_REVIEW / EXISTING_PARTY_REVIEW_REQUIRED` | GoldTier search only | No shell/policy/amend or click-through |
+| `TARGET_FAILURE` | `TECHNICAL_FAILURE / GT_POLICY_VALIDATION_FAILED` | Search/shell/policy and safe error | No amend, business-review substitution, or success |
+| `TECHNICAL_FAILURE` | `TECHNICAL_FAILURE / IDP_PROCESSING_FAILED` | Safe provider failure retained and retrievable | No raw exception, business review, ownership, or target call |
+| `DUPLICATE_OR_CONCURRENT_START_RESUME` | Same accepted checkpoint/terminal record | One logical stage/target execution | No repeated target operations or duplicated completion |
+| `STALE_OR_CROSS_CASE_RESOLUTION` | `409`; case remains blocked | Versions plus server-recomputed authoritative fingerprint verified | No canonical-mutation, forged, cross-case, or stale advancement |
+| `INVALID_INPUT_TRANSITION` | Invalid PDF retains `PENDING_INPUTS`; registry-review attach retains registry wait | No premature started event or progressing status | No externally visible false-running state |
+| `UNEXPECTED_PROGRESS_FAULT` | `TECHNICAL_FAILURE / ZERO_TOUCH_UNEXPECTED_FAILURE` at the active stage | One fixed terminal event; private sentinel absent | No stranded running state, later call, raw exception, or replay |
+| `FINALIZATION_RECOVERY` | Typed Phase 05 finalization re-entry reaches the correct Phase 06 outcome | Retained outcome/submission; target calls exactly once | No generic retry or target replay |
+| `OWNERSHIP_BINDING_RESUME` | Resolution resumes with the original opaque ownership binding | Alternate cycle still raises its typed ownership exception | No provider object/scenario persistence or fallback adapter |
+| `ALTERNATE_ADAPTER_FULL_PATH` | Local non-Mock-inheriting adapters reach `COMPLETED` | Strict SANDBOX DTOs, Decimal `30.0000`, exact target sequence | No interface-only conformance claim |
+| `POLLING_TRANSIENT_RECOVERY` | Transient refresh error retries to terminal state | Bounded backoff, last confirmed state, retry warning | No silent polling death or false terminal UI |
+| `NAVIGATION_GENERATION_GUARD` | Late previous-case response is discarded | Generation/case binding and resolution guard | No stale action or prior-case overwrite |
+| `LOOP_GUARD` | `TECHNICAL_FAILURE / AUTOMATION_LOOP_GUARD` | Bounded transitions and safe terminal event | No infinite loop or downstream call after the limit |
+| `MALFORMED_TARGET_RESPONSE` | `TECHNICAL_FAILURE / GT_MALFORMED_TARGET_RESPONSE` | Immediate strict response validation; accepted call prefix retained | No unsafe projection, later call, review substitution, or replay |
+| `REVIEWED_DOCUMENT_SEMANTIC_CONFLICT` | `WAITING_FOR_REVIEW / DOCUMENT_SOURCE_CONFLICT` for an earlier, later, or multiple reviewed mismatch documents | Every case document re-evaluated against current canonical authority; all blocked documents retained in stable order | No `REVIEWED` shortcut, readiness inconsistency, evidence rewrite, or target call |
+| `REVIEWED_CONFLICT_KEEP_REGISTRY` | Re-evaluation resumes only after explicit `KEEP_REGISTRY_VALUE` | Separate field-bound resolution; original extraction/review/captured canonical unchanged; one intervention | No document-master override or unrelated blocker clearance |
+| `REVIEWED_LOW_CONFIDENCE` | `WAITING_FOR_REVIEW / DOCUMENT_LOW_CONFIDENCE` | Reviewed lifecycle retained but provisional confidence blocker remains | No advertised action, target call, or assumed sponsor policy |
+| `REPEATED_FINALIZATION_RECOVERY` | `RECOVERY_PENDING`, then actual success/match/failure/partial outcome after fault removal | Stable Phase 05 submission/correlation/idempotency binding and exact target call prefix once | No loop-guard terminal, second submission, target replay, or outcome substitution |
+| `REGISTRY_IDENTITY_AND_TRUST_BOUNDARY` | Wrong UEN -> `ACRA_RESPONSE_IDENTITY_MISMATCH`; malformed nested/blank/timestamp/provenance -> `ACRA_RESPONSE_INVALID` | Fresh primitive reconstruction, requested-UEN equality, query-free HTTPS provenance; safe SANDBOX and not-found preserved | No typed-instance trust, wrong-entity canonical mapping, token/query retention, business-review substitution, or target call |
+| `REGISTRY_ORIGINAL_CONTROL_REJECTION` | Leading, trailing, or embedded Unicode-control source text -> `TECHNICAL_FAILURE / ACRA_RESPONSE_INVALID` | Original value inspected before trim across root/nested text and raw/typed-mutated/bypass paths; ordinary spaces still normalize | No canonical entity, document/ownership/readiness work, target call, or silent control stripping |
+| `DOCUMENT_BLOCKER_INSERTION_ORDER` | Equivalent blockers remain in document journey insertion order | Repository-owned monotonic first-save sequence; 100 equal-timestamp journeys and 100 repeats of the former flaky case | No UUID/timestamp tie-break instability or changed blocker semantics |
+
+Provider conformance additionally proves registry success/not-found/provenance; IDP
+clean/low/missing/failure; ownership definitive/incomplete/cycle/failure; GoldTier
+explicit no-match/existing-party outcomes; and one full alternate local adapter journey.
+
 ## Accepted cross-scenario invariants
 
 - GoldTier search `NO_MATCH` alone permits shell creation. `MATCH_FOUND` stops at
@@ -175,11 +215,31 @@ cannot leave `SUBMITTING` stranded.
   `ANALYZING` state.
 - Ownership analysis remains isolated per case and cannot mutate the onboarding entity,
   case history/state, document records, or call ACRA/GoldTier/IDP.
+- Phase 06 stage order and status are server-authored. The browser polls only `RUNNING`
+  or `RESUMING`, renders only server-advertised exception actions, and keeps all manual
+  scenario actions beneath disabled-by-default Demo/Test Controls.
+- Zero-touch resolution is case-, exception-, automation-version-, and evidence-version-
+  bound plus a server-recomputed current-authority fingerprint. Accepted resolution
+  auto-resumes; duplicate start/resume and terminal reads do
+  not replay Phase 05 target operations.
+- Business exceptions never become technical failures, and technical/provider/target
+  failures never become reviewer work or `COMPLETED`. All automation persistence and
+  replay protection remain process-local POC guarantees.
+- Every ACRA result, including a previously typed or bypass-mutated instance, crosses a
+  fresh strict primitive reconstruction boundary. Returned and requested normalized UENs
+  must match; retained endpoint provenance is query-free HTTPS. Invalid provider data is
+  technical and cannot be converted to canonical-review work.
+- Original ACRA text is checked for prohibited Unicode control categories before any
+  whitespace normalization. Document enumeration is stable first-save insertion order;
+  random UUIDs never determine same-stage blocker presentation.
 
 ## Catalogue evolution record
 
 | Established by | Change |
 |---|---|
+| Phase 06 closure remediation | Preserved the eleven closed findings; moved generic ACRA Unicode-control validation ahead of normalization across every root/nested source text field and replaced equal-timestamp UUID ordering with repository-owned monotonic insertion order, proven by complete control-path and repeated ordering regressions |
+| Phase 06 final remediation | Preserved the twelve prior finding regressions; added reviewed/all-document semantic re-evaluation with non-mutating registry-retention resolution, repeatable nonterminal Phase 05 finalization recovery, and fresh ACRA DTO/request-identity/provenance enforcement |
+| Phase 06 remediation | Preserved all historical rules; added canonical-mutation stale rejection, legal-transition and terminal-fault enforcement, blocker-specific resolution, all-document aggregation, Phase 05 finalization recovery without replay, opaque ownership bindings, alternate-adapter full-path evidence, fail-closed demo routes, resilient polling, navigation guards, and truthful stage labels |
 | Phase 01 final gate | Accepted the five canonical outcomes and call-stopping, search, and terminal invariants |
 | Phase 02 final gate | Preserved all five outcomes; added ACRA source-validation, safe-error, provenance-minimization, and sandbox-shaped synthetic-mode regressions |
 | Phase 03 implementation | Preserved all onboarding outcomes; added the verified all-match, mismatch, low-confidence, missing-field, and processor-failure scenarios, four-field comparisons, field decisions/original preservation, transient upload, and parent-case isolation invariants |
@@ -190,3 +250,4 @@ cannot leave `SUBMITTING` stranded.
 | Phase 05 remediation | Preserved the normal Phase 01–05 catalogue; added current-canonical invalidation, current-canonical document conflict, exact snapshot/payload binding, safe post-target receipt recovery, stable identifier reuse, and frontend readiness invalidation invariants |
 | Phase 05 final remediation | Preserved all prior scenarios; moved recovery evidence before rich receipt mapping and added four-outcome receipt/mapping fault recovery plus deterministic concurrent finalization with one logical Mock execution |
 | Phase 05 target-response remediation | Preserved the receipt-recovery design; added immediate strict Mock response validation, aligned retained bounds, sanitized malformed-response stopping, operation-owner exit convergence, constant-only outcome fallback, and no-replay recovery regressions |
+| Phase 06 implementation | Preserved every Phase 01–05 scenario and historical manual document rule; added verified zero-intervention orchestration, narrow integrated auto-confirmation, typed multi-blocker exceptions, version-bound resolution and auto-resume, duplicate/concurrent start/resume, provider conformance, loop/malformed-response stopping, sponsor-facing read-only progress, and Demo/Test Controls separation |

@@ -29,15 +29,24 @@ class MockGoldTierConnector:
         *,
         policy_validation_failure_keys: frozenset[str] = frozenset(),
         partial_amend_external_keys: frozenset[str] = frozenset(),
+        match_found_external_keys: frozenset[str] = frozenset(),
     ) -> None:
         self._policy_validation_failure_keys = policy_validation_failure_keys
         self._partial_amend_external_keys = partial_amend_external_keys
+        self._match_found_external_keys = match_found_external_keys
         self._external_key_by_party_id: dict[str, str] = {}
 
     def search_party(
         self, request: SearchPartyRequest, metadata: GoldTierRequestMetadata
     ) -> GoldTierSearchResult:
         del metadata
+        if request.registration_number in self._match_found_external_keys:
+            return GoldTierSearchResult(
+                outcome=GoldTierSearchOutcome.MATCH_FOUND,
+                status_code=200,
+                matched_party_id=f"GT-MOCK-EXISTING-{request.registration_number}",
+                message="An existing synthetic Mock party matched the registration number.",
+            )
         return GoldTierSearchResult(
             outcome=GoldTierSearchOutcome.NO_MATCH,
             status_code=200,

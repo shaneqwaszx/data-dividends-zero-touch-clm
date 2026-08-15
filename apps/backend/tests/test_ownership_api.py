@@ -16,7 +16,7 @@ async def create_case(client: httpx.AsyncClient) -> dict[str, object]:
 
 @pytest.mark.anyio
 async def test_demo_load_analyze_get_and_candidate_contract() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         case = await create_case(client)
@@ -49,7 +49,7 @@ async def test_demo_load_analyze_get_and_candidate_contract() -> None:
 
 @pytest.mark.anyio
 async def test_generic_load_has_no_mock_scenario_request_contract() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         case = await create_case(client)
@@ -62,7 +62,7 @@ async def test_generic_load_has_no_mock_scenario_request_contract() -> None:
 
 @pytest.mark.anyio
 async def test_unknown_case_not_loaded_invalid_scenario_and_case_isolation() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         unknown = await client.post(
@@ -92,7 +92,7 @@ async def test_unknown_case_not_loaded_invalid_scenario_and_case_isolation() -> 
 
 @pytest.mark.anyio
 async def test_provider_failure_is_retrievable_and_sanitized_through_api() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         case = await create_case(client)
@@ -120,7 +120,7 @@ async def test_provider_failure_is_retrievable_and_sanitized_through_api() -> No
 
 @pytest.mark.anyio
 async def test_ownership_failure_does_not_corrupt_document_review_state() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         case = await create_case(client)
@@ -153,7 +153,7 @@ async def test_cycle_and_incomplete_are_truthful_review_states() -> None:
         ("CYCLE", "CYCLE_DETECTED"),
         ("INCOMPLETE_CHAIN", "INCOMPLETE_LEGAL_ENTITY"),
     ):
-        application = create_app(Settings(app_env="test"))
+        application = create_app(Settings(app_env="test", demo_controls_enabled=True))
         transport = httpx.ASGITransport(app=application)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             case = await create_case(client)

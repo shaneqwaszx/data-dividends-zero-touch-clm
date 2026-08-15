@@ -226,7 +226,7 @@ async def test_typed_acra_failure_persists_safe_code_and_stops_goldtier() -> Non
 
 
 @pytest.mark.anyio
-async def test_acra_source_mapping_failure_terminalizes_and_stops_goldtier() -> None:
+async def test_acra_source_validation_failure_terminalizes_and_stops_goldtier() -> None:
     goldtier = RecordingGoldTierConnector()
     service = build_recording_service(goldtier, acra=NonUtcAcraConnector())
 
@@ -235,9 +235,9 @@ async def test_acra_source_mapping_failure_terminalizes_and_stops_goldtier() -> 
     retrieved = await client.get(f"/api/onboarding/cases/{case_id}")
     await client.aclose()
 
-    assert response.json()["detail"]["code"] == "ACRA_SOURCE_MAPPING_FAILED"
+    assert response.json()["detail"]["code"] == "ACRA_RESPONSE_INVALID"
     assert retrieved.json()["state"] == "FAILED"
-    assert retrieved.json()["events"][-1]["code"] == "ACRA_SOURCE_MAPPING_FAILED"
+    assert retrieved.json()["events"][-1]["code"] == "ACRA_RESPONSE_INVALID"
     assert goldtier.calls == []
 
 

@@ -385,3 +385,93 @@ export interface ClmCaseSummary {
   created_at: string;
   updated_at: string;
 }
+
+export type AutomationStatus =
+  | "PENDING_INPUTS"
+  | "RUNNING"
+  | "WAITING_FOR_REVIEW"
+  | "RESUMING"
+  | "RECOVERY_PENDING"
+  | "COMPLETED"
+  | "TECHNICAL_FAILURE";
+
+export type AutomationStage =
+  | "REGISTRY"
+  | "DOCUMENT"
+  | "OWNERSHIP"
+  | "READINESS"
+  | "MOCK_GOLDTIER"
+  | "COMPLETE";
+
+export type ZeroTouchDemoScenario =
+  | "STRAIGHT_THROUGH"
+  | "DOCUMENT_DISCREPANCY"
+  | "LOW_CONFIDENCE_DOCUMENT"
+  | "OWNERSHIP_EXCEPTION"
+  | "OWNERSHIP_INCOMPLETE"
+  | "EXISTING_PARTY"
+  | "TARGET_FAILURE"
+  | "TECHNICAL_FAILURE";
+
+export type ExceptionResolutionAction =
+  | "KEEP_REGISTRY_VALUE"
+  | "REQUEST_ADDITIONAL_INFORMATION";
+
+export interface ZeroTouchException {
+  exception_id: string;
+  case_id: string;
+  exception_type: string;
+  stage: AutomationStage;
+  status: "OPEN" | "RESOLVED" | "CANCELLED";
+  blocker_code: string;
+  blocker_codes: string[];
+  explanation: string;
+  evidence_version: string;
+  automation_version: number;
+  evidence: Array<{
+    reference_id: string | null;
+    field_key: string | null;
+    registry_value: string | null;
+    document_value: string | null;
+    confidence: number | null;
+    comparison: string | null;
+  }>;
+  available_actions: ExceptionResolutionAction[];
+  created_at: string;
+  resolved_at: string | null;
+  resolution: ExceptionResolutionAction | null;
+}
+
+export interface ZeroTouchCaseSummary {
+  case: OnboardingCase;
+  clm: ClmCaseSummary;
+  automation_id: string;
+  version: number;
+  status: AutomationStatus;
+  current_stage: AutomationStage;
+  completed_stages: AutomationStage[];
+  active_exceptions: ZeroTouchException[];
+  technical_failure: { code: string; message: string } | null;
+  metrics: {
+    automated_stages_completed: number;
+    human_interventions: number;
+    exceptions_raised: number;
+    exceptions_resolved: number;
+    final_outcome: string | null;
+    total_duration_ms: number | null;
+    stage_durations_ms: Partial<Record<AutomationStage, number>>;
+  };
+  timeline: Array<{
+    sequence: number;
+    event_type: string;
+    status: AutomationStatus;
+    stage: AutomationStage;
+    outcome: "SUCCEEDED" | "PARTIAL" | "REVIEW_REQUIRED" | "FAILED";
+    timestamp: string;
+    case_id: string;
+    code: string | null;
+    message: string;
+  }>;
+  created_at: string;
+  updated_at: string;
+}

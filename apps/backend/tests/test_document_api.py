@@ -39,9 +39,12 @@ class FixedProviderDemoControl:
 
 
 def app_with_recording_provider(
-    *, max_upload_bytes: int,
+    *,
+    max_upload_bytes: int,
 ) -> tuple[object, RecordingProvider]:
-    settings = Settings(app_env="test", idp_max_upload_bytes=max_upload_bytes)
+    settings = Settings(
+        app_env="test", demo_controls_enabled=True, idp_max_upload_bytes=max_upload_bytes
+    )
     onboarding: OnboardingService = build_onboarding_service(settings=settings)
     provider = RecordingProvider()
     documents = DocumentProcessingService(
@@ -114,7 +117,7 @@ async def review(
 
 @pytest.mark.anyio
 async def test_upload_lists_four_compared_fields_and_preserves_parent_case() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         original_case = await create_case(client)
@@ -150,7 +153,7 @@ async def test_upload_lists_four_compared_fields_and_preserves_parent_case() -> 
 async def test_synthetic_processing_scenarios(
     scenario: str, field_key: str, comparison: str, confidence: float
 ) -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         case = await create_case(client)
@@ -164,7 +167,7 @@ async def test_synthetic_processing_scenarios(
 
 @pytest.mark.anyio
 async def test_accept_reject_correct_and_review_completion_preserve_originals() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         case = await create_case(client)
@@ -213,9 +216,7 @@ async def test_accept_reject_correct_and_review_completion_preserve_originals() 
     assert name_field["review_status"] == "REJECTED"
     assert name_field["reviewed_value"] is None
     address = next(
-        item
-        for item in completed.json()["fields"]
-        if item["field_key"] == "registered_address"
+        item for item in completed.json()["fields"] if item["field_key"] == "registered_address"
     )
     assert address["original_extracted_value"] != address["reviewed_value"]
     assert address["review_status"] == "CORRECTED"
@@ -224,7 +225,7 @@ async def test_accept_reject_correct_and_review_completion_preserve_originals() 
 
 @pytest.mark.anyio
 async def test_review_retry_invalid_input_and_conflict_use_safe_results() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         case = await create_case(client)
@@ -271,7 +272,7 @@ async def test_review_retry_invalid_input_and_conflict_use_safe_results() -> Non
 async def test_review_request_schema_rejects_extra_and_overlong_text_safely(
     extra_body: dict[str, str], expected_code: str, private_value: str
 ) -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         case = await create_case(client)
@@ -306,7 +307,7 @@ async def test_review_request_schema_rejects_extra_and_overlong_text_safely(
 async def test_invalid_uploads_return_safe_detail(
     kwargs: dict[str, object], status_code: int, code: str
 ) -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         case = await create_case(client)
@@ -319,7 +320,9 @@ async def test_invalid_uploads_return_safe_detail(
 
 @pytest.mark.anyio
 async def test_oversize_missing_headers_unknown_case_and_unknown_document() -> None:
-    application = create_app(Settings(app_env="test", idp_max_upload_bytes=16))
+    application = create_app(
+        Settings(app_env="test", demo_controls_enabled=True, idp_max_upload_bytes=16)
+    )
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         case = await create_case(client)
@@ -356,7 +359,7 @@ async def test_oversize_missing_headers_unknown_case_and_unknown_document() -> N
 
 @pytest.mark.anyio
 async def test_processor_failure_is_terminal_retrievable_and_parent_is_unchanged() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         case = await create_case(client)
@@ -451,7 +454,7 @@ async def test_streaming_exact_limit_structurally_valid_pdf_reaches_provider() -
 
 
 def test_review_openapi_contract_exposes_enums_bounds_and_forbids_extras() -> None:
-    openapi = create_app(Settings(app_env="test")).openapi()
+    openapi = create_app(Settings(app_env="test", demo_controls_enabled=True)).openapi()
     schema = openapi["components"]["schemas"]
     request_schema = schema["DocumentFieldReviewRequest"]
 
@@ -462,15 +465,13 @@ def test_review_openapi_contract_exposes_enums_bounds_and_forbids_extras() -> No
     assert schema["ReviewDecision"]["enum"] == ["ACCEPTED", "REJECTED", "CORRECTED"]
     assert request_schema["properties"]["corrected_value"]["anyOf"][0]["maxLength"] == 512
     assert request_schema["properties"]["note"]["anyOf"][0]["maxLength"] == 240
-    generic_upload_parameters = openapi["paths"][
-        "/api/onboarding/cases/{case_id}/documents"
-    ]["post"]["parameters"]
+    generic_upload_parameters = openapi["paths"]["/api/onboarding/cases/{case_id}/documents"][
+        "post"
+    ]["parameters"]
     assert "X-Mock-IDP-Scenario" not in {
         parameter["name"] for parameter in generic_upload_parameters
     }
-    demo_upload_parameters = openapi["paths"][
-        "/api/demo/onboarding/cases/{case_id}/documents"
-    ]["post"]["parameters"]
-    assert "X-Mock-IDP-Scenario" in {
-        parameter["name"] for parameter in demo_upload_parameters
-    }
+    demo_upload_parameters = openapi["paths"]["/api/demo/onboarding/cases/{case_id}/documents"][
+        "post"
+    ]["parameters"]
+    assert "X-Mock-IDP-Scenario" in {parameter["name"] for parameter in demo_upload_parameters}
