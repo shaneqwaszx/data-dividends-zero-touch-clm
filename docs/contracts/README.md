@@ -31,3 +31,9 @@ Phase 04's source-neutral party/relationship, Decimal path/aggregation, provisio
 threshold, cycle/incomplete, provenance, and graph-limit rules are recorded in
 `OWNERSHIP_UBO_PROFILE.md`. They are project-defined pending Q-002/Q-004/Q-006/Q-007,
 not a sponsor-approved UBO or GoldTier hierarchy contract.
+
+Phase 05's staged readiness and target preparation are recorded in
+`CLM_READINESS_POLICY.md` and `GOLDTIER_SUBMISSION_PREPARATION.md`. Phase 06's
+provisional automatic-continuation, exception, and replay rules are recorded in
+`ZERO_TOUCH_AUTOMATION_POLICY.md`; replaceable provider expectations are recorded in
+`INTEGRATION_ADAPTER_CONTRACTS.md`. They do not resolve the open sponsor questions.

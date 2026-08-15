@@ -19,6 +19,11 @@ exact subscriber-contract binding and live ACRA sandbox verification. It does no
 the Phase 02 connector/auth/decoder interfaces, synthetic contract tests, or Mock ACRA
 mode.
 
+Phase 06 now treats every adapter result as untrusted, reconstructs the source DTO,
+requires returned/requested UEN identity, and retains only query-free HTTPS endpoint
+provenance. This is a fail-closed POC boundary and does not identify or confirm the live
+ACRA endpoint, authentication, or subscriber contract requested here.
+
 ## A. BLOCKING REAL GOLDTIER INTEGRATION
 
 ### Q-008 — Authentication containment and replacement
@@ -77,6 +82,11 @@ Pending confirmation, Phase 05 uses a conservative project POC rule: canonical A
 data remains the base submission source, reviewed document evidence must agree for
 automatic Mock submission, and any conflicting correction/rejection is blocked as
 `SOURCE_CONFLICT_REQUIRES_POLICY` without overwriting either source.
+
+Phase 06 likewise treats `REVIEWED` as lifecycle completion rather than authority. An
+explicit `KEEP_REGISTRY_VALUE` decision clears only that journey's source-conflict
+blocker and is recorded separately; extracted and reviewed evidence remains unchanged.
+This does not answer which source should become master data.
 
 ### Q-013 — Document privacy, retention, and upload security
 
@@ -174,3 +184,25 @@ confirmed operation schemas/rules, including corrections for:
 
 Please also confirm whether combined-bundle path-parameter names should be corrected to
 the standalone `{partyId}` forms for `retrieveParty` and `getPolicy`.
+
+## D. PHASE 06 ZERO-TOUCH CONFIRMATIONS
+
+Phase 06 does not close any question above. For sponsor sign-off, please confirm:
+
+- whether the provisional all-fields-match and per-field `0.85` rule may automatically
+  confirm document evidence, and which authenticated role may resolve each exception
+  (Q-003/Q-005/Q-013/Q-014);
+- whether `KEEP_REGISTRY_VALUE` is an allowed conflict disposition and what corrected
+  evidence, audit retention, separation of duties, and escalation actions are required;
+- which action, if any, may resolve low-confidence-only or missing-field evidence; the
+  remediated POC exposes no action rather than treating registry retention as confidence
+  approval;
+- how ownership cycle/incomplete evidence is replaced and which definitive UBO rule
+  governs automatic continuation (Q-002/Q-004);
+- the intended existing-party and partial-amend paths; Phase 06 currently stops before
+  any further target write because sponsor semantics are absent (Q-001/Q-006/Q-007);
+- the durable workflow, retry, idempotency, reviewer authorization, and audit platform
+  required beyond this process-local POC.
+
+Until confirmed, `COMPLETED` means only `MOCK_GOLDTIER_SUBMITTED`; it is never a legal,
+compliance, live-system, or Ready-for-Approval claim.

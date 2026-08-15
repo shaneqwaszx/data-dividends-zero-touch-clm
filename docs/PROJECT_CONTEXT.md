@@ -186,3 +186,28 @@ The integrated success status is `MOCK_GOLDTIER_SUBMITTED`. It is not legal/comp
 approval, production GoldTier acceptance, or Ready-for-Approval. Live ACRA remains
 blocked by Q-012; live hierarchy by Q-002; sponsor IDP/UBO policies remain unconfirmed;
 and real GoldTier/PingFed remains not ready.
+
+## Phase 06 implementation status
+
+The sponsor-facing path now accepts a UEN and one PDF, then drives registry validation,
+provisional document auto-confirmation, deterministic ownership analysis, Phase 05
+readiness, and the hardened Mock GoldTier sequence from a server-owned state machine.
+The React UI is a read-only progress/exception client after start; legacy manual flows
+are available only behind environment-gated Demo/Test Controls.
+
+Automatic document confirmation is restricted to complete, current-canonical matches
+at or above the configured threshold. Phase 03 manual review behavior remains intact.
+Typed exceptions retain bounded evidence and all blockers. `KEEP_REGISTRY_VALUE` is
+advertised only for a source conflict and is bound to both versions and a server-only
+fingerprint recomputed from current authoritative case/document evidence. It cannot
+clear independent low-confidence or missing evidence. Ownership indeterminacy and existing/partial
+target outcomes have no click-through action. Technical failures are separate and
+cannot become review or completion.
+
+Per-case serialization, expected-version writes, bounded transitions, idempotent
+start/resume, and stale/cross-case resolution checks prevent duplicate local progress.
+Unexpected progression failures converge to one sanitized terminal record. Phase 05
+remains the target replay/recovery authority; only its typed finalization-retry signal is
+re-entered without target replay. All guarantees remain
+process-local and Mock-only. D-025 records the provisional policy; all sponsor blockers
+listed in Q-001–Q-014 remain open as applicable.

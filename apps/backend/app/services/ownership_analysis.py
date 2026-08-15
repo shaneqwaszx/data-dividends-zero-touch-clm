@@ -354,6 +354,12 @@ class OwnershipAnalysisService:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
 
+    @property
+    def configured_provider(self) -> OwnershipProvider:
+        """Expose the composition-owned default for an opaque provider binding."""
+
+        return self._provider
+
     def load(
         self, *, case_id: UUID, provider: OwnershipProvider | None = None
     ) -> OwnershipAnalysisRecord:

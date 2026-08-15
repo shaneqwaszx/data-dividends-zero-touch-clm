@@ -40,6 +40,7 @@ class ContractFixtureTransport:
 def sandbox_settings() -> Settings:
     return Settings(
         app_env="test",
+        demo_controls_enabled=True,
         acra_connector_mode="sandbox",
         acra_base_url="https://sandbox.synthetic-acra.example",
         acra_company_path_template="/business-profile/{uen}",

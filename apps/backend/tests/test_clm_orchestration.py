@@ -1405,7 +1405,7 @@ def test_case_evidence_and_submission_are_isolated() -> None:
 
 @pytest.mark.anyio
 async def test_phase05_api_happy_path_and_safe_unified_summary() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         created = await client.post("/api/clm/cases", json={"uen": "202400001A"})
@@ -1468,7 +1468,7 @@ async def test_pre_receipt_failure_api_and_recovery_projection_are_sanitized(
 
     monkeypatch.setattr(cases, "_build_execution_receipt", fail_once)
     application = create_app(
-        Settings(app_env="test"),
+        Settings(app_env="test", demo_controls_enabled=True),
         onboarding_service=cases,
         document_processing_service=documents,
         ownership_analysis_service=ownership,
@@ -1507,7 +1507,7 @@ async def test_malformed_target_response_api_projection_is_sanitized() -> None:
     )
     cases, documents, ownership, clm, _, case_id = make_ready_case(goldtier=target)
     application = create_app(
-        Settings(app_env="test"),
+        Settings(app_env="test", demo_controls_enabled=True),
         onboarding_service=cases,
         document_processing_service=documents,
         ownership_analysis_service=ownership,
@@ -1533,7 +1533,7 @@ async def test_malformed_target_response_api_projection_is_sanitized() -> None:
 
 @pytest.mark.anyio
 async def test_blocked_api_submit_returns_typed_conflict_and_zero_result() -> None:
-    application = create_app(Settings(app_env="test"))
+    application = create_app(Settings(app_env="test", demo_controls_enabled=True))
     transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         created = await client.post("/api/clm/cases", json={"uen": "202400001A"})

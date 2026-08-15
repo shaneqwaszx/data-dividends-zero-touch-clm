@@ -6,13 +6,19 @@ import App, {
   ClmJourney,
   ClmRefreshingState,
   DocumentReviewSummary,
+  HumanReviewPanel,
+  OnboardingProgress,
   OwnershipSummary,
   SimulationBanner,
+  shouldPollAutomation,
+  automationStageState,
   runEvidenceMutation,
 } from "./App";
 import {
   analyzeOwnership,
+  attachZeroTouchDocument,
   createClmCase,
+  createZeroTouchCase,
   createOnboardingCase,
   fetchDocuments,
   evaluateClmReadiness,
@@ -20,16 +26,21 @@ import {
   fetchMockScenarios,
   fetchOnboardingCase,
   fetchOwnership,
+  fetchZeroTouchCase,
   loadMockOwnership,
   reviewDocument,
+  resolveZeroTouchException,
   submitClmCase,
   uploadDocument,
 } from "./api";
+import { nextPollingDelay, startAutomationPolling } from "./automationPolling";
 import type {
   ClmCaseSummary,
   DocumentProcessingRecord,
   OnboardingCase,
   OwnershipAnalysisRecord,
+  ZeroTouchCaseSummary,
+  ZeroTouchException,
   WorkflowState,
 } from "./types";
 
@@ -383,14 +394,31 @@ function makeClm(
   };
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe("Phase 04 onboarding, document review, and ownership UI", () => {
   it("renders create and reopen case controls", () => {
     const markup = renderToStaticMarkup(<App />);
-    expect(markup).toContain("Create from Singapore UEN");
-    expect(markup).toContain("Open existing case ID");
+    expect(markup).toContain("Singapore UEN");
+    expect(markup).toContain("Supporting PDF");
+    expect(markup).toContain("Start onboarding");
+    expect(markup).toContain("Reopen case ID");
     expect(markup).toContain("Loading backend connector profile");
+    expect(markup).not.toContain("Load synthetic ownership");
+    expect(markup).not.toContain("Submit to Mock GoldTier");
+  });
+
+  it("separates deterministic demo controls from sponsor mode", () => {
+    const sponsor = renderToStaticMarkup(<App demoControlsEnabled={false} />);
+    const demo = renderToStaticMarkup(<App demoControlsEnabled />);
+    expect(sponsor).not.toContain("Demo/Test Controls");
+    expect(sponsor).not.toContain("Integrated synthetic scenario");
+    expect(demo).toContain("Demo/Test Controls");
+    expect(demo).toContain("Integrated synthetic scenario");
+    expect(demo).toContain("Legacy manual diagnostics");
   });
 
   it("renders backend-provided mock environments", () => {
@@ -741,5 +769,212 @@ describe("Phase 05 unified CLM journey", () => {
     const blocked = renderToStaticMarkup(<ClmJourney summary={makeClm()} />);
     expect(blocked).toContain("OWNERSHIP_REQUIRED");
     expect(blocked).toMatch(/<button[^>]*disabled=""[^>]*>Submit to Mock GoldTier/);
+  });
+});
+
+function makeZeroTouch(
+  status: ZeroTouchCaseSummary["status"] = "COMPLETED",
+): ZeroTouchCaseSummary {
+  const clm = makeClm(status === "COMPLETED" ? "MOCK_GOLDTIER_SUBMITTED" : "REVIEW_REQUIRED");
+  const reviewException: ZeroTouchException = {
+    exception_id: "00000000-0000-4000-8000-000000000060",
+    case_id: clm.case.case_id,
+    exception_type: "DOCUMENT_SOURCE_CONFLICT",
+    stage: "DOCUMENT",
+    status: "OPEN",
+    blocker_code: "DOCUMENT_SOURCE_CONFLICT",
+    blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"],
+    explanation: "Document evidence conflicts with current registry evidence.",
+    evidence_version: "document:00000000-0000-4000-8000-000000000010:4",
+    automation_version: 3,
+    evidence: [
+      {
+        reference_id: "00000000-0000-4000-8000-000000000010",
+        field_key: "legal_name",
+        registry_value: "SYNTHETIC CANONICAL NAME",
+        document_value: "SYNTHETIC CONFLICTING NAME",
+        confidence: 0.97,
+        comparison: "MISMATCH",
+      },
+    ],
+    available_actions: ["KEEP_REGISTRY_VALUE"],
+    created_at: timestamp,
+    resolved_at: null,
+    resolution: null,
+  };
+  return {
+    case: clm.case,
+    clm,
+    automation_id: "00000000-0000-4000-8000-000000000050",
+    version: 3,
+    status,
+    current_stage: status === "COMPLETED" ? "COMPLETE" : "DOCUMENT",
+    completed_stages: status === "COMPLETED"
+      ? ["REGISTRY", "DOCUMENT", "OWNERSHIP", "READINESS", "MOCK_GOLDTIER"]
+      : ["REGISTRY"],
+    active_exceptions: status === "WAITING_FOR_REVIEW" ? [reviewException] : [],
+    technical_failure: status === "TECHNICAL_FAILURE"
+      ? { code: "IDP_PROCESSING_FAILED", message: "Document processing stopped safely." }
+      : null,
+    metrics: {
+      automated_stages_completed: status === "COMPLETED" ? 5 : 1,
+      human_interventions: 0,
+      exceptions_raised: status === "WAITING_FOR_REVIEW" ? 1 : 0,
+      exceptions_resolved: 0,
+      final_outcome: status === "COMPLETED" ? "MOCK_GOLDTIER_SUBMITTED" : null,
+      total_duration_ms: status === "COMPLETED" ? 42 : null,
+      stage_durations_ms: { DOCUMENT: 2 },
+    },
+    timeline: [
+      {
+        sequence: 1,
+        event_type: "ONBOARDING_STARTED",
+        status: "RUNNING",
+        stage: "DOCUMENT",
+        outcome: "SUCCEEDED",
+        timestamp,
+        case_id: clm.case.case_id,
+        code: "ONBOARDING_STARTED",
+        message: "Automation started.",
+      },
+    ],
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
+describe("Phase 06 sponsor-facing zero-touch journey", () => {
+  it("shows completed automatic progress and zero human interventions", () => {
+    const markup = renderToStaticMarkup(<OnboardingProgress summary={makeZeroTouch()} />);
+    expect(markup).toContain("Mock submission completed");
+    expect(markup).toContain("5</strong><span>Automated stages");
+    expect(markup).toContain("0</strong><span>Human interventions");
+    expect(markup).not.toContain("Evaluate Readiness");
+    expect(markup).not.toContain("Submit to Mock GoldTier");
+  });
+
+  it("shows only server-authorized exception evidence and actions", () => {
+    const summary = makeZeroTouch("WAITING_FOR_REVIEW");
+    const markup = renderToStaticMarkup(
+      <HumanReviewPanel
+        exception={summary.active_exceptions[0]}
+        isResolving={false}
+        onResolve={() => undefined}
+      />,
+    );
+    expect(markup).toContain("Human review required");
+    expect(markup).toContain("SYNTHETIC CANONICAL NAME");
+    expect(markup).toContain("SYNTHETIC CONFLICTING NAME");
+    expect(markup).toContain("Keep registry values");
+    expect(markup).not.toContain("Approve");
+  });
+
+  it("polls only running and resuming automation states", () => {
+    expect(shouldPollAutomation("RUNNING")).toBe(true);
+    expect(shouldPollAutomation("RESUMING")).toBe(true);
+    expect(shouldPollAutomation("RECOVERY_PENDING")).toBe(false);
+    expect(shouldPollAutomation("PENDING_INPUTS")).toBe(false);
+    expect(shouldPollAutomation("WAITING_FOR_REVIEW")).toBe(false);
+    expect(shouldPollAutomation("COMPLETED")).toBe(false);
+    expect(shouldPollAutomation("TECHNICAL_FAILURE")).toBe(false);
+  });
+
+  it("labels waiting, input, progressing, and failed stages truthfully", () => {
+    const waiting = makeZeroTouch("WAITING_FOR_REVIEW");
+    expect(automationStageState(waiting, "DOCUMENT")).toBe("Review required");
+    const pending = { ...makeZeroTouch("RUNNING"), status: "PENDING_INPUTS" } as ZeroTouchCaseSummary;
+    expect(automationStageState(pending, "DOCUMENT")).toBe("Awaiting input");
+    expect(automationStageState(makeZeroTouch("RESUMING"), "DOCUMENT")).toBe("Resuming");
+    expect(automationStageState(makeZeroTouch("RECOVERY_PENDING"), "DOCUMENT")).toBe(
+      "Finalization recovery pending",
+    );
+    expect(automationStageState(makeZeroTouch("TECHNICAL_FAILURE"), "DOCUMENT")).toBe("Failed");
+  });
+
+  it("retries a transient polling failure and reaches a terminal state", async () => {
+    vi.useFakeTimers();
+    const running = makeZeroTouch("RUNNING");
+    const completed = makeZeroTouch("COMPLETED");
+    const fetchCase = vi.fn()
+      .mockRejectedValueOnce(new Error("synthetic transient outage"))
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(completed);
+    const updates: string[] = [];
+    const warnings: Array<string | null> = [];
+    const stop = startAutomationPolling({
+      caseId: running.case.case_id,
+      generation: 4,
+      currentGeneration: () => 4,
+      fetchCase,
+      onUpdate: (latest) => updates.push(latest.status),
+      onWarning: (warning) => warnings.push(warning),
+      shouldContinue: shouldPollAutomation,
+      initialDelayMs: 10,
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(fetchCase).toHaveBeenCalledTimes(1);
+    expect(warnings.at(-1)).toContain("retrying");
+    await vi.advanceTimersByTimeAsync(nextPollingDelay(1));
+    expect(updates).toEqual(["RUNNING"]);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(updates).toEqual(["RUNNING", "COMPLETED"]);
+    expect(fetchCase).toHaveBeenCalledTimes(3);
+    stop();
+  });
+
+  it("drops late polling responses after navigation changes generation", async () => {
+    vi.useFakeTimers();
+    let generation = 2;
+    let release: ((summary: ZeroTouchCaseSummary) => void) | undefined;
+    const fetchCase = vi.fn(() => new Promise<ZeroTouchCaseSummary>((resolve) => {
+      release = resolve;
+    }));
+    const onUpdate = vi.fn();
+    const stop = startAutomationPolling({
+      caseId: makeZeroTouch("RUNNING").case.case_id,
+      generation,
+      currentGeneration: () => generation,
+      fetchCase,
+      onUpdate,
+      onWarning: vi.fn(),
+      shouldContinue: shouldPollAutomation,
+      initialDelayMs: 1,
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    generation += 1;
+    release?.(makeZeroTouch("COMPLETED"));
+    await Promise.resolve();
+    expect(onUpdate).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("uses the zero-touch lifecycle and binds exception resolution versions", async () => {
+    const completed = makeZeroTouch();
+    const paused = makeZeroTouch("WAITING_FOR_REVIEW");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(paused), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(completed), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(completed), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(completed), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const created = await createZeroTouchCase("202400001A", "STRAIGHT_THROUGH");
+    const file = new File(["%PDF-1.4\nSYNTHETIC\n%%EOF"], "synthetic.pdf", {
+      type: "application/pdf",
+    });
+    await attachZeroTouchDocument(created.case.case_id, file, true);
+    await fetchZeroTouchCase(created.case.case_id);
+    const exception = paused.active_exceptions[0];
+    await resolveZeroTouchException(
+      paused,
+      exception.exception_id,
+      "KEEP_REGISTRY_VALUE",
+      exception.evidence_version,
+    );
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/demo/clm/zero-touch/cases");
+    expect(fetchMock.mock.calls[1][0]).toContain("/api/demo/clm/zero-touch/cases/");
+    const resolution = JSON.parse(fetchMock.mock.calls[3][1].body as string);
+    expect(resolution.expected_automation_version).toBe(paused.version);
+    expect(resolution.evidence_version).toBe(exception.evidence_version);
+    expect(resolution.action).toBe("KEEP_REGISTRY_VALUE");
   });
 });

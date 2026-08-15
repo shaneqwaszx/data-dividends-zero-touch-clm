@@ -4,12 +4,12 @@ Proof of concept for Delta Capita's Singapore new-to-bank flow:
 
 `ACRA Singapore -> EDS/orchestration layer -> GoldTier -> human review gate`
 
-Phase 05 connects the runnable registry, document-review, and deterministic
-ownership/UBO foundations into a staged five-step CLM journey with backend readiness,
-an immutable submission snapshot, and Mock GoldTier submission. Mock ACRA, Mock IDP,
-Mock ownership, and Mock GoldTier remain safe defaults. No live hierarchy,
-sponsor-approved document/UBO policy, real GoldTier, or Ready-for-Approval
-interoperability is claimed.
+Phase 06 composes the registry, document, deterministic ownership/UBO, readiness, and
+Mock GoldTier foundations into one server-driven workflow started with a UEN and one
+PDF. It runs straight through when the narrow provisional policy is satisfied, or
+pauses at a typed human exception and resumes automatically after an allowed resolution.
+Mock providers remain safe defaults. No live hierarchy, sponsor-approved document/UBO
+policy, real GoldTier, or Ready-for-Approval interoperability is claimed.
 
 ## Repository layout
 
@@ -59,6 +59,12 @@ The backend runs at `http://127.0.0.1:8000` and exposes:
 - `POST /api/clm/cases/{case_id}/readiness/evaluate`
 - `GET /api/clm/cases/{case_id}/submission-plan`
 - `POST /api/clm/cases/{case_id}/submit`
+- `POST /api/clm/zero-touch/cases`
+- `POST /api/clm/zero-touch/cases/{case_id}/documents`
+- `GET /api/clm/zero-touch/cases/{case_id}`
+- `POST /api/clm/zero-touch/cases/{case_id}/start`
+- `POST /api/clm/zero-touch/cases/{case_id}/resume`
+- `POST /api/clm/zero-touch/cases/{case_id}/exceptions/{exception_id}/resolve`
 
 Cases are process-local and are cleared when the backend restarts.
 The mock-scenario endpoint returns an object containing the backend simulation profile
@@ -132,6 +138,7 @@ remains deferred until the team selects and locks the required packages.
 | `202400002B` | Incomplete entity requiring review |
 | `202400003C` | Mock GoldTier policy validation failure |
 | `202400004D` | Mock GoldTier partial amend requiring review |
+| `202400005E` | Existing Mock GoldTier party requiring sponsor policy |
 | Any other UEN | Mock ACRA not found |
 
 All scenario data is synthetic. See
@@ -249,6 +256,33 @@ real GoldTier, and the approval transition.
 See `docs/architecture/PHASE_05_CLM_ORCHESTRATION.md`,
 `docs/contracts/CLM_READINESS_POLICY.md`, and
 `docs/contracts/GOLDTIER_SUBMISSION_PREPARATION.md` for the detailed boundaries.
+
+## Phase 06 zero-touch demo
+
+1. Start the backend and frontend, choose a synthetic UEN and PDF, then select the
+   single **Start zero-touch onboarding** action.
+2. The browser polls only while the server reports `RUNNING` or `RESUMING`. Registry,
+   document, ownership, readiness, and Mock GoldTier decisions remain server-owned.
+3. `202400001A` with matching synthetic evidence reaches `COMPLETED` with zero human
+   interventions. Mismatch and low-confidence cases stop at **Human review required**
+   and offer only actions returned by the server. `KEEP_REGISTRY_VALUE` applies only to
+   source conflict; low-confidence-only/missing evidence has no provisional action.
+4. Ownership cycle/incomplete, existing-party, and partial-target outcomes stop without
+   an unsafe approval action. Provider/target failures are shown separately as technical
+   failures. Manual scenario controls are hidden unless
+   `VITE_DEMO_CONTROLS_ENABLED=true` and remain under **Demo/Test Controls**.
+
+The generic API contains no scenario selector. Dedicated `/api/demo/clm/zero-touch/...`
+routes provide the synthetic `STRAIGHT_THROUGH`, document discrepancy/low confidence,
+ownership cycle/incomplete, existing party, target failure, and provider failure
+matrix. All demo discovery/selection routes fail closed when
+`DEMO_CONTROLS_ENABLED=false`; both backend and browser flags default false.
+
+See `docs/architecture/PHASE_06_ZERO_TOUCH_ORCHESTRATION.md`,
+`docs/contracts/ZERO_TOUCH_AUTOMATION_POLICY.md`, and
+`docs/contracts/INTEGRATION_ADAPTER_CONTRACTS.md`. State, locks, events, metrics, and
+target recovery are process-local POC facilities and do not claim durable restart or
+exactly-once processing.
 
 ## Optional ACRA sandbox smoke verification
 

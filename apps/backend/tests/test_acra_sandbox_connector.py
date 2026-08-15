@@ -105,7 +105,7 @@ def test_successful_source_response_is_parsed_into_acra_dto() -> None:
     ("unit", "building_name", "expected_unit", "expected_building", "expected_line_2"),
     [
         ("", "", None, None, None),
-        ("   ", " \t ", None, None, None),
+        ("   ", "    ", None, None, None),
         ("  #04-01  ", None, "#04-01", None, "#04-01"),
         (None, "  SYNTHETIC CENTRE  ", None, "SYNTHETIC CENTRE", "SYNTHETIC CENTRE"),
         (
@@ -161,6 +161,21 @@ def test_entity_status_is_trimmed_without_status_enum_assumptions() -> None:
     assert payload is not None
     assert payload.entity_status == "SOURCE STATUS TEXT"
     assert map_acra_company(payload).entity_status == "SOURCE STATUS TEXT"
+
+
+def test_optional_address_control_whitespace_is_rejected_before_normalization() -> None:
+    body = fixture_body()
+    assert isinstance(body, dict)
+    company = body["company"]
+    assert isinstance(company, dict)
+    address = company["registeredAddress"]
+    assert isinstance(address, dict)
+    address["buildingName"] = " \t "
+
+    with pytest.raises(AcraMalformedResponseError, match="unexpected response"):
+        build_connector(
+            FakeTransport(AcraHttpResponse(status_code=200, body=body))
+        ).fetch_company("202400001A")
 
 
 def test_company_not_found_returns_none() -> None:

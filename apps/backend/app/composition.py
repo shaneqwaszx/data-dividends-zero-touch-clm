@@ -23,6 +23,7 @@ from app.demo.scenarios import (
     MockScenarioCatalogue,
     Phase01MockScenarioCatalogue,
 )
+from app.demo.zero_touch_control import ZeroTouchDemoControl
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.clm_repository import InMemoryClmOrchestrationRepository
 from app.services.document_processing import DocumentProcessingService
@@ -31,6 +32,11 @@ from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_repository import InMemoryOwnershipAnalysisRepository
 from app.services.repository import InMemoryOnboardingCaseRepository
+from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
+from app.services.zero_touch_provider_bindings import (
+    InMemoryOwnershipProviderBindingResolver,
+)
+from app.services.zero_touch_repository import InMemoryZeroTouchAutomationRepository
 
 
 def build_onboarding_service(
@@ -56,6 +62,7 @@ def build_onboarding_service(
         goldtier=MockGoldTierConnector(
             policy_validation_failure_keys=catalogue.policy_validation_failure_uens(),
             partial_amend_external_keys=catalogue.partial_amend_uens(),
+            match_found_external_keys=frozenset({"202400005E"}),
         ),
         repository=InMemoryOnboardingCaseRepository(),
     )
@@ -154,3 +161,30 @@ def build_clm_orchestration_service(
         ownership=ownership_service,
         repository=InMemoryClmOrchestrationRepository(),
     )
+
+
+def build_zero_touch_orchestrator(
+    onboarding_service: OnboardingService,
+    document_service: DocumentProcessingService,
+    ownership_service: OwnershipAnalysisService,
+    clm_service: ClmOrchestrationService,
+    settings: Settings,
+) -> ZeroTouchOrchestrator:
+    """Compose the provider-neutral Phase 06 automation owner."""
+
+    provider_bindings = InMemoryOwnershipProviderBindingResolver(
+        lambda: ownership_service.configured_provider
+    )
+    return ZeroTouchOrchestrator(
+        cases=onboarding_service,
+        documents=document_service,
+        ownership=ownership_service,
+        clm=clm_service,
+        repository=InMemoryZeroTouchAutomationRepository(),
+        ownership_provider_bindings=provider_bindings,
+        max_transitions_per_run=settings.zero_touch_max_transitions_per_run,
+    )
+
+
+def build_zero_touch_demo_control() -> ZeroTouchDemoControl:
+    return ZeroTouchDemoControl()

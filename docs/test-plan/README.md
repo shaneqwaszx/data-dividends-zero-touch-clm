@@ -23,3 +23,11 @@ adversarial provenance, pre-append stream limits, typed/closed review requests, 
 UEN-specific internal-whitespace removal. Real PDF/OCR accuracy
 and production malware controls cannot be tested until sponsor document/security
 requirements are confirmed.
+
+Phase 05 adds current-evidence readiness, immutable target snapshots, call stopping,
+concurrency/idempotency, and safe post-target finalization recovery. Phase 06 adds the
+straight-through zero-intervention path, every typed exception/technical-failure demo
+outcome, multiple blockers, stale/cross-case resolution, automatic resume, duplicate
+start/resume, loop guard, malformed target output, provider conformance, UI polling,
+server-authorized actions, and Demo/Test Controls separation. The canonical matrix is
+maintained in `.agents/skills/poc-regression-check/references/regression-catalogue.md`.
