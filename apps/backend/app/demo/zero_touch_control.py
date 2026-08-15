@@ -22,11 +22,17 @@ from app.services.document_processing import canonical_value_for_field
 class ZeroTouchDemoScenario(StrEnum):
     STRAIGHT_THROUGH = "STRAIGHT_THROUGH"
     DOCUMENT_DISCREPANCY = "DOCUMENT_DISCREPANCY"
+    MULTIPLE_DOCUMENT_BLOCKERS = "MULTIPLE_DOCUMENT_BLOCKERS"
+    LOW_CONFIDENCE = "LOW_CONFIDENCE"
     LOW_CONFIDENCE_DOCUMENT = "LOW_CONFIDENCE_DOCUMENT"
+    OWNERSHIP_CYCLE = "OWNERSHIP_CYCLE"
     OWNERSHIP_EXCEPTION = "OWNERSHIP_EXCEPTION"
     OWNERSHIP_INCOMPLETE = "OWNERSHIP_INCOMPLETE"
+    MULTIPLE_OWNERSHIP_PATHS = "MULTIPLE_OWNERSHIP_PATHS"
     EXISTING_PARTY = "EXISTING_PARTY"
     TARGET_FAILURE = "TARGET_FAILURE"
+    PARTIAL_AMEND = "PARTIAL_AMEND"
+    RECOVERY = "RECOVERY"
     TECHNICAL_FAILURE = "TECHNICAL_FAILURE"
 
 
@@ -53,9 +59,16 @@ class _CaseMatchingMockIdpProvider:
             key: canonical_value_for_field(self._entity, key) for key in DocumentFieldKey
         }
         confidence = {key: 0.97 for key in DocumentFieldKey}
-        if self._scenario == ZeroTouchDemoScenario.DOCUMENT_DISCREPANCY:
+        if self._scenario in {
+            ZeroTouchDemoScenario.DOCUMENT_DISCREPANCY,
+            ZeroTouchDemoScenario.MULTIPLE_DOCUMENT_BLOCKERS,
+        }:
             values[DocumentFieldKey.LEGAL_NAME] = "SYNTHETIC CONFLICTING NAME PTE. LTD."
-        if self._scenario == ZeroTouchDemoScenario.LOW_CONFIDENCE_DOCUMENT:
+        if self._scenario in {
+            ZeroTouchDemoScenario.LOW_CONFIDENCE,
+            ZeroTouchDemoScenario.LOW_CONFIDENCE_DOCUMENT,
+            ZeroTouchDemoScenario.MULTIPLE_DOCUMENT_BLOCKERS,
+        }:
             confidence[DocumentFieldKey.REGISTERED_ADDRESS] = 0.54
         return IdpSourceResult(
             profile=document.profile,
@@ -77,6 +90,7 @@ class ZeroTouchDemoControl:
 
     def __init__(self) -> None:
         self._scenarios: dict[UUID, ZeroTouchDemoScenario] = {}
+        self._finalization_failures_remaining: dict[UUID, int] = {}
         self._lock = RLock()
 
     def uen_for(self, supplied_uen: str, scenario: ZeroTouchDemoScenario) -> str:
@@ -84,11 +98,21 @@ class ZeroTouchDemoControl:
             return "202400005E"
         if scenario == ZeroTouchDemoScenario.TARGET_FAILURE:
             return "202400003C"
+        if scenario == ZeroTouchDemoScenario.PARTIAL_AMEND:
+            return "202400004D"
         return supplied_uen
 
     def register(self, case_id: UUID, scenario: ZeroTouchDemoScenario) -> None:
         with self._lock:
             self._scenarios[case_id] = scenario
+            if scenario == ZeroTouchDemoScenario.RECOVERY:
+                # Phase 06 retries finalization twice in one invocation. Failing both
+                # attempts yields RECOVERY_PENDING; the next explicit resume succeeds.
+                self._finalization_failures_remaining[case_id] = 2
+
+    def registered_scenario_for(self, case_id: UUID) -> ZeroTouchDemoScenario | None:
+        with self._lock:
+            return self._scenarios.get(case_id)
 
     def scenario_for(self, case_id: UUID) -> ZeroTouchDemoScenario:
         with self._lock:
@@ -107,6 +131,21 @@ class ZeroTouchDemoControl:
         scenario = self.scenario_for(case_id)
         mapping = {
             ZeroTouchDemoScenario.OWNERSHIP_EXCEPTION: MockOwnershipScenario.CYCLE,
+            ZeroTouchDemoScenario.OWNERSHIP_CYCLE: MockOwnershipScenario.CYCLE,
             ZeroTouchDemoScenario.OWNERSHIP_INCOMPLETE: MockOwnershipScenario.INCOMPLETE_CHAIN,
+            ZeroTouchDemoScenario.MULTIPLE_OWNERSHIP_PATHS: MockOwnershipScenario.MULTIPLE_PATHS,
         }
         return MockOwnershipProvider(mapping.get(scenario, MockOwnershipScenario.DIRECT_OWNER))
+
+    def should_fail_target_finalization(self, case_id: UUID) -> bool:
+        """Inject only the bounded synthetic recovery fault selected at the demo edge."""
+
+        with self._lock:
+            remaining = self._finalization_failures_remaining.get(case_id, 0)
+            if remaining <= 0:
+                return False
+            if remaining == 1:
+                self._finalization_failures_remaining.pop(case_id, None)
+            else:
+                self._finalization_failures_remaining[case_id] = remaining - 1
+            return True

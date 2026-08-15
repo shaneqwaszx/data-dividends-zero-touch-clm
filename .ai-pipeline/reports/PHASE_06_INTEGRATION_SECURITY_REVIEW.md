@@ -4,7 +4,9 @@
 
 **Result:** PASS WITH ACCEPTED POC LIMITATIONS
 
-**Role:** implementation-side security review; the historical independent quality-gate `FAIL` remains unchanged and requires an independent re-gate
+**Role:** implementation-side security review. This report records the pre-re-gate
+position; it is superseded by the later `PHASE_06_QUALITY_GATE.md` final closure
+**PASS** dated 2026-08-15.
 
 ## Boundary findings
 

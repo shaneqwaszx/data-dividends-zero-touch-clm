@@ -211,3 +211,29 @@ remains the target replay/recovery authority; only its typed finalization-retry 
 re-entered without target replay. All guarantees remain
 process-local and Mock-only. D-025 records the provisional policy; all sponsor blockers
 listed in Q-001–Q-014 remain open as applicable.
+
+## Phase 07 implementation status
+
+The accepted Mock POC is packaged for sponsor UAT and integration handoff without
+changing its business policy. A safe public execution-profile read keeps the normal
+browser environment banner truthful. Demo-gated integrated presets now include multiple
+document blockers, preferred low-confidence/ownership-cycle labels, multiple ownership
+paths, partial amend, and deterministic replay-free finalization recovery. A whitelisted
+JSON UAT export reports synthetic case/status/stage/blocker/metric/timing/operation/
+warning/timeline evidence without PDF bytes, raw payloads, endpoints, credentials,
+private fingerprints, or exception internals.
+
+The sponsor UI adds a concise case summary and explicit recovery action; Windows scripts
+provide checked Mock startup, exact launcher-owned process-tree stop, and verified
+process-restart reset. Git-ignored runtime metadata binds role/PID/creation/executable/
+project command/listener/port identity, and stale or mismatched ownership fails safe.
+The final
+handoff includes a 12-case UAT catalogue, synthetic document pack, demo script/runbook,
+provider replacement and adapter conformance guides, API/configuration/failure/security
+references, final architecture, sponsor dependency matrix, and deliverable index.
+
+No new sponsor artefact was supplied and no open question was closed. Document/readiness
+and UBO policy remain provisional; live ACRA/hierarchy/GoldTier and Ready-for-Approval
+remain blocked or unconfirmed. Phase 07 adds no live adapter, credential handling,
+related-party write, autonomous approval, production RBAC, durable orchestration, or
+later-phase scope.

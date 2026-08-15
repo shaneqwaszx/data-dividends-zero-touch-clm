@@ -1156,7 +1156,29 @@ dd {
 }
 
 .human-review-card { border-color: #e5ba61; background: #fffaf0; }
-.review-reason { display: block; margin: 0.75rem 0; color: #805000; }
+.review-reason { margin: 0.75rem 0; color: #805000; font-weight: 700; }
+
+.blocker-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.55rem 0 0;
+  padding-left: 1.35rem;
+}
+
+.blocker-list li span {
+  display: block;
+  font-weight: 700;
+}
+
+.blocker-list code {
+  color: #5f6f6b;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.blocker-list--summary {
+  margin-top: 0;
+}
 
 .exception-evidence {
   margin: 1rem 0;
@@ -1185,7 +1207,61 @@ dd {
 .legacy-controls .page-shell { padding: 1rem 0 0; }
 .claim-boundary { color: var(--muted); font-size: 0.85rem; }
 
+.executive-summary {
+  margin-top: 1.25rem;
+  padding: 1.4rem;
+  border: 1px solid rgba(105, 126, 122, 0.28);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 36px rgba(25, 52, 48, 0.08);
+}
+
+.executive-summary__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 1rem 0;
+}
+
+.executive-summary__grid div {
+  padding: 0.85rem;
+  border-radius: 0.75rem;
+  background: #f3f7f5;
+}
+
+.executive-summary__grid dt {
+  color: #5e716d;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.executive-summary__grid dd {
+  margin: 0.35rem 0 0;
+  color: #173e37;
+  font-weight: 700;
+}
+
+.executive-summary__warnings ul {
+  margin: 0.55rem 0 0;
+  columns: 2;
+}
+
+.resuming-banner button,
+.evidence-export {
+  margin-left: 0.8rem;
+}
+
 @media (max-width: 760px) {
+  .executive-summary__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .executive-summary__warnings ul {
+    columns: 1;
+  }
+
   .launch-card,
   .document-card,
   .ownership-card,

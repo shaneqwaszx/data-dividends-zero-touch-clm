@@ -9,11 +9,14 @@ import {
   fetchClmCase,
   fetchDocuments,
   fetchMockScenarios,
+  fetchExecutionProfile,
   fetchOwnership,
+  fetchUatEvidence,
   fetchZeroTouchCase,
   loadMockOwnership,
   reviewDocument,
   resolveZeroTouchException,
+  resumeZeroTouchCase,
   submitClmCase,
   uploadDocument,
   createZeroTouchCase,
@@ -955,6 +958,73 @@ export function OnboardingProgress({ summary }: { summary: ZeroTouchCaseSummary 
   );
 }
 
+export function SponsorCaseSummary({ summary }: { summary: ZeroTouchCaseSummary }) {
+  const activeBlockers: string[] = [];
+  const seenBlockers = new Set<string>();
+  summary.active_exceptions.forEach((exception) => {
+    exception.blocker_codes.forEach((blockerCode) => {
+      if (!seenBlockers.has(blockerCode)) {
+        seenBlockers.add(blockerCode);
+        activeBlockers.push(blockerCode);
+      }
+    });
+  });
+  if (activeBlockers.length === 0 && summary.technical_failure) {
+    activeBlockers.push(summary.technical_failure.code);
+  }
+  const ownershipCandidates = summary.clm.related_party_preparation?.provisional_candidate_count;
+  const targetOutcome = summary.metrics.final_outcome
+    ?? summary.clm.error?.code
+    ?? (summary.current_stage === "MOCK_GOLDTIER" ? "In progress" : "Not reached");
+
+  return (
+    <section className="executive-summary" aria-labelledby="executive-summary-heading">
+      <div className="automation-heading">
+        <div>
+          <p className="section-label">Sponsor case summary</p>
+          <h2 id="executive-summary-heading">
+            {summary.case.entity?.legal_name ?? summary.case.requested_uen}
+          </h2>
+        </div>
+        <strong>{summary.status.replaceAll("_", " ")}</strong>
+      </div>
+      <dl className="executive-summary__grid">
+        <div><dt>UEN</dt><dd>{summary.case.requested_uen}</dd></div>
+        <div>
+          <dt>Active blockers</dt>
+          <dd>
+            {activeBlockers.length === 0 ? "None" : (
+              <ol className="blocker-list blocker-list--summary">
+                {activeBlockers.map((blockerCode) => (
+                  <li key={blockerCode}>
+                    <span>{blockerCode.replaceAll("_", " ")}</span>
+                    <code>{blockerCode}</code>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </dd>
+        </div>
+        <div><dt>Human interventions after Start</dt><dd>{summary.metrics.human_interventions}</dd></div>
+        <div><dt>Provisional UBO candidates</dt><dd>{ownershipCandidates ?? "Pending"}</dd></div>
+        <div><dt>Mock target outcome</dt><dd>{targetOutcome.replaceAll("_", " ")}</dd></div>
+        <div>
+          <dt>Elapsed local POC time</dt>
+          <dd>{summary.metrics.total_duration_ms === null ? "In progress" : `${summary.metrics.total_duration_ms} ms`}</dd>
+        </div>
+      </dl>
+      <div className="executive-summary__warnings">
+        <strong>Outstanding warnings</strong>
+        <ul>
+          {summary.clm.readiness.warnings.map((warning) => (
+            <li key={warning}>{warning.replaceAll("_", " ")}</li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
 export function HumanReviewPanel({
   exception,
   isResolving,
@@ -968,7 +1038,17 @@ export function HumanReviewPanel({
     <section className="human-review-card" aria-labelledby="review-required-heading">
       <p className="section-label">Human review required</p>
       <h2 id="review-required-heading">{exception.stage.replaceAll("_", " ")}</h2>
-      <strong className="review-reason">{exception.blocker_code.replaceAll("_", " ")}</strong>
+      <div className="review-reason">
+        <span>Current blockers</span>
+        <ol className="blocker-list">
+          {exception.blocker_codes.map((blockerCode) => (
+            <li key={blockerCode}>
+              <span>{blockerCode.replaceAll("_", " ")}</span>
+              <code>{blockerCode}</code>
+            </li>
+          ))}
+        </ol>
+      </div>
       <p>{exception.explanation}</p>
       {exception.evidence.map((evidence, index) => (
         <article className="exception-evidence" key={`${evidence.field_key ?? "evidence"}-${index}`}>
@@ -1288,11 +1368,10 @@ export default function App({
   const resolutionActive = useRef(false);
 
   useEffect(() => {
-    if (!demoControlsEnabled) return;
-    void fetchMockScenarios()
-      .then((discovery) => setSimulationProfile(discovery.simulation))
+    void fetchExecutionProfile()
+      .then(setSimulationProfile)
       .catch(() => setRequestError("Connector profile discovery is unavailable."));
-  }, [demoControlsEnabled]);
+  }, []);
 
   useEffect(() => {
     if (!summary || !shouldPollAutomation(summary.status)) return;
@@ -1404,6 +1483,35 @@ export default function App({
     }
   }
 
+  async function handleRecovery() {
+    if (!summary || isSubmitting || isResolving) return;
+    setIsSubmitting(true);
+    setRequestError(null);
+    try {
+      setSummary(await resumeZeroTouchCase(summary.case.case_id));
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Finalization recovery failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleEvidenceExport() {
+    if (!summary) return;
+    try {
+      const evidence = await fetchUatEvidence(summary.case.case_id);
+      const blob = new Blob([JSON.stringify(evidence, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${evidence.uat_case_id}-${evidence.case_id}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "UAT evidence export failed.");
+    }
+  }
+
   return (
     <main className="page-shell sponsor-shell">
       <header className="hero sponsor-hero">
@@ -1471,11 +1579,15 @@ export default function App({
           >
             <option value="STRAIGHT_THROUGH">Straight through</option>
             <option value="DOCUMENT_DISCREPANCY">Document discrepancy</option>
-            <option value="LOW_CONFIDENCE_DOCUMENT">Low-confidence document</option>
-            <option value="OWNERSHIP_EXCEPTION">Ownership cycle</option>
+            <option value="MULTIPLE_DOCUMENT_BLOCKERS">Multiple document blockers</option>
+            <option value="LOW_CONFIDENCE">Low-confidence document</option>
+            <option value="OWNERSHIP_CYCLE">Ownership cycle</option>
             <option value="OWNERSHIP_INCOMPLETE">Incomplete ownership</option>
+            <option value="MULTIPLE_OWNERSHIP_PATHS">Multiple ownership paths</option>
             <option value="EXISTING_PARTY">Existing Mock party</option>
             <option value="TARGET_FAILURE">Mock target failure</option>
+            <option value="PARTIAL_AMEND">Partial amend</option>
+            <option value="RECOVERY">Replay-free recovery</option>
             <option value="TECHNICAL_FAILURE">IDP technical failure</option>
           </select>
           <details className="legacy-controls">
@@ -1490,12 +1602,16 @@ export default function App({
       {summary && (
         <>
           <OnboardingProgress summary={summary} />
+          <SponsorCaseSummary summary={summary} />
           {summary.status === "RESUMING" && (
             <div className="resuming-banner" role="status">Resuming onboarding…</div>
           )}
           {summary.status === "RECOVERY_PENDING" && (
             <div className="resuming-banner" role="status">
-              Mock target outcome retained; finalization recovery is pending without target replay.
+              <span>Mock target outcome retained; finalization recovery is pending without target replay.</span>
+              <button type="button" disabled={isSubmitting} onClick={() => void handleRecovery()}>
+                Complete safe recovery
+              </button>
             </div>
           )}
           {summary.status === "WAITING_FOR_REVIEW" && summary.active_exceptions.map((exception) => (
@@ -1516,6 +1632,11 @@ export default function App({
             </section>
           )}
           <AutomationTimeline summary={summary} />
+          {demoControlsEnabled && (
+            <button className="evidence-export" type="button" onClick={() => void handleEvidenceExport()}>
+              Export safe UAT evidence
+            </button>
+          )}
           <p className="claim-boundary">
             Mock and provisional POC only. This is not Ready-for-Approval, legal UBO
             determination, customer approval, or evidence of live ACRA/GoldTier interoperability.

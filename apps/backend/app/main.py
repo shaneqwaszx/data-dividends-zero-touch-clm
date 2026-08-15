@@ -1,5 +1,6 @@
-"""FastAPI application and Phase 05 application-facing endpoints."""
+"""FastAPI application and Phase 07 application-facing endpoints."""
 
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -38,7 +39,9 @@ from app.demo.scenarios import (
     MockScenarioCatalogue,
     MockScenarioDiscovery,
     Phase01MockScenarioCatalogue,
+    SimulationProfile,
 )
+from app.demo.uat_evidence import UatEvidenceExport, build_uat_evidence
 from app.demo.zero_touch_control import ZeroTouchDemoControl, ZeroTouchDemoScenario
 from app.domain.clm import GoldTierSubmissionPlan
 from app.domain.documents import DocumentFieldKey, ReviewDecision
@@ -179,7 +182,16 @@ def create_app(
     active_settings = settings or get_settings()
     application = FastAPI(title=active_settings.app_name, version="0.1.0")
     catalogue = scenario_catalogue or Phase01MockScenarioCatalogue()
-    service = onboarding_service or build_onboarding_service(catalogue, active_settings)
+    zero_touch_demo = zero_touch_demo_control or build_zero_touch_demo_control()
+    service = onboarding_service or build_onboarding_service(
+        catalogue,
+        active_settings,
+        target_finalization_fault=(
+            zero_touch_demo.should_fail_target_finalization
+            if active_settings.demo_controls_enabled
+            else None
+        ),
+    )
     documents = document_processing_service or build_document_processing_service(
         service, active_settings
     )
@@ -196,7 +208,6 @@ def create_app(
     zero_touch = zero_touch_orchestrator or build_zero_touch_orchestrator(
         service, documents, ownership, clm, active_settings
     )
-    zero_touch_demo = zero_touch_demo_control or build_zero_touch_demo_control()
 
     def require_demo_controls() -> None:
         if not active_settings.demo_controls_enabled:
@@ -207,6 +218,20 @@ def create_app(
                     "message": "Demo controls are not enabled in this environment.",
                 },
             )
+
+    def execution_profile() -> SimulationProfile:
+        registry_environment: Literal["MOCK", "SANDBOX"] = (
+            "MOCK" if active_settings.acra_connector_mode == "mock" else "SANDBOX"
+        )
+        return SimulationProfile(
+            registry_environment=registry_environment,
+            idp_review_confidence_threshold=(
+                active_settings.idp_review_confidence_threshold
+            ),
+            ubo_ownership_threshold_percent=(
+                active_settings.ubo_ownership_threshold_percent
+            ),
+        )
 
     @application.exception_handler(RequestValidationError)
     async def safe_request_validation(
@@ -360,29 +385,26 @@ def create_app(
         )
 
     @application.get(
+        "/api/system/execution-profile",
+        response_model=SimulationProfile,
+        tags=["system"],
+    )
+    def get_execution_profile() -> SimulationProfile:
+        """Expose only truthful, non-sensitive connector environment labels."""
+
+        return execution_profile()
+
+    @application.get(
         "/api/onboarding/mock-scenarios",
         response_model=MockScenarioDiscovery,
         tags=["onboarding"],
     )
     def mock_scenarios() -> MockScenarioDiscovery:
         require_demo_controls()
-        registry_environment: Literal["MOCK", "SANDBOX"] = (
-            "MOCK" if active_settings.acra_connector_mode == "mock" else "SANDBOX"
-        )
-        discovery = catalogue.discovery(registry_environment)
+        profile = execution_profile()
+        discovery = catalogue.discovery(profile.registry_environment)
         return discovery.model_copy(
-            update={
-                "simulation": discovery.simulation.model_copy(
-                    update={
-                        "idp_review_confidence_threshold": (
-                            active_settings.idp_review_confidence_threshold
-                        ),
-                        "ubo_ownership_threshold_percent": (
-                            active_settings.ubo_ownership_threshold_percent
-                        ),
-                    }
-                )
-            }
+            update={"simulation": profile}
         )
 
     @application.post(
@@ -591,6 +613,43 @@ def create_app(
                 )
             )
         return zero_touch_response(record)
+
+    @application.get(
+        "/api/demo/clm/zero-touch/cases/{case_id}/uat-evidence",
+        response_model=UatEvidenceExport,
+        tags=["demo"],
+    )
+    def export_zero_touch_uat_evidence(
+        case_id: UUID,
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+        active_clm: Annotated[
+            ClmOrchestrationService, Depends(get_clm_orchestration_service)
+        ],
+    ) -> UatEvidenceExport:
+        require_demo_controls()
+        scenario = zero_touch_demo.registered_scenario_for(case_id)
+        automation = active_zero_touch.get(case_id=case_id)
+        clm_record = active_clm.get(case_id=case_id)
+        case = service.get_case(case_id)
+        if scenario is None or automation is None or clm_record is None or case is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "DEMO_UAT_CASE_NOT_FOUND",
+                    "message": "The synthetic UAT case was not found.",
+                },
+            )
+        return build_uat_evidence(
+            automation=automation,
+            clm=clm_record,
+            scenario=scenario,
+            synthetic_uen=case.requested_uen,
+            simulation=execution_profile(),
+            target_calls=active_clm.attempted_target_operations(case_id=case_id),
+            exported_at=datetime.now(UTC),
+        )
 
     async def attach_zero_touch_document_request(
         *,

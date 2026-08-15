@@ -136,12 +136,14 @@ class OnboardingService:
         repository: OnboardingCaseRepository,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
+        target_finalization_fault: Callable[[UUID], bool] | None = None,
     ) -> None:
         self._acra = acra
         self._goldtier = goldtier
         self._repository = repository
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
+        self._target_finalization_fault = target_finalization_fault
         self._case_locks: dict[UUID, RLock] = {}
         self._case_locks_guard = Lock()
         self._execution_ledger: dict[UUID, GoldTierExecutionLedgerEntry] = {}
@@ -1070,6 +1072,15 @@ class OnboardingService:
     def get_case(self, case_id: UUID) -> OnboardingCase | None:
         return self._repository.get(case_id)
 
+    def get_attempted_target_operations(
+        self, submission_id: UUID
+    ) -> tuple[GoldTierOperationMarker, ...]:
+        """Return only the safe ordered operation markers for local UAT evidence."""
+
+        with self._execution_ledger_guard:
+            entry = self._execution_ledger.get(submission_id)
+            return tuple(entry.attempted_operations) if entry is not None else ()
+
     def _metadata(
         self, submission_input: GoldTierSubmissionInput, idempotency_key: UUID
     ) -> GoldTierRequestMetadata:
@@ -1084,6 +1095,10 @@ class OnboardingService:
         submission_input: GoldTierSubmissionInput,
         outcome: GoldTierTargetOutcome,
     ) -> GoldTierExecutionReceipt:
+        if self._target_finalization_fault is not None and self._target_finalization_fault(
+            submission_input.case_id
+        ):
+            raise RuntimeError("Synthetic demo finalization fault")
         if (
             outcome.submission_id != submission_input.submission_id
             or outcome.case_id != submission_input.case_id

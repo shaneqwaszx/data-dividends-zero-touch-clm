@@ -126,6 +126,19 @@ class ClmOrchestrationService:
             deep=True,
         )
 
+    def attempted_target_operations(self, *, case_id: UUID) -> tuple[str, ...]:
+        """Expose safe operation names for sponsor UAT evidence, never payloads."""
+
+        record = self._repository.get_for_case(case_id)
+        if record is None or record.submission_snapshot is None:
+            return ()
+        return tuple(
+            marker.value
+            for marker in self._cases.get_attempted_target_operations(
+                record.submission_snapshot.submission_id
+            )
+        )
+
     def evaluate(self, *, case_id: UUID) -> ClmOrchestrationRecord:
         with self._lock_for(case_id):
             record = self._require_record(case_id)
