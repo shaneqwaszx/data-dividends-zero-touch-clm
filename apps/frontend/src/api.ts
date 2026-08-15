@@ -11,6 +11,8 @@ import type {
   ExceptionResolutionAction,
   ZeroTouchCaseSummary,
   ZeroTouchDemoScenario,
+  SimulationProfile,
+  UatEvidenceExport,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -89,6 +91,26 @@ export async function fetchZeroTouchCase(
     { signal },
   );
   return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export async function fetchExecutionProfile(): Promise<SimulationProfile> {
+  const response = await fetch(`${API_BASE_URL}/api/system/execution-profile`);
+  return parseResponse<SimulationProfile>(response);
+}
+
+export async function resumeZeroTouchCase(caseId: string): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/resume`,
+    { method: "POST" },
+  );
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export async function fetchUatEvidence(caseId: string): Promise<UatEvidenceExport> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/demo/clm/zero-touch/cases/${caseId}/uat-evidence`,
+  );
+  return parseResponse<UatEvidenceExport>(response);
 }
 
 export async function resolveZeroTouchException(

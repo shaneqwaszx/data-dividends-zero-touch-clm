@@ -10,6 +10,7 @@ import App, {
   OnboardingProgress,
   OwnershipSummary,
   SimulationBanner,
+  SponsorCaseSummary,
   shouldPollAutomation,
   automationStageState,
   runEvidenceMutation,
@@ -21,15 +22,18 @@ import {
   createZeroTouchCase,
   createOnboardingCase,
   fetchDocuments,
+  fetchExecutionProfile,
   evaluateClmReadiness,
   fetchClmCase,
   fetchMockScenarios,
   fetchOnboardingCase,
   fetchOwnership,
+  fetchUatEvidence,
   fetchZeroTouchCase,
   loadMockOwnership,
   reviewDocument,
   resolveZeroTouchException,
+  resumeZeroTouchCase,
   submitClmCase,
   uploadDocument,
 } from "./api";
@@ -853,6 +857,37 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(markup).not.toContain("Submit to Mock GoldTier");
   });
 
+  it("renders a concise server-authored sponsor summary and provisional warnings", () => {
+    const markup = renderToStaticMarkup(<SponsorCaseSummary summary={makeZeroTouch()} />);
+    expect(markup).toContain("Sponsor case summary");
+    expect(markup).toContain("Human interventions after Start");
+    expect(markup).toContain("MOCK GOLDTIER SUBMITTED");
+    expect(markup).toContain("READY FOR APPROVAL UNAVAILABLE");
+    expect(markup).not.toContain("APPROVED");
+  });
+
+  it("uses safe profile, recovery, and UAT evidence endpoints", async () => {
+    const completed = makeZeroTouch();
+    const evidence = {
+      evidence_schema: "PHASE_07_UAT_EVIDENCE_V1",
+      uat_case_id: "UAT-01",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(simulation), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(completed), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(evidence), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect((await fetchExecutionProfile()).target_environment).toBe("MOCK");
+    expect((await resumeZeroTouchCase(completed.case.case_id)).status).toBe("COMPLETED");
+    expect((await fetchUatEvidence(completed.case.case_id)).uat_case_id).toBe("UAT-01");
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "/api/system/execution-profile",
+      `/api/clm/zero-touch/cases/${completed.case.case_id}/resume`,
+      `/api/demo/clm/zero-touch/cases/${completed.case.case_id}/uat-evidence`,
+    ]);
+  });
+
   it("shows only server-authorized exception evidence and actions", () => {
     const summary = makeZeroTouch("WAITING_FOR_REVIEW");
     const markup = renderToStaticMarkup(
@@ -867,6 +902,69 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(markup).toContain("SYNTHETIC CONFLICTING NAME");
     expect(markup).toContain("Keep registry values");
     expect(markup).not.toContain("Approve");
+  });
+
+  it("renders one server-provided blocker in both sponsor and review views", () => {
+    const summary = makeZeroTouch("WAITING_FOR_REVIEW");
+    const sponsorMarkup = renderToStaticMarkup(<SponsorCaseSummary summary={summary} />);
+    const reviewMarkup = renderToStaticMarkup(
+      <HumanReviewPanel
+        exception={summary.active_exceptions[0]}
+        isResolving={false}
+        onResolve={() => undefined}
+      />,
+    );
+    expect(sponsorMarkup).toContain("DOCUMENT_SOURCE_CONFLICT");
+    expect(reviewMarkup).toContain("DOCUMENT_SOURCE_CONFLICT");
+  });
+
+  it("preserves server order when every UAT-04 blocker is rendered", () => {
+    const summary = makeZeroTouch("WAITING_FOR_REVIEW");
+    summary.active_exceptions[0].blocker_codes = [
+      "DOCUMENT_SOURCE_CONFLICT",
+      "DOCUMENT_LOW_CONFIDENCE",
+    ];
+    const sponsorMarkup = renderToStaticMarkup(<SponsorCaseSummary summary={summary} />);
+    const reviewMarkup = renderToStaticMarkup(
+      <HumanReviewPanel
+        exception={summary.active_exceptions[0]}
+        isResolving={false}
+        onResolve={() => undefined}
+      />,
+    );
+    for (const markup of [sponsorMarkup, reviewMarkup]) {
+      expect(markup).toContain("DOCUMENT_SOURCE_CONFLICT");
+      expect(markup).toContain("DOCUMENT_LOW_CONFIDENCE");
+      expect(markup.indexOf("DOCUMENT_SOURCE_CONFLICT")).toBeLessThan(
+        markup.indexOf("DOCUMENT_LOW_CONFIDENCE"),
+      );
+    }
+  });
+
+  it("shows only low confidence and no action after narrow source resolution", () => {
+    const summary = makeZeroTouch("WAITING_FOR_REVIEW");
+    summary.active_exceptions[0] = {
+      ...summary.active_exceptions[0],
+      exception_type: "DOCUMENT_LOW_CONFIDENCE",
+      blocker_code: "DOCUMENT_LOW_CONFIDENCE",
+      blocker_codes: ["DOCUMENT_LOW_CONFIDENCE"],
+      available_actions: [],
+      explanation: "Low-confidence evidence still requires sponsor-defined review.",
+    };
+    const sponsorMarkup = renderToStaticMarkup(<SponsorCaseSummary summary={summary} />);
+    const reviewMarkup = renderToStaticMarkup(
+      <HumanReviewPanel
+        exception={summary.active_exceptions[0]}
+        isResolving={false}
+        onResolve={() => undefined}
+      />,
+    );
+    expect(sponsorMarkup).toContain("DOCUMENT_LOW_CONFIDENCE");
+    expect(sponsorMarkup).not.toContain("DOCUMENT_SOURCE_CONFLICT");
+    expect(reviewMarkup).toContain("DOCUMENT_LOW_CONFIDENCE");
+    expect(reviewMarkup).not.toContain("DOCUMENT_SOURCE_CONFLICT");
+    expect(reviewMarkup).not.toContain("Keep registry values");
+    expect(reviewMarkup).toContain("Corrected or replacement evidence is required");
   });
 
   it("polls only running and resuming automation states", () => {

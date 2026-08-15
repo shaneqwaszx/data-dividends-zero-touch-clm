@@ -1,4 +1,7 @@
-"""Side-effect-free connector and service composition through Phase 05."""
+"""Side-effect-free connector and service composition through Phase 07."""
+
+from collections.abc import Callable
+from uuid import UUID
 
 from app.config import Settings, get_settings
 from app.connectors.acra import AcraConnector
@@ -46,6 +49,7 @@ def build_onboarding_service(
     acra_transport: AcraHttpTransport | None = None,
     acra_authorizer: AcraRequestAuthorizer | None = None,
     acra_decoder: AcraResponseDecoder | None = None,
+    target_finalization_fault: Callable[[UUID], bool] | None = None,
 ) -> OnboardingService:
     """Compose configured ACRA and credential-free Mock GoldTier connectors."""
 
@@ -65,6 +69,7 @@ def build_onboarding_service(
             match_found_external_keys=frozenset({"202400005E"}),
         ),
         repository=InMemoryOnboardingCaseRepository(),
+        target_finalization_fault=target_finalization_fault,
     )
 
 

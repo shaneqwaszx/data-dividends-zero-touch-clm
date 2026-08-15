@@ -406,11 +406,17 @@ export type AutomationStage =
 export type ZeroTouchDemoScenario =
   | "STRAIGHT_THROUGH"
   | "DOCUMENT_DISCREPANCY"
+  | "MULTIPLE_DOCUMENT_BLOCKERS"
+  | "LOW_CONFIDENCE"
   | "LOW_CONFIDENCE_DOCUMENT"
+  | "OWNERSHIP_CYCLE"
   | "OWNERSHIP_EXCEPTION"
   | "OWNERSHIP_INCOMPLETE"
+  | "MULTIPLE_OWNERSHIP_PATHS"
   | "EXISTING_PARTY"
   | "TARGET_FAILURE"
+  | "PARTIAL_AMEND"
+  | "RECOVERY"
   | "TECHNICAL_FAILURE";
 
 export type ExceptionResolutionAction =
@@ -474,4 +480,35 @@ export interface ZeroTouchCaseSummary {
   }>;
   created_at: string;
   updated_at: string;
+}
+
+export interface UatEvidenceExport {
+  evidence_schema: "PHASE_07_UAT_EVIDENCE_V1";
+  uat_case_id: string;
+  scenario: ZeroTouchDemoScenario;
+  case_id: string;
+  synthetic_uen: string;
+  final_state: AutomationStatus;
+  current_stage: AutomationStage;
+  completed_stages: AutomationStage[];
+  active_blockers: string[];
+  human_interventions: number;
+  exceptions_raised: number;
+  exceptions_resolved: number;
+  stage_durations_ms: Partial<Record<AutomationStage, number>>;
+  total_duration_ms: number | null;
+  target_calls: string[];
+  target_outcome: string | null;
+  warnings: string[];
+  environment: SimulationProfile;
+  timeline: Array<{
+    event_type: string;
+    stage: AutomationStage;
+    status: AutomationStatus;
+    outcome: string;
+    timestamp: string;
+    code: string | null;
+    message: string;
+  }>;
+  exported_at: string;
 }

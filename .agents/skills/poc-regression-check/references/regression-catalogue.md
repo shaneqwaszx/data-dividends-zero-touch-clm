@@ -232,11 +232,46 @@ explicit no-match/existing-party outcomes; and one full alternate local adapter 
 - Original ACRA text is checked for prohibited Unicode control categories before any
   whitespace normalization. Document enumeration is stable first-save insertion order;
   random UUIDs never determine same-stage blocker presentation.
+- Phase 07 presenter presets remain confined to the demo provider/control boundary.
+  The generic registry, document, ownership, orchestration, and target contracts stay
+  scenario-free, and every sponsor-facing view remains explicitly labelled with the
+  active connector profile.
+- `MULTIPLE_DOCUMENT_BLOCKERS` stops before ownership and GoldTier, while
+  `OWNERSHIP_CYCLE` stops before GoldTier. `MULTIPLE_OWNERSHIP_PATHS` produces one
+  aggregate candidate with distinct deterministic path evidence, and `PARTIAL_AMEND`
+  preserves the accepted search/shell/policy/amend call order.
+- `RECOVERY` injects a demo-only receipt-finalization interruption after the retained
+  target outcome. The case reaches `RECOVERY_PENDING`; one explicit resume completes
+  it without replaying any target operation.
+- UAT evidence export is demo-gated and case-bound. Its strict whitelist contains only
+  sanitized identifiers, statuses, blockers, timings, operation names, outcome markers,
+  profile labels, and safe timeline entries; it never exports document bytes, source or
+  target payloads, credentials, endpoint provenance, or internal authority fingerprints.
+- Process restart is the documented POC reset. It clears process-local cases, bindings,
+  target ledgers, and injected recovery counters without presenting a production reset,
+  persistence, or exactly-once guarantee.
+- Phase 07 demo lifecycle success is server/process observable: start returns success
+  only after owned backend/frontend listeners and health are verified; stop validates
+  a structurally complete `RUNNING` role set (exactly one backend and one frontend), then
+  validates PID, creation time, executable, fixed project command markers, and descendant
+  listener before terminating the exact tree. Missing, duplicate, or unknown running
+  roles fail nonzero before termination, retain metadata, and abort reset without a new
+  session. Reset starts only after verified stop and makes a prior process-local case
+  unavailable. Unrelated processes and occupied-port owners are never selected; fully
+  nonexistent complete metadata may clear only when both required ports are free, while
+  incomplete or PID-mismatched metadata fails safe.
+- Sponsor blocker presentation follows the complete ordered server-provided
+  `blocker_codes`. UAT-04 explicitly shows source conflict plus low confidence before
+  narrow resolution and only low confidence afterward, with no target call or
+  unsupported action.
 
 ## Catalogue evolution record
 
 | Established by | Change |
 |---|---|
+| Phase 07 final lifecycle remediation | Preserved every functional/UAT invariant; made complete two-role `RUNNING` metadata a pre-termination invariant and added executed missing-backend/frontend stop/reset plus duplicate/unknown-role regressions |
+| Phase 07 remediation | Preserved every UAT and Phase 01–06 invariant; added executed exact-process lifecycle/start-stop-reset ownership, unrelated-process/PID-reuse/occupied-port safety, real process-local case reset, repeated lifecycle, and complete ordered sponsor blocker-presentation regressions |
+| Phase 07 implementation | Preserved every Phase 01–06 invariant; added verified presenter-only multi-blocker, ownership-cycle, multiple-path, partial-amend, and no-replay recovery presets, safe case-bound UAT evidence export, always-visible execution-profile labelling, and explicit process-restart reset semantics |
 | Phase 06 closure remediation | Preserved the eleven closed findings; moved generic ACRA Unicode-control validation ahead of normalization across every root/nested source text field and replaced equal-timestamp UUID ordering with repository-owned monotonic insertion order, proven by complete control-path and repeated ordering regressions |
 | Phase 06 final remediation | Preserved the twelve prior finding regressions; added reviewed/all-document semantic re-evaluation with non-mutating registry-retention resolution, repeatable nonterminal Phase 05 finalization recovery, and fresh ACRA DTO/request-identity/provenance enforcement |
 | Phase 06 remediation | Preserved all historical rules; added canonical-mutation stale rejection, legal-transition and terminal-fault enforcement, blocker-specific resolution, all-document aggregation, Phase 05 finalization recovery without replay, opaque ownership bindings, alternate-adapter full-path evidence, fail-closed demo routes, resilient polling, navigation guards, and truthful stage labels |

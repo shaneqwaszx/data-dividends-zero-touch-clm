@@ -68,5 +68,6 @@ rewritten.
 - Tracked, cached, and explicit untracked-file whitespace checks passed.
 
 The canonical regression catalogue was evolved only for the two implemented and
-verified final-closure scenarios. The independent `PHASE_06_QUALITY_GATE.md` remains
-the historical `FAIL`; an independent closure re-gate is still required.
+verified final-closure scenarios. This report records the pre-re-gate position; the
+later `PHASE_06_QUALITY_GATE.md` final closure **PASS** dated 2026-08-15 supersedes its
+historical re-gate requirement.
