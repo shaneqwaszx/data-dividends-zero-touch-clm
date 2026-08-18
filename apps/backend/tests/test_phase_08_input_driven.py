@@ -11,6 +11,10 @@ from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.domain.documents import DocumentFieldKey, DocumentProfile
 from app.main import create_app
 
+TESTS_DIR = Path(__file__).resolve().parent
+BACKEND_ROOT = TESTS_DIR.parent
+REPO_ROOT = BACKEND_ROOT.parent.parent
+
 
 def synthetic_pdf(
     fields: Mapping[str, str], *, include_text: bool = True, extra_lines: tuple[str, ...] = ()
@@ -171,7 +175,7 @@ def test_sponsor_mode_is_pdf_and_uen_driven_with_replacement_auto_resume() -> No
 def test_supported_launcher_composition_keeps_pdf_bytes_causal_and_filename_independent() -> None:
     """Mirror the Windows sponsor mode instead of constructing the provider directly."""
 
-    launcher = Path("scripts/demo_lifecycle.ps1").read_text(encoding="utf-8")
+    launcher = (REPO_ROOT / "scripts" / "demo_lifecycle.ps1").read_text(encoding="utf-8")
     assert '$env:IDP_CONNECTOR_MODE = "local_pdf_text"' in launcher
     client = TestClient(
         create_app(
@@ -227,7 +231,7 @@ def test_uen_drives_independent_ownership_and_target_outcomes() -> None:
 def test_cycle_uen_fixture_passes_document_before_input_driven_cycle() -> None:
     client = TestClient(create_app(Settings(app_env="test")))
     created = client.post("/api/clm/zero-touch/cases", json={"uen": "202400006F"}).json()
-    fixture = Path("apps/backend/tests/fixtures/uat/cycle-uen-clean.pdf").read_bytes()
+    fixture = (TESTS_DIR / "fixtures" / "uat" / "cycle-uen-clean.pdf").read_bytes()
     response = client.post(
         f"/api/clm/zero-touch/cases/{created['case']['case_id']}/documents",
         headers={"content-type": "application/pdf", "X-Document-Name": "cycle-uen-clean.pdf"},
