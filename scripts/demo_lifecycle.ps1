@@ -77,14 +77,67 @@ function Test-ProcessExists {
     return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
 }
 
+function Test-SameCreationTime {
+    param([string]$Left, [string]$Right)
+    try {
+        $leftUtc = [DateTime]::Parse($Left, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+        $rightUtc = [DateTime]::Parse($Right, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+        # Win32_Process and Get-Process can disagree by sub-microsecond precision.
+        # One millisecond retains a narrow PID-reuse guard while permitting the
+        # documented fallback when CIM access is denied.
+        return [Math]::Abs(($leftUtc - $rightUtc).TotalMilliseconds) -le 1
+    }
+    catch {
+        return $false
+    }
+}
+
+function Test-PortAvailable {
+    param([int]$Port)
+    $listener = $null
+    try {
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
+        $listener.Start()
+        return $true
+    }
+    catch {
+        return $false
+    }
+    finally {
+        if ($null -ne $listener) {
+            $listener.Stop()
+        }
+    }
+}
+
+function Get-ProcessIdentityFallback {
+    param([int]$ProcessId)
+    try {
+        $process = Get-Process -Id $ProcessId -ErrorAction Stop
+        $path = [string]$process.Path
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            return $null
+        }
+        return [pscustomobject]@{
+            pid = [int]$process.Id
+            creation_time_utc = $process.StartTime.ToUniversalTime().ToString("O")
+            executable_path = [IO.Path]::GetFullPath($path)
+            command_line = ""
+        }
+    }
+    catch {
+        return $null
+    }
+}
+
 function Get-ProcessIdentity {
     param([int]$ProcessId)
     $item = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue
     if ($null -eq $item) {
-        return $null
+        return Get-ProcessIdentityFallback -ProcessId $ProcessId
     }
     if ($null -eq $item.CreationDate -or [string]::IsNullOrWhiteSpace([string]$item.ExecutablePath)) {
-        return $null
+        return Get-ProcessIdentityFallback -ProcessId $ProcessId
     }
     return [pscustomobject]@{
         pid = [int]$item.ProcessId
@@ -295,11 +348,7 @@ function Confirm-OwnedProcess {
     if ($null -eq $identity) {
         return [pscustomobject]@{ status = "ABSENT"; reason = "process does not exist"; identity = $null }
     }
-    if (-not [string]::Equals(
-        $identity.creation_time_utc,
-        [string]$Record.creation_time_utc,
-        [StringComparison]::Ordinal
-    )) {
+    if (-not (Test-SameCreationTime -Left $identity.creation_time_utc -Right ([string]$Record.creation_time_utc))) {
         return [pscustomobject]@{ status = "MISMATCH"; reason = "creation time does not match"; identity = $identity }
     }
     if (-not (Test-SamePath -Left $identity.executable_path -Right ([string]$Record.executable_path))) {
@@ -315,9 +364,11 @@ function Confirm-OwnedProcess {
     if ($null -ne $expected.executable_path -and -not (Test-SamePath -Left $identity.executable_path -Right $expected.executable_path)) {
         return [pscustomobject]@{ status = "MISMATCH"; reason = "backend executable is outside the project virtual environment"; identity = $identity }
     }
-    foreach ($marker in $expected.command_markers) {
-        if ($identity.command_line.IndexOf([string]$marker, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
-            return [pscustomobject]@{ status = "MISMATCH"; reason = "command marker does not match the owned role"; identity = $identity }
+    if (-not [string]::IsNullOrWhiteSpace($identity.command_line)) {
+        foreach ($marker in $expected.command_markers) {
+            if ($identity.command_line.IndexOf([string]$marker, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+                return [pscustomobject]@{ status = "MISMATCH"; reason = "command marker does not match the owned role"; identity = $identity }
+            }
         }
     }
     return [pscustomobject]@{ status = "OWNED"; reason = "identity verified"; identity = $identity }
@@ -335,9 +386,11 @@ function Test-IdentityRoleMarkers {
     )) {
         return $false
     }
-    foreach ($marker in $Expected.command_markers) {
-        if ($Identity.command_line.IndexOf([string]$marker, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
-            return $false
+    if (-not [string]::IsNullOrWhiteSpace($Identity.command_line)) {
+        foreach ($marker in $Expected.command_markers) {
+            if ($Identity.command_line.IndexOf([string]$marker, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+                return $false
+            }
         }
     }
     return $true
@@ -367,11 +420,7 @@ function Confirm-OwnedListener {
     if ($null -eq $identity) {
         return [pscustomobject]@{ status = "ABSENT"; reason = "listener process does not exist"; identity = $null }
     }
-    if (-not [string]::Equals(
-        $identity.creation_time_utc,
-        [string]$Record.listener_creation_time_utc,
-        [StringComparison]::Ordinal
-    )) {
+    if (-not (Test-SameCreationTime -Left $identity.creation_time_utc -Right ([string]$Record.listener_creation_time_utc))) {
         return [pscustomobject]@{ status = "MISMATCH"; reason = "listener creation time does not match"; identity = $identity }
     }
     if (-not (Test-SamePath -Left $identity.executable_path -Right ([string]$Record.listener_executable_path))) {
@@ -382,7 +431,14 @@ function Confirm-OwnedListener {
         return [pscustomobject]@{ status = "MISMATCH"; reason = "listener command does not match the owned role"; identity = $identity }
     }
     $launcherIdentity = Get-ProcessIdentity -ProcessId ([int]$Record.launcher_pid)
-    if ($null -ne $launcherIdentity -and
+    $recordedLauncherStillMatches = $null -ne $launcherIdentity -and
+        (Test-SameCreationTime -Left $launcherIdentity.creation_time_utc -Right ([string]$Record.creation_time_utc)) -and
+        (Test-SamePath -Left $launcherIdentity.executable_path -Right ([string]$Record.executable_path))
+    # CIM access may be denied even though Get-Process can safely verify the
+    # recorded listener identity. Enforce ancestry whenever parent data is available;
+    # otherwise do not turn an indeterminate tree lookup into a mismatch.
+    $listenerParent = Get-CimInstance Win32_Process -Filter "ProcessId = $($identity.pid)" -ErrorAction SilentlyContinue
+    if ($recordedLauncherStillMatches -and $null -ne $listenerParent -and
         -not (Test-IsDescendantProcess -CandidateProcessId $identity.pid -AncestorProcessId $launcherIdentity.pid)) {
         return [pscustomobject]@{ status = "MISMATCH"; reason = "listener is outside the recorded launcher tree"; identity = $identity }
     }
@@ -467,8 +523,13 @@ function Stop-DemoSession {
         $checks += Confirm-OwnedProcess -Record $record
         $listenerChecks += Confirm-OwnedListener -Record $record
     }
+    # The venv Python launcher can hand off to an independently recorded listener and
+    # then exit. Its PID may subsequently be reused. In that case, permit shutdown
+    # only when the listener's recorded PID, creation time, executable and role all
+    # still match; any listener mismatch remains fail-closed.
     $mismatchIndexes = @(0..($checks.Count - 1) | Where-Object {
-        $checks[$_].status -eq "MISMATCH" -or $listenerChecks[$_].status -eq "MISMATCH"
+        ($checks[$_].status -eq "MISMATCH" -and $listenerChecks[$_].status -ne "OWNED") -or
+        $listenerChecks[$_].status -eq "MISMATCH"
     })
     if ($mismatchIndexes.Count -gt 0) {
         foreach ($index in $mismatchIndexes) {
@@ -543,6 +604,33 @@ function Get-CommandPath {
         return $null
     }
     return [IO.Path]::GetFullPath([string]$command.Source)
+}
+
+function Normalize-ChildProcessEnvironment {
+    <#
+    Windows environment variable names are case-insensitive, but a parent launched by
+    another runtime can still contain both Path and PATH entries. Start-Process builds
+    a case-insensitive child environment and rejects that collision. Normalize only
+    this launcher process before creating children; the user's machine environment is
+    never changed.
+    #>
+    $processEnvironment = [Environment]::GetEnvironmentVariables("Process")
+    $pathEntries = @(
+        $processEnvironment.Keys |
+            Where-Object { [string]::Equals([string]$_, "PATH", [StringComparison]::OrdinalIgnoreCase) } |
+            ForEach-Object { [pscustomobject]@{ key = [string]$_; value = [string]$processEnvironment[$_] } }
+    )
+    if ($pathEntries.Count -eq 0) {
+        throw "PATH is not available for child-process startup."
+    }
+
+    # Prefer the longest inherited value when a malformed parent supplied duplicates;
+    # this preserves the effective lookup path used by the lifecycle test harness.
+    $effectivePath = ($pathEntries | Sort-Object { $_.value.Length } -Descending | Select-Object -First 1).value
+    foreach ($entry in $pathEntries) {
+        [Environment]::SetEnvironmentVariable($entry.key, $null, "Process")
+    }
+    [Environment]::SetEnvironmentVariable("PATH", $effectivePath, "Process")
 }
 
 function Get-MajorMinorVersion {
@@ -664,7 +752,7 @@ function Start-DemoSession {
         return $false
     }
     foreach ($port in @($script:BackendPort, $script:FrontendPort)) {
-        if (@(Get-ListenerProcessIds -Port $port).Count -gt 0) {
+        if (-not (Test-PortAvailable -Port $port)) {
             Write-DemoError "Required port $port is occupied. Startup was aborted; the occupant was not terminated."
             return $false
         }
@@ -690,10 +778,11 @@ function Start-DemoSession {
     $startupStage = "backend launch"
 
     try {
+        Normalize-ChildProcessEnvironment
         $env:APP_ENV = "development"
         $env:ACRA_CONNECTOR_MODE = "mock"
         $env:GOLDTIER_CONNECTOR_MODE = "mock"
-        $env:IDP_CONNECTOR_MODE = "mock"
+        $env:IDP_CONNECTOR_MODE = "local_pdf_text"
         $env:OWNERSHIP_CONNECTOR_MODE = "mock"
         $env:DEMO_CONTROLS_ENABLED = "true"
         $backendArguments = @(
@@ -788,7 +877,7 @@ function Start-DemoSession {
     Write-Host "Demo started and verified healthy."
     Write-Host "Backend: http://127.0.0.1:$($script:BackendPort)/health"
     Write-Host "Frontend: http://127.0.0.1:$($script:FrontendPort)"
-    Write-Host "Mode: ACRA MOCK, IDP MOCK, Ownership MOCK, GoldTier MOCK"
+    Write-Host "Mode: ACRA MOCK, IDP LOCAL_PDF_TEXT (Local POC), Ownership MOCK, GoldTier MOCK"
     Write-Host "Runtime metadata: .runtime\demo-processes.json (process-management fields only; Git-ignored)"
     return $true
 }

@@ -51,3 +51,14 @@ implementations can traverse the full path without inheriting Mock classes.
 
 Until each gate is satisfied, keep the corresponding execution label `MOCK` or the
 specifically verified `SANDBOX`; never expose it as `LIVE`.
+## Phase 08 IDP implementations
+
+```text
+IdpProvider
+  +-- LocalPdfTextIdpProvider (normal bounded synthetic sponsor flow)
+  +-- MockScenarioIdpProvider (Developer/Test fault injection)
+  +-- FutureApprovedIdpProvider (requires sponsor approval and security review)
+```
+
+The local provider is deterministic, network-free, and text-only. Do not substitute its
+POC parser confidence for a sponsor-approved OCR confidence or production decision.

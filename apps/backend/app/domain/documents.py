@@ -38,6 +38,7 @@ class DocumentEventType(StrEnum):
     DOCUMENT_AUTO_CONFIRMED = "DOCUMENT_AUTO_CONFIRMED"
     DOCUMENT_EXCEPTION_RESOLVED = "DOCUMENT_EXCEPTION_RESOLVED"
     DOCUMENT_PROCESSING_FAILED = "DOCUMENT_PROCESSING_FAILED"
+    DOCUMENT_SUPERSEDED = "DOCUMENT_SUPERSEDED"
 
 
 class IdpEnvironment(StrEnum):
@@ -111,6 +112,7 @@ class DocumentCompletionMethod(StrEnum):
 
 
 class DocumentAutoClearBlocker(StrEnum):
+    TEXT_UNAVAILABLE = "DOCUMENT_TEXT_UNAVAILABLE"
     SOURCE_CONFLICT = "DOCUMENT_SOURCE_CONFLICT"
     LOW_CONFIDENCE = "DOCUMENT_LOW_CONFIDENCE"
     REQUIRED_FIELD_MISSING = "DOCUMENT_REQUIRED_FIELD_MISSING"
@@ -217,4 +219,11 @@ class DocumentProcessingRecord(BaseModel):
     source_conflict_resolutions: list[DocumentSourceConflictResolution] = Field(
         default_factory=list, max_length=32
     )
+    supersedes_document_id: UUID | None = None
+    superseded_by_document_id: UUID | None = None
+    superseded_at: datetime | None = None
     updated_at: datetime
+
+    @property
+    def is_current_evidence(self) -> bool:
+        return self.superseded_by_document_id is None

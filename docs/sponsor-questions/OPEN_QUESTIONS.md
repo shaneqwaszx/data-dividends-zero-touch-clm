@@ -110,6 +110,12 @@ The Phase 03 default `0.85` threshold, four-field profile, deterministic compari
 all-field completion rule, and unauthenticated local accept/reject/correct control are
 project-only POC behavior and are not approval or Ready-for-Approval semantics.
 
+Phase 08 replaces the normal synthetic path's scenario-selected values with actual
+text-PDF extraction and project-defined parser confidence (unique primary label `0.97`,
+alternate label `0.90`, ambiguity `0.40`, missing `0.00`). This deterministic POC
+method does not resolve the approved field, confidence, reviewer, privacy, retention,
+or source-authority policy requested above.
+
 ### Q-007 — Singapore mapping sign-off
 
 Which subset of candidate GoldTier EDS Data Dictionary field/value-list mappings is

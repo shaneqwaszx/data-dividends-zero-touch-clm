@@ -32,7 +32,7 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
         self.demo_cleanup_state: dict[str, Any] | None = None
         if STATE.exists():
             result = self.run_lifecycle("stop_demo_windows.bat")
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.returncode, 0, (result.stdout or "") + (result.stderr or ""))
         self.assert_port_free(8000)
         self.assert_port_free(5173)
 

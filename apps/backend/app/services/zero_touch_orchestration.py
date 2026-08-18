@@ -277,6 +277,61 @@ class ZeroTouchOrchestrator:
                 self._save(record, candidate)
             return self._advance_locked(case_id=case_id)
 
+    def replace_document(
+        self,
+        *,
+        case_id: UUID,
+        document_id: UUID,
+        expected_document_event_count: int,
+        display_name: str,
+        content_type: str,
+        content: bytes,
+        idp_provider: IdpProvider | None = None,
+    ) -> ZeroTouchAutomationRecord:
+        """Supersede blocked document evidence and automatically re-evaluate it."""
+
+        with self._cases.case_lock(case_id):
+            record = self._require_record(case_id)
+            if record.status in {AutomationStatus.COMPLETED, AutomationStatus.TECHNICAL_FAILURE}:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_REPLACEMENT_NOT_ALLOWED",
+                    message="Replacement evidence is not accepted after a terminal outcome.",
+                )
+            if (
+                record.status != AutomationStatus.WAITING_FOR_REVIEW
+                or record.current_stage != AutomationStage.DOCUMENT
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_REPLACEMENT_NOT_ALLOWED",
+                    message="Replacement evidence is only accepted for the active document review.",
+                )
+            self._documents.replace_document(
+                case_id=case_id,
+                document_id=document_id,
+                expected_event_count=expected_document_event_count,
+                display_name=display_name,
+                content_type=content_type,
+                content=content,
+                provider=idp_provider,
+            )
+            candidate = record.model_copy(deep=True)
+            for exception in candidate.active_exceptions:
+                if exception.stage == AutomationStage.DOCUMENT:
+                    exception.status = BusinessExceptionStatus.CANCELLED
+            candidate.status = AutomationStatus.RESUMING
+            candidate.current_stage = AutomationStage.DOCUMENT
+            candidate.metrics.human_interventions += 1
+            candidate.metrics.exceptions_resolved += 1
+            candidate = self._append_event(
+                candidate,
+                event_type=AutomationEventType.AUTOMATION_RESUMING,
+                outcome=EventOutcome.SUCCEEDED,
+                code="DOCUMENT_REPLACEMENT_ACCEPTED",
+                message="Replacement document evidence was accepted; onboarding is re-evaluating.",
+            )
+            self._save(record, candidate)
+            return self._advance_locked(case_id=case_id)
+
     def get(self, *, case_id: UUID) -> ZeroTouchAutomationRecord | None:
         return self._repository.get_for_case(case_id)
 
@@ -427,10 +482,13 @@ class ZeroTouchOrchestrator:
                     candidate.status = AutomationStatus.PENDING_INPUTS
                     candidate.current_stage = AutomationStage.DOCUMENT
                     return self._save(record, candidate)
+                current_documents = [
+                    document for document in documents if document.is_current_evidence
+                ]
                 failed_document = next(
                     (
                         document
-                        for document in documents
+                        for document in current_documents
                         if document.state == DocumentProcessingState.FAILED
                     ),
                     None,
@@ -446,7 +504,7 @@ class ZeroTouchOrchestrator:
                         ),
                         message="Document processing stopped after a technical failure.",
                     )
-                for document in documents:
+                for document in current_documents:
                     if document.state != DocumentProcessingState.REVIEW_REQUIRED:
                         continue
                     assessment = self._documents.assess_auto_clear(
@@ -457,10 +515,13 @@ class ZeroTouchOrchestrator:
                             case_id=case_id, document_id=document.document_id
                         )
                 documents = self._documents.list_documents(case_id=case_id)
+                current_documents = [
+                    document for document in documents if document.is_current_evidence
+                ]
                 blocked_documents: list[
                     tuple[DocumentProcessingRecord, tuple[DocumentAutoClearBlocker, ...]]
                 ] = []
-                for document in documents:
+                for document in current_documents:
                     if document.state not in {
                         DocumentProcessingState.REVIEW_REQUIRED,
                         DocumentProcessingState.REVIEWED,
@@ -476,7 +537,8 @@ class ZeroTouchOrchestrator:
                         record = self._raise_document_exception(record, document, blockers)
                     return record
                 if all(
-                    document.state == DocumentProcessingState.REVIEWED for document in documents
+                    document.state == DocumentProcessingState.REVIEWED
+                    for document in current_documents
                 ):
                     record = self._complete_stage(
                         record,
@@ -621,9 +683,7 @@ class ZeroTouchOrchestrator:
                         candidate.current_stage = AutomationStage.MOCK_GOLDTIER
                         candidate = self._append_event(
                             candidate,
-                            event_type=(
-                                AutomationEventType.MOCK_FINALIZATION_RECOVERY_PENDING
-                            ),
+                            event_type=(AutomationEventType.MOCK_FINALIZATION_RECOVERY_PENDING),
                             outcome=EventOutcome.PARTIAL,
                             code="CLM_FINALIZATION_RETRY_REQUIRED",
                             message=(
@@ -689,7 +749,11 @@ class ZeroTouchOrchestrator:
         document: DocumentProcessingRecord,
         blockers: tuple[DocumentAutoClearBlocker, ...],
     ) -> ZeroTouchAutomationRecord:
-        if DocumentAutoClearBlocker.SOURCE_CONFLICT in blockers:
+        if DocumentAutoClearBlocker.TEXT_UNAVAILABLE in blockers:
+            exception_type = BusinessExceptionType.DOCUMENT_REQUIRED_FIELD_MISSING
+            code = "DOCUMENT_TEXT_UNAVAILABLE"
+            explanation = "No extractable text was found; this bounded POC does not perform OCR."
+        elif DocumentAutoClearBlocker.SOURCE_CONFLICT in blockers:
             exception_type = BusinessExceptionType.DOCUMENT_SOURCE_CONFLICT
             code = "DOCUMENT_SOURCE_CONFLICT"
             explanation = "Document evidence conflicts with current registry evidence."

@@ -11,6 +11,11 @@ import App, {
   OwnershipSummary,
   SimulationBanner,
   SponsorCaseSummary,
+  SponsorDocumentEvidenceView,
+  SponsorOwnershipEvidenceView,
+  SponsorReadinessEvidence,
+  SponsorTargetEvidence,
+  evidenceRevision,
   shouldPollAutomation,
   automationStageState,
   runEvidenceMutation,
@@ -294,6 +299,7 @@ const simulation = {
   target_environment: "MOCK" as const,
   idp_system: "IDP" as const,
   idp_environment: "MOCK" as const,
+  idp_provider: "MOCK_IDP" as const,
   idp_review_confidence_threshold: 0.85,
   ownership_system: "OWNERSHIP_PROVIDER" as const,
   ownership_environment: "MOCK" as const,
@@ -829,6 +835,7 @@ function makeZeroTouch(
       total_duration_ms: status === "COMPLETED" ? 42 : null,
       stage_durations_ms: { DOCUMENT: 2 },
     },
+    target_operations: [],
     timeline: [
       {
         sequence: 1,
@@ -1074,5 +1081,54 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(resolution.expected_automation_version).toBe(paused.version);
     expect(resolution.evidence_version).toBe(exception.evidence_version);
     expect(resolution.action).toBe("KEEP_REGISTRY_VALUE");
+  });
+});
+
+describe("Phase 08 sponsor evidence refresh and causal visibility", () => {
+  it("uses backend summary revision to refresh initial and replacement document evidence", () => {
+    const initial = makeZeroTouch("WAITING_FOR_REVIEW");
+    const replacement = { ...initial, version: initial.version + 1, updated_at: "2026-08-10T02:01:00Z" };
+    expect(evidenceRevision(initial)).not.toBe(evidenceRevision(replacement));
+  });
+
+  it("renders actual document comparison plus current and superseded evidence", () => {
+    const prior = { ...makeDocument(), display_name: "address-mismatch.pdf", superseded_by_document_id: "00000000-0000-4000-8000-000000000012" };
+    const current = { ...makeDocument("REVIEWED"), document_id: "00000000-0000-4000-8000-000000000012", display_name: "clean-company-profile.pdf", supersedes_document_id: prior.document_id };
+    const markup = renderToStaticMarkup(<SponsorDocumentEvidenceView documents={[prior, current]} />);
+    expect(markup).toContain("SUPERSEDED");
+    expect(markup).toContain("CURRENT");
+    expect(markup).toContain("Registry:");
+    expect(markup).toContain("Status: MISMATCH");
+  });
+
+  it("renders ownership path arithmetic and cycle blockers", () => {
+    const paths = renderToStaticMarkup(<SponsorOwnershipEvidenceView record={makeOwnership()} />);
+    expect(paths).toContain("40% x 75% = 30%");
+    expect(paths).toContain("Effective: 30%");
+    const cycle = renderToStaticMarkup(<SponsorOwnershipEvidenceView record={makeOwnership("REVIEW_REQUIRED")} />);
+    expect(cycle).toContain("CYCLE_DETECTED");
+  });
+
+  it("renders server-authored target calls and readiness without frontend inference", () => {
+    const existing = makeZeroTouch("WAITING_FOR_REVIEW");
+    existing.target_operations = [
+      { operation: "SEARCH", status: "MATCH_FOUND" },
+      { operation: "SHELL", status: "NOT_ATTEMPTED" },
+      { operation: "POLICY", status: "NOT_ATTEMPTED" },
+      { operation: "AMEND", status: "NOT_ATTEMPTED" },
+    ];
+    const target = renderToStaticMarkup(<SponsorTargetEvidence summary={existing} />);
+    expect(target).toContain("SEARCH — MATCH_FOUND");
+    expect(target).toContain("SHELL — NOT_ATTEMPTED");
+    const readiness = renderToStaticMarkup(<SponsorReadinessEvidence summary={existing} />);
+    expect(readiness).toContain("Server-authored readiness");
+    expect(readiness).toContain("Documents");
+  });
+
+  it("labels the normal provider as the local POC PDF provider", () => {
+    const local = { ...simulation, idp_environment: "LOCAL" as const, idp_provider: "LOCAL_PDF_TEXT" as const };
+    const markup = renderToStaticMarkup(<SimulationBanner profile={local} />);
+    expect(markup).toContain("IDP Local POC (LOCAL_PDF_TEXT)");
+    expect(markup).not.toContain("IDP Mock");
   });
 });

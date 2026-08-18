@@ -2,6 +2,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -155,6 +156,9 @@ class DocumentProcessingResponse(BaseModel):
     created_at: datetime
     processed_at: datetime | None = None
     reviewed_at: datetime | None = None
+    supersedes_document_id: UUID | None = None
+    superseded_by_document_id: UUID | None = None
+    superseded_at: datetime | None = None
     updated_at: datetime
 
     @classmethod
@@ -324,6 +328,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     active_exceptions: list[BusinessExceptionResponse]
     technical_failure: SafeError | None
     metrics: AutomationMetrics
+    target_operations: tuple["BrowserTargetOperationEvidence", ...]
     timeline: list[AutomationEvent]
     created_at: datetime
     updated_at: datetime
@@ -334,6 +339,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         record: ZeroTouchAutomationRecord,
         clm_record: ClmOrchestrationRecord,
         case: OnboardingCase,
+        target_operations: tuple["BrowserTargetOperationEvidence", ...] = (),
     ) -> "ZeroTouchCaseSummaryResponse":
         return cls(
             case=OnboardingCaseResponse.from_domain(case),
@@ -349,7 +355,28 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
             ],
             technical_failure=record.technical_failure,
             metrics=record.metrics,
+            target_operations=target_operations,
             timeline=record.events,
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
+
+
+class BrowserTargetOperationEvidence(BaseModel):
+    """Minimal server-authored Mock GoldTier operation status for sponsor display."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operation: Literal["SEARCH", "SHELL", "POLICY", "AMEND"]
+    status: Literal[
+        "NOT_ATTEMPTED",
+        "IN_PROGRESS",
+        "NO_MATCH",
+        "MATCH_FOUND",
+        "CREATED",
+        "SUCCESS",
+        "FAILED",
+    ]
+
+
+ZeroTouchCaseSummaryResponse.model_rebuild()

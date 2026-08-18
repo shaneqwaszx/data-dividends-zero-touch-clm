@@ -29,7 +29,8 @@ class SimulationProfile(BaseModel):
     target_system: Literal["GOLDTIER"] = "GOLDTIER"
     target_environment: Literal["MOCK"] = "MOCK"
     idp_system: Literal["IDP"] = "IDP"
-    idp_environment: Literal["MOCK"] = "MOCK"
+    idp_environment: Literal["MOCK", "LOCAL"] = "MOCK"
+    idp_provider: Literal["MOCK_IDP", "LOCAL_PDF_TEXT"] = "MOCK_IDP"
     idp_review_confidence_threshold: float = 0.85
     ownership_system: Literal["OWNERSHIP_PROVIDER"] = "OWNERSHIP_PROVIDER"
     ownership_environment: Literal["MOCK"] = "MOCK"

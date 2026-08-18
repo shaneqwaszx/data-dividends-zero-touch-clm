@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     app_env: Literal["development", "test", "production"] = "development"
     acra_connector_mode: Literal["mock", "sandbox"] = "mock"
     goldtier_connector_mode: Literal["mock"] = "mock"
-    idp_connector_mode: Literal["mock"] = "mock"
+    idp_connector_mode: Literal["mock", "local_pdf_text"] = "local_pdf_text"
     ownership_connector_mode: Literal["mock"] = "mock"
     demo_controls_enabled: bool = False
     zero_touch_max_transitions_per_run: int = Field(default=12, ge=1, le=32)

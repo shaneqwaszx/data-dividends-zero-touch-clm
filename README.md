@@ -43,7 +43,7 @@ npm ci
 Set-Location ..\..
 ```
 
-Start both processes with safe Mock defaults and demo controls:
+Start both processes with the supported synthetic sponsor composition and gated developer controls:
 
 ```powershell
 .\scripts\start_demo_windows.bat
@@ -76,19 +76,19 @@ unowned port occupants are never killed. For recovery and expected outputs, use 
 
 ## Zero-touch demo
 
-1. Use synthetic UEN `202400001A` and a fixture under
-   `apps/backend/tests/fixtures/uat/`.
-2. Select **Start onboarding** once.
+1. Enter synthetic UEN `202400001A`, upload `clean-company-profile.pdf`, and select
+   **Start onboarding** once.
 3. Observe Registry → Document Verification → Ownership & UBO → Readiness → Mock
    GoldTier.
 4. For the clean case, confirm zero human interventions.
-5. For `DOCUMENT_DISCREPANCY`, resolve only the advertised source-conflict action and
-   observe automatic resume.
-6. Export safe UAT evidence when Demo/Test Controls are enabled.
+5. Reuse the same UEN with `address-mismatch.pdf` to see PDF-derived source conflict;
+   upload `clean-company-profile.pdf` as a replacement to show supersession and
+   automatic resume.
+6. Use `cycle-uen-clean.pdf` with `202400006F` for the independent ownership-cycle
+   case, then `second-case-isolation.pdf` with `202400005E` for existing-party search.
 
-Presenter presets include straight-through, discrepancy, multiple document blockers,
-low confidence, ownership cycle/incomplete/multiple paths, existing party, target
-failure, partial amend, replay-free recovery, and IDP technical failure.
+Developer/Test Controls are fault-injection and regression tooling only. They do not
+select or alter the provider used by normal sponsor cases.
 
 Use the [5–10 minute sponsor script](docs/demo/SPONSOR_DEMO_SCRIPT.md) and the complete
 [UAT catalogue](docs/uat/PHASE_07_UAT_CATALOGUE.md).
@@ -116,7 +116,8 @@ and [provider replacement](docs/integration/PROVIDER_REPLACEMENT_GUIDE.md).
 
 ## Environment and configuration
 
-Safe defaults are ACRA `MOCK`, IDP `MOCK`, Ownership `MOCK`, and GoldTier `MOCK`.
+Safe normal sponsor defaults are ACRA `MOCK`, IDP `LOCAL_PDF_TEXT` (Local POC),
+Ownership `MOCK`/input-driven synthetic data, and GoldTier `MOCK`.
 ACRA also has a sandbox-shaped adapter behind `ACRA_CONNECTOR_MODE=sandbox`; Q-012 still
 blocks exact live binding and verification. No connector is labeled `LIVE`.
 
@@ -194,3 +195,12 @@ See [POC security boundaries](docs/security/POC_SECURITY_BOUNDARIES.md).
 - `.ai-pipeline/` — phase planners and quality/review reports
 - `scripts/` — demo lifecycle, secret, smoke, and contract validation tools
 - `private/sponsor-artifacts/` — local ignored sponsor material; never tracked
+## Phase 08 input-driven demo
+
+The normal sponsor demo is input-driven: different synthetic UENs retrieve different
+Mock registry, ownership, and GoldTier records, and different uploaded text-based PDFs
+genuinely produce document-verification outcomes. The local provider reads PDF text and
+uses a deterministic labelled-field parser with project-defined POC extraction
+confidence; it is not production OCR or AI validation. Developer/Test Controls are
+environment-gated fault-injection tooling only and do not determine normal sponsor
+onboarding outcomes.
