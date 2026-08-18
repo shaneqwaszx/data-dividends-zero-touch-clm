@@ -18,7 +18,7 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `ACRA_AUTH_HEADER_NAME` | security | empty | Backend-only generic seam pending Q-012 |
 | `ACRA_AUTH_HEADER_VALUE` | secret | empty | Local secret only; never commit/log |
 | `GOLDTIER_CONNECTOR_MODE` | Mock | `mock` | Current schema accepts `mock` only |
-| `IDP_CONNECTOR_MODE` | Mock | `mock` | Current schema accepts `mock` only |
+| `IDP_CONNECTOR_MODE` | local POC | `local_pdf_text` | `local_pdf_text` for the normal sponsor PDF path; `mock` only for developer/test fault injection |
 | `OWNERSHIP_CONNECTOR_MODE` | Mock | `mock` | Current schema accepts `mock` only |
 | `IDP_MAX_UPLOAD_BYTES` | security | `5242880` | POC upload bound, max configurable 20 MiB |
 | `IDP_REVIEW_CONFIDENCE_THRESHOLD` | provisional | `0.85` | Project default, not sponsor-approved |
@@ -37,7 +37,8 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `VITE_API_BASE_URL` | empty | Optional build-time base URL; local Vite proxy is supported. Cross-origin hosting requires a separately approved CORS design. |
 
 For the scripted sponsor demo both demo flags are enabled in their respective launched
-processes. In ordinary/default mode both are false.
+processes, while `IDP_CONNECTOR_MODE=local_pdf_text` remains the normal sponsor path.
+Developer controls use their dedicated demo provider boundary and do not replace it.
 
 ## Script-only smoke settings
 

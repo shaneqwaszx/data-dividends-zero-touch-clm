@@ -35,6 +35,8 @@ class Phase07DeliveryAssetsTests(unittest.TestCase):
             "legal-name-mismatch.pdf",
             "missing-field.pdf",
             "low-confidence.pdf",
+            "no-text.pdf",
+            "cycle-uen-clean.pdf",
             "second-case-isolation.pdf",
             "invalid-document.pdf",
         }
@@ -43,14 +45,18 @@ class Phase07DeliveryAssetsTests(unittest.TestCase):
             with self.subTest(path=path.name):
                 content = path.read_bytes()
                 self.assertLess(len(content), 4096)
-                self.assertIn(b"SYNTHETIC TEST DATA", content)
                 if path.name == "invalid-document.pdf":
                     self.assertFalse(content.startswith(b"%PDF-"))
+                elif path.name == "no-text.pdf":
+                    self.assertTrue(content.startswith(b"%PDF-"))
+                    self.assertTrue(content.rstrip().endswith(b"%%EOF"))
+                    self.assertNotIn(b"SYNTHETIC TEST DATA", content)
                 else:
                     self.assertTrue(content.startswith(b"%PDF-"))
                     self.assertTrue(content.rstrip().endswith(b"%%EOF"))
+                    self.assertIn(b"SYNTHETIC TEST DATA", content)
 
-    def test_windows_demo_scripts_use_known_processes_and_mock_defaults(self) -> None:
+    def test_windows_demo_scripts_use_known_processes_and_supported_poc_defaults(self) -> None:
         start = (ROOT / "scripts/start_demo_windows.bat").read_text(encoding="utf-8")
         stop = (ROOT / "scripts/stop_demo_windows.bat").read_text(encoding="utf-8")
         reset = (ROOT / "scripts/reset_demo_windows.bat").read_text(encoding="utf-8")
@@ -59,7 +65,7 @@ class Phase07DeliveryAssetsTests(unittest.TestCase):
         for mode in (
             '$env:ACRA_CONNECTOR_MODE = "mock"',
             '$env:GOLDTIER_CONNECTOR_MODE = "mock"',
-            '$env:IDP_CONNECTOR_MODE = "mock"',
+            '$env:IDP_CONNECTOR_MODE = "local_pdf_text"',
             '$env:OWNERSHIP_CONNECTOR_MODE = "mock"',
         ):
             self.assertIn(mode, lifecycle)
@@ -79,6 +85,8 @@ class Phase07DeliveryAssetsTests(unittest.TestCase):
         self.assertIn("DEMO_RUNTIME_STATE_INCOMPLETE", lifecycle)
         self.assertIn("Wait-DemoHealthy", lifecycle)
         self.assertIn("Wait-ForOwnedShutdown", lifecycle)
+        self.assertIn("Normalize-ChildProcessEnvironment", lifecycle)
+        self.assertIn('[Environment]::SetEnvironmentVariable("PATH", $effectivePath, "Process")', lifecycle)
         self.assertIn("Demo started and verified healthy", lifecycle)
         self.assertIn("Demo stopped: the launcher-owned", lifecycle)
         self.assertIn("Demo reset verified", lifecycle)

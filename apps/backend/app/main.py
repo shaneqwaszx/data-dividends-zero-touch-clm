@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api_models import (
+    BrowserTargetOperationEvidence,
     ClmCaseSummaryResponse,
     DocumentProcessingResponse,
     OnboardingCaseResponse,
@@ -46,6 +47,7 @@ from app.demo.zero_touch_control import ZeroTouchDemoControl, ZeroTouchDemoScena
 from app.domain.clm import GoldTierSubmissionPlan
 from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.ownership import OwnershipCandidate
+from app.domain.target_submission import GoldTierOperationMarker, GoldTierTargetOutcome
 from app.domain.zero_touch import ExceptionResolutionAction, ZeroTouchAutomationRecord
 from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
 from app.services.clm_orchestration import ClmOrchestrationService
@@ -225,12 +227,16 @@ def create_app(
         )
         return SimulationProfile(
             registry_environment=registry_environment,
-            idp_review_confidence_threshold=(
-                active_settings.idp_review_confidence_threshold
+            idp_environment=(
+                "LOCAL" if active_settings.idp_connector_mode == "local_pdf_text" else "MOCK"
             ),
-            ubo_ownership_threshold_percent=(
-                active_settings.ubo_ownership_threshold_percent
+            idp_provider=(
+                "LOCAL_PDF_TEXT"
+                if active_settings.idp_connector_mode == "local_pdf_text"
+                else "MOCK_IDP"
             ),
+            idp_review_confidence_threshold=(active_settings.idp_review_confidence_threshold),
+            ubo_ownership_threshold_percent=(active_settings.ubo_ownership_threshold_percent),
         )
 
     @application.exception_handler(RequestValidationError)
@@ -272,9 +278,7 @@ def create_app(
             )
             return JSONResponse(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                content={
-                    "detail": zero_detail.model_dump(mode="json", exclude_none=True)
-                },
+                content={"detail": zero_detail.model_dump(mode="json", exclude_none=True)},
             )
         return await request_validation_exception_handler(request, exc)
 
@@ -302,13 +306,80 @@ def create_app(
             raise HTTPException(status_code=404, detail="CLM case not found")
         return ClmCaseSummaryResponse.from_domain(orchestration, case)
 
+    def target_operation_evidence(
+        outcome: GoldTierTargetOutcome | None,
+    ) -> tuple[BrowserTargetOperationEvidence, ...]:
+        """Project only bounded operation outcomes; never target requests or receipts."""
+
+        order = (
+            GoldTierOperationMarker.SEARCH,
+            GoldTierOperationMarker.SHELL,
+            GoldTierOperationMarker.POLICY,
+            GoldTierOperationMarker.AMEND,
+        )
+        attempted = outcome.completed_operations if outcome is not None else ()
+        last_attempted = attempted[-1] if attempted else None
+        result: list[BrowserTargetOperationEvidence] = []
+        for operation in order:
+            operation_status: Literal[
+                "NOT_ATTEMPTED",
+                "IN_PROGRESS",
+                "NO_MATCH",
+                "MATCH_FOUND",
+                "CREATED",
+                "SUCCESS",
+                "FAILED",
+            ] = "NOT_ATTEMPTED"
+            if operation in attempted:
+                if operation == GoldTierOperationMarker.SEARCH:
+                    operation_status = (
+                        "MATCH_FOUND"
+                        if outcome is not None
+                        and outcome.error_code == "GT_EXISTING_PARTY_REVIEW_REQUIRED"
+                        else "FAILED"
+                        if outcome is not None
+                        and outcome.error_code is not None
+                        and last_attempted == operation
+                        else "NO_MATCH"
+                    )
+                elif (
+                    outcome is not None
+                    and outcome.error_code is not None
+                    and last_attempted == operation
+                ):
+                    operation_status = "FAILED"
+                elif operation in {
+                    GoldTierOperationMarker.SHELL,
+                    GoldTierOperationMarker.POLICY,
+                }:
+                    operation_status = "CREATED"
+                else:
+                    operation_status = "SUCCESS"
+            result.append(
+                BrowserTargetOperationEvidence(
+                    operation=operation.value,
+                    status=operation_status,
+                )
+            )
+        return tuple(result)
+
     def zero_touch_response(record: object) -> ZeroTouchCaseSummaryResponse:
         automation = ZeroTouchAutomationRecord.model_validate(record)
         case = service.get_case(automation.case_id)
         clm_record = clm.get(case_id=automation.case_id)
         if case is None or clm_record is None:
             raise HTTPException(status_code=404, detail="Zero-touch case not found")
-        return ZeroTouchCaseSummaryResponse.from_domain(automation, clm_record, case)
+        target_outcome = (
+            service.get_target_outcome(clm_record.submission_snapshot.submission_id)
+            if clm_record.submission_snapshot is not None
+            else None
+        )
+        return ZeroTouchCaseSummaryResponse.from_domain(
+            automation,
+            clm_record,
+            case,
+            target_operations=target_operation_evidence(target_outcome),
+        )
 
     def load_ownership_request(
         *,
@@ -403,9 +474,7 @@ def create_app(
         require_demo_controls()
         profile = execution_profile()
         discovery = catalogue.discovery(profile.registry_environment)
-        return discovery.model_copy(
-            update={"simulation": profile}
-        )
+        return discovery.model_copy(update={"simulation": profile})
 
     @application.post(
         "/api/onboarding/cases",
@@ -453,9 +522,7 @@ def create_app(
     )
     def create_clm_case(
         request: StartOnboardingRequest,
-        active_clm: Annotated[
-            ClmOrchestrationService, Depends(get_clm_orchestration_service)
-        ],
+        active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
     ) -> ClmCaseSummaryResponse:
         try:
             return clm_response(active_clm.create_case(request.uen))
@@ -481,9 +548,7 @@ def create_app(
     )
     def get_clm_case(
         case_id: UUID,
-        active_clm: Annotated[
-            ClmOrchestrationService, Depends(get_clm_orchestration_service)
-        ],
+        active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
     ) -> ClmCaseSummaryResponse:
         record = active_clm.get(case_id=case_id)
         if record is None:
@@ -502,9 +567,7 @@ def create_app(
     )
     def evaluate_clm_readiness(
         case_id: UUID,
-        active_clm: Annotated[
-            ClmOrchestrationService, Depends(get_clm_orchestration_service)
-        ],
+        active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
     ) -> ClmCaseSummaryResponse:
         try:
             return clm_response(active_clm.evaluate(case_id=case_id))
@@ -518,9 +581,7 @@ def create_app(
     )
     def get_clm_submission_plan(
         case_id: UUID,
-        active_clm: Annotated[
-            ClmOrchestrationService, Depends(get_clm_orchestration_service)
-        ],
+        active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
     ) -> GoldTierSubmissionPlan:
         try:
             return active_clm.submission_plan(case_id=case_id)
@@ -534,9 +595,7 @@ def create_app(
     )
     def submit_clm_case(
         case_id: UUID,
-        active_clm: Annotated[
-            ClmOrchestrationService, Depends(get_clm_orchestration_service)
-        ],
+        active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
     ) -> ClmCaseSummaryResponse:
         try:
             return clm_response(active_clm.submit(case_id=case_id))
@@ -563,9 +622,7 @@ def create_app(
     )
     def create_zero_touch_case(
         request: StartOnboardingRequest,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         try:
             return zero_touch_response(active_zero_touch.create_case(request.uen))
@@ -580,9 +637,7 @@ def create_app(
     )
     def create_demo_zero_touch_case(
         request: ZeroTouchDemoStartRequest,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         require_demo_controls()
         uen = zero_touch_demo.uen_for(request.uen, request.scenario)
@@ -600,9 +655,7 @@ def create_app(
     )
     def get_zero_touch_case(
         case_id: UUID,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         record = active_zero_touch.get(case_id=case_id)
         if record is None:
@@ -621,12 +674,8 @@ def create_app(
     )
     def export_zero_touch_uat_evidence(
         case_id: UUID,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
-        active_clm: Annotated[
-            ClmOrchestrationService, Depends(get_clm_orchestration_service)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
+        active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
     ) -> UatEvidenceExport:
         require_demo_controls()
         scenario = zero_touch_demo.registered_scenario_for(case_id)
@@ -710,9 +759,7 @@ def create_app(
     async def attach_zero_touch_document(
         case_id: UUID,
         request: Request,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
         x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
     ) -> ZeroTouchCaseSummaryResponse:
         return await attach_zero_touch_document_request(
@@ -724,6 +771,51 @@ def create_app(
         )
 
     @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/documents/{document_id}/replacement",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    async def replace_zero_touch_document(
+        case_id: UUID,
+        document_id: UUID,
+        request: Request,
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
+        x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
+        x_document_event_count: Annotated[
+            int | None, Header(alias="X-Document-Event-Count")
+        ] = None,
+    ) -> ZeroTouchCaseSummaryResponse:
+        """Accept a current document's explicit replacement, never an implicit overwrite."""
+
+        try:
+            documents.validate_upload_metadata(
+                case_id=case_id,
+                display_name=x_document_name or "",
+                content_type=request.headers.get("content-type", ""),
+            )
+            if x_document_event_count is None or x_document_event_count < 1:
+                raise DocumentRequestError(
+                    code="DOCUMENT_REPLACEMENT_VERSION_INVALID",
+                    message="A valid current document evidence version is required.",
+                )
+            body = await _read_bounded_body(request, documents.max_upload_bytes)
+            record = active_zero_touch.replace_document(
+                case_id=case_id,
+                document_id=document_id,
+                expected_document_event_count=x_document_event_count,
+                display_name=x_document_name or "",
+                content_type=request.headers.get("content-type", ""),
+                content=body,
+            )
+            return zero_touch_response(record)
+        except DocumentRequestError as exc:
+            raise _document_http_error(exc) from None
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        except ZeroTouchInfrastructureError as exc:
+            raise _zero_touch_infrastructure_http_error(exc) from None
+
+    @application.post(
         "/api/demo/clm/zero-touch/cases/{case_id}/documents",
         response_model=ZeroTouchCaseSummaryResponse,
         tags=["demo"],
@@ -731,9 +823,7 @@ def create_app(
     async def attach_demo_zero_touch_document(
         case_id: UUID,
         request: Request,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
         x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
     ) -> ZeroTouchCaseSummaryResponse:
         require_demo_controls()
@@ -752,9 +842,7 @@ def create_app(
     )
     def start_zero_touch_case(
         case_id: UUID,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         try:
             return zero_touch_response(active_zero_touch.start(case_id=case_id))
@@ -770,9 +858,7 @@ def create_app(
     )
     def resume_zero_touch_case(
         case_id: UUID,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         """Idempotently resume only when no unresolved exception blocks progress."""
 
@@ -792,9 +878,7 @@ def create_app(
         case_id: UUID,
         exception_id: UUID,
         request: ZeroTouchExceptionResolutionRequest,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         try:
             return zero_touch_response(
@@ -1119,6 +1203,9 @@ def _document_http_error(exc: DocumentRequestError) -> HTTPException:
     elif exc.code in {
         "DOCUMENT_FIELD_REVIEW_CONFLICT",
         "DOCUMENT_NOT_REVIEWABLE",
+        "DOCUMENT_ALREADY_SUPERSEDED",
+        "DOCUMENT_NOT_REPLACEABLE",
+        "DOCUMENT_REVIEW_STALE",
     }:
         status_code = status.HTTP_409_CONFLICT
     detail = DocumentFailureDetail(code=exc.code, message=exc.public_message)

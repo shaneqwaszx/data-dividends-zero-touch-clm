@@ -179,15 +179,11 @@ class ClmOrchestrationService:
 
         with self._lock_for(case_id):
             record = self._require_record(case_id)
-            if (
-                record.submission_snapshot is not None
-                and record.status
-                in {
-                    ClmStatus.MOCK_GOLDTIER_SUBMITTED,
-                    ClmStatus.REVIEW_REQUIRED,
-                    ClmStatus.FAILED,
-                }
-            ):
+            if record.submission_snapshot is not None and record.status in {
+                ClmStatus.MOCK_GOLDTIER_SUBMITTED,
+                ClmStatus.REVIEW_REQUIRED,
+                ClmStatus.FAILED,
+            }:
                 return record
 
             if record.submission_snapshot is None:
@@ -203,9 +199,7 @@ class ClmOrchestrationService:
             if receipt is None:
                 receipt = self._cases.get_execution_receipt(snapshot.submission_id)
             if receipt is None:
-                execution_state = self._cases.get_execution_state(
-                    snapshot.submission_id
-                )
+                execution_state = self._cases.get_execution_state(snapshot.submission_id)
                 if execution_state == GoldTierExecutionLedgerState.IN_PROGRESS:
                     raise ClmRequestError(
                         code="CLM_SUBMISSION_IN_PROGRESS",
@@ -216,13 +210,8 @@ class ClmOrchestrationService:
                 except Exception:
                     receipt = self._cases.get_execution_receipt(snapshot.submission_id)
                     if receipt is None:
-                        execution_state = self._cases.get_execution_state(
-                            snapshot.submission_id
-                        )
-                        if (
-                            execution_state
-                            == GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED
-                        ):
+                        execution_state = self._cases.get_execution_state(snapshot.submission_id)
+                        if execution_state == GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED:
                             raise ClmInfrastructureError(
                                 case_id=record.case_id,
                                 orchestration_id=record.orchestration_id,
@@ -277,11 +266,13 @@ class ClmOrchestrationService:
                 ) from None
             return completed
 
-    def _start_submission(
-        self, record: ClmOrchestrationRecord
-    ) -> ClmOrchestrationRecord:
+    def _start_submission(self, record: ClmOrchestrationRecord) -> ClmOrchestrationRecord:
         case = self._require_case(record.case_id)
-        documents = self._documents.list_documents(case_id=record.case_id)
+        documents = [
+            item
+            for item in self._documents.list_documents(case_id=record.case_id)
+            if item.is_current_evidence
+        ]
         ownership = self._ownership.get(case_id=record.case_id)
         readiness = _evaluate_readiness(
             case=case,
@@ -370,9 +361,7 @@ class ClmOrchestrationService:
         record: ClmOrchestrationRecord,
         receipt: GoldTierExecutionReceipt,
     ) -> ClmOrchestrationRecord:
-        candidate, event_type, outcome, code, message = _terminal_from_receipt(
-            record, receipt
-        )
+        candidate, event_type, outcome, code, message = _terminal_from_receipt(record, receipt)
         return self._record_event(
             record,
             candidate,
@@ -451,7 +440,11 @@ class ClmOrchestrationService:
     def _evaluate_current(
         self, case: OnboardingCase, *, now: datetime | None = None
     ) -> ClmReadinessAssessment:
-        documents = self._documents.list_documents(case_id=case.case_id)
+        documents = [
+            item
+            for item in self._documents.list_documents(case_id=case.case_id)
+            if item.is_current_evidence
+        ]
         ownership = self._ownership.get(case_id=case.case_id)
         return _evaluate_readiness(
             case=case,
@@ -469,11 +462,7 @@ class ClmOrchestrationService:
         ownership: OwnershipAnalysisRecord | None,
     ) -> tuple[ClmSubmissionSnapshot, RelatedPartySubmissionPreparation]:
         entity = case.entity
-        if (
-            entity is None
-            or ownership is None
-            or validate_entity(entity)
-        ):
+        if entity is None or ownership is None or validate_entity(entity):
             raise ClmRequestError(
                 code="CLM_SNAPSHOT_NOT_AVAILABLE",
                 message="Submission evidence is incomplete.",
@@ -617,9 +606,7 @@ def _evaluate_readiness(
             block(ClmBlockerCode.DOCUMENT_REVIEW_INCOMPLETE)
         if any(item.state == DocumentProcessingState.FAILED for item in documents):
             block(ClmBlockerCode.DOCUMENT_PROCESSING_FAILED)
-        reviewed = [
-            item for item in documents if item.state == DocumentProcessingState.REVIEWED
-        ]
+        reviewed = [item for item in documents if item.state == DocumentProcessingState.REVIEWED]
         if not reviewed:
             block(ClmBlockerCode.DOCUMENT_REVIEW_INCOMPLETE)
         for item in reviewed:
@@ -677,9 +664,7 @@ def _evaluate_readiness(
         block(ClmBlockerCode.OWNERSHIP_ANALYSIS_INCOMPLETE)
 
     goldtier = StageReadiness(
-        status=(
-            ReadinessStageStatus.READY if not blockers else ReadinessStageStatus.BLOCKED
-        )
+        status=(ReadinessStageStatus.READY if not blockers else ReadinessStageStatus.BLOCKED)
     )
     return ClmReadinessAssessment(
         registry=registry,
@@ -692,9 +677,7 @@ def _evaluate_readiness(
     )
 
 
-def _status_for_readiness(
-    case: OnboardingCase, readiness: ClmReadinessAssessment
-) -> ClmStatus:
+def _status_for_readiness(case: OnboardingCase, readiness: ClmReadinessAssessment) -> ClmStatus:
     if case.state == WorkflowState.FAILED:
         return ClmStatus.FAILED
     if not readiness.blockers:

@@ -16,10 +16,11 @@ from app.connectors.acra_sandbox import (
     StaticHeaderAcraRequestAuthorizer,
 )
 from app.connectors.errors import AcraConfigurationError
+from app.connectors.input_driven_ownership import InputDrivenOwnershipProvider
+from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.mock_idp import MockIdpProvider
-from app.connectors.mock_ownership import MockOwnershipProvider
 from app.demo.idp_control import MockIdpDemoControl
 from app.demo.ownership_control import MockOwnershipDemoControl
 from app.demo.scenarios import (
@@ -111,11 +112,15 @@ def build_document_processing_service(
     onboarding_service: OnboardingService,
     settings: Settings,
 ) -> DocumentProcessingService:
-    """Compose the explicit credential-free Mock IDP document boundary."""
+    """Compose the bounded local input-driven PDF text provider by default."""
 
     return DocumentProcessingService(
         cases=onboarding_service,
-        idp=MockIdpProvider(),
+        idp=(
+            MockIdpProvider()
+            if settings.idp_connector_mode == "mock"
+            else LocalPdfTextIdpProvider()
+        ),
         repository=InMemoryDocumentProcessingRepository(),
         max_upload_bytes=settings.idp_max_upload_bytes,
         review_confidence_threshold=settings.idp_review_confidence_threshold,
@@ -136,7 +141,7 @@ def build_ownership_analysis_service(
 
     return OwnershipAnalysisService(
         cases=onboarding_service,
-        provider=MockOwnershipProvider(),
+        provider=InputDrivenOwnershipProvider(),
         repository=InMemoryOwnershipAnalysisRepository(),
         threshold_percent=settings.ubo_ownership_threshold_percent,
         max_parties=settings.ownership_max_parties,

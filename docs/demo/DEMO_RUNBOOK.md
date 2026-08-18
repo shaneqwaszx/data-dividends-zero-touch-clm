@@ -27,7 +27,8 @@ No script installs software automatically.
 
 The script verifies Python 3.12+, Node.js 22+, npm 10+, the backend imports, the locked
 frontend dependency tree, and free ports. It then starts hidden launcher-owned Python
-and Node process trees with safe Mock modes, enables both demo controls, and waits up to
+and Node process trees with ACRA Mock, Local POC text-PDF IDP, input-driven synthetic
+ownership, and GoldTier Mock, enables gated developer controls, and waits up to
 30 seconds for backend health and the frontend document before reporting success.
 
 - Backend health: `http://127.0.0.1:8000/health`
@@ -37,7 +38,7 @@ and Node process trees with safe Mock modes, enables both demo controls, and wai
 The command returns `0` only after both endpoints are healthy. It returns nonzero and
 cleans up the exact partial process tree if startup or health verification fails. Open
 the frontend only after `Demo started and verified healthy` appears. The banner must
-state ACRA Mock, GoldTier Mock, IDP Mock, and Ownership Mock. The supported local browser
+state ACRA Mock, GoldTier Mock, IDP Local POC (`LOCAL_PDF_TEXT`), and Ownership Mock. The supported local browser
 path uses Vite's `/api` proxy; cross-origin deployment/CORS is not configured.
 
 The launcher writes process-management metadata to the Git-ignored fixed path
@@ -46,28 +47,17 @@ PIDs, creation timestamps, executable/command markers, repository marker, and lo
 ports. Startup output/error logs are also local under `.runtime/`; use synthetic inputs
 only and do not submit those logs as UAT evidence.
 
-## Scenarios and fixtures
+## Sponsor inputs and fixtures
 
-Open **Demo/Test Controls** and select an integrated preset. Use only files under
-`apps/backend/tests/fixtures/uat/`; their README maps fixture names. The Mock provider
-does not OCR those file contents—the file is realistic upload evidence and the gated
-preset controls deterministic output.
+Use only files under `apps/backend/tests/fixtures/uat/`; their README maps fixture
+names. The ordinary sponsor journey is **UEN + actual PDF + Start**. The local provider
+reads the labelled PDF text, so content—not filename or a selected scenario—drives
+comparison and exception outcomes. Use `clean-company-profile.pdf`, then
+`address-mismatch.pdf` with the same UEN, `cycle-uen-clean.pdf` with `202400006F`, and
+`second-case-isolation.pdf` with `202400005E` for the supported demonstration.
 
-Primary demonstrations:
-
-- `STRAIGHT_THROUGH`
-- `DOCUMENT_DISCREPANCY`
-- `MULTIPLE_DOCUMENT_BLOCKERS`
-- `LOW_CONFIDENCE`
-- `OWNERSHIP_CYCLE`
-- `OWNERSHIP_INCOMPLETE`
-- `MULTIPLE_OWNERSHIP_PATHS`
-- `EXISTING_PARTY`
-- `TARGET_FAILURE`
-- `PARTIAL_AMEND`
-- `RECOVERY`
-
-Historical aliases remain API-compatible but are not the preferred presenter labels.
+Developer/Test Controls are collapsed, explicitly synthetic fault-injection/regression
+tools. They do not alter the normal sponsor provider composition.
 
 ## Evidence export
 

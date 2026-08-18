@@ -4,8 +4,8 @@
 
 The accepted POC is credential-free and Mock-first. Registry may also run through the
 local sandbox-shaped HTTP adapter when authorized ACRA configuration is supplied, but
-that mode is not evidence of a verified live ACRA contract. IDP, ownership, and
-GoldTier are Mock-only in current composition.
+that mode is not evidence of a verified live ACRA contract. The normal sponsor IDP is
+the local text-PDF POC provider; ownership and GoldTier remain synthetic/Mock.
 
 External response → strict source DTO → canonical/internal model → target mapper is the
 fixed architecture. `ZeroTouchOrchestrator` coordinates interfaces; it contains no
@@ -30,8 +30,8 @@ provider scenario branch and should not change when an adapter is replaced.
 
 - Interface: `IdpProvider.process(IdpDocumentInput)` in
   `apps/backend/app/connectors/idp.py`.
-- Current adapter: deterministic `MockIdpProvider`; the integrated demo injects a
-  case-matching Mock at the dedicated demo boundary.
+- Normal sponsor adapter: deterministic network-free `LocalPdfTextIdpProvider`.
+  `MockIdpProvider` remains only at the dedicated developer/test fault boundary.
 - Input: bounded transient PDF plus `PROVISIONAL_CORPORATE` profile; bytes are not
   stored or returned.
 - Output: exactly four typed candidates, independent confidence, explicit missing
@@ -105,3 +105,12 @@ export request/response bodies, KYC/PII, authorization headers, credentials, PDF
 or raw provider errors. The current stores, locks, audit events, metrics, target ledger,
 and recovery are process-local. A production adapter project must supply durable
 transaction/outbox/idempotency, reviewer RBAC, retention, monitoring, and runbooks.
+## Phase 08 local document-provider seam
+
+Normal Mock POC composition now uses `IdpProvider -> LocalPdfTextIdpProvider`. It reads
+only uploaded text-based synthetic PDFs with `pypdf`, parses the existing provisional
+four-field profile deterministically, and exposes minimal extracted/comparison evidence.
+It can be replaced by an approved real IDP/OCR adapter without changing
+`ZeroTouchOrchestrator`, document semantic evaluation, explicit exception resolution,
+or automatic resume. It is not a production IDP integration; Q-003/Q-013/Q-014 remain
+open.

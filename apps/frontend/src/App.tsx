@@ -16,6 +16,7 @@ import {
   loadMockOwnership,
   reviewDocument,
   resolveZeroTouchException,
+  replaceZeroTouchDocument,
   resumeZeroTouchCase,
   submitClmCase,
   uploadDocument,
@@ -76,8 +77,8 @@ function formatAddress(caseData: OnboardingCase): string {
     .join(", ");
 }
 
-function titleCaseEnvironment(value: "MOCK" | "SANDBOX"): string {
-  return value === "MOCK" ? "Mock" : "Sandbox";
+function titleCaseEnvironment(value: "MOCK" | "SANDBOX" | "LOCAL"): string {
+  return value === "MOCK" ? "Mock" : value === "LOCAL" ? "Local POC" : "Sandbox";
 }
 
 function confidencePercent(value: number): string {
@@ -108,7 +109,7 @@ export function SimulationBanner({ profile }: { profile: SimulationProfile | nul
     <div className="environment-banner" role="status">
       <span aria-hidden="true" />
       {profile
-        ? `${sourceLabel} | GoldTier Mock | IDP Mock | Ownership Mock | External access is backend-managed`
+        ? `${sourceLabel} | GoldTier Mock | IDP ${titleCaseEnvironment(profile.idp_environment)} (${profile.idp_provider}) | Ownership Mock | External access is backend-managed`
         : "Loading backend connector profile..."}
     </div>
   );
@@ -1025,15 +1026,107 @@ export function SponsorCaseSummary({ summary }: { summary: ZeroTouchCaseSummary 
   );
 }
 
+export function evidenceRevision(summary: ZeroTouchCaseSummary): string {
+  return `${summary.case.case_id}:${summary.version}:${summary.updated_at}`;
+}
+
+export function SponsorDocumentEvidenceView({ documents }: { documents: DocumentProcessingRecord[] }) {
+  if (documents.length === 0) return null;
+  return (
+    <section className="document-evidence-card" aria-labelledby="document-evidence-heading">
+      <p className="section-label">Document stage evidence</p>
+      <h2 id="document-evidence-heading">What the supplied PDF caused</h2>
+      {documents.map((document) => (
+        <details key={document.document_id} open={!document.superseded_by_document_id}>
+          <summary>{document.display_name} — {document.superseded_by_document_id ? "SUPERSEDED" : "CURRENT"} — {document.state.replaceAll("_", " ")}</summary>
+          <p>Project-defined POC extraction confidence; not an AI or sponsor-approved score.</p>
+          <dl>{document.fields.map((field) => <div key={field.field_key}><dt>{fieldLabel(field.field_key)}</dt><dd>Registry: {field.canonical_value ?? "Not available"} | Document: {field.original_extracted_value ?? "Not extracted"} | POC confidence: {confidencePercent(field.confidence)} | Status: {field.comparison_status.replaceAll("_", " ")}</dd></div>)}</dl>
+        </details>
+      ))}
+    </section>
+  );
+}
+
+export function SponsorDocumentEvidence({ summary }: { summary: ZeroTouchCaseSummary }) {
+  const caseId = summary.case.case_id;
+  const revision = evidenceRevision(summary);
+  const [documents, setDocuments] = useState<DocumentProcessingRecord[]>([]);
+  const [unavailable, setUnavailable] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    void fetchDocuments(caseId)
+      .then((records) => {
+        if (current) {
+          setUnavailable(false);
+          setDocuments(records);
+        }
+      })
+      .catch(() => {
+        if (current) setUnavailable(true);
+      });
+    return () => { current = false; };
+  }, [caseId, revision]);
+
+  if (unavailable) return null;
+  return <SponsorDocumentEvidenceView documents={documents} />;
+}
+
+export function SponsorOwnershipEvidenceView({ record }: { record: OwnershipAnalysisRecord | null }) {
+  if (!record) return null;
+  const names = new Map(record.parties.map((party) => [party.party_id, party.display_name]));
+  return (
+    <section className="document-evidence-card" aria-labelledby="ownership-evidence-heading">
+      <p className="section-label">Ownership stage evidence</p>
+      <h2 id="ownership-evidence-heading">How provisional ownership was calculated</h2>
+      <p>{record.parties.length} parties · {record.relationships.length} relationships · {record.candidates.length} provisional candidate(s)</p>
+      <ul>{record.relationships.map((relationship) => <li key={relationship.relationship_id}>{names.get(relationship.parent_party_id) ?? relationship.parent_party_id} → {names.get(relationship.child_party_id) ?? relationship.child_party_id}: {ownershipPercent(relationship.ownership_percent)}</li>)}</ul>
+      {record.candidates.map((candidate) => <article key={candidate.party.party_id}><h3>{candidate.party.display_name} — {candidate.classification.replaceAll("_", " ")}</h3><p>Direct: {ownershipPercent(candidate.direct_ownership_percent)} | Indirect: {ownershipPercent(candidate.indirect_ownership_percent)} | Effective: {ownershipPercent(candidate.aggregated_ownership_percent)}</p><ul>{candidate.paths.map((path) => <li key={path.path_id}>{path.calculation}</li>)}</ul></article>)}
+      {record.issues.length > 0 && <ul>{record.issues.map((issue) => <li key={issue.code}>{issue.code}: {issue.message}</li>)}</ul>}
+    </section>
+  );
+}
+
+export function SponsorOwnershipEvidence({ summary }: { summary: ZeroTouchCaseSummary }) {
+  const [record, setRecord] = useState<OwnershipAnalysisRecord | null>(null);
+  const caseId = summary.case.case_id;
+  const revision = evidenceRevision(summary);
+  useEffect(() => {
+    let current = true;
+    void fetchOwnership(caseId).then((value) => { if (current) setRecord(value); }).catch(() => { if (current) setRecord(null); });
+    return () => { current = false; };
+  }, [caseId, revision]);
+  return <SponsorOwnershipEvidenceView record={record} />;
+}
+
+export function SponsorTargetEvidence({ summary }: { summary: ZeroTouchCaseSummary }) {
+  if (!summary.target_operations.some((operation) => operation.status !== "NOT_ATTEMPTED")) return null;
+  return <section className="document-evidence-card" aria-labelledby="target-evidence-heading"><p className="section-label">Mock GoldTier stage evidence</p><h2 id="target-evidence-heading">Server-authored target operations</h2><ol>{summary.target_operations.map((operation) => <li key={operation.operation}>{operation.operation} — {operation.status}</li>)}</ol></section>;
+}
+
+export function SponsorReadinessEvidence({ summary }: { summary: ZeroTouchCaseSummary }) {
+  const readiness = summary.clm.readiness;
+  return <section className="document-evidence-card" aria-labelledby="readiness-evidence-heading"><p className="section-label">Readiness evidence</p><h2 id="readiness-evidence-heading">Server-authored readiness</h2><dl><div><dt>Registry</dt><dd>{readiness.registry.status}</dd></div><div><dt>Documents</dt><dd>{readiness.document.status}</dd></div><div><dt>Ownership</dt><dd>{readiness.ownership.status}</dd></div><div><dt>Target readiness</dt><dd>{readiness.goldtier.status}</dd></div><div><dt>Active blockers</dt><dd>{readiness.blockers.length ? readiness.blockers.join(", ") : "None"}</dd></div></dl></section>;
+}
+
 export function HumanReviewPanel({
   exception,
   isResolving,
   onResolve,
+  onReplace,
 }: {
   exception: ZeroTouchException;
   isResolving: boolean;
   onResolve: (action: ExceptionResolutionAction) => void;
+  onReplace?: (documentId: string, eventCount: number, file: File) => void;
 }) {
+  const [replacementFile, setReplacementFile] = useState<File | null>(null);
+  const documentId = exception.evidence.find((item) => item.reference_id)?.reference_id;
+  const eventCount = Number(exception.evidence_version.split(":")[2]);
+  const replacementAvailable = exception.stage === "DOCUMENT"
+    && typeof documentId === "string"
+    && Number.isSafeInteger(eventCount)
+    && eventCount > 0;
   return (
     <section className="human-review-card" aria-labelledby="review-required-heading">
       <p className="section-label">Human review required</p>
@@ -1072,6 +1165,25 @@ export function HumanReviewPanel({
           <p>Corrected or replacement evidence is required; automatic target replay is disabled.</p>
         )}
       </div>
+      {replacementAvailable && (
+        <div className="replacement-document">
+          <label htmlFor={`replacement-${exception.exception_id}`}>Upload replacement document</label>
+          <input
+            id={`replacement-${exception.exception_id}`}
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={(event) => setReplacementFile(event.target.files?.[0] ?? null)}
+          />
+          <button
+            type="button"
+            disabled={isResolving || !replacementFile}
+            onClick={() => replacementFile && onReplace?.(documentId, eventCount, replacementFile)}
+          >
+            Upload replacement document
+          </button>
+          <p>The new document explicitly supersedes this evidence; its history remains visible.</p>
+        </div>
+      )}
     </section>
   );
 }
@@ -1388,8 +1500,7 @@ export default function App({
     });
   }, [summary?.case.case_id, summary?.status, summary?.version]);
 
-  async function handleStart(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function beginJourney(demoScenario?: ZeroTouchDemoScenario) {
     if (resolutionActive.current) return;
     if (!documentFile) {
       setRequestError("Select the required synthetic PDF before starting onboarding.");
@@ -1401,15 +1512,12 @@ export default function App({
     setSummary(null);
     let created: ZeroTouchCaseSummary | null = null;
     try {
-      created = await createZeroTouchCase(
-        uen,
-        demoControlsEnabled ? demoScenario : undefined,
-      );
+      created = await createZeroTouchCase(uen, demoScenario);
       setSummary(created);
       const completed = await attachZeroTouchDocument(
         created.case.case_id,
         documentFile,
-        demoControlsEnabled,
+        demoScenario !== undefined,
       );
       setSummary(completed);
     } catch (error) {
@@ -1424,6 +1532,11 @@ export default function App({
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  function handleStart(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void beginJourney();
   }
 
   async function handleOpenCase(event: FormEvent<HTMLFormElement>) {
@@ -1480,6 +1593,21 @@ export default function App({
     } finally {
       resolutionActive.current = false;
       if (generation === journeyGeneration.current) setIsResolving(false);
+    }
+  }
+
+  async function handleReplacement(documentId: string, eventCount: number, file: File) {
+    if (!summary || resolutionActive.current) return;
+    resolutionActive.current = true;
+    setIsResolving(true);
+    setRequestError(null);
+    try {
+      setSummary(await replaceZeroTouchDocument(summary.case.case_id, documentId, eventCount, file));
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Replacement evidence failed.");
+    } finally {
+      resolutionActive.current = false;
+      setIsResolving(false);
     }
   }
 
@@ -1590,6 +1718,9 @@ export default function App({
             <option value="RECOVERY">Replay-free recovery</option>
             <option value="TECHNICAL_FAILURE">IDP technical failure</option>
           </select>
+          <button type="button" disabled={isSubmitting || isResolving} onClick={() => void beginJourney(demoScenario)}>
+            Run selected fault-injection case
+          </button>
           <details className="legacy-controls">
             <summary>Legacy manual diagnostics</summary>
             <LegacyApp />
@@ -1603,6 +1734,10 @@ export default function App({
         <>
           <OnboardingProgress summary={summary} />
           <SponsorCaseSummary summary={summary} />
+          <SponsorDocumentEvidence summary={summary} />
+          <SponsorOwnershipEvidence summary={summary} />
+          <SponsorTargetEvidence summary={summary} />
+          <SponsorReadinessEvidence summary={summary} />
           {summary.status === "RESUMING" && (
             <div className="resuming-banner" role="status">Resuming onboarding…</div>
           )}
@@ -1620,6 +1755,7 @@ export default function App({
               exception={exception}
               isResolving={isResolving}
               onResolve={(action) => void handleResolution(exception, action)}
+              onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
             />
           ))}
           {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && (

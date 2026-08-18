@@ -51,9 +51,11 @@
 ## Data handling for UAT
 
 Use only files under `apps/backend/tests/fixtures/uat/` or equally fictional data. The
-Mock IDP does not OCR the fixture content; scenario selection is a gated demo control.
-Safe evidence export contains identifiers, statuses, blockers, metrics, operation
-names, warnings, timings, environment, and a sanitized timeline only.
+normal local IDP reads bounded text from the uploaded PDF; its filename and developer
+scenario controls do not determine the assessment. Mock IDP remains gated developer
+fault-injection tooling. Safe evidence/export views contain only minimized derived
+values, comparison, ownership paths, readiness, and server-authored operation status;
+they exclude PDF bytes, full raw text, payloads, credentials, and endpoint detail.
 
 ## Live-integration security gate
 

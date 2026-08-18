@@ -82,6 +82,27 @@ export async function attachZeroTouchDocument(
   return parseResponse<ZeroTouchCaseSummary>(response);
 }
 
+export async function replaceZeroTouchDocument(
+  caseId: string,
+  documentId: string,
+  eventCount: number,
+  file: File,
+): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/documents/${documentId}/replacement`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type || "application/pdf",
+        "X-Document-Name": file.name,
+        "X-Document-Event-Count": String(eventCount),
+      },
+      body: file,
+    },
+  );
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
 export async function fetchZeroTouchCase(
   caseId: string,
   signal?: AbortSignal,

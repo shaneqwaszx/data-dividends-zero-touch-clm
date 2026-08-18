@@ -119,6 +119,67 @@ class DocumentProcessingService:
                 provider=provider,
             )
 
+    def replace_document(
+        self,
+        *,
+        case_id: UUID,
+        document_id: UUID,
+        expected_event_count: int,
+        display_name: str,
+        content_type: str,
+        content: bytes,
+        provider: IdpProvider | None = None,
+    ) -> DocumentProcessingRecord:
+        """Create fresh evidence then explicitly supersede one current case document."""
+
+        with self._case_lock(case_id):
+            prior = self.get_document(case_id=case_id, document_id=document_id)
+            if prior is None:
+                raise DocumentRequestError(
+                    code="DOCUMENT_NOT_FOUND",
+                    message="The document review record was not found.",
+                )
+            if prior.superseded_by_document_id is not None:
+                raise DocumentRequestError(
+                    code="DOCUMENT_ALREADY_SUPERSEDED",
+                    message="This document has already been replaced.",
+                )
+            if len(prior.events) != expected_event_count:
+                raise DocumentRequestError(
+                    code="DOCUMENT_REVIEW_STALE",
+                    message="The document evidence changed before replacement.",
+                )
+            if prior.state not in {
+                DocumentProcessingState.REVIEW_REQUIRED,
+                DocumentProcessingState.REVIEWED,
+            }:
+                raise DocumentRequestError(
+                    code="DOCUMENT_NOT_REPLACEABLE",
+                    message="This document cannot be replaced at its current state.",
+                )
+            replacement = self._create_document_locked(
+                case_id=case_id,
+                display_name=display_name,
+                content_type=content_type,
+                content=content,
+                provider=provider,
+            )
+            now = self._clock()
+            prior.superseded_by_document_id = replacement.document_id
+            prior.superseded_at = now
+            prior = self._record(
+                prior,
+                event_type=DocumentEventType.DOCUMENT_SUPERSEDED,
+                state=prior.state,
+                outcome=EventOutcome.SUCCEEDED,
+                code="DOCUMENT_SUPERSEDED",
+                message="This document was superseded by explicit replacement evidence.",
+            )
+            replacement.supersedes_document_id = prior.document_id
+            replacement.updated_at = now
+            self._repository.save(replacement)
+            return replacement.model_copy(deep=True)
+
     def _create_document_locked(
         self,
         *,
@@ -261,9 +322,7 @@ class DocumentProcessingService:
             )
         return self._repository.list_for_case(case_id)
 
-    def get_document(
-        self, *, case_id: UUID, document_id: UUID
-    ) -> DocumentProcessingRecord | None:
+    def get_document(self, *, case_id: UUID, document_id: UUID) -> DocumentProcessingRecord | None:
         record = self._repository.get(document_id)
         if record is None or record.case_id != case_id:
             return None
@@ -380,9 +439,7 @@ class DocumentProcessingService:
             )
         return record.model_copy(deep=True)
 
-    def assess_auto_clear(
-        self, *, case_id: UUID, document_id: UUID
-    ) -> DocumentAutoClearAssessment:
+    def assess_auto_clear(self, *, case_id: UUID, document_id: UUID) -> DocumentAutoClearAssessment:
         """Evaluate the shared Phase 05/06 semantic document checkpoint."""
 
         record = self.get_document(case_id=case_id, document_id=document_id)
@@ -409,9 +466,7 @@ class DocumentProcessingService:
         """Auto-confirm only complete, current, all-match, high-confidence evidence."""
 
         with self._case_lock(case_id):
-            assessment = self.assess_auto_clear(
-                case_id=case_id, document_id=document_id
-            )
+            assessment = self.assess_auto_clear(case_id=case_id, document_id=document_id)
             if not assessment.eligible:
                 raise DocumentRequestError(
                     code="DOCUMENT_AUTO_CLEAR_BLOCKED",
@@ -497,9 +552,7 @@ class DocumentProcessingService:
                 resolution_exists = any(
                     resolution.field_key == field.field_key
                     and resolution.action == "KEEP_REGISTRY_VALUE"
-                    and compare_values(
-                        field.field_key, resolution.registry_value, current_value
-                    )
+                    and compare_values(field.field_key, resolution.registry_value, current_value)
                     == ComparisonStatus.MATCH
                     for resolution in record.source_conflict_resolutions
                 )
@@ -702,6 +755,11 @@ def document_semantic_assessment(
     }:
         block(DocumentAutoClearBlocker.REVIEW_STATE_INVALID)
     fields_by_key = {field.field_key: field for field in record.fields}
+    if fields_by_key and all(
+        field.provenance.source_reference == "DOCUMENT_TEXT_UNAVAILABLE"
+        for field in fields_by_key.values()
+    ):
+        block(DocumentAutoClearBlocker.TEXT_UNAVAILABLE)
     for field_key in DocumentFieldKey:
         field = fields_by_key.get(field_key)
         if field is None or field.original_extracted_value is None:
@@ -713,9 +771,7 @@ def document_semantic_assessment(
         resolution_matches = any(
             resolution.field_key == field_key
             and resolution.action == "KEEP_REGISTRY_VALUE"
-            and compare_values(
-                field_key, resolution.registry_value, current_canonical
-            )
+            and compare_values(field_key, resolution.registry_value, current_canonical)
             == ComparisonStatus.MATCH
             for resolution in record.source_conflict_resolutions
         )
@@ -730,10 +786,7 @@ def document_semantic_assessment(
             effective_value = None
         else:
             effective_value = field.original_extracted_value
-        if (
-            compare_values(field_key, effective_value, current_canonical)
-            != ComparisonStatus.MATCH
-        ):
+        if compare_values(field_key, effective_value, current_canonical) != ComparisonStatus.MATCH:
             block(DocumentAutoClearBlocker.SOURCE_CONFLICT)
     return DocumentAutoClearAssessment(eligible=not blockers, blockers=tuple(blockers))
 

@@ -24,7 +24,8 @@ export interface SimulationProfile {
   target_system: "GOLDTIER";
   target_environment: "MOCK";
   idp_system: "IDP";
-  idp_environment: "MOCK";
+  idp_environment: "MOCK" | "LOCAL";
+  idp_provider: "MOCK_IDP" | "LOCAL_PDF_TEXT";
   idp_review_confidence_threshold: number;
   ownership_system: "OWNERSHIP_PROVIDER";
   ownership_environment: "MOCK";
@@ -158,6 +159,9 @@ export interface DocumentProcessingRecord {
       | "DOCUMENT_FIELD_REJECTED"
       | "DOCUMENT_FIELD_CORRECTED"
       | "DOCUMENT_REVIEW_COMPLETED"
+      | "DOCUMENT_AUTO_CONFIRMED"
+      | "DOCUMENT_EXCEPTION_RESOLVED"
+      | "DOCUMENT_SUPERSEDED"
       | "DOCUMENT_PROCESSING_FAILED";
     state: DocumentProcessingState;
     outcome: "SUCCEEDED" | "PARTIAL" | "REVIEW_REQUIRED" | "FAILED";
@@ -173,6 +177,9 @@ export interface DocumentProcessingRecord {
   created_at: string;
   processed_at: string | null;
   reviewed_at: string | null;
+  supersedes_document_id?: string | null;
+  superseded_by_document_id?: string | null;
+  superseded_at?: string | null;
   updated_at: string;
 }
 
@@ -467,6 +474,17 @@ export interface ZeroTouchCaseSummary {
     total_duration_ms: number | null;
     stage_durations_ms: Partial<Record<AutomationStage, number>>;
   };
+  target_operations: Array<{
+    operation: "SEARCH" | "SHELL" | "POLICY" | "AMEND";
+    status:
+      | "NOT_ATTEMPTED"
+      | "IN_PROGRESS"
+      | "NO_MATCH"
+      | "MATCH_FOUND"
+      | "CREATED"
+      | "SUCCESS"
+      | "FAILED";
+  }>;
   timeline: Array<{
     sequence: number;
     event_type: string;
