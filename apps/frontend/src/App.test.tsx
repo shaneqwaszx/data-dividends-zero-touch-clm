@@ -15,6 +15,9 @@ import App, {
   SponsorOwnershipEvidenceView,
   SponsorReadinessEvidence,
   SponsorTargetEvidence,
+  AccountPlaceholder,
+  DashboardSnapshot,
+  WorkspaceTabs,
   evidenceRevision,
   shouldPollAutomation,
   automationStageState,
@@ -410,6 +413,19 @@ afterEach(() => {
 });
 
 describe("Phase 04 onboarding, document review, and ownership UI", () => {
+  it("renders the purpose-based workspace structure", () => {
+    const tabs = renderToStaticMarkup(<WorkspaceTabs activeTab="dashboard" onChange={() => undefined} />);
+    const dashboard = renderToStaticMarkup(<DashboardSnapshot summary={null} />);
+    const account = renderToStaticMarkup(<AccountPlaceholder />);
+    expect(tabs).toContain("Dashboard");
+    expect(tabs).toContain("Review queue");
+    expect(tabs).toContain("Logs");
+    expect(tabs).toContain("Account");
+    expect(dashboard).toContain("Completed");
+    expect(dashboard).toContain("database-backed portfolio");
+    expect(account).toContain("Authentication pending");
+  });
+
   it("renders create and reopen case controls", () => {
     const markup = renderToStaticMarkup(<App />);
     expect(markup).toContain("Singapore UEN");

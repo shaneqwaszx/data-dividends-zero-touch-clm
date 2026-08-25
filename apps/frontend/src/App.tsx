@@ -101,6 +101,35 @@ function fieldLabel(value: string): string {
     .join(" ");
 }
 
+// Enhanced error message mapper
+function friendlyErrorMessage(code: string | null, defaultMessage: string): string {
+  const messages: Record<string, string> = {
+    "DOCUMENT_TOO_LARGE": "PDF file is too large. Maximum size is 25MB.",
+    "DOCUMENT_MEDIA_TYPE_UNSUPPORTED": "File type not supported. Please upload a PDF.",
+    "OWNERSHIP_CYCLE": "Ownership graph contains circular relationships. Please review the ownership structure.",
+    "OWNERSHIP_INCOMPLETE": "Incomplete ownership data detected. Some legal entities have no disclosed owners.",
+    "DOCUMENT_LOW_CONFIDENCE": "Document extraction confidence below threshold. Please review or upload a clearer document.",
+    "DOCUMENT_FIELD_MISMATCH": "Extracted data does not match registry records. Please verify or provide corrections.",
+    "GT_EXISTING_PARTY_REVIEW_REQUIRED": "Party already exists in target system. Please review the matching record.",
+    "REGISTRY_REVIEW_REQUIRED": "Registry data requires human review before proceeding.",
+  };
+  return messages[code ?? ""] || defaultMessage;
+}
+
+// Blocker explanation helper
+function blockerExplanation(blockerCode: string): string {
+  const explanations: Record<string, string> = {
+    "DOCUMENT_LOW_CONFIDENCE": "One or more fields were extracted from the document with confidence below the configured threshold (85%). Please review the extracted values.",
+    "DOCUMENT_FIELD_MISMATCH": "Extracted document data does not match the registry records. Please review and correct the mismatched fields.",
+    "DOCUMENT_REQUIRED_FIELD_MISSING": "A required field is missing from the document extraction. Please provide additional documentation.",
+    "OWNERSHIP_CYCLE": "Circular ownership relationships detected in the ownership graph. This prevents UBO calculation. Please verify the ownership structure.",
+    "OWNERSHIP_INCOMPLETE": "Incomplete ownership chain: some legal entities have no disclosed owners. Cannot complete UBO analysis without this information.",
+    "EXISTING_PARTY_REVIEW_REQUIRED": "A party with similar details already exists in the target system. Please review the match before proceeding.",
+    "REGISTRY_REVIEW_REQUIRED": "Registry data validation requires human review. Please check the entity details.",
+  };
+  return explanations[blockerCode] || blockerCode.replaceAll("_", " ");
+}
+
 export function SimulationBanner({ profile }: { profile: SimulationProfile | null }) {
   const sourceLabel = profile
     ? `${profile.registry_system} ${titleCaseEnvironment(profile.registry_environment)}`
@@ -114,7 +143,6 @@ export function SimulationBanner({ profile }: { profile: SimulationProfile | nul
     </div>
   );
 }
-
 type FieldCandidate = DocumentProcessingRecord["fields"][number];
 
 function FieldReviewCard({
@@ -456,7 +484,7 @@ export function DocumentPanel({
 
       {documentError && (
         <div className="request-error" role="alert">
-          {documentError}
+          ❌ {friendlyErrorMessage(null, documentError)}
         </div>
       )}
       {activeDocument && (
@@ -523,6 +551,71 @@ function OwnershipCandidateCard({ candidate }: { candidate: OwnershipCandidate }
   );
 }
 
+export function SimpleOwnershipGraph({ record }: { record: OwnershipAnalysisRecord }) {
+  const parties = new Map(record.parties.map((party) => [party.party_id, party]));
+  const root = record.root_party_id ? parties.get(record.root_party_id) : null;
+  const isNaturalPerson = (partyId: string) => parties.get(partyId)?.party_type === "NATURAL_PERSON";
+  
+  // Simple grid layout for ownership visualization
+  const rows: string[][] = [];
+  const visited = new Set<string>();
+  const queue: [string, number][] = record.root_party_id ? [[record.root_party_id, 0]] : [];
+  
+  while (queue.length > 0) {
+    const [partyId, depth] = queue.shift()!;
+    if (visited.has(partyId)) continue;
+    visited.add(partyId);
+    
+    if (!rows[depth]) rows[depth] = [];
+    rows[depth].push(partyId);
+    
+    const children = record.relationships
+      .filter(r => r.parent_party_id === partyId)
+      .map(r => r.child_party_id);
+    
+    for (const child of children) {
+      queue.push([child, depth + 1]);
+    }
+  }
+  
+  return (
+    <div className="ownership-graph-viz">
+      <p className="section-label">Ownership structure visualization</p>
+      <div className="graph-container">
+        {rows.map((rowParties, depth) => (
+          <div key={`depth-${depth}`} className="graph-row">
+            <div className="depth-label">Level {depth}</div>
+            <div className="parties-row">
+              {rowParties.map((partyId) => {
+                const party = parties.get(partyId);
+                const isUbo = record.candidates.some(c => c.party.party_id === partyId && c.classification === "PROVISIONAL_UBO_CANDIDATE");
+                const ownedBy = record.relationships.filter(r => r.parent_party_id === partyId);
+                
+                return (
+                  <article key={partyId} className={`graph-party ${isNaturalPerson(partyId) ? 'natural-person' : 'legal-entity'} ${isUbo ? 'is-ubo' : ''}`}>
+                    <h4>{party?.display_name ?? partyId}</h4>
+                    <span className="party-type">{party?.party_type}</span>
+                    {isUbo && <span className="ubo-badge">🏆 UBO Candidate</span>}
+                    {ownedBy.length > 0 && (
+                      <div className="ownership-list">
+                        {ownedBy.map(rel => (
+                          <div key={rel.relationship_id} className="ownership-item">
+                            → {ownershipPercent(rel.ownership_percent)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function OwnershipSummary({ record }: { record: OwnershipAnalysisRecord }) {
   const parties = new Map(record.parties.map((party) => [party.party_id, party]));
   const root = record.root_party_id ? parties.get(record.root_party_id) : null;
@@ -556,11 +649,11 @@ export function OwnershipSummary({ record }: { record: OwnershipAnalysisRecord }
       )}
       {record.issues.length > 0 && (
         <div className="ownership-warnings" role="alert">
-          <strong>Human review required — calculation is not definitive.</strong>
+          <strong>⚠️ Human review required — calculation is not definitive.</strong>
           <ul>
             {record.issues.map((issue) => (
               <li key={`${issue.code}-${issue.affected_party_ids.join("-")}`}>
-                {issue.code}: {issue.message}
+                <strong>{issue.code}</strong> {issue.message}
               </li>
             ))}
           </ul>
@@ -568,36 +661,40 @@ export function OwnershipSummary({ record }: { record: OwnershipAnalysisRecord }
       )}
 
       {record.relationships.length > 0 && (
-        <div className="ownership-relationships">
-          <h4>Ownership structure</h4>
-          <div className="ownership-table" role="table" aria-label="Ownership relationships">
-            {record.relationships.map((relationship) => (
-              <div className="ownership-row" role="row" key={relationship.relationship_id}>
-                <div role="cell">
-                  <strong>{parties.get(relationship.parent_party_id)?.display_name}</strong>
-                  <span>Owned party</span>
+        <>
+          <SimpleOwnershipGraph record={record} />
+          
+          <div className="ownership-relationships">
+            <h4>Detailed ownership structure</h4>
+            <div className="ownership-table" role="table" aria-label="Ownership relationships">
+              {record.relationships.map((relationship) => (
+                <div className="ownership-row" role="row" key={relationship.relationship_id}>
+                  <div role="cell">
+                    <strong>{parties.get(relationship.parent_party_id)?.display_name}</strong>
+                    <span>Owned party</span>
+                  </div>
+                  <div className="ownership-edge" role="cell">
+                    {ownershipPercent(relationship.ownership_percent)} →
+                  </div>
+                  <div role="cell">
+                    <strong>{parties.get(relationship.child_party_id)?.display_name}</strong>
+                    <span>
+                      {parties.get(relationship.child_party_id)?.party_type === "NATURAL_PERSON"
+                        ? "Natural-person owner"
+                        : "Legal-entity owner"}
+                    </span>
+                  </div>
+                  <div role="cell">
+                    <strong>
+                      {relationship.provenance.provider} / {relationship.provenance.environment}
+                    </strong>
+                    <span>Sourced {formatTimestamp(relationship.provenance.sourced_at)}</span>
+                  </div>
                 </div>
-                <div className="ownership-edge" role="cell">
-                  {ownershipPercent(relationship.ownership_percent)} →
-                </div>
-                <div role="cell">
-                  <strong>{parties.get(relationship.child_party_id)?.display_name}</strong>
-                  <span>
-                    {parties.get(relationship.child_party_id)?.party_type === "NATURAL_PERSON"
-                      ? "Natural-person owner"
-                      : "Legal-entity owner"}
-                  </span>
-                </div>
-                <div role="cell">
-                  <strong>
-                    {relationship.provenance.provider} / {relationship.provenance.environment}
-                  </strong>
-                  <span>Sourced {formatTimestamp(relationship.provenance.sourced_at)}</span>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {record.candidates.length > 0 && (
@@ -970,6 +1067,7 @@ export function SponsorCaseSummary({ summary }: { summary: ZeroTouchCaseSummary 
       }
     });
   });
+
   if (activeBlockers.length === 0 && summary.technical_failure) {
     activeBlockers.push(summary.technical_failure.code);
   }
@@ -1028,6 +1126,146 @@ export function SponsorCaseSummary({ summary }: { summary: ZeroTouchCaseSummary 
 
 export function evidenceRevision(summary: ZeroTouchCaseSummary): string {
   return `${summary.case.case_id}:${summary.version}:${summary.updated_at}`;
+}
+
+export function LocalReviewerWorkbench({ summary }: { summary: ZeroTouchCaseSummary }) {
+  const [note, setNote] = useState("");
+  const [question, setQuestion] = useState("");
+  const [questions, setQuestions] = useState<string[]>([]);
+  const reviewRequired = summary.status === "WAITING_FOR_REVIEW";
+  const queueLabel = reviewRequired
+    ? "Needs review"
+    : summary.status === "COMPLETED"
+      ? "Complete"
+      : summary.status.replaceAll("_", " ");
+
+  function addQuestion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedQuestion = question.trim();
+    if (!trimmedQuestion) return;
+    setQuestions((current) => [...current, trimmedQuestion]);
+    setQuestion("");
+  }
+
+  return (
+    <section className="reviewer-workbench" aria-labelledby="reviewer-workbench-heading">
+      <div className="reviewer-workbench__heading">
+        <div>
+          <p className="section-label">Local reviewer workbench</p>
+          <h2 id="reviewer-workbench-heading">Review queue</h2>
+          <p>Session-only queue for the currently open case. It is not an authenticated account or durable work queue.</p>
+        </div>
+        <span className={`queue-status queue-status--${reviewRequired ? "review" : "normal"}`}>
+          {queueLabel}
+        </span>
+      </div>
+      <div className="reviewer-workbench__grid">
+        <article className="queue-item queue-item--active">
+          <span>1 active case</span>
+          <h3>{summary.case.entity?.legal_name ?? summary.case.requested_uen}</h3>
+          <dl>
+            <div><dt>UEN</dt><dd>{summary.case.requested_uen}</dd></div>
+            <div><dt>Current stage</dt><dd>{summary.current_stage.replaceAll("_", " ")}</dd></div>
+            <div><dt>Last update</dt><dd>{formatTimestamp(summary.updated_at)}</dd></div>
+          </dl>
+        </article>
+        <article className="reviewer-notes">
+          <h3>Reviewer workspace</h3>
+          <label htmlFor="reviewer-note">Safe internal note</label>
+          <textarea
+            id="reviewer-note"
+            value={note}
+            maxLength={500}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Record a non-sensitive follow-up or decision rationale"
+          />
+          <span className="input-help">This note is held in memory and is cleared on refresh.</span>
+        </article>
+      </div>
+      <div className="clarification-panel">
+        <div>
+          <h3>Client clarification questions</h3>
+          <p>Use this draft list to capture missing information before a future client-response workflow is connected.</p>
+        </div>
+        <form onSubmit={addQuestion} className="form-row">
+          <label className="sr-only" htmlFor="clarification-question">New clarification question</label>
+          <input
+            id="clarification-question"
+            value={question}
+            maxLength={240}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder="What should the client clarify?"
+          />
+          <button type="submit" disabled={!question.trim()}>Add question</button>
+        </form>
+        {questions.length > 0 && (
+          <ol className="clarification-list">
+            {questions.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+          </ol>
+        )}
+      </div>
+    </section>
+  );
+}
+
+type AppTab = "dashboard" | "review" | "logs" | "account";
+
+export function WorkspaceTabs({ activeTab, onChange }: { activeTab: AppTab; onChange: (tab: AppTab) => void }) {
+  const tabs: Array<[AppTab, string]> = [
+    ["dashboard", "Dashboard"],
+    ["review", "Review queue"],
+    ["logs", "Logs"],
+    ["account", "Account"],
+  ];
+  return (
+    <nav className="workspace-tabs" aria-label="Main workspace">
+      {tabs.map(([tab, label]) => (
+        <button
+          key={tab}
+          className={activeTab === tab ? "workspace-tab workspace-tab--active" : "workspace-tab"}
+          type="button"
+          aria-current={activeTab === tab ? "page" : undefined}
+          onClick={() => onChange(tab)}
+        >
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+export function DashboardSnapshot({ summary }: { summary: ZeroTouchCaseSummary | null }) {
+  const metrics = summary
+    ? [
+        [summary.status === "COMPLETED" ? 1 : 0, "Completed"],
+        [summary.status === "WAITING_FOR_REVIEW" ? 1 : 0, "Needs review"],
+        [summary.status === "RUNNING" || summary.status === "RESUMING" ? 1 : 0, "Processing"],
+        [0, "Inactive"],
+      ]
+    : [[0, "Completed"], [0, "Needs review"], [0, "Processing"], [0, "Inactive"]];
+  return (
+    <section className="dashboard-snapshot" aria-labelledby="dashboard-snapshot-heading">
+      <div>
+        <p className="section-label">Current session overview</p>
+        <h2 id="dashboard-snapshot-heading">Work at a glance</h2>
+        <p>Counts reflect the currently loaded local case only. A database-backed portfolio will provide real queue totals later.</p>
+      </div>
+      <div className="dashboard-metrics">
+        {metrics.map(([value, label]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}
+      </div>
+    </section>
+  );
+}
+
+export function AccountPlaceholder() {
+  return (
+    <section className="workspace-placeholder" aria-labelledby="account-heading">
+      <p className="section-label">Account</p>
+      <h2 id="account-heading">Local demo operator</h2>
+      <p>Authentication, reviewer roles, profile management, and access controls are not connected yet.</p>
+      <span className="placeholder-badge">Authentication pending</span>
+    </section>
+  );
 }
 
 export function SponsorDocumentEvidenceView({ documents }: { documents: DocumentProcessingRecord[] }) {
@@ -1114,74 +1352,151 @@ export function HumanReviewPanel({
   isResolving,
   onResolve,
   onReplace,
+  onManualEdit,
 }: {
   exception: ZeroTouchException;
   isResolving: boolean;
   onResolve: (action: ExceptionResolutionAction) => void;
   onReplace?: (documentId: string, eventCount: number, file: File) => void;
+  onManualEdit?: (documentId: string, fieldKey: DocumentFieldKey, value: string) => void;
 }) {
   const [replacementFile, setReplacementFile] = useState<File | null>(null);
+  const [editedValues, setEditedValues] = useState<Record<string, string>>(
+    () => Object.fromEntries(
+      exception.evidence
+        .filter((evidence) => evidence.field_key)
+        .map((evidence) => [evidence.field_key, evidence.document_value ?? ""]),
+    ),
+  );
   const documentId = exception.evidence.find((item) => item.reference_id)?.reference_id;
   const eventCount = Number(exception.evidence_version.split(":")[2]);
   const replacementAvailable = exception.stage === "DOCUMENT"
     && typeof documentId === "string"
     && Number.isSafeInteger(eventCount)
     && eventCount > 0;
+  
   return (
     <section className="human-review-card" aria-labelledby="review-required-heading">
-      <p className="section-label">Human review required</p>
-      <h2 id="review-required-heading">{exception.stage.replaceAll("_", " ")}</h2>
-      <div className="review-reason">
-        <span>Current blockers</span>
-        <ol className="blocker-list">
-          {exception.blocker_codes.map((blockerCode) => (
-            <li key={blockerCode}>
-              <span>{blockerCode.replaceAll("_", " ")}</span>
-              <code>{blockerCode}</code>
-            </li>
-          ))}
-        </ol>
+      <div className="review-header">
+        <p className="section-label">⚠️ Human review required</p>
+        <h2 id="review-required-heading">{exception.stage.replaceAll("_", " ")} Stage</h2>
       </div>
-      <p>{exception.explanation}</p>
-      {exception.evidence.map((evidence, index) => (
-        <article className="exception-evidence" key={`${evidence.field_key ?? "evidence"}-${index}`}>
-          <h3>{fieldLabel(evidence.field_key ?? "Evidence")}</h3>
-          <dl>
-            <div><dt>Registry</dt><dd>{evidence.registry_value ?? "Not available"}</dd></div>
-            <div><dt>Document</dt><dd>{evidence.document_value ?? "Not available"}</dd></div>
-            {evidence.confidence !== null && (
-              <div><dt>Confidence</dt><dd>{confidencePercent(evidence.confidence)}</dd></div>
-            )}
-          </dl>
-        </article>
-      ))}
+      
+      <div className="blocker-detail-section">
+        <h3>Current issues</h3>
+        <div className="blockers-grid">
+          {exception.blocker_codes.map((blockerCode) => (
+            <article key={blockerCode} className="blocker-card">
+              <strong>{blockerCode.replaceAll("_", " ")}</strong>
+              <p className="blocker-explanation">{blockerExplanation(blockerCode)}</p>
+              <code>{blockerCode}</code>
+            </article>
+          ))}
+        </div>
+      </div>
+      
+      {exception.evidence.length > 0 && (
+        <div className="evidence-section">
+          <h3>Evidence details</h3>
+          <div className="evidence-grid">
+            {exception.evidence.map((evidence, index) => (
+              <article className="exception-evidence-card" key={`${evidence.field_key ?? "evidence"}-${index}`}>
+                <header>
+                  <h4>{fieldLabel(evidence.field_key ?? "Evidence")}</h4>
+                  {evidence.comparison && (
+                    <span className={`comparison-badge comparison-badge--${evidence.comparison}`}>
+                      {evidence.comparison}
+                    </span>
+                  )}
+                </header>
+                <dl>
+                  {evidence.registry_value && (
+                    <div>
+                      <dt>Registry value</dt>
+                      <dd><code>{evidence.registry_value}</code></dd>
+                    </div>
+                  )}
+                  {evidence.document_value && (
+                    <div>
+                      <dt>Document value</dt>
+                      <dd><code>{evidence.document_value}</code></dd>
+                    </div>
+                  )}
+                  {evidence.field_key && documentId && onManualEdit && (
+                    <div className="manual-field-edit">
+                      <dt>Manual correction</dt>
+                      <dd>
+                        <input
+                          aria-label={`Correct ${fieldLabel(evidence.field_key)}`}
+                          value={editedValues[evidence.field_key as string] ?? ""}
+                          maxLength={512}
+                          onChange={(event) =>
+                            setEditedValues((current) => ({
+                              ...current,
+                              [evidence.field_key as string]: event.target.value,
+                            }))
+                          }
+                        />
+                        <button
+                          type="button"
+                          disabled={isResolving || !editedValues[evidence.field_key as string]?.trim()}
+                          onClick={() =>
+                            onManualEdit(
+                              documentId,
+                              evidence.field_key as DocumentFieldKey,
+                              editedValues[evidence.field_key as string].trim(),
+                            )
+                          }
+                        >
+                          Save correction
+                        </button>
+                      </dd>
+                    </div>
+                  )}
+                  {evidence.confidence !== null && (
+                    <div>
+                      <dt>Confidence score</dt>
+                      <dd>{confidencePercent(evidence.confidence)}</dd>
+                    </div>
+                  )}
+                </dl>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
+      
       <div className="exception-actions">
         {exception.available_actions.map((action) => (
-          <button key={action} type="button" disabled={isResolving} onClick={() => onResolve(action)}>
-            {action === "KEEP_REGISTRY_VALUE" ? "Keep registry values" : "Request more information"}
+          <button key={action} type="button" disabled={isResolving} className="button-primary" onClick={() => onResolve(action)}>
+            {action === "KEEP_REGISTRY_VALUE" ? "✓ Keep registry values" : "❓ Request additional information"}
           </button>
         ))}
         {exception.available_actions.length === 0 && (
-          <p>Corrected or replacement evidence is required; automatic target replay is disabled.</p>
+          <p className="warning-notice">⚠️ Corrected or replacement evidence is required to proceed.</p>
         )}
       </div>
+      
       {replacementAvailable && (
-        <div className="replacement-document">
-          <label htmlFor={`replacement-${exception.exception_id}`}>Upload replacement document</label>
+        <div className="replacement-section">
+          <h3>Upload corrected document</h3>
+          <p>Upload a replacement PDF to supersede the current evidence. The system will re-extract and re-evaluate.</p>
+          <label htmlFor={`replacement-${exception.exception_id}`}>Select new PDF file</label>
           <input
             id={`replacement-${exception.exception_id}`}
             type="file"
             accept="application/pdf,.pdf"
             onChange={(event) => setReplacementFile(event.target.files?.[0] ?? null)}
           />
+          {replacementFile && <p className="file-selected">✓ {replacementFile.name}</p>}
           <button
             type="button"
             disabled={isResolving || !replacementFile}
+            className="button-primary"
             onClick={() => replacementFile && onReplace?.(documentId, eventCount, replacementFile)}
           >
-            Upload replacement document
+            Upload & Re-evaluate
           </button>
-          <p>The new document explicitly supersedes this evidence; its history remains visible.</p>
         </div>
       )}
     </section>
@@ -1466,6 +1781,7 @@ export interface AppProps {
 export default function App({
   demoControlsEnabled = import.meta.env.VITE_DEMO_CONTROLS_ENABLED === "true",
 }: AppProps = {}) {
+  const [activeTab, setActiveTab] = useState<AppTab>("dashboard");
   const [uen, setUen] = useState(DEFAULT_UEN);
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [caseId, setCaseId] = useState("");
@@ -1611,6 +1927,33 @@ export default function App({
     }
   }
 
+  async function handleManualFieldEdit(
+    documentId: string,
+    fieldKey: DocumentFieldKey,
+    value: string,
+  ) {
+    if (!summary || resolutionActive.current) return;
+    resolutionActive.current = true;
+    setIsResolving(true);
+    setRequestError(null);
+    try {
+      await reviewDocument(
+        summary.case.case_id,
+        documentId,
+        fieldKey,
+        "CORRECTED",
+        value,
+        "Corrected by local POC operator",
+      );
+      setSummary(await fetchZeroTouchCase(summary.case.case_id));
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Field correction failed.");
+    } finally {
+      resolutionActive.current = false;
+      setIsResolving(false);
+    }
+  }
+
   async function handleRecovery() {
     if (!summary || isSubmitting || isResolving) return;
     setIsSubmitting(true);
@@ -1653,6 +1996,12 @@ export default function App({
         </p>
       </header>
 
+      <div className="workspace-layout">
+        <WorkspaceTabs activeTab={activeTab} onChange={setActiveTab} />
+        <div className="workspace-content">
+          {activeTab === "dashboard" && (
+            <>
+      <DashboardSnapshot summary={summary} />
       <section className="launch-card zero-touch-launch" aria-labelledby="onboarding-heading">
         <div>
           <p className="section-label">Corporate onboarding</p>
@@ -1756,6 +2105,7 @@ export default function App({
               isResolving={isResolving}
               onResolve={(action) => void handleResolution(exception, action)}
               onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
+              onManualEdit={(documentId, fieldKey, value) => void handleManualFieldEdit(documentId, fieldKey, value)}
             />
           ))}
           {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && (
@@ -1779,6 +2129,38 @@ export default function App({
           </p>
         </>
       )}
+        </>
+          )}
+
+          {activeTab === "review" && summary && (
+            <>
+          <LocalReviewerWorkbench summary={summary} />
+          {summary.status === "WAITING_FOR_REVIEW" && summary.active_exceptions.map((exception) => (
+            <HumanReviewPanel
+              key={exception.exception_id}
+              exception={exception}
+              isResolving={isResolving}
+              onResolve={(action) => void handleResolution(exception, action)}
+              onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
+              onManualEdit={(documentId, fieldKey, value) => void handleManualFieldEdit(documentId, fieldKey, value)}
+            />
+          ))}
+            </>
+          )}
+
+          {activeTab === "logs" && (
+            summary ? <AutomationTimeline summary={summary} /> : (
+          <section className="workspace-placeholder" aria-labelledby="logs-heading">
+            <p className="section-label">Logs</p>
+            <h2 id="logs-heading">No case selected</h2>
+            <p>Open or start a case from the Dashboard to view its safe automation history.</p>
+          </section>
+        )
+          )}
+
+          {activeTab === "account" && <AccountPlaceholder />}
+        </div>
+      </div>
     </main>
   );
 }
