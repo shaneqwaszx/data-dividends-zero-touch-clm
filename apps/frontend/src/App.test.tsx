@@ -15,6 +15,10 @@ import App, {
   SponsorOwnershipEvidenceView,
   SponsorReadinessEvidence,
   SponsorTargetEvidence,
+  AccountPlaceholder,
+  CaseIdentityStrip,
+  DashboardSnapshot,
+  WorkspaceTabs,
   evidenceRevision,
   shouldPollAutomation,
   automationStageState,
@@ -410,25 +414,36 @@ afterEach(() => {
 });
 
 describe("Phase 04 onboarding, document review, and ownership UI", () => {
-  it("renders create and reopen case controls", () => {
+  it("renders the purpose-based workspace structure", () => {
+    const tabs = renderToStaticMarkup(<WorkspaceTabs activeTab="dashboard" onChange={() => undefined} />);
+    const dashboard = renderToStaticMarkup(<DashboardSnapshot summary={null} />);
+    const account = renderToStaticMarkup(<AccountPlaceholder />);
+    expect(tabs).toContain("Dashboard");
+    expect(tabs).toContain("Start onboarding");
+    expect(tabs).toContain("Review");
+    expect(tabs).toContain("Logs");
+    expect(tabs).toContain("Account info");
+    expect(dashboard).toContain("Current stage");
+    expect(dashboard).toContain("Case health");
+    expect(account).toContain("Authentication pending");
+  });
+
+  it("defaults to the dashboard and exposes Start onboarding above it", () => {
     const markup = renderToStaticMarkup(<App />);
-    expect(markup).toContain("Singapore UEN");
-    expect(markup).toContain("Supporting PDF");
     expect(markup).toContain("Start onboarding");
-    expect(markup).toContain("Reopen case ID");
+    expect(markup).not.toContain("Start an onboarding request");
     expect(markup).toContain("Loading backend connector profile");
     expect(markup).not.toContain("Load synthetic ownership");
     expect(markup).not.toContain("Submit to Mock GoldTier");
   });
 
-  it("separates deterministic demo controls from sponsor mode", () => {
+  it("keeps deterministic demo controls out of the default dashboard", () => {
     const sponsor = renderToStaticMarkup(<App demoControlsEnabled={false} />);
     const demo = renderToStaticMarkup(<App demoControlsEnabled />);
     expect(sponsor).not.toContain("Demo/Test Controls");
     expect(sponsor).not.toContain("Integrated synthetic scenario");
-    expect(demo).toContain("Demo/Test Controls");
-    expect(demo).toContain("Integrated synthetic scenario");
-    expect(demo).toContain("Legacy manual diagnostics");
+    expect(demo).not.toContain("Demo/Test Controls");
+    expect(demo).not.toContain("Integrated synthetic scenario");
   });
 
   it("renders backend-provided mock environments", () => {
@@ -873,6 +888,17 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(markup).not.toContain("APPROVED");
   });
 
+  it("keeps case identity and review navigation concise on the dashboard", () => {
+    const waiting = makeZeroTouch("WAITING_FOR_REVIEW");
+    const identity = renderToStaticMarkup(<CaseIdentityStrip summary={waiting} />);
+    const summary = renderToStaticMarkup(
+      <SponsorCaseSummary summary={waiting} onOpenReview={() => undefined} />,
+    );
+    expect(identity).toContain("Local synthetic POC");
+    expect(identity).toContain("Last updated");
+    expect(summary).toContain("Review 1 active exception");
+  });
+
   it("uses safe profile, recovery, and UAT evidence endpoints", async () => {
     const completed = makeZeroTouch();
     const evidence = {
@@ -1097,8 +1123,8 @@ describe("Phase 08 sponsor evidence refresh and causal visibility", () => {
     const markup = renderToStaticMarkup(<SponsorDocumentEvidenceView documents={[prior, current]} />);
     expect(markup).toContain("SUPERSEDED");
     expect(markup).toContain("CURRENT");
-    expect(markup).toContain("Registry:");
-    expect(markup).toContain("Status: MISMATCH");
+    expect(markup).toContain("Registry");
+    expect(markup).toContain("MISMATCH");
   });
 
   it("renders ownership path arithmetic and cycle blockers", () => {
