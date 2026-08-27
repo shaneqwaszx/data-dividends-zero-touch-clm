@@ -35,7 +35,7 @@ Navigate to: `http://localhost:5173`
 2. Select **"Document discrepancy"** from Demo Controls dropdown
 3. Upload any PDF
 4. Wait for automation to reach DOCUMENT stage and stop
-5. Click "View exception" in SponsorCaseSummary
+5. Select **Review queue** (or use the dashboard's **Review active exception** action)
 6. **See:**
    - ⚠️ Clear "Human review required" header
    - Color-coded blocker cards with explanations

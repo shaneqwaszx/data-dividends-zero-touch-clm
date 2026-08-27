@@ -1056,7 +1056,13 @@ export function OnboardingProgress({ summary }: { summary: ZeroTouchCaseSummary 
   );
 }
 
-export function SponsorCaseSummary({ summary }: { summary: ZeroTouchCaseSummary }) {
+export function SponsorCaseSummary({
+  summary,
+  onOpenReview,
+}: {
+  summary: ZeroTouchCaseSummary;
+  onOpenReview?: () => void;
+}) {
   const activeBlockers: string[] = [];
   const seenBlockers = new Set<string>();
   summary.active_exceptions.forEach((exception) => {
@@ -1120,6 +1126,11 @@ export function SponsorCaseSummary({ summary }: { summary: ZeroTouchCaseSummary 
           ))}
         </ul>
       </div>
+      {summary.status === "WAITING_FOR_REVIEW" && onOpenReview && (
+        <button className="review-queue-link" type="button" onClick={onOpenReview}>
+          Review {summary.active_exceptions.length} active exception{summary.active_exceptions.length === 1 ? "" : "s"}
+        </button>
+      )}
     </section>
   );
 }
@@ -1132,6 +1143,7 @@ export function LocalReviewerWorkbench({ summary }: { summary: ZeroTouchCaseSumm
   const [note, setNote] = useState("");
   const [question, setQuestion] = useState("");
   const [questions, setQuestions] = useState<string[]>([]);
+  const [assignedToMe, setAssignedToMe] = useState(false);
   const reviewRequired = summary.status === "WAITING_FOR_REVIEW";
   const queueLabel = reviewRequired
     ? "Needs review"
@@ -1161,13 +1173,22 @@ export function LocalReviewerWorkbench({ summary }: { summary: ZeroTouchCaseSumm
       </div>
       <div className="reviewer-workbench__grid">
         <article className="queue-item queue-item--active">
-          <span>1 active case</span>
+          <span>{assignedToMe ? "Assigned to you · this session" : "Unassigned current case"}</span>
           <h3>{summary.case.entity?.legal_name ?? summary.case.requested_uen}</h3>
           <dl>
             <div><dt>UEN</dt><dd>{summary.case.requested_uen}</dd></div>
             <div><dt>Current stage</dt><dd>{summary.current_stage.replaceAll("_", " ")}</dd></div>
             <div><dt>Last update</dt><dd>{formatTimestamp(summary.updated_at)}</dd></div>
           </dl>
+          <button
+            className="queue-assign-button"
+            type="button"
+            disabled={assignedToMe}
+            onClick={() => setAssignedToMe(true)}
+          >
+            {assignedToMe ? "Assigned to you" : "Assign to me"}
+          </button>
+          <p className="input-help">Assignment is session-only in this local POC and is cleared on refresh.</p>
         </article>
         <article className="reviewer-notes">
           <h3>Reviewer workspace</h3>
@@ -1208,14 +1229,15 @@ export function LocalReviewerWorkbench({ summary }: { summary: ZeroTouchCaseSumm
   );
 }
 
-type AppTab = "dashboard" | "review" | "logs" | "account";
+type AppTab = "dashboard" | "start" | "review" | "logs" | "account";
 
 export function WorkspaceTabs({ activeTab, onChange }: { activeTab: AppTab; onChange: (tab: AppTab) => void }) {
   const tabs: Array<[AppTab, string]> = [
     ["dashboard", "Dashboard"],
-    ["review", "Review queue"],
+    ["start", "Start onboarding"],
+    ["review", "Review"],
     ["logs", "Logs"],
-    ["account", "Account"],
+    ["account", "Account info"],
   ];
   return (
     <nav className="workspace-tabs" aria-label="Main workspace">
@@ -1237,22 +1259,33 @@ export function WorkspaceTabs({ activeTab, onChange }: { activeTab: AppTab; onCh
 export function DashboardSnapshot({ summary }: { summary: ZeroTouchCaseSummary | null }) {
   const metrics = summary
     ? [
-        [summary.status === "COMPLETED" ? 1 : 0, "Completed"],
-        [summary.status === "WAITING_FOR_REVIEW" ? 1 : 0, "Needs review"],
-        [summary.status === "RUNNING" || summary.status === "RESUMING" ? 1 : 0, "Processing"],
-        [0, "Inactive"],
+        [summary.current_stage.replaceAll("_", " "), "Current stage"],
+        [summary.active_exceptions.length, "Open exceptions"],
+        [summary.metrics.human_interventions, "Human interventions"],
+        [summary.metrics.total_duration_ms === null ? "In progress" : `${summary.metrics.total_duration_ms} ms`, "Local run time"],
       ]
-    : [[0, "Completed"], [0, "Needs review"], [0, "Processing"], [0, "Inactive"]];
+    : [["—", "Current stage"], [0, "Open exceptions"], [0, "Human interventions"], ["—", "Local run time"]];
   return (
     <section className="dashboard-snapshot" aria-labelledby="dashboard-snapshot-heading">
       <div>
         <p className="section-label">Current session overview</p>
         <h2 id="dashboard-snapshot-heading">Work at a glance</h2>
-        <p>Counts reflect the currently loaded local case only. A database-backed portfolio will provide real queue totals later.</p>
+        <p>Case health for the currently loaded local case. A database-backed portfolio and real queue totals are not part of this POC.</p>
       </div>
       <div className="dashboard-metrics">
         {metrics.map(([value, label]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}
       </div>
+    </section>
+  );
+}
+
+export function CaseIdentityStrip({ summary }: { summary: ZeroTouchCaseSummary }) {
+  return (
+    <section className="case-identity-strip" aria-label="Current case identity">
+      <div><span>Case</span><strong>{summary.case.entity?.legal_name ?? summary.case.requested_uen}</strong></div>
+      <div><span>UEN</span><strong>{summary.case.requested_uen}</strong></div>
+      <div><span>Last updated</span><strong>{formatTimestamp(summary.updated_at)}</strong></div>
+      <div><span>Execution</span><strong>Local synthetic POC</strong></div>
     </section>
   );
 }
@@ -1278,7 +1311,16 @@ export function SponsorDocumentEvidenceView({ documents }: { documents: Document
         <details key={document.document_id} open={!document.superseded_by_document_id}>
           <summary>{document.display_name} — {document.superseded_by_document_id ? "SUPERSEDED" : "CURRENT"} — {document.state.replaceAll("_", " ")}</summary>
           <p>Project-defined POC extraction confidence; not an AI or sponsor-approved score.</p>
-          <dl>{document.fields.map((field) => <div key={field.field_key}><dt>{fieldLabel(field.field_key)}</dt><dd>Registry: {field.canonical_value ?? "Not available"} | Document: {field.original_extracted_value ?? "Not extracted"} | POC confidence: {confidencePercent(field.confidence)} | Status: {field.comparison_status.replaceAll("_", " ")}</dd></div>)}</dl>
+          <div className="evidence-comparison" role="table" aria-label={`${document.display_name} document comparison`}>
+            {document.fields.map((field) => (
+              <div key={field.field_key} role="row" className={field.comparison_status === "MATCH" ? "" : "evidence-comparison--attention"}>
+                <strong role="cell">{fieldLabel(field.field_key)}</strong>
+                <span role="cell"><small>Registry</small>{field.canonical_value ?? "Not available"}</span>
+                <span role="cell"><small>Document</small>{field.original_extracted_value ?? "Not extracted"}</span>
+                <span role="cell"><small>POC confidence</small>{confidencePercent(field.confidence)} · {field.comparison_status.replaceAll("_", " ")}</span>
+              </div>
+            ))}
+          </div>
         </details>
       ))}
     </section>
@@ -1999,9 +2041,15 @@ export default function App({
       <div className="workspace-layout">
         <WorkspaceTabs activeTab={activeTab} onChange={setActiveTab} />
         <div className="workspace-content">
-          {activeTab === "dashboard" && (
+          {(activeTab === "dashboard" || activeTab === "start") && (
             <>
-      <DashboardSnapshot summary={summary} />
+      {activeTab === "dashboard" && (
+        <div className="dashboard-primary-action">
+          <button type="button" onClick={() => setActiveTab("start")}>Start onboarding</button>
+        </div>
+      )}
+      {activeTab === "dashboard" && <DashboardSnapshot summary={summary} />}
+      {activeTab === "start" && (
       <section className="launch-card zero-touch-launch" aria-labelledby="onboarding-heading">
         <div>
           <p className="section-label">Corporate onboarding</p>
@@ -2043,8 +2091,9 @@ export default function App({
           </div>
         </form>
       </section>
+      )}
 
-      {demoControlsEnabled && (
+      {activeTab === "start" && demoControlsEnabled && (
         <details className="demo-controls">
           <summary>Demo/Test Controls</summary>
           <p>These deterministic selectors are synthetic and are not part of normal operations.</p>
@@ -2079,14 +2128,18 @@ export default function App({
 
       {requestError && <div className="request-error" role="alert">{requestError}</div>}
       {pollingWarning && <div className="polling-warning" role="status">{pollingWarning}</div>}
-      {summary && (
+      {summary && activeTab === "dashboard" && (
         <>
           <OnboardingProgress summary={summary} />
-          <SponsorCaseSummary summary={summary} />
-          <SponsorDocumentEvidence summary={summary} />
-          <SponsorOwnershipEvidence summary={summary} />
-          <SponsorTargetEvidence summary={summary} />
-          <SponsorReadinessEvidence summary={summary} />
+          <CaseIdentityStrip summary={summary} />
+          <SponsorCaseSummary summary={summary} onOpenReview={() => setActiveTab("review")} />
+          <details className="evidence-disclosure" open={summary.status === "WAITING_FOR_REVIEW"}>
+            <summary>Evidence and readiness details</summary>
+            <SponsorDocumentEvidence summary={summary} />
+            <SponsorOwnershipEvidence summary={summary} />
+            <SponsorTargetEvidence summary={summary} />
+            <SponsorReadinessEvidence summary={summary} />
+          </details>
           {summary.status === "RESUMING" && (
             <div className="resuming-banner" role="status">Resuming onboarding…</div>
           )}
@@ -2098,16 +2151,6 @@ export default function App({
               </button>
             </div>
           )}
-          {summary.status === "WAITING_FOR_REVIEW" && summary.active_exceptions.map((exception) => (
-            <HumanReviewPanel
-              key={exception.exception_id}
-              exception={exception}
-              isResolving={isResolving}
-              onResolve={(action) => void handleResolution(exception, action)}
-              onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
-              onManualEdit={(documentId, fieldKey, value) => void handleManualFieldEdit(documentId, fieldKey, value)}
-            />
-          ))}
           {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && (
             <section className="technical-failure-card" role="alert">
               <p className="section-label">Technical failure</p>
@@ -2146,6 +2189,14 @@ export default function App({
             />
           ))}
             </>
+          )}
+
+          {activeTab === "review" && !summary && (
+            <section className="workspace-placeholder" aria-labelledby="review-empty-heading">
+              <p className="section-label">Review</p>
+              <h2 id="review-empty-heading">No current request to review</h2>
+              <p>Open an incomplete local POC case from Start onboarding to review it and assign it to yourself for this session.</p>
+            </section>
           )}
 
           {activeTab === "logs" && (

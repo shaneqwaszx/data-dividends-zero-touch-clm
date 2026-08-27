@@ -5,6 +5,10 @@
   background: #eef2ed;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  --line: #cfdbd3;
+  --surface: rgb(255 255 252 / 86%);
+  --shadow: 0 18px 45px rgb(37 66 53 / 7%);
+  --muted: #687871;
 }
 
 * {
@@ -288,6 +292,28 @@ h2 {
 
 .queue-item--active {
   border-left: 4px solid #2c7458;
+}
+
+.queue-assign-button {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.dashboard-empty {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+
+.dashboard-empty button {
+  width: fit-content;
+}
+
+.dashboard-primary-action {
+  display: flex;
+  justify-content: flex-end;
+  width: min(100%, 1120px);
+  margin: 0 auto 1rem;
 }
 
 .queue-item > span {
@@ -1505,6 +1531,118 @@ dd {
   columns: 2;
 }
 
+.review-queue-link {
+  margin-top: 1rem;
+}
+
+.case-identity-strip {
+  display: grid;
+  grid-template-columns: 2fr repeat(3, 1fr);
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.case-identity-strip div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid #d5e0d8;
+  border-radius: 10px;
+  background: #f5f8f6;
+}
+
+.case-identity-strip span,
+.evidence-comparison small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.case-identity-strip strong {
+  overflow-wrap: anywhere;
+  color: #173b2d;
+  font-size: 0.85rem;
+}
+
+.evidence-disclosure {
+  margin-top: 1.25rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.evidence-disclosure > summary {
+  cursor: pointer;
+  color: #174f3b;
+  font-weight: 800;
+}
+
+.evidence-disclosure .document-evidence-card:last-child {
+  margin-bottom: 0;
+}
+
+.evidence-comparison {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.evidence-comparison [role="row"] {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.75fr) repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.75rem;
+  border: 1px solid #dce5e0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.evidence-comparison--attention {
+  border-left: 4px solid #c98533 !important;
+  background: #fffcf4 !important;
+}
+
+.evidence-comparison [role="cell"] {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1100px) {
+  .page-shell {
+    padding: clamp(1.25rem, 3vw, 2.5rem);
+  }
+
+  .workspace-layout {
+    grid-template-columns: 10.5rem minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+
+  .dashboard-primary-action {
+    justify-content: stretch;
+  }
+
+  .dashboard-primary-action button {
+    width: 100%;
+  }
+
+  .dashboard-snapshot,
+  .launch-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 .resuming-banner button,
 .evidence-export {
   margin-left: 0.8rem;
@@ -1512,6 +1650,11 @@ dd {
 
 @media (max-width: 760px) {
   .executive-summary__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .case-identity-strip,
+  .evidence-comparison [role="row"] {
     grid-template-columns: 1fr;
   }
 
@@ -1617,9 +1760,43 @@ dd {
     grid-template-columns: 1fr;
     gap: 0.25rem;
   }
+
+  h1 {
+    font-size: clamp(2.45rem, 15vw, 3.4rem);
+  }
+
+  .hero {
+    padding-bottom: 1.5rem;
+  }
+
+  .automation-card,
+  .human-review-card,
+  .technical-failure-card,
+  .automation-timeline,
+  .demo-controls,
+  .evidence-disclosure {
+    padding: 1rem;
+    border-radius: 0.85rem;
+  }
+
+  .dashboard-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .environment-banner {
+    width: 100%;
+    align-items: flex-start;
+    border-radius: 12px;
+    line-height: 1.35;
+  }
+
+  button,
+  .review-queue-link {
+    width: 100%;
+  }
 }
 
-/* Enhanced UI Components */
+/* Review controls */
 
 .review-header {
   display: flex;
@@ -2063,7 +2240,10 @@ dd {
     .parties-row {
       flex-direction: column;
     }
-  font-size: 0.85rem;
-  font-weight: 600;
-  margin-top: 0.5rem;
-}
+
+    .ubo-badge {
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-top: 0.5rem;
+    }
+  }
