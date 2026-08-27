@@ -10,7 +10,7 @@ from app.config import Settings, get_settings
 MONGO_SERVER_SELECTION_TIMEOUT_MS = 5_000
 
 
-def create_mongo_client(settings: Settings | None = None) -> MongoClient:
+def create_mongo_client(settings: Settings | None = None) -> MongoClient[dict]:
     """Create a MongoDB client from the configured URI without exposing it."""
 
     active_settings = settings or get_settings()
