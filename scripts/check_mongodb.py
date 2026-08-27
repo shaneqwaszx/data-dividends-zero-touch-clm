@@ -10,8 +10,7 @@ from pymongo.errors import PyMongoError
 BACKEND_ROOT = Path(__file__).resolve().parents[1] / "apps" / "backend"
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.mongo import count_users  # noqa: E402
-
+from app.mongo import count_users
 
 if __name__ == "__main__":
     try:
