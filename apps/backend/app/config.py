@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     acra_timeout_seconds: float = 10.0
     acra_auth_header_name: str = ""
     acra_auth_header_value: SecretStr | None = None
+    mongo_uri: SecretStr | None = None
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
