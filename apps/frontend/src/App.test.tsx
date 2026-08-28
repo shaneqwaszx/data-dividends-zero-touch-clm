@@ -10,6 +10,7 @@ import App, {
   JurisdictionDecision,
   JurisdictionSelector,
   OnboardingProgress,
+  RegistryAcquisitionPanel,
   OwnershipSummary,
   SimulationBanner,
   SponsorCaseSummary,
@@ -54,6 +55,7 @@ import type {
   DocumentProcessingRecord,
   OnboardingCase,
   OwnershipAnalysisRecord,
+  RegistryOperation,
   ZeroTouchCaseSummary,
   ZeroTouchException,
   WorkflowState,
@@ -184,6 +186,45 @@ function makeCase(state: WorkflowState): OnboardingCase {
     error: null,
     created_at: timestamp,
     updated_at: timestamp,
+  };
+}
+
+function makePartialRegistryCase(): OnboardingCase {
+  const caseData = makeCase("REVIEW_REQUIRED");
+  return {
+    ...caseData,
+    registry_acquisition: {
+      requested_identifier: caseData.requested_uen,
+      status: "PARTIAL",
+      officers: [],
+      ownership_parties: [],
+      relationships: [],
+      operation_results: [
+        { operation: "ENTITY_PROFILE", status: "COMPLETE", record_count: 1 },
+        { operation: "OFFICERS", status: "EMPTY", record_count: 0 },
+        { operation: "OWNERSHIP_PARTIES", status: "EMPTY", record_count: 0 },
+        { operation: "RELATIONSHIPS", status: "EMPTY", record_count: 0 },
+      ].map((result) => ({
+        ...result,
+        provenance: {
+          provider: "ACRA" as const,
+          environment: "MOCK" as const,
+          operation: result.operation as RegistryOperation,
+          retrieved_at: timestamp,
+          evidence_reference: `acra:${result.operation.toLowerCase()}:${caseData.requested_uen}`,
+        },
+        error: null,
+        operation: result.operation as RegistryOperation,
+        status: result.status as "COMPLETE" | "EMPTY",
+      })),
+      issues: [
+        {
+          code: "REGISTRY_EXPECTED_DATA_MISSING",
+          message: "Expected registry ownership evidence was not returned.",
+        },
+      ],
+      retrieved_at: timestamp,
+    },
   };
 }
 
@@ -965,6 +1006,73 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(markup).toContain("Australia — provider not implemented");
     expect(markup).toContain("Malaysia — provider not implemented");
     expect(markup).toContain("Hong Kong — provider not implemented");
+  });
+
+  it("renders backend-authored registry operation statuses and Mock truth labels", () => {
+    const caseData: OnboardingCase = {
+      ...makeCase("VALIDATED"),
+      registry_acquisition: {
+        requested_identifier: "202400001A",
+        status: "COMPLETE",
+        officers: [],
+        ownership_parties: [],
+        relationships: [],
+        operation_results: [
+          ["ENTITY_PROFILE", "COMPLETE", 1],
+          ["OFFICERS", "EMPTY", 0],
+          ["OWNERSHIP_PARTIES", "COMPLETE", 2],
+          ["RELATIONSHIPS", "COMPLETE", 2],
+        ].map(([operation, status, record_count]) => ({
+          operation: operation as "ENTITY_PROFILE" | "OFFICERS" | "OWNERSHIP_PARTIES" | "RELATIONSHIPS",
+          status: status as "COMPLETE" | "EMPTY",
+          record_count: record_count as number,
+          provenance: {
+            provider: "ACRA" as const,
+            environment: "MOCK" as const,
+            operation: operation as "ENTITY_PROFILE" | "OFFICERS" | "OWNERSHIP_PARTIES" | "RELATIONSHIPS",
+            retrieved_at: timestamp,
+            evidence_reference: `acra:${String(operation).toLowerCase()}:202400001A`,
+          },
+          error: null,
+        })),
+        issues: [],
+        retrieved_at: timestamp,
+      },
+    };
+
+    const markup = renderToStaticMarkup(<RegistryAcquisitionPanel caseData={caseData} />);
+
+    expect(markup).toContain("ACRA Registry Acquisition");
+    expect(markup).toContain("Entity Profile");
+    expect(markup).toContain("Officers");
+    expect(markup).toContain("EMPTY");
+    expect(markup).toContain("Ownership Parties");
+    expect(markup).toContain("Relationships");
+    expect(markup).toContain("Project-owned synthetic Mock contract");
+    expect(markup).toContain("not verified live ACRA");
+  });
+
+  it("does not display fake ACRA acquisition for a registry blocker", () => {
+    const blocked: OnboardingCase = {
+      ...makeCase("REVIEW_REQUIRED"),
+      entity: null,
+      registry_acquisition: null,
+    };
+
+    const markup = renderToStaticMarkup(<RegistryAcquisitionPanel caseData={blocked} />);
+
+    expect(markup).toBe("");
+  });
+
+  it("shows partial acquisition as missing evidence rather than full success", () => {
+    const markup = renderToStaticMarkup(
+      <RegistryAcquisitionPanel caseData={makePartialRegistryCase()} />,
+    );
+
+    expect(markup).toContain("PARTIAL");
+    expect(markup).toContain("REGISTRY_EXPECTED_DATA_MISSING");
+    expect(markup).toContain("Ownership Parties");
+    expect(markup).not.toContain("Mock submission completed");
   });
 
   it("serializes the optional country only when selected", async () => {

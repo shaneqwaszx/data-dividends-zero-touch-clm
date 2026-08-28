@@ -35,6 +35,12 @@ from app.domain.models import (
     GoldTierResult,
     OnboardingCase,
     RegisteredAddress,
+    RegistryAcquisitionIssue,
+    RegistryAcquisitionStatus,
+    RegistryOperation,
+    RegistryOperationStatus,
+    RegistryPartyType,
+    RegistryRelationshipType,
     SafeError,
     SourceEnvironment,
     SourceSystem,
@@ -115,6 +121,78 @@ class BrowserJurisdictionResolution(BaseModel):
     resolved_at: datetime
 
 
+class BrowserRegistryProvenance(BaseModel):
+    """Safe operation provenance without raw endpoints or connector configuration."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    provider: SourceSystem
+    environment: SourceEnvironment
+    operation: RegistryOperation
+    retrieved_at: datetime
+    evidence_reference: str
+
+
+class BrowserRegistryOfficer(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    officer_id: str
+    name: str
+    role: str
+    appointment_date: date | None
+    cessation_date: date | None
+    country: str | None
+    provenance: BrowserRegistryProvenance
+
+
+class BrowserRegistryOwnershipParty(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    party_id: str
+    party_type: RegistryPartyType
+    name: str
+    registration_identifier: str | None
+    country: str | None
+    ownership_percentage: Decimal | None
+    provenance: BrowserRegistryProvenance
+
+
+class BrowserRegistryRelationship(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    relationship_id: str
+    owned_entity_id: str
+    owner_party_id: str
+    relationship_type: RegistryRelationshipType
+    ownership_percentage: Decimal
+    provenance: BrowserRegistryProvenance
+
+
+class BrowserRegistryOperationResult(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    operation: RegistryOperation
+    status: RegistryOperationStatus
+    record_count: int
+    provenance: BrowserRegistryProvenance | None
+    error: RegistryAcquisitionIssue | None
+
+
+class BrowserRegistryAcquisition(BaseModel):
+    """Bounded normalized evidence for truthful multi-step browser display."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    requested_identifier: str
+    status: RegistryAcquisitionStatus
+    officers: tuple[BrowserRegistryOfficer, ...]
+    ownership_parties: tuple[BrowserRegistryOwnershipParty, ...]
+    relationships: tuple[BrowserRegistryRelationship, ...]
+    operation_results: tuple[BrowserRegistryOperationResult, ...]
+    issues: tuple[RegistryAcquisitionIssue, ...]
+    retrieved_at: datetime
+
+
 class OnboardingCaseResponse(BaseModel):
     """Application case response with internal proof metadata minimized."""
 
@@ -128,6 +206,7 @@ class OnboardingCaseResponse(BaseModel):
     registry_route: RegistryRoutingDecision | None = None
     state: WorkflowState
     entity: BrowserCanonicalLegalEntity | None = None
+    registry_acquisition: BrowserRegistryAcquisition | None = None
     goldtier_result: GoldTierResult | None = None
     events: list[WorkflowEvent]
     error: SafeError | None = None

@@ -8,7 +8,16 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.connectors.acra import AcraAddressPayload, AcraCompanyPayload
+from app.connectors.acra import (
+    AcraAddressPayload,
+    AcraCompanyPayload,
+    AcraOfficerPayload,
+    AcraOfficersPayload,
+    AcraOwnershipPartiesPayload,
+    AcraOwnershipPartyPayload,
+    AcraRelationshipPayload,
+    AcraRelationshipsPayload,
+)
 from app.connectors.goldtier_models import (
     GoldTierOperationResult,
     GoldTierOutcome,
@@ -184,6 +193,55 @@ class LocalRegistryAdapter:
             retrieved_at=datetime(2026, 8, 12, tzinfo=UTC),
         )
 
+    def fetch_officers(self, uen: str) -> AcraOfficersPayload:
+        return AcraOfficersPayload(
+            uen=uen,
+            officers=(
+                AcraOfficerPayload(
+                    officer_id="OFFICER_A",
+                    name="Alex Synthetic",
+                    role="DIRECTOR",
+                    country="SG",
+                ),
+            ),
+            source_environment="SANDBOX",
+            source_endpoint=f"https://local.invalid/entities/{uen}/officers",
+            retrieved_at=datetime(2026, 8, 12, tzinfo=UTC),
+        )
+
+    def fetch_ownership_parties(self, uen: str) -> AcraOwnershipPartiesPayload:
+        return AcraOwnershipPartiesPayload(
+            uen=uen,
+            ownership_parties=(
+                AcraOwnershipPartyPayload(
+                    party_id="PERSON_A",
+                    party_type="NATURAL_PERSON",
+                    name="Avery Tan",
+                    country="SG",
+                    ownership_percentage=Decimal("100"),
+                ),
+            ),
+            source_environment="SANDBOX",
+            source_endpoint=f"https://local.invalid/entities/{uen}/ownership-parties",
+            retrieved_at=datetime(2026, 8, 12, tzinfo=UTC),
+        )
+
+    def fetch_relationships(self, uen: str) -> AcraRelationshipsPayload:
+        return AcraRelationshipsPayload(
+            uen=uen,
+            relationships=(
+                AcraRelationshipPayload(
+                    relationship_id="REL_ROOT_A",
+                    owned_entity_id=f"ENTITY_{uen}",
+                    owner_party_id="PERSON_A",
+                    ownership_percentage=Decimal("100"),
+                ),
+            ),
+            source_environment="SANDBOX",
+            source_endpoint=f"https://local.invalid/entities/{uen}/relationships",
+            retrieved_at=datetime(2026, 8, 12, tzinfo=UTC),
+        )
+
 
 def _local_registry_payload(*, uen: str = "202400001A") -> AcraCompanyPayload:
     return AcraCompanyPayload(
@@ -206,7 +264,7 @@ def _local_registry_payload(*, uen: str = "202400001A") -> AcraCompanyPayload:
     )
 
 
-class StaticRegistryAdapter:
+class StaticRegistryAdapter(LocalRegistryAdapter):
     def __init__(self, payload: object | None) -> None:
         self.payload = payload
 

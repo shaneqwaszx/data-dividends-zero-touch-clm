@@ -101,7 +101,7 @@ def test_missing_or_invalid_sandbox_configuration_fails_safely(settings: Setting
     assert "synthetic-acra" not in str(caught.value)
 
 
-def test_onboarding_service_is_unchanged_between_mock_and_sandbox_modes() -> None:
+def test_expanded_mock_operations_do_not_fabricate_sandbox_contracts() -> None:
     mock_case = build_onboarding_service(settings=Settings(app_env="test")).create_case(
         VALID_SME_UEN
     )
@@ -111,14 +111,23 @@ def test_onboarding_service_is_unchanged_between_mock_and_sandbox_modes() -> Non
         acra_authorizer=SafeFakeAuthorizer(),
     ).create_case(VALID_SME_UEN)
 
-    assert mock_case.state == sandbox_case.state == WorkflowState.COMPLETED
+    assert mock_case.state == WorkflowState.COMPLETED
+    assert sandbox_case.state == WorkflowState.FAILED
     assert mock_case.entity is not None
     assert sandbox_case.entity is not None
     assert mock_case.entity.source.environment == SourceEnvironment.MOCK
     assert sandbox_case.entity.source.environment == SourceEnvironment.SANDBOX
-    assert [event.stage for event in mock_case.events] == [
-        event.stage for event in sandbox_case.events
+    assert sandbox_case.registry_acquisition is not None
+    assert sandbox_case.registry_acquisition.status == "FAILED"
+    assert [item.status for item in sandbox_case.registry_acquisition.operation_results] == [
+        "COMPLETE",
+        "FAILED",
+        "NOT_ATTEMPTED",
+        "NOT_ATTEMPTED",
     ]
+    assert sandbox_case.error is not None
+    assert sandbox_case.error.code == "REGISTRY_OPERATION_UNAVAILABLE"
+    assert sandbox_case.goldtier_result is None
 
 
 @pytest.fixture

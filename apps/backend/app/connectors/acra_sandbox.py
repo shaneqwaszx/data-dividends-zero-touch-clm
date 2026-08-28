@@ -13,6 +13,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.connectors.acra import (
     AcraAddressPayload,
     AcraCompanyPayload,
+    AcraOfficersPayload,
+    AcraOwnershipPartiesPayload,
+    AcraRelationshipsPayload,
     NonBlankSourceText,
     OptionalSourceText,
     TrimmedSourceText,
@@ -281,3 +284,21 @@ class AcraSandboxConnector:
             raise
         except Exception:
             raise AcraMalformedResponseError from None
+
+    def fetch_officers(self, uen: str) -> AcraOfficersPayload:
+        """Fail closed: Q-012 supplies no authoritative sandbox operation."""
+
+        del uen
+        raise AcraServiceUnavailableError
+
+    def fetch_ownership_parties(self, uen: str) -> AcraOwnershipPartiesPayload:
+        """Fail closed: Q-012 supplies no authoritative sandbox operation."""
+
+        del uen
+        raise AcraServiceUnavailableError
+
+    def fetch_relationships(self, uen: str) -> AcraRelationshipsPayload:
+        """Fail closed: Q-012 supplies no authoritative sandbox operation."""
+
+        del uen
+        raise AcraServiceUnavailableError

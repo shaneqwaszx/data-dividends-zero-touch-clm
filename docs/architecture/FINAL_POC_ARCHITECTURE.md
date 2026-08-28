@@ -35,7 +35,8 @@ UEN + synthetic PDF + Start
 
 - `ZeroTouchOrchestrator`: stage/checkpoint order, typed exceptions, metrics, safe
   timeline, bounded transitions, automatic resume.
-- Onboarding/Registry: external DTO validation, requested-UEN binding, canonical map.
+- Onboarding/Registry: four project-owned Mock operations, strict external DTO
+  validation, requested-UEN binding, normalized acquisition bundle, and canonical map.
 - Document service: transient upload, provider validation, comparison/evidence history.
 - Ownership service: graph validation, Decimal traversal/aggregation, review diagnostics.
 - CLM service: current-evidence readiness, immutable submission snapshot, terminal
@@ -59,6 +60,11 @@ GoldTierConnector    -->  Mock EDS behavior           --> PingFed/GoldTier adapt
 Every replacement occurs in connector DTO/transport/decoder and composition. Generic
 orchestration, document comparison, ownership arithmetic, readiness, and target
 call-stopping do not require rewrite.
+
+For normal Phase 10 Mock Singapore cases, `OwnershipProvider` is the
+registry-acquisition adapter over the retained bundle. Explicit synthetic graph
+providers remain developer/test fault seams. Both feed the same authoritative
+`OwnershipAnalysisService`; no parallel UBO engine exists.
 
 ## State and trust
 

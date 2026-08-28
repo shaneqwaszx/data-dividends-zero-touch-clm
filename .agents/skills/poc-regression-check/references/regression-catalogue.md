@@ -149,6 +149,29 @@ The optional frontend selector is bounded to Not specified, Singapore, Australia
 Malaysia, and Hong Kong. Foreign options explicitly say that their providers are not
 implemented, and the backend remains authoritative.
 
+## Phase 10 expanded registry-acquisition scenarios
+
+These project-owned Mock operations supersede the Phase 09 monolithic ACRA call for an
+eligible resolved Singapore case. They do not assert official ACRA endpoint behavior.
+
+| Scenario | Terminal/checkpoint result | Required calls/evidence | Prohibited calls/claims |
+|---|---|---|---|
+| `REGISTRY_NORMAL_SME` (`202400001A`) | Complete acquisition then existing Document checkpoint | Entity profile/officers/ownership parties/relationships exactly once; two direct owners | No duplicate acquisition, live claim, or UBO calculation in the bundle |
+| `REGISTRY_LEGAL_ENTITY_OWNER` (`202400007G`) | Complete acquisition | Legal shareholder and downstream persons normalize into existing graph | No new ownership engine or GoldTier hierarchy write |
+| `REGISTRY_MULTIPLE_OWNERS` (`202400008H`) | Complete acquisition | Three exact Decimal share edges | No binary-float or inferred controller rule |
+| `REGISTRY_MULTI_LEVEL` (`202400009I`) | Complete acquisition | Root-to-holding and holding-to-person edges | Existing path engine remains authoritative |
+| `REGISTRY_EMPTY_OFFICERS` (`202400010J`) | Complete acquisition; Officers `EMPTY` | All four operations once; ownership evidence present | No false failure or fabricated officer |
+| `REGISTRY_MISSING_OWNERSHIP` (`202400011K`) | `REVIEW_REQUIRED / REGISTRY_EXPECTED_DATA_MISSING` | Ownership/relationship operations validly empty; partial bundle retained | No ownership/IDP/GoldTier continuation or transport-success-as-complete claim |
+| `REGISTRY_MALFORMED_LATER_STEP` (`202400012L`) | `FAILED / REGISTRY_OPERATION_MALFORMED_RESPONSE` | Valid first three operations; failed relationship status and safe provenance | No raw payload/validation detail, downstream call, or completion |
+| `REGISTRY_LATER_PROVIDER_FAILURE` (`202400013M`) | `FAILED / REGISTRY_OPERATION_UNAVAILABLE` | Valid first three operations; safe relationship failure | No raw exception, downstream call, or review substitution |
+| `REGISTRY_OWNERSHIP_ANALYSIS` | Existing `ANALYZED`; 60%/40% direct candidates | Registry bundle adapted through `OwnershipProvider` into existing Decimal service | No second threshold, aggregation, cycle, or UBO implementation |
+| `REGISTRY_OWNERSHIP_CYCLE` (`202400006F`) | Existing ownership `REVIEW_REQUIRED / CYCLE_DETECTED` | Registry-fed cycle reaches existing graph detector | No definitive candidate or target call |
+
+For every Phase 09 Registry blocker, all four acquisition-operation counts remain zero,
+as do IDP, ownership, and GoldTier counts. Browser summaries expose only normalized
+records, opaque evidence references, provider/environment, UTC times, statuses, counts,
+and fixed safe issues. They label the surface as a project-owned synthetic Mock contract.
+
 ## Accepted cross-scenario invariants
 
 - GoldTier search `NO_MATCH` alone permits shell creation. `MATCH_FOUND` stops at
@@ -162,9 +185,10 @@ implemented, and the backend remains authoritative.
 - A partial required stage cannot produce `COMPLETED`. Terminal state is the final event.
 - Multiple cases retain independent identifiers, timestamps, histories, results, and
   connector behavior.
-- Default Mock ACRA and Mock GoldTier remain credential-free and network-free. A
-  sandbox-shaped synthetic ACRA success is labeled `ACRA/SANDBOX` with Mock GoldTier
-  and is not evidence of a live call.
+- Default Mock ACRA and Mock GoldTier remain credential-free and network-free. The
+  sandbox-shaped entity-profile seam remains labeled `ACRA/SANDBOX`, but undocumented
+  Phase 10 expanded sandbox operations fail closed pending Q-012; neither outcome is
+  evidence of a live call.
 - Browser responses minimize internal provenance; UI/API labeling remains simulated
   where any connector is mocked.
 - `COMPLETED` means only completion of the currently accepted required mock stages. The
@@ -307,6 +331,7 @@ implemented, and the backend remains authoritative.
 
 | Established by | Change |
 |---|---|
+| Phase 10 implementation | Preserved Phase 09 routing/identifier blockers and all prior POC invariants; decomposed the eligible Singapore Mock acquisition into four bounded operations, added truthful empty/partial/failure states and browser summaries, and fed registry ownership evidence through the existing deterministic Decimal ownership service |
 | Phase 09 remediation | Added the shared provider-specific Singapore UEN eligibility guard, explicit invalid-SG call-stopping scenario, and self-validating resolution/routing state invariants while preserving generic foreign intake and no-precedence behavior |
 | Phase 09 implementation | Preserved every accepted Singapore/ACRA and Phase 01–08 invariant; added source-aware agreement/conflict/unresolved decisions, explicit omitted-country SG compatibility, closed Singapore-only routing, recognised foreign unsupported states, pre-IDP call stopping, and sponsor-readable ACRA profile coverage |
 | Phase 07 final lifecycle remediation | Preserved every functional/UAT invariant; made complete two-role `RUNNING` metadata a pre-termination invariant and added executed missing-backend/frontend stop/reset plus duplicate/unknown-role regressions |

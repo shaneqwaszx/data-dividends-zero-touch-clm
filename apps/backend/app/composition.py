@@ -16,12 +16,12 @@ from app.connectors.acra_sandbox import (
     StaticHeaderAcraRequestAuthorizer,
 )
 from app.connectors.errors import AcraConfigurationError
-from app.connectors.input_driven_ownership import InputDrivenOwnershipProvider
 from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.mock_idp import MockIdpProvider
 from app.connectors.registry import AcraRegistryProviderAdapter, RegistryProviderRouter
+from app.connectors.registry_ownership import RegistryAcquisitionOwnershipProvider
 from app.demo.idp_control import MockIdpDemoControl
 from app.demo.ownership_control import MockOwnershipDemoControl
 from app.demo.scenarios import (
@@ -145,7 +145,7 @@ def build_ownership_analysis_service(
 
     return OwnershipAnalysisService(
         cases=onboarding_service,
-        provider=InputDrivenOwnershipProvider(),
+        provider=RegistryAcquisitionOwnershipProvider(onboarding_service),
         repository=InMemoryOwnershipAnalysisRepository(),
         threshold_percent=settings.ubo_ownership_threshold_percent,
         max_parties=settings.ownership_max_parties,

@@ -130,6 +130,7 @@ class ZeroTouchOrchestrator:
             )
         now = self._clock()
         registry_ready = case.state == WorkflowState.VALIDATED and case.entity is not None
+        registry_failed = case.state == WorkflowState.FAILED
         record = ZeroTouchAutomationRecord(
             case_id=case.case_id,
             automation_id=self._uuid_factory(),
@@ -137,13 +138,25 @@ class ZeroTouchOrchestrator:
             status=(
                 AutomationStatus.PENDING_INPUTS
                 if registry_ready
-                else AutomationStatus.WAITING_FOR_REVIEW
+                else (
+                    AutomationStatus.TECHNICAL_FAILURE
+                    if registry_failed
+                    else AutomationStatus.WAITING_FOR_REVIEW
+                )
             ),
             current_stage=(
                 AutomationStage.DOCUMENT if registry_ready else AutomationStage.REGISTRY
             ),
             completed_stages=(AutomationStage.REGISTRY,) if registry_ready else (),
-            metrics=AutomationMetrics(automated_stages_completed=1 if registry_ready else 0),
+            technical_failure=(case.error if registry_failed else None),
+            metrics=AutomationMetrics(
+                automated_stages_completed=1 if registry_ready else 0,
+                final_outcome=(
+                    AutomationStatus.TECHNICAL_FAILURE.value
+                    if registry_failed
+                    else None
+                ),
+            ),
             created_at=now,
             updated_at=now,
         )
@@ -161,6 +174,14 @@ class ZeroTouchOrchestrator:
                 outcome=EventOutcome.SUCCEEDED,
                 code="REGISTRY_AUTOMATED",
                 message="Registry evidence was validated automatically.",
+            )
+        elif registry_failed:
+            record = self._append_event(
+                record,
+                event_type=AutomationEventType.AUTOMATION_TECHNICAL_FAILURE,
+                outcome=EventOutcome.FAILED,
+                code=(case.error.code if case.error is not None else "REGISTRY_FAILED"),
+                message="Registry automation stopped after a technical failure.",
             )
         else:
             blocker_code = (
@@ -189,6 +210,10 @@ class ZeroTouchOrchestrator:
                 ),
                 "REGISTRY_IDENTIFIER_NOT_ELIGIBLE": (
                     "The supplied identifier is not eligible for Singapore ACRA retrieval."
+                ),
+                "REGISTRY_EXPECTED_DATA_MISSING": (
+                    "Expected registry ownership evidence was not returned, so "
+                    "automation cannot continue without review."
                 ),
             }
             evidence = tuple(

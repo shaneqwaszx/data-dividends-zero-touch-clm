@@ -22,7 +22,9 @@ in `ACRA_CANONICAL_MAPPING.md`. It must not be treated as an ACRA-published API 
 the exact subscribed endpoint/auth/response contract remains Q-012.
 The sponsor-readable current synthetic retrieval surface, field coverage, scenarios,
 errors, explicit omissions, and future `TBD_SPONSOR` mapping boundary are in
-`ACRA_MOCK_API_PROFILE.md`.
+`ACRA_MOCK_API_PROFILE.md`. Phase 10 expands that profile with four project-owned Mock
+operations, strict bounded DTOs, empty/partial/failure semantics, normalized evidence,
+and registry-to-existing-ownership integration; none is an authoritative ACRA API claim.
 
 Phase 03's synthetic IDP provider/API boundary is recorded in
 `IDP_REVIEW_CONTRACT.md`; its four-field project-defined profile, threshold,
