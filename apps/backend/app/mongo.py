@@ -1,7 +1,9 @@
 """Small MongoDB connection boundary used by local checks and future services."""
 
 from __future__ import annotations
+
 from typing import Any
+
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
