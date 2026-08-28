@@ -104,7 +104,7 @@ function fieldLabel(value: string): string {
 // Enhanced error message mapper
 function friendlyErrorMessage(code: string | null, defaultMessage: string): string {
   const messages: Record<string, string> = {
-    "DOCUMENT_TOO_LARGE": "PDF file is too large. Maximum size is 25MB.",
+    "DOCUMENT_TOO_LARGE": "PDF file is too large. Maximum size is 5 MiB.",
     "DOCUMENT_MEDIA_TYPE_UNSUPPORTED": "File type not supported. Please upload a PDF.",
     "OWNERSHIP_CYCLE": "Ownership graph contains circular relationships. Please review the ownership structure.",
     "OWNERSHIP_INCOMPLETE": "Incomplete ownership data detected. Some legal entities have no disclosed owners.",
@@ -112,6 +112,9 @@ function friendlyErrorMessage(code: string | null, defaultMessage: string): stri
     "DOCUMENT_FIELD_MISMATCH": "Extracted data does not match registry records. Please verify or provide corrections.",
     "GT_EXISTING_PARTY_REVIEW_REQUIRED": "Party already exists in target system. Please review the matching record.",
     "REGISTRY_REVIEW_REQUIRED": "Registry data requires human review before proceeding.",
+    "JURISDICTION_UNRESOLVED": "Jurisdiction must be resolved before registry retrieval can begin.",
+    "JURISDICTION_CONFLICT": "Jurisdiction evidence conflicts and requires review before registry retrieval.",
+    "REGISTRY_PROVIDER_NOT_IMPLEMENTED": "This jurisdiction is recognised, but its registry provider is not implemented.",
   };
   return messages[code ?? ""] || defaultMessage;
 }
@@ -126,6 +129,9 @@ function blockerExplanation(blockerCode: string): string {
     "OWNERSHIP_INCOMPLETE": "Incomplete ownership chain: some legal entities have no disclosed owners. Cannot complete UBO analysis without this information.",
     "EXISTING_PARTY_REVIEW_REQUIRED": "A party with similar details already exists in the target system. Please review the match before proceeding.",
     "REGISTRY_REVIEW_REQUIRED": "Registry data validation requires human review. Please check the entity details.",
+    "JURISDICTION_UNRESOLVED": "No authoritative jurisdiction observation is available. Registry retrieval has not started.",
+    "JURISDICTION_CONFLICT": "Jurisdiction observations disagree. No registry provider was selected and review is required.",
+    "REGISTRY_PROVIDER_NOT_IMPLEMENTED": "The jurisdiction is recognised, but this Singapore-only POC has no provider implementation for it.",
   };
   return explanations[blockerCode] || blockerCode.replaceAll("_", " ");
 }
@@ -1023,6 +1029,7 @@ export function OnboardingProgress({ summary }: { summary: ZeroTouchCaseSummary 
           {summary.status.replaceAll("_", " ")}
         </span>
       </div>
+      <JurisdictionDecision caseData={summary.case} />
       <ol className="automation-steps">
         {AUTOMATION_STAGES.map(([stage, label]) => {
           const complete = summary.completed_stages.includes(stage);
@@ -1053,6 +1060,76 @@ export function OnboardingProgress({ summary }: { summary: ZeroTouchCaseSummary 
         </div>
       )}
     </section>
+  );
+}
+
+export function JurisdictionDecision({ caseData }: { caseData: OnboardingCase }) {
+  const resolution = caseData.jurisdiction_resolution;
+  const route = caseData.registry_route;
+  if (!resolution) return null;
+  return (
+    <section className="jurisdiction-decision" aria-label="Jurisdiction and registry decision">
+      <div>
+        <span>Jurisdiction decision</span>
+        <strong>
+          {resolution.resolved_jurisdiction ?? resolution.status.replaceAll("_", " ")}
+        </strong>
+      </div>
+      <div>
+        <span>Registry provider</span>
+        <strong>
+          {route?.provider
+            ?? (route?.status === "PROVIDER_NOT_IMPLEMENTED"
+              ? "Provider not implemented"
+              : "Not selected")}
+        </strong>
+      </div>
+      <div className="jurisdiction-observations">
+        <span>Source observations</span>
+        {resolution.observations.length === 0 ? (
+          <strong>None supplied or inferred</strong>
+        ) : (
+          <ul>
+            {resolution.observations.map((observation, index) => (
+              <li key={`${observation.source}-${index}`}>
+                <strong>{observation.jurisdiction}</strong>
+                <span>{observation.source.replaceAll("_", " ")}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export type JurisdictionSelection = "" | "SG" | "AU" | "MY" | "HK";
+
+export function JurisdictionSelector({
+  value,
+  onChange,
+}: {
+  value: JurisdictionSelection;
+  onChange: (value: JurisdictionSelection) => void;
+}) {
+  return (
+    <>
+      <label htmlFor="zero-touch-country">Country / jurisdiction (optional)</label>
+      <select
+        id="zero-touch-country"
+        value={value}
+        onChange={(event) => onChange(event.target.value as JurisdictionSelection)}
+      >
+        <option value="">Not specified</option>
+        <option value="SG">Singapore</option>
+        <option value="AU">Australia — provider not implemented</option>
+        <option value="MY">Malaysia — provider not implemented</option>
+        <option value="HK">Hong Kong — provider not implemented</option>
+      </select>
+      <p className="input-help">
+        Singapore routes to ACRA. Other recognised jurisdictions stop safely in this POC.
+      </p>
+    </>
   );
 }
 
@@ -1394,22 +1471,13 @@ export function HumanReviewPanel({
   isResolving,
   onResolve,
   onReplace,
-  onManualEdit,
 }: {
   exception: ZeroTouchException;
   isResolving: boolean;
   onResolve: (action: ExceptionResolutionAction) => void;
   onReplace?: (documentId: string, eventCount: number, file: File) => void;
-  onManualEdit?: (documentId: string, fieldKey: DocumentFieldKey, value: string) => void;
 }) {
   const [replacementFile, setReplacementFile] = useState<File | null>(null);
-  const [editedValues, setEditedValues] = useState<Record<string, string>>(
-    () => Object.fromEntries(
-      exception.evidence
-        .filter((evidence) => evidence.field_key)
-        .map((evidence) => [evidence.field_key, evidence.document_value ?? ""]),
-    ),
-  );
   const documentId = exception.evidence.find((item) => item.reference_id)?.reference_id;
   const eventCount = Number(exception.evidence_version.split(":")[2]);
   const replacementAvailable = exception.stage === "DOCUMENT"
@@ -1464,37 +1532,6 @@ export function HumanReviewPanel({
                       <dd><code>{evidence.document_value}</code></dd>
                     </div>
                   )}
-                  {evidence.field_key && documentId && onManualEdit && (
-                    <div className="manual-field-edit">
-                      <dt>Manual correction</dt>
-                      <dd>
-                        <input
-                          aria-label={`Correct ${fieldLabel(evidence.field_key)}`}
-                          value={editedValues[evidence.field_key as string] ?? ""}
-                          maxLength={512}
-                          onChange={(event) =>
-                            setEditedValues((current) => ({
-                              ...current,
-                              [evidence.field_key as string]: event.target.value,
-                            }))
-                          }
-                        />
-                        <button
-                          type="button"
-                          disabled={isResolving || !editedValues[evidence.field_key as string]?.trim()}
-                          onClick={() =>
-                            onManualEdit(
-                              documentId,
-                              evidence.field_key as DocumentFieldKey,
-                              editedValues[evidence.field_key as string].trim(),
-                            )
-                          }
-                        >
-                          Save correction
-                        </button>
-                      </dd>
-                    </div>
-                  )}
                   {evidence.confidence !== null && (
                     <div>
                       <dt>Confidence score</dt>
@@ -1515,7 +1552,11 @@ export function HumanReviewPanel({
           </button>
         ))}
         {exception.available_actions.length === 0 && (
-          <p className="warning-notice">⚠️ Corrected or replacement evidence is required to proceed.</p>
+          <p className="warning-notice">
+            {replacementAvailable
+              ? "⚠️ Replacement evidence is required to proceed."
+              : "⚠️ No backend-authorized action is currently available."}
+          </p>
         )}
       </div>
       
@@ -1582,6 +1623,7 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
         This underlying case state is not an approval claim. Phase 05 readiness and Mock
         GoldTier submission are reported separately by the unified orchestration summary.
       </p>
+      <JurisdictionDecision caseData={caseData} />
 
       <div className="panel-grid">
         <article className="detail-card">
@@ -1825,6 +1867,8 @@ export default function App({
 }: AppProps = {}) {
   const [activeTab, setActiveTab] = useState<AppTab>("dashboard");
   const [uen, setUen] = useState(DEFAULT_UEN);
+  const [countryOfIncorporation, setCountryOfIncorporation] =
+    useState<JurisdictionSelection>("");
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [caseId, setCaseId] = useState("");
   const [demoScenario, setDemoScenario] = useState<ZeroTouchDemoScenario>("STRAIGHT_THROUGH");
@@ -1870,14 +1914,20 @@ export default function App({
     setSummary(null);
     let created: ZeroTouchCaseSummary | null = null;
     try {
-      created = await createZeroTouchCase(uen, demoScenario);
-      setSummary(created);
-      const completed = await attachZeroTouchDocument(
-        created.case.case_id,
-        documentFile,
-        demoScenario !== undefined,
+      created = await createZeroTouchCase(
+        uen,
+        demoScenario,
+        countryOfIncorporation || undefined,
       );
-      setSummary(completed);
+      setSummary(created);
+      if (created.status === "PENDING_INPUTS") {
+        const completed = await attachZeroTouchDocument(
+          created.case.case_id,
+          documentFile,
+          demoScenario !== undefined,
+        );
+        setSummary(completed);
+      }
     } catch (error) {
       if (created) {
         try {
@@ -1969,33 +2019,6 @@ export default function App({
     }
   }
 
-  async function handleManualFieldEdit(
-    documentId: string,
-    fieldKey: DocumentFieldKey,
-    value: string,
-  ) {
-    if (!summary || resolutionActive.current) return;
-    resolutionActive.current = true;
-    setIsResolving(true);
-    setRequestError(null);
-    try {
-      await reviewDocument(
-        summary.case.case_id,
-        documentId,
-        fieldKey,
-        "CORRECTED",
-        value,
-        "Corrected by local POC operator",
-      );
-      setSummary(await fetchZeroTouchCase(summary.case.case_id));
-    } catch (error) {
-      setRequestError(error instanceof Error ? error.message : "Field correction failed.");
-    } finally {
-      resolutionActive.current = false;
-      setIsResolving(false);
-    }
-  }
-
   async function handleRecovery() {
     if (!summary || isSubmitting || isResolving) return;
     setIsSubmitting(true);
@@ -2057,12 +2080,16 @@ export default function App({
           <p>Only fictional, synthetic PDF evidence is permitted in this local POC.</p>
         </div>
         <form onSubmit={(event) => void handleStart(event)} className="zero-touch-form">
-          <label htmlFor="zero-touch-uen">Singapore UEN</label>
+          <JurisdictionSelector
+            value={countryOfIncorporation}
+            onChange={setCountryOfIncorporation}
+          />
+          <label htmlFor="zero-touch-uen">Company registration identifier / UEN</label>
           <input
             id="zero-touch-uen"
             value={uen}
             onChange={(event) => setUen(event.target.value.toUpperCase())}
-            maxLength={10}
+            maxLength={32}
             required
           />
           <label htmlFor="zero-touch-document">Supporting PDF</label>
@@ -2185,7 +2212,6 @@ export default function App({
               isResolving={isResolving}
               onResolve={(action) => void handleResolution(exception, action)}
               onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
-              onManualEdit={(documentId, fieldKey, value) => void handleManualFieldEdit(documentId, fieldKey, value)}
             />
           ))}
             </>

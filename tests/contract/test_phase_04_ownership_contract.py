@@ -56,7 +56,10 @@ class Phase04OwnershipContractTests(unittest.TestCase):
         self.assertIn("PROVISIONAL_UBO_CANDIDATE", domain)
         self.assertIn("threshold_percent: Decimal", api_models)
         self.assertIn("aggregated_ownership_percent: string", frontend)
-        self.assertNotIn("Number(value)", (ROOT / "apps/frontend/src/App.tsx").read_text())
+        self.assertNotIn(
+            "Number(value)",
+            (ROOT / "apps/frontend/src/App.tsx").read_text(encoding="utf-8"),
+        )
         browser_ownership = api_models.split("class BrowserOwnershipProvenance", maxsplit=1)[1]
         self.assertNotIn("source_reference", browser_ownership)
 

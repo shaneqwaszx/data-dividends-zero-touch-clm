@@ -11,6 +11,7 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `APP_ENV` | optional | `development` | Non-secret app label: development/test/production |
 | `DEMO_CONTROLS_ENABLED` | Mock/demo | `false` | Backend gate for every demo/test route |
 | `ZERO_TOUCH_MAX_TRANSITIONS_PER_RUN` | optional | `12` | Bounded local progress loop, 1–32 |
+| `MONGO_URI` | optional secret | empty | Used only by the manual MongoDB connectivity diagnostic; not used for onboarding persistence |
 | `ACRA_CONNECTOR_MODE` | integration | `mock` | `mock` or sandbox-shaped `sandbox` |
 | `ACRA_BASE_URL` | integration | empty | HTTPS subscriber base; required only for sandbox mode |
 | `ACRA_COMPANY_PATH_TEMPLATE` | integration | empty | Authorized path with exactly one `{uen}` placeholder |
@@ -45,6 +46,17 @@ Developer controls use their dedicated demo provider boundary and do not replace
 `ACRA_LIVE_SMOKE_ENABLED` and `ACRA_SMOKE_UEN` are read only by
 `scripts/acra_sandbox_smoke.py`. The smoke is disabled by default and must not run until
 Q-012 and authorized access are satisfied.
+
+## Optional MongoDB diagnostic
+
+`MONGO_URI` is consumed only by `app.mongo` and `scripts/check_mongodb.py`. The script
+performs a connection ping and a read-only count of the diagnostic `FYP.users`
+collection. It is not imported by application composition and does not persist cases,
+documents, ownership, workflow checkpoints, or target outcomes. Normal onboarding
+therefore runs without `MONGO_URI` and all application repositories remain in memory.
+
+When configuration is absent or the server is unavailable, the script exits nonzero
+and reports only a safe exception class; it does not print the URI or server error.
 
 ## Future/unconsumed placeholders
 

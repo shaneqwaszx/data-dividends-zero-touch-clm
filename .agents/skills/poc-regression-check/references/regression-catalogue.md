@@ -15,10 +15,13 @@ synthetic.
 | `202400004D` | Amend returns representative partial outcome | `REVIEW_REQUIRED` | ACRA fetch; search `NO_MATCH`; shell; policy; amend | No completion |
 | `999999999Z` or another well-formed unknown synthetic UEN | Registry record not found | `FAILED` with safe `ACRA_ENTITY_NOT_FOUND` | ACRA fetch only | No GoldTier call; no completion |
 
-Whitespace-only or malformed API input is rejected before case creation. Padded
-lowercase `202400001a` normalizes to the canonical happy-path UEN; the
-nine-digits-plus-letter rule is a synthetic demo rule, not a production ACRA contract
-claim.
+Whitespace-only, over-length, or characters outside the bounded alphanumeric/hyphen
+registration-identifier grammar are rejected before case creation. Padded lowercase
+`202400001a` normalizes to the canonical happy-path UEN. Phase 09 supersedes the former
+API-wide nine-digits-plus-letter restriction so recognised foreign identifiers can
+reach the jurisdiction router without being treated as ACRA UENs. The old pattern now
+serves only as explicit Singapore identifier-format evidence and remains a synthetic
+demo rule, not a production ACRA contract claim.
 
 ## Phase 03 supplementary document scenarios
 
@@ -125,6 +128,26 @@ integrated policy path.
 Provider conformance additionally proves registry success/not-found/provenance; IDP
 clean/low/missing/failure; ownership definitive/incomplete/cycle/failure; GoldTier
 explicit no-match/existing-party outcomes; and one full alternate local adapter journey.
+
+## Phase 09 jurisdiction gateway scenarios
+
+These cases run before registry acquisition. Only a resolved Singapore decision may
+invoke the existing ACRA adapter.
+
+| Scenario | Terminal/checkpoint result | Required calls/evidence | Prohibited calls/claims |
+|---|---|---|---|
+| `COUNTRY_OMITTED_SG_UEN` | `RESOLVED / SG`, then existing `PENDING_INPUTS` Document checkpoint | One `IDENTIFIER_FORMAT -> SG` observation; ACRA once | No hidden default or loss of provenance |
+| `EXPLICIT_SG_AGREES` | `RESOLVED / SG`, then existing Singapore flow | Ordered `USER_INPUT -> SG` and `IDENTIFIER_FORMAT -> SG`; ACRA once | No source suppression or precedence claim |
+| `EXPLICIT_SG_INELIGIBLE_IDENTIFIER` | `WAITING_FOR_REVIEW / REGISTRY_IDENTIFIER_NOT_ELIGIBLE` at Registry | Resolved SG and selected ACRA route retained; no advertised action | Zero ACRA, IDP, ownership, or GoldTier calls; no false ACRA not-found claim |
+| `EXPLICIT_FOREIGN_CONFLICTS_WITH_SG_UEN` | `WAITING_FOR_REVIEW / JURISDICTION_CONFLICT` at Registry | Both conflicting observations retained; no advertised action | Zero ACRA, IDP, ownership, or GoldTier calls; no selected provider |
+| `RECOGNISED_FOREIGN_IDENTIFIER` | `WAITING_FOR_REVIEW / REGISTRY_PROVIDER_NOT_IMPLEMENTED` at Registry | Resolved AU/MY/HK observation and explicit unimplemented route | Zero ACRA, IDP, ownership, or GoldTier calls; no foreign integration claim |
+| `UNKNOWN_JURISDICTION` | `WAITING_FOR_REVIEW / JURISDICTION_UNRESOLVED` at Registry | Empty observation set retained; case remains retrievable | Zero provider/downstream calls; no country guess |
+| `REGISTRY_BLOCKER_DOCUMENT_ATTEMPT` | Existing registry-blocked record returned unchanged | No document record created | No IDP, ownership, readiness, or target progress |
+| `ACRA_ADAPTER_COMPATIBILITY` | Existing canonical ACRA profile and safe errors unchanged | Strict DTO reconstruction, requested-UEN equality, canonical mapping/provenance | No raw/source DTO leak or weakened sandbox/mock behavior |
+
+The optional frontend selector is bounded to Not specified, Singapore, Australia,
+Malaysia, and Hong Kong. Foreign options explicitly say that their providers are not
+implemented, and the backend remains authoritative.
 
 ## Accepted cross-scenario invariants
 
@@ -264,11 +287,28 @@ explicit no-match/existing-party outcomes; and one full alternate local adapter 
   `blocker_codes`. UAT-04 explicitly shows source conflict plus low confidence before
   narrow resolution and only low confidence afterward, with no target call or
   unsupported action.
+- Jurisdiction observations are retained independently of their source. Agreement may
+  resolve, but disagreement never chooses a winner without sponsor-confirmed authority.
+  Omitted input infers Singapore only when the identifier matches the accepted synthetic
+  SG UEN format, and the inference remains visible.
+- Unresolved jurisdiction, jurisdiction conflict, and recognised-but-unimplemented
+  registry routes stop at Registry with no ACRA, document/IDP, ownership, readiness, or
+  GoldTier activity. Their cases and safe evidence remain retrievable and cannot falsely
+  complete.
+- Once Singapore/ACRA is selected, the registration identifier must satisfy the shared
+  accepted Singapore UEN predicate before the connector is invoked. Ineligible
+  identifiers stop as `REGISTRY_IDENTIFIER_NOT_ELIGIBLE` with zero ACRA/downstream
+  calls and never become a false `ACRA_ENTITY_NOT_FOUND` outcome.
+- Registry routing is a backend-owned closed table. User input cannot select an
+  endpoint, module, class, credential, or foreign connector. AU/MY/HK recognition is not
+  an implementation claim.
 
 ## Catalogue evolution record
 
 | Established by | Change |
 |---|---|
+| Phase 09 remediation | Added the shared provider-specific Singapore UEN eligibility guard, explicit invalid-SG call-stopping scenario, and self-validating resolution/routing state invariants while preserving generic foreign intake and no-precedence behavior |
+| Phase 09 implementation | Preserved every accepted Singapore/ACRA and Phase 01–08 invariant; added source-aware agreement/conflict/unresolved decisions, explicit omitted-country SG compatibility, closed Singapore-only routing, recognised foreign unsupported states, pre-IDP call stopping, and sponsor-readable ACRA profile coverage |
 | Phase 07 final lifecycle remediation | Preserved every functional/UAT invariant; made complete two-role `RUNNING` metadata a pre-termination invariant and added executed missing-backend/frontend stop/reset plus duplicate/unknown-role regressions |
 | Phase 07 remediation | Preserved every UAT and Phase 01–06 invariant; added executed exact-process lifecycle/start-stop-reset ownership, unrelated-process/PID-reuse/occupied-port safety, real process-local case reset, repeated lifecycle, and complete ordered sponsor blocker-presentation regressions |
 | Phase 07 implementation | Preserved every Phase 01–06 invariant; added verified presenter-only multi-blocker, ownership-cycle, multiple-path, partial-amend, and no-replay recovery presets, safe case-bound UAT evidence export, always-visible execution-profile labelling, and explicit process-restart reset semantics |

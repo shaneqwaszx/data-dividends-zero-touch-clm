@@ -85,7 +85,7 @@ Non-technical users confused; required developer reference guide.
 - **Friendly Error Messages Function:**
   ```typescript
   friendlyErrorMessage(code): {
-    "DOCUMENT_TOO_LARGE" → "📦 PDF file is too large. Maximum size is 25MB."
+    "DOCUMENT_TOO_LARGE" → "📦 PDF file is too large. Maximum size is 5 MiB."
     "OWNERSHIP_CYCLE" → "🔄 Circular ownership relationships detected..."
     "DOCUMENT_LOW_CONFIDENCE" → "📄 Document extraction confidence below..."
     [+ 5 more messages with emoji indicators]
@@ -488,7 +488,7 @@ The Zero-Touch CLM application is now **demo-ready with significantly enhanced u
 - Responsive mobile design
 - Clean primary workflow with demo controls properly separated
 - Full test validation (44/44 passing)
-- Production-ready build
+- Production build verified for the process-local POC (not production readiness)
 
 ### ✅ Key Achievements
 1. **Reduced User Confusion:** Blocker explanations eliminate guesswork

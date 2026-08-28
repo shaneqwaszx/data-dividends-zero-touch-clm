@@ -24,6 +24,22 @@ requires returned/requested UEN identity, and retains only query-free HTTPS endp
 provenance. This is a fail-closed POC boundary and does not identify or confirm the live
 ACRA endpoint, authentication, or subscriber contract requested here.
 
+## JURISDICTION EVIDENCE AUTHORITY
+
+### Q-015 - Jurisdiction source precedence, disagreement, and review authority
+
+When jurisdiction observations are available from user input, an existing case/system,
+uploaded documents/IDP, identifier format, or a future upstream provider, which sources
+are authoritative and under what conditions? When two sources disagree, which
+authenticated role may resolve the conflict, what evidence/correction must be retained,
+and may the case resume or must it be restarted/re-submitted?
+
+Phase 09 does not guess this policy. It retains active observations, resolves only
+agreement, and stops conflicts with no browser resolution action. The omitted-country
+Singapore UEN rule is explicitly recorded as `IDENTIFIER_FORMAT -> SG`, not treated as
+a hidden source-precedence decision. Foreign jurisdictions are recognised only enough
+to stop as provider not implemented; no foreign registry is selected or called.
+
 ## A. BLOCKING REAL GOLDTIER INTEGRATION
 
 ### Q-008 — Authentication containment and replacement

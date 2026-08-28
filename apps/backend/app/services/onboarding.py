@@ -7,13 +7,25 @@ from threading import Lock, RLock
 from typing import Never, TypeVar
 from uuid import UUID, uuid4
 
-from app.connectors.acra import AcraCompanyPayload, AcraConnector
+from app.connectors.acra import AcraConnector
 from app.connectors.errors import ConnectorError, public_connector_error
 from app.connectors.goldtier import GoldTierConnector
 from app.connectors.goldtier_models import (
     GoldTierOutcome,
     GoldTierRequestMetadata,
     GoldTierSearchOutcome,
+)
+from app.connectors.registry import (
+    AcraRegistryProviderAdapter,
+    RegistryProviderRouter,
+)
+from app.domain.jurisdiction import (
+    JurisdictionCode,
+    JurisdictionObservation,
+    JurisdictionObservationSource,
+    JurisdictionResolutionStatus,
+    JurisdictionResolver,
+    is_eligible_singapore_uen,
 )
 from app.domain.models import (
     EventOutcome,
@@ -37,8 +49,6 @@ from app.domain.target_submission import (
     SubmissionCanonicalEntity,
     SubmissionRegisteredAddress,
 )
-from app.mappers.acra import map_acra_company
-from app.mappers.errors import MappingError
 from app.mappers.goldtier import (
     build_amend_request,
     build_policy_request,
@@ -131,14 +141,20 @@ class OnboardingService:
 
     def __init__(
         self,
-        acra: AcraConnector,
+        acra: AcraConnector | None,
         goldtier: GoldTierConnector,
         repository: OnboardingCaseRepository,
+        registry_router: RegistryProviderRouter | None = None,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
         target_finalization_fault: Callable[[UUID], bool] | None = None,
     ) -> None:
-        self._acra = acra
+        if registry_router is None:
+            if acra is None:
+                raise ValueError("Onboarding service requires a registry provider router")
+            registry_router = RegistryProviderRouter(AcraRegistryProviderAdapter(acra))
+        self._registry_router = registry_router
+        self._jurisdiction_resolver = JurisdictionResolver()
         self._goldtier = goldtier
         self._repository = repository
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -155,16 +171,24 @@ class OnboardingService:
         with self._case_locks_guard:
             return self._case_locks.setdefault(case_id, RLock())
 
-    def create_case(self, uen: str) -> OnboardingCase:
+    def create_case(
+        self,
+        uen: str,
+        country_of_incorporation: JurisdictionCode | str | None = None,
+    ) -> OnboardingCase:
         """Preserve the Phase 01 API as staged intake plus Mock GoldTier submission."""
 
-        case = self.create_staged_case(uen)
+        case = self.create_staged_case(uen, country_of_incorporation)
         if case.state != WorkflowState.VALIDATED:
             return case
         return self.submit_staged_case(case.case_id, complete_legacy_flow=True)
 
-    def create_staged_case(self, uen: str) -> OnboardingCase:
-        """Retrieve, map, and validate registry data without calling GoldTier."""
+    def create_staged_case(
+        self,
+        uen: str,
+        country_of_incorporation: JurisdictionCode | str | None = None,
+    ) -> OnboardingCase:
+        """Resolve jurisdiction, route, and validate registry data without GoldTier."""
 
         now = self._clock()
         case_id = self._uuid_factory()
@@ -173,25 +197,97 @@ class OnboardingService:
         if not normalised_uen:
             raise ValueError("Onboarding service requires a normalized non-empty UEN")
 
+        explicit_jurisdiction = (
+            JurisdictionCode(country_of_incorporation)
+            if country_of_incorporation is not None
+            else None
+        )
+        observations: list[JurisdictionObservation] = []
+        if explicit_jurisdiction is not None:
+            observations.append(
+                JurisdictionObservation(
+                    jurisdiction=explicit_jurisdiction,
+                    source=JurisdictionObservationSource.USER_INPUT,
+                    observed_at=now,
+                    source_reference="request.country_of_incorporation",
+                )
+            )
+        if is_eligible_singapore_uen(normalised_uen):
+            observations.append(
+                JurisdictionObservation(
+                    jurisdiction=JurisdictionCode.SINGAPORE,
+                    source=JurisdictionObservationSource.IDENTIFIER_FORMAT,
+                    observed_at=now,
+                    source_reference="request.uen:accepted_sg_format",
+                )
+            )
+        resolution = self._jurisdiction_resolver.resolve(observations, resolved_at=now)
+
         source_case_id = f"CASE-{normalised_uen}-{str(case_id)[:8]}"
         case = OnboardingCase(
             case_id=case_id,
             source_case_id=source_case_id,
             correlation_id=correlation_id,
             requested_uen=normalised_uen,
+            jurisdiction_resolution=resolution,
             state=WorkflowState.REQUESTED,
             created_at=now,
             updated_at=now,
         )
         self._record(case, WorkflowState.REQUESTED, EventOutcome.SUCCEEDED, "Case requested.")
 
-        source_payload = self._run_required_stage(
+        if resolution.status == JurisdictionResolutionStatus.UNRESOLVED:
+            return self._terminate(
+                case,
+                WorkflowState.REVIEW_REQUIRED,
+                EventOutcome.REVIEW_REQUIRED,
+                "JURISDICTION_UNRESOLVED",
+                "Jurisdiction could not be resolved from the supplied onboarding evidence.",
+            )
+        if resolution.status == JurisdictionResolutionStatus.CONFLICT:
+            return self._terminate(
+                case,
+                WorkflowState.REVIEW_REQUIRED,
+                EventOutcome.REVIEW_REQUIRED,
+                "JURISDICTION_CONFLICT",
+                "Conflicting jurisdiction evidence requires review before registry retrieval.",
+            )
+
+        resolved_jurisdiction = resolution.resolved_jurisdiction
+        if resolved_jurisdiction is None:
+            raise RuntimeError("resolved jurisdiction invariant was not satisfied")
+        route, registry_provider = self._registry_router.route(
+            resolved_jurisdiction,
+            decided_at=self._clock(),
+        )
+        case.registry_route = route
+        if registry_provider is None:
+            return self._terminate(
+                case,
+                WorkflowState.REVIEW_REQUIRED,
+                EventOutcome.REVIEW_REQUIRED,
+                "REGISTRY_PROVIDER_NOT_IMPLEMENTED",
+                "The registry provider for the resolved jurisdiction is not implemented.",
+            )
+        if (
+            resolved_jurisdiction == JurisdictionCode.SINGAPORE
+            and not is_eligible_singapore_uen(normalised_uen)
+        ):
+            return self._terminate(
+                case,
+                WorkflowState.REVIEW_REQUIRED,
+                EventOutcome.REVIEW_REQUIRED,
+                "REGISTRY_IDENTIFIER_NOT_ELIGIBLE",
+                "The identifier is not eligible for Singapore ACRA retrieval.",
+            )
+
+        entity = self._run_required_stage(
             case,
             code="ACRA_RETRIEVAL_UNEXPECTED_FAILURE",
             message="Corporate registry retrieval could not be completed.",
-            operation=lambda: self._acra.fetch_company(normalised_uen),
+            operation=lambda: registry_provider.retrieve_company(normalised_uen),
         )
-        if source_payload is None:
+        if entity is None:
             return self._terminate(
                 case,
                 WorkflowState.FAILED,
@@ -200,40 +296,6 @@ class OnboardingService:
                 "No ACRA entity was found for this UEN.",
             )
 
-        try:
-            untrusted_payload = (
-                source_payload.model_dump(mode="json", warnings=False)
-                if isinstance(source_payload, AcraCompanyPayload)
-                else source_payload
-            )
-            validated_payload = AcraCompanyPayload.model_validate(untrusted_payload)
-        except Exception:
-            self._raise_terminal_infrastructure(
-                case,
-                code="ACRA_RESPONSE_INVALID",
-                message="Corporate registry response could not be validated safely.",
-            )
-        if validated_payload.uen.strip().upper() != normalised_uen:
-            self._raise_terminal_infrastructure(
-                case,
-                code="ACRA_RESPONSE_IDENTITY_MISMATCH",
-                message="Corporate registry response did not match the requested entity.",
-            )
-
-        try:
-            entity = map_acra_company(validated_payload)
-        except MappingError:
-            self._raise_terminal_infrastructure(
-                case,
-                code="ACRA_SOURCE_MAPPING_FAILED",
-                message="Registry data could not be mapped safely.",
-            )
-        except Exception:
-            self._raise_terminal_infrastructure(
-                case,
-                code="ACRA_MAPPING_UNEXPECTED_FAILURE",
-                message="Registry data could not be mapped safely.",
-            )
         case.entity = entity
         self._record(
             case,

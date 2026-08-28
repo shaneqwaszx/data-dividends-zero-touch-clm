@@ -1,11 +1,8 @@
 """Shared source-neutral canonical minimum policy for onboarding and CLM."""
 
-import re
-
+from app.domain.jurisdiction import is_eligible_singapore_uen
 from app.domain.models import CanonicalLegalEntity
 from app.domain.target_submission import SubmissionCanonicalEntity
-
-UEN_PATTERN = re.compile(r"^[0-9]{9}[A-Z]$")
 
 
 def validate_entity(
@@ -14,7 +11,7 @@ def validate_entity(
     """Return every accepted Phase 01 canonical minimum violation."""
 
     errors: list[str] = []
-    if not UEN_PATTERN.fullmatch(entity.registration_number):
+    if not is_eligible_singapore_uen(entity.registration_number):
         errors.append("registration number is not in the Phase 01 synthetic UEN format")
     if entity.legal_name is None or not entity.legal_name.strip():
         errors.append("legal name is missing")

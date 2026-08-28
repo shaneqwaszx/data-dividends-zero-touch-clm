@@ -254,7 +254,7 @@ async def test_canonical_defense_stops_future_mapper_bypass(
     field: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     entity = malformed_canonical(field)
-    monkeypatch.setattr("app.services.onboarding.map_acra_company", lambda payload: entity)
+    monkeypatch.setattr("app.connectors.registry.map_acra_company", lambda payload: entity)
     goldtier = NoGoldTierCalls()
     service = service_with(MockAcraConnector(clock=lambda: FIXED_TIME), goldtier)
     application = create_app(Settings(app_env="test"), onboarding_service=service)

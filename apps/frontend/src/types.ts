@@ -75,6 +75,29 @@ export interface OnboardingCase {
   source_case_id: string;
   correlation_id: string;
   requested_uen: string;
+  jurisdiction_resolution?: {
+    status: "RESOLVED" | "UNRESOLVED" | "CONFLICT";
+    resolved_jurisdiction: "SG" | "AU" | "MY" | "HK" | null;
+    observations: Array<{
+      jurisdiction: "SG" | "AU" | "MY" | "HK";
+      source:
+        | "USER_INPUT"
+        | "IDENTIFIER_FORMAT"
+        | "EXISTING_CASE"
+        | "DOCUMENT_IDP"
+        | "UPSTREAM_SYSTEM";
+      observed_at: string;
+      evidence_reference: string | null;
+      confidence: number | null;
+    }>;
+    resolved_at: string;
+  } | null;
+  registry_route?: {
+    status: "SELECTED" | "PROVIDER_NOT_IMPLEMENTED";
+    jurisdiction: "SG" | "AU" | "MY" | "HK";
+    provider: "ACRA" | null;
+    decided_at: string;
+  } | null;
   state: WorkflowState;
   entity: CanonicalEntity | null;
   goldtier_result: {
@@ -448,6 +471,10 @@ export interface ZeroTouchException {
     document_value: string | null;
     confidence: number | null;
     comparison: string | null;
+    source?: string | null;
+    observed_value?: string | null;
+    observed_at?: string | null;
+    evidence_reference?: string | null;
   }>;
   available_actions: ExceptionResolutionAction[];
   created_at: string;

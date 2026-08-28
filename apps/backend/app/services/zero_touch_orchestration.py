@@ -84,11 +84,13 @@ class ZeroTouchOrchestrator:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
 
-    def create_case(self, uen: str) -> ZeroTouchAutomationRecord:
+    def create_case(
+        self, uen: str, country_of_incorporation: str | None = None
+    ) -> ZeroTouchAutomationRecord:
         """Create registry evidence and wait only for the required PDF input."""
 
         try:
-            clm_record = self._clm.create_case(uen)
+            clm_record = self._clm.create_case(uen, country_of_incorporation)
         except ClmInfrastructureError as exc:
             recovered_clm_record = self._clm.get(case_id=exc.case_id)
             if recovered_clm_record is None:
@@ -161,16 +163,61 @@ class ZeroTouchOrchestrator:
                 message="Registry evidence was validated automatically.",
             )
         else:
+            blocker_code = (
+                case.error.code if case.error is not None else "REGISTRY_REVIEW_REQUIRED"
+            )
+            exception_types = {
+                "JURISDICTION_UNRESOLVED": BusinessExceptionType.JURISDICTION_UNRESOLVED,
+                "JURISDICTION_CONFLICT": BusinessExceptionType.JURISDICTION_CONFLICT,
+                "REGISTRY_PROVIDER_NOT_IMPLEMENTED": (
+                    BusinessExceptionType.REGISTRY_PROVIDER_NOT_IMPLEMENTED
+                ),
+                "REGISTRY_IDENTIFIER_NOT_ELIGIBLE": (
+                    BusinessExceptionType.REGISTRY_IDENTIFIER_NOT_ELIGIBLE
+                ),
+            }
+            explanations = {
+                "JURISDICTION_UNRESOLVED": (
+                    "Jurisdiction must be resolved before a registry provider can be selected."
+                ),
+                "JURISDICTION_CONFLICT": (
+                    "Conflicting jurisdiction evidence must be reviewed before registry retrieval."
+                ),
+                "REGISTRY_PROVIDER_NOT_IMPLEMENTED": (
+                    "The resolved jurisdiction is recognised, but its registry provider "
+                    "is not implemented."
+                ),
+                "REGISTRY_IDENTIFIER_NOT_ELIGIBLE": (
+                    "The supplied identifier is not eligible for Singapore ACRA retrieval."
+                ),
+            }
+            evidence = tuple(
+                SafeExceptionEvidence(
+                    field_key="country_of_incorporation",
+                    source=observation.source.value,
+                    observed_value=observation.jurisdiction.value,
+                    observed_at=observation.observed_at,
+                    evidence_reference=observation.source_reference,
+                )
+                for observation in (
+                    case.jurisdiction_resolution.observations
+                    if case.jurisdiction_resolution is not None
+                    else ()
+                )[:4]
+            )
             record = self._add_exception(
                 record,
-                exception_type=BusinessExceptionType.REGISTRY_REVIEW_REQUIRED,
+                exception_type=exception_types.get(
+                    blocker_code, BusinessExceptionType.REGISTRY_REVIEW_REQUIRED
+                ),
                 stage=AutomationStage.REGISTRY,
-                blocker_code="REGISTRY_REVIEW_REQUIRED",
-                explanation=(
-                    "Registry evidence requires human review before automation can continue."
+                blocker_code=blocker_code,
+                explanation=explanations.get(
+                    blocker_code,
+                    "Registry evidence requires human review before automation can continue.",
                 ),
                 evidence_version=f"case:{case.case_id}:{len(case.events)}",
-                evidence=(),
+                evidence=evidence,
                 actions=(),
             )
         return self._create(record)
@@ -190,6 +237,11 @@ class ZeroTouchOrchestrator:
         with self._cases.case_lock(case_id):
             record = self._require_record(case_id)
             if record.status == AutomationStatus.TECHNICAL_FAILURE:
+                return record
+            if (
+                record.status == AutomationStatus.WAITING_FOR_REVIEW
+                and record.current_stage == AutomationStage.REGISTRY
+            ):
                 return record
             if self._documents.list_documents(case_id=case_id):
                 raise ZeroTouchRequestError(

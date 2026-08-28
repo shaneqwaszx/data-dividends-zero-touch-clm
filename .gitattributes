@@ -1,0 +1,2 @@
+# PDF cross-reference tables contain byte offsets and must not be line-ending normalized.
+*.pdf binary
