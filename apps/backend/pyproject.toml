@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.141.1",
     "httpx==0.28.1",
+    "pymongo==4.15.1",
     "pydantic-settings==2.15.0",
     "pypdf==5.6.1",
     "uvicorn[standard]==0.52.1",
