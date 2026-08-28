@@ -21,6 +21,7 @@ from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.mock_idp import MockIdpProvider
+from app.connectors.registry import AcraRegistryProviderAdapter, RegistryProviderRouter
 from app.demo.idp_control import MockIdpDemoControl
 from app.demo.ownership_control import MockOwnershipDemoControl
 from app.demo.scenarios import (
@@ -56,13 +57,16 @@ def build_onboarding_service(
 
     catalogue = scenario_catalogue or Phase01MockScenarioCatalogue()
     active_settings = settings or get_settings()
-    return OnboardingService(
-        acra=acra_connector
-        or build_acra_connector(
+    active_acra = acra_connector or build_acra_connector(
             active_settings,
             transport=acra_transport,
             authorizer=acra_authorizer,
             decoder=acra_decoder,
+        )
+    return OnboardingService(
+        acra=None,
+        registry_router=RegistryProviderRouter(
+            AcraRegistryProviderAdapter(active_acra)
         ),
         goldtier=MockGoldTierConnector(
             policy_validation_failure_keys=catalogue.policy_validation_failure_uens(),

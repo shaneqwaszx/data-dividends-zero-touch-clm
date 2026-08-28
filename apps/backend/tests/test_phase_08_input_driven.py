@@ -14,6 +14,16 @@ from app.main import create_app
 TESTS_DIR = Path(__file__).resolve().parent
 BACKEND_ROOT = TESTS_DIR.parent
 REPO_ROOT = BACKEND_ROOT.parent.parent
+STRICT_TEXT_FIXTURES = (
+    "address-mismatch.pdf",
+    "clean-company-profile.pdf",
+    "cycle-uen-clean.pdf",
+    "legal-name-mismatch.pdf",
+    "low-confidence.pdf",
+    "missing-field.pdf",
+    "no-text.pdf",
+    "second-case-isolation.pdf",
+)
 
 
 def synthetic_pdf(
@@ -125,6 +135,17 @@ def test_local_pdf_provider_reports_no_text_without_claiming_ocr() -> None:
     result = provider_result({}, include_text=False)
     assert all(field.value is None for field in result.fields)  # type: ignore[attr-defined]
     assert {field.source_reference for field in result.fields} == {"DOCUMENT_TEXT_UNAVAILABLE"}  # type: ignore[attr-defined]
+
+
+def test_tracked_uat_pdf_pack_remains_compatible_with_strict_parsing() -> None:
+    provider = LocalPdfTextIdpProvider()
+    for fixture_name in STRICT_TEXT_FIXTURES:
+        provider.process(
+            IdpDocumentInput(
+                profile=DocumentProfile.PROVISIONAL_CORPORATE,
+                content=(TESTS_DIR / "fixtures" / "uat" / fixture_name).read_bytes(),
+            )
+        )
 
 
 def start(

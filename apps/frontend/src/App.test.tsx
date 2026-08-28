@@ -7,6 +7,8 @@ import App, {
   ClmRefreshingState,
   DocumentReviewSummary,
   HumanReviewPanel,
+  JurisdictionDecision,
+  JurisdictionSelector,
   OnboardingProgress,
   OwnershipSummary,
   SimulationBanner,
@@ -118,6 +120,26 @@ function makeCase(state: WorkflowState): OnboardingCase {
     source_case_id: "CASE-202400001A-00000000",
     correlation_id: "00000000-0000-4000-8000-000000000002",
     requested_uen: "202400001A",
+    jurisdiction_resolution: {
+      status: "RESOLVED",
+      resolved_jurisdiction: "SG",
+      observations: [
+        {
+          jurisdiction: "SG",
+          source: "IDENTIFIER_FORMAT",
+          observed_at: timestamp,
+          evidence_reference: "request.uen:accepted_sg_format",
+          confidence: null,
+        },
+      ],
+      resolved_at: timestamp,
+    },
+    registry_route: {
+      status: "SELECTED",
+      jurisdiction: "SG",
+      provider: "ACRA",
+      decided_at: timestamp,
+    },
     state,
     entity: {
       registration_number: "202400001A",
@@ -877,6 +899,95 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(markup).toContain("0</strong><span>Human interventions");
     expect(markup).not.toContain("Evaluate Readiness");
     expect(markup).not.toContain("Submit to Mock GoldTier");
+    expect(markup).toContain("Jurisdiction decision");
+    expect(markup).toContain("IDENTIFIER FORMAT");
+    expect(markup).toContain("ACRA");
+  });
+
+  it("renders unresolved and provider-not-implemented decisions truthfully", () => {
+    const unresolvedCase: OnboardingCase = {
+      ...makeCase("REVIEW_REQUIRED"),
+      entity: null,
+      jurisdiction_resolution: {
+        status: "UNRESOLVED",
+        resolved_jurisdiction: null,
+        observations: [],
+        resolved_at: timestamp,
+      },
+      registry_route: null,
+    };
+    const foreignCase: OnboardingCase = {
+      ...unresolvedCase,
+      jurisdiction_resolution: {
+        status: "RESOLVED",
+        resolved_jurisdiction: "AU",
+        observations: [
+          {
+            jurisdiction: "AU",
+            source: "USER_INPUT",
+            observed_at: timestamp,
+            evidence_reference: "request.country_of_incorporation",
+            confidence: null,
+          },
+        ],
+        resolved_at: timestamp,
+      },
+      registry_route: {
+        status: "PROVIDER_NOT_IMPLEMENTED",
+        jurisdiction: "AU",
+        provider: null,
+        decided_at: timestamp,
+      },
+    };
+
+    const unresolved = renderToStaticMarkup(
+      <JurisdictionDecision caseData={unresolvedCase} />,
+    );
+    const foreign = renderToStaticMarkup(
+      <JurisdictionDecision caseData={foreignCase} />,
+    );
+    expect(unresolved).toContain("UNRESOLVED");
+    expect(unresolved).toContain("None supplied or inferred");
+    expect(unresolved).toContain("Not selected");
+    expect(foreign).toContain("AU");
+    expect(foreign).toContain("Provider not implemented");
+    expect(foreign).toContain("USER INPUT");
+  });
+
+  it("offers the bounded optional jurisdiction choices with truthful labels", () => {
+    const markup = renderToStaticMarkup(
+      <JurisdictionSelector value="" onChange={() => undefined} />,
+    );
+
+    expect(markup).toContain("Country / jurisdiction (optional)");
+    expect(markup).toContain("Not specified");
+    expect(markup).toContain("Singapore");
+    expect(markup).toContain("Australia — provider not implemented");
+    expect(markup).toContain("Malaysia — provider not implemented");
+    expect(markup).toContain("Hong Kong — provider not implemented");
+  });
+
+  it("serializes the optional country only when selected", async () => {
+    const completed = makeZeroTouch();
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(
+        () => Promise.resolve(
+          new Response(JSON.stringify(completed), { status: 201 }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createZeroTouchCase("AU-REG-123", undefined, "AU");
+    await createZeroTouchCase("202400001A");
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
+      uen: "AU-REG-123",
+      country_of_incorporation: "AU",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
+      uen: "202400001A",
+    });
   });
 
   it("renders a concise server-authored sponsor summary and provisional warnings", () => {
@@ -934,6 +1045,8 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(markup).toContain("SYNTHETIC CANONICAL NAME");
     expect(markup).toContain("SYNTHETIC CONFLICTING NAME");
     expect(markup).toContain("Keep registry values");
+    expect(markup).not.toContain("Manual correction");
+    expect(markup).not.toContain("Save correction");
     expect(markup).not.toContain("Approve");
   });
 
@@ -997,7 +1110,10 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(reviewMarkup).toContain("DOCUMENT_LOW_CONFIDENCE");
     expect(reviewMarkup).not.toContain("DOCUMENT_SOURCE_CONFLICT");
     expect(reviewMarkup).not.toContain("Keep registry values");
-    expect(reviewMarkup).toContain("Corrected or replacement evidence is required");
+    expect(reviewMarkup).not.toContain("Manual correction");
+    expect(reviewMarkup).not.toContain("Save correction");
+    expect(reviewMarkup).toContain("Replacement evidence is required");
+    expect(reviewMarkup).toContain("Upload corrected document");
   });
 
   it("polls only running and resuming automation states", () => {

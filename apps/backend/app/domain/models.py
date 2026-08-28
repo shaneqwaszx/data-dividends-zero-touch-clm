@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.domain.jurisdiction import JurisdictionResolution, RegistryRoutingDecision
+
 
 class WorkflowState(StrEnum):
     """Application workflow states exposed to the user."""
@@ -112,6 +114,8 @@ class OnboardingCase(BaseModel):
     source_case_id: str
     correlation_id: UUID
     requested_uen: str
+    jurisdiction_resolution: JurisdictionResolution | None = None
+    registry_route: RegistryRoutingDecision | None = None
     state: WorkflowState
     entity: CanonicalLegalEntity | None = None
     goldtier_result: GoldTierResult | None = None

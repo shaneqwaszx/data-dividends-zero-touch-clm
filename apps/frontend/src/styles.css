@@ -1325,17 +1325,54 @@ dd {
 .zero-touch-form {
   display: grid;
   gap: 0.75rem;
-  grid-template-columns: minmax(10rem, 1fr) minmax(14rem, 1.5fr) auto;
-  align-items: end;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  max-width: 44rem;
 }
 
 .zero-touch-form label {
-  grid-row: 1;
+  font-weight: 700;
 }
 
 .zero-touch-form input,
+.zero-touch-form select,
 .zero-touch-form button {
-  grid-row: 2;
+  width: 100%;
+}
+
+.jurisdiction-decision {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: #f6f8fa;
+}
+
+.jurisdiction-decision > div {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.jurisdiction-decision span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.jurisdiction-observations ul {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jurisdiction-observations li {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
 }
 
 .reopen-form {

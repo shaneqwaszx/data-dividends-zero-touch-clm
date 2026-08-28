@@ -50,6 +50,7 @@ export class ApiError extends Error {
 export async function createZeroTouchCase(
   uen: string,
   demoScenario?: ZeroTouchDemoScenario,
+  countryOfIncorporation?: "SG" | "AU" | "MY" | "HK",
 ): Promise<ZeroTouchCaseSummary> {
   const demo = demoScenario !== undefined;
   const response = await fetch(
@@ -57,7 +58,13 @@ export async function createZeroTouchCase(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uen, ...(demo ? { scenario: demoScenario } : {}) }),
+      body: JSON.stringify({
+        uen,
+        ...(countryOfIncorporation
+          ? { country_of_incorporation: countryOfIncorporation }
+          : {}),
+        ...(demo ? { scenario: demoScenario } : {}),
+      }),
     },
   );
   return parseResponse<ZeroTouchCaseSummary>(response);
@@ -160,11 +167,19 @@ export async function fetchMockScenarios(): Promise<MockScenarioDiscovery> {
   return parseResponse<MockScenarioDiscovery>(response);
 }
 
-export async function createOnboardingCase(uen: string): Promise<OnboardingCase> {
+export async function createOnboardingCase(
+  uen: string,
+  countryOfIncorporation?: "SG" | "AU" | "MY" | "HK",
+): Promise<OnboardingCase> {
   const response = await fetch(`${API_BASE_URL}/api/onboarding/cases`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ uen }),
+    body: JSON.stringify({
+      uen,
+      ...(countryOfIncorporation
+        ? { country_of_incorporation: countryOfIncorporation }
+        : {}),
+    }),
   });
   return parseResponse<OnboardingCase>(response);
 }
@@ -174,11 +189,19 @@ export async function fetchOnboardingCase(caseId: string): Promise<OnboardingCas
   return parseResponse<OnboardingCase>(response);
 }
 
-export async function createClmCase(uen: string): Promise<ClmCaseSummary> {
+export async function createClmCase(
+  uen: string,
+  countryOfIncorporation?: "SG" | "AU" | "MY" | "HK",
+): Promise<ClmCaseSummary> {
   const response = await fetch(`${API_BASE_URL}/api/clm/cases`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ uen }),
+    body: JSON.stringify({
+      uen,
+      ...(countryOfIncorporation
+        ? { country_of_incorporation: countryOfIncorporation }
+        : {}),
+    }),
   });
   return parseResponse<ClmCaseSummary>(response);
 }

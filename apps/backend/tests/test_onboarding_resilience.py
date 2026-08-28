@@ -249,7 +249,7 @@ async def test_acra_mapping_exception_persists_failed_case_and_stops(
         del payload
         raise RuntimeError(INTERNAL_SENTINEL)
 
-    monkeypatch.setattr("app.services.onboarding.map_acra_company", raise_mapping_error)
+    monkeypatch.setattr("app.connectors.registry.map_acra_company", raise_mapping_error)
     goldtier = RecordingGoldTierConnector()
     service = build_recording_service(goldtier)
 

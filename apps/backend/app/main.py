@@ -46,6 +46,7 @@ from app.demo.uat_evidence import UatEvidenceExport, build_uat_evidence
 from app.demo.zero_touch_control import ZeroTouchDemoControl, ZeroTouchDemoScenario
 from app.domain.clm import GoldTierSubmissionPlan
 from app.domain.documents import DocumentFieldKey, ReviewDecision
+from app.domain.jurisdiction import JurisdictionCode
 from app.domain.ownership import OwnershipCandidate
 from app.domain.target_submission import GoldTierOperationMarker, GoldTierTargetOutcome
 from app.domain.zero_touch import ExceptionResolutionAction, ZeroTouchAutomationRecord
@@ -81,7 +82,13 @@ class HealthResponse(BaseModel):
 class StartOnboardingRequest(BaseModel):
     """Small application-facing input; external target DTOs stay behind connectors."""
 
-    uen: Annotated[str, Field(min_length=10, max_length=10, pattern=r"^[0-9]{9}[A-Z]$")]
+    model_config = ConfigDict(extra="forbid")
+
+    uen: Annotated[
+        str,
+        Field(min_length=1, max_length=32, pattern=r"^[A-Z0-9-]+$"),
+    ]
+    country_of_incorporation: JurisdictionCode | None = None
 
     @field_validator("uen", mode="before")
     @classmethod
@@ -487,7 +494,11 @@ def create_app(
         active_service: Annotated[OnboardingService, Depends(get_onboarding_service)],
     ) -> OnboardingCaseResponse:
         try:
-            return OnboardingCaseResponse.from_domain(active_service.create_case(request.uen))
+            return OnboardingCaseResponse.from_domain(
+                active_service.create_case(
+                    request.uen, request.country_of_incorporation
+                )
+            )
         except OnboardingInfrastructureError as exc:
             detail = InfrastructureFailureDetail(
                 code=exc.code,
@@ -525,7 +536,11 @@ def create_app(
         active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
     ) -> ClmCaseSummaryResponse:
         try:
-            return clm_response(active_clm.create_case(request.uen))
+            return clm_response(
+                active_clm.create_case(
+                    request.uen, request.country_of_incorporation
+                )
+            )
         except ClmInfrastructureError as exc:
             detail = ClmFailureDetail(
                 code=exc.code,
@@ -625,7 +640,11 @@ def create_app(
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         try:
-            return zero_touch_response(active_zero_touch.create_case(request.uen))
+            return zero_touch_response(
+                active_zero_touch.create_case(
+                    request.uen, request.country_of_incorporation
+                )
+            )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
 
@@ -642,7 +661,9 @@ def create_app(
         require_demo_controls()
         uen = zero_touch_demo.uen_for(request.uen, request.scenario)
         try:
-            record = active_zero_touch.create_case(uen)
+            record = active_zero_touch.create_case(
+                uen, request.country_of_incorporation
+            )
             zero_touch_demo.register(record.case_id, request.scenario)
             return zero_touch_response(record)
         except ZeroTouchRequestError as exc:

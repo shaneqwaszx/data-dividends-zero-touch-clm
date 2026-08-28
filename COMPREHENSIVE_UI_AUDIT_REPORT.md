@@ -5,6 +5,12 @@
 **Scope**: Frontend and backend implementation completeness for primary POC workflow  
 **Overall Status**: **SUBSTANTIALLY COMPLETE BUT WITH CRITICAL GAPS**
 
+> **Current-baseline clarification (2026-08-28):** This narrative audit predates the
+> accepted Phase 08 runtime baseline. Normal document processing now uses bounded
+> `LOCAL_PDF_TEXT`; Mock IDP scenarios are developer/test-only. The default upload
+> limit is 5 MiB, all repositories remain process-local/in-memory, and the UI changes
+> do not make this POC production-ready.
+
 ---
 
 ## 1. Executive Summary
@@ -46,7 +52,7 @@ The Zero-Touch Onboarding CLM application is **approximately 75% functionally co
 | **ACRA registry lookup** | ⚠️ PARTIAL | ✅ YES | ⚠️ PARTIAL | MOCKED | Backend calls mock ACRA; frontend displays entity data; no live ACRA available (Q-012) |
 | **Entity data display** | ✅ YES | ✅ YES | ✅ YES | COMPLETE | `CaseSummary` component shows legal name, UEN, registration date, address |
 | **Document upload** | ✅ YES | ✅ YES | ✅ YES | COMPLETE | `DocumentPanel` handles PDF upload; backend validates + processes |
-| **IDP extraction & display** | ✅ YES | ✅ YES | ✅ YES | MOCKED | Mock IDP returns synthetic fields; confidence scores generated; frontend displays |
+| **IDP extraction & display** | ✅ YES | ✅ YES | ✅ YES | LOCAL POC | Normal input-driven PDFs use bounded local text extraction; Mock scenarios are developer/test-only |
 | **Field confidence thresholds** | ✅ YES | ✅ YES | ✅ YES | COMPLETE | Configurable threshold (default 85%); low-confidence fields flagged |
 | **Document field review** | ✅ YES | ✅ YES | ✅ YES | COMPLETE | Accept/Reject/Correct decisions; reviewed values persisted; UI shows pending/completed state |
 | **Workflow progress visualization** | ✅ YES | ✅ YES | ✅ YES | COMPLETE | `OnboardingProgress` shows REGISTRY/DOCUMENT/OWNERSHIP/READINESS/MOCK_GOLDTIER stages |
@@ -279,10 +285,10 @@ The Zero-Touch Onboarding CLM application is **approximately 75% functionally co
 
 | Feature | Mock Location | How to Identify | To Make Real |
 |---------|---------------|-----------------|--------------|
-| **ACRA Registry** | `AcraMockConnector` + `Phase01MockScenarioCatalogue` | Hardcoded UENs (202400001A, etc.); synthetic entity data | Replace with real ACRA connector; requires Q-012 resolution (API spec, sandbox URL, auth) |
-| **IDP Extraction** | `MockIdpProvider` | Scenarios: ALL_FIELDS_MATCH, FIELD_MISMATCH, LOW_CONFIDENCE, etc. selected via header | Replace with real IDP service (e.g., document processor API); would require document content handling |
+| **ACRA Registry** | `MockAcraConnector` + `Phase01MockScenarioCatalogue` | Hardcoded UENs (202400001A, etc.); synthetic entity data | Replace with real ACRA connector; requires Q-012 resolution (API spec, sandbox URL, auth) |
+| **IDP Extraction** | `LocalPdfTextIdpProvider` (normal) / `MockIdpProvider` (developer/test) | Normal input is extracted from bounded synthetic PDF text; scenarios remain behind demo controls | Replace the local POC parser with an approved production IDP service after document/security policy is confirmed |
 | **Ownership Data** | `MockOwnershipProvider` | Scenarios: DIRECT_OWNER, INDIRECT_OWNER, CYCLE, etc. | Replace with real ownership registry/graph data source |
-| **GoldTier** | `GoldTierMockConnector` | Hardcoded responses; no actual network calls | Implement PingFed auth + real GoldTier API calls (SEARCH, SHELL, POLICY, AMEND operations) |
+| **GoldTier** | `MockGoldTierConnector` | Hardcoded responses; no actual network calls | Implement PingFed auth + real GoldTier API calls (SEARCH, SHELL, POLICY, AMEND operations) |
 | **Demo scenarios** | `ZeroTouchDemoControl` + scenario branching in `attach_document_request()` | `use_demo_provider` flag; scenario-specific providers | Remove demo-specific code branches; use real providers only |
 
 ### Demo Controls Deeply Embedded
@@ -453,7 +459,7 @@ The Zero-Touch Onboarding CLM application is **approximately 75% functionally co
 
 3. **Exception Blocker Explanation** — When readiness returns blockers (e.g., "MISSING_FIELD_REGISTERED_ADDRESS"), frontend should drill down and show exactly which field is missing + why it matters.
 
-4. **Error Messages from Backend** — Document upload failures, GoldTier failures return generic "Operation failed". Add specific error codes + remediation guidance (e.g., "PDF file size exceeds 25MB limit").
+4. **Error Messages from Backend** — Document upload failures, GoldTier failures return generic "Operation failed". Add specific error codes + remediation guidance (e.g., "PDF file size exceeds 5 MiB limit").
 
 5. **Polling Race Condition** — If multiple requests update the case simultaneously (e.g., document review + automation polling), state can become inconsistent. Add versioning/etag to prevent stale updates.
 
@@ -508,9 +514,9 @@ The Zero-Touch Onboarding CLM application is **approximately 75% functionally co
 | DocumentProcessingService | ✅ COMPLETE | ✅ GOOD | ✅ EXIST | COMPLETE |
 | OwnershipAnalysisService | ✅ COMPLETE | ✅ GOOD | ✅ EXIST | COMPLETE |
 | OnboardingService | ✅ COMPLETE | ✅ GOOD | ✅ EXIST | COMPLETE |
-| AcraMockConnector | ✅ COMPLETE | ✅ GOOD | ✅ EXIST | COMPLETE (mock) |
-| GoldTierMockConnector | ✅ COMPLETE | ✅ GOOD | ✅ EXIST | COMPLETE (mock) |
-| MockIdpProvider | ✅ COMPLETE | ✅ GOOD | ✅ EXIST | COMPLETE (mock) |
+| MockAcraConnector | ✅ COMPLETE | ✅ GOOD | ✅ EXIST | COMPLETE (mock) |
+| MockGoldTierConnector | ✅ COMPLETE | ✅ GOOD | ✅ EXIST | COMPLETE (mock) |
+| LocalPdfTextIdpProvider / MockIdpProvider | ✅ COMPLETE | ✅ GOOD | ✅ EXIST | COMPLETE (local POC / developer-test mock) |
 | MockOwnershipProvider | ✅ COMPLETE | ✅ GOOD | ✅ EXIST | COMPLETE (mock) |
 
 ### Data Models & Repositories
@@ -629,8 +635,8 @@ The Zero-Touch Onboarding CLM application is **approximately 75% functionally co
 
 ## Conclusion
 
-The Zero-Touch Onboarding CLM application is **substantially functional and ready for a polished demo** with 3–5 days of additional UI/UX work. The core business logic (registry integration, IDP processing, ownership calculation, readiness validation, GoldTier submission, exception handling) is real, deterministic, and well-tested. The primary gaps are in user experience (exception panel clarity, ownership visualization, error messages) and data persistence (in-memory only).
+The Zero-Touch Onboarding CLM application is **substantially functional and ready for a polished synthetic POC demo**. The local orchestration, document processing, ownership calculation, readiness validation, Mock GoldTier submission, and exception handling are deterministic and tested. Live registry/target integrations remain unverified, and persistence remains in-memory only.
 
-**Verdict**: **PROCEED TO DEMO AFTER POLISH** (estimated 3–5 days to production-ready POC state).
+**Verdict**: **PROCEED TO SYNTHETIC POC DEMO**; this is not a production-readiness assessment.
 
 For real ACRA/GoldTier integration, additional backend work is needed (PingFed auth, error mapping, retry logic), but the architecture and data models are well-designed to accommodate these without major refactoring.

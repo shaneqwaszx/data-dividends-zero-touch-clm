@@ -151,7 +151,7 @@ Translates technical error codes to user-facing messages with emoji indicators:
 
 | Error Code | User Message |
 |---|---|
-| `DOCUMENT_TOO_LARGE` | "📦 PDF file is too large. Maximum size is 25MB." |
+| `DOCUMENT_TOO_LARGE` | "📦 PDF file is too large. Maximum size is 5 MiB." |
 | `DOCUMENT_MEDIA_TYPE_UNSUPPORTED` | "❌ File type not supported. Please upload a PDF." |
 | `OWNERSHIP_CYCLE` | "🔄 Circular ownership relationships detected..." |
 | `OWNERSHIP_INCOMPLETE` | "⚠️ Incomplete ownership data detected..." |
@@ -359,7 +359,7 @@ Per your instruction "ignore the database because i haven't link it to mongodb":
 
 - ✅ **No database schema modifications**
 - ✅ **No ORM/persistence layer changes**
-- ✅ **No MongoDB configuration**
+- ✅ **No onboarding persistence integration** (the optional MongoDB helper is connectivity-only)
 - ✅ **No data model changes**
 - ✅ **Using in-memory repositories (dict-based) as before**
 

@@ -39,6 +39,10 @@ class AutomationStage(StrEnum):
 
 class BusinessExceptionType(StrEnum):
     REGISTRY_REVIEW_REQUIRED = "REGISTRY_REVIEW_REQUIRED"
+    JURISDICTION_UNRESOLVED = "JURISDICTION_UNRESOLVED"
+    JURISDICTION_CONFLICT = "JURISDICTION_CONFLICT"
+    REGISTRY_PROVIDER_NOT_IMPLEMENTED = "REGISTRY_PROVIDER_NOT_IMPLEMENTED"
+    REGISTRY_IDENTIFIER_NOT_ELIGIBLE = "REGISTRY_IDENTIFIER_NOT_ELIGIBLE"
     DOCUMENT_SOURCE_CONFLICT = "DOCUMENT_SOURCE_CONFLICT"
     DOCUMENT_LOW_CONFIDENCE = "DOCUMENT_LOW_CONFIDENCE"
     DOCUMENT_REQUIRED_FIELD_MISSING = "DOCUMENT_REQUIRED_FIELD_MISSING"
@@ -90,6 +94,10 @@ class SafeExceptionEvidence(BaseModel):
     document_value: str | None = Field(default=None, max_length=512)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     comparison: str | None = Field(default=None, max_length=64)
+    source: str | None = Field(default=None, max_length=64)
+    observed_value: str | None = Field(default=None, max_length=16)
+    observed_at: datetime | None = None
+    evidence_reference: str | None = Field(default=None, max_length=128)
 
 
 class BusinessException(BaseModel):

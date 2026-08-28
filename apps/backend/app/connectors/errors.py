@@ -65,6 +65,34 @@ class AcraUnexpectedConnectorError(ConnectorError):
     public_message = "The ACRA registry request could not be completed."
 
 
+class AcraResponseInvalidError(ConnectorError):
+    """The provider result failed the strict source DTO boundary."""
+
+    code = "ACRA_RESPONSE_INVALID"
+    public_message = "Corporate registry response could not be validated safely."
+
+
+class AcraResponseIdentityMismatchError(ConnectorError):
+    """The returned entity did not bind to the requested identifier."""
+
+    code = "ACRA_RESPONSE_IDENTITY_MISMATCH"
+    public_message = "Corporate registry response did not match the requested entity."
+
+
+class AcraMappingError(ConnectorError):
+    """Validated ACRA source data could not be mapped to the canonical entity."""
+
+    code = "ACRA_SOURCE_MAPPING_FAILED"
+    public_message = "Registry data could not be mapped safely."
+
+
+class AcraUnexpectedMappingError(ConnectorError):
+    """Unexpected mapping implementation errors are projected safely."""
+
+    code = "ACRA_MAPPING_UNEXPECTED_FAILURE"
+    public_message = "Registry data could not be mapped safely."
+
+
 _TRUSTED_PUBLIC_ERRORS: tuple[
     tuple[type[ConnectorError], PublicConnectorError], ...
 ] = (
@@ -108,6 +136,34 @@ _TRUSTED_PUBLIC_ERRORS: tuple[
         PublicConnectorError(
             code="ACRA_CONNECTOR_UNEXPECTED_FAILURE",
             message="The ACRA registry request could not be completed.",
+        ),
+    ),
+    (
+        AcraResponseInvalidError,
+        PublicConnectorError(
+            code="ACRA_RESPONSE_INVALID",
+            message="Corporate registry response could not be validated safely.",
+        ),
+    ),
+    (
+        AcraResponseIdentityMismatchError,
+        PublicConnectorError(
+            code="ACRA_RESPONSE_IDENTITY_MISMATCH",
+            message="Corporate registry response did not match the requested entity.",
+        ),
+    ),
+    (
+        AcraMappingError,
+        PublicConnectorError(
+            code="ACRA_SOURCE_MAPPING_FAILED",
+            message="Registry data could not be mapped safely.",
+        ),
+    ),
+    (
+        AcraUnexpectedMappingError,
+        PublicConnectorError(
+            code="ACRA_MAPPING_UNEXPECTED_FAILURE",
+            message="Registry data could not be mapped safely.",
         ),
     ),
 )

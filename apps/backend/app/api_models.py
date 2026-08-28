@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.clm import (
     ClmOrchestrationRecord,
@@ -24,6 +24,12 @@ from app.domain.documents import (
     DocumentWorkflowEvent,
     FieldReviewStatus,
     IdpEnvironment,
+)
+from app.domain.jurisdiction import (
+    JurisdictionCode,
+    JurisdictionObservationSource,
+    JurisdictionResolutionStatus,
+    RegistryRoutingDecision,
 )
 from app.domain.models import (
     GoldTierResult,
@@ -84,6 +90,31 @@ class BrowserCanonicalLegalEntity(BaseModel):
     source: BrowserSourceMetadata
 
 
+class BrowserJurisdictionObservation(BaseModel):
+    """Safe browser evidence with a clearly scoped non-provider reference."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    jurisdiction: JurisdictionCode
+    source: JurisdictionObservationSource
+    observed_at: datetime
+    evidence_reference: str | None = Field(
+        default=None, validation_alias="source_reference"
+    )
+    confidence: float | None = None
+
+
+class BrowserJurisdictionResolution(BaseModel):
+    """Browser-safe decision and all retained jurisdiction observations."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    status: JurisdictionResolutionStatus
+    resolved_jurisdiction: JurisdictionCode | None = None
+    observations: tuple[BrowserJurisdictionObservation, ...]
+    resolved_at: datetime
+
+
 class OnboardingCaseResponse(BaseModel):
     """Application case response with internal proof metadata minimized."""
 
@@ -93,6 +124,8 @@ class OnboardingCaseResponse(BaseModel):
     source_case_id: str
     correlation_id: UUID
     requested_uen: str
+    jurisdiction_resolution: BrowserJurisdictionResolution | None = None
+    registry_route: RegistryRoutingDecision | None = None
     state: WorkflowState
     entity: BrowserCanonicalLegalEntity | None = None
     goldtier_result: GoldTierResult | None = None

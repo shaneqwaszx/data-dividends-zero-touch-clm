@@ -9,6 +9,8 @@ Phase 04's ownership-only deterministic calculation boundary is documented in
 [PHASE_04_RELATED_PARTIES_UBO.md](PHASE_04_RELATED_PARTIES_UBO.md). The staged Phase 05
 composition is documented in [PHASE_05_CLM_ORCHESTRATION.md](PHASE_05_CLM_ORCHESTRATION.md),
 and the server-driven Phase 06 path in
-[PHASE_06_ZERO_TOUCH_ORCHESTRATION.md](PHASE_06_ZERO_TOUCH_ORCHESTRATION.md).
+[PHASE_06_ZERO_TOUCH_ORCHESTRATION.md](PHASE_06_ZERO_TOUCH_ORCHESTRATION.md). Phase 09's
+source-aware country decision and Singapore-only provider routing boundary is in
+[PHASE_09_JURISDICTION_GATEWAY.md](PHASE_09_JURISDICTION_GATEWAY.md).
 
 Later phases should update that baseline only when an approved planner handoff introduces a new boundary or decision.

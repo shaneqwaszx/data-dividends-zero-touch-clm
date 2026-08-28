@@ -1,4 +1,4 @@
-"""Small MongoDB connection boundary used by local checks and future services."""
+"""Optional MongoDB connectivity diagnostic, not an application persistence adapter."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def ping_mongodb(settings: Settings | None = None) -> None:
 
 
 def count_users(settings: Settings | None = None) -> int:
-    """Count documents in the FYP database's users collection."""
+    """Read a diagnostic count from the FYP database's users collection."""
 
     client = create_mongo_client(settings)
     try:

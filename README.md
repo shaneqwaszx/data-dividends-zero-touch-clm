@@ -4,8 +4,10 @@ Proof of concept for Delta Capita's Singapore new-to-bank flow:
 
 `ACRA Singapore → EDS/orchestration → GoldTier → unresolved human approval gate`
 
-The current POC accepts a Singapore UEN and one synthetic PDF, then automatically runs
-registry validation, deterministic document comparison, ownership/UBO analysis,
+The current POC accepts an optional country/jurisdiction, a company registration
+identifier (Singapore UEN for the implemented path), and one synthetic PDF. It resolves
+jurisdiction before registry selection, then automatically runs registry validation,
+deterministic document comparison, ownership/UBO analysis,
 readiness, and a Mock GoldTier sequence. It pauses only for a typed exception and
 automatically resumes after a permitted resolution.
 
@@ -24,6 +26,9 @@ determination, or live ACRA/GoldTier interoperability.
 - Safe sponsor summary, metrics, warnings, timeline, environment labels, deterministic
   presets, synthetic fixture pack, and whitelisted UAT JSON export.
 - Replaceable Registry, IDP, Ownership, and GoldTier interfaces with conformance tests.
+- Source-aware jurisdiction observations with no implicit precedence: Singapore routes
+  to ACRA; unresolved/conflicting evidence and recognised AU/MY/HK requests stop in a
+  controlled Registry-stage review state without downstream calls.
 
 Live ACRA, live hierarchy, PingFed/real GoldTier, final document/UBO policy, related-
 party writes, authenticated reviewer roles, and Ready-for-Approval remain blocked or
@@ -76,7 +81,8 @@ unowned port occupants are never killed. For recovery and expected outputs, use 
 
 ## Zero-touch demo
 
-1. Enter synthetic UEN `202400001A`, upload `clean-company-profile.pdf`, and select
+1. Leave jurisdiction as **Not specified** (or select **Singapore**), enter synthetic
+   UEN `202400001A`, upload `clean-company-profile.pdf`, and select
    **Start onboarding** once.
 3. Observe Registry → Document Verification → Ownership & UBO → Readiness → Mock
    GoldTier.
@@ -96,10 +102,11 @@ Use the [5–10 minute sponsor script](docs/demo/SPONSOR_DEMO_SCRIPT.md) and the
 ## Architecture
 
 ```text
-UEN + PDF + Start
+optional jurisdiction + registration identifier/UEN + PDF + Start
         |
 ZeroTouchOrchestrator
-  +-- Registry provider -> canonical entity
+  +-- jurisdiction resolver -> registry router
+  +-- Singapore ACRA provider -> canonical entity
   +-- IDP provider -> document evidence/comparison
   +-- Ownership provider -> deterministic Decimal paths
   +-- CLM readiness -> immutable target snapshot
@@ -112,7 +119,9 @@ External payloads never become business authority directly. Every boundary uses 
 validation and the flow `source payload → canonical/internal model → target mapping`.
 Replacing a provider occurs at its interface/composition seam, not in generic
 orchestration. See [final architecture](docs/architecture/FINAL_POC_ARCHITECTURE.md)
-and [provider replacement](docs/integration/PROVIDER_REPLACEMENT_GUIDE.md).
+and [Phase 09 jurisdiction gateway](docs/architecture/PHASE_09_JURISDICTION_GATEWAY.md).
+The current sponsor-readable ACRA field/operation profile is
+[ACRA_MOCK_API_PROFILE.md](docs/contracts/ACRA_MOCK_API_PROFILE.md).
 
 ## Environment and configuration
 
@@ -125,6 +134,11 @@ blocks exact live binding and verification. No connector is labeled `LIVE`.
 `VITE_DEMO_CONTROLS_ENABLED` controls browser visibility; both default false. Frontend
 visibility never bypasses the backend gate. The supported local path uses Vite's API
 proxy; production/cross-origin CORS is not configured.
+
+`MONGO_URI` is optional and is used only by `scripts/check_mongodb.py` for a manual
+connectivity/read-only diagnostic. MongoDB is not wired into application composition;
+the normal onboarding pipeline does not require it and all repositories remain
+process-local/in-memory.
 
 See [.env.example](.env.example) and the
 [configuration reference](docs/integration/CONFIGURATION_REFERENCE.md). GoldTier/
@@ -173,6 +187,8 @@ not validated. Contradictory examples must not become canonical fixtures.
   sanitized summaries—not KYC/PII or payloads.
 - Current stores, locks, events, bindings, metrics, target ledger, and recovery are
   process-local; restart resets them.
+- The default PDF upload limit is 5 MiB (`5242880` bytes); it is a bounded POC setting,
+  not a production document policy.
 - Production RBAC, PDF antivirus/CDR, durable encrypted audit storage, distributed
   orchestration, real auth/TLS, and monitoring are not implemented.
 

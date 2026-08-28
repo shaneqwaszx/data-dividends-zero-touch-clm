@@ -88,11 +88,13 @@ class ClmOrchestrationService:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
 
-    def create_case(self, uen: str) -> ClmOrchestrationRecord:
+    def create_case(
+        self, uen: str, country_of_incorporation: str | None = None
+    ) -> ClmOrchestrationRecord:
         """Create a registry-validated staged case and stop before GoldTier."""
 
         try:
-            case = self._cases.create_staged_case(uen)
+            case = self._cases.create_staged_case(uen, country_of_incorporation)
         except OnboardingInfrastructureError as exc:
             failed_case = self._cases.get_case(exc.case_id)
             if failed_case is None:

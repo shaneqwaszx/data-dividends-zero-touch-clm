@@ -343,7 +343,7 @@ npm run build
 
 ## 📝 Summary
 
-You have received a **production-ready, demo-ready** zero-touch CLM application with:
+You have received a **demo-ready, process-local POC interface** with:
 
 ✅ Enhanced exception handling with clear explanations  
 ✅ Ownership visualization showing UBO logic  
@@ -352,6 +352,9 @@ You have received a **production-ready, demo-ready** zero-touch CLM application 
 ✅ Full test validation (44/44 passing)  
 ✅ Comprehensive documentation  
 ✅ No database changes (database-agnostic)  
+
+This remains a synthetic POC without durable persistence, production RBAC/security
+controls, live ACRA/GoldTier interoperability, or Ready-for-Approval semantics.
 
 **Ready to demo to stakeholders immediately.**
 
