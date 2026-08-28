@@ -24,6 +24,13 @@ requires returned/requested UEN identity, and retains only query-free HTTPS endp
 provenance. This is a fail-closed POC boundary and does not identify or confirm the live
 ACRA endpoint, authentication, or subscriber contract requested here.
 
+Phase 10 adds separate entity-profile, officer, ownership-party, and relationship
+operations only as project-owned Mock contracts with conservative bounds and synthetic
+fixtures. Please additionally confirm whether these are separate subscribed operations,
+their authoritative schemas/role and relationship vocabularies, pagination/limits, and
+empty/partial semantics. The sandbox-shaped adapter fails closed for the new operations;
+their Mock behavior is not evidence that these endpoints exist in ACRA.
+
 ## JURISDICTION EVIDENCE AUTHORITY
 
 ### Q-015 - Jurisdiction source precedence, disagreement, and review authority

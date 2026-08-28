@@ -31,6 +31,8 @@ from app.domain.models import (
     EventOutcome,
     GoldTierResult,
     OnboardingCase,
+    RegistryAcquisitionStatus,
+    RegistryOperationStatus,
     SafeError,
     WorkflowEvent,
     WorkflowState,
@@ -281,13 +283,13 @@ class OnboardingService:
                 "The identifier is not eligible for Singapore ACRA retrieval.",
             )
 
-        entity = self._run_required_stage(
+        acquisition = self._run_required_stage(
             case,
             code="ACRA_RETRIEVAL_UNEXPECTED_FAILURE",
             message="Corporate registry retrieval could not be completed.",
-            operation=lambda: registry_provider.retrieve_company(normalised_uen),
+            operation=lambda: registry_provider.retrieve_acquisition(normalised_uen),
         )
-        if entity is None:
+        if acquisition is None:
             return self._terminate(
                 case,
                 WorkflowState.FAILED,
@@ -296,13 +298,54 @@ class OnboardingService:
                 "No ACRA entity was found for this UEN.",
             )
 
+        case.registry_acquisition = acquisition
+        entity = acquisition.entity_profile
         case.entity = entity
         self._record(
             case,
             WorkflowState.REGISTRY_FETCHED,
-            EventOutcome.SUCCEEDED,
-            f"Company information retrieved from ACRA {entity.source.environment.value}.",
+            (
+                EventOutcome.SUCCEEDED
+                if acquisition.status == RegistryAcquisitionStatus.COMPLETE
+                else EventOutcome.PARTIAL
+            ),
+            (
+                "Project-owned ACRA registry acquisition completed."
+                if acquisition.status == RegistryAcquisitionStatus.COMPLETE
+                else "Project-owned ACRA registry acquisition returned partial results."
+            ),
         )
+        if acquisition.status == RegistryAcquisitionStatus.FAILED:
+            failed_operation = next(
+                result
+                for result in acquisition.operation_results
+                if result.status == RegistryOperationStatus.FAILED
+            )
+            failure = failed_operation.error
+            return self._terminate(
+                case,
+                WorkflowState.FAILED,
+                EventOutcome.FAILED,
+                (
+                    failure.code
+                    if failure is not None
+                    else "REGISTRY_OPERATION_UNAVAILABLE"
+                ),
+                (
+                    failure.message
+                    if failure is not None
+                    else "Registry acquisition could not be completed."
+                ),
+            )
+        if acquisition.status == RegistryAcquisitionStatus.PARTIAL:
+            issue = acquisition.issues[0]
+            return self._terminate(
+                case,
+                WorkflowState.REVIEW_REQUIRED,
+                EventOutcome.REVIEW_REQUIRED,
+                issue.code,
+                issue.message,
+            )
 
         validation_errors = validate_entity(entity)
         if validation_errors:

@@ -59,6 +59,60 @@ export interface CanonicalEntity {
   };
 }
 
+export type RegistryOperation =
+  | "ENTITY_PROFILE"
+  | "OFFICERS"
+  | "OWNERSHIP_PARTIES"
+  | "RELATIONSHIPS";
+
+export interface RegistryEvidenceProvenance {
+  provider: "ACRA";
+  environment: "MOCK" | "SANDBOX";
+  operation: RegistryOperation;
+  retrieved_at: string;
+  evidence_reference: string;
+}
+
+export interface RegistryAcquisition {
+  requested_identifier: string;
+  status: "COMPLETE" | "PARTIAL" | "FAILED";
+  officers: Array<{
+    officer_id: string;
+    name: string;
+    role: string;
+    appointment_date: string | null;
+    cessation_date: string | null;
+    country: string | null;
+    provenance: RegistryEvidenceProvenance;
+  }>;
+  ownership_parties: Array<{
+    party_id: string;
+    party_type: "NATURAL_PERSON" | "LEGAL_ENTITY";
+    name: string;
+    registration_identifier: string | null;
+    country: string | null;
+    ownership_percentage: string | null;
+    provenance: RegistryEvidenceProvenance;
+  }>;
+  relationships: Array<{
+    relationship_id: string;
+    owned_entity_id: string;
+    owner_party_id: string;
+    relationship_type: "SHARE_OWNERSHIP";
+    ownership_percentage: string;
+    provenance: RegistryEvidenceProvenance;
+  }>;
+  operation_results: Array<{
+    operation: RegistryOperation;
+    status: "COMPLETE" | "EMPTY" | "FAILED" | "NOT_ATTEMPTED";
+    record_count: number;
+    provenance: RegistryEvidenceProvenance | null;
+    error: { code: string; message: string } | null;
+  }>;
+  issues: Array<{ code: string; message: string }>;
+  retrieved_at: string;
+}
+
 export interface WorkflowEvent {
   sequence: number;
   stage: WorkflowState;
@@ -100,6 +154,7 @@ export interface OnboardingCase {
   } | null;
   state: WorkflowState;
   entity: CanonicalEntity | null;
+  registry_acquisition?: RegistryAcquisition | null;
   goldtier_result: {
     party_id: string;
     shell_status: string;

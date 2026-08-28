@@ -29,6 +29,9 @@ determination, or live ACRA/GoldTier interoperability.
 - Source-aware jurisdiction observations with no implicit precedence: Singapore routes
   to ACRA; unresolved/conflicting evidence and recognised AU/MY/HK requests stop in a
   controlled Registry-stage review state without downstream calls.
+- Four project-owned Mock ACRA acquisition operations with strict bounded DTOs,
+  operation-level status/provenance, truthful empty/partial/failure display, and
+  registry ownership evidence feeding the existing deterministic ownership engine.
 
 Live ACRA, live hierarchy, PingFed/real GoldTier, final document/UBO policy, related-
 party writes, authenticated reviewer roles, and Ready-for-Approval remain blocked or
@@ -106,7 +109,7 @@ optional jurisdiction + registration identifier/UEN + PDF + Start
         |
 ZeroTouchOrchestrator
   +-- jurisdiction resolver -> registry router
-  +-- Singapore ACRA provider -> canonical entity
+  +-- Singapore ACRA provider -> profile/officers/owners/relationships -> canonical evidence
   +-- IDP provider -> document evidence/comparison
   +-- Ownership provider -> deterministic Decimal paths
   +-- CLM readiness -> immutable target snapshot
@@ -120,15 +123,19 @@ validation and the flow `source payload → canonical/internal model → target 
 Replacing a provider occurs at its interface/composition seam, not in generic
 orchestration. See [final architecture](docs/architecture/FINAL_POC_ARCHITECTURE.md)
 and [Phase 09 jurisdiction gateway](docs/architecture/PHASE_09_JURISDICTION_GATEWAY.md).
+Phase 10 acquisition details are in
+[Phase 10 expanded registry acquisition](docs/architecture/PHASE_10_EXPANDED_REGISTRY_ACQUISITION.md).
 The current sponsor-readable ACRA field/operation profile is
 [ACRA_MOCK_API_PROFILE.md](docs/contracts/ACRA_MOCK_API_PROFILE.md).
 
 ## Environment and configuration
 
 Safe normal sponsor defaults are ACRA `MOCK`, IDP `LOCAL_PDF_TEXT` (Local POC),
-Ownership `MOCK`/input-driven synthetic data, and GoldTier `MOCK`.
+registry-acquired Mock ownership evidence, and GoldTier `MOCK`.
 ACRA also has a sandbox-shaped adapter behind `ACRA_CONNECTOR_MODE=sandbox`; Q-012 still
-blocks exact live binding and verification. No connector is labeled `LIVE`.
+blocks exact live binding and verification. Its entity-profile seam remains available,
+but the Phase 10 expanded sandbox operations fail closed rather than fabricate a
+contract. No connector is labeled `LIVE`.
 
 `DEMO_CONTROLS_ENABLED` gates backend demo APIs and
 `VITE_DEMO_CONTROLS_ENABLED` controls browser visibility; both default false. Frontend

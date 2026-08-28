@@ -237,3 +237,20 @@ and UBO policy remain provisional; live ACRA/hierarchy/GoldTier and Ready-for-Ap
 remain blocked or unconfirmed. Phase 07 adds no live adapter, credential handling,
 related-party write, autonomous approval, production RBAC, durable orchestration, or
 later-phase scope.
+
+## Phase 10 implementation status
+
+The Singapore Mock registry path now performs four bounded project-owned operations:
+entity profile, officers, ownership parties, and relationships. Strict source DTOs are
+freshly reconstructed, request-bound, collection-limited, and normalized into one
+provider-neutral acquisition bundle with per-operation provenance and status. Empty
+officers are legitimate; missing expected ownership evidence is partial/review-required;
+malformed or unavailable later steps fail safely and stop all downstream work.
+
+The normal Mock Singapore path maps registry ownership evidence through an
+`OwnershipProvider` into the existing deterministic Decimal ownership service. No
+second UBO calculator or policy change was added; developer/test fault providers remain
+available. Browser responses show only safe normalized summaries and label the contract
+as synthetic Mock behavior. Expanded sandbox operations fail closed pending Q-012.
+Q-012 and Q-015 remain open, MongoDB remains diagnostic-only, and no ACRA+, foreign
+registry, live ACRA, final GoldTier mapping, or Ready-for-Approval behavior was added.

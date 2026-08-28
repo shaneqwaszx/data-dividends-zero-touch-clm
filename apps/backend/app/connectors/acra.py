@@ -1,6 +1,7 @@
 """ACRA connector contract expressed in source-boundary models."""
 
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Annotated, Literal, Protocol
 from unicodedata import category
 from urllib.parse import urlsplit
@@ -129,8 +130,124 @@ class AcraCompanyPayload(BaseModel):
         return value.astimezone(UTC)
 
 
+class AcraOfficerPayload(BaseModel):
+    """Strict project-owned Mock officer record pending Q-012."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    officer_id: Annotated[
+        str,
+        BeforeValidator(_normalize_source_text),
+        StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"),
+    ]
+    name: Annotated[
+        str,
+        BeforeValidator(_normalize_source_text),
+        StringConstraints(min_length=1, max_length=160),
+    ]
+    role: SourceCodeText
+    appointment_date: date | None = None
+    cessation_date: date | None = None
+    country: SourceCountryCode | None = None
+
+
+class AcraOwnershipPartyPayload(BaseModel):
+    """Strict project-owned Mock ownership-party record pending Q-012."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    party_id: Annotated[
+        str,
+        BeforeValidator(_normalize_source_text),
+        StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"),
+    ]
+    party_type: Literal["NATURAL_PERSON", "LEGAL_ENTITY"]
+    name: Annotated[
+        str,
+        BeforeValidator(_normalize_source_text),
+        StringConstraints(min_length=1, max_length=160),
+    ]
+    registration_identifier: OptionalSourceText = Field(default=None, max_length=64)
+    country: SourceCountryCode | None = None
+    ownership_percentage: Annotated[
+        Decimal | None,
+        Field(gt=Decimal("0"), le=Decimal("100"), max_digits=12, decimal_places=6),
+    ] = None
+
+
+class AcraRelationshipPayload(BaseModel):
+    """Strict project-owned Mock registry relationship pending Q-012."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    relationship_id: Annotated[
+        str,
+        BeforeValidator(_normalize_source_text),
+        StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"),
+    ]
+    owned_entity_id: Annotated[
+        str,
+        BeforeValidator(_normalize_source_text),
+        StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"),
+    ]
+    owner_party_id: Annotated[
+        str,
+        BeforeValidator(_normalize_source_text),
+        StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"),
+    ]
+    relationship_type: Literal["SHARE_OWNERSHIP"] = "SHARE_OWNERSHIP"
+    ownership_percentage: Annotated[
+        Decimal,
+        Field(gt=Decimal("0"), le=Decimal("100"), max_digits=12, decimal_places=6),
+    ]
+
+
+class _AcraCollectionPayload(BaseModel):
+    """Shared strict envelope for one project-owned collection operation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    uen: SourceUenText
+    source_environment: SourceEnvironmentText
+    source_endpoint: NonBlankSourceText = Field(max_length=2048)
+    retrieved_at: datetime
+
+    @field_validator("source_endpoint")
+    @classmethod
+    def source_endpoint_must_be_safe_https_provenance(cls, value: str) -> str:
+        return AcraCompanyPayload.source_endpoint_must_be_safe_https_provenance(value)
+
+    @field_validator("retrieved_at")
+    @classmethod
+    def retrieved_at_must_be_utc(cls, value: datetime) -> datetime:
+        return AcraCompanyPayload.retrieved_at_must_be_utc(value)
+
+
+class AcraOfficersPayload(_AcraCollectionPayload):
+    officers: tuple[AcraOfficerPayload, ...] = Field(default=(), max_length=32)
+
+
+class AcraOwnershipPartiesPayload(_AcraCollectionPayload):
+    ownership_parties: tuple[AcraOwnershipPartyPayload, ...] = Field(
+        default=(), max_length=64
+    )
+
+
+class AcraRelationshipsPayload(_AcraCollectionPayload):
+    relationships: tuple[AcraRelationshipPayload, ...] = Field(default=(), max_length=128)
+
+
 class AcraConnector(Protocol):
     """Registry interface consumed by application orchestration."""
 
     def fetch_company(self, uen: str) -> AcraCompanyPayload | None:
         """Retrieve a source-boundary company payload by UEN."""
+
+    def fetch_officers(self, uen: str) -> AcraOfficersPayload:
+        """Retrieve the project-owned Mock officer collection."""
+
+    def fetch_ownership_parties(self, uen: str) -> AcraOwnershipPartiesPayload:
+        """Retrieve the project-owned Mock ownership-party collection."""
+
+    def fetch_relationships(self, uen: str) -> AcraRelationshipsPayload:
+        """Retrieve the project-owned Mock relationship collection."""

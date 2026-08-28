@@ -1030,6 +1030,7 @@ export function OnboardingProgress({ summary }: { summary: ZeroTouchCaseSummary 
         </span>
       </div>
       <JurisdictionDecision caseData={summary.case} />
+      <RegistryAcquisitionPanel caseData={summary.case} />
       <ol className="automation-steps">
         {AUTOMATION_STAGES.map(([stage, label]) => {
           const complete = summary.completed_stages.includes(stage);
@@ -1099,6 +1100,64 @@ export function JurisdictionDecision({ caseData }: { caseData: OnboardingCase })
           </ul>
         )}
       </div>
+    </section>
+  );
+}
+
+export function RegistryAcquisitionPanel({ caseData }: { caseData: OnboardingCase }) {
+  const acquisition = caseData.registry_acquisition;
+  if (!acquisition) return null;
+  const environment = acquisition.operation_results.find(
+    (result) => result.provenance !== null,
+  )?.provenance?.environment ?? caseData.entity?.source.environment ?? "MOCK";
+  const labels: Record<(typeof acquisition.operation_results)[number]["operation"], string> = {
+    ENTITY_PROFILE: "Entity Profile",
+    OFFICERS: "Officers",
+    OWNERSHIP_PARTIES: "Ownership Parties",
+    RELATIONSHIPS: "Relationships",
+  };
+
+  return (
+    <section className="registry-acquisition" aria-label="ACRA registry acquisition">
+      <div className="registry-acquisition__heading">
+        <div>
+          <span>ACRA Registry Acquisition</span>
+          <strong>{acquisition.status}</strong>
+        </div>
+        <p>
+          Project-owned synthetic {titleCaseEnvironment(environment)} contract — not
+          verified live ACRA.
+        </p>
+      </div>
+      <ul className="registry-acquisition__operations">
+        {acquisition.operation_results.map((result) => (
+          <li key={result.operation}>
+            <span>{labels[result.operation]}</span>
+            <strong>{result.status.replaceAll("_", " ")}</strong>
+            <small>{result.record_count} record{result.record_count === 1 ? "" : "s"}</small>
+            {result.error && <small>{result.error.code}</small>}
+          </li>
+        ))}
+      </ul>
+      {acquisition.issues.length > 0 && (
+        <div className="registry-acquisition__issues" role="status">
+          {acquisition.issues.map((issue) => (
+            <p key={issue.code}><strong>{issue.code}</strong> — {issue.message}</p>
+          ))}
+        </div>
+      )}
+      {(acquisition.officers.length > 0 || acquisition.ownership_parties.length > 0) && (
+        <div className="registry-acquisition__evidence">
+          <div>
+            <span>Normalized officers</span>
+            <strong>{acquisition.officers.map((officer) => officer.name).join(", ") || "None"}</strong>
+          </div>
+          <div>
+            <span>Normalized ownership parties</span>
+            <strong>{acquisition.ownership_parties.map((party) => party.name).join(", ") || "None"}</strong>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1624,6 +1683,7 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
         GoldTier submission are reported separately by the unified orchestration summary.
       </p>
       <JurisdictionDecision caseData={caseData} />
+      <RegistryAcquisitionPanel caseData={caseData} />
 
       <div className="panel-grid">
         <article className="detail-card">

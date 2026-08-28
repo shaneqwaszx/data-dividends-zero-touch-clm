@@ -5,7 +5,12 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.config import Settings
-from app.connectors.acra import AcraCompanyPayload
+from app.connectors.acra import (
+    AcraCompanyPayload,
+    AcraOfficersPayload,
+    AcraOwnershipPartiesPayload,
+    AcraRelationshipsPayload,
+)
 from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.registry import (
@@ -290,6 +295,15 @@ class _CountingAcra:
     def fetch_company(self, uen: str) -> AcraCompanyPayload | None:
         self.calls.append(uen)
         return self._delegate.fetch_company(uen)
+
+    def fetch_officers(self, uen: str) -> AcraOfficersPayload:
+        return self._delegate.fetch_officers(uen)
+
+    def fetch_ownership_parties(self, uen: str) -> AcraOwnershipPartiesPayload:
+        return self._delegate.fetch_ownership_parties(uen)
+
+    def fetch_relationships(self, uen: str) -> AcraRelationshipsPayload:
+        return self._delegate.fetch_relationships(uen)
 
 
 def build_service() -> tuple[OnboardingService, _CountingAcra]:
