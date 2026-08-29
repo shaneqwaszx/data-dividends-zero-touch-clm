@@ -64,6 +64,7 @@ from app.domain.reconciliation import (
     ReconciliationCaseRecord,
     ReconciliationDecisionAction,
     ReconciliationField,
+    ReconciliationObservation,
     ReconciliationOutcome,
     ReconciliationSourceKind,
     ReconciliationStatus,
@@ -500,21 +501,25 @@ class ReconciliationResponse(BaseModel):
 
     @classmethod
     def from_domain(cls, record: ReconciliationCaseRecord) -> "ReconciliationResponse":
-        observations = lambda values: tuple(  # noqa: E731
-            BrowserReconciliationObservation(
-                observation_id=item.observation_id,
-                field_name=item.field_name,
-                normalized_value=item.normalized_value,
-                source_kind=item.source_kind,
-                source_system=item.source_system,
-                environment=item.environment,
-                observed_at=item.observed_at,
-                evidence_reference=item.evidence_reference,
-                confidence=item.confidence,
-                validity=item.validity,
+        def observations(
+            values: tuple[ReconciliationObservation, ...],
+        ) -> tuple[BrowserReconciliationObservation, ...]:
+            return tuple(
+                BrowserReconciliationObservation(
+                    observation_id=item.observation_id,
+                    field_name=item.field_name,
+                    normalized_value=item.normalized_value,
+                    source_kind=item.source_kind,
+                    source_system=item.source_system,
+                    environment=item.environment,
+                    observed_at=item.observed_at,
+                    evidence_reference=item.evidence_reference,
+                    confidence=item.confidence,
+                    validity=item.validity,
+                )
+                for item in values
             )
-            for item in values
-        )
+
         return cls(
             reconciliation_id=record.reconciliation_id,
             version=record.version,
