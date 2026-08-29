@@ -58,6 +58,16 @@ from app.domain.ownership import (
     OwnershipWorkflowEvent,
     Party,
 )
+from app.domain.reconciliation import (
+    DiscrepancyStatus,
+    ObservationValidity,
+    ReconciliationCaseRecord,
+    ReconciliationDecisionAction,
+    ReconciliationField,
+    ReconciliationOutcome,
+    ReconciliationSourceKind,
+    ReconciliationStatus,
+)
 from app.domain.zero_touch import (
     AutomationEvent,
     AutomationMetrics,
@@ -425,6 +435,132 @@ class BusinessExceptionResponse(BaseModel):
     resolution: ExceptionResolutionAction | None
 
 
+class BrowserReconciliationObservation(BaseModel):
+    """Normalized browser evidence; raw source text remains in backend domain records."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    observation_id: UUID
+    field_name: ReconciliationField
+    normalized_value: str | None
+    source_kind: ReconciliationSourceKind
+    source_system: str | None
+    environment: str | None
+    observed_at: datetime
+    evidence_reference: str | None
+    confidence: float | None
+    validity: ObservationValidity
+
+
+class BrowserReconciliationDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action: ReconciliationDecisionAction
+    selected_observation_id: UUID
+    selected_value: str
+    decided_at: datetime
+    reconciliation_version: int
+
+
+class BrowserReconciliationDiscrepancy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    discrepancy_id: UUID
+    field_name: ReconciliationField
+    outcome: ReconciliationOutcome
+    observations: tuple[BrowserReconciliationObservation, ...]
+    status: DiscrepancyStatus
+    allowed_actions: tuple[ReconciliationDecisionAction, ...]
+    evidence_fingerprint: str
+    decision: BrowserReconciliationDecision | None
+
+
+class BrowserFieldReconciliation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    field_name: ReconciliationField
+    observations: tuple[BrowserReconciliationObservation, ...]
+    outcome: ReconciliationOutcome
+    discrepancy_id: UUID | None
+
+
+class ReconciliationResponse(BaseModel):
+    """Safe current state plus retained discrepancy decisions and superseded history."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reconciliation_id: UUID
+    version: int
+    status: ReconciliationStatus
+    source_document_ids: tuple[UUID, ...]
+    source_document_event_counts: tuple[int, ...]
+    fields: tuple[BrowserFieldReconciliation, ...]
+    discrepancies: tuple[BrowserReconciliationDiscrepancy, ...]
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(cls, record: ReconciliationCaseRecord) -> "ReconciliationResponse":
+        observations = lambda values: tuple(  # noqa: E731
+            BrowserReconciliationObservation(
+                observation_id=item.observation_id,
+                field_name=item.field_name,
+                normalized_value=item.normalized_value,
+                source_kind=item.source_kind,
+                source_system=item.source_system,
+                environment=item.environment,
+                observed_at=item.observed_at,
+                evidence_reference=item.evidence_reference,
+                confidence=item.confidence,
+                validity=item.validity,
+            )
+            for item in values
+        )
+        return cls(
+            reconciliation_id=record.reconciliation_id,
+            version=record.version,
+            status=record.status,
+            source_document_ids=record.source_document_ids,
+            source_document_event_counts=record.source_document_event_counts,
+            fields=tuple(
+                BrowserFieldReconciliation(
+                    field_name=item.field_name,
+                    observations=observations(item.observations),
+                    outcome=item.outcome,
+                    discrepancy_id=item.discrepancy_id,
+                )
+                for item in record.fields
+            ),
+            discrepancies=tuple(
+                BrowserReconciliationDiscrepancy(
+                    discrepancy_id=item.discrepancy_id,
+                    field_name=item.field_name,
+                    outcome=item.outcome,
+                    observations=observations(item.observations),
+                    status=item.status,
+                    allowed_actions=item.allowed_actions,
+                    evidence_fingerprint=item.evidence_fingerprint,
+                    decision=(
+                        BrowserReconciliationDecision(
+                            action=item.decision.action,
+                            selected_observation_id=(
+                                item.decision.selected_observation_id
+                            ),
+                            selected_value=item.decision.selected_value,
+                            decided_at=item.decision.decided_at,
+                            reconciliation_version=(
+                                item.decision.reconciliation_version
+                            ),
+                        )
+                        if item.decision is not None
+                        else None
+                    ),
+                )
+                for item in record.discrepancies
+            ),
+            updated_at=record.updated_at,
+        )
+
+
 class ZeroTouchCaseSummaryResponse(BaseModel):
     """Sponsor-facing authoritative automation and bounded CLM summary."""
 
@@ -438,6 +574,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     current_stage: AutomationStage
     completed_stages: tuple[AutomationStage, ...]
     active_exceptions: list[BusinessExceptionResponse]
+    reconciliation: ReconciliationResponse | None
     technical_failure: SafeError | None
     metrics: AutomationMetrics
     target_operations: tuple["BrowserTargetOperationEvidence", ...]
@@ -451,6 +588,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         record: ZeroTouchAutomationRecord,
         clm_record: ClmOrchestrationRecord,
         case: OnboardingCase,
+        reconciliation: ReconciliationCaseRecord | None = None,
         target_operations: tuple["BrowserTargetOperationEvidence", ...] = (),
     ) -> "ZeroTouchCaseSummaryResponse":
         return cls(
@@ -465,6 +603,11 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
                 BusinessExceptionResponse.model_validate(item)
                 for item in record.active_exceptions
             ],
+            reconciliation=(
+                ReconciliationResponse.from_domain(reconciliation)
+                if reconciliation is not None
+                else None
+            ),
             technical_failure=record.technical_failure,
             metrics=record.metrics,
             target_operations=target_operations,

@@ -28,6 +28,7 @@ from app.composition import (
     build_mock_ownership_demo_control,
     build_onboarding_service,
     build_ownership_analysis_service,
+    build_reconciliation_service,
     build_zero_touch_demo_control,
     build_zero_touch_orchestrator,
 )
@@ -48,6 +49,7 @@ from app.domain.clm import GoldTierSubmissionPlan
 from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.jurisdiction import JurisdictionCode
 from app.domain.ownership import OwnershipCandidate
+from app.domain.reconciliation import ReconciliationDecisionAction
 from app.domain.target_submission import GoldTierOperationMarker, GoldTierTargetOutcome
 from app.domain.zero_touch import ExceptionResolutionAction, ZeroTouchAutomationRecord
 from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
@@ -64,6 +66,7 @@ from app.services.ownership_errors import (
     OwnershipInfrastructureError,
     OwnershipRequestError,
 )
+from app.services.reconciliation import ReconciliationService
 from app.services.zero_touch_errors import (
     ZeroTouchInfrastructureError,
     ZeroTouchRequestError,
@@ -167,6 +170,17 @@ class ZeroTouchExceptionResolutionRequest(BaseModel):
     evidence_version: str = Field(min_length=1, max_length=128)
 
 
+class ReconciliationResolutionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: ReconciliationDecisionAction
+    expected_automation_version: int = Field(ge=1)
+    expected_reconciliation_version: int = Field(ge=1)
+    evidence_fingerprint: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+
 class ZeroTouchFailureDetail(BaseModel):
     code: str
     message: str
@@ -181,6 +195,7 @@ def create_app(
     idp_demo_control: MockIdpDemoControl | None = None,
     ownership_analysis_service: OwnershipAnalysisService | None = None,
     ownership_demo_control: MockOwnershipDemoControl | None = None,
+    reconciliation_service: ReconciliationService | None = None,
     clm_orchestration_service: ClmOrchestrationService | None = None,
     zero_touch_orchestrator: ZeroTouchOrchestrator | None = None,
     zero_touch_demo_control: ZeroTouchDemoControl | None = None,
@@ -209,13 +224,19 @@ def create_app(
         service, active_settings
     )
     demo_ownership = ownership_demo_control or build_mock_ownership_demo_control()
+    reconciliation = (
+        reconciliation_service
+        or getattr(zero_touch_orchestrator, "_reconciliation", None)
+        or build_reconciliation_service(service, documents)
+    )
     clm = clm_orchestration_service or build_clm_orchestration_service(
         service,
         documents,
         ownership,
+        reconciliation,
     )
     zero_touch = zero_touch_orchestrator or build_zero_touch_orchestrator(
-        service, documents, ownership, clm, active_settings
+        service, documents, ownership, clm, reconciliation, active_settings
     )
 
     def require_demo_controls() -> None:
@@ -304,6 +325,9 @@ def create_app(
     def get_zero_touch_orchestrator() -> ZeroTouchOrchestrator:
         return zero_touch
 
+    def get_reconciliation_service() -> ReconciliationService:
+        return reconciliation
+
     def clm_response(record: object) -> ClmCaseSummaryResponse:
         from app.domain.clm import ClmOrchestrationRecord
 
@@ -385,6 +409,7 @@ def create_app(
             automation,
             clm_record,
             case,
+            reconciliation=reconciliation.get(case_id=automation.case_id),
             target_operations=target_operation_evidence(target_outcome),
         )
 
@@ -909,6 +934,40 @@ def create_app(
                     action=request.action,
                     expected_automation_version=request.expected_automation_version,
                     evidence_version=request.evidence_version,
+                )
+            )
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        except ZeroTouchInfrastructureError as exc:
+            raise _zero_touch_infrastructure_http_error(exc) from None
+
+    @application.post(
+        (
+            "/api/clm/zero-touch/cases/{case_id}/reconciliation/"
+            "discrepancies/{discrepancy_id}/resolve"
+        ),
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    def resolve_reconciliation_discrepancy(
+        case_id: UUID,
+        discrepancy_id: UUID,
+        request: ReconciliationResolutionRequest,
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+    ) -> ZeroTouchCaseSummaryResponse:
+        try:
+            return zero_touch_response(
+                active_zero_touch.resolve_reconciliation_discrepancy(
+                    case_id=case_id,
+                    discrepancy_id=discrepancy_id,
+                    action=request.action,
+                    expected_automation_version=request.expected_automation_version,
+                    expected_reconciliation_version=(
+                        request.expected_reconciliation_version
+                    ),
+                    evidence_fingerprint=request.evidence_fingerprint,
                 )
             )
         except ZeroTouchRequestError as exc:

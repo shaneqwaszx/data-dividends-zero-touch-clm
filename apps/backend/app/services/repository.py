@@ -1,5 +1,8 @@
 """Temporary process-local repository used by the Phase 01 mock slice."""
 
+from __future__ import annotations
+
+from threading import RLock
 from typing import Protocol
 from uuid import UUID
 
@@ -11,16 +14,50 @@ class OnboardingCaseRepository(Protocol):
 
     def get(self, case_id: UUID) -> OnboardingCase | None: ...
 
+    @property
+    def transaction_lock(self) -> RLock: ...
+
+    def transaction_snapshot(self, case_id: UUID) -> OnboardingCase | None: ...
+
+    def transaction_replace(self, case: OnboardingCase) -> None: ...
+
+    def transaction_restore(
+        self, case_id: UUID, snapshot: OnboardingCase | None
+    ) -> None: ...
+
 
 class InMemoryOnboardingCaseRepository:
     """Store defensive model copies for the lifetime of one application process."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, transaction_lock: RLock | None = None) -> None:
         self._cases: dict[UUID, OnboardingCase] = {}
+        self._lock = transaction_lock or RLock()
+
+    @property
+    def transaction_lock(self) -> RLock:
+        return self._lock
 
     def save(self, case: OnboardingCase) -> None:
-        self._cases[case.case_id] = case.model_copy(deep=True)
+        with self._lock:
+            validated = OnboardingCase.model_validate(case)
+            self._cases[validated.case_id] = validated.model_copy(deep=True)
 
     def get(self, case_id: UUID) -> OnboardingCase | None:
+        with self._lock:
+            case = self._cases.get(case_id)
+            return case.model_copy(deep=True) if case is not None else None
+
+    def transaction_snapshot(self, case_id: UUID) -> OnboardingCase | None:
         case = self._cases.get(case_id)
         return case.model_copy(deep=True) if case is not None else None
+
+    def transaction_replace(self, case: OnboardingCase) -> None:
+        self._cases[case.case_id] = case.model_copy(deep=True)
+
+    def transaction_restore(
+        self, case_id: UUID, snapshot: OnboardingCase | None
+    ) -> None:
+        if snapshot is None:
+            self._cases.pop(case_id, None)
+        else:
+            self._cases[case_id] = snapshot.model_copy(deep=True)

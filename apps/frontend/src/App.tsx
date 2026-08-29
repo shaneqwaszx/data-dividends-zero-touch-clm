@@ -15,6 +15,7 @@ import {
   fetchZeroTouchCase,
   loadMockOwnership,
   reviewDocument,
+  resolveReconciliationDiscrepancy,
   resolveZeroTouchException,
   replaceZeroTouchDocument,
   resumeZeroTouchCase,
@@ -34,6 +35,8 @@ import type {
   OwnershipAnalysisRecord,
   OwnershipCandidate,
   ReviewDecision,
+  ReconciliationDecisionAction,
+  ReconciliationDiscrepancy,
   SimulationProfile,
   ExceptionResolutionAction,
   ZeroTouchCaseSummary,
@@ -1488,6 +1491,151 @@ export function SponsorDocumentEvidence({ summary }: { summary: ZeroTouchCaseSum
   return <SponsorDocumentEvidenceView documents={documents} />;
 }
 
+function reconciliationSourceValue(
+  discrepancy: ReconciliationDiscrepancy,
+  source: "REGISTRY" | "DOCUMENT_IDP",
+): string {
+  const values = discrepancy.observations
+    .filter((item) => item.source_kind === source)
+    .map((item) => item.normalized_value ?? "Not available");
+  return values.length ? values.join(" · ") : "Not observed";
+}
+
+export function ReconciliationPanel({
+  summary,
+  isResolving = false,
+  onResolve,
+  onReplace,
+}: {
+  summary: ZeroTouchCaseSummary;
+  isResolving?: boolean;
+  onResolve?: (
+    discrepancy: ReconciliationDiscrepancy,
+    action: ReconciliationDecisionAction,
+  ) => void;
+  onReplace?: (documentId: string, eventCount: number, file: File) => void;
+}) {
+  const reconciliation = summary.reconciliation;
+  const [replacementFile, setReplacementFile] = useState<File | null>(null);
+  if (!reconciliation) return null;
+  const discrepancies = new Map(
+    reconciliation.discrepancies.map((item) => [item.discrepancy_id, item]),
+  );
+  const currentDocumentId = reconciliation.source_document_ids.at(-1);
+  const currentDocumentVersion = reconciliation.source_document_event_counts.at(-1);
+
+  return (
+    <section className="reconciliation-panel" aria-labelledby="reconciliation-heading">
+      <p className="section-label">Multi-source reconciliation</p>
+      <div className="reconciliation-heading-row">
+        <h2 id="reconciliation-heading">Registry and document observations</h2>
+        <span className={`reconciliation-status reconciliation-status--${reconciliation.status}`}>
+          {reconciliation.status.replaceAll("_", " ")}
+        </span>
+      </div>
+      <p>
+        Neither source is authoritative by default. Values remain separate until an
+        explicitly advertised backend action records a decision.
+      </p>
+      <div className="reconciliation-grid" role="table" aria-label="Field reconciliation">
+        <div className="reconciliation-grid__header" role="row">
+          <strong role="columnheader">Field</strong>
+          <strong role="columnheader">Registry value</strong>
+          <strong role="columnheader">Document value</strong>
+          <strong role="columnheader">Outcome / decision</strong>
+        </div>
+        {reconciliation.fields.map((field) => {
+          const discrepancy = field.discrepancy_id
+            ? discrepancies.get(field.discrepancy_id)
+            : undefined;
+          const registry = field.observations
+            .filter((item) => item.source_kind === "REGISTRY")
+            .map((item) => item.normalized_value ?? "Not available")
+            .join(" · ");
+          const document = field.observations
+            .filter((item) => item.source_kind === "DOCUMENT_IDP")
+            .map((item) => item.normalized_value ?? "Not available")
+            .join(" · ");
+          return (
+            <div className="reconciliation-grid__row" role="row" key={field.field_name}>
+              <strong role="cell">{fieldLabel(field.field_name)}</strong>
+              <span role="cell"><small>Registry observation</small>{registry || "Not observed"}</span>
+              <span role="cell"><small>Document observation</small>{document || "Not observed"}</span>
+              <span role="cell">
+                <span className={`comparison-badge comparison-badge--${field.outcome}`}>
+                  {field.outcome.replaceAll("_", " ")}
+                </span>
+                {discrepancy?.decision && (
+                  <small>
+                    Decision: {discrepancy.decision.action.replaceAll("_", " ")} · {formatTimestamp(discrepancy.decision.decided_at)}
+                  </small>
+                )}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {reconciliation.discrepancies
+        .filter((item) => item.status !== "CANCELLED")
+        .map((discrepancy) => (
+          <article className="reconciliation-discrepancy" key={discrepancy.discrepancy_id}>
+            <h3>{fieldLabel(discrepancy.field_name)} — {discrepancy.outcome.replaceAll("_", " ")}</h3>
+            <p>
+              Registry: {reconciliationSourceValue(discrepancy, "REGISTRY")} · Document: {reconciliationSourceValue(discrepancy, "DOCUMENT_IDP")}
+            </p>
+            <p className="reconciliation-provenance">
+              {discrepancy.observations.map((observation) => (
+                <span key={observation.observation_id}>
+                  {observation.source_kind.replaceAll("_", " ")} · {observation.source_system ?? "Current case"} · {observation.environment ?? "Local"} · {observation.validity}
+                </span>
+              ))}
+            </p>
+            {discrepancy.status === "OPEN" && onResolve && (
+              <div className="exception-actions">
+                {discrepancy.allowed_actions.map((action) => (
+                  <button
+                    key={action}
+                    type="button"
+                    disabled={isResolving}
+                    onClick={() => onResolve(discrepancy, action)}
+                  >
+                    {action === "KEEP_REGISTRY_VALUE" ? "Keep registry value" : "Use document value"}
+                  </button>
+                ))}
+                {discrepancy.allowed_actions.length === 0 && (
+                  <p className="warning-notice">Replacement evidence is required; no value-selection action is authorized.</p>
+                )}
+              </div>
+            )}
+            {discrepancy.decision && (
+              <p className="decision-summary">
+                Resolved by explicit POC operator action: {discrepancy.decision.action.replaceAll("_", " ")}. No reviewer identity or compliance authority is claimed.
+              </p>
+            )}
+          </article>
+        ))}
+      {onReplace && currentDocumentId && currentDocumentVersion && reconciliation.status === "REVIEW_REQUIRED" && (
+        <div className="replacement-section">
+          <h3>Replace current document evidence</h3>
+          <input
+            aria-label="Replacement reconciliation PDF"
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={(event) => setReplacementFile(event.target.files?.[0] ?? null)}
+          />
+          <button
+            type="button"
+            disabled={isResolving || !replacementFile}
+            onClick={() => replacementFile && onReplace(currentDocumentId, currentDocumentVersion, replacementFile)}
+          >
+            Upload replacement and re-evaluate
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function SponsorOwnershipEvidenceView({ record }: { record: OwnershipAnalysisRecord | null }) {
   if (!record) return null;
   const names = new Map(record.parties.map((party) => [party.party_id, party.display_name]));
@@ -2079,6 +2227,45 @@ export default function App({
     }
   }
 
+  async function handleReconciliationResolution(
+    discrepancy: ReconciliationDiscrepancy,
+    action: ReconciliationDecisionAction,
+  ) {
+    if (!summary?.reconciliation || resolutionActive.current) return;
+    const generation = journeyGeneration.current;
+    const activeCaseId = summary.case.case_id;
+    resolutionActive.current = true;
+    setIsResolving(true);
+    setRequestError(null);
+    try {
+      const updated = await resolveReconciliationDiscrepancy(
+        summary,
+        discrepancy.discrepancy_id,
+        action,
+        summary.reconciliation.version,
+        discrepancy.evidence_fingerprint,
+      );
+      if (generation === journeyGeneration.current && activeCaseId === updated.case.case_id) {
+        setSummary(updated);
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        try {
+          const refreshed = await fetchZeroTouchCase(activeCaseId);
+          if (generation === journeyGeneration.current) setSummary(refreshed);
+        } catch {
+          // Keep the stable stale-resolution message below.
+        }
+      }
+      if (generation === journeyGeneration.current) {
+        setRequestError(error instanceof Error ? error.message : "Reconciliation decision failed.");
+      }
+    } finally {
+      resolutionActive.current = false;
+      if (generation === journeyGeneration.current) setIsResolving(false);
+    }
+  }
+
   async function handleRecovery() {
     if (!summary || isSubmitting || isResolving) return;
     setIsSubmitting(true);
@@ -2223,6 +2410,7 @@ export default function App({
           <details className="evidence-disclosure" open={summary.status === "WAITING_FOR_REVIEW"}>
             <summary>Evidence and readiness details</summary>
             <SponsorDocumentEvidence summary={summary} />
+            <ReconciliationPanel summary={summary} />
             <SponsorOwnershipEvidence summary={summary} />
             <SponsorTargetEvidence summary={summary} />
             <SponsorReadinessEvidence summary={summary} />
@@ -2265,7 +2453,17 @@ export default function App({
           {activeTab === "review" && summary && (
             <>
           <LocalReviewerWorkbench summary={summary} />
-          {summary.status === "WAITING_FOR_REVIEW" && summary.active_exceptions.map((exception) => (
+          <ReconciliationPanel
+            summary={summary}
+            isResolving={isResolving}
+            onResolve={(discrepancy, action) => void handleReconciliationResolution(discrepancy, action)}
+            onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
+          />
+          {summary.status === "WAITING_FOR_REVIEW" && summary.active_exceptions
+            .filter((exception) => !summary.reconciliation?.discrepancies.some(
+              (discrepancy) => discrepancy.discrepancy_id === exception.exception_id,
+            ))
+            .map((exception) => (
             <HumanReviewPanel
               key={exception.exception_id}
               exception={exception}

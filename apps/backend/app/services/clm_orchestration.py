@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
 from threading import RLock
+from typing import Protocol
 from uuid import UUID, uuid4
 
 from app.domain.clm import (
@@ -68,6 +69,10 @@ REAL_INTEGRATION_WARNINGS = [
 ]
 
 
+class ReconciliationReadiness(Protocol):
+    def is_currently_cleared(self, *, case_id: UUID) -> bool: ...
+
+
 class ClmOrchestrationService:
     """Compose current case evidence without copying subsystem source records."""
 
@@ -78,6 +83,7 @@ class ClmOrchestrationService:
         documents: DocumentProcessingService,
         ownership: OwnershipAnalysisService,
         repository: ClmOrchestrationRepository,
+        reconciliation: ReconciliationReadiness | None = None,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
     ) -> None:
@@ -85,6 +91,7 @@ class ClmOrchestrationService:
         self._documents = documents
         self._ownership = ownership
         self._repository = repository
+        self._reconciliation = reconciliation
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
 
@@ -281,6 +288,11 @@ class ClmOrchestrationService:
             documents=documents,
             ownership=ownership,
             document_confidence_threshold=self._documents.review_confidence_threshold,
+            reconciliation_cleared=(
+                self._reconciliation.is_currently_cleared(case_id=record.case_id)
+                if self._reconciliation is not None
+                else False
+            ),
             now=self._clock(),
         )
         if readiness.blockers:
@@ -453,6 +465,11 @@ class ClmOrchestrationService:
             documents=documents,
             ownership=ownership,
             document_confidence_threshold=self._documents.review_confidence_threshold,
+            reconciliation_cleared=(
+                self._reconciliation.is_currently_cleared(case_id=case.case_id)
+                if self._reconciliation is not None
+                else False
+            ),
             now=now or self._clock(),
         )
 
@@ -488,11 +505,19 @@ class ClmOrchestrationService:
                 EvidenceReference(
                     reference_id=document.document_id,
                     version=len(document.events),
-                    status=document.state.value,
+                    status=(
+                        document.state.value
+                        if document.state == DocumentProcessingState.REVIEWED
+                        else "RECONCILIATION_RESOLVED"
+                    ),
                     updated_at=document.updated_at,
                 )
                 for document in documents
                 if document.state == DocumentProcessingState.REVIEWED
+                or (
+                    self._reconciliation is not None
+                    and self._reconciliation.is_currently_cleared(case_id=case.case_id)
+                )
             ),
             ownership_reference=EvidenceReference(
                 reference_id=ownership.analysis_id,
@@ -576,6 +601,7 @@ def _evaluate_readiness(
     ownership: OwnershipAnalysisRecord | None,
     document_confidence_threshold: float,
     now: datetime,
+    reconciliation_cleared: bool = False,
 ) -> ClmReadinessAssessment:
     blockers: list[ClmBlockerCode] = []
 
@@ -604,31 +630,32 @@ def _evaluate_readiness(
     else:
         if any(item.state == DocumentProcessingState.PROCESSING for item in documents):
             block(ClmBlockerCode.DOCUMENT_PROCESSING)
-        if any(item.state == DocumentProcessingState.REVIEW_REQUIRED for item in documents):
-            block(ClmBlockerCode.DOCUMENT_REVIEW_INCOMPLETE)
         if any(item.state == DocumentProcessingState.FAILED for item in documents):
             block(ClmBlockerCode.DOCUMENT_PROCESSING_FAILED)
         reviewed = [item for item in documents if item.state == DocumentProcessingState.REVIEWED]
-        if not reviewed:
-            block(ClmBlockerCode.DOCUMENT_REVIEW_INCOMPLETE)
-        for item in reviewed:
-            assessment = document_semantic_assessment(
-                record=item,
-                current_entity=case.entity,
-                confidence_threshold=document_confidence_threshold,
-            )
-            if DocumentAutoClearBlocker.SOURCE_CONFLICT in assessment.blockers:
-                block(ClmBlockerCode.SOURCE_CONFLICT_REQUIRES_POLICY)
-            if any(
-                blocker
-                in {
-                    DocumentAutoClearBlocker.LOW_CONFIDENCE,
-                    DocumentAutoClearBlocker.REQUIRED_FIELD_MISSING,
-                    DocumentAutoClearBlocker.REVIEW_STATE_INVALID,
-                }
-                for blocker in assessment.blockers
-            ):
+        if not reconciliation_cleared:
+            if any(item.state == DocumentProcessingState.REVIEW_REQUIRED for item in documents):
                 block(ClmBlockerCode.DOCUMENT_REVIEW_INCOMPLETE)
+            if not reviewed:
+                block(ClmBlockerCode.DOCUMENT_REVIEW_INCOMPLETE)
+            for item in reviewed:
+                assessment = document_semantic_assessment(
+                    record=item,
+                    current_entity=case.entity,
+                    confidence_threshold=document_confidence_threshold,
+                )
+                if DocumentAutoClearBlocker.SOURCE_CONFLICT in assessment.blockers:
+                    block(ClmBlockerCode.SOURCE_CONFLICT_REQUIRES_POLICY)
+                if any(
+                    blocker
+                    in {
+                        DocumentAutoClearBlocker.LOW_CONFIDENCE,
+                        DocumentAutoClearBlocker.REQUIRED_FIELD_MISSING,
+                        DocumentAutoClearBlocker.REVIEW_STATE_INVALID,
+                    }
+                    for blocker in assessment.blockers
+                ):
+                    block(ClmBlockerCode.DOCUMENT_REVIEW_INCOMPLETE)
         document_blockers = {
             ClmBlockerCode.DOCUMENT_PROCESSING,
             ClmBlockerCode.DOCUMENT_REVIEW_INCOMPLETE,
@@ -638,7 +665,7 @@ def _evaluate_readiness(
         if not document_blockers:
             document_stage = StageReadiness(
                 status=ReadinessStageStatus.READY,
-                reference_id=str(reviewed[-1].document_id),
+                reference_id=str(documents[-1].document_id),
             )
         elif ClmBlockerCode.DOCUMENT_PROCESSING_FAILED in document_blockers:
             document_stage = StageReadiness(status=ReadinessStageStatus.FAILED)

@@ -14,5 +14,8 @@ source-aware country decision and Singapore-only provider routing boundary is in
 [PHASE_09_JURISDICTION_GATEWAY.md](PHASE_09_JURISDICTION_GATEWAY.md). Phase 10's
 project-owned multi-step Mock ACRA acquisition and registry-to-existing-ownership seam
 is in [PHASE_10_EXPANDED_REGISTRY_ACQUISITION.md](PHASE_10_EXPANDED_REGISTRY_ACQUISITION.md).
+Phase 11's source-neutral field reconciliation, explicit decision, canonical update,
+and resume boundary is in
+[PHASE_11_RECONCILIATION_REVIEW_RESUME.md](PHASE_11_RECONCILIATION_REVIEW_RESUME.md).
 
 Later phases should update that baseline only when an approved planner handoff introduces a new boundary or decision.

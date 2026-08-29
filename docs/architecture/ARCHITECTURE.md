@@ -1,10 +1,11 @@
 # Phase 00 Architecture
 
-> **Current implementation note (Phase 09):** this file preserves the Phase 00
+> **Current implementation note (Phase 11):** this file preserves the Phase 00
 > baseline. The implemented pipeline now includes the source-aware jurisdiction gateway,
 > Singapore-only registry router, ACRA adapter, canonical entity, IDP, ownership/UBO,
-> CLM readiness, and Mock GoldTier orchestration described in
-> [PHASE_09_JURISDICTION_GATEWAY.md](PHASE_09_JURISDICTION_GATEWAY.md) and
+> source-neutral reconciliation/human resume, CLM readiness, and Mock GoldTier
+> orchestration described in
+> [PHASE_11_RECONCILIATION_REVIEW_RESUME.md](PHASE_11_RECONCILIATION_REVIEW_RESUME.md) and
 > [FINAL_POC_ARCHITECTURE.md](FINAL_POC_ARCHITECTURE.md). Statements below that label
 > these components “future” are historical, not current code truth.
 
