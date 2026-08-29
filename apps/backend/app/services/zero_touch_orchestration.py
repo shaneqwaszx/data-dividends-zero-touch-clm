@@ -17,6 +17,14 @@ from app.domain.documents import (
 )
 from app.domain.models import EventOutcome, SafeError, WorkflowState
 from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState
+from app.domain.reconciliation import (
+    ReconciliationCaseRecord,
+    ReconciliationDecisionAction,
+    ReconciliationDiscrepancy,
+    ReconciliationOutcome,
+    ReconciliationSourceKind,
+    ReconciliationStatus,
+)
 from app.domain.zero_touch import (
     AutomationEvent,
     AutomationEventType,
@@ -40,6 +48,12 @@ from app.services.document_processing import DocumentProcessingService
 from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_errors import OwnershipInfrastructureError, OwnershipRequestError
+from app.services.reconciliation import ReconciliationService
+from app.services.reconciliation_errors import (
+    ReconciliationInfrastructureError,
+    ReconciliationRequestError,
+)
+from app.services.reconciliation_repository import InMemoryReconciliationRepository
 from app.services.zero_touch_errors import (
     ZeroTouchInfrastructureError,
     ZeroTouchRequestError,
@@ -65,6 +79,7 @@ class ZeroTouchOrchestrator:
         ownership: OwnershipAnalysisService,
         clm: ClmOrchestrationService,
         repository: ZeroTouchAutomationRepository,
+        reconciliation: ReconciliationService | None = None,
         ownership_provider_bindings: OwnershipProviderBindingResolver | None = None,
         max_transitions_per_run: int = 12,
         clock: Callable[[], datetime] | None = None,
@@ -76,6 +91,13 @@ class ZeroTouchOrchestrator:
         self._documents = documents
         self._ownership = ownership
         self._clm = clm
+        self._reconciliation = reconciliation or ReconciliationService(
+            cases=cases,
+            documents=documents,
+            repository=InMemoryReconciliationRepository(),
+        )
+        if getattr(clm, "_reconciliation", None) is None:
+            clm._reconciliation = self._reconciliation  # noqa: SLF001
         self._repository = repository
         self._ownership_provider_bindings = ownership_provider_bindings or (
             InMemoryOwnershipProviderBindingResolver(lambda: ownership.configured_provider)
@@ -449,6 +471,24 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_EXCEPTION_STALE",
                     message="The onboarding evidence changed before this resolution.",
                 )
+            if item.evidence_version.startswith("reconciliation:"):
+                reconciliation_version, fingerprint = (
+                    _parse_reconciliation_evidence_version(item.evidence_version)
+                )
+                try:
+                    reconciliation_action = ReconciliationDecisionAction(action.value)
+                except ValueError:
+                    raise ZeroTouchRequestError(
+                        code="ZERO_TOUCH_RESOLUTION_NOT_ALLOWED",
+                        message="This resolution is not allowed for the active discrepancy.",
+                    ) from None
+                return self._resolve_reconciliation_locked(
+                    record=record,
+                    discrepancy_id=item.exception_id,
+                    action=reconciliation_action,
+                    expected_reconciliation_version=reconciliation_version,
+                    evidence_fingerprint=fingerprint,
+                )
             current_digest = self._authoritative_evidence_digest(
                 case_id=case_id,
                 exception_type=item.exception_type,
@@ -521,6 +561,138 @@ class ZeroTouchOrchestrator:
             self._save(record, candidate)
             return self._advance_locked(case_id=case_id)
 
+    def resolve_reconciliation_discrepancy(
+        self,
+        *,
+        case_id: UUID,
+        discrepancy_id: UUID,
+        action: ReconciliationDecisionAction,
+        expected_automation_version: int,
+        expected_reconciliation_version: int,
+        evidence_fingerprint: str,
+    ) -> ZeroTouchAutomationRecord:
+        """Resolve one case-bound discrepancy through the typed backend authority."""
+
+        with self._cases.case_lock(case_id):
+            record = self._require_record(case_id)
+            if record.version != expected_automation_version:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_EXCEPTION_STALE",
+                    message="The onboarding case changed before this resolution.",
+                )
+            return self._resolve_reconciliation_locked(
+                record=record,
+                discrepancy_id=discrepancy_id,
+                action=action,
+                expected_reconciliation_version=expected_reconciliation_version,
+                evidence_fingerprint=evidence_fingerprint,
+            )
+
+    def _resolve_reconciliation_locked(
+        self,
+        *,
+        record: ZeroTouchAutomationRecord,
+        discrepancy_id: UUID,
+        action: ReconciliationDecisionAction,
+        expected_reconciliation_version: int,
+        evidence_fingerprint: str,
+    ) -> ZeroTouchAutomationRecord:
+        item = next(
+            (
+                candidate
+                for candidate in record.active_exceptions
+                if candidate.exception_id == discrepancy_id
+            ),
+            None,
+        )
+        if item is None or item.case_id != record.case_id:
+            raise ZeroTouchRequestError(
+                code="ZERO_TOUCH_EXCEPTION_NOT_FOUND",
+                message="The active reconciliation discrepancy was not found.",
+            )
+        try:
+            reconciliation = self._reconciliation.resolve_discrepancy(
+                case_id=record.case_id,
+                discrepancy_id=discrepancy_id,
+                action=action,
+                expected_version=expected_reconciliation_version,
+                evidence_fingerprint=evidence_fingerprint,
+            )
+        except ReconciliationRequestError as exc:
+            code = (
+                "ZERO_TOUCH_EXCEPTION_STALE"
+                if exc.code == "RECONCILIATION_STALE"
+                else "ZERO_TOUCH_RESOLUTION_NOT_ALLOWED"
+                if exc.code in {
+                    "RECONCILIATION_ACTION_NOT_ALLOWED",
+                    "RECONCILIATION_CANONICAL_UPDATE_REJECTED",
+                }
+                else exc.code
+            )
+            raise ZeroTouchRequestError(code=code, message=exc.public_message) from None
+        except ReconciliationInfrastructureError as exc:
+            failed = self._technical_failure(
+                record,
+                stage=AutomationStage.DOCUMENT,
+                code=exc.code,
+                message="Reconciliation stopped after a technical failure.",
+            )
+            raise ZeroTouchInfrastructureError(
+                case_id=failed.case_id,
+                automation_id=failed.automation_id,
+                code=exc.code,
+                message=exc.public_message,
+            ) from None
+
+        candidate = record.model_copy(deep=True)
+        resolved = next(
+            entry for entry in candidate.exceptions if entry.exception_id == discrepancy_id
+        )
+        resolved.status = BusinessExceptionStatus.RESOLVED
+        resolved.resolved_at = self._clock()
+        resolved.resolution = ExceptionResolutionAction(action.value)
+        candidate.metrics.human_interventions += 1
+        candidate.metrics.exceptions_resolved += 1
+        candidate = self._append_event(
+            candidate,
+            event_type=AutomationEventType.RECONCILIATION_DECISION_RECORDED,
+            outcome=EventOutcome.SUCCEEDED,
+            code=action.value,
+            message="A bounded reconciliation decision was recorded by the backend.",
+        )
+        if reconciliation.status == ReconciliationStatus.REVIEW_REQUIRED:
+            discrepancies_by_id = {
+                entry.discrepancy_id: entry
+                for entry in reconciliation.open_discrepancies
+            }
+            for active in candidate.active_exceptions:
+                discrepancy = discrepancies_by_id.get(active.exception_id)
+                if discrepancy is None:
+                    continue
+                active.evidence_version = self._reconciliation_evidence_version(
+                    reconciliation, discrepancy
+                )
+                active.authoritative_evidence_digest = self._authoritative_evidence_digest(
+                    case_id=candidate.case_id,
+                    exception_type=active.exception_type,
+                    evidence_version=active.evidence_version,
+                    blocker_codes=active.blocker_codes,
+                )
+            candidate.status = AutomationStatus.WAITING_FOR_REVIEW
+            candidate.current_stage = AutomationStage.DOCUMENT
+            return self._save(record, candidate)
+        candidate.status = AutomationStatus.RESUMING
+        candidate.current_stage = AutomationStage.DOCUMENT
+        candidate = self._append_event(
+            candidate,
+            event_type=AutomationEventType.AUTOMATION_RESUMING,
+            outcome=EventOutcome.SUCCEEDED,
+            code="AUTOMATION_RESUMING",
+            message="All reconciliation blockers are resolved; onboarding is resuming.",
+        )
+        self._save(record, candidate)
+        return self._advance_locked(case_id=record.case_id)
+
     def _advance_locked(self, *, case_id: UUID) -> ZeroTouchAutomationRecord:
         try:
             return self._advance_locked_impl(case_id=case_id)
@@ -581,60 +753,59 @@ class ZeroTouchOrchestrator:
                         ),
                         message="Document processing stopped after a technical failure.",
                     )
-                for document in current_documents:
-                    if document.state != DocumentProcessingState.REVIEW_REQUIRED:
-                        continue
-                    assessment = self._documents.assess_auto_clear(
-                        case_id=case_id, document_id=document.document_id
-                    )
-                    if assessment.eligible:
-                        self._documents.auto_confirm_document(
+                if self._reconciliation.get(case_id=case_id) is None:
+                    for document in current_documents:
+                        if document.state != DocumentProcessingState.REVIEW_REQUIRED:
+                            continue
+                        assessment = self._documents.assess_auto_clear(
                             case_id=case_id, document_id=document.document_id
                         )
-                documents = self._documents.list_documents(case_id=case_id)
-                current_documents = [
-                    document for document in documents if document.is_current_evidence
-                ]
-                blocked_documents: list[
-                    tuple[DocumentProcessingRecord, tuple[DocumentAutoClearBlocker, ...]]
-                ] = []
-                for document in current_documents:
-                    if document.state not in {
-                        DocumentProcessingState.REVIEW_REQUIRED,
-                        DocumentProcessingState.REVIEWED,
-                    }:
-                        continue
-                    assessment = self._documents.assess_auto_clear(
-                        case_id=case_id, document_id=document.document_id
+                        if assessment.eligible:
+                            self._documents.auto_confirm_document(
+                                case_id=case_id, document_id=document.document_id
+                            )
+                try:
+                    reconciliation = self._reconciliation.reconcile_current(case_id=case_id)
+                except ReconciliationRequestError as exc:
+                    return self._technical_failure(
+                        record,
+                        stage=AutomationStage.DOCUMENT,
+                        code=exc.code,
+                        message="Current evidence could not enter reconciliation safely.",
                     )
-                    if not assessment.eligible:
-                        blocked_documents.append((document, assessment.blockers))
-                if blocked_documents:
-                    for document, blockers in blocked_documents:
-                        record = self._raise_document_exception(record, document, blockers)
-                    return record
-                if all(
-                    document.state == DocumentProcessingState.REVIEWED
-                    for document in current_documents
-                ):
+                except ReconciliationInfrastructureError as exc:
+                    return self._technical_failure(
+                        record,
+                        stage=AutomationStage.DOCUMENT,
+                        code=exc.code,
+                        message="Reconciliation stopped after a technical failure.",
+                    )
+                if reconciliation.status == ReconciliationStatus.REVIEW_REQUIRED:
+                    return self._raise_reconciliation_exceptions(record, reconciliation)
+                if reconciliation.status in {
+                    ReconciliationStatus.MATCHED,
+                    ReconciliationStatus.RESOLVED,
+                }:
                     record = self._complete_stage(
                         record,
                         stage=AutomationStage.DOCUMENT,
                         event_type=(
-                            AutomationEventType.DOCUMENT_EXCEPTION_RESOLVED
-                            if record.status == AutomationStatus.RESUMING
-                            else AutomationEventType.DOCUMENT_AUTO_CONFIRMED
+                            AutomationEventType.RECONCILIATION_EVALUATED
                         ),
-                        code="DOCUMENT_CHECKPOINT_COMPLETE",
-                        message="All document evidence checkpoints are complete.",
+                        code=(
+                            "RECONCILIATION_RESOLVED"
+                            if reconciliation.status == ReconciliationStatus.RESOLVED
+                            else "RECONCILIATION_MATCHED"
+                        ),
+                        message="Current registry and document observations were reconciled.",
                         started_at=self._clock(),
                     )
                     continue
                 return self._technical_failure(
                     record,
                     stage=AutomationStage.DOCUMENT,
-                    code="AUTOMATION_NO_PROGRESS",
-                    message="Document automation made no safe progress.",
+                    code="RECONCILIATION_STATE_INVALID",
+                    message="Reconciliation made no safe progress.",
                 )
 
             if next_stage == AutomationStage.OWNERSHIP:
@@ -878,6 +1049,165 @@ class ZeroTouchOrchestrator:
             blocker_codes=tuple(blocker.value for blocker in blockers),
         )
 
+    def _raise_reconciliation_exceptions(
+        self,
+        record: ZeroTouchAutomationRecord,
+        reconciliation: ReconciliationCaseRecord,
+    ) -> ZeroTouchAutomationRecord:
+        """Project every open field discrepancy without making either source authoritative."""
+
+        outcome_codes = {
+            ReconciliationOutcome.CONFLICT: "DOCUMENT_SOURCE_CONFLICT",
+            ReconciliationOutcome.MISSING_IN_SOURCE: "DOCUMENT_REQUIRED_FIELD_MISSING",
+            ReconciliationOutcome.UNVERIFIABLE: "DOCUMENT_LOW_CONFIDENCE",
+            ReconciliationOutcome.INVALID: "RECONCILIATION_INVALID",
+        }
+        def code_for(item: ReconciliationDiscrepancy) -> str:
+            if any(
+                observation.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
+                and observation.evidence_reference == "DOCUMENT_TEXT_UNAVAILABLE"
+                for observation in item.observations
+            ):
+                return "DOCUMENT_TEXT_UNAVAILABLE"
+            return outcome_codes[item.outcome]
+
+        aggregate_codes = tuple(
+            dict.fromkeys(code_for(item) for item in reconciliation.open_discrepancies)
+        )
+        for discrepancy in reconciliation.open_discrepancies:
+            if any(
+                item.exception_id == discrepancy.discrepancy_id
+                for item in record.active_exceptions
+            ):
+                continue
+            code = code_for(discrepancy)
+            exception_type = {
+                ReconciliationOutcome.CONFLICT: (
+                    BusinessExceptionType.DOCUMENT_SOURCE_CONFLICT
+                ),
+                ReconciliationOutcome.MISSING_IN_SOURCE: (
+                    BusinessExceptionType.DOCUMENT_REQUIRED_FIELD_MISSING
+                ),
+                ReconciliationOutcome.UNVERIFIABLE: (
+                    BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE
+                ),
+                ReconciliationOutcome.INVALID: (
+                    BusinessExceptionType.RECONCILIATION_INVALID
+                ),
+            }[discrepancy.outcome]
+            registry = next(
+                (
+                    item
+                    for item in discrepancy.observations
+                    if item.source_kind == ReconciliationSourceKind.REGISTRY
+                ),
+                None,
+            )
+            document = next(
+                (
+                    item
+                    for item in discrepancy.observations
+                    if item.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
+                ),
+                None,
+            )
+            document_observations = [
+                item
+                for item in discrepancy.observations
+                if item.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
+            ]
+            affected_document_index = next(
+                (
+                    index
+                    for index, item in enumerate(document_observations)
+                    if registry is None
+                    or item.normalized_value != registry.normalized_value
+                    or item.validity.value != "VALID"
+                ),
+                0,
+            )
+            affected_document_id = (
+                document_observations[affected_document_index].source_record_id
+                or reconciliation.source_document_ids[0]
+            )
+            evidence = (
+                SafeExceptionEvidence(
+                    reference_id=affected_document_id,
+                    field_key=discrepancy.field_name.value,
+                    registry_value=(registry.normalized_value if registry else None),
+                    document_value=(document.normalized_value if document else None),
+                    confidence=(document.confidence if document else None),
+                    comparison=discrepancy.outcome.value,
+                ),
+            )
+            record = self._add_exception(
+                record,
+                exception_type=exception_type,
+                stage=AutomationStage.DOCUMENT,
+                blocker_code=code,
+                explanation=(
+                    "Registry and document observations disagree and require an explicit "
+                    "bounded decision."
+                    if discrepancy.outcome == ReconciliationOutcome.CONFLICT
+                    else (
+                        "Document evidence is not currently usable for deterministic "
+                        "reconciliation."
+                    )
+                ),
+                evidence_version=self._reconciliation_evidence_version(
+                    reconciliation, discrepancy
+                ),
+                evidence=evidence,
+                actions=tuple(
+                    ExceptionResolutionAction(action.value)
+                    for action in discrepancy.allowed_actions
+                ),
+                blocker_codes=aggregate_codes,
+                exception_id=discrepancy.discrepancy_id,
+            )
+        return record
+
+    @staticmethod
+    def _reconciliation_evidence_version(
+        reconciliation: ReconciliationCaseRecord,
+        discrepancy: ReconciliationDiscrepancy,
+    ) -> str:
+        registry = next(
+            (
+                item
+                for item in discrepancy.observations
+                if item.source_kind == ReconciliationSourceKind.REGISTRY
+            ),
+            None,
+        )
+        document_observations = [
+            item
+            for item in discrepancy.observations
+            if item.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
+        ]
+        affected_document_index = next(
+            (
+                index
+                for index, item in enumerate(document_observations)
+                if registry is None
+                or item.normalized_value != registry.normalized_value
+                or item.validity.value != "VALID"
+            ),
+            0,
+        )
+        affected_document_id = (
+            document_observations[affected_document_index].source_record_id
+            or reconciliation.source_document_ids[0]
+        )
+        affected_source_index = reconciliation.source_document_ids.index(
+            affected_document_id
+        )
+        return (
+            f"reconciliation:{reconciliation.version}:"
+            f"{reconciliation.source_document_event_counts[affected_source_index]}:"
+            f"{discrepancy.evidence_fingerprint}"
+        )
+
     def _raise_ownership_exception(
         self, record: ZeroTouchAutomationRecord, ownership: OwnershipAnalysisRecord
     ) -> ZeroTouchAutomationRecord:
@@ -946,6 +1276,7 @@ class ZeroTouchOrchestrator:
         evidence: tuple[SafeExceptionEvidence, ...],
         actions: tuple[ExceptionResolutionAction, ...],
         blocker_codes: tuple[str, ...] | None = None,
+        exception_id: UUID | None = None,
     ) -> ZeroTouchAutomationRecord:
         for existing in record.active_exceptions:
             if (
@@ -958,7 +1289,7 @@ class ZeroTouchOrchestrator:
         candidate.current_stage = stage
         candidate.exceptions.append(
             BusinessException(
-                exception_id=self._uuid_factory(),
+                exception_id=exception_id or self._uuid_factory(),
                 case_id=record.case_id,
                 exception_type=exception_type,
                 stage=stage,
@@ -1198,6 +1529,29 @@ def _parse_document_evidence_version(value: str) -> tuple[UUID, int]:
         raise ZeroTouchRequestError(
             code="ZERO_TOUCH_EXCEPTION_STALE",
             message="The onboarding evidence version is invalid.",
+        ) from None
+
+
+def _parse_reconciliation_evidence_version(value: str) -> tuple[int, str]:
+    try:
+        prefix, raw_version, raw_document_version, fingerprint = value.split(
+            ":", maxsplit=3
+        )
+        version = int(raw_version)
+        document_version = int(raw_document_version)
+        if (
+            prefix != "reconciliation"
+            or version < 1
+            or document_version < 1
+            or len(fingerprint) != 64
+            or any(character not in "0123456789abcdef" for character in fingerprint)
+        ):
+            raise ValueError
+        return version, fingerprint
+    except (TypeError, ValueError):
+        raise ZeroTouchRequestError(
+            code="ZERO_TOUCH_EXCEPTION_STALE",
+            message="The reconciliation evidence version is invalid.",
         ) from None
 
 

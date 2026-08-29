@@ -172,6 +172,19 @@ as do IDP, ownership, and GoldTier counts. Browser summaries expose only normali
 records, opaque evidence references, provider/environment, UTC times, statuses, counts,
 and fixed safe issues. They label the surface as a project-owned synthetic Mock contract.
 
+## Phase 11 reconciliation/review/resume scenarios
+
+| Scenario | Expected state | Required evidence/calls | Prohibited behavior/claims |
+|---|---|---|---|
+| Four fields match, including legal-name formatting only | `COMPLETED / MOCK_GOLDTIER_SUBMITTED` | Four `MATCH` results; Ownership once; search/shell/policy/amend once | No human decision, source-authority claim, or provider replay |
+| One usable field disagreement | `WAITING_FOR_REVIEW / DOCUMENT_SOURCE_CONFLICT` | Registry and Document observations retained; Ownership/GoldTier zero | No automatic Registry/Document/confidence/newest winner |
+| Missing, invalid, or low-confidence field | `WAITING_FOR_REVIEW` with distinct outcome | Exact `MISSING_IN_SOURCE`, `INVALID`, or `UNVERIFIABLE`; replacement remains available | No conflict collapse or unauthorized value-selection action |
+| Multiple field discrepancies | `WAITING_FOR_REVIEW` until every current blocker resolves | Resolve one: Ownership/GoldTier zero; resolve final: resume once | No partial-resolution continuation or duplicate operation |
+| Keep Registry | Existing canonical retained; then resume when all blockers clear | Both observations, discrepancy, decision, selected value/time retained | No Document/Registry evidence mutation |
+| Use Document legal name | Canonical legal name updated; then resume when all blockers clear | Typed backend validation; Registry acquisition profile remains original | No arbitrary patch, structured-address parsing, route/identity replacement, or hidden Document precedence |
+| Stale/unadvertised/cross-case decision | Safe 409/422-style rejection; still blocked | Case/discrepancy/automation-version/reconciliation-version/fingerprint binding | No canonical mutation, Ownership, or GoldTier call |
+| Replacement document | Old discrepancy `CANCELLED`; matching current evidence resumes | IDP runs only for the explicit replacement; later stages once | No deletion of superseded evidence or replay of original Registry/IDP |
+
 ## Accepted cross-scenario invariants
 
 - GoldTier search `NO_MATCH` alone permits shell creation. `MATCH_FOUND` stops at
@@ -311,6 +324,29 @@ and fixed safe issues. They label the surface as a project-owned synthetic Mock 
   `blocker_codes`. UAT-04 explicitly shows source conflict plus low confidence before
   narrow resolution and only low confidence afterward, with no target call or
   unsupported action.
+- Reconciliation retains Registry, Document/IDP, and genuinely available request
+  observations separately. A disagreement cannot become `MATCH`, select a winner, or
+  reach Ownership/GoldTier until a backend-authorized explicit decision is recorded.
+- Phase 11 remediation derives field/discrepancy outcomes and actions intrinsically,
+  permits at most one current discrepancy per field/evidence set, and rejects forged
+  `MATCH`/`MATCHED` aggregates at construction, repository save/retrieval, and current-
+  clearance checks. A low-confidence conflicting value is one actionless
+  `UNVERIFIABLE` blocker; independent blockers in different fields remain separate.
+- Legal-name canonical selection and its reconciliation decision use one shared-lock
+  process-local commit with snapshot restoration before lock release on first-write,
+  second-write, or post-write failure. Same-context duplicates remain idempotent;
+  historical decisions become stale after current evidence changes.
+- `USE_DOCUMENT_VALUE` is advertised only for one unambiguous legal-name observation;
+  registration identity, country routing, and structured address remain protected from
+  unsafe flat-value replacement. Missing, invalid, and unverifiable evidence requires
+  replacement.
+- One resolved discrepancy among several leaves `WAITING_FOR_REVIEW`. The final valid
+  resolution passes through `RESUMING`; unchanged reads do not rerun Registry/IDP, and
+  repeated resolution/resume does not duplicate Ownership or Mock GoldTier operations.
+- Reconciliation browser output contains normalized bounded values and safe provenance,
+  never raw PDF text, raw ACRA payload, provider URL, internal exception, credential,
+  private authority digest, or invented reviewer identity. All decisions and replay
+  guarantees remain process-local.
 - Jurisdiction observations are retained independently of their source. Agreement may
   resolve, but disagreement never chooses a winner without sponsor-confirmed authority.
   Omitted input infers Singapore only when the identifier matches the accepted synthetic
@@ -331,6 +367,8 @@ and fixed safe issues. They label the surface as a project-owned synthetic Mock 
 
 | Established by | Change |
 |---|---|
+| Phase 11 quality-gate remediation | Preserved Phase 11 source-neutral behavior and Phase 09/10 call stopping; added coordinated canonical/decision atomicity, intrinsic outcome/action/status invariants, one current discrepancy per field/evidence, current-context duplicate checks, and actionless low-confidence disagreement |
+| Phase 11 implementation | Preserved Phase 09/10 and all earlier POC invariants; added four-field source-neutral observations, five deterministic outcomes, first-class discrepancies, bounded explicit decisions, evidence-preserving canonical legal-name application, multi-discrepancy call stopping, replacement re-evaluation, and idempotent process-local resume |
 | Phase 10 implementation | Preserved Phase 09 routing/identifier blockers and all prior POC invariants; decomposed the eligible Singapore Mock acquisition into four bounded operations, added truthful empty/partial/failure states and browser summaries, and fed registry ownership evidence through the existing deterministic Decimal ownership service |
 | Phase 09 remediation | Added the shared provider-specific Singapore UEN eligibility guard, explicit invalid-SG call-stopping scenario, and self-validating resolution/routing state invariants while preserving generic foreign intake and no-precedence behavior |
 | Phase 09 implementation | Preserved every accepted Singapore/ACRA and Phase 01–08 invariant; added source-aware agreement/conflict/unresolved decisions, explicit omitted-country SG compatibility, closed Singapore-only routing, recognised foreign unsupported states, pre-IDP call stopping, and sponsor-readable ACRA profile coverage |

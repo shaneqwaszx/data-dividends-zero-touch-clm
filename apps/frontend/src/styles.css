@@ -2347,3 +2347,81 @@ dd {
 .registry-acquisition__evidence > div {
   flex: 1;
 }
+
+.reconciliation-panel {
+  margin-top: 1rem;
+  padding: 1.25rem;
+  border: 1px solid #d7dde5;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.reconciliation-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.reconciliation-status {
+  padding: 0.3rem 0.65rem;
+  border: 1px solid #667085;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.reconciliation-grid {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.reconciliation-grid__header,
+.reconciliation-grid__row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.8fr) repeat(3, minmax(10rem, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.reconciliation-grid__header {
+  padding: 0 0.75rem;
+  color: #475467;
+  font-size: 0.78rem;
+}
+
+.reconciliation-grid__row {
+  padding: 0.75rem;
+  border: 1px solid #eaecf0;
+  border-radius: 0.5rem;
+}
+
+.reconciliation-grid__row small,
+.reconciliation-provenance span {
+  display: block;
+  color: #667085;
+  font-size: 0.75rem;
+}
+
+.reconciliation-discrepancy {
+  margin-top: 0.75rem;
+  padding: 0.9rem;
+  border-left: 3px solid #667085;
+  background: #f8fafc;
+}
+
+.decision-summary {
+  color: #344054;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 850px) {
+  .reconciliation-grid__header {
+    display: none;
+  }
+
+  .reconciliation-grid__row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -29,7 +29,10 @@ from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_repository import InMemoryOwnershipAnalysisRepository
 from app.services.repository import InMemoryOnboardingCaseRepository
-from app.services.zero_touch_errors import ZeroTouchInfrastructureError
+from app.services.zero_touch_errors import (
+    ZeroTouchInfrastructureError,
+    ZeroTouchRequestError,
+)
 from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
 from app.services.zero_touch_repository import InMemoryZeroTouchAutomationRepository
 
@@ -350,7 +353,7 @@ def test_duplicate_and_concurrent_start_do_not_repeat_completed_work() -> None:
     assert target.calls == ["search", "shell", "policy", "amend"]
 
 
-def test_multiple_document_blockers_are_preserved_in_one_review_checkpoint() -> None:
+def test_low_confidence_conflict_is_one_unverifiable_review_checkpoint() -> None:
     _, zero, _, target, _ = build_system()
     created = zero.create_case("202400001A")
     result = zero.attach_document(
@@ -362,14 +365,12 @@ def test_multiple_document_blockers_are_preserved_in_one_review_checkpoint() -> 
         ownership_provider=MockOwnershipProvider(),
     )
     assert result.status == "WAITING_FOR_REVIEW"
-    assert set(result.active_exceptions[0].blocker_codes) == {
-        "DOCUMENT_LOW_CONFIDENCE",
-        "DOCUMENT_SOURCE_CONFLICT",
-    }
+    assert result.active_exceptions[0].blocker_codes == ("DOCUMENT_LOW_CONFIDENCE",)
+    assert result.active_exceptions[0].available_actions == ()
     assert target.calls == []
 
 
-def test_source_resolution_preserves_low_confidence_as_a_new_blocker() -> None:
+def test_low_confidence_conflict_rejects_value_selection() -> None:
     _, zero, _, target, _ = build_system()
     created = zero.create_case("202400001A")
     paused = zero.attach_document(
@@ -381,17 +382,18 @@ def test_source_resolution_preserves_low_confidence_as_a_new_blocker() -> None:
         ownership_provider=MockOwnershipProvider(),
     )
     first = paused.active_exceptions[0]
-    resumed = zero.resolve_exception(
-        case_id=created.case_id,
-        exception_id=first.exception_id,
-        action=ExceptionResolutionAction.KEEP_REGISTRY_VALUE,
-        expected_automation_version=paused.version,
-        evidence_version=first.evidence_version,
-    )
-    assert resumed.status == "WAITING_FOR_REVIEW"
-    assert resumed.active_exceptions[0].exception_type == "DOCUMENT_LOW_CONFIDENCE"
-    assert resumed.active_exceptions[0].available_actions == ()
-    assert resumed.metrics.human_interventions == 1
+    with pytest.raises(ZeroTouchRequestError) as caught:
+        zero.resolve_exception(
+            case_id=created.case_id,
+            exception_id=first.exception_id,
+            action=ExceptionResolutionAction.KEEP_REGISTRY_VALUE,
+            expected_automation_version=paused.version,
+            evidence_version=first.evidence_version,
+        )
+    assert caught.value.code == "ZERO_TOUCH_RESOLUTION_NOT_ALLOWED"
+    current = zero.get(case_id=created.case_id)
+    assert current is not None and current.status == "WAITING_FOR_REVIEW"
+    assert current.metrics.human_interventions == 0
     assert target.calls == []
 
 
@@ -635,7 +637,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_LATER_DOCUMENT() -> None:
     assert target.calls == []
 
 
-def test_P06_QG_005_MULTIPLE_REVIEWED_CONFLICTS_ARE_RETAINED() -> None:
+def test_P11_ONE_CURRENT_FIELD_DISCREPANCY_RETAINS_BOTH_CONFLICT_DOCUMENTS() -> None:
     _, zero, documents, target, _ = build_system()
     created = zero.create_case("202400001A")
     first = _create_reviewed_document(
@@ -653,10 +655,20 @@ def test_P06_QG_005_MULTIPLE_REVIEWED_CONFLICTS_ARE_RETAINED() -> None:
 
     paused = zero.start(case_id=created.case_id)
 
-    assert [item.evidence[0].reference_id for item in paused.active_exceptions] == [
-        first.document_id,
-        second.document_id,
+    reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
+    assert len(paused.active_exceptions) == 1
+    assert reconciliation is not None
+    legal = next(
+        item
+        for item in reconciliation.open_discrepancies
+        if item.field_name == "legal_name"
+    )
+    document_ids = [
+        item.source_record_id
+        for item in legal.observations
+        if item.source_kind == "DOCUMENT_IDP"
     ]
+    assert document_ids == [first.document_id, second.document_id]
     assert target.calls == []
 
 
@@ -687,10 +699,19 @@ def test_P06_QG_013_EQUAL_TIMESTAMPS_PRESERVE_INSERTION_ORDER_100_RUNS() -> None
 
         paused = zero.start(case_id=created.case_id)
 
-        assert [item.evidence[0].reference_id for item in paused.active_exceptions] == [
-            first.document_id,
-            second.document_id,
-        ]
+        reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
+        assert len(paused.active_exceptions) == 1
+        assert reconciliation is not None
+        legal = next(
+            item
+            for item in reconciliation.open_discrepancies
+            if item.field_name == "legal_name"
+        )
+        assert [
+            item.source_record_id
+            for item in legal.observations
+            if item.source_kind == "DOCUMENT_IDP"
+        ] == [first.document_id, second.document_id]
         assert paused.status == "WAITING_FOR_REVIEW"
 
     assert target.calls == []
@@ -698,7 +719,7 @@ def test_P06_QG_013_EQUAL_TIMESTAMPS_PRESERVE_INSERTION_ORDER_100_RUNS() -> None
 
 def test_P06_QG_013_FORMER_FLAKY_TEST_IS_STABLE_100_RUNS() -> None:
     for _ in range(100):
-        test_P06_QG_005_MULTIPLE_REVIEWED_CONFLICTS_ARE_RETAINED()
+        test_P11_ONE_CURRENT_FIELD_DISCREPANCY_RETAINS_BOTH_CONFLICT_DOCUMENTS()
 
 
 def test_P06_QG_005_REVIEWED_CONFLICT_RESOLVED_BY_KEEP_REGISTRY() -> None:
@@ -732,7 +753,11 @@ def test_P06_QG_005_REVIEWED_CONFLICT_RESOLVED_BY_KEEP_REGISTRY() -> None:
     retained = next(field for field in current.fields if field.field_key == mismatch.field_key)
     assert retained.original_extracted_value == original
     assert retained.reviewed_value == reviewed_value
-    assert current.source_conflict_resolutions[0].action == "KEEP_REGISTRY_VALUE"
+    assert current.source_conflict_resolutions == []
+    reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
+    assert reconciliation is not None
+    assert reconciliation.discrepancies[0].decision is not None
+    assert reconciliation.discrepancies[0].decision.action == "KEEP_REGISTRY_VALUE"
     assert completed.metrics.human_interventions == 1
     assert target.calls == ["search", "shell", "policy", "amend"]
 

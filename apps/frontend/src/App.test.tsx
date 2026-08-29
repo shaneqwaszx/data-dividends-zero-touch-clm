@@ -11,6 +11,7 @@ import App, {
   JurisdictionSelector,
   OnboardingProgress,
   RegistryAcquisitionPanel,
+  ReconciliationPanel,
   OwnershipSummary,
   SimulationBanner,
   SponsorCaseSummary,
@@ -45,6 +46,7 @@ import {
   loadMockOwnership,
   reviewDocument,
   resolveZeroTouchException,
+  resolveReconciliationDiscrepancy,
   resumeZeroTouchCase,
   submitClmCase,
   uploadDocument,
@@ -56,6 +58,7 @@ import type {
   OnboardingCase,
   OwnershipAnalysisRecord,
   RegistryOperation,
+  ReconciliationSummary,
   ZeroTouchCaseSummary,
   ZeroTouchException,
   WorkflowState,
@@ -901,6 +904,7 @@ function makeZeroTouch(
       ? ["REGISTRY", "DOCUMENT", "OWNERSHIP", "READINESS", "MOCK_GOLDTIER"]
       : ["REGISTRY"],
     active_exceptions: status === "WAITING_FOR_REVIEW" ? [reviewException] : [],
+    reconciliation: null,
     technical_failure: status === "TECHNICAL_FAILURE"
       ? { code: "IDP_PROCESSING_FAILED", message: "Document processing stopped safely." }
       : null,
@@ -928,6 +932,75 @@ function makeZeroTouch(
       },
     ],
     created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
+function makeReconciliation(status: ReconciliationSummary["status"] = "REVIEW_REQUIRED"): ReconciliationSummary {
+  const registry = {
+    observation_id: "00000000-0000-4000-8000-000000000071",
+    field_name: "legal_name" as const,
+    normalized_value: "SYNTHETIC CANONICAL NAME",
+    source_kind: "REGISTRY" as const,
+    source_system: "ACRA",
+    environment: "MOCK",
+    observed_at: timestamp,
+    evidence_reference: "acra:entity:synthetic",
+    confidence: null,
+    validity: "VALID" as const,
+  };
+  const document = {
+    observation_id: "00000000-0000-4000-8000-000000000072",
+    field_name: "legal_name" as const,
+    normalized_value: status === "MATCHED" ? "SYNTHETIC CANONICAL NAME" : "SYNTHETIC DOCUMENT NAME",
+    source_kind: "DOCUMENT_IDP" as const,
+    source_system: "LOCAL_PDF_TEXT",
+    environment: "LOCAL",
+    observed_at: timestamp,
+    evidence_reference: "document:page:1",
+    confidence: 0.97,
+    validity: "VALID" as const,
+  };
+  const discrepancy: ReconciliationSummary["discrepancies"][number] = {
+    discrepancy_id: "00000000-0000-4000-8000-000000000073",
+    field_name: "legal_name" as const,
+    outcome: "CONFLICT" as const,
+    observations: [registry, document],
+    status: status === "RESOLVED" ? "RESOLVED" as const : "OPEN" as const,
+    allowed_actions: ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"],
+    evidence_fingerprint: "a".repeat(64),
+    decision: status === "RESOLVED" ? {
+      action: "USE_DOCUMENT_VALUE" as const,
+      selected_observation_id: document.observation_id,
+      selected_value: document.normalized_value,
+      decided_at: timestamp,
+      reconciliation_version: 1,
+    } : null,
+  };
+  return {
+    reconciliation_id: "00000000-0000-4000-8000-000000000070",
+    version: 1,
+    status,
+    source_document_ids: ["00000000-0000-4000-8000-000000000010"],
+    source_document_event_counts: [4],
+    fields: [
+      {
+        field_name: "legal_name",
+        observations: [registry, document],
+        outcome: status === "MATCHED" ? "MATCH" : "CONFLICT",
+        discrepancy_id: status === "MATCHED" ? null : discrepancy.discrepancy_id,
+      },
+      ...(["registration_identifier", "registered_address", "country_of_incorporation"] as const).map((field_name, index) => ({
+        field_name,
+        observations: [
+          { ...registry, observation_id: `00000000-0000-4000-8000-00000000008${index}`, field_name },
+          { ...document, observation_id: `00000000-0000-4000-8000-00000000009${index}`, field_name, normalized_value: "MATCH" },
+        ],
+        outcome: "MATCH" as const,
+        discrepancy_id: null,
+      })),
+    ],
+    discrepancies: status === "MATCHED" ? [] : [discrepancy],
     updated_at: timestamp,
   };
 }
@@ -1380,5 +1453,66 @@ describe("Phase 08 sponsor evidence refresh and causal visibility", () => {
     const markup = renderToStaticMarkup(<SimulationBanner profile={local} />);
     expect(markup).toContain("IDP Local POC (LOCAL_PDF_TEXT)");
     expect(markup).not.toContain("IDP Mock");
+  });
+});
+
+describe("Phase 11 reconciliation panel", () => {
+  it("renders a neutral all-match summary", () => {
+    const summary = makeZeroTouch();
+    summary.reconciliation = makeReconciliation("MATCHED");
+    const markup = renderToStaticMarkup(<ReconciliationPanel summary={summary} />);
+    expect(markup).toContain("Multi-source reconciliation");
+    expect(markup).toContain("Registry observation");
+    expect(markup).toContain("Document observation");
+    expect(markup).toContain("MATCHED");
+    expect(markup).toContain("Neither source is authoritative by default");
+    expect(markup).not.toContain("Keep registry value");
+  });
+
+  it("shows both conflict values and only backend-advertised actions", () => {
+    const summary = makeZeroTouch("WAITING_FOR_REVIEW");
+    summary.reconciliation = makeReconciliation();
+    const markup = renderToStaticMarkup(
+      <ReconciliationPanel summary={summary} onResolve={() => undefined} />,
+    );
+    expect(markup).toContain("SYNTHETIC CANONICAL NAME");
+    expect(markup).toContain("SYNTHETIC DOCUMENT NAME");
+    expect(markup).toContain("Keep registry value");
+    expect(markup).toContain("Use document value");
+    expect(markup).not.toContain("Enter corrected value");
+    expect(markup).not.toContain("reviewer@");
+  });
+
+  it("renders a resolved decision without inventing reviewer authority", () => {
+    const summary = makeZeroTouch();
+    summary.reconciliation = makeReconciliation("RESOLVED");
+    const markup = renderToStaticMarkup(<ReconciliationPanel summary={summary} />);
+    expect(markup).toContain("Decision: USE DOCUMENT VALUE");
+    expect(markup).toContain("No reviewer identity or compliance authority is claimed");
+    expect(markup).not.toContain("Approved by");
+  });
+
+  it("binds the dedicated resolution request to both versions and fingerprint", async () => {
+    const summary = makeZeroTouch("WAITING_FOR_REVIEW");
+    summary.reconciliation = makeReconciliation();
+    const discrepancy = summary.reconciliation.discrepancies[0];
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(summary), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await resolveReconciliationDiscrepancy(
+      summary,
+      discrepancy.discrepancy_id,
+      "KEEP_REGISTRY_VALUE",
+      summary.reconciliation.version,
+      discrepancy.evidence_fingerprint,
+    );
+    const [url, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(url).toContain(`/reconciliation/discrepancies/${discrepancy.discrepancy_id}/resolve`);
+    expect(body.expected_automation_version).toBe(summary.version);
+    expect(body.expected_reconciliation_version).toBe(summary.reconciliation.version);
+    expect(body.evidence_fingerprint).toBe(discrepancy.evidence_fingerprint);
+    expect(body.action).toBe("KEEP_REGISTRY_VALUE");
   });
 });

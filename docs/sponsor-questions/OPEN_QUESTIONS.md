@@ -47,6 +47,15 @@ Singapore UEN rule is explicitly recorded as `IDENTIFIER_FORMAT -> SG`, not trea
 a hidden source-precedence decision. Foreign jurisdictions are recognised only enough
 to stop as provider not implemented; no foreign registry is selected or called.
 
+Phase 11 extends the same no-precedence rule to legal name, registration identifier,
+registered address, and country of incorporation. The POC retains Registry, Document,
+and available request observations separately and requires an explicit bounded operator
+decision for usable conflicts. `USE_DOCUMENT_VALUE` is limited to a safely validated
+legal-name update; this is a project implementation boundary, not sponsor approval that
+Document or Registry is authoritative. Please still confirm source authority by field,
+authenticated reviewer role/separation of duties, permitted missing/invalid/confidence
+decisions, retained audit evidence, and restart-versus-resume policy. Q-015 remains OPEN.
+
 ## A. BLOCKING REAL GOLDTIER INTEGRATION
 
 ### Q-008 — Authentication containment and replacement

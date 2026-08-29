@@ -506,7 +506,66 @@ export type ZeroTouchDemoScenario =
 
 export type ExceptionResolutionAction =
   | "KEEP_REGISTRY_VALUE"
+  | "USE_DOCUMENT_VALUE"
   | "REQUEST_ADDITIONAL_INFORMATION";
+
+export type ReconciliationField =
+  | "legal_name"
+  | "registration_identifier"
+  | "registered_address"
+  | "country_of_incorporation";
+
+export type ReconciliationDecisionAction =
+  | "KEEP_REGISTRY_VALUE"
+  | "USE_DOCUMENT_VALUE";
+
+export interface ReconciliationObservation {
+  observation_id: string;
+  field_name: ReconciliationField;
+  normalized_value: string | null;
+  source_kind: "USER_INPUT" | "REGISTRY" | "DOCUMENT_IDP" | "EXISTING_CASE";
+  source_system: string | null;
+  environment: string | null;
+  observed_at: string;
+  evidence_reference: string | null;
+  confidence: number | null;
+  validity: "VALID" | "MISSING" | "INVALID" | "UNVERIFIABLE";
+}
+
+export interface ReconciliationDecision {
+  action: ReconciliationDecisionAction;
+  selected_observation_id: string;
+  selected_value: string;
+  decided_at: string;
+  reconciliation_version: number;
+}
+
+export interface ReconciliationDiscrepancy {
+  discrepancy_id: string;
+  field_name: ReconciliationField;
+  outcome: "CONFLICT" | "MISSING_IN_SOURCE" | "UNVERIFIABLE" | "INVALID";
+  observations: ReconciliationObservation[];
+  status: "OPEN" | "RESOLVED" | "CANCELLED";
+  allowed_actions: ReconciliationDecisionAction[];
+  evidence_fingerprint: string;
+  decision: ReconciliationDecision | null;
+}
+
+export interface ReconciliationSummary {
+  reconciliation_id: string;
+  version: number;
+  status: "NOT_STARTED" | "MATCHED" | "REVIEW_REQUIRED" | "RESOLVED" | "FAILED";
+  source_document_ids: string[];
+  source_document_event_counts: number[];
+  fields: Array<{
+    field_name: ReconciliationField;
+    observations: ReconciliationObservation[];
+    outcome: "MATCH" | "CONFLICT" | "MISSING_IN_SOURCE" | "UNVERIFIABLE" | "INVALID";
+    discrepancy_id: string | null;
+  }>;
+  discrepancies: ReconciliationDiscrepancy[];
+  updated_at: string;
+}
 
 export interface ZeroTouchException {
   exception_id: string;
@@ -546,6 +605,7 @@ export interface ZeroTouchCaseSummary {
   current_stage: AutomationStage;
   completed_stages: AutomationStage[];
   active_exceptions: ZeroTouchException[];
+  reconciliation: ReconciliationSummary | null;
   technical_failure: { code: string; message: string } | null;
   metrics: {
     automated_stages_completed: number;

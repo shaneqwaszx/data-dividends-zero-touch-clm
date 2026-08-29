@@ -7,7 +7,7 @@ Proof of concept for Delta Capita's Singapore new-to-bank flow:
 The current POC accepts an optional country/jurisdiction, a company registration
 identifier (Singapore UEN for the implemented path), and one synthetic PDF. It resolves
 jurisdiction before registry selection, then automatically runs registry validation,
-deterministic document comparison, ownership/UBO analysis,
+deterministic document comparison, source-neutral reconciliation, ownership/UBO analysis,
 readiness, and a Mock GoldTier sequence. It pauses only for a typed exception and
 automatically resumes after a permitted resolution.
 
@@ -32,6 +32,9 @@ determination, or live ACRA/GoldTier interoperability.
 - Four project-owned Mock ACRA acquisition operations with strict bounded DTOs,
   operation-level status/provenance, truthful empty/partial/failure display, and
   registry ownership evidence feeding the existing deterministic ownership engine.
+- Four-field Registry/Document reconciliation with no automatic source precedence,
+  first-class discrepancies, backend-authorized bounded decisions, evidence-preserving
+  canonical legal-name update, and idempotent resume before Ownership.
 
 Live ACRA, live hierarchy, PingFed/real GoldTier, final document/UBO policy, related-
 party writes, authenticated reviewer roles, and Ready-for-Approval remain blocked or
@@ -111,6 +114,7 @@ ZeroTouchOrchestrator
   +-- jurisdiction resolver -> registry router
   +-- Singapore ACRA provider -> profile/officers/owners/relationships -> canonical evidence
   +-- IDP provider -> document evidence/comparison
+  +-- reconciliation -> observations/discrepancies/explicit decision
   +-- Ownership provider -> deterministic Decimal paths
   +-- CLM readiness -> immutable target snapshot
   `-- GoldTier connector -> retained outcome/recovery
@@ -125,6 +129,8 @@ orchestration. See [final architecture](docs/architecture/FINAL_POC_ARCHITECTURE
 and [Phase 09 jurisdiction gateway](docs/architecture/PHASE_09_JURISDICTION_GATEWAY.md).
 Phase 10 acquisition details are in
 [Phase 10 expanded registry acquisition](docs/architecture/PHASE_10_EXPANDED_REGISTRY_ACQUISITION.md).
+Phase 11 review/resume is described in
+[Phase 11 reconciliation](docs/architecture/PHASE_11_RECONCILIATION_REVIEW_RESUME.md).
 The current sponsor-readable ACRA field/operation profile is
 [ACRA_MOCK_API_PROFILE.md](docs/contracts/ACRA_MOCK_API_PROFILE.md).
 
@@ -194,6 +200,8 @@ not validated. Contradictory examples must not become canonical fixtures.
   sanitized summaries—not KYC/PII or payloads.
 - Current stores, locks, events, bindings, metrics, target ledger, and recovery are
   process-local; restart resets them.
+- Reconciliation observations, discrepancies, decisions, versions, and resume bindings
+  are also process-local; they are not Mongo-backed production audit records.
 - The default PDF upload limit is 5 MiB (`5242880` bytes); it is a bounded POC setting,
   not a production document policy.
 - Production RBAC, PDF antivirus/CDR, durable encrypted audit storage, distributed

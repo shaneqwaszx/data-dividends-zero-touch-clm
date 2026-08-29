@@ -8,6 +8,7 @@ import type {
   OnboardingCase,
   OwnershipAnalysisRecord,
   ReviewDecision,
+  ReconciliationDecisionAction,
   ExceptionResolutionAction,
   ZeroTouchCaseSummary,
   ZeroTouchDemoScenario,
@@ -156,6 +157,29 @@ export async function resolveZeroTouchException(
         action,
         expected_automation_version: summary.version,
         evidence_version: evidenceVersion,
+      }),
+    },
+  );
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export async function resolveReconciliationDiscrepancy(
+  summary: ZeroTouchCaseSummary,
+  discrepancyId: string,
+  action: ReconciliationDecisionAction,
+  reconciliationVersion: number,
+  evidenceFingerprint: string,
+): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${summary.case.case_id}/reconciliation/discrepancies/${discrepancyId}/resolve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        expected_automation_version: summary.version,
+        expected_reconciliation_version: reconciliationVersion,
+        evidence_fingerprint: evidenceFingerprint,
       }),
     },
   );

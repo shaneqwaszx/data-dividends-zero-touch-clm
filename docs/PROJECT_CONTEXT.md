@@ -254,3 +254,27 @@ available. Browser responses show only safe normalized summaries and label the c
 as synthetic Mock behavior. Expanded sandbox operations fail closed pending Q-012.
 Q-012 and Q-015 remain open, MongoDB remains diagnostic-only, and no ACRA+, foreign
 registry, live ACRA, final GoldTier mapping, or Ready-for-Approval behavior was added.
+
+## Phase 11 implementation status
+
+The zero-touch path now turns the four current Registry/Document fields into immutable
+source-neutral observations, deterministic `MATCH`, `MISSING_IN_SOURCE`, `CONFLICT`,
+`UNVERIFIABLE`, or `INVALID` outcomes, and first-class process-local discrepancies.
+No source wins automatically. Usable conflicts may explicitly retain Registry; one
+unambiguous legal-name conflict may explicitly select Document through a typed backend
+canonical-update service. Registration identity, country routing, and structured address
+cannot be replaced from the flat document value without new policy/mapping, so the
+backend does not advertise that action. Missing, invalid, and unverifiable evidence
+requires replacement.
+
+Every decision is case/discrepancy/version/fingerprint bound and retains both source
+observations. Resolving one of several discrepancies remains blocked; resolving all
+re-enters the existing Ownership/readiness/Mock GoldTier path without re-running ACRA or
+IDP and without duplicating later operations. The browser projects only normalized safe
+evidence and backend actions and claims no reviewer identity or compliance authority.
+Field results, discrepancies, actions, fingerprints, current links, and case status are
+intrinsically revalidated; one field/evidence set cannot become both unusable and an
+actionable conflict. Legal-name canonical selection and its decision are prepared first
+and then committed together under a shared process-local lock, with snapshot restoration
+before lock release on a recoverable write failure. This is not crash/restart durability.
+All state remains process-local; MongoDB is unchanged. Q-012 and Q-015 remain open.

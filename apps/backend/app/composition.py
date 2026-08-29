@@ -36,6 +36,8 @@ from app.services.document_repository import InMemoryDocumentProcessingRepositor
 from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_repository import InMemoryOwnershipAnalysisRepository
+from app.services.reconciliation import ReconciliationService
+from app.services.reconciliation_repository import InMemoryReconciliationRepository
 from app.services.repository import InMemoryOnboardingCaseRepository
 from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
 from app.services.zero_touch_provider_bindings import (
@@ -162,10 +164,24 @@ def build_mock_ownership_demo_control() -> MockOwnershipDemoControl:
     return MockOwnershipDemoControl()
 
 
+def build_reconciliation_service(
+    onboarding_service: OnboardingService,
+    document_service: DocumentProcessingService,
+) -> ReconciliationService:
+    """Compose the process-local source-neutral Phase 11 reconciliation owner."""
+
+    return ReconciliationService(
+        cases=onboarding_service,
+        documents=document_service,
+        repository=InMemoryReconciliationRepository(),
+    )
+
+
 def build_clm_orchestration_service(
     onboarding_service: OnboardingService,
     document_service: DocumentProcessingService,
     ownership_service: OwnershipAnalysisService,
+    reconciliation_service: ReconciliationService | None = None,
 ) -> ClmOrchestrationService:
     """Compose staged readiness and serialized Mock GoldTier submission."""
 
@@ -173,6 +189,7 @@ def build_clm_orchestration_service(
         cases=onboarding_service,
         documents=document_service,
         ownership=ownership_service,
+        reconciliation=reconciliation_service,
         repository=InMemoryClmOrchestrationRepository(),
     )
 
@@ -182,6 +199,7 @@ def build_zero_touch_orchestrator(
     document_service: DocumentProcessingService,
     ownership_service: OwnershipAnalysisService,
     clm_service: ClmOrchestrationService,
+    reconciliation_service: ReconciliationService,
     settings: Settings,
 ) -> ZeroTouchOrchestrator:
     """Compose the provider-neutral Phase 06 automation owner."""
@@ -194,6 +212,7 @@ def build_zero_touch_orchestrator(
         documents=document_service,
         ownership=ownership_service,
         clm=clm_service,
+        reconciliation=reconciliation_service,
         repository=InMemoryZeroTouchAutomationRepository(),
         ownership_provider_bindings=provider_bindings,
         max_transitions_per_run=settings.zero_touch_max_transitions_per_run,

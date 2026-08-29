@@ -37,6 +37,7 @@ from app.domain.models import (
     WorkflowEvent,
     WorkflowState,
 )
+from app.domain.reconciliation import ReconciliationField
 from app.domain.target_submission import (
     GoldTierExecutionClassification,
     GoldTierExecutionError,
@@ -1176,6 +1177,79 @@ class OnboardingService:
 
     def get_case(self, case_id: UUID) -> OnboardingCase | None:
         return self._repository.get(case_id)
+
+    @property
+    def process_local_repository(self) -> OnboardingCaseRepository:
+        """Expose the bounded in-memory store only to the Phase 11 unit of work."""
+
+        return self._repository
+
+    def canonical_entity_fingerprint(self, case_id: UUID) -> str:
+        """Bind reconciliation decisions to the current canonical case value."""
+
+        case = self._repository.get(case_id)
+        if case is None or case.entity is None:
+            raise ValueError("canonical entity is unavailable")
+        return sha256(case.entity.model_dump_json().encode("utf-8")).hexdigest()
+
+    def prepare_reconciled_value(
+        self,
+        *,
+        case_id: UUID,
+        field_name: ReconciliationField,
+        selected_value: str,
+        expected_entity_fingerprint: str,
+    ) -> OnboardingCase:
+        """Prepare one backend-authorized value without persisting either aggregate.
+
+        Phase 11 permits document selection only for legal name. Registration identity,
+        country/routing, and structured address updates cannot be applied safely from the
+        current flat document field without inventing extra mapping or routing policy.
+        """
+
+        with self.case_lock(case_id):
+            case = self._repository.get(case_id)
+            if case is None or case.entity is None:
+                raise ValueError("canonical entity is unavailable")
+            current_fingerprint = sha256(
+                case.entity.model_dump_json().encode("utf-8")
+            ).hexdigest()
+            if current_fingerprint != expected_entity_fingerprint:
+                raise ValueError("canonical entity changed before reconciliation")
+            if field_name != ReconciliationField.LEGAL_NAME:
+                raise ValueError("selected document value is not safely applicable")
+            normalized = selected_value.strip()
+            if (
+                not normalized
+                or len(normalized) > 512
+                or any(ord(character) < 32 for character in normalized)
+            ):
+                raise ValueError("selected document value is invalid")
+            candidate = case.model_copy(deep=True)
+            candidate_entity = case.entity.model_copy(deep=True)
+            candidate_entity.legal_name = normalized
+            if validate_entity(candidate_entity):
+                raise ValueError("selected document value violates canonical validation")
+            candidate.entity = candidate_entity
+            timestamp = self._clock()
+            candidate.state = WorkflowState.VALIDATED
+            candidate.updated_at = timestamp
+            candidate.events.append(
+                WorkflowEvent(
+                    sequence=len(candidate.events) + 1,
+                    stage=WorkflowState.VALIDATED,
+                    outcome=EventOutcome.SUCCEEDED,
+                    timestamp=timestamp,
+                    case_id=candidate.case_id,
+                    correlation_id=candidate.correlation_id,
+                    code="RECONCILIATION_CANONICAL_UPDATED",
+                    message=(
+                        "Canonical legal name updated by an explicit reconciliation "
+                        "decision."
+                    ),
+                )
+            )
+            return OnboardingCase.model_validate(candidate)
 
     def get_attempted_target_operations(
         self, submission_id: UUID
