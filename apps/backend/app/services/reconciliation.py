@@ -473,6 +473,7 @@ class ReconciliationService:
                     observed_at=document.processed_at or document.updated_at,
                     evidence_reference=field.provenance.source_reference,
                     source_record_id=document.document_id,
+                    source_display_name=document.display_name,
                     confidence=field.confidence,
                     validity=validity,
                 )

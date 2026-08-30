@@ -270,6 +270,7 @@ class DocumentProcessingResponse(BaseModel):
     correlation_id: UUID
     display_name: str
     media_type: str
+    size_bytes: int
     profile: DocumentProfile
     provider_environment: IdpEnvironment | None
     state: DocumentProcessingState
@@ -449,6 +450,8 @@ class BrowserReconciliationObservation(BaseModel):
     environment: str | None
     observed_at: datetime
     evidence_reference: str | None
+    document_id: UUID | None
+    document_display_name: str | None
     confidence: float | None
     validity: ObservationValidity
 
@@ -514,6 +517,8 @@ class ReconciliationResponse(BaseModel):
                     environment=item.environment,
                     observed_at=item.observed_at,
                     evidence_reference=item.evidence_reference,
+                    document_id=item.source_record_id,
+                    document_display_name=item.source_display_name,
                     confidence=item.confidence,
                     validity=item.validity,
                 )
@@ -619,6 +624,38 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
             timeline=record.events,
             created_at=record.created_at,
             updated_at=record.updated_at,
+        )
+
+
+class ZeroTouchCaseListItemResponse(BaseModel):
+    """Lightweight process-local portfolio item with no evidence graph or payloads."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: UUID
+    requested_uen: str
+    legal_name: str | None
+    status: AutomationStatus
+    current_stage: AutomationStage
+    updated_at: datetime
+    active_exception_count: int
+    human_interventions: int
+    final_outcome: str | None
+
+    @classmethod
+    def from_domain(
+        cls, record: ZeroTouchAutomationRecord, case: OnboardingCase
+    ) -> "ZeroTouchCaseListItemResponse":
+        return cls(
+            case_id=record.case_id,
+            requested_uen=case.requested_uen,
+            legal_name=case.entity.legal_name if case.entity is not None else None,
+            status=record.status,
+            current_stage=record.current_stage,
+            updated_at=record.updated_at,
+            active_exception_count=len(record.active_exceptions),
+            human_interventions=record.metrics.human_interventions,
+            final_outcome=record.metrics.final_outcome,
         )
 
 

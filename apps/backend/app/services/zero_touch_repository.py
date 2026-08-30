@@ -22,6 +22,8 @@ class ZeroTouchAutomationRepository(Protocol):
 
     def get_for_case(self, case_id: UUID) -> ZeroTouchAutomationRecord | None: ...
 
+    def list_records(self) -> list[ZeroTouchAutomationRecord]: ...
+
 
 class InMemoryZeroTouchAutomationRepository:
     def __init__(self) -> None:
@@ -51,3 +53,10 @@ class InMemoryZeroTouchAutomationRepository:
         with self._lock:
             record = self._records.get(case_id)
             return record.model_copy(deep=True) if record is not None else None
+
+    def list_records(self) -> list[ZeroTouchAutomationRecord]:
+        """Return defensive copies, newest update first with a stable case-ID tie-break."""
+
+        with self._lock:
+            records = [record.model_copy(deep=True) for record in self._records.values()]
+        return sorted(records, key=lambda item: (item.updated_at, str(item.case_id)), reverse=True)

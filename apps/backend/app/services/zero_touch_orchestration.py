@@ -339,8 +339,79 @@ class ZeroTouchOrchestrator:
             self._save(record, started)
             return self._advance_locked(case_id=case_id)
 
+    def intake_document(
+        self,
+        *,
+        case_id: UUID,
+        display_name: str,
+        content_type: str,
+        content: bytes,
+        idp_provider: IdpProvider | None = None,
+    ) -> DocumentProcessingRecord:
+        """Process one intake document without starting reconciliation or later stages."""
+
+        with self._cases.case_lock(case_id):
+            record = self._require_record(case_id)
+            if record.status != AutomationStatus.PENDING_INPUTS:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_INTAKE_NOT_OPEN",
+                    message="Document intake is not open for this case.",
+                )
+            return self._documents.create_document(
+                case_id=case_id,
+                display_name=display_name,
+                content_type=content_type,
+                content=content,
+                provider=idp_provider,
+            )
+
+    def retry_intake_document(
+        self,
+        *,
+        case_id: UUID,
+        failed_document_id: UUID,
+        display_name: str,
+        content_type: str,
+        content: bytes,
+        idp_provider: IdpProvider | None = None,
+    ) -> DocumentProcessingRecord:
+        """Explicitly supersede one failed intake record without creating a new case."""
+
+        with self._cases.case_lock(case_id):
+            automation = self._require_record(case_id)
+            if automation.status != AutomationStatus.PENDING_INPUTS:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_INTAKE_NOT_OPEN",
+                    message="Document intake is not open for this case.",
+                )
+            failed = self._documents.get_document(
+                case_id=case_id, document_id=failed_document_id
+            )
+            if (
+                failed is None
+                or failed.state != DocumentProcessingState.FAILED
+                or not failed.is_current_evidence
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_INTAKE_RETRY_INVALID",
+                    message="The failed intake document is no longer retryable.",
+                )
+            return self._documents.replace_document(
+                case_id=case_id,
+                document_id=failed.document_id,
+                expected_event_count=len(failed.events),
+                display_name=display_name,
+                content_type=content_type,
+                content=content,
+                provider=idp_provider,
+            )
+
     def start(
-        self, *, case_id: UUID, ownership_provider: OwnershipProvider | None = None
+        self,
+        *,
+        case_id: UUID,
+        ownership_provider: OwnershipProvider | None = None,
+        expected_document_count: int | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Idempotently start or continue; normal upload already invokes this."""
 
@@ -352,8 +423,29 @@ class ZeroTouchOrchestrator:
                 AutomationStatus.WAITING_FOR_REVIEW,
             }:
                 return record
-            if not self._documents.list_documents(case_id=case_id):
-                return record
+            current_documents = [
+                item
+                for item in self._documents.list_documents(case_id=case_id)
+                if item.is_current_evidence
+            ]
+            if not current_documents:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_DOCUMENTS_REQUIRED",
+                    message="At least one valid supporting document is required.",
+                )
+            if (
+                expected_document_count is not None
+                and len(current_documents) != expected_document_count
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_INTAKE_INCOMPLETE",
+                    message="The complete intended document set has not been received.",
+                )
+            if any(item.state == DocumentProcessingState.FAILED for item in current_documents):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_INTAKE_INCOMPLETE",
+                    message="A failed document must be replaced before intake can complete.",
+                )
             if ownership_provider is not None:
                 binding_id = self._ownership_provider_bindings.register(
                     _constant_provider_factory(ownership_provider)
@@ -433,6 +525,14 @@ class ZeroTouchOrchestrator:
 
     def get(self, *, case_id: UUID) -> ZeroTouchAutomationRecord | None:
         return self._repository.get_for_case(case_id)
+
+    def list_cases(
+        self, *, status: AutomationStatus | None = None
+    ) -> list[ZeroTouchAutomationRecord]:
+        """Read the process-local case index without invoking any provider or workflow."""
+
+        records = self._repository.list_records()
+        return [item for item in records if status is None or item.status == status]
 
     def resolve_exception(
         self,

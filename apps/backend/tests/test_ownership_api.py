@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -6,6 +7,8 @@ import pytest
 from app.config import Settings
 from app.demo.scenarios import VALID_SME_UEN
 from app.main import create_app
+
+PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
 
 async def create_case(client: httpx.AsyncClient) -> dict[str, object]:
@@ -127,7 +130,7 @@ async def test_ownership_failure_does_not_corrupt_document_review_state() -> Non
         case_id = case["case_id"]
         document = await client.post(
             f"/api/demo/onboarding/cases/{case_id}/documents",
-            content=b"%PDF-1.4\nSYNTHETIC PHASE 04 ISOLATION\n%%EOF",
+            content=PDF,
             headers={
                 "Content-Type": "application/pdf",
                 "X-Document-Name": "synthetic-isolation.pdf",

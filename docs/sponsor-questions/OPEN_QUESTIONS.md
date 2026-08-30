@@ -128,8 +128,10 @@ encryption and storage-jurisdiction requirements, reviewer access controls, and 
 malware scanning/content-disarm or an approved PDF processing service is required.
 
 The current foundation retains no uploaded bytes or raw provider output. It retains a
-validated display name that is never used as a filesystem path and performs only narrow
-size/signature/EOF checks. Those checks are not production PDF security.
+validated display name that is never used as a filesystem path. The local POC now combines
+bounded size/type checks with strict PDF structure parsing and bounded in-memory DOCX
+package/path validation before IDP. These controls remain neither antivirus/CDR nor
+production document security and do not resolve the requested sponsor policy.
 
 ### Q-014 — Confidence and authenticated review policy
 

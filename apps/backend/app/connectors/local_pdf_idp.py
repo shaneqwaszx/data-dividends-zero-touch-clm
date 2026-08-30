@@ -37,7 +37,11 @@ class LocalPdfTextIdpProvider:
         return IdpProviderMetadata(provider_name="LOCAL_PDF_TEXT", environment=IdpEnvironment.LOCAL)
 
     def process(self, document: IdpDocumentInput) -> object:
-        text = self._extract_text(document.content)
+        text = (
+            document.extracted_text
+            if document.extracted_text is not None
+            else self._extract_text(document.content)
+        )
         if not text.strip():
             return self._unavailable_result(document)
         return IdpSourceResult(

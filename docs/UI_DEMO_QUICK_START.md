@@ -1,7 +1,7 @@
 # Quick Start - Running the Improved UI
 
 ## Prerequisites
-- Node.js 18+ for frontend
+- Node.js 22+ for frontend
 - Python 3.12+ for backend
 - Modern browser (Chrome, Firefox, Safari, Edge)
 
@@ -29,6 +29,18 @@ Navigate to: `http://localhost:5173`
 ---
 
 ## Key UI Improvements to Demo
+
+The app now opens on **Start onboarding**. Select up to 20 browser-provided PDF, DOCX,
+or UTF-8 TXT files (5 MiB each, 25 MiB total), or use **Select folder** as a browser
+convenience. Each file is uploaded and analysed independently; processing beyond the
+Document stage begins only after the full intended set has uploaded successfully. The
+Start page keeps the created case ID visible and shows creation, upload, analysis,
+review, completion, or safe-failure progress.
+
+The **Dashboard** lists every case retained by the current backend process. The
+**Review** tab lists every backend case in `WAITING_FOR_REVIEW`; selecting an item opens
+that exact case. Restarting the backend clears both lists. They are not durable history,
+production assignment, or production case management.
 
 ### 1. Exception Handling (Try: DOCUMENT_DISCREPANCY scenario)
 1. Open the app
@@ -98,12 +110,13 @@ Use Demo Controls dropdown to select test scenarios:
 ## Navigation Guide
 
 ### Dashboard Tab
-- **Start onboarding section:** Enter UEN and upload PDF
-- **Demo Controls:** Select scenario and fault injection options
+- **Recent CLM cases:** Open any case retained by the current backend process
+- **Start onboarding:** remains the first/default tab; enter UEN and select documents
 - **Onboarding Progress:** Shows 5-stage workflow (Registry → Document → Ownership → Readiness → GoldTier)
 - **Case Summary:** Key metrics and active exceptions
 
 ### Review Tab
+- **Process-local review queue:** all authoritative `WAITING_FOR_REVIEW` cases
 - **Human Review Panel:** Exception handling with explanations
 - **Document Evidence:** Field extraction results with confidence scores
 - **Ownership Evidence:** 

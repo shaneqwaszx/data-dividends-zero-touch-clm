@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     demo_controls_enabled: bool = False
     zero_touch_max_transitions_per_run: int = Field(default=12, ge=1, le=32)
     idp_max_upload_bytes: int = Field(default=5 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
+    idp_max_files_per_case: int = Field(default=20, ge=1, le=20)
+    idp_max_total_intake_bytes: int = Field(default=25 * 1024 * 1024, gt=0, le=100 * 1024 * 1024)
     idp_review_confidence_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     ubo_ownership_threshold_percent: OwnershipPercent = Decimal("25")
     ownership_max_parties: int = Field(default=100, gt=0, le=1000)

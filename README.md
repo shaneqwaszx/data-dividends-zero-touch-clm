@@ -5,7 +5,8 @@ Proof of concept for Delta Capita's Singapore new-to-bank flow:
 `ACRA Singapore → EDS/orchestration → GoldTier → unresolved human approval gate`
 
 The current POC accepts an optional country/jurisdiction, a company registration
-identifier (Singapore UEN for the implemented path), and one synthetic PDF. It resolves
+identifier (Singapore UEN for the implemented path), and a bounded set of synthetic
+PDF, DOCX, or UTF-8 TXT documents. It resolves
 jurisdiction before registry selection, then automatically runs registry validation,
 deterministic document comparison, source-neutral reconciliation, ownership/UBO analysis,
 readiness, and a Mock GoldTier sequence. It pauses only for a typed exception and
@@ -35,6 +36,13 @@ determination, or live ACRA/GoldTier interoperability.
 - Four-field Registry/Document reconciliation with no automatic source precedence,
   first-class discrepancies, backend-authorized bounded decisions, evidence-preserving
   canonical legal-name update, and idempotent resume before Ownership.
+- A backend-authored process-local case history and review queue. Cases remain available
+  while the backend process runs, but restart clears them; this is not durable or
+  production case management.
+- Explicit multi-document intake completion, per-document provenance, safe PDF/DOCX/TXT
+  media routing, and aggregation across every current document before Ownership or
+  Mock GoldTier may proceed. The Start workspace shows the accepted document count and
+  selected byte total against the 25 MiB technical limit.
 
 Live ACRA, live hierarchy, PingFed/real GoldTier, final document/UBO policy, related-
 party writes, authenticated reviewer roles, and Ready-for-Approval remain blocked or
@@ -88,8 +96,8 @@ unowned port occupants are never killed. For recovery and expected outputs, use 
 ## Zero-touch demo
 
 1. Leave jurisdiction as **Not specified** (or select **Singapore**), enter synthetic
-   UEN `202400001A`, upload `clean-company-profile.pdf`, and select
-   **Start onboarding** once.
+   UEN `202400001A`, select one or more supported synthetic documents, and choose
+   **Start CLM onboarding** once.
 3. Observe Registry → Document Verification → Ownership & UBO → Readiness → Mock
    GoldTier.
 4. For the clean case, confirm zero human interventions.
@@ -153,6 +161,11 @@ connectivity/read-only diagnostic. MongoDB is not wired into application composi
 the normal onboarding pipeline does not require it and all repositories remain
 process-local/in-memory.
 
+Document-intake technical defaults are 20 files per case, 5 MiB per file, and 25 MiB
+total. `IDP_MAX_FILES_PER_CASE`, `IDP_MAX_UPLOAD_BYTES`, and
+`IDP_MAX_TOTAL_INTAKE_BYTES` may tune those safeguards within validated bounds. These
+are project POC controls, not sponsor policy.
+
 See [.env.example](.env.example) and the
 [configuration reference](docs/integration/CONFIGURATION_REFERENCE.md). GoldTier/
 PingFed placeholders are intentionally unconsumed until a separately authorized real-
@@ -202,8 +215,14 @@ not validated. Contradictory examples must not become canonical fixtures.
   process-local; restart resets them.
 - Reconciliation observations, discrepancies, decisions, versions, and resume bindings
   are also process-local; they are not Mongo-backed production audit records.
-- The default PDF upload limit is 5 MiB (`5242880` bytes); it is a bounded POC setting,
-  not a production document policy.
+- Supported uploads are `.pdf`/`application/pdf`, `.docx`/the standard OOXML DOCX MIME,
+  and `.txt`/`text/plain` with UTF-8 content. Extension, MIME, structure/content,
+  filename, per-file size, count, and total bytes are all checked. ZIP, macro-enabled
+  Office files, embedded DOCX objects, images, and arbitrary binary formats are rejected.
+- PDF structure is parsed strictly before IDP invocation; header/trailer markers alone
+  are insufficient. DOCX member names are rejected when rooted, UNC-like,
+  drive-qualified, traversal-containing, NUL-containing, or backslash-based. These are
+  bounded POC checks, not antivirus, CDR, or production document forensics.
 - Production RBAC, PDF antivirus/CDR, durable encrypted audit storage, distributed
   orchestration, real auth/TLS, and monitoring are not implemented.
 
