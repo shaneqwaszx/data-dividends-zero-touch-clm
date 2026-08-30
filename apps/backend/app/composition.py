@@ -129,6 +129,8 @@ def build_document_processing_service(
         ),
         repository=InMemoryDocumentProcessingRepository(),
         max_upload_bytes=settings.idp_max_upload_bytes,
+        max_files_per_case=settings.idp_max_files_per_case,
+        max_total_intake_bytes=settings.idp_max_total_intake_bytes,
         review_confidence_threshold=settings.idp_review_confidence_threshold,
     )
 

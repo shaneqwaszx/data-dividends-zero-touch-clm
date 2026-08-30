@@ -77,7 +77,19 @@ def derive_reconciliation_outcome(
         return ReconciliationOutcome.INVALID
     if any(item.validity == ObservationValidity.UNVERIFIABLE for item in observations):
         return ReconciliationOutcome.UNVERIFIABLE
-    if any(item.validity == ObservationValidity.MISSING for item in observations):
+    registry_observations = tuple(
+        item
+        for item in observations
+        if item.source_kind == ReconciliationSourceKind.REGISTRY
+    )
+    document_observations = tuple(
+        item
+        for item in observations
+        if item.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
+    )
+    if any(item.validity == ObservationValidity.MISSING for item in registry_observations):
+        return ReconciliationOutcome.MISSING_IN_SOURCE
+    if not any(item.validity == ObservationValidity.VALID for item in document_observations):
         return ReconciliationOutcome.MISSING_IN_SOURCE
     values = {
         item.normalized_value
@@ -150,10 +162,13 @@ class ReconciliationObservation(BaseModel):
     observed_at: datetime
     evidence_reference: str | None = Field(default=None, min_length=1, max_length=128)
     source_record_id: UUID | None = Field(default=None, exclude=True, repr=False)
+    source_display_name: str | None = Field(default=None, min_length=5, max_length=99)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     validity: ObservationValidity
 
-    @field_validator("raw_value", "normalized_value", "source_system", "environment")
+    @field_validator(
+        "raw_value", "normalized_value", "source_system", "environment", "source_display_name"
+    )
     @classmethod
     def optional_text_is_safe(cls, value: str | None) -> str | None:
         if value is None:
@@ -202,6 +217,8 @@ class ReconciliationObservation(BaseModel):
             raise ValueError("confidence is retained only when a document provider supplied it")
         if self.source_kind != ReconciliationSourceKind.DOCUMENT_IDP and self.source_record_id:
             raise ValueError("source record IDs are retained only for document observations")
+        if self.source_kind != ReconciliationSourceKind.DOCUMENT_IDP and self.source_display_name:
+            raise ValueError("source display names are retained only for document observations")
         return self
 
 
@@ -239,7 +256,7 @@ class ReconciliationDiscrepancy(BaseModel):
     discrepancy_id: UUID
     field_name: ReconciliationField
     outcome: ReconciliationOutcome
-    observations: tuple[ReconciliationObservation, ...] = Field(min_length=2, max_length=16)
+    observations: tuple[ReconciliationObservation, ...] = Field(min_length=2, max_length=24)
     created_at: datetime
     status: DiscrepancyStatus = DiscrepancyStatus.OPEN
     allowed_actions: tuple[ReconciliationDecisionAction, ...] = Field(
@@ -308,7 +325,7 @@ class FieldReconciliationResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
     field_name: ReconciliationField
-    observations: tuple[ReconciliationObservation, ...] = Field(min_length=2, max_length=16)
+    observations: tuple[ReconciliationObservation, ...] = Field(min_length=2, max_length=24)
     outcome: ReconciliationOutcome
     discrepancy_id: UUID | None = None
 
@@ -337,9 +354,9 @@ class ReconciliationCaseRecord(BaseModel):
     reconciliation_id: UUID
     version: int = Field(default=0, ge=0)
     status: ReconciliationStatus
-    source_document_ids: tuple[UUID, ...] = Field(default_factory=tuple, max_length=12)
+    source_document_ids: tuple[UUID, ...] = Field(default_factory=tuple, max_length=20)
     source_document_event_counts: tuple[int, ...] = Field(
-        default_factory=tuple, max_length=12
+        default_factory=tuple, max_length=20
     )
     evidence_fingerprint: str = Field(
         min_length=64,

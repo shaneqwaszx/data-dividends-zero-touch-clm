@@ -22,6 +22,8 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `IDP_CONNECTOR_MODE` | local POC | `local_pdf_text` | `local_pdf_text` for the normal sponsor PDF path; `mock` only for developer/test fault injection |
 | `OWNERSHIP_CONNECTOR_MODE` | Mock | `mock` | Current schema accepts `mock` only |
 | `IDP_MAX_UPLOAD_BYTES` | security | `5242880` | POC upload bound, max configurable 20 MiB |
+| `IDP_MAX_FILES_PER_CASE` | security | `20` | POC current-document count bound, capped at the supported maximum of 20 |
+| `IDP_MAX_TOTAL_INTAKE_BYTES` | security | `26214400` | POC total current-intake bound, max configurable 100 MiB and never below the per-file bound |
 | `IDP_REVIEW_CONFIDENCE_THRESHOLD` | provisional | `0.85` | Project default, not sponsor-approved |
 | `UBO_OWNERSHIP_THRESHOLD_PERCENT` | provisional | `25` | Inclusive project default pending Q-004 |
 | `OWNERSHIP_MAX_PARTIES` | security | `100` | Graph bound |

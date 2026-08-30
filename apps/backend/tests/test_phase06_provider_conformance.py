@@ -2,6 +2,7 @@
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -61,6 +62,8 @@ from app.services.ownership_repository import InMemoryOwnershipAnalysisRepositor
 from app.services.repository import InMemoryOnboardingCaseRepository
 from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
 from app.services.zero_touch_repository import InMemoryZeroTouchAutomationRepository
+
+PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
 
 def assert_registry_adapter_conformance(adapter: object) -> None:
@@ -488,9 +491,7 @@ def _raw_registry_payload_with_control(
     return payload
 
 
-@pytest.mark.parametrize(
-    "field_path", ACRA_TEXT_FIELD_PATHS, ids=lambda path: ".".join(path)
-)
+@pytest.mark.parametrize("field_path", ACRA_TEXT_FIELD_PATHS, ids=lambda path: ".".join(path))
 @pytest.mark.parametrize("control", ["\n", "\r", "\t"], ids=["lf", "cr", "tab"])
 @pytest.mark.parametrize("position", ["leading", "trailing", "embedded"])
 def test_P06_QG_009_R2_ALL_ACRA_TEXT_CONTROLS_FAIL_CLOSED(
@@ -516,9 +517,7 @@ def test_P06_QG_009_R2_RAW_PROVIDER_RESULT_REJECTED() -> None:
 
 def test_P06_QG_009_R2_MUTATED_TYPED_DTO_REJECTED() -> None:
     payload = _local_registry_payload()
-    object.__setattr__(
-        payload, "entity_name", "MERLION CIRCULAR LABS PTE. LTD.\n"
-    )
+    object.__setattr__(payload, "entity_name", "MERLION CIRCULAR LABS PTE. LTD.\n")
     _assert_registry_contract_failure(payload, "ACRA_RESPONSE_INVALID")
 
 
@@ -537,9 +536,7 @@ def test_P06_QG_009_R2_ORDINARY_SPACES_NORMALIZE_AND_COMPLETE() -> None:
     payload["entity_type"] = "  PRIVATE_COMPANY_LIMITED_BY_SHARES  "
     payload["country_code"] = "  SG  "
     payload["source_environment"] = "  SANDBOX  "
-    payload["source_endpoint"] = (
-        "  https://local.invalid/business-profile/202400001A  "
-    )
+    payload["source_endpoint"] = "  https://local.invalid/business-profile/202400001A  "
     address = payload["registered_address"]
     assert isinstance(address, dict)
     for key in ("block", "street", "unit", "postal_code", "country_code"):
@@ -555,7 +552,7 @@ def test_P06_QG_009_R2_ORDINARY_SPACES_NORMALIZE_AND_COMPLETE() -> None:
         case_id=created.case_id,
         display_name="spaces.pdf",
         content_type="application/pdf",
-        content=b"%PDF-1.4\nSYNTHETIC NORMALIZATION TEST\n%%EOF",
+        content=PDF,
     )
 
     assert created.status == "PENDING_INPUTS"
@@ -662,7 +659,7 @@ def test_alternate_local_adapters_complete_the_full_zero_touch_path() -> None:
         case_id=created.case_id,
         display_name="local.pdf",
         content_type="application/pdf",
-        content=b"%PDF-1.4\nSYNTHETIC LOCAL ADAPTER TEST\n%%EOF",
+        content=PDF,
     )
     assert completed.status == "COMPLETED"
     assert completed.metrics.human_interventions == 0

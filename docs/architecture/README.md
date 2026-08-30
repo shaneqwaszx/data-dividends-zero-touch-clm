@@ -17,5 +17,8 @@ is in [PHASE_10_EXPANDED_REGISTRY_ACQUISITION.md](PHASE_10_EXPANDED_REGISTRY_ACQ
 Phase 11's source-neutral field reconciliation, explicit decision, canonical update,
 and resume boundary is in
 [PHASE_11_RECONCILIATION_REVIEW_RESUME.md](PHASE_11_RECONCILIATION_REVIEW_RESUME.md).
+The bounded refinement before Phase 12 adds a process-local case index/review queue and
+explicit multi-document intake boundary in
+[PRE_PHASE_12_CLM_WORKSPACE_MULTIDOC.md](PRE_PHASE_12_CLM_WORKSPACE_MULTIDOC.md).
 
 Later phases should update that baseline only when an approved planner handoff introduces a new boundary or decision.

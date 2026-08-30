@@ -20,6 +20,8 @@ class IdpDocumentInput:
 
     profile: DocumentProfile
     content: bytes = field(repr=False)
+    media_type: str = "application/pdf"
+    extracted_text: str | None = field(default=None, repr=False)
 
 
 class IdpProviderMetadata(BaseModel):

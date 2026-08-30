@@ -11,6 +11,7 @@ import type {
   ReconciliationDecisionAction,
   ExceptionResolutionAction,
   ZeroTouchCaseSummary,
+  ZeroTouchCaseListItem,
   ZeroTouchDemoScenario,
   SimulationProfile,
   UatEvidenceExport,
@@ -22,20 +23,30 @@ async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let code: string | null = null;
     let message = `Application API request failed (${response.status}).`;
+    let detail: ApiErrorDetail | null = null;
     try {
       const payload = (await response.json()) as {
-        detail?: { code?: string; message?: string } | string;
+        detail?: ApiErrorDetail | string;
       };
       if (typeof payload.detail === "object" && payload.detail) {
         code = payload.detail.code ?? null;
         message = payload.detail.message ?? message;
+        detail = payload.detail;
       }
     } catch {
       // Preserve the fixed local fallback; never project response bodies.
     }
-    throw new ApiError(message, response.status, code);
+    throw new ApiError(message, response.status, code, detail);
   }
   return (await response.json()) as T;
+}
+
+export interface ApiErrorDetail {
+  code?: string;
+  message?: string;
+  case_id?: string;
+  document_id?: string;
+  correlation_id?: string;
 }
 
 export class ApiError extends Error {
@@ -43,6 +54,7 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code: string | null,
+    readonly detail: ApiErrorDetail | null = null,
   ) {
     super(message);
   }
@@ -88,6 +100,69 @@ export async function attachZeroTouchDocument(
     },
   );
   return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export async function intakeZeroTouchDocument(
+  caseId: string,
+  file: File,
+  demo: boolean,
+): Promise<DocumentProcessingRecord> {
+  const response = await fetch(
+    `${API_BASE_URL}${demo ? "/api/demo" : "/api"}/clm/zero-touch/cases/${caseId}/intake/documents`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type,
+        "X-Document-Name": file.name,
+      },
+      body: file,
+    },
+  );
+  return parseResponse<DocumentProcessingRecord>(response);
+}
+
+export async function retryZeroTouchIntakeDocument(
+  caseId: string,
+  failedDocumentId: string,
+  file: File,
+  demo: boolean,
+): Promise<DocumentProcessingRecord> {
+  const response = await fetch(
+    `${API_BASE_URL}${demo ? "/api/demo" : "/api"}/clm/zero-touch/cases/${caseId}/intake/documents/${failedDocumentId}/retry`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type,
+        "X-Document-Name": file.name,
+      },
+      body: file,
+    },
+  );
+  return parseResponse<DocumentProcessingRecord>(response);
+}
+
+export async function completeZeroTouchIntake(
+  caseId: string,
+  expectedDocumentCount: number,
+  demo: boolean,
+): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}${demo ? "/api/demo" : "/api"}/clm/zero-touch/cases/${caseId}/intake/complete`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_document_count: expectedDocumentCount }),
+    },
+  );
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export async function fetchZeroTouchCases(
+  status?: ZeroTouchCaseListItem["status"],
+): Promise<ZeroTouchCaseListItem[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases${query}`);
+  return parseResponse<ZeroTouchCaseListItem[]>(response);
 }
 
 export async function replaceZeroTouchDocument(
