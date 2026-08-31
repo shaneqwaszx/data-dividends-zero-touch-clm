@@ -32,7 +32,7 @@ The `_id` value must itself already be the lowercase canonical UUID string. The 
 
 The adapter suite now covers missing `_id`, non-string `_id`, malformed UUID text, uppercase/non-canonical UUID text, a valid but mismatched UUID, and the exact-match success case. It also confirms the invalid identity is rejected rather than returned under either case identity.
 
-Result: `apps/backend/tests/test_phase12_persistence.py` — **14 passed**.
+Result after CI-F1 remediation: `apps/backend/tests/test_phase12_persistence.py` — **15 passed**.
 
 ## 7. PH12-QG-001 Genuine Mongo Tests
 
@@ -64,7 +64,7 @@ Ordinary document intake now fails with safe request code `ZERO_TOUCH_DOCUMENT_R
 
 Adapter and orchestration tests cover both `UPLOADED` and `PROCESSING` restart recovery, the exact automation transition, event and exception behavior, ordinary-intake rejection, same-case targeted retry, two simultaneous interrupted documents, staged retries, supersession/source history, and preservation of completed document evidence.
 
-Result: focused Phase 12 adapter suite — **14 passed**.
+Result after CI-F1 remediation: focused Phase 12 adapter suite — **15 passed**.
 
 ## 14. PH12-QG-002 Genuine Mongo Tests
 
@@ -120,6 +120,8 @@ Remediation changes:
 - `.ai-pipeline/reports/PHASE_12_REMEDIATION.md`
 - `README.md`
 - `apps/backend/app/domain/zero_touch.py`
+- `apps/backend/app/services/clm_orchestration.py`
+- `apps/backend/app/services/onboarding.py`
 - `apps/backend/app/persistence/mongo_case_store.py`
 - `apps/backend/app/services/zero_touch_orchestration.py`
 - `apps/backend/tests/test_phase12_persistence.py`
@@ -149,14 +151,14 @@ Pre-Phase 12 regression suite: **31 passed**.
 
 ## 30. Phase 12 Focused Verification
 
-- Adapter/remediation tests: **14 passed**.
+- Adapter/remediation tests: **15 passed**.
 - Genuine-Mongo tests: **11 collected, 11 skipped** because `PHASE12_MONGO_URI` was not configured.
 - Ruff on application and Phase 12 tests: **passed**.
 - Strict mypy: **passed for 72 source files**.
 
 ## 31. Full Backend Verification
 
-The CI-equivalent backend run from `apps/backend`, with the repository root on `PYTHONPATH`, collected 715 tests: **704 passed, 11 skipped**. The skips were exactly the genuine-Mongo tests.
+The CI-equivalent backend run from `apps/backend`, with the repository root on `PYTHONPATH`, collected 716 tests: **705 passed, 11 skipped**. The skips were exactly the genuine-Mongo tests.
 
 An initial repository-root pytest attempt was not used as evidence because pytest encountered pre-existing inaccessible frontend/root cache directories during collection. It ran no tests. The scoped backend command above completed successfully.
 
@@ -192,7 +194,9 @@ No local MongoDB URI was supplied through `PHASE12_MONGO_URI`. The real-Mongo mo
 
 ## 35. Current-Head CI Requirement
 
-Prior `phase12-mongo` CI evidence belongs to commit `d2551e8` and cannot validate these uncommitted remediation changes. After the user reviews, commits, and pushes this working tree, the current commit must receive a successful `phase12-mongo` run. That run must show all 11 genuine-Mongo tests executing rather than skipping. The old green run must not be reused as remediation evidence.
+Commit `902318e` received a genuine `phase12-mongo` run on GitHub Actions. It executed all 11 tests and produced **10 passed, 1 failed**. The failure was `test_real_mongo_uncertain_target_restart_and_resume_never_replay`: restart correctly projected `RECOVERY_PENDING`, but explicit resume incorrectly returned `COMPLETED`. The other backend, frontend, security, and Windows lifecycle jobs passed.
+
+The CI-F1 correction below is currently unstaged and therefore has no current-head genuine-Mongo evidence. After user review, commit, and push, `phase12-mongo` must run again and show all 11 tests executing and passing. Neither the older green run nor the 10/1 run may be represented as verification of this fix.
 
 ## 36. Q-012 and Q-015
 
@@ -200,15 +204,37 @@ Q-012 (sponsor hosting/persistence constraints) and Q-015 (final MongoDB/transac
 
 ## 37. Remaining Risks
 
-- The 11 adverse real-Mongo tests are implementation-complete but unexecuted in this local environment.
-- Current-head CI evidence does not exist until the remediation is committed and pushed by the user.
+- The 11 adverse real-Mongo tests remain unavailable in this local environment; the latest CI evidence is the recorded 10/1 failure on `902318e`.
+- Current-head CI evidence for CI-F1 does not exist until this unstaged correction is committed and pushed by the user.
 - Q-012 and Q-015 continue to limit production-readiness claims.
 - The pre-existing inaccessible cache directories and unrelated untracked files were deliberately not modified.
 
 No remaining local code, documentation, lint, type, frontend, contract, security, regression, or Windows lifecycle failure is known for the assigned remediation scope.
 
+## CI-F1 — Uncertain Target Resume
+
+**CI result.** GitHub Actions run `33353684755`, job `phase12-mongo`, used Python 3.12.14, repository-root `PYTHONPATH`, and a live MongoDB service. The exact command `python -m pytest tests/test_phase12_real_mongo.py` collected 11 tests and ended **10 passed, 1 failed**. The failing assertion expected `RECOVERY_PENDING` after `POST /resume` but received `COMPLETED`.
+
+**Classification and root cause.** This was an implementation ordering defect, not a test-fixture defect. The adversarial fixture represents the accepted crash uncertainty state: the target-execution ledger is `IN_PROGRESS`, contains an attempted Search marker, and retains neither outcome nor receipt. `ClmOrchestrationService.submit()` returned an older `MOCK_GOLDTIER_SUBMITTED` CLM projection before it consulted that ledger. `ZeroTouchOrchestrator` then treated the stale projection as authoritative success.
+
+**Authority rule.** The target-execution ledger is authoritative for target side-effect certainty. `IN_PROGRESS + attempted_operations + no target_outcome + no receipt` means the external result is unknown. No CLM status, automation status, or historical receipt projection may override that state to success, and checking it must not invoke GoldTier.
+
+**Fix.** `OnboardingService.is_execution_outcome_uncertain()` reads one ledger snapshot under the execution-ledger guard. `ClmOrchestrationService.submit()` invokes that check before every terminal-looking CLM early return and raises the existing safe `CLM_TARGET_OUTCOME_UNCERTAIN` request error. At Mock GoldTier, zero-touch returns an existing `RECOVERY_PENDING` automation unchanged for that exact code; it neither appends a duplicate recovery event nor converts the case to technical failure, review, or completion. A recovery-pending record also does not gain a new submission-started event.
+
+**Files changed for CI-F1.** Runtime changes are limited to `apps/backend/app/services/onboarding.py`, `apps/backend/app/services/clm_orchestration.py`, and `apps/backend/app/services/zero_touch_orchestration.py`. The local adapter regression is in `apps/backend/tests/test_phase12_persistence.py`. The genuine-Mongo failing test remains unchanged. This report records the failure and fix.
+
+**Idempotency and call counts.** The new adapter regression reconstructs the same durable uncertain ledger and calls `POST /resume` three times. Every response is `200 / RECOVERY_PENDING`; automation version and event count remain stable; the ledger retains only the original Search attempt; and additional GoldTier calls are **0**.
+
+**Finalisation-only recovery preserved.** Existing retained-outcome tests still distinguish `TARGET_OUTCOME_RECORDED` from uncertain `IN_PROGRESS`. Explicit recovery can finalize the retained outcome and reach the appropriate completed, review, or safe-failure terminal state without another target call. The adjacent CLM and zero-touch orchestration suites passed, including repeated success, match-found, policy-failure, and partial-amend finalisation recovery.
+
+**Local verification after the fix.** Phase 12 focused: **15 passed, 11 skipped**; Phase 11: **58 passed**; Pre-Phase 12: **31 passed**; full backend: **705 passed, 11 skipped**. The 11 skips are exactly the genuine-Mongo tests because `PHASE12_MONGO_URI` is not configured locally. Ruff passed for the backend and the broader repository Python scope. Strict mypy passed for 72 source files. Security tests passed **5/5**, the secret scan was clean, and `git diff --check` passed with line-ending warnings only.
+
+**Security and remaining severity.** The fix adds no external call, credential/TLS path, raw target payload handling, KYC/PII retention, browser projection, or logging. Safe public error semantics remain unchanged. No Critical or High issue remains known in the reviewed CI-F1 boundary, subject to the required genuine-Mongo CI re-verification.
+
+**Required next evidence.** The user must review, commit, and push the unstaged fix, then obtain a new `phase12-mongo` run in which all 11 genuine-Mongo tests pass. Re-quality-gate readiness must not be claimed before that run is green.
+
 ## 38. Readiness
 
-The remediation is ready for user review and current-head genuine-Mongo CI verification. It is not a Phase 12 re-quality-gate result and does not authorize Phase 13. A new independent quality-gate run should occur only after the current-head `phase12-mongo` workflow passes.
+The CI-F1 remediation is ready for user review and current-head genuine-Mongo CI re-verification. It is not a Phase 12 re-quality-gate result and does not authorize Phase 13. A new independent quality-gate run should occur only after the current-head `phase12-mongo` workflow passes.
 
-READY FOR PHASE 12 REMEDIATION CI VERIFICATION
+READY FOR PHASE 12 REMEDIATION CI RE-VERIFICATION
