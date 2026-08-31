@@ -36,9 +36,9 @@ determination, or live ACRA/GoldTier interoperability.
 - Four-field Registry/Document reconciliation with no automatic source precedence,
   first-class discrepancies, backend-authorized bounded decisions, evidence-preserving
   canonical legal-name update, and idempotent resume before Ownership.
-- A backend-authored process-local case history and review queue. Cases remain available
-  while the backend process runs, but restart clears them; this is not durable or
-  production case management.
+- A backend-authored case history and review queue with explicit process-local memory
+  mode or schema-versioned Mongo durable POC mode. Mongo mode survives backend restart;
+  neither mode is production case management or a regulatory audit repository.
 - Explicit multi-document intake completion, per-document provenance, safe PDF/DOCX/TXT
   media routing, and aggregation across every current document before Ownership or
   Mock GoldTier may proceed. The Start workspace shows the accepted document count and
@@ -88,8 +88,9 @@ Stop validates PID, creation time, executable, project command markers, listener
 port before terminating only that owned process tree. A `RUNNING` session must contain
 exactly one backend and one frontend record; incomplete/corrupt metadata fails closed,
 is retained, and prevents Reset from starting. Reset otherwise proceeds to a fresh
-healthy start only after verified stop; successful reset clears process-local cases
-without deleting repository or sponsor files. Lifecycle errors return nonzero and
+healthy start only after verified stop; successful reset clears cases only in memory
+mode and never drops durable Mongo data, repository files, or sponsor files. Lifecycle
+errors return nonzero and
 unowned port occupants are never killed. For recovery and expected outputs, use the
 [demo runbook](docs/demo/DEMO_RUNBOOK.md).
 
@@ -156,10 +157,37 @@ contract. No connector is labeled `LIVE`.
 visibility never bypasses the backend gate. The supported local path uses Vite's API
 proxy; production/cross-origin CORS is not configured.
 
-`MONGO_URI` is optional and is used only by `scripts/check_mongodb.py` for a manual
-connectivity/read-only diagnostic. MongoDB is not wired into application composition;
-the normal onboarding pipeline does not require it and all repositories remain
-process-local/in-memory.
+`CLM_PERSISTENCE_MODE=memory` is the default and is cleared by backend restart.
+`CLM_PERSISTENCE_MODE=mongo` requires `MONGO_URI` and stores one schema-versioned
+structured envelope per case in `MONGO_DATABASE` / `MONGO_CASE_COLLECTION`. Mongo mode
+fails closed at startup and during writes; it never silently falls back to memory.
+Database names, URIs, credentials, raw uploads, complete extracted text, and raw
+Registry payloads are not exposed through the execution profile or case APIs.
+
+Mongo storage requires the document `_id` to be the canonical UUID string for the same
+envelope `case_id`; missing, malformed, noncanonical, or cross-case identities stop
+startup/reads as corrupt persistence. If restart finds a current document interrupted
+before structured evidence was retained, that document becomes
+`FAILED / DOCUMENT_REUPLOAD_REQUIRED` and automation returns to
+`PENDING_INPUTS / DOCUMENT`. Only targeted same-case retry of each affected document is
+accepted until all mandatory reuploads are resolved; completed documents and Registry
+evidence are reused.
+
+To demonstrate restart durability on Windows with a local Mongo server:
+
+```powershell
+$env:CLM_PERSISTENCE_MODE = "mongo"
+$env:MONGO_URI = "mongodb://127.0.0.1:27017"
+$env:MONGO_DATABASE = "clm_poc"
+.\scripts\start_demo_windows.bat
+# create a case, record its case ID, stop, then start again
+.\scripts\stop_demo_windows.bat
+.\scripts\start_demo_windows.bat
+```
+
+Reopen the same case ID or check Dashboard/Review. Do not use
+`reset_demo_windows.bat` as a data purge: durable-data deletion is deliberately not
+implemented.
 
 Document-intake technical defaults are 20 files per case, 5 MiB per file, and 25 MiB
 total. `IDP_MAX_FILES_PER_CASE`, `IDP_MAX_UPLOAD_BYTES`, and
@@ -211,10 +239,11 @@ not validated. Contradictory examples must not become canonical fixtures.
   `private/sponsor-artifacts/`.
 - Normal logs/events/export contain safe IDs, statuses, correlation, timings, and
   sanitized summaries—not KYC/PII or payloads.
-- Current stores, locks, events, bindings, metrics, target ledger, and recovery are
-  process-local; restart resets them.
-- Reconciliation observations, discrepancies, decisions, versions, and resume bindings
-  are also process-local; they are not Mongo-backed production audit records.
+- In memory mode, stores and recovery state are process-local. In Mongo mode, bounded
+  structured case/evidence/decision/workflow/target state survives restart through one
+  per-case envelope; locks and connector objects remain runtime-only.
+- Mongo durability is a local POC recovery feature, not production HA, distributed
+  exactly-once execution, regulatory retention, or a production audit record.
 - Supported uploads are `.pdf`/`application/pdf`, `.docx`/the standard OOXML DOCX MIME,
   and `.txt`/`text/plain` with UTF-8 content. Extension, MIME, structure/content,
   filename, per-file size, count, and total bytes are all checked. ZIP, macro-enabled

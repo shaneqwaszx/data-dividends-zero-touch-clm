@@ -5,6 +5,21 @@ Phase 01 and Phase 02 quality gates, plus the separately scoped Phase 03 documen
 scenarios established by its planner and implementation. All identifiers and data are
 synthetic.
 
+## Phase 12 durability scenarios
+
+| Durable scenario | Expected restored state | Required calls before restart | Additional calls from list/open after restart |
+|---|---|---|---|
+| Three current PDF/DOCX/TXT-equivalent structured documents, straight-through case | same `COMPLETED` case/evidence/target ledger | Registry `1/1/1/1`, IDP `3`, Ownership `1`, GoldTier `SEARCH/SHELL/POLICY/AMEND` once | Registry `0`, IDP `0`, Ownership `0`, GoldTier `0` |
+| Intake not completed | same `PENDING_INPUTS` case and completed structured evidence | Registry once; IDP only for uploaded documents | all providers `0` |
+| Current conflict | same `WAITING_FOR_REVIEW` case, discrepancy IDs/actions/decisions | Registry and accepted documents only | all providers `0` |
+| Finalisation outcome retained | same `RECOVERY_PENDING`; explicit finalisation may continue | target operations represented by retained outcome | GoldTier `0` |
+| Attempted target operation without retained outcome | controlled `RECOVERY_PENDING` | durable ordered intent/attempt marker | automatic GoldTier replay prohibited |
+| Corrupt Mongo key/envelope identity | startup/read fails with controlled invalid-persistence error | none | no cross-case API projection, repair, deletion, or provider call |
+| One or more interrupted current documents | each affected record is `FAILED / DOCUMENT_REUPLOAD_REQUIRED`; automation is `PENDING_INPUTS / DOCUMENT` | completed structured evidence and Registry acquisition retained | restart adds no provider calls; each targeted retry adds IDP `1` only and preserves same case/history |
+
+Memory mode retains the historical process-local reset behavior. Mongo mode is a
+single-instance durable POC, not a distributed exactly-once or Ready-for-Approval claim.
+
 ## Canonical mock scenarios
 
 | Input | Accepted behavior | Terminal result | Required calls | Prohibited calls/claims |
@@ -382,6 +397,8 @@ and fixed safe issues. They label the surface as a project-owned synthetic Mock 
 
 | Established by | Change |
 |---|---|
+| Phase 12 quality-gate remediation | Preserved the accepted architecture and prior phases; added canonical Mongo key/envelope identity validation, coordinated interrupted-document input recovery, bounded targeted same-case retry, and genuine-Mongo adverse restart/CAS/atomicity coverage |
+| Phase 12 implementation | Preserved Phase 09–11 and Pre-Phase 12 behavior; added explicit memory/Mongo durability, schema/CAS validation, restart reconstruction, read-only no-provider-replay, and uncertain-target recovery scenarios |
 | Pre-Phase 12 quality-gate remediation | Preserved all workspace/multi-document behavior; strengthened pre-IDP PDF structural recognition and DOCX archive-member namespace validation, and added accepted selected-byte visibility without moving authority to the browser |
 | Pre-Phase 12 workspace/multi-document refinement | Preserved Phase 09–11 rules; added backend-authored process-local history/review queue, read-only listing, explicit bounded PDF/DOCX/TXT intake completion, per-document provenance, full-current-document aggregation, missing-with-usable semantics, ambiguous-document no-winner behavior, same-case retry, and isolated replacement |
 | Phase 11 quality-gate remediation | Preserved Phase 11 source-neutral behavior and Phase 09/10 call stopping; added coordinated canonical/decision atomicity, intrinsic outcome/action/status invariants, one current discrepancy per field/evidence, current-context duplicate checks, and actionless low-confidence disagreement |

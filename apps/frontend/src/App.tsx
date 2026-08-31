@@ -1511,17 +1511,21 @@ export function DashboardSnapshot({ summary }: { summary: ZeroTouchCaseSummary |
 export function CasePortfolio({
   cases,
   onOpen,
+  persistence = "Process-local",
 }: {
   cases: ZeroTouchCaseListItem[];
   onOpen: (caseId: string) => void;
+  persistence?: SimulationProfile["persistence"];
 }) {
+  const durable = persistence === "Mongo-backed durable POC";
   return (
     <section className="case-portfolio" aria-labelledby="case-portfolio-heading">
-      <p className="section-label">Process-local case history</p>
+      <p className="section-label">{durable ? "Durable case history" : "Process-local case history"}</p>
       <h2 id="case-portfolio-heading">Recent CLM cases</h2>
       <p className="process-local-notice">
-        Cases are retained only for the current backend process. Restarting the local
-        POC clears this history.
+        {durable
+          ? "Mongo-backed durable POC — cases survive backend restart. This is not a production audit repository."
+          : "Cases are retained only for the current backend process. Restarting the local POC clears this history."}
       </p>
       {cases.length === 0 ? (
         <p>No CLM cases have been created in this backend process.</p>
@@ -1555,16 +1559,19 @@ export function ReviewQueue({
   cases,
   selectedCaseId,
   onOpen,
+  persistence = "Process-local",
 }: {
   cases: ZeroTouchCaseListItem[];
   selectedCaseId?: string;
   onOpen: (caseId: string) => void;
+  persistence?: SimulationProfile["persistence"];
 }) {
+  const durable = persistence === "Mongo-backed durable POC";
   return (
     <section className="review-queue" aria-labelledby="review-queue-heading">
-      <p className="section-label">Backend-authored process-local queue</p>
+      <p className="section-label">Backend-authored {durable ? "durable" : "process-local"} queue</p>
       <h2 id="review-queue-heading">Cases waiting for review</h2>
-      <p>Queue status is authoritative for the current backend process only; assignment remains session-only.</p>
+      <p>{durable ? "Queue status survives backend restart; assignment remains session-only." : "Queue status is authoritative for the current backend process only; assignment remains session-only."}</p>
       {cases.length === 0 ? <p>No cases currently require review.</p> : (
         <div className="review-queue__items">
           {cases.map((item) => (
@@ -2686,7 +2693,11 @@ export default function App({
       )}
       {activeTab === "dashboard" && <DashboardSnapshot summary={summary} />}
       {activeTab === "dashboard" && (
-        <CasePortfolio cases={caseList} onOpen={(id) => void openSelectedCase(id, "dashboard")} />
+        <CasePortfolio
+          cases={caseList}
+          onOpen={(id) => void openSelectedCase(id, "dashboard")}
+          persistence={simulationProfile?.persistence}
+        />
       )}
       {activeTab === "start" && (
       <section className="launch-card zero-touch-launch" aria-labelledby="onboarding-heading">
@@ -2864,6 +2875,7 @@ export default function App({
               cases={caseList.filter((item) => item.status === "WAITING_FOR_REVIEW")}
               selectedCaseId={summary?.case.case_id}
               onOpen={(id) => void openSelectedCase(id, "review")}
+              persistence={simulationProfile?.persistence}
             />
           )}
 

@@ -20,5 +20,8 @@ and resume boundary is in
 The bounded refinement before Phase 12 adds a process-local case index/review queue and
 explicit multi-document intake boundary in
 [PRE_PHASE_12_CLM_WORKSPACE_MULTIDOC.md](PRE_PHASE_12_CLM_WORKSPACE_MULTIDOC.md).
+Phase 12's explicit memory/Mongo repository composition, single-envelope CAS boundary,
+and conservative restart recovery are documented in
+[PHASE_12_DURABLE_PERSISTENCE_RESTART_RECOVERY.md](PHASE_12_DURABLE_PERSISTENCE_RESTART_RECOVERY.md).
 
 Later phases should update that baseline only when an approved planner handoff introduces a new boundary or decision.

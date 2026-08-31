@@ -56,6 +56,11 @@ Document or Registry is authoritative. Please still confirm source authority by 
 authenticated reviewer role/separation of duties, permitted missing/invalid/confidence
 decisions, retained audit evidence, and restart-versus-resume policy. Q-015 remains OPEN.
 
+Phase 12 supplies only technical single-instance Mongo restart durability and
+conservative target replay prevention. It does not answer who may decide, what must be
+retained/deleted, whether this storage is an approved audit record, or the production
+operational restart policy. Those parts of Q-015 remain OPEN.
+
 ## A. BLOCKING REAL GOLDTIER INTEGRATION
 
 ### Q-008 — Authentication containment and replacement

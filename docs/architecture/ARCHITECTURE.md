@@ -10,6 +10,8 @@
 > these components “future” are historical, not current code truth.
 > The current workspace/history and multi-document refinement is documented in
 > [PRE_PHASE_12_CLM_WORKSPACE_MULTIDOC.md](PRE_PHASE_12_CLM_WORKSPACE_MULTIDOC.md).
+> Phase 12 durability is described in
+> [PHASE_12_DURABLE_PERSISTENCE_RESTART_RECOVERY.md](PHASE_12_DURABLE_PERSISTENCE_RESTART_RECOVERY.md).
 
 ## Purpose
 

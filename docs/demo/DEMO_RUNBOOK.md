@@ -135,3 +135,18 @@ available Windows workspace. It does not prove a separate physical clean machine
 production deployment, external network, or live credentials. A sponsor/evaluator
 should repeat the one-time setup and UAT-01 from a fresh clone as the independent
 reproducibility check.
+# Optional durable restart demonstration
+
+The default `CLM_PERSISTENCE_MODE=memory` remains process-local. To demonstrate the
+Phase 12 local durable POC with an already-running Mongo server, set:
+
+```powershell
+$env:CLM_PERSISTENCE_MODE = "mongo"
+$env:MONGO_URI = "mongodb://127.0.0.1:27017"
+$env:MONGO_DATABASE = "clm_poc"
+```
+
+Start the demo, create a case, record its case ID/status, stop the demo, and start it
+again. Dashboard/Review and direct case open must show the same case and structured
+evidence without provider replay. `reset_demo_windows.bat` restarts processes but does
+not delete Mongo data. No general durable-data purge command is supplied.

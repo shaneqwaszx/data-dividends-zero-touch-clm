@@ -35,6 +35,7 @@ class SimulationProfile(BaseModel):
     ownership_system: Literal["OWNERSHIP_PROVIDER"] = "OWNERSHIP_PROVIDER"
     ownership_environment: Literal["MOCK"] = "MOCK"
     ubo_ownership_threshold_percent: Decimal = Decimal("25")
+    persistence: Literal["Process-local", "Mongo-backed durable POC"] = "Process-local"
 
 
 class MockScenarioDiscovery(BaseModel):

@@ -305,4 +305,29 @@ all current documents: missing in one document does not override usable evidence
 another; conflicting, invalid, and unverifiable observations remain distinct; and
 `USE_DOCUMENT_VALUE` is still limited to one unambiguous legal-name candidate. Q-012
 and Q-015 remain OPEN; Q-003/Q-013/Q-014 still govern final sponsor document, privacy,
-confidence, and authenticated-review policy. Phase 12 has not begun.
+confidence, and authenticated-review policy.
+
+## Phase 12 implementation status
+
+Phase 12 adds an explicit `memory`/`mongo` repository composition. Mongo mode stores one
+schema-versioned, bounded structured envelope per case and reconstructs onboarding,
+Registry acquisition, documents and replacement links, reconciliation/decisions,
+ownership Decimal evidence, CLM/automation checkpoints, demo scenario metadata, and
+the Mock GoldTier intent/outcome/receipt ledger after a new application composition.
+Envelope writes use single-document revision compare-and-set; the legal-name canonical
+update and reconciliation decision are one atomic envelope update.
+
+Mongo mode requires `MONGO_URI` and fails closed when unavailable or when persisted data
+has an unknown/invalid schema. It does not silently fall back to memory or rewrite bad
+data. Completed evidence is reused and reads cause no provider calls. An attempted target
+operation without a retained outcome becomes controlled recovery pending and is never
+automatically replayed. Raw PDF/DOCX/TXT bytes, full extracted bodies, raw Registry
+payloads, credentials, and provider objects are not persisted. Interrupted document
+processing becomes a failed re-upload-required record and returns automation to the
+Document input checkpoint; targeted same-case retry is required for each affected
+document before intake can complete. Mongo key/envelope identity mismatch is corrupt
+data and fails startup/reads without repair or cross-case projection.
+
+This is durable single-instance POC recovery, not production HA, distributed workflow,
+exactly-once provider execution, regulatory retention, or Ready-for-Approval. Q-012 and
+Q-015 remain open.

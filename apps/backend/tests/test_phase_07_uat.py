@@ -52,6 +52,7 @@ def test_execution_profile_is_safe_and_available_without_demo_controls() -> None
         "ownership_system": "OWNERSHIP_PROVIDER",
         "ownership_environment": "MOCK",
         "ubo_ownership_threshold_percent": "25",
+        "persistence": "Process-local",
     }
 
 

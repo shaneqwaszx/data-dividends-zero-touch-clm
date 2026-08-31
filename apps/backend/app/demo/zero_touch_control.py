@@ -2,6 +2,7 @@
 
 from enum import StrEnum
 from threading import RLock
+from typing import Protocol
 from uuid import UUID
 
 from app.connectors.idp import (
@@ -34,6 +35,26 @@ class ZeroTouchDemoScenario(StrEnum):
     PARTIAL_AMEND = "PARTIAL_AMEND"
     RECOVERY = "RECOVERY"
     TECHNICAL_FAILURE = "TECHNICAL_FAILURE"
+
+
+class DemoScenarioRepository(Protocol):
+    def set(self, case_id: UUID, scenario: str) -> None: ...
+
+    def get(self, case_id: UUID) -> str | None: ...
+
+
+class InMemoryDemoScenarioRepository:
+    def __init__(self) -> None:
+        self._scenarios: dict[UUID, str] = {}
+        self._lock = RLock()
+
+    def set(self, case_id: UUID, scenario: str) -> None:
+        with self._lock:
+            self._scenarios[case_id] = scenario
+
+    def get(self, case_id: UUID) -> str | None:
+        with self._lock:
+            return self._scenarios.get(case_id)
 
 
 class _CaseMatchingMockIdpProvider:
@@ -88,8 +109,10 @@ class _CaseMatchingMockIdpProvider:
 class ZeroTouchDemoControl:
     """Retain per-case demo selection without exposing it to domain services."""
 
-    def __init__(self) -> None:
-        self._scenarios: dict[UUID, ZeroTouchDemoScenario] = {}
+    def __init__(self, scenario_repository: DemoScenarioRepository | None = None) -> None:
+        self._scenario_repository = (
+            scenario_repository or InMemoryDemoScenarioRepository()
+        )
         self._finalization_failures_remaining: dict[UUID, int] = {}
         self._lock = RLock()
 
@@ -104,7 +127,7 @@ class ZeroTouchDemoControl:
 
     def register(self, case_id: UUID, scenario: ZeroTouchDemoScenario) -> None:
         with self._lock:
-            self._scenarios[case_id] = scenario
+            self._scenario_repository.set(case_id, scenario.value)
             if scenario == ZeroTouchDemoScenario.RECOVERY:
                 # Phase 06 retries finalization twice in one invocation. Failing both
                 # attempts yields RECOVERY_PENDING; the next explicit resume succeeds.
@@ -112,12 +135,16 @@ class ZeroTouchDemoControl:
 
     def registered_scenario_for(self, case_id: UUID) -> ZeroTouchDemoScenario | None:
         with self._lock:
-            return self._scenarios.get(case_id)
+            raw = self._scenario_repository.get(case_id)
+            return ZeroTouchDemoScenario(raw) if raw is not None else None
 
     def scenario_for(self, case_id: UUID) -> ZeroTouchDemoScenario:
         with self._lock:
-            return self._scenarios.get(
-                case_id, ZeroTouchDemoScenario.STRAIGHT_THROUGH
+            raw = self._scenario_repository.get(case_id)
+            return (
+                ZeroTouchDemoScenario(raw)
+                if raw is not None
+                else ZeroTouchDemoScenario.STRAIGHT_THROUGH
             )
 
     def idp_provider_for(
