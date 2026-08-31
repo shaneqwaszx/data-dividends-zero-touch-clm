@@ -5,11 +5,13 @@
 Implemented explicit process-local memory and fail-closed Mongo persistence behind the
 existing repository/service boundaries. Mongo uses one schema-versioned structured
 case envelope, single-document revision compare-and-set, durable target checkpoints,
-and conservative restart classification. The implementation and all non-Mongo gates
-pass. The local genuine-Mongo execution is blocked because Docker Desktop's backend
-crashes before its engine starts; the genuine test and Mongo service are committed to
-CI but have not executed in this workspace. The phase is therefore not ready for its
-quality gate.
+and conservative restart classification. Local non-Mongo verification remains green;
+the local environment could not host Mongo because Docker Desktop's backend crashed
+before its engine started. The required genuine-Mongo proof subsequently executed
+successfully in GitHub Actions: the `phase12-mongo` job started a real `mongo:7`
+service, waited for it to become healthy, and ran
+`tests/test_phase12_real_mongo.py`, which passed without being skipped. Phase 12 is now
+ready for independent Quality Gate review; that independent gate has not yet occurred.
 
 ## 2. Accepted Baseline
 
@@ -137,8 +139,9 @@ ledger. Adapter composition-A/B and full serialization round trip passed.
 ## 23. TECHNICAL_FAILURE Recovery
 
 The typed automation/onboarding error and status are part of the strict envelope and do
-not transform on read/startup. DTO/domain round-trip coverage passes; a dedicated real
-Mongo terminal-state matrix remains part of the unmet genuine-Mongo gate.
+not transform on read/startup. DTO/domain round-trip coverage passes. The dedicated
+real-Mongo restart proof exercises completed, pending-input, and waiting-review cases;
+it does not add a separate real-Mongo technical-failure case.
 
 ## 24. RECOVERY_PENDING Recovery
 
@@ -172,13 +175,24 @@ and Review describe restart behavior accurately and deny production audit claims
 Added `test_phase12_real_mongo.py` with isolated `clm_phase12_test_<uuid>` cleanup. It
 creates completed, pending-input, and waiting-review cases in composition A, creates
 composition B against the same Mongo data, verifies evidence/status/history/review,
-and asserts provider counters do not change on read. Local result: **SKIPPED** because no
-working Mongo server was available.
+and asserts provider counters do not change on read.
+
+- Local: **SKIPPED** because no working Mongo server was available.
+- GitHub CI: `phase12-mongo` used an isolated real `mongo:7` service and ran
+  `tests/test_phase12_real_mongo.py`: **1 passed, 1 warning in 2.38s**. The test was not
+  skipped.
+
+The mandatory genuine-Mongo verification requirement is satisfied through CI. This was
+an isolated CI integration environment, not a production Mongo deployment.
 
 ## 30. CI Changes
 
 Added `phase12-mongo` using `mongo:7`, health checks, isolated test execution, and
-`PHASE12_MONGO_URI`. Normal backend tests remain Mongo-independent.
+`PHASE12_MONGO_URI`. Normal backend tests remain Mongo-independent. GitHub Actions
+subsequently executed the job successfully: **`phase12-mongo = PASS`**. It started the
+Mongo service, waited until it was healthy, and actually executed
+`python -m pytest tests/test_phase12_real_mongo.py`; it did not merely compile or
+collect the test. The broader PR checks were also green at verification time.
 
 ## 31. Security Review
 
@@ -207,23 +221,46 @@ retention solution. Q-015 governs those production decisions.
 
 ## 33. Exact Phase 12 Tests
 
-Six collected: five passed and the one genuine-Mongo test skipped. Passing coverage:
-memory independence, missing-URI fail-closed, unknown schema, controlled DTO round trip/
-raw-data exclusion, composition-A/B completed/pending/review reconstruction, private
-binding/fingerprint serialization, and uncertain target recovery classification.
+- Local Phase 12: **5 passed, 1 genuine-Mongo skipped**. Passing coverage includes
+  memory independence, missing-URI fail-closed, unknown schema, controlled DTO round
+  trip/raw-data exclusion, adapter composition-A/B completed/pending/review
+  reconstruction, private binding/fingerprint serialization, and uncertain target
+  recovery classification.
+- Genuine Mongo CI: **1 passed**. This was the previously skipped test executing against
+  the healthy `mongo:7` service.
 
 ## 34. Real Restart Demonstration
 
-Not executed. Docker Desktop was started for this gate but its backend crashed before
-the engine became available: its own `dockerInference` runtime socket could not be
-accessed. External Docker runtime files were not modified. This is the readiness blocker.
+The genuine restart proof executed through GitHub Actions. The test used an isolated
+`clm_phase12_test_<uuid>` database, created application state through composition A,
+closed that application, and created a fresh composition B against the same Mongo
+store. Composition B reconstructed the durable completed, pending-input, and
+waiting-review case state and verified restart-visible case history, completed-case
+detail, three document records, the review queue, and the Mongo-backed execution
+profile. It also executed the test's zero-provider-replay assertion for the
+composition-B reads and dropped only its isolated test database in cleanup.
+
+The same test remained skipped locally because the local Mongo/Docker runtime was not
+available; the successful CI execution supplies the genuine-Mongo proof.
 
 ## 35. Provider Call Counts Before / After Restart
 
-Accepted normal scenario remains Registry `1/1/1/1`, IDP `3`, Ownership `1`, Mock
-GoldTier `SEARCH/SHELL/POLICY/AMEND` once. The genuine test encodes expected additional
-counts of zero after restart/open/list, but this exact counter proof did not execute
-locally. Existing Pre-Phase 12 call-count regressions pass.
+Before restart, the real-Mongo test asserts aggregate counts of Registry `8` (four
+operations for each of the completed and pending-input cases), IDP `3`, Ownership `1`,
+and Mock GoldTier `4` (`SEARCH`, `SHELL`, `POLICY`, and `AMEND` once for the completed
+case). It snapshots those counters before composition B, then performs case list,
+completed-case detail, document list, review-queue, and execution-profile reads and
+asserts the complete counter dictionary remains unchanged.
+
+Executed post-restart/read evidence is therefore:
+
+- additional Registry calls: **0**;
+- additional IDP calls: **0**;
+- additional Ownership calls: **0**;
+- additional GoldTier calls: **0**.
+
+This exact counter proof passed in genuine-Mongo CI. Existing Pre-Phase 12 call-count
+regressions also pass.
 
 ## 36. Phase 09 Regression
 
@@ -246,7 +283,9 @@ protection, reconciliation, replacement, and call stopping preserved.
 
 ## 40. Full Backend / Frontend Verification
 
-- Backend: **696 collected; 695 passed, 1 genuine-Mongo skipped**.
+- Local backend: **696 collected; 695 passed, 1 genuine-Mongo skipped**.
+- Dedicated genuine-Mongo CI integration: **1 passed**; the test executed rather than
+  skipped.
 - Ruff: pass. mypy strict: pass, 72 source files.
 - Frontend: **58 passed**; typecheck and production build pass.
 - `pip check`: pass. `npm ls --all`: exit 0 (platform/feature optional dependencies
@@ -280,18 +319,23 @@ distributed worker/lock/queue, HA, new UBO/source policy, or Ready-for-Approval 
 
 ## 45. Remaining Risks
 
-1. **Blocking verification risk:** the genuine Mongo test has not executed locally or in
-   CI yet, so BSON/index/CAS behavior and the exact real restart/call-counter proof remain
-   unverified.
-2. Mongo persistence is intentionally single-instance; concurrent active nodes are not
+1. Mongo persistence is intentionally single-instance; concurrent active nodes are not
    supported even though stale envelope CAS is detected.
-3. Sponsor retention/deletion/encryption/backup policy remains unresolved under Q-015.
+2. The POC does not provide distributed exactly-once execution, distributed locks or
+   workers, or production high availability.
+3. The passing isolated CI integration is not a production Mongo deployment, production
+   backup/restore exercise, or regulatory storage certification.
+4. Q-015 remains open for source/reviewer authority, retention, deletion, encryption,
+   backup, audit governance, and production restart policy.
+5. Q-012 remains open for the authoritative live ACRA contract, access, authentication,
+   and sandbox verification.
 
 ## 46. Readiness
 
-Implementation and non-Mongo regressions are clean, but the planner explicitly requires
-an executed real-Mongo restart proof. Run the `phase12-mongo` CI job (or repair/provide a
-local Mongo server and run `test_phase12_real_mongo.py`) before requesting the independent
-quality gate.
+The implementation is unchanged. Local verification remains green apart from the
+environment-dependent genuine-Mongo skip, and the mandatory real-Mongo evidence has now
+been satisfied by the successful `phase12-mongo` GitHub Actions execution against a
+healthy `mongo:7` service. The real restart and zero-additional-provider-call assertions
+executed and passed. The independent Phase 12 Quality Gate has not yet been performed.
 
-NOT READY FOR PHASE 12 QUALITY GATE
+READY FOR PHASE 12 QUALITY GATE

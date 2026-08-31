@@ -16,8 +16,10 @@ One case envelope contains schema version 1, revision, onboarding and Registry e
 ordered document records and supersession links, reconciliation outcomes/decisions,
 ownership evidence, CLM and automation checkpoints, target execution ledger, safe demo
 scenario metadata, and timestamps. Every nested case/submission identity must agree.
-Unknown versions or invalid nested aggregates are not interpreted or automatically
-migrated.
+Mongo `_id` must be the canonical UUID string equal to the envelope `case_id`. Missing,
+non-string, malformed, noncanonical, or mismatched keys are invalid persisted data on
+every read path and during startup. Unknown versions or invalid nested aggregates are
+not interpreted, repaired, or automatically migrated.
 
 ## Operation safety
 
@@ -32,6 +34,8 @@ or exactly-once guarantee is claimed.
 
 Raw uploaded bytes, full extracted bodies, raw external payloads, secrets, authorization,
 Mongo connection strings, provider instances, and UI/session state are forbidden from
-the envelope. An interrupted document without structured evidence therefore requires
-explicit re-upload.
-
+the envelope. An interrupted current document without structured evidence therefore
+becomes `FAILED / DOCUMENT_REUPLOAD_REQUIRED`; automation returns to
+`PENDING_INPUTS / DOCUMENT`. Ordinary intake remains closed while this condition exists.
+Targeted same-case retry supersedes only the affected record, preserves completed
+evidence/history, and must finish for every affected document before intake completion.

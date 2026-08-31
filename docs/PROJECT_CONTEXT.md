@@ -323,7 +323,10 @@ data. Completed evidence is reused and reads cause no provider calls. An attempt
 operation without a retained outcome becomes controlled recovery pending and is never
 automatically replayed. Raw PDF/DOCX/TXT bytes, full extracted bodies, raw Registry
 payloads, credentials, and provider objects are not persisted. Interrupted document
-processing requires explicit re-upload.
+processing becomes a failed re-upload-required record and returns automation to the
+Document input checkpoint; targeted same-case retry is required for each affected
+document before intake can complete. Mongo key/envelope identity mismatch is corrupt
+data and fails startup/reads without repair or cross-case projection.
 
 This is durable single-instance POC recovery, not production HA, distributed workflow,
 exactly-once provider execution, regulatory retention, or Ready-for-Approval. Q-012 and

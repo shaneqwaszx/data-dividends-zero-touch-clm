@@ -164,6 +164,15 @@ fails closed at startup and during writes; it never silently falls back to memor
 Database names, URIs, credentials, raw uploads, complete extracted text, and raw
 Registry payloads are not exposed through the execution profile or case APIs.
 
+Mongo storage requires the document `_id` to be the canonical UUID string for the same
+envelope `case_id`; missing, malformed, noncanonical, or cross-case identities stop
+startup/reads as corrupt persistence. If restart finds a current document interrupted
+before structured evidence was retained, that document becomes
+`FAILED / DOCUMENT_REUPLOAD_REQUIRED` and automation returns to
+`PENDING_INPUTS / DOCUMENT`. Only targeted same-case retry of each affected document is
+accepted until all mandatory reuploads are resolved; completed documents and Registry
+evidence are reused.
+
 To demonstrate restart durability on Windows with a local Mongo server:
 
 ```powershell

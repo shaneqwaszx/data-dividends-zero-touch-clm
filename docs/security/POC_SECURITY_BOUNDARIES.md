@@ -72,3 +72,11 @@ state. Mongo unavailability, unknown schema versions, and malformed envelopes fa
 closed without fallback or destructive repair. No TTL/purge is configured because
 retention and deletion remain sponsor-dependent under Q-015. This is not production KYC
 storage, a regulatory audit repository, or a distributed exactly-once system.
+
+The Mongo document key is untrusted storage metadata: `_id` must be a canonical UUID
+string equal to the envelope `case_id` on startup and every read path. A mismatch stops
+before API/browser projection and is never normalized, rewritten, or deleted. Restart
+classification of an interrupted current document retains no bytes, marks only that
+record re-upload-required, and returns automation to bounded Document input. Unrelated
+intake cannot bypass the targeted retry requirement, and completed evidence is not
+reprocessed.

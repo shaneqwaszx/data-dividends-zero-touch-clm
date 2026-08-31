@@ -22,7 +22,10 @@ onboarding, ordered document, reconciliation, ownership, CLM, automation, safe d
 binding, and target-execution sections. UUID, exact Decimal, and UTC datetime values use
 controlled string representations. Every read reconstructs the strict persistence DTO
 and domain aggregates; unknown or malformed data fails closed without destructive
-repair.
+repair. Mongo `_id` is part of that trust boundary: it must be a canonical UUID string
+and exactly equal `str(case_id)`. The store rejects missing, non-string, malformed,
+noncanonical, or mismatched identities on startup, direct reads, lists, and secondary
+lookups; it never normalizes or repairs them.
 
 ## Concurrency and coordinated decisions
 
@@ -44,8 +47,13 @@ distributed exactly-once semantics.
   invoke Registry, IDP, Ownership, or GoldTier.
 - Completed Registry acquisition, structured document evidence, reconciliation,
   ownership, and target outcomes are reused.
-- An uploaded document left before a structured checkpoint has no retained bytes. It is
-  marked `DOCUMENT_REUPLOAD_REQUIRED`; explicit retry/re-upload is required.
+- A current uploaded/processing document left before a structured checkpoint has no
+  retained bytes. It becomes `FAILED / DOCUMENT_REUPLOAD_REQUIRED`, while the owning
+  automation returns to `PENDING_INPUTS` at `DOCUMENT` with a safe recovery event.
+  Completed current documents remain unchanged. Ordinary unrelated intake is rejected
+  while any mandatory reupload remains; targeted same-case retry supersedes each failed
+  record individually. Only after every affected document is replaced may normal intake
+  completion continue.
 - A target intent left `IN_PROGRESS` after an attempted operation becomes controlled
   recovery pending. It is not automatically replayed. A retained target outcome may
   complete receipt/finalisation only.
@@ -60,4 +68,3 @@ migration exists because retention/deletion policy remains sponsor-dependent.
 
 Mongo mode is a durable local POC, not production KYC storage, a regulatory audit
 repository, production HA, backup/restore, or Ready-for-Approval.
-
