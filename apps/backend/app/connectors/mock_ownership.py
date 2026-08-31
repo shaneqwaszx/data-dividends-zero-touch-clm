@@ -38,6 +38,10 @@ class MockOwnershipProvider:
         self._scenario = scenario
 
     @property
+    def scenario(self) -> MockOwnershipScenario:
+        return self._scenario
+
+    @property
     def metadata(self) -> object:
         return OwnershipProviderMetadata(
             provider_name="MOCK_OWNERSHIP",

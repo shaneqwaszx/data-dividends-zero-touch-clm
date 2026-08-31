@@ -30,6 +30,7 @@ export interface SimulationProfile {
   ownership_system: "OWNERSHIP_PROVIDER";
   ownership_environment: "MOCK";
   ubo_ownership_threshold_percent: string;
+  persistence: "Process-local" | "Mongo-backed durable POC";
 }
 
 export interface MockScenarioDiscovery {

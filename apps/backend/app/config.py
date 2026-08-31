@@ -35,12 +35,22 @@ class Settings(BaseSettings):
     ownership_max_depth: int = Field(default=8, gt=0, le=64)
     ownership_max_paths_per_candidate: int = Field(default=64, gt=0, le=1000)
     ownership_max_total_paths: int = Field(default=256, gt=0, le=5000)
+    clm_persistence_mode: Literal["memory", "mongo"] = "memory"
     acra_base_url: str = ""
     acra_company_path_template: str = ""
     acra_timeout_seconds: float = 10.0
     acra_auth_header_name: str = ""
     acra_auth_header_value: SecretStr | None = None
     mongo_uri: SecretStr | None = None
+    mongo_database: str = Field(
+        default="clm_poc", min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"
+    )
+    mongo_case_collection: str = Field(
+        default="clm_case_snapshots",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

@@ -40,6 +40,7 @@ from app.services.reconciliation_repository import (
     ProcessLocalReconciliationUnitOfWork,
     ReconciliationRepository,
     ReconciliationRepositoryConflictError,
+    ReconciliationUnitOfWork,
     ReconciliationUnitOfWorkError,
 )
 
@@ -65,14 +66,15 @@ class ReconciliationService:
         cases: OnboardingService,
         documents: DocumentProcessingService,
         repository: ReconciliationRepository,
+        unit_of_work: ReconciliationUnitOfWork | None = None,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
     ) -> None:
         self._cases = cases
         self._documents = documents
         self._repository = repository
-        self._unit_of_work = ProcessLocalReconciliationUnitOfWork(
-            onboarding_repository=cases.process_local_repository,
+        self._unit_of_work = unit_of_work or ProcessLocalReconciliationUnitOfWork(
+            onboarding_repository=cases.repository,
             reconciliation_repository=repository,
         )
         self._clock = clock or (lambda: datetime.now(UTC))

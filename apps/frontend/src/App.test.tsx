@@ -69,6 +69,7 @@ import type {
   OwnershipAnalysisRecord,
   RegistryOperation,
   ReconciliationSummary,
+  SimulationProfile,
   ZeroTouchCaseSummary,
   ZeroTouchException,
   WorkflowState,
@@ -371,7 +372,7 @@ function makeOwnership(
   };
 }
 
-const simulation = {
+const simulation: SimulationProfile = {
   is_simulated: true as const,
   registry_system: "ACRA" as const,
   registry_environment: "MOCK" as const,
@@ -384,6 +385,7 @@ const simulation = {
   ownership_system: "OWNERSHIP_PROVIDER" as const,
   ownership_environment: "MOCK" as const,
   ubo_ownership_threshold_percent: "25",
+  persistence: "Process-local",
 };
 
 function makeClm(
@@ -595,6 +597,20 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     expect(queue).toContain("1 active blocker(s)");
     expect(queue).toContain("2 active blocker(s)");
     expect(queue).toContain("session-only");
+  });
+
+  it("labels Mongo history and review as durable without production claims", () => {
+    const durable = "Mongo-backed durable POC" as const;
+    const portfolio = renderToStaticMarkup(
+      <CasePortfolio cases={[]} onOpen={() => undefined} persistence={durable} />,
+    );
+    const queue = renderToStaticMarkup(
+      <ReviewQueue cases={[]} onOpen={() => undefined} persistence={durable} />,
+    );
+
+    expect(portfolio).toContain("cases survive backend restart");
+    expect(portfolio).toContain("not a production audit repository");
+    expect(queue).toContain("Queue status survives backend restart");
   });
 
   it("shows accessible creation confirmation and review action on Start", () => {

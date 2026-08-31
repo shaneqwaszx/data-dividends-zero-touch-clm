@@ -42,3 +42,7 @@ Phase 05's staged readiness and target preparation are recorded in
 provisional automatic-continuation, exception, and replay rules are recorded in
 `ZERO_TOUCH_AUTOMATION_POLICY.md`; replaceable provider expectations are recorded in
 `INTEGRATION_ADAPTER_CONTRACTS.md`. They do not resolve the open sponsor questions.
+
+Phase 12's schema-version, configuration, structured-data retention, restart, and
+side-effect replay boundaries are recorded in `PERSISTENCE_RECOVERY_PROFILE.md`. It is a
+local durable POC contract, not a sponsor-approved retention/audit standard.

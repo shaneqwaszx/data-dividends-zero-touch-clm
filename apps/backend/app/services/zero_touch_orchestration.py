@@ -977,6 +977,11 @@ class ZeroTouchOrchestrator:
                 try:
                     clm_record = self._clm.evaluate(case_id=case_id)
                 except ClmRequestError as exc:
+                    if (
+                        exc.code == "CLM_TARGET_OUTCOME_UNCERTAIN"
+                        and record.status == AutomationStatus.RECOVERY_PENDING
+                    ):
+                        return record
                     return self._technical_failure(
                         record,
                         stage=AutomationStage.READINESS,

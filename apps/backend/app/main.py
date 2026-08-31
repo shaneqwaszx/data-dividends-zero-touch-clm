@@ -57,6 +57,7 @@ from app.domain.zero_touch import (
     ExceptionResolutionAction,
     ZeroTouchAutomationRecord,
 )
+from app.persistence.composition import build_persistence_bundle
 from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.document_errors import (
@@ -217,9 +218,13 @@ def create_app(
     """Build the application with injectable settings for deterministic tests."""
 
     active_settings = settings or get_settings()
+    persistence = build_persistence_bundle(active_settings)
     application = FastAPI(title=active_settings.app_name, version="0.1.0")
+    application.router.add_event_handler("shutdown", persistence.close)
     catalogue = scenario_catalogue or Phase01MockScenarioCatalogue()
-    zero_touch_demo = zero_touch_demo_control or build_zero_touch_demo_control()
+    zero_touch_demo = zero_touch_demo_control or build_zero_touch_demo_control(
+        persistence.demo_scenarios
+    )
     service = onboarding_service or build_onboarding_service(
         catalogue,
         active_settings,
@@ -228,28 +233,43 @@ def create_app(
             if active_settings.demo_controls_enabled
             else None
         ),
+        repository=persistence.onboarding,
+        target_execution_repository=persistence.target_executions,
     )
     documents = document_processing_service or build_document_processing_service(
-        service, active_settings
+        service, active_settings, repository=persistence.documents
     )
     demo_idp = idp_demo_control or build_mock_idp_demo_control()
     ownership = ownership_analysis_service or build_ownership_analysis_service(
-        service, active_settings
+        service, active_settings, repository=persistence.ownership
     )
     demo_ownership = ownership_demo_control or build_mock_ownership_demo_control()
     reconciliation = (
         reconciliation_service
         or getattr(zero_touch_orchestrator, "_reconciliation", None)
-        or build_reconciliation_service(service, documents)
+        or build_reconciliation_service(
+            service,
+            documents,
+            repository=persistence.reconciliation,
+            unit_of_work=persistence.reconciliation_unit_of_work,
+        )
     )
     clm = clm_orchestration_service or build_clm_orchestration_service(
         service,
         documents,
         ownership,
         reconciliation,
+        repository=persistence.clm,
     )
     zero_touch = zero_touch_orchestrator or build_zero_touch_orchestrator(
-        service, documents, ownership, clm, reconciliation, active_settings
+        service,
+        documents,
+        ownership,
+        clm,
+        reconciliation,
+        active_settings,
+        repository=persistence.automation,
+        durable_provider_bindings=persistence.mode == "mongo",
     )
 
     def require_demo_controls() -> None:
@@ -278,6 +298,7 @@ def create_app(
             ),
             idp_review_confidence_threshold=(active_settings.idp_review_confidence_threshold),
             ubo_ownership_threshold_percent=(active_settings.ubo_ownership_threshold_percent),
+            persistence=persistence.public_label,
         )
 
     @application.exception_handler(RequestValidationError)

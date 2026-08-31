@@ -48,6 +48,34 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  phase12-mongo:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      PHASE12_MONGO_URI: mongodb://127.0.0.1:27017
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/backend/pyproject.toml
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest tests/test_phase12_real_mongo.py
+
   demo-lifecycle-windows:
     runs-on: windows-latest
     steps:

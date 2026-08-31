@@ -63,3 +63,12 @@ Before any real adapter work, reconcile authoritative contracts; receive credent
 through an approved mechanism; confirm rotation/revocation of quarantined material;
 verify HTTPS/certificates/TLS 1.3 and any mTLS/private CA; define retention/RBAC/logging;
 run adapter conformance, secret scan, security review, and authorized sandbox smoke.
+# Phase 12 durable-persistence boundary
+
+Mongo mode persists only bounded structured case evidence and safe workflow/target
+checkpoints. It excludes raw uploaded bytes, full extracted bodies, raw external
+payloads, credentials, connection strings, provider objects, stack traces, and browser
+state. Mongo unavailability, unknown schema versions, and malformed envelopes fail
+closed without fallback or destructive repair. No TTL/purge is configured because
+retention and deletion remain sponsor-dependent under Q-015. This is not production KYC
+storage, a regulatory audit repository, or a distributed exactly-once system.
