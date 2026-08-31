@@ -357,6 +357,14 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_INTAKE_NOT_OPEN",
                     message="Document intake is not open for this case.",
                 )
+            if self._has_required_document_reuploads(case_id):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_DOCUMENT_REUPLOAD_REQUIRED",
+                    message=(
+                        "Interrupted documents must be retried before unrelated "
+                        "evidence can be added."
+                    ),
+                )
             return self._documents.create_document(
                 case_id=case_id,
                 display_name=display_name,
@@ -405,6 +413,15 @@ class ZeroTouchOrchestrator:
                 content=content,
                 provider=idp_provider,
             )
+
+    def _has_required_document_reuploads(self, case_id: UUID) -> bool:
+        return any(
+            document.is_current_evidence
+            and document.state == DocumentProcessingState.FAILED
+            and document.error is not None
+            and document.error.code == "DOCUMENT_REUPLOAD_REQUIRED"
+            for document in self._documents.list_documents(case_id=case_id)
+        )
 
     def start(
         self,

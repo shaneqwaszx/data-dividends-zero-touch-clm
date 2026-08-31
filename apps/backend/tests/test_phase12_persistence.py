@@ -19,12 +19,18 @@ from app.composition import (
     build_zero_touch_orchestrator,
 )
 from app.config import Settings
+from app.domain.documents import (
+    DocumentProcessingRecord,
+    DocumentProcessingState,
+    DocumentProfile,
+)
 from app.domain.target_submission import (
     GoldTierExecutionLedgerEntry,
     GoldTierExecutionLedgerState,
     GoldTierOperationMarker,
 )
 from app.domain.zero_touch import (
+    AutomationEventType,
     AutomationStage,
     AutomationStatus,
     ZeroTouchAutomationRecord,
@@ -200,10 +206,225 @@ def test_schema_version_is_explicit_and_unknown_version_is_rejected() -> None:
 
     store = object.__new__(MongoCaseStore)
     raw = snapshot.model_dump(mode="json")
-    raw["_id"] = str(uuid4())
+    raw["_id"] = str(snapshot.case_id)
     raw["schema_version"] = 2
     with pytest.raises(PersistenceSchemaUnsupportedError):
         store._decode(raw)  # noqa: SLF001 - direct corruption boundary test
+
+
+@pytest.mark.parametrize(
+    "mongo_id",
+    [
+        None,
+        17,
+        "not-a-uuid",
+        "550E8400-E29B-41D4-A716-446655440000",
+        str(uuid4()),
+    ],
+    ids=["missing", "non-string", "malformed", "non-canonical", "mismatch"],
+)
+def test_mongo_storage_identity_must_be_canonical_and_match_case_id(
+    mongo_id: object,
+) -> None:
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    snapshot = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=0,
+        onboarding=case,
+        created_at=now,
+        updated_at=now,
+    )
+    store = object.__new__(MongoCaseStore)
+    raw = store._encode(snapshot)  # noqa: SLF001
+    if mongo_id is None:
+        raw.pop("_id")
+    else:
+        raw["_id"] = mongo_id
+
+    with pytest.raises(PersistenceDataInvalidError):
+        store._decode(raw)  # noqa: SLF001
+
+
+def test_mongo_storage_identity_accepts_exact_canonical_match() -> None:
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    snapshot = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=0,
+        onboarding=case,
+        created_at=now,
+        updated_at=now,
+    )
+    store = object.__new__(MongoCaseStore)
+
+    assert store._decode(store._encode(snapshot)) == snapshot  # noqa: SLF001
+
+
+@pytest.mark.parametrize(
+    "interrupted_state",
+    [DocumentProcessingState.UPLOADED, DocumentProcessingState.PROCESSING],
+)
+def test_interrupted_current_document_recovers_automation_to_targeted_retry(
+    interrupted_state: DocumentProcessingState,
+) -> None:
+    store = MemoryEnvelopeStore()
+    with TestClient(_durable_adapter_app(store)) as first:  # type: ignore[arg-type]
+        created = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
+        assert created.status_code == 201
+        case_id = UUID(created.json()["case"]["case_id"])
+
+    snapshot = store.records[case_id]
+    assert snapshot.automation is not None
+    now = datetime.now(UTC)
+    interrupted = DocumentProcessingRecord(
+        case_id=case_id,
+        document_id=uuid4(),
+        correlation_id=uuid4(),
+        display_name="Interrupted.txt",
+        media_type="text/plain",
+        size_bytes=16,
+        profile=DocumentProfile.PROVISIONAL_CORPORATE,
+        state=interrupted_state,
+        created_at=now,
+        updated_at=now,
+    )
+    running = snapshot.automation.model_copy(
+        update={
+            "status": AutomationStatus.RUNNING,
+            "current_stage": AutomationStage.DOCUMENT,
+            "started_at": now,
+        },
+        deep=True,
+    )
+    candidate = snapshot.model_copy(
+        update={"documents": (interrupted,), "automation": running}, deep=True
+    )
+
+    codec = object.__new__(MongoCaseStore)
+    recovered = codec._recover_interrupted(candidate)  # noqa: SLF001
+    recovered_document = recovered.documents[0]
+    assert recovered_document.state == DocumentProcessingState.FAILED
+    assert recovered_document.error is not None
+    assert recovered_document.error.code == "DOCUMENT_REUPLOAD_REQUIRED"
+    assert recovered.automation is not None
+    assert recovered.automation.status == AutomationStatus.PENDING_INPUTS
+    assert recovered.automation.current_stage == AutomationStage.DOCUMENT
+    assert recovered.automation.completed_stages == (AutomationStage.REGISTRY,)
+    assert recovered.automation.events[-1].event_type == (
+        AutomationEventType.DOCUMENT_REUPLOAD_REQUIRED
+    )
+    assert recovered.automation.metrics.human_interventions == 0
+
+
+def test_multiple_interrupted_documents_require_individual_targeted_retries() -> None:
+    store = MemoryEnvelopeStore()
+    with TestClient(_durable_adapter_app(store)) as first:  # type: ignore[arg-type]
+        created = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
+        assert created.status_code == 201
+        case_id = UUID(created.json()["case"]["case_id"])
+        preserved_upload = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
+            headers={"Content-Type": "text/plain", "X-Document-Name": "Preserved.txt"},
+            content=TEXT_PROFILE.encode(),
+        )
+        assert preserved_upload.status_code == 201
+        preserved_id = UUID(preserved_upload.json()["document_id"])
+
+    snapshot = store.records[case_id]
+    assert snapshot.automation is not None
+    preserved_event_count = len(snapshot.documents[0].events)
+    now = datetime.now(UTC)
+    document_ids = (uuid4(), uuid4())
+    interrupted_documents = tuple(
+        DocumentProcessingRecord(
+            case_id=case_id,
+            document_id=document_id,
+            correlation_id=uuid4(),
+            display_name=f"Interrupted-{index}.txt",
+            media_type="text/plain",
+            size_bytes=16,
+            profile=DocumentProfile.PROVISIONAL_CORPORATE,
+            state=state,
+            created_at=now,
+            updated_at=now,
+        )
+        for index, (document_id, state) in enumerate(
+            zip(
+                document_ids,
+                (
+                    DocumentProcessingState.UPLOADED,
+                    DocumentProcessingState.PROCESSING,
+                ),
+                strict=True,
+            ),
+            start=1,
+        )
+    )
+    running = snapshot.automation.model_copy(
+        update={
+            "status": AutomationStatus.RUNNING,
+            "current_stage": AutomationStage.DOCUMENT,
+            "started_at": now,
+        },
+        deep=True,
+    )
+    candidate = snapshot.model_copy(
+        update={
+            "documents": (*snapshot.documents, *interrupted_documents),
+            "automation": running,
+        },
+        deep=True,
+    )
+    codec = object.__new__(MongoCaseStore)
+    store.records[case_id] = codec._recover_interrupted(candidate)  # noqa: SLF001
+
+    headers = {"Content-Type": "text/plain", "X-Document-Name": "Retry.txt"}
+    with TestClient(_durable_adapter_app(store)) as second:  # type: ignore[arg-type]
+        unrelated = second.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
+            headers=headers,
+            content=TEXT_PROFILE.encode(),
+        )
+        assert unrelated.status_code == 409
+        assert unrelated.json()["detail"]["code"] == (
+            "ZERO_TOUCH_DOCUMENT_REUPLOAD_REQUIRED"
+        )
+
+        first_retry = second.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents/{document_ids[0]}/retry",
+            headers=headers,
+            content=TEXT_PROFILE.encode(),
+        )
+        assert first_retry.status_code == 201
+        still_blocked = second.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
+            headers=headers,
+            content=TEXT_PROFILE.encode(),
+        )
+        assert still_blocked.status_code == 409
+
+        second_retry = second.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents/{document_ids[1]}/retry",
+            headers=headers,
+            content=TEXT_PROFILE.encode(),
+        )
+        assert second_retry.status_code == 201
+        documents = second.get(f"/api/onboarding/cases/{case_id}/documents")
+        automation = second.get(f"/api/clm/zero-touch/cases/{case_id}")
+
+    assert documents.status_code == automation.status_code == 200
+    records = documents.json()
+    assert len(records) == 5
+    assert sum(item["superseded_by_document_id"] is not None for item in records) == 2
+    assert sum(item["superseded_by_document_id"] is None for item in records) == 3
+    preserved = next(item for item in records if item["document_id"] == str(preserved_id))
+    assert preserved["superseded_by_document_id"] is None
+    assert len(preserved["events"]) == preserved_event_count
+    assert automation.json()["status"] == "PENDING_INPUTS"
+    assert automation.json()["case"]["case_id"] == str(case_id)
 
 
 def test_durable_dto_round_trip_preserves_controlled_identifiers_and_no_raw_bytes() -> None:

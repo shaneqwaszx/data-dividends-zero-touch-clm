@@ -28,6 +28,8 @@ from app.domain.zero_touch import (
     AutomationEventType,
     AutomationStage,
     AutomationStatus,
+    BusinessExceptionStatus,
+    validate_automation_record,
 )
 from app.persistence.errors import (
     PersistenceConflictError,
@@ -166,15 +168,29 @@ class MongoCaseStore:
         return raw
 
     def _decode(self, raw: dict[str, Any]) -> DurableCaseSnapshot:
+        mongo_id = raw.get("_id")
+        if not isinstance(mongo_id, str):
+            raise PersistenceDataInvalidError
+        try:
+            parsed_mongo_id = UUID(mongo_id)
+        except (ValueError, TypeError, AttributeError):
+            raise PersistenceDataInvalidError from None
+        if str(parsed_mongo_id) != mongo_id:
+            raise PersistenceDataInvalidError
+
         value = dict(raw)
-        value.pop("_id", None)
+        value.pop("_id")
         schema_version = value.get("schema_version")
         if schema_version != CASE_SNAPSHOT_SCHEMA_VERSION:
             raise PersistenceSchemaUnsupportedError
         try:
             snapshot = DurableCaseSnapshot.model_validate(value)
             _reject_unknown_model_fields(value, snapshot)
+            if mongo_id != str(snapshot.case_id):
+                raise PersistenceDataInvalidError
             return snapshot
+        except PersistenceDataInvalidError:
+            raise
         except (ValidationError, ValueError, TypeError):
             raise PersistenceDataInvalidError from None
 
@@ -186,6 +202,7 @@ class MongoCaseStore:
         now = datetime.now(UTC)
         documents = []
         changed = False
+        current_document_reupload_required = False
         for record in snapshot.documents:
             if record.state not in {
                 DocumentProcessingState.UPLOADED,
@@ -223,6 +240,8 @@ class MongoCaseStore:
                 )
             )
             documents.append(recovered)
+            if recovered.is_current_evidence:
+                current_document_reupload_required = True
             changed = True
 
         target_executions = tuple(
@@ -267,6 +286,46 @@ class MongoCaseStore:
                     ),
                 )
             )
+            automation = recovered_automation
+            changed = True
+        elif (
+            current_document_reupload_required
+            and automation is not None
+            and automation.status
+            not in {
+                AutomationStatus.COMPLETED,
+                AutomationStatus.TECHNICAL_FAILURE,
+                AutomationStatus.RECOVERY_PENDING,
+            }
+            and automation.current_stage == AutomationStage.DOCUMENT
+        ):
+            recovered_automation = automation.model_copy(deep=True)
+            recovered_automation.version += 1
+            recovered_automation.status = AutomationStatus.PENDING_INPUTS
+            recovered_automation.current_stage = AutomationStage.DOCUMENT
+            recovered_automation.completed_stages = (AutomationStage.REGISTRY,)
+            recovered_automation.technical_failure = None
+            recovered_automation.completed_at = None
+            for exception in recovered_automation.active_exceptions:
+                exception.status = BusinessExceptionStatus.CANCELLED
+            recovered_automation.updated_at = now
+            recovered_automation.events.append(
+                AutomationEvent(
+                    sequence=len(recovered_automation.events) + 1,
+                    event_type=AutomationEventType.DOCUMENT_REUPLOAD_REQUIRED,
+                    status=AutomationStatus.PENDING_INPUTS,
+                    stage=AutomationStage.DOCUMENT,
+                    outcome=EventOutcome.PARTIAL,
+                    timestamp=now,
+                    case_id=recovered_automation.case_id,
+                    code="DOCUMENT_REUPLOAD_REQUIRED",
+                    message=(
+                        "Interrupted document processing requires targeted re-upload "
+                        "before onboarding can continue."
+                    ),
+                )
+            )
+            validate_automation_record(recovered_automation)
             automation = recovered_automation
             changed = True
         if not changed:

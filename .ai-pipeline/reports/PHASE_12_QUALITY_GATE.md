@@ -1,8 +1,8 @@
 # Phase 12 — Independent Quality Gate
 
-Date: 2026-08-31  
-Branch: `phase/12-durable-persistence-restart-recovery`  
-HEAD / PR #19 head: `d2551e827de736b82540e0e644e106895f73d95d`  
+Date: 2026-08-31
+Branch: `phase/12-durable-persistence-restart-recovery`
+HEAD / PR #19 head: `d2551e827de736b82540e0e644e106895f73d95d`
 Review mode: independent, report-only combined quality gate
 
 ## 1. Verdict
