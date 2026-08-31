@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+import app.composition as composition
 from app.composition import (
     build_clm_orchestration_service,
     build_document_processing_service,
@@ -19,6 +20,7 @@ from app.composition import (
     build_zero_touch_orchestrator,
 )
 from app.config import Settings
+from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.domain.documents import (
     DocumentProcessingRecord,
     DocumentProcessingState,
@@ -174,6 +176,36 @@ def _durable_adapter_app(store: MemoryEnvelopeStore) -> object:
         zero_touch_orchestrator=zero_touch,
         zero_touch_demo_control=demo,
     )
+
+
+def _install_counting_goldtier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, int]:
+    calls = {name: 0 for name in ("search", "shell", "policy", "amend")}
+
+    class CountingGoldTier(MockGoldTierConnector):
+        def search_party(self, request: object, metadata: object) -> object:
+            calls["search"] += 1
+            return super().search_party(request, metadata)  # type: ignore[arg-type]
+
+        def create_shell_customer(self, request: object, metadata: object) -> object:
+            calls["shell"] += 1
+            return super().create_shell_customer(request, metadata)  # type: ignore[arg-type]
+
+        def create_policy(self, request: object, metadata: object) -> object:
+            calls["policy"] += 1
+            return super().create_policy(request, metadata)  # type: ignore[arg-type]
+
+        def amend_party(
+            self, party_id: str, request: object, metadata: object
+        ) -> object:
+            calls["amend"] += 1
+            return super().amend_party(  # type: ignore[arg-type]
+                party_id, request, metadata
+            )
+
+    monkeypatch.setattr(composition, "MockGoldTierConnector", CountingGoldTier)
+    return calls
 
 
 def test_memory_mode_never_requires_mongo() -> None:
@@ -535,3 +567,124 @@ def test_new_composition_reconstructs_pending_and_review_queue_from_adapters() -
         reopened = second.get(f"/api/clm/zero-touch/cases/{completed_id}")
         assert reopened.status_code == 200
         assert reopened.json()["status"] == "COMPLETED"
+
+
+def test_uncertain_target_resume_stays_recovery_pending_without_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    goldtier_calls = _install_counting_goldtier(monkeypatch)
+    store = MemoryEnvelopeStore()
+    with TestClient(_durable_adapter_app(store)) as first:  # type: ignore[arg-type]
+        created = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
+        case_id = UUID(created.json()["case"]["case_id"])
+        uploaded = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
+            headers={"Content-Type": "text/plain", "X-Document-Name": "Profile.txt"},
+            content=TEXT_PROFILE.encode(),
+        )
+        completed = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/complete",
+            json={"expected_document_count": 1},
+        )
+        assert uploaded.status_code == 201
+        assert completed.status_code == 200
+        assert completed.json()["status"] == "COMPLETED"
+
+    snapshot = store.records[case_id]
+    assert snapshot.automation is not None and snapshot.target_executions
+    running = snapshot.automation.model_copy(
+        update={
+            "status": AutomationStatus.RUNNING,
+            "current_stage": AutomationStage.MOCK_GOLDTIER,
+            "completed_stages": (
+                AutomationStage.REGISTRY,
+                AutomationStage.DOCUMENT,
+                AutomationStage.OWNERSHIP,
+                AutomationStage.READINESS,
+            ),
+            "completed_at": None,
+        },
+        deep=True,
+    )
+    running.metrics.final_outcome = None
+    original_entry = snapshot.target_executions[0]
+    uncertain = GoldTierExecutionLedgerEntry(
+        submission_input=original_entry.submission_input,
+        state=GoldTierExecutionLedgerState.IN_PROGRESS,
+        attempted_operations=(GoldTierOperationMarker.SEARCH,),
+    )
+    interrupted = snapshot.model_copy(
+        update={"automation": running, "target_executions": (uncertain,)}, deep=True
+    )
+    codec = object.__new__(MongoCaseStore)
+    recovered = codec._recover_interrupted(interrupted)  # noqa: SLF001
+    store.records[case_id] = recovered
+    assert recovered.automation is not None
+    expected_version = recovered.automation.version
+    expected_event_count = len(recovered.automation.events)
+    calls_before_resume = goldtier_calls.copy()
+
+    with TestClient(_durable_adapter_app(store)) as second:  # type: ignore[arg-type]
+        for _ in range(3):
+            resumed = second.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
+            assert resumed.status_code == 200
+            assert resumed.json()["status"] == "RECOVERY_PENDING"
+            assert resumed.json()["version"] == expected_version
+
+    persisted = store.records[case_id]
+    assert persisted.automation is not None
+    assert len(persisted.automation.events) == expected_event_count
+    assert persisted.target_executions == (uncertain,)
+    assert goldtier_calls == calls_before_resume
+
+
+def test_memory_mode_preserves_safe_pending_and_completed_resume_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    goldtier_calls = _install_counting_goldtier(monkeypatch)
+    settings = Settings(
+        _env_file=None,
+        app_env="test",
+        clm_persistence_mode="memory",
+        mongo_uri=None,
+    )
+    with TestClient(create_app(settings)) as client:
+        pending = client.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
+        pending_id = pending.json()["case"]["case_id"]
+        calls_before_pending_resume = goldtier_calls.copy()
+
+        pending_resume = client.post(
+            f"/api/clm/zero-touch/cases/{pending_id}/resume"
+        )
+        pending_detail = client.get(f"/api/clm/zero-touch/cases/{pending_id}")
+        assert pending_resume.status_code == 409
+        assert pending_resume.json()["detail"]["code"] == "ZERO_TOUCH_DOCUMENTS_REQUIRED"
+        assert pending_detail.status_code == 200
+        assert pending_detail.json()["status"] == "PENDING_INPUTS"
+        assert goldtier_calls == calls_before_pending_resume
+
+        completed = client.post(
+            "/api/clm/zero-touch/cases", json={"uen": "202400001A"}
+        )
+        completed_id = completed.json()["case"]["case_id"]
+        uploaded = client.post(
+            f"/api/clm/zero-touch/cases/{completed_id}/intake/documents",
+            headers={"Content-Type": "text/plain", "X-Document-Name": "Profile.txt"},
+            content=TEXT_PROFILE.encode(),
+        )
+        terminal = client.post(
+            f"/api/clm/zero-touch/cases/{completed_id}/intake/complete",
+            json={"expected_document_count": 1},
+        )
+        assert uploaded.status_code == 201
+        assert terminal.status_code == 200
+        assert terminal.json()["status"] == "COMPLETED"
+        assert goldtier_calls == {"search": 1, "shell": 1, "policy": 1, "amend": 1}
+        calls_before_completed_resume = goldtier_calls.copy()
+
+        completed_resume = client.post(
+            f"/api/clm/zero-touch/cases/{completed_id}/resume"
+        )
+        assert completed_resume.status_code == 200
+        assert completed_resume.json()["status"] == "COMPLETED"
+        assert goldtier_calls == calls_before_completed_resume

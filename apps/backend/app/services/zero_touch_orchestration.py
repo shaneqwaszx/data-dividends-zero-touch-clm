@@ -1027,7 +1027,7 @@ class ZeroTouchOrchestrator:
                 if not any(
                     event.event_type == AutomationEventType.MOCK_SUBMISSION_STARTED
                     for event in record.events
-                ):
+                ) and record.status != AutomationStatus.RECOVERY_PENDING:
                     candidate = record.model_copy(deep=True)
                     candidate.status = AutomationStatus.RUNNING
                     candidate.current_stage = AutomationStage.MOCK_GOLDTIER
@@ -1069,6 +1069,11 @@ class ZeroTouchOrchestrator:
                         message="Mock GoldTier processing stopped after a technical failure.",
                     )
                 except ClmRequestError as exc:
+                    if (
+                        exc.code == "CLM_TARGET_OUTCOME_UNCERTAIN"
+                        and record.status == AutomationStatus.RECOVERY_PENDING
+                    ):
+                        return record
                     return self._technical_failure(
                         record,
                         stage=AutomationStage.MOCK_GOLDTIER,

@@ -356,6 +356,9 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
         with TestClient(create_app(settings)) as second:
             listed = second.get("/api/clm/zero-touch/cases")
             detail = second.get(f"/api/clm/zero-touch/cases/{completed_id}")
+            resumed_completed = second.post(
+                f"/api/clm/zero-touch/cases/{completed_id}/resume"
+            )
             documents = second.get(
                 f"/api/onboarding/cases/{completed_id}/documents"
             )
@@ -366,6 +369,7 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
             assert (
                 listed.status_code
                 == detail.status_code
+                == resumed_completed.status_code
                 == documents.status_code
                 == review.status_code
                 == 200
@@ -376,6 +380,7 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
                 "COMPLETED",
             }
             assert detail.json()["status"] == "COMPLETED"
+            assert resumed_completed.json()["status"] == "COMPLETED"
             assert len(documents.json()) == 3
             assert len(review.json()) == 1
             assert profile.json()["persistence"] == "Mongo-backed durable POC"
@@ -617,10 +622,14 @@ def test_real_mongo_uncertain_target_restart_and_resume_never_replay(
     before_restart = counters.copy()
     with TestClient(create_app(settings)) as second:
         detail = second.get(f"/api/clm/zero-touch/cases/{case_id}")
-        resumed = second.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
-        assert detail.status_code == resumed.status_code == 200
+        resumed = [
+            second.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
+            for _ in range(3)
+        ]
+        assert detail.status_code == 200
+        assert all(item.status_code == 200 for item in resumed)
         assert detail.json()["status"] == "RECOVERY_PENDING"
-        assert resumed.json()["status"] == "RECOVERY_PENDING"
+        assert all(item.json()["status"] == "RECOVERY_PENDING" for item in resumed)
     assert counters == before_restart
 
 

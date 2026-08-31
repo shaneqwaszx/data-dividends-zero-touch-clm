@@ -531,6 +531,19 @@ class OnboardingService:
                 else GoldTierExecutionLedgerState.NOT_STARTED
             )
 
+    def is_execution_outcome_uncertain(self, submission_id: UUID) -> bool:
+        """Consult one authoritative ledger snapshot without invoking the target."""
+
+        with self._execution_ledger_guard:
+            stored = self._target_executions.get(submission_id)
+            return bool(
+                stored is not None
+                and stored.state == GoldTierExecutionLedgerState.IN_PROGRESS
+                and stored.attempted_operations
+                and stored.target_outcome is None
+                and stored.receipt is None
+            )
+
     def _stored_execution_entry(
         self, submission_input: GoldTierSubmissionInput
     ) -> GoldTierExecutionLedgerEntry | None:
