@@ -30,7 +30,6 @@ export interface SimulationProfile {
   ownership_system: "OWNERSHIP_PROVIDER";
   ownership_environment: "MOCK";
   ubo_ownership_threshold_percent: string;
-  persistence: "Process-local" | "Mongo-backed durable POC";
 }
 
 export interface MockScenarioDiscovery {
@@ -205,11 +204,7 @@ export interface DocumentProcessingRecord {
   document_id: string;
   correlation_id: string;
   display_name: string;
-  media_type:
-    | "application/pdf"
-    | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    | "text/plain";
-  size_bytes?: number;
+  media_type: "application/pdf";
   profile: "PROVISIONAL_CORPORATE";
   provider_environment: "MOCK" | "LOCAL" | "SANDBOX" | "LIVE" | null;
   state: DocumentProcessingState;
@@ -480,6 +475,7 @@ export type AutomationStatus =
   | "PENDING_INPUTS"
   | "RUNNING"
   | "WAITING_FOR_REVIEW"
+  | "REWORK_REQUIRED"
   | "RESUMING"
   | "RECOVERY_PENDING"
   | "COMPLETED"
@@ -489,6 +485,7 @@ export type AutomationStage =
   | "REGISTRY"
   | "DOCUMENT"
   | "OWNERSHIP"
+  | "SCREENING"
   | "READINESS"
   | "MOCK_GOLDTIER"
   | "COMPLETE";
@@ -511,68 +508,10 @@ export type ZeroTouchDemoScenario =
 
 export type ExceptionResolutionAction =
   | "KEEP_REGISTRY_VALUE"
-  | "USE_DOCUMENT_VALUE"
-  | "REQUEST_ADDITIONAL_INFORMATION";
-
-export type ReconciliationField =
-  | "legal_name"
-  | "registration_identifier"
-  | "registered_address"
-  | "country_of_incorporation";
-
-export type ReconciliationDecisionAction =
-  | "KEEP_REGISTRY_VALUE"
-  | "USE_DOCUMENT_VALUE";
-
-export interface ReconciliationObservation {
-  observation_id: string;
-  field_name: ReconciliationField;
-  normalized_value: string | null;
-  source_kind: "USER_INPUT" | "REGISTRY" | "DOCUMENT_IDP" | "EXISTING_CASE";
-  source_system: string | null;
-  environment: string | null;
-  observed_at: string;
-  evidence_reference: string | null;
-  document_id?: string | null;
-  document_display_name?: string | null;
-  confidence: number | null;
-  validity: "VALID" | "MISSING" | "INVALID" | "UNVERIFIABLE";
-}
-
-export interface ReconciliationDecision {
-  action: ReconciliationDecisionAction;
-  selected_observation_id: string;
-  selected_value: string;
-  decided_at: string;
-  reconciliation_version: number;
-}
-
-export interface ReconciliationDiscrepancy {
-  discrepancy_id: string;
-  field_name: ReconciliationField;
-  outcome: "CONFLICT" | "MISSING_IN_SOURCE" | "UNVERIFIABLE" | "INVALID";
-  observations: ReconciliationObservation[];
-  status: "OPEN" | "RESOLVED" | "CANCELLED";
-  allowed_actions: ReconciliationDecisionAction[];
-  evidence_fingerprint: string;
-  decision: ReconciliationDecision | null;
-}
-
-export interface ReconciliationSummary {
-  reconciliation_id: string;
-  version: number;
-  status: "NOT_STARTED" | "MATCHED" | "REVIEW_REQUIRED" | "RESOLVED" | "FAILED";
-  source_document_ids: string[];
-  source_document_event_counts: number[];
-  fields: Array<{
-    field_name: ReconciliationField;
-    observations: ReconciliationObservation[];
-    outcome: "MATCH" | "CONFLICT" | "MISSING_IN_SOURCE" | "UNVERIFIABLE" | "INVALID";
-    discrepancy_id: string | null;
-  }>;
-  discrepancies: ReconciliationDiscrepancy[];
-  updated_at: string;
-}
+  | "REQUEST_ADDITIONAL_INFORMATION"
+  | "ASSIGN_REVIEWER"
+  | "RETURN_FOR_REWORK"
+  | "CLEAR_AS_FALSE_POSITIVE";
 
 export interface ZeroTouchException {
   exception_id: string;
@@ -601,6 +540,126 @@ export interface ZeroTouchException {
   created_at: string;
   resolved_at: string | null;
   resolution: ExceptionResolutionAction | null;
+  assignee: string | null;
+  rework_reason: string | null;
+  rework_comment: string | null;
+  flagged_fields: string[];
+  loop_number: number;
+}
+
+export interface Reviewer {
+  reviewer_id: string;
+  display_name: string;
+  open_exception_count: number;
+}
+
+export interface LoopHistoryEntry {
+  loop_number: number;
+  completed_stages: AutomationStage[];
+  ended_at: string;
+}
+
+export interface CaseListItem {
+  case_id: string;
+  requested_uen: string;
+  company_name: string | null;
+  jurisdiction: string | null;
+  status: AutomationStatus;
+  current_stage: AutomationStage;
+  assigned_to: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuditEntry {
+  entry_id: string;
+  case_id: string;
+  timestamp: string;
+  action:
+    | "CREATE"
+    | "EXTRACT"
+    | "UPDATE"
+    | "UPLOAD"
+    | "SUBMIT"
+    | "CHECK"
+    | "ASSIGN"
+    | "APPROVE"
+    | "RETURN"
+    | "COMPLETE";
+  actor: string;
+  description: string;
+  loop_number: number;
+}
+
+export interface ClientRecord {
+  client_id: string;
+  case_id: string;
+  company_name: string | null;
+  jurisdiction: string | null;
+  risk_rating: "LOW" | "MEDIUM" | "HIGH" | null;
+  onboarded_at: string;
+  next_review_date: string;
+  re_screening_cadence_months: number;
+  loops_count: number;
+  human_touches: number;
+  elapsed_time_ms: number | null;
+  registration_id: string;
+  registration_id_label: string;
+  entity_type: string | null;
+  registry_status: string | null;
+  registration_date: string | null;
+  registered_address: string | null;
+  principal_place_of_business: string | null;
+  financial_year_end: string | null;
+  tax_residency: string | null;
+  issued_capital: string | null;
+  issued_shares: string | null;
+  principal_activity: string | null;
+  secondary_activity: string | null;
+  countries_of_operation: string | null;
+  expected_annual_volume: string | null;
+  directors: Array<{ name: string; identification: string; date_of_birth: string | null; appointed: string; source: string }>;
+  beneficial_owners: Array<{ owner: string; holding: string; type: string; path: string; source: string }>;
+  relationship: {
+    purpose: string | null;
+    source_of_funds: string | null;
+    primary_contact: string | null;
+    contact_email: string | null;
+    onboarded_by: string | null;
+  };
+  documents: Array<{ name: string; note: string }>;
+  onboarding_record: Array<{ stage: string; method: string; cleared_at: string }>;
+  check_results: Array<{ check: string; outcome: string }>;
+  since_onboarding: Array<{ date: string; event: string }>;
+}
+
+export interface PolicyJurisdictionRule {
+  jurisdiction: "SG" | "AU" | "MY" | "HK";
+  implemented: boolean;
+  id_label: string | null;
+  registry: string | null;
+  ubo_threshold_percent: string | null;
+}
+
+export interface PolicyResponse {
+  jurisdiction_rules: PolicyJurisdictionRule[];
+  pipeline: {
+    stages: AutomationStage[];
+    screening_auto_clear_threshold: number;
+    idp_review_confidence_threshold: number;
+    registry_snapshot_staleness_limit_days: number;
+    zero_touch_max_transitions_per_run: number;
+  };
+  roles: {
+    reviewer_count: number;
+    self_review_blocked: boolean;
+  };
+  scheduler: {
+    next_review_months_low: number;
+    next_review_months_medium: number;
+    next_review_months_high: number;
+    rescreening_cadence_months: number;
+  };
 }
 
 export interface ZeroTouchCaseSummary {
@@ -611,8 +670,9 @@ export interface ZeroTouchCaseSummary {
   status: AutomationStatus;
   current_stage: AutomationStage;
   completed_stages: AutomationStage[];
+  loop_number: number;
+  loop_history: LoopHistoryEntry[];
   active_exceptions: ZeroTouchException[];
-  reconciliation: ReconciliationSummary | null;
   technical_failure: { code: string; message: string } | null;
   metrics: {
     automated_stages_completed: number;
@@ -647,18 +707,6 @@ export interface ZeroTouchCaseSummary {
   }>;
   created_at: string;
   updated_at: string;
-}
-
-export interface ZeroTouchCaseListItem {
-  case_id: string;
-  requested_uen: string;
-  legal_name: string | null;
-  status: AutomationStatus;
-  current_stage: AutomationStage;
-  updated_at: string;
-  active_exception_count: number;
-  human_interventions: number;
-  final_outcome: string | null;
 }
 
 export interface UatEvidenceExport {

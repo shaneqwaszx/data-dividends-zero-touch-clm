@@ -11,7 +11,6 @@ import App, {
   JurisdictionSelector,
   OnboardingProgress,
   RegistryAcquisitionPanel,
-  ReconciliationPanel,
   OwnershipSummary,
   SimulationBanner,
   SponsorCaseSummary,
@@ -21,24 +20,16 @@ import App, {
   SponsorTargetEvidence,
   AccountPlaceholder,
   CaseIdentityStrip,
-  CasePortfolio,
   DashboardSnapshot,
-  ReviewQueue,
-  StartProgressPanel,
   WorkspaceTabs,
   evidenceRevision,
-  formatDocumentBytes,
   shouldPollAutomation,
   automationStageState,
   runEvidenceMutation,
-  selectedDocumentSummary,
-  selectedDocumentTotalBytes,
-  validateSelectedDocuments,
 } from "./App";
 import {
   analyzeOwnership,
   attachZeroTouchDocument,
-  completeZeroTouchIntake,
   createClmCase,
   createZeroTouchCase,
   createOnboardingCase,
@@ -51,25 +42,26 @@ import {
   fetchOwnership,
   fetchUatEvidence,
   fetchZeroTouchCase,
-  fetchZeroTouchCases,
-  intakeZeroTouchDocument,
   loadMockOwnership,
   reviewDocument,
   resolveZeroTouchException,
-  resolveReconciliationDiscrepancy,
   resumeZeroTouchCase,
   submitClmCase,
   uploadDocument,
 } from "./api";
 import { nextPollingDelay, startAutomationPolling } from "./automationPolling";
+import AuditTrail from "./pages/AuditTrail";
+import CaseDetail from "./pages/CaseDetail";
+import CaseQueue from "./pages/CaseQueue";
+import ClientDetail from "./pages/ClientDetail";
+import OnboardedClients from "./pages/OnboardedClients";
+import PolicyRules from "./pages/PolicyRules";
 import type {
   ClmCaseSummary,
   DocumentProcessingRecord,
   OnboardingCase,
   OwnershipAnalysisRecord,
   RegistryOperation,
-  ReconciliationSummary,
-  SimulationProfile,
   ZeroTouchCaseSummary,
   ZeroTouchException,
   WorkflowState,
@@ -372,7 +364,7 @@ function makeOwnership(
   };
 }
 
-const simulation: SimulationProfile = {
+const simulation = {
   is_simulated: true as const,
   registry_system: "ACRA" as const,
   registry_environment: "MOCK" as const,
@@ -385,7 +377,6 @@ const simulation: SimulationProfile = {
   ownership_system: "OWNERSHIP_PROVIDER" as const,
   ownership_environment: "MOCK" as const,
   ubo_ownership_threshold_percent: "25",
-  persistence: "Process-local",
 };
 
 function makeClm(
@@ -493,154 +484,34 @@ afterEach(() => {
 
 describe("Phase 04 onboarding, document review, and ownership UI", () => {
   it("renders the purpose-based workspace structure", () => {
-    const tabs = renderToStaticMarkup(<WorkspaceTabs activeTab="dashboard" onChange={() => undefined} />);
+    const tabs = renderToStaticMarkup(<WorkspaceTabs activeTab="home" onChange={() => undefined} />);
     const dashboard = renderToStaticMarkup(<DashboardSnapshot summary={null} />);
     const account = renderToStaticMarkup(<AccountPlaceholder />);
-    expect(tabs).toContain("Dashboard");
-    expect(tabs).toContain("Start onboarding");
-    expect(tabs).toContain("Review");
-    expect(tabs).toContain("Logs");
-    expect(tabs).toContain("Account info");
+    expect(tabs).toContain("Home");
+    expect(tabs).toContain("Cases");
+    expect(tabs).toContain("Onboarded");
+    expect(tabs).toContain("Audit");
     expect(dashboard).toContain("Current stage");
     expect(dashboard).toContain("Case health");
     expect(account).toContain("Authentication pending");
   });
 
-  it("defaults to Start onboarding with the CLM product heading", () => {
+  it("defaults to the dashboard and exposes Start onboarding above it", () => {
     const markup = renderToStaticMarkup(<App />);
-    expect(markup).toContain("Client Lifecycle Management (CLM) Onboarding");
-    expect(markup).toContain("Start CLM onboarding");
+    expect(markup).toContain("Start onboarding");
     expect(markup).not.toContain("Start an onboarding request");
     expect(markup).toContain("Loading backend connector profile");
     expect(markup).not.toContain("Load synthetic ownership");
     expect(markup).not.toContain("Submit to Mock GoldTier");
-    expect(markup).toContain("multiple=\"\"");
-    expect(markup).toContain("webkitdirectory=\"\"");
-    expect(markup).toContain("PDF, DOCX, and UTF-8 TXT");
   });
 
-  it("validates a bounded multi-format document selection", () => {
-    const valid = [
-      new File(["pdf"], "Business Profile.pdf", { type: "application/pdf" }),
-      new File(["docx"], "Constitution.docx", {
-        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      }),
-      new File(["text"], "Company Details.txt", { type: "text/plain" }),
-    ];
-    const accepted = validateSelectedDocuments(valid);
-    expect(accepted.accepted).toHaveLength(3);
-    expect(accepted.errors).toHaveLength(0);
-
-    const rejected = validateSelectedDocuments([
-      ...valid,
-      new File(["image"], "evidence.png", { type: "image/png" }),
-      new File(["wrong"], "wrong.txt", { type: "application/pdf" }),
-    ]);
-    expect(rejected.accepted).toHaveLength(3);
-    expect(rejected.errors).toHaveLength(2);
-  });
-
-  it("summarizes only accepted deduplicated file and folder bytes", () => {
-    const selectedFile = new File(["aa"], "A.txt", {
-      type: "text/plain",
-      lastModified: 1,
-    });
-    const folderFile = new File(["bbb"], "B.txt", {
-      type: "text/plain",
-      lastModified: 2,
-    });
-    Object.defineProperty(folderFile, "webkitRelativePath", {
-      value: "supporting/B.txt",
-    });
-    const rejectedFile = new File(["ignored"], "image.png", {
-      type: "image/png",
-    });
-
-    const afterAdd = validateSelectedDocuments([
-      selectedFile,
-      selectedFile,
-      folderFile,
-      rejectedFile,
-    ]);
-    expect(afterAdd.accepted).toEqual([selectedFile, folderFile]);
-    expect(afterAdd.errors).toHaveLength(1);
-    expect(selectedDocumentTotalBytes(afterAdd.accepted)).toBe(5);
-    expect(selectedDocumentSummary(afterAdd.accepted)).toBe(
-      "2 documents selected · 5 B / 25 MiB",
-    );
-
-    const afterRemove = afterAdd.accepted.filter((file) => file !== selectedFile);
-    expect(selectedDocumentTotalBytes(afterRemove)).toBe(3);
-    expect(selectedDocumentSummary(afterRemove)).toBe(
-      "1 document selected · 3 B / 25 MiB",
-    );
-    expect(formatDocumentBytes(Math.round(7.4 * 1024 * 1024))).toBe("7.4 MiB");
-  });
-
-  it("renders backend-authored history and multiple review queue items", () => {
-    const cases = ["A", "B"].map((suffix, index) => ({
-      case_id: `00000000-0000-4000-8000-00000000000${index + 1}`,
-      requested_uen: `20240000${index + 1}${suffix}`,
-      legal_name: `COMPANY ${suffix} PTE. LTD.`,
-      status: "WAITING_FOR_REVIEW" as const,
-      current_stage: "DOCUMENT" as const,
-      updated_at: timestamp,
-      active_exception_count: index + 1,
-      human_interventions: 0,
-      final_outcome: null,
-    }));
-    const portfolio = renderToStaticMarkup(<CasePortfolio cases={cases} onOpen={() => undefined} />);
-    const queue = renderToStaticMarkup(<ReviewQueue cases={cases} onOpen={() => undefined} />);
-    expect(portfolio).toContain("Restarting the local POC clears this history");
-    expect(portfolio).toContain("COMPANY A PTE. LTD.");
-    expect(portfolio).toContain("COMPANY B PTE. LTD.");
-    expect(queue).toContain("1 active blocker(s)");
-    expect(queue).toContain("2 active blocker(s)");
-    expect(queue).toContain("session-only");
-  });
-
-  it("labels Mongo history and review as durable without production claims", () => {
-    const durable = "Mongo-backed durable POC" as const;
-    const portfolio = renderToStaticMarkup(
-      <CasePortfolio cases={[]} onOpen={() => undefined} persistence={durable} />,
-    );
-    const queue = renderToStaticMarkup(
-      <ReviewQueue cases={[]} onOpen={() => undefined} persistence={durable} />,
-    );
-
-    expect(portfolio).toContain("cases survive backend restart");
-    expect(portfolio).toContain("not a production audit repository");
-    expect(queue).toContain("Queue status survives backend restart");
-  });
-
-  it("shows accessible creation confirmation and review action on Start", () => {
-    const summary = makeZeroTouch("WAITING_FOR_REVIEW");
-    const markup = renderToStaticMarkup(
-      <StartProgressPanel
-        progress={{ stage: "waiting", message: "Waiting for review", failedFile: null }}
-        summary={summary}
-        isSubmitting={false}
-        onViewCase={() => undefined}
-        onOpenReview={() => undefined}
-        onRetry={() => undefined}
-        onStartAnother={() => undefined}
-      />,
-    );
-    expect(markup).toContain("role=\"status\"");
-    expect(markup).toContain("aria-live=\"polite\"");
-    expect(markup).toContain("CLM onboarding created");
-    expect(markup).toContain(summary.case.case_id);
-    expect(markup).toContain("Open Review");
-    expect(markup).toContain("Start another case");
-  });
-
-  it("keeps deterministic demo controls gated on the Start landing page", () => {
+  it("keeps deterministic demo controls out of the default dashboard", () => {
     const sponsor = renderToStaticMarkup(<App demoControlsEnabled={false} />);
     const demo = renderToStaticMarkup(<App demoControlsEnabled />);
     expect(sponsor).not.toContain("Demo/Test Controls");
     expect(sponsor).not.toContain("Integrated synthetic scenario");
-    expect(demo).toContain("Demo/Test Controls");
-    expect(demo).toContain("Integrated synthetic scenario");
+    expect(demo).not.toContain("Demo/Test Controls");
+    expect(demo).not.toContain("Integrated synthetic scenario");
   });
 
   it("renders backend-provided mock environments", () => {
@@ -1023,6 +894,11 @@ function makeZeroTouch(
     created_at: timestamp,
     resolved_at: null,
     resolution: null,
+    assignee: null,
+    rework_reason: null,
+    rework_comment: null,
+    flagged_fields: [],
+    loop_number: 1,
   };
   return {
     case: clm.case,
@@ -1034,8 +910,9 @@ function makeZeroTouch(
     completed_stages: status === "COMPLETED"
       ? ["REGISTRY", "DOCUMENT", "OWNERSHIP", "READINESS", "MOCK_GOLDTIER"]
       : ["REGISTRY"],
+    loop_number: 1,
+    loop_history: [],
     active_exceptions: status === "WAITING_FOR_REVIEW" ? [reviewException] : [],
-    reconciliation: null,
     technical_failure: status === "TECHNICAL_FAILURE"
       ? { code: "IDP_PROCESSING_FAILED", message: "Document processing stopped safely." }
       : null,
@@ -1063,75 +940,6 @@ function makeZeroTouch(
       },
     ],
     created_at: timestamp,
-    updated_at: timestamp,
-  };
-}
-
-function makeReconciliation(status: ReconciliationSummary["status"] = "REVIEW_REQUIRED"): ReconciliationSummary {
-  const registry = {
-    observation_id: "00000000-0000-4000-8000-000000000071",
-    field_name: "legal_name" as const,
-    normalized_value: "SYNTHETIC CANONICAL NAME",
-    source_kind: "REGISTRY" as const,
-    source_system: "ACRA",
-    environment: "MOCK",
-    observed_at: timestamp,
-    evidence_reference: "acra:entity:synthetic",
-    confidence: null,
-    validity: "VALID" as const,
-  };
-  const document = {
-    observation_id: "00000000-0000-4000-8000-000000000072",
-    field_name: "legal_name" as const,
-    normalized_value: status === "MATCHED" ? "SYNTHETIC CANONICAL NAME" : "SYNTHETIC DOCUMENT NAME",
-    source_kind: "DOCUMENT_IDP" as const,
-    source_system: "LOCAL_PDF_TEXT",
-    environment: "LOCAL",
-    observed_at: timestamp,
-    evidence_reference: "document:page:1",
-    confidence: 0.97,
-    validity: "VALID" as const,
-  };
-  const discrepancy: ReconciliationSummary["discrepancies"][number] = {
-    discrepancy_id: "00000000-0000-4000-8000-000000000073",
-    field_name: "legal_name" as const,
-    outcome: "CONFLICT" as const,
-    observations: [registry, document],
-    status: status === "RESOLVED" ? "RESOLVED" as const : "OPEN" as const,
-    allowed_actions: ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"],
-    evidence_fingerprint: "a".repeat(64),
-    decision: status === "RESOLVED" ? {
-      action: "USE_DOCUMENT_VALUE" as const,
-      selected_observation_id: document.observation_id,
-      selected_value: document.normalized_value,
-      decided_at: timestamp,
-      reconciliation_version: 1,
-    } : null,
-  };
-  return {
-    reconciliation_id: "00000000-0000-4000-8000-000000000070",
-    version: 1,
-    status,
-    source_document_ids: ["00000000-0000-4000-8000-000000000010"],
-    source_document_event_counts: [4],
-    fields: [
-      {
-        field_name: "legal_name",
-        observations: [registry, document],
-        outcome: status === "MATCHED" ? "MATCH" : "CONFLICT",
-        discrepancy_id: status === "MATCHED" ? null : discrepancy.discrepancy_id,
-      },
-      ...(["registration_identifier", "registered_address", "country_of_incorporation"] as const).map((field_name, index) => ({
-        field_name,
-        observations: [
-          { ...registry, observation_id: `00000000-0000-4000-8000-00000000008${index}`, field_name },
-          { ...document, observation_id: `00000000-0000-4000-8000-00000000009${index}`, field_name, normalized_value: "MATCH" },
-        ],
-        outcome: "MATCH" as const,
-        discrepancy_id: null,
-      })),
-    ],
-    discrepancies: status === "MATCHED" ? [] : [discrepancy],
     updated_at: timestamp,
   };
 }
@@ -1536,37 +1344,6 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(resolution.evidence_version).toBe(exception.evidence_version);
     expect(resolution.action).toBe("KEEP_REGISTRY_VALUE");
   });
-
-  it("uses intake-only uploads, explicit completion, and the case-list API", async () => {
-    const completed = makeZeroTouch("COMPLETED");
-    const document = makeDocument();
-    const portfolio = [{
-      case_id: completed.case.case_id,
-      requested_uen: completed.case.requested_uen,
-      legal_name: completed.case.entity?.legal_name ?? null,
-      status: completed.status,
-      current_stage: completed.current_stage,
-      updated_at: completed.updated_at,
-      active_exception_count: 0,
-      human_interventions: 0,
-      final_outcome: completed.metrics.final_outcome,
-    }];
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify(document), { status: 201 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(completed), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(portfolio), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-    const file = new File(["Company: Test"], "company.txt", { type: "text/plain" });
-    await intakeZeroTouchDocument(completed.case.case_id, file, false);
-    await completeZeroTouchIntake(completed.case.case_id, 1, false);
-    await fetchZeroTouchCases("COMPLETED");
-    expect(fetchMock.mock.calls[0][0]).toContain("/intake/documents");
-    expect(fetchMock.mock.calls[0][1].headers["Content-Type"]).toBe("text/plain");
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
-      expected_document_count: 1,
-    });
-    expect(fetchMock.mock.calls[2][0]).toContain("?status=COMPLETED");
-  });
 });
 
 describe("Phase 08 sponsor evidence refresh and causal visibility", () => {
@@ -1618,63 +1395,41 @@ describe("Phase 08 sponsor evidence refresh and causal visibility", () => {
   });
 });
 
-describe("Phase 11 reconciliation panel", () => {
-  it("renders a neutral all-match summary", () => {
-    const summary = makeZeroTouch();
-    summary.reconciliation = makeReconciliation("MATCHED");
-    const markup = renderToStaticMarkup(<ReconciliationPanel summary={summary} />);
-    expect(markup).toContain("Multi-source reconciliation");
-    expect(markup).toContain("Registry observation");
-    expect(markup).toContain("Document observation");
-    expect(markup).toContain("MATCHED");
-    expect(markup).toContain("Neither source is authoritative by default");
-    expect(markup).not.toContain("Keep registry value");
+describe("Phase 11 case queue, onboarded clients, audit trail, and policy screens", () => {
+  it("renders the Cases queue's initial loading state without fetching", () => {
+    const markup = renderToStaticMarkup(<CaseQueue onOpenCase={() => undefined} />);
+    expect(markup).toContain("Cases");
+    expect(markup).toContain("Loading cases");
   });
 
-  it("shows both conflict values and only backend-advertised actions", () => {
-    const summary = makeZeroTouch("WAITING_FOR_REVIEW");
-    summary.reconciliation = makeReconciliation();
+  it("renders the Onboarded clients list's initial loading state", () => {
+    const markup = renderToStaticMarkup(<OnboardedClients onOpenClient={() => undefined} />);
+    expect(markup).toContain("Onboarded");
+    expect(markup).toContain("Loading clients");
+  });
+
+  it("renders the Audit trail's initial loading state", () => {
+    const markup = renderToStaticMarkup(<AuditTrail />);
+    expect(markup).toContain("Audit trail");
+    expect(markup).toContain("Loading audit trail");
+  });
+
+  it("renders the Policy and rules page's initial loading state", () => {
+    const markup = renderToStaticMarkup(<PolicyRules />);
+    expect(markup).toContain("Policy and rules");
+    expect(markup).toContain("Loading policy");
+  });
+
+  it("renders Case detail's loading state for a given case id", () => {
+    const markup = renderToStaticMarkup(<CaseDetail caseId="00000000-0000-4000-8000-000000000000" onBack={() => undefined} />);
+    expect(markup).toContain("Loading case");
+  });
+
+  it("renders Client detail's loading state for a given client id", () => {
     const markup = renderToStaticMarkup(
-      <ReconciliationPanel summary={summary} onResolve={() => undefined} />,
+      <ClientDetail clientId="AU-10428" onBack={() => undefined} onOpenAudit={() => undefined} />,
     );
-    expect(markup).toContain("SYNTHETIC CANONICAL NAME");
-    expect(markup).toContain("SYNTHETIC DOCUMENT NAME");
-    expect(markup).toContain("Keep registry value");
-    expect(markup).toContain("Use document value");
-    expect(markup).not.toContain("Enter corrected value");
-    expect(markup).not.toContain("reviewer@");
-  });
-
-  it("renders a resolved decision without inventing reviewer authority", () => {
-    const summary = makeZeroTouch();
-    summary.reconciliation = makeReconciliation("RESOLVED");
-    const markup = renderToStaticMarkup(<ReconciliationPanel summary={summary} />);
-    expect(markup).toContain("Decision: USE DOCUMENT VALUE");
-    expect(markup).toContain("No reviewer identity or compliance authority is claimed");
-    expect(markup).not.toContain("Approved by");
-  });
-
-  it("binds the dedicated resolution request to both versions and fingerprint", async () => {
-    const summary = makeZeroTouch("WAITING_FOR_REVIEW");
-    summary.reconciliation = makeReconciliation();
-    const discrepancy = summary.reconciliation.discrepancies[0];
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(summary), { status: 200 }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    await resolveReconciliationDiscrepancy(
-      summary,
-      discrepancy.discrepancy_id,
-      "KEEP_REGISTRY_VALUE",
-      summary.reconciliation.version,
-      discrepancy.evidence_fingerprint,
-    );
-    const [url, init] = fetchMock.mock.calls[0];
-    const body = JSON.parse(init.body as string);
-    expect(url).toContain(`/reconciliation/discrepancies/${discrepancy.discrepancy_id}/resolve`);
-    expect(body.expected_automation_version).toBe(summary.version);
-    expect(body.expected_reconciliation_version).toBe(summary.reconciliation.version);
-    expect(body.evidence_fingerprint).toBe(discrepancy.evidence_fingerprint);
-    expect(body.action).toBe("KEEP_REGISTRY_VALUE");
+    expect(markup).toContain("Loading client");
+    expect(markup).toContain("Back to Onboarded");
   });
 });

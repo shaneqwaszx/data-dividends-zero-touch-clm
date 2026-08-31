@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import {
   analyzeOwnership,
   ApiError,
-  completeZeroTouchIntake,
+  attachZeroTouchDocument,
   createClmCase,
   evaluateClmReadiness,
   fetchClmCase,
@@ -13,20 +13,24 @@ import {
   fetchOwnership,
   fetchUatEvidence,
   fetchZeroTouchCase,
-  fetchZeroTouchCases,
-  intakeZeroTouchDocument,
   loadMockOwnership,
   reviewDocument,
-  resolveReconciliationDiscrepancy,
   resolveZeroTouchException,
   replaceZeroTouchDocument,
-  retryZeroTouchIntakeDocument,
   resumeZeroTouchCase,
   submitClmCase,
   uploadDocument,
   createZeroTouchCase,
 } from "./api";
 import { startAutomationPolling } from "./automationPolling";
+import AuditTrail from "./pages/AuditTrail";
+import CaseDetail from "./pages/CaseDetail";
+import CaseQueue from "./pages/CaseQueue";
+import ClientDetail from "./pages/ClientDetail";
+import HomeOnboarding from "./pages/HomeOnboarding";
+import OnboardedClients from "./pages/OnboardedClients";
+import PolicyRules from "./pages/PolicyRules";
+import { formatTimestamp, shouldPollAutomation } from "./shared";
 import type {
   ClmCaseSummary,
   DocumentFieldKey,
@@ -38,103 +42,14 @@ import type {
   OwnershipAnalysisRecord,
   OwnershipCandidate,
   ReviewDecision,
-  ReconciliationDecisionAction,
-  ReconciliationDiscrepancy,
   SimulationProfile,
   ExceptionResolutionAction,
   ZeroTouchCaseSummary,
-  ZeroTouchCaseListItem,
   ZeroTouchDemoScenario,
   ZeroTouchException,
 } from "./types";
 
 const DEFAULT_UEN = "202400001A";
-const MAX_INTAKE_FILES = 20;
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
-const MAX_TOTAL_INTAKE_BYTES = 25 * 1024 * 1024;
-const DOCUMENT_TYPES: Record<string, string> = {
-  ".pdf": "application/pdf",
-  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".txt": "text/plain",
-};
-const SAFE_DOCUMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,94}\.(pdf|docx|txt)$/i;
-
-type StartProgressStage =
-  | "idle"
-  | "creating"
-  | "uploading"
-  | "starting"
-  | "processing"
-  | "waiting"
-  | "completed"
-  | "failed";
-
-export interface StartProgress {
-  stage: StartProgressStage;
-  message: string;
-  failedFile: string | null;
-}
-
-function selectedFileKey(file: File): string {
-  return `${file.name}:${file.size}:${file.lastModified}`;
-}
-
-export function validateSelectedDocuments(files: File[]): {
-  accepted: File[];
-  errors: string[];
-} {
-  const accepted: File[] = [];
-  const errors: string[] = [];
-  const seen = new Set<string>();
-  let totalBytes = 0;
-  for (const file of files) {
-    const key = selectedFileKey(file);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
-    const expectedType = DOCUMENT_TYPES[extension];
-    if (!SAFE_DOCUMENT_NAME.test(file.name) || !expectedType || file.type !== expectedType) {
-      errors.push(`${file.name}: only matching PDF, DOCX, and UTF-8 TXT files are supported.`);
-      continue;
-    }
-    if (file.size <= 0 || file.size > MAX_FILE_BYTES) {
-      errors.push(`${file.name}: file must be non-empty and no larger than 5 MiB.`);
-      continue;
-    }
-    if (accepted.length >= MAX_INTAKE_FILES) {
-      errors.push(`${file.name}: the 20-file POC limit has been reached.`);
-      continue;
-    }
-    if (totalBytes + file.size > MAX_TOTAL_INTAKE_BYTES) {
-      errors.push(`${file.name}: the 25 MiB total intake limit would be exceeded.`);
-      continue;
-    }
-    accepted.push(file);
-    totalBytes += file.size;
-  }
-  return { accepted, errors };
-}
-
-export function selectedDocumentTotalBytes(files: File[]): number {
-  return files.reduce((total, file) => total + file.size, 0);
-}
-
-export function formatDocumentBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) {
-    const mebibytes = bytes / (1024 * 1024);
-    return `${Number.isInteger(mebibytes) ? mebibytes : mebibytes.toFixed(1)} MiB`;
-  }
-  if (bytes >= 1024) {
-    const kibibytes = bytes / 1024;
-    return `${Number.isInteger(kibibytes) ? kibibytes : kibibytes.toFixed(1)} KiB`;
-  }
-  return `${bytes} B`;
-}
-
-export function selectedDocumentSummary(files: File[]): string {
-  const label = files.length === 1 ? "document" : "documents";
-  return `${files.length} ${label} selected · ${formatDocumentBytes(selectedDocumentTotalBytes(files))} / ${formatDocumentBytes(MAX_TOTAL_INTAKE_BYTES)}`;
-}
 
 export async function runEvidenceMutation<T>(
   onStart: () => void,
@@ -149,13 +64,7 @@ export async function runEvidenceMutation<T>(
   }
 }
 
-function formatTimestamp(value: string): string {
-  return new Intl.DateTimeFormat("en-SG", {
-    dateStyle: "medium",
-    timeStyle: "medium",
-    timeZone: "Asia/Singapore",
-  }).format(new Date(value));
-}
+export { formatTimestamp, shouldPollAutomation };
 
 function formatAddress(caseData: OnboardingCase): string {
   const address = caseData.entity?.registered_address;
@@ -427,177 +336,6 @@ export function DocumentReviewSummary({
   );
 }
 
-export function DocumentPanel({
-  caseData,
-  threshold,
-  onMutationStart,
-  onMutationSettled,
-}: {
-  caseData: OnboardingCase;
-  threshold: number;
-  onMutationStart: () => void;
-  onMutationSettled: () => Promise<void>;
-}) {
-  const [file, setFile] = useState<File | null>(null);
-  const [scenario, setScenario] = useState<MockIdpScenario>("ALL_FIELDS_MATCH");
-  const [documents, setDocuments] = useState<DocumentProcessingRecord[]>([]);
-  const [activeDocument, setActiveDocument] = useState<DocumentProcessingRecord | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isDeciding, setIsDeciding] = useState(false);
-  const [documentError, setDocumentError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void fetchDocuments(caseData.case_id)
-      .then((items) => {
-        setDocuments(items);
-        setActiveDocument(items.at(-1) ?? null);
-      })
-      .catch(() => setDocumentError("Document list is unavailable."));
-  }, [caseData.case_id]);
-
-  function replaceDocument(record: DocumentProcessingRecord) {
-    setDocuments((current) => {
-      const withoutRecord = current.filter((item) => item.document_id !== record.document_id);
-      return [...withoutRecord, record];
-    });
-    setActiveDocument(record);
-  }
-
-  async function handleDocumentSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!file) return;
-    setIsProcessing(true);
-    setDocumentError(null);
-    try {
-      replaceDocument(
-        await runEvidenceMutation(
-          onMutationStart,
-          () => uploadDocument(caseData.case_id, file, scenario),
-          onMutationSettled,
-        ),
-      );
-    } catch (error) {
-      setDocumentError(error instanceof Error ? error.message : "Document processing failed.");
-      try {
-        const refreshed = await fetchDocuments(caseData.case_id);
-        setDocuments(refreshed);
-        setActiveDocument(refreshed.at(-1) ?? null);
-      } catch {
-        // Keep the sanitized processing error visible if refresh is unavailable.
-      }
-    } finally {
-      setIsProcessing(false);
-    }
-  }
-
-  async function handleDecision(
-    fieldKey: DocumentFieldKey,
-    decision: ReviewDecision,
-    correctedValue?: string,
-    note?: string,
-  ) {
-    if (!activeDocument) return;
-    setIsDeciding(true);
-    setDocumentError(null);
-    try {
-      replaceDocument(
-        await runEvidenceMutation(
-          onMutationStart,
-          () =>
-            reviewDocument(
-              caseData.case_id,
-              activeDocument.document_id,
-              fieldKey,
-              decision,
-              correctedValue,
-              note,
-            ),
-          onMutationSettled,
-        ),
-      );
-    } catch (error) {
-      setDocumentError(error instanceof Error ? error.message : "Field review failed.");
-    } finally {
-      setIsDeciding(false);
-    }
-  }
-
-  return (
-    <section className="document-card" aria-labelledby="document-heading">
-      <div>
-        <p className="section-label">Phase 03 document sub-workflow</p>
-        <h2 id="document-heading">Document review</h2>
-        <p>
-          PDFs are bounded and transient. Mock IDP candidates are compared with the
-          existing canonical entity and never overwrite it.
-        </p>
-      </div>
-      <form onSubmit={(event) => void handleDocumentSubmit(event)}>
-        <label htmlFor="document-file">PDF document</label>
-        <input
-          id="document-file"
-          type="file"
-          accept="application/pdf,.pdf"
-          required
-          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-        />
-        <label htmlFor="idp-scenario">Synthetic Mock IDP scenario</label>
-        <select
-          id="idp-scenario"
-          value={scenario}
-          onChange={(event) => setScenario(event.target.value as MockIdpScenario)}
-        >
-          <option value="ALL_FIELDS_MATCH">All fields match registry</option>
-          <option value="FIELD_MISMATCH">One field mismatch</option>
-          <option value="LOW_CONFIDENCE">Low-confidence field</option>
-          <option value="MISSING_FIELD">Missing document field</option>
-          <option value="PROCESSOR_FAILURE">Processor failure</option>
-        </select>
-        <button type="submit" disabled={isProcessing || !file}>
-          {isProcessing ? "Processing transient PDF..." : "Upload and run Mock IDP"}
-        </button>
-        <p className="input-help">
-          Development review threshold: {confidencePercent(threshold)} — provisional,
-          not sponsor-approved.
-        </p>
-      </form>
-
-      {documents.length > 0 && (
-        <nav className="document-list" aria-label="Case documents">
-          {documents.map((document) => (
-            <button
-              className={
-                document.document_id === activeDocument?.document_id
-                  ? "document-list__active"
-                  : "button-secondary"
-              }
-              type="button"
-              key={document.document_id}
-              onClick={() => setActiveDocument(document)}
-            >
-              {document.display_name} · {document.state}
-            </button>
-          ))}
-        </nav>
-      )}
-
-      {documentError && (
-        <div className="request-error" role="alert">
-          ❌ {friendlyErrorMessage(null, documentError)}
-        </div>
-      )}
-      {activeDocument && (
-        <DocumentReviewSummary
-          record={activeDocument}
-          threshold={threshold}
-          onDecision={(...args) => void handleDecision(...args)}
-          isDeciding={isDeciding}
-        />
-      )}
-    </section>
-  );
-}
-
 function OwnershipCandidateCard({ candidate }: { candidate: OwnershipCandidate }) {
   return (
     <article
@@ -808,127 +546,6 @@ export function OwnershipSummary({ record }: { record: OwnershipAnalysisRecord }
   );
 }
 
-export function OwnershipPanel({
-  caseData,
-  configuredThreshold,
-  onMutationStart,
-  onMutationSettled,
-}: {
-  caseData: OnboardingCase;
-  configuredThreshold: string;
-  onMutationStart: () => void;
-  onMutationSettled: () => Promise<void>;
-}) {
-  const [scenario, setScenario] = useState<MockOwnershipScenario>("DIRECT_OWNER");
-  const [record, setRecord] = useState<OwnershipAnalysisRecord | null>(null);
-  const [isBusy, setIsBusy] = useState(false);
-  const [ownershipError, setOwnershipError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void fetchOwnership(caseData.case_id)
-      .then(setRecord)
-      .catch(() => setOwnershipError("Ownership analysis is unavailable."));
-  }, [caseData.case_id]);
-
-  async function refreshAfterFailure() {
-    try {
-      setRecord(await fetchOwnership(caseData.case_id));
-    } catch {
-      // Keep the sanitized request failure visible when refresh is unavailable.
-    }
-  }
-
-  async function handleLoad() {
-    setIsBusy(true);
-    setOwnershipError(null);
-    try {
-      setRecord(
-        await runEvidenceMutation(
-          onMutationStart,
-          () => loadMockOwnership(caseData.case_id, scenario),
-          onMutationSettled,
-        ),
-      );
-    } catch (error) {
-      setOwnershipError(error instanceof Error ? error.message : "Ownership loading failed.");
-      await refreshAfterFailure();
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleAnalyze() {
-    setIsBusy(true);
-    setOwnershipError(null);
-    try {
-      setRecord(
-        await runEvidenceMutation(
-          onMutationStart,
-          () => analyzeOwnership(caseData.case_id),
-          onMutationSettled,
-        ),
-      );
-    } catch (error) {
-      setOwnershipError(error instanceof Error ? error.message : "Ownership analysis failed.");
-      await refreshAfterFailure();
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  return (
-    <section className="ownership-card" aria-labelledby="ownership-heading">
-      <div>
-        <p className="section-label">Phase 04 case sub-workflow</p>
-        <h2 id="ownership-heading">Ownership &amp; UBO</h2>
-        <p>
-          Load a fictional related-party graph, calculate direct and indirect paths, and
-          review ownership-based provisional candidates without changing the onboarding case.
-        </p>
-      </div>
-      {!record && (
-        <div className="ownership-controls">
-          <label htmlFor="ownership-scenario">Synthetic Mock ownership scenario</label>
-          <select
-            id="ownership-scenario"
-            value={scenario}
-            onChange={(event) => setScenario(event.target.value as MockOwnershipScenario)}
-          >
-            <option value="DIRECT_OWNER">Direct natural-person owners</option>
-            <option value="INDIRECT_OWNER">Indirect owners through a holding company</option>
-            <option value="MULTIPLE_PATHS">One person through multiple paths</option>
-            <option value="BELOW_THRESHOLD">Owners below threshold</option>
-            <option value="INCOMPLETE_CHAIN">Incomplete legal-entity chain</option>
-            <option value="CYCLE">Circular ownership data</option>
-            <option value="PROVIDER_FAILURE">Provider failure</option>
-          </select>
-          <button type="button" disabled={isBusy} onClick={() => void handleLoad()}>
-            {isBusy ? "Loading ownership source..." : "Load synthetic ownership"}
-          </button>
-          <p className="input-help">
-            Default threshold: {ownershipPercent(configuredThreshold)} — project-defined,
-            inclusive, and pending sponsor confirmation Q-004.
-          </p>
-        </div>
-      )}
-      {record?.state === "LOADED" && (
-        <div className="ownership-controls">
-          <p>Source validation passed. Run the deterministic calculation engine.</p>
-          <button type="button" disabled={isBusy} onClick={() => void handleAnalyze()}>
-            {isBusy ? "Calculating bounded ownership paths..." : "Analyze ownership paths"}
-          </button>
-        </div>
-      )}
-      {ownershipError && (
-        <div className="request-error" role="alert">
-          {ownershipError}
-        </div>
-      )}
-      {record && <OwnershipSummary record={record} />}
-    </section>
-  );
-}
-
 export function ClmJourney({
   summary,
   onUpdate,
@@ -1091,10 +708,6 @@ const AUTOMATION_STAGES = [
   ["READINESS", "Readiness"],
   ["MOCK_GOLDTIER", "Mock GoldTier"],
 ] as const;
-
-export function shouldPollAutomation(status: ZeroTouchCaseSummary["status"]): boolean {
-  return status === "RUNNING" || status === "RESUMING";
-}
 
 export function automationStageState(
   summary: ZeroTouchCaseSummary,
@@ -1458,29 +1071,43 @@ export function LocalReviewerWorkbench({ summary }: { summary: ZeroTouchCaseSumm
   );
 }
 
-type AppTab = "dashboard" | "start" | "review" | "logs" | "account";
+type AppTab = "home" | "queue" | "onboarded" | "audit" | "policy";
 
-export function WorkspaceTabs({ activeTab, onChange }: { activeTab: AppTab; onChange: (tab: AppTab) => void }) {
+export function WorkspaceTabs({
+  activeTab,
+  onChange,
+  trailing,
+}: {
+  activeTab: AppTab;
+  onChange: (tab: AppTab) => void;
+  trailing?: ReactNode;
+}) {
+  // "policy" stays a valid AppTab/route (reachable via direct state) but is
+  // hidden from the nav for now, per request.
   const tabs: Array<[AppTab, string]> = [
-    ["dashboard", "Dashboard"],
-    ["start", "Start onboarding"],
-    ["review", "Review"],
-    ["logs", "Logs"],
-    ["account", "Account info"],
+    ["home", "Home"],
+    ["queue", "Cases"],
+    ["onboarded", "Onboarded"],
+    ["audit", "Audit"],
   ];
   return (
-    <nav className="workspace-tabs" aria-label="Main workspace">
-      {tabs.map(([tab, label]) => (
-        <button
-          key={tab}
-          className={activeTab === tab ? "workspace-tab workspace-tab--active" : "workspace-tab"}
-          type="button"
-          aria-current={activeTab === tab ? "page" : undefined}
-          onClick={() => onChange(tab)}
-        >
-          {label}
-        </button>
-      ))}
+    <nav className="ds-root nav" aria-label="Main workspace">
+      <span className="nav-brand">CLM Onboarding</span>
+      <span className="nav-sep" />
+      <div className="nav-tabs">
+        {tabs.map(([tab, label]) => (
+          <button
+            key={tab}
+            className={activeTab === tab ? "nav-tab nav-tab--active" : "nav-tab"}
+            type="button"
+            aria-current={activeTab === tab ? "page" : undefined}
+            onClick={() => onChange(tab)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {trailing}
     </nav>
   );
 }
@@ -1499,145 +1126,11 @@ export function DashboardSnapshot({ summary }: { summary: ZeroTouchCaseSummary |
       <div>
         <p className="section-label">Current session overview</p>
         <h2 id="dashboard-snapshot-heading">Work at a glance</h2>
-        <p>Case health for the currently selected local case.</p>
+        <p>Case health for the currently loaded local case. A database-backed portfolio and real queue totals are not part of this POC.</p>
       </div>
       <div className="dashboard-metrics">
         {metrics.map(([value, label]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}
       </div>
-    </section>
-  );
-}
-
-export function CasePortfolio({
-  cases,
-  onOpen,
-  persistence = "Process-local",
-}: {
-  cases: ZeroTouchCaseListItem[];
-  onOpen: (caseId: string) => void;
-  persistence?: SimulationProfile["persistence"];
-}) {
-  const durable = persistence === "Mongo-backed durable POC";
-  return (
-    <section className="case-portfolio" aria-labelledby="case-portfolio-heading">
-      <p className="section-label">{durable ? "Durable case history" : "Process-local case history"}</p>
-      <h2 id="case-portfolio-heading">Recent CLM cases</h2>
-      <p className="process-local-notice">
-        {durable
-          ? "Mongo-backed durable POC — cases survive backend restart. This is not a production audit repository."
-          : "Cases are retained only for the current backend process. Restarting the local POC clears this history."}
-      </p>
-      {cases.length === 0 ? (
-        <p>No CLM cases have been created in this backend process.</p>
-      ) : (
-        <div className="case-table" role="table" aria-label="Recent CLM cases">
-          <div className="case-table__header" role="row">
-            <strong role="columnheader">Company</strong>
-            <strong role="columnheader">UEN</strong>
-            <strong role="columnheader">Stage</strong>
-            <strong role="columnheader">Status</strong>
-            <strong role="columnheader">Updated</strong>
-            <span role="columnheader">Action</span>
-          </div>
-          {cases.map((item) => (
-            <div className="case-table__row" role="row" key={item.case_id}>
-              <span role="cell">{item.legal_name ?? "Registry identity pending"}</span>
-              <code role="cell">{item.requested_uen}</code>
-              <span role="cell">{item.current_stage.replaceAll("_", " ")}</span>
-              <span role="cell">{item.status.replaceAll("_", " ")}</span>
-              <span role="cell">{formatTimestamp(item.updated_at)}</span>
-              <button type="button" onClick={() => onOpen(item.case_id)}>View case</button>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-export function ReviewQueue({
-  cases,
-  selectedCaseId,
-  onOpen,
-  persistence = "Process-local",
-}: {
-  cases: ZeroTouchCaseListItem[];
-  selectedCaseId?: string;
-  onOpen: (caseId: string) => void;
-  persistence?: SimulationProfile["persistence"];
-}) {
-  const durable = persistence === "Mongo-backed durable POC";
-  return (
-    <section className="review-queue" aria-labelledby="review-queue-heading">
-      <p className="section-label">Backend-authored {durable ? "durable" : "process-local"} queue</p>
-      <h2 id="review-queue-heading">Cases waiting for review</h2>
-      <p>{durable ? "Queue status survives backend restart; assignment remains session-only." : "Queue status is authoritative for the current backend process only; assignment remains session-only."}</p>
-      {cases.length === 0 ? <p>No cases currently require review.</p> : (
-        <div className="review-queue__items">
-          {cases.map((item) => (
-            <button
-              type="button"
-              key={item.case_id}
-              className={selectedCaseId === item.case_id ? "review-queue__item review-queue__item--active" : "review-queue__item"}
-              onClick={() => onOpen(item.case_id)}
-            >
-              <strong>{item.legal_name ?? item.requested_uen}</strong>
-              <span>UEN {item.requested_uen}</span>
-              <span>Case {item.case_id}</span>
-              <span>{item.current_stage.replaceAll("_", " ")} · {item.active_exception_count} active blocker(s)</span>
-              <span>Updated {formatTimestamp(item.updated_at)}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-export function StartProgressPanel({
-  progress,
-  summary,
-  isSubmitting,
-  onViewCase,
-  onOpenReview,
-  onRetry,
-  onStartAnother,
-}: {
-  progress: StartProgress;
-  summary: ZeroTouchCaseSummary | null;
-  isSubmitting: boolean;
-  onViewCase: () => void;
-  onOpenReview: () => void;
-  onRetry: () => void;
-  onStartAnother: () => void;
-}) {
-  if (progress.stage === "idle") return null;
-  return (
-    <section className={`start-progress start-progress--${progress.stage}`} role="status" aria-live="polite">
-      <strong>{progress.message}</strong>
-      {summary && (
-        <>
-          <h3>CLM onboarding created</h3>
-          <dl>
-            <div><dt>Case ID</dt><dd><code>{summary.case.case_id}</code></dd></div>
-            <div><dt>UEN</dt><dd>{summary.case.requested_uen}</dd></div>
-            <div><dt>Status</dt><dd>{summary.status.replaceAll("_", " ")}</dd></div>
-          </dl>
-          {progress.failedFile && <p>Upload failed safely for {progress.failedFile}. Successfully received documents remain attached.</p>}
-          <div className="start-progress__actions">
-            <button type="button" onClick={onViewCase}>View case</button>
-            {summary.status === "WAITING_FOR_REVIEW" && (
-              <button type="button" onClick={onOpenReview}>Open Review</button>
-            )}
-            {progress.stage === "failed" && summary.status === "PENDING_INPUTS" && (
-              <button type="button" disabled={isSubmitting} onClick={onRetry}>Retry this case</button>
-            )}
-            {(progress.stage === "completed" || progress.stage === "waiting") && (
-              <button type="button" disabled={isSubmitting} onClick={onStartAnother}>Start another case</button>
-            )}
-          </div>
-        </>
-      )}
     </section>
   );
 }
@@ -1669,7 +1162,7 @@ export function SponsorDocumentEvidenceView({ documents }: { documents: Document
   return (
     <section className="document-evidence-card" aria-labelledby="document-evidence-heading">
       <p className="section-label">Document stage evidence</p>
-      <h2 id="document-evidence-heading">What each supplied document contributed</h2>
+      <h2 id="document-evidence-heading">What the supplied PDF caused</h2>
       {documents.map((document) => (
         <details key={document.document_id} open={!document.superseded_by_document_id}>
           <summary>{document.display_name} — {document.superseded_by_document_id ? "SUPERSEDED" : "CURRENT"} — {document.state.replaceAll("_", " ")}</summary>
@@ -1713,170 +1206,6 @@ export function SponsorDocumentEvidence({ summary }: { summary: ZeroTouchCaseSum
 
   if (unavailable) return null;
   return <SponsorDocumentEvidenceView documents={documents} />;
-}
-
-function reconciliationSourceValue(
-  discrepancy: ReconciliationDiscrepancy,
-  source: "REGISTRY" | "DOCUMENT_IDP",
-): string {
-  const values = discrepancy.observations
-    .filter((item) => item.source_kind === source)
-    .map((item) => item.normalized_value ?? "Not available");
-  return values.length ? values.join(" · ") : "Not observed";
-}
-
-export function ReconciliationPanel({
-  summary,
-  isResolving = false,
-  onResolve,
-  onReplace,
-}: {
-  summary: ZeroTouchCaseSummary;
-  isResolving?: boolean;
-  onResolve?: (
-    discrepancy: ReconciliationDiscrepancy,
-    action: ReconciliationDecisionAction,
-  ) => void;
-  onReplace?: (documentId: string, eventCount: number, file: File) => void;
-}) {
-  const reconciliation = summary.reconciliation;
-  const [replacementFile, setReplacementFile] = useState<File | null>(null);
-  const [replacementDocumentId, setReplacementDocumentId] = useState<string>("");
-  if (!reconciliation) return null;
-  const discrepancies = new Map(
-    reconciliation.discrepancies.map((item) => [item.discrepancy_id, item]),
-  );
-  const selectedReplacementId = replacementDocumentId || reconciliation.source_document_ids.at(-1);
-  const selectedReplacementIndex = selectedReplacementId
-    ? reconciliation.source_document_ids.indexOf(selectedReplacementId)
-    : -1;
-  const currentDocumentVersion = selectedReplacementIndex >= 0
-    ? reconciliation.source_document_event_counts[selectedReplacementIndex]
-    : undefined;
-
-  return (
-    <section className="reconciliation-panel" aria-labelledby="reconciliation-heading">
-      <p className="section-label">Multi-source reconciliation</p>
-      <div className="reconciliation-heading-row">
-        <h2 id="reconciliation-heading">Registry and document observations</h2>
-        <span className={`reconciliation-status reconciliation-status--${reconciliation.status}`}>
-          {reconciliation.status.replaceAll("_", " ")}
-        </span>
-      </div>
-      <p>
-        Neither source is authoritative by default. Values remain separate until an
-        explicitly advertised backend action records a decision.
-      </p>
-      <div className="reconciliation-grid" role="table" aria-label="Field reconciliation">
-        <div className="reconciliation-grid__header" role="row">
-          <strong role="columnheader">Field</strong>
-          <strong role="columnheader">Registry value</strong>
-          <strong role="columnheader">Document value</strong>
-          <strong role="columnheader">Outcome / decision</strong>
-        </div>
-        {reconciliation.fields.map((field) => {
-          const discrepancy = field.discrepancy_id
-            ? discrepancies.get(field.discrepancy_id)
-            : undefined;
-          const registry = field.observations
-            .filter((item) => item.source_kind === "REGISTRY")
-            .map((item) => item.normalized_value ?? "Not available")
-            .join(" · ");
-          const document = field.observations
-            .filter((item) => item.source_kind === "DOCUMENT_IDP")
-            .map((item) => item.normalized_value ?? "Not available")
-            .join(" · ");
-          return (
-            <div className="reconciliation-grid__row" role="row" key={field.field_name}>
-              <strong role="cell">{fieldLabel(field.field_name)}</strong>
-              <span role="cell"><small>Registry observation</small>{registry || "Not observed"}</span>
-              <span role="cell"><small>Document observation</small>{document || "Not observed"}</span>
-              <span role="cell">
-                <span className={`comparison-badge comparison-badge--${field.outcome}`}>
-                  {field.outcome.replaceAll("_", " ")}
-                </span>
-                {discrepancy?.decision && (
-                  <small>
-                    Decision: {discrepancy.decision.action.replaceAll("_", " ")} · {formatTimestamp(discrepancy.decision.decided_at)}
-                  </small>
-                )}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      {reconciliation.discrepancies
-        .filter((item) => item.status !== "CANCELLED")
-        .map((discrepancy) => (
-          <article className="reconciliation-discrepancy" key={discrepancy.discrepancy_id}>
-            <h3>{fieldLabel(discrepancy.field_name)} — {discrepancy.outcome.replaceAll("_", " ")}</h3>
-            <p>
-              Registry: {reconciliationSourceValue(discrepancy, "REGISTRY")} · Document: {reconciliationSourceValue(discrepancy, "DOCUMENT_IDP")}
-            </p>
-            <p className="reconciliation-provenance">
-              {discrepancy.observations.map((observation) => (
-                <span key={observation.observation_id}>
-                  {observation.document_display_name ?? observation.source_kind.replaceAll("_", " ")} · {observation.source_system ?? "Current case"} · {observation.environment ?? "Local"} · {observation.validity}
-                </span>
-              ))}
-            </p>
-            {discrepancy.status === "OPEN" && onResolve && (
-              <div className="exception-actions">
-                {discrepancy.allowed_actions.map((action) => (
-                  <button
-                    key={action}
-                    type="button"
-                    disabled={isResolving}
-                    onClick={() => onResolve(discrepancy, action)}
-                  >
-                    {action === "KEEP_REGISTRY_VALUE" ? "Keep registry value" : "Use document value"}
-                  </button>
-                ))}
-                {discrepancy.allowed_actions.length === 0 && (
-                  <p className="warning-notice">Replacement evidence is required; no value-selection action is authorized.</p>
-                )}
-              </div>
-            )}
-            {discrepancy.decision && (
-              <p className="decision-summary">
-                Resolved by explicit POC operator action: {discrepancy.decision.action.replaceAll("_", " ")}. No reviewer identity or compliance authority is claimed.
-              </p>
-            )}
-          </article>
-        ))}
-      {onReplace && selectedReplacementId && currentDocumentVersion && reconciliation.status === "REVIEW_REQUIRED" && (
-        <div className="replacement-section">
-          <h3>Replace current document evidence</h3>
-          <label htmlFor="replacement-document-id">Document to replace</label>
-          <select
-            id="replacement-document-id"
-            value={selectedReplacementId}
-            onChange={(event) => setReplacementDocumentId(event.target.value)}
-          >
-            {reconciliation.source_document_ids.map((documentId) => {
-              const observation = reconciliation.fields
-                .flatMap((field) => field.observations)
-                .find((item) => item.document_id === documentId);
-              return <option value={documentId} key={documentId}>{observation?.document_display_name ?? documentId}</option>;
-            })}
-          </select>
-          <input
-            aria-label="Replacement reconciliation document"
-            type="file"
-            accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt"
-            onChange={(event) => setReplacementFile(event.target.files?.[0] ?? null)}
-          />
-          <button
-            type="button"
-            disabled={isResolving || !replacementFile}
-            onClick={() => replacementFile && onReplace(selectedReplacementId, currentDocumentVersion, replacementFile)}
-          >
-            Upload replacement and re-evaluate
-          </button>
-        </div>
-      )}
-    </section>
-  );
 }
 
 export function SponsorOwnershipEvidenceView({ record }: { record: OwnershipAnalysisRecord | null }) {
@@ -2014,11 +1343,11 @@ export function HumanReviewPanel({
         <div className="replacement-section">
           <h3>Upload corrected document</h3>
           <p>Upload a replacement PDF to supersede the current evidence. The system will re-extract and re-evaluate.</p>
-          <label htmlFor={`replacement-${exception.exception_id}`}>Select replacement document</label>
+          <label htmlFor={`replacement-${exception.exception_id}`}>Select new PDF file</label>
           <input
             id={`replacement-${exception.exception_id}`}
             type="file"
-            accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt"
+            accept="application/pdf,.pdf"
             onChange={(event) => setReplacementFile(event.target.files?.[0] ?? null)}
           />
           {replacementFile && <p className="file-selected">✓ {replacementFile.name}</p>}
@@ -2143,172 +1472,6 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
   );
 }
 
-export function LegacyApp() {
-  const [uen, setUen] = useState(DEFAULT_UEN);
-  const [caseId, setCaseId] = useState("");
-  const [scenarios, setScenarios] = useState<MockScenario[]>([]);
-  const [simulationProfile, setSimulationProfile] = useState<SimulationProfile | null>(null);
-  const [caseData, setCaseData] = useState<OnboardingCase | null>(null);
-  const [clmSummary, setClmSummary] = useState<ClmCaseSummary | null>(null);
-  const [isClmRefreshing, setIsClmRefreshing] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void fetchMockScenarios()
-      .then((discovery) => {
-        setScenarios(discovery.scenarios);
-        setSimulationProfile(discovery.simulation);
-      })
-      .catch(() => setRequestError("Connector profile discovery is unavailable."));
-  }, []);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
-    setRequestError(null);
-    setCaseData(null);
-    setClmSummary(null);
-    try {
-      const created = await createClmCase(uen);
-      setClmSummary(created);
-      setCaseData(created.case);
-    } catch (error) {
-      setRequestError(error instanceof Error ? error.message : "Unable to start onboarding.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function handleOpenCase(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
-    setRequestError(null);
-    setCaseData(null);
-    setClmSummary(null);
-    try {
-      const opened = await fetchClmCase(caseId.trim());
-      setClmSummary(opened);
-      setCaseData(opened.case);
-    } catch (error) {
-      setRequestError(error instanceof Error ? error.message : "Unable to open the case.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  function invalidateClmReadiness() {
-    setClmSummary(null);
-    setIsClmRefreshing(true);
-  }
-
-  async function refreshClmSummary() {
-    if (!caseData) return;
-    setClmSummary(null);
-    setIsClmRefreshing(true);
-    try {
-      const refreshed = await fetchClmCase(caseData.case_id);
-      setClmSummary(refreshed);
-      setCaseData(refreshed.case);
-    } catch {
-      setRequestError("Authoritative CLM readiness could not be refreshed.");
-    } finally {
-      setIsClmRefreshing(false);
-    }
-  }
-
-  return (
-    <main className="page-shell">
-      <header className="hero">
-        <SimulationBanner profile={simulationProfile} />
-        <p className="eyebrow">Data Dividends | Phase 05</p>
-        <h1>One coherent, evidence-led CLM journey.</h1>
-        <p className="summary">
-          Stage registry intake, review synthetic document evidence, analyze ownership,
-          evaluate typed blockers, and submit an eligible case to Mock GoldTier.
-        </p>
-      </header>
-
-      <section className="launch-card" aria-labelledby="launch-heading">
-        <div>
-          <p className="section-label">Case access</p>
-          <h2 id="launch-heading">Start or reopen a staged CLM case</h2>
-          <p>All demo data is synthetic. Existing cases remain process-local.</p>
-        </div>
-        <div className="case-access-forms">
-          <form onSubmit={(event) => void handleSubmit(event)}>
-            <label htmlFor="uen">Create from Singapore UEN</label>
-            <div className="form-row">
-              <input
-                id="uen"
-                list="mock-uens"
-                value={uen}
-                onChange={(event) => setUen(event.target.value.toUpperCase())}
-                maxLength={64}
-                required
-              />
-              <datalist id="mock-uens">
-                {scenarios.map((scenario) => (
-                  <option key={scenario.uen} value={scenario.uen}>{scenario.label}</option>
-                ))}
-              </datalist>
-              <button type="submit" disabled={isSubmitting}>Create case</button>
-            </div>
-          </form>
-          <form onSubmit={(event) => void handleOpenCase(event)}>
-            <label htmlFor="case-id">Open existing case ID</label>
-            <div className="form-row">
-              <input
-                id="case-id"
-                value={caseId}
-                onChange={(event) => setCaseId(event.target.value)}
-                placeholder="00000000-0000-4000-8000-000000000000"
-                required
-              />
-              <button type="submit" disabled={isSubmitting}>Open case</button>
-            </div>
-          </form>
-        </div>
-      </section>
-
-      {requestError && <div className="request-error" role="alert">{requestError}</div>}
-      {caseData && (
-        <>
-          <CaseSummary caseData={caseData} />
-          <DocumentPanel
-            key={caseData.case_id}
-            caseData={caseData}
-            threshold={simulationProfile?.idp_review_confidence_threshold ?? 0.85}
-            onMutationStart={invalidateClmReadiness}
-            onMutationSettled={refreshClmSummary}
-          />
-          <OwnershipPanel
-            key={`ownership-${caseData.case_id}`}
-            caseData={caseData}
-            configuredThreshold={
-              simulationProfile?.ubo_ownership_threshold_percent ?? "25"
-            }
-            onMutationStart={invalidateClmReadiness}
-            onMutationSettled={refreshClmSummary}
-          />
-          {isClmRefreshing ? (
-            <ClmRefreshingState />
-          ) : clmSummary && (
-            <ClmJourney
-              summary={clmSummary}
-              onRefresh={refreshClmSummary}
-              onUpdate={(updated) => {
-                setClmSummary(updated);
-                setCaseData(updated.case);
-              }}
-            />
-          )}
-        </>
-      )}
-    </main>
-  );
-}
-
 export interface AppProps {
   demoControlsEnabled?: boolean;
 }
@@ -2316,18 +1479,14 @@ export interface AppProps {
 export default function App({
   demoControlsEnabled = import.meta.env.VITE_DEMO_CONTROLS_ENABLED === "true",
 }: AppProps = {}) {
-  const [activeTab, setActiveTab] = useState<AppTab>("start");
+  const [activeTab, setActiveTab] = useState<AppTab>("home");
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [auditCaseId, setAuditCaseId] = useState<string | null>(null);
   const [uen, setUen] = useState(DEFAULT_UEN);
   const [countryOfIncorporation, setCountryOfIncorporation] =
     useState<JurisdictionSelection>("");
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [fileValidationErrors, setFileValidationErrors] = useState<string[]>([]);
-  const [caseList, setCaseList] = useState<ZeroTouchCaseListItem[]>([]);
-  const [startProgress, setStartProgress] = useState<StartProgress>({
-    stage: "idle",
-    message: "",
-    failedFile: null,
-  });
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [caseId, setCaseId] = useState("");
   const [demoScenario, setDemoScenario] = useState<ZeroTouchDemoScenario>("STRAIGHT_THROUGH");
   const [simulationProfile, setSimulationProfile] = useState<SimulationProfile | null>(null);
@@ -2338,28 +1497,12 @@ export default function App({
   const [pollingWarning, setPollingWarning] = useState<string | null>(null);
   const journeyGeneration = useRef(0);
   const resolutionActive = useRef(false);
-  const uploadedFileKeys = useRef(new Set<string>());
-  const failedDocumentIds = useRef(new Map<string, string>());
-  const activeJourneyUsesDemo = useRef(false);
-
-  const refreshCaseList = useCallback(async () => {
-    const records = await fetchZeroTouchCases();
-    setCaseList(records);
-  }, []);
 
   useEffect(() => {
     void fetchExecutionProfile()
       .then(setSimulationProfile)
       .catch(() => setRequestError("Connector profile discovery is unavailable."));
   }, []);
-
-  useEffect(() => {
-    if (activeTab === "dashboard" || activeTab === "review" || summary) {
-      void refreshCaseList().catch(() => {
-        // The selected case remains usable when the read-only portfolio is unavailable.
-      });
-    }
-  }, [activeTab, refreshCaseList, summary?.case.case_id, summary?.version]);
 
   useEffect(() => {
     if (!summary || !shouldPollAutomation(summary.status)) return;
@@ -2376,96 +1519,15 @@ export default function App({
     });
   }, [summary?.case.case_id, summary?.status, summary?.version]);
 
-  useEffect(() => {
-    if (!summary || startProgress.stage === "idle" || startProgress.stage === "failed") return;
-    if (summary.status === "WAITING_FOR_REVIEW") {
-      setStartProgress({ stage: "waiting", message: "Waiting for review", failedFile: null });
-    } else if (summary.status === "COMPLETED") {
-      setStartProgress({ stage: "completed", message: "Completed", failedFile: null });
-    } else if (summary.status === "TECHNICAL_FAILURE") {
-      setStartProgress({ stage: "failed", message: "Failed safely", failedFile: null });
-    } else if (["RUNNING", "RESUMING", "RECOVERY_PENDING"].includes(summary.status)) {
-      setStartProgress({ stage: "processing", message: "Processing…", failedFile: null });
-    }
-  }, [summary?.status, summary?.version, startProgress.stage]);
-
-  function addSelectedDocuments(files: FileList | null) {
-    if (!files) return;
-    const validated = validateSelectedDocuments([...selectedFiles, ...Array.from(files)]);
-    setSelectedFiles(validated.accepted);
-    setFileValidationErrors(validated.errors);
-  }
-
-  function removeSelectedDocument(file: File) {
-    const key = selectedFileKey(file);
-    setSelectedFiles((current) => current.filter((item) => selectedFileKey(item) !== key));
-    uploadedFileKeys.current.delete(key);
-    failedDocumentIds.current.delete(key);
-  }
-
-  function resetStartWorkspace() {
-    journeyGeneration.current += 1;
-    setSelectedFiles([]);
-    setFileValidationErrors([]);
-    uploadedFileKeys.current = new Set();
-    failedDocumentIds.current = new Map();
-    setStartProgress({ stage: "idle", message: "", failedFile: null });
-    setRequestError(null);
-    setPollingWarning(null);
-  }
-
-  async function uploadRemainingDocuments(
-    created: ZeroTouchCaseSummary,
-    demo: boolean,
-  ): Promise<ZeroTouchCaseSummary> {
-    for (const [index, file] of selectedFiles.entries()) {
-      const key = selectedFileKey(file);
-      if (uploadedFileKeys.current.has(key)) continue;
-      setStartProgress({
-        stage: "uploading",
-        message: `Uploading documents… (${index + 1}/${selectedFiles.length})`,
-        failedFile: null,
-      });
-      try {
-        const failedDocumentId = failedDocumentIds.current.get(key);
-        if (failedDocumentId) {
-          await retryZeroTouchIntakeDocument(
-            created.case.case_id,
-            failedDocumentId,
-            file,
-            demo,
-          );
-          failedDocumentIds.current.delete(key);
-        } else {
-          await intakeZeroTouchDocument(created.case.case_id, file, demo);
-        }
-        uploadedFileKeys.current.add(key);
-      } catch (error) {
-        if (error instanceof ApiError && error.detail?.document_id) {
-          failedDocumentIds.current.set(key, error.detail.document_id);
-        }
-        setStartProgress({ stage: "failed", message: "Failed safely", failedFile: file.name });
-        throw error;
-      }
-    }
-    setStartProgress({ stage: "starting", message: "Starting analysis…", failedFile: null });
-    return completeZeroTouchIntake(created.case.case_id, selectedFiles.length, demo);
-  }
-
   async function beginJourney(demoScenario?: ZeroTouchDemoScenario) {
-    if (resolutionActive.current || isSubmitting) return;
-    if (selectedFiles.length === 0) {
-      setRequestError("Select at least one valid PDF, DOCX, or UTF-8 TXT document.");
+    if (resolutionActive.current) return;
+    if (documentFiles.length === 0) {
+      setRequestError("Select at least one supporting document before starting onboarding.");
       return;
     }
     setIsSubmitting(true);
     journeyGeneration.current += 1;
-    uploadedFileKeys.current = new Set();
-    failedDocumentIds.current = new Map();
-    activeJourneyUsesDemo.current = demoScenario !== undefined;
     setRequestError(null);
-    setPollingWarning(null);
-    setStartProgress({ stage: "creating", message: "Creating case…", failedFile: null });
     setSummary(null);
     let created: ZeroTouchCaseSummary | null = null;
     try {
@@ -2475,42 +1537,27 @@ export default function App({
         countryOfIncorporation || undefined,
       );
       setSummary(created);
-      setCaseId(created.case.case_id);
-      await refreshCaseList();
       if (created.status === "PENDING_INPUTS") {
-        setSummary(await uploadRemainingDocuments(created, demoScenario !== undefined));
+        let completed = created;
+        for (const file of documentFiles) {
+          completed = await attachZeroTouchDocument(
+            created.case.case_id,
+            file,
+            demoScenario !== undefined,
+          );
+        }
+        setSummary(completed);
       }
     } catch (error) {
       if (created) {
         try {
           setSummary(await fetchZeroTouchCase(created.case.case_id));
         } catch {
-          // The created case ID remains visible through the retained creation response.
-          setSummary(created);
+          // The safe original error remains the operator-facing result.
         }
       }
-      setStartProgress((current) => ({
-        stage: "failed",
-        message: "Failed safely",
-        failedFile: current.failedFile,
-      }));
       setRequestError(error instanceof Error ? error.message : "Unable to start onboarding.");
     } finally {
-      await refreshCaseList().catch(() => undefined);
-      setIsSubmitting(false);
-    }
-  }
-
-  async function retryCreatedCase() {
-    if (!summary || summary.status !== "PENDING_INPUTS" || isSubmitting) return;
-    setIsSubmitting(true);
-    setRequestError(null);
-    try {
-      setSummary(await uploadRemainingDocuments(summary, activeJourneyUsesDemo.current));
-    } catch (error) {
-      setRequestError(error instanceof Error ? error.message : "Document intake retry failed.");
-    } finally {
-      await refreshCaseList().catch(() => undefined);
       setIsSubmitting(false);
     }
   }
@@ -2520,7 +1567,8 @@ export default function App({
     void beginJourney();
   }
 
-  async function openSelectedCase(selectedCaseId: string, destination?: AppTab) {
+  async function handleOpenCase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (resolutionActive.current) return;
     const generation = ++journeyGeneration.current;
     setIsSubmitting(true);
@@ -2528,22 +1576,13 @@ export default function App({
     setPollingWarning(null);
     setSummary(null);
     try {
-      const opened = await fetchZeroTouchCase(selectedCaseId.trim());
-      if (generation === journeyGeneration.current) {
-        setSummary(opened);
-        setCaseId(opened.case.case_id);
-        if (destination) setActiveTab(destination);
-      }
+      const opened = await fetchZeroTouchCase(caseId.trim());
+      if (generation === journeyGeneration.current) setSummary(opened);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Unable to open the case.");
     } finally {
       setIsSubmitting(false);
     }
-  }
-
-  async function handleOpenCase(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    await openSelectedCase(caseId);
   }
 
   async function handleResolution(
@@ -2600,45 +1639,6 @@ export default function App({
     }
   }
 
-  async function handleReconciliationResolution(
-    discrepancy: ReconciliationDiscrepancy,
-    action: ReconciliationDecisionAction,
-  ) {
-    if (!summary?.reconciliation || resolutionActive.current) return;
-    const generation = journeyGeneration.current;
-    const activeCaseId = summary.case.case_id;
-    resolutionActive.current = true;
-    setIsResolving(true);
-    setRequestError(null);
-    try {
-      const updated = await resolveReconciliationDiscrepancy(
-        summary,
-        discrepancy.discrepancy_id,
-        action,
-        summary.reconciliation.version,
-        discrepancy.evidence_fingerprint,
-      );
-      if (generation === journeyGeneration.current && activeCaseId === updated.case.case_id) {
-        setSummary(updated);
-      }
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        try {
-          const refreshed = await fetchZeroTouchCase(activeCaseId);
-          if (generation === journeyGeneration.current) setSummary(refreshed);
-        } catch {
-          // Keep the stable stale-resolution message below.
-        }
-      }
-      if (generation === journeyGeneration.current) {
-        setRequestError(error instanceof Error ? error.message : "Reconciliation decision failed.");
-      }
-    } finally {
-      resolutionActive.current = false;
-      if (generation === journeyGeneration.current) setIsResolving(false);
-    }
-  }
-
   async function handleRecovery() {
     if (!summary || isSubmitting || isResolving) return;
     setIsSubmitting(true);
@@ -2650,6 +1650,15 @@ export default function App({
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  function handleStartNewCase() {
+    journeyGeneration.current += 1;
+    setSummary(null);
+    setDocumentFiles([]);
+    setCaseId("");
+    setRequestError(null);
+    setPollingWarning(null);
   }
 
   async function handleEvidenceExport() {
@@ -2669,261 +1678,59 @@ export default function App({
   }
 
   return (
-    <main className="page-shell sponsor-shell">
-      <header className="hero sponsor-hero">
-        <SimulationBanner profile={simulationProfile} />
-        <p className="eyebrow">Data Dividends | Corporate onboarding</p>
-        <h1>Client Lifecycle Management (CLM) Onboarding</h1>
-        <p className="summary">
-          Provide the corporate identity and supporting documents once. The workflow
-          retrieves registry evidence, analyses each supplied document, reconciles
-          differences, evaluates ownership, and progresses until review is required.
-        </p>
-      </header>
-
-      <div className="workspace-layout">
-        <WorkspaceTabs activeTab={activeTab} onChange={setActiveTab} />
-        <div className="workspace-content">
-          {(activeTab === "dashboard" || activeTab === "start") && (
-            <>
-      {activeTab === "dashboard" && (
-        <div className="dashboard-primary-action">
-          <button type="button" onClick={() => setActiveTab("start")}>Start onboarding</button>
-        </div>
-      )}
-      {activeTab === "dashboard" && <DashboardSnapshot summary={summary} />}
-      {activeTab === "dashboard" && (
-        <CasePortfolio
-          cases={caseList}
-          onOpen={(id) => void openSelectedCase(id, "dashboard")}
-          persistence={simulationProfile?.persistence}
-        />
-      )}
-      {activeTab === "start" && (
-      <section className="launch-card zero-touch-launch" aria-labelledby="onboarding-heading">
-        <div>
-          <p className="section-label">Corporate onboarding</p>
-          <h2 id="onboarding-heading">Start onboarding</h2>
-          <p>Only fictional, synthetic PDF, DOCX, and UTF-8 TXT evidence is permitted in this local POC.</p>
-        </div>
-        <form onSubmit={(event) => void handleStart(event)} className="zero-touch-form">
-          <JurisdictionSelector
-            value={countryOfIncorporation}
-            onChange={setCountryOfIncorporation}
-          />
-          <label htmlFor="zero-touch-uen">Company registration identifier / UEN</label>
-          <input
-            id="zero-touch-uen"
-            value={uen}
-            onChange={(event) => setUen(event.target.value.toUpperCase())}
-            maxLength={32}
-            required
-          />
-          <label htmlFor="zero-touch-document">Supporting documents</label>
-          <input
-            id="zero-touch-document"
-            type="file"
-            multiple
-            accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt"
-            disabled={isSubmitting || startProgress.stage !== "idle"}
-            onChange={(event) => addSelectedDocuments(event.target.files)}
-          />
-          <label htmlFor="zero-touch-folder">Select folder</label>
-          <input
-            id="zero-touch-folder"
-            type="file"
-            multiple
-            accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt"
-            disabled={isSubmitting || startProgress.stage !== "idle"}
-            {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
-            onChange={(event) => addSelectedDocuments(event.target.files)}
-          />
-          <p className="input-help">Maximum 20 files, 5 MiB each, 25 MiB total. ZIP, macros, images, and other formats are not accepted.</p>
-          {selectedFiles.length > 0 && (
-            <div className="selected-documents" aria-label="Selected supporting documents">
-              <h3>Supporting documents</h3>
-              <ul>
-                {selectedFiles.map((file) => (
-                  <li key={selectedFileKey(file)}>
-                    <span>✓ {file.name}</span>
-                    <button type="button" disabled={isSubmitting || startProgress.stage !== "idle"} onClick={() => removeSelectedDocument(file)}>Remove</button>
-                  </li>
-                ))}
-              </ul>
-              <strong>{selectedDocumentSummary(selectedFiles)}</strong>
-            </div>
-          )}
-          {fileValidationErrors.length > 0 && (
-            <ul className="file-validation-errors" role="alert">
-              {fileValidationErrors.map((message) => <li key={message}>{message}</li>)}
-            </ul>
-          )}
-          <button type="submit" disabled={isSubmitting || isResolving}>
-            {isSubmitting ? "Starting CLM onboarding…" : "Start CLM onboarding"}
-          </button>
-        </form>
-        <StartProgressPanel
-          progress={startProgress}
-          summary={summary}
-          isSubmitting={isSubmitting}
-          onViewCase={() => setActiveTab("dashboard")}
-          onOpenReview={() => setActiveTab("review")}
-          onRetry={() => void retryCreatedCase()}
-          onStartAnother={resetStartWorkspace}
-        />
-        <form onSubmit={(event) => void handleOpenCase(event)} className="reopen-form">
-          <label htmlFor="zero-touch-case-id">Reopen case ID</label>
-          <div className="form-row">
-            <input
-              id="zero-touch-case-id"
-              value={caseId}
-              onChange={(event) => setCaseId(event.target.value)}
-              placeholder="00000000-0000-4000-8000-000000000000"
-              required
-            />
-            <button type="submit" disabled={isSubmitting || isResolving}>Open onboarding</button>
-          </div>
-        </form>
-      </section>
-      )}
-
-      {activeTab === "start" && demoControlsEnabled && (
-        <details className="demo-controls">
-          <summary>Demo/Test Controls</summary>
-          <p>These deterministic selectors are synthetic and are not part of normal operations.</p>
-          <label htmlFor="zero-touch-scenario">Integrated synthetic scenario</label>
-          <select
-            id="zero-touch-scenario"
-            value={demoScenario}
-            onChange={(event) => setDemoScenario(event.target.value as ZeroTouchDemoScenario)}
-          >
-            <option value="STRAIGHT_THROUGH">Straight through</option>
-            <option value="DOCUMENT_DISCREPANCY">Document discrepancy</option>
-            <option value="MULTIPLE_DOCUMENT_BLOCKERS">Multiple document blockers</option>
-            <option value="LOW_CONFIDENCE">Low-confidence document</option>
-            <option value="OWNERSHIP_CYCLE">Ownership cycle</option>
-            <option value="OWNERSHIP_INCOMPLETE">Incomplete ownership</option>
-            <option value="MULTIPLE_OWNERSHIP_PATHS">Multiple ownership paths</option>
-            <option value="EXISTING_PARTY">Existing Mock party</option>
-            <option value="TARGET_FAILURE">Mock target failure</option>
-            <option value="PARTIAL_AMEND">Partial amend</option>
-            <option value="RECOVERY">Replay-free recovery</option>
-            <option value="TECHNICAL_FAILURE">IDP technical failure</option>
-          </select>
-          <button type="button" disabled={isSubmitting || isResolving} onClick={() => void beginJourney(demoScenario)}>
-            Run selected fault-injection case
-          </button>
-          <details className="legacy-controls">
-            <summary>Legacy manual diagnostics</summary>
-            <LegacyApp />
-          </details>
-        </details>
-      )}
-
-      {requestError && <div className="request-error" role="alert">{requestError}</div>}
-      {pollingWarning && <div className="polling-warning" role="status">{pollingWarning}</div>}
-      {summary && activeTab === "dashboard" && (
-        <>
-          <OnboardingProgress summary={summary} />
-          <CaseIdentityStrip summary={summary} />
-          <SponsorCaseSummary summary={summary} onOpenReview={() => setActiveTab("review")} />
-          <details className="evidence-disclosure" open={summary.status === "WAITING_FOR_REVIEW"}>
-            <summary>Evidence and readiness details</summary>
-            <SponsorDocumentEvidence summary={summary} />
-            <ReconciliationPanel summary={summary} />
-            <SponsorOwnershipEvidence summary={summary} />
-            <SponsorTargetEvidence summary={summary} />
-            <SponsorReadinessEvidence summary={summary} />
-          </details>
-          {summary.status === "RESUMING" && (
-            <div className="resuming-banner" role="status">Resuming onboarding…</div>
-          )}
-          {summary.status === "RECOVERY_PENDING" && (
-            <div className="resuming-banner" role="status">
-              <span>Mock target outcome retained; finalization recovery is pending without target replay.</span>
-              <button type="button" disabled={isSubmitting} onClick={() => void handleRecovery()}>
-                Complete safe recovery
-              </button>
-            </div>
-          )}
-          {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && (
-            <section className="technical-failure-card" role="alert">
-              <p className="section-label">Technical failure</p>
-              <h2>Automation stopped safely</h2>
-              <strong>{summary.technical_failure.code}</strong>
-              <p>{summary.technical_failure.message}</p>
-              <p>No business-review decision is requested for this technical outage.</p>
-            </section>
-          )}
-          <AutomationTimeline summary={summary} />
-          {demoControlsEnabled && (
-            <button className="evidence-export" type="button" onClick={() => void handleEvidenceExport()}>
-              Export safe UAT evidence
-            </button>
-          )}
-          <p className="claim-boundary">
-            Mock and provisional POC only. This is not Ready-for-Approval, legal UBO
-            determination, customer approval, or evidence of live ACRA/GoldTier interoperability.
-          </p>
-        </>
-      )}
-        </>
-          )}
-
-          {activeTab === "review" && (
-            <ReviewQueue
-              cases={caseList.filter((item) => item.status === "WAITING_FOR_REVIEW")}
-              selectedCaseId={summary?.case.case_id}
-              onOpen={(id) => void openSelectedCase(id, "review")}
-              persistence={simulationProfile?.persistence}
-            />
-          )}
-
-          {activeTab === "review" && summary && (
-            <>
-          <LocalReviewerWorkbench summary={summary} />
-          <ReconciliationPanel
-            summary={summary}
-            isResolving={isResolving}
-            onResolve={(discrepancy, action) => void handleReconciliationResolution(discrepancy, action)}
-            onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
-          />
-          {summary.status === "WAITING_FOR_REVIEW" && summary.active_exceptions
-            .filter((exception) => !summary.reconciliation?.discrepancies.some(
-              (discrepancy) => discrepancy.discrepancy_id === exception.exception_id,
-            ))
-            .map((exception) => (
-            <HumanReviewPanel
-              key={exception.exception_id}
-              exception={exception}
+    <main className="ds-root ds-shell">
+      <WorkspaceTabs
+        activeTab={activeTab}
+        onChange={setActiveTab}
+        trailing={<SimulationBanner profile={simulationProfile} />}
+      />
+      <div className="ds-content">
+          {activeTab === "home" && (
+            <HomeOnboarding
+              summary={summary}
+              uen={uen}
+              onUenChange={setUen}
+              countryOfIncorporation={countryOfIncorporation}
+              onCountryChange={setCountryOfIncorporation}
+              documentFiles={documentFiles}
+              onDocumentFilesChange={setDocumentFiles}
+              isSubmitting={isSubmitting}
               isResolving={isResolving}
-              onResolve={(action) => void handleResolution(exception, action)}
+              requestError={requestError}
+              pollingWarning={pollingWarning}
+              onStart={handleStart}
+              onResolve={(exception, action) => void handleResolution(exception, action)}
               onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
+              onRecovery={() => void handleRecovery()}
+              onStartNewCase={handleStartNewCase}
+              onSummaryUpdate={setSummary}
             />
-          ))}
-            </>
           )}
 
-          {activeTab === "review" && !summary && (
-            <section className="workspace-placeholder" aria-labelledby="review-empty-heading">
-              <p className="section-label">Review</p>
-              <h2 id="review-empty-heading">Select a queued case</h2>
-              <p>The backend-authored queue above contains every current process-local case waiting for review.</p>
-            </section>
+          {activeTab === "queue" && !selectedCaseId && (
+            <CaseQueue onOpenCase={setSelectedCaseId} />
+          )}
+          {activeTab === "queue" && selectedCaseId && (
+            <CaseDetail caseId={selectedCaseId} onBack={() => setSelectedCaseId(null)} />
           )}
 
-          {activeTab === "logs" && (
-            summary ? <AutomationTimeline summary={summary} /> : (
-          <section className="workspace-placeholder" aria-labelledby="logs-heading">
-            <p className="section-label">Logs</p>
-            <h2 id="logs-heading">No case selected</h2>
-            <p>Open or start a case from the Dashboard to view its safe automation history.</p>
-          </section>
-        )
+          {activeTab === "onboarded" && !selectedClientId && (
+            <OnboardedClients onOpenClient={setSelectedClientId} />
+          )}
+          {activeTab === "onboarded" && selectedClientId && (
+            <ClientDetail
+              clientId={selectedClientId}
+              onBack={() => setSelectedClientId(null)}
+              onOpenAudit={(caseId) => {
+                setAuditCaseId(caseId);
+                setActiveTab("audit");
+              }}
+            />
           )}
 
-          {activeTab === "account" && <AccountPlaceholder />}
-        </div>
+          {activeTab === "audit" && <AuditTrail initialCaseId={auditCaseId} />}
+
+          {activeTab === "policy" && <PolicyRules />}
       </div>
     </main>
   );
