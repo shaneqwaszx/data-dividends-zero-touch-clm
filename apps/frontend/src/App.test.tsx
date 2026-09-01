@@ -21,16 +21,24 @@ import App, {
   SponsorTargetEvidence,
   AccountPlaceholder,
   CaseIdentityStrip,
+  CasePortfolio,
   DashboardSnapshot,
+  ReviewQueue,
+  StartProgressPanel,
   WorkspaceTabs,
   evidenceRevision,
+  formatDocumentBytes,
   shouldPollAutomation,
   automationStageState,
   runEvidenceMutation,
+  selectedDocumentSummary,
+  selectedDocumentTotalBytes,
+  validateSelectedDocuments,
 } from "./App";
 import {
   analyzeOwnership,
   attachZeroTouchDocument,
+  completeZeroTouchIntake,
   createClmCase,
   createZeroTouchCase,
   createOnboardingCase,
@@ -43,6 +51,8 @@ import {
   fetchOwnership,
   fetchUatEvidence,
   fetchZeroTouchCase,
+  fetchZeroTouchCases,
+  intakeZeroTouchDocument,
   loadMockOwnership,
   reviewDocument,
   resolveZeroTouchException,
@@ -59,6 +69,7 @@ import type {
   OwnershipAnalysisRecord,
   RegistryOperation,
   ReconciliationSummary,
+  SimulationProfile,
   ZeroTouchCaseSummary,
   ZeroTouchException,
   WorkflowState,
@@ -361,7 +372,7 @@ function makeOwnership(
   };
 }
 
-const simulation = {
+const simulation: SimulationProfile = {
   is_simulated: true as const,
   registry_system: "ACRA" as const,
   registry_environment: "MOCK" as const,
@@ -374,6 +385,7 @@ const simulation = {
   ownership_system: "OWNERSHIP_PROVIDER" as const,
   ownership_environment: "MOCK" as const,
   ubo_ownership_threshold_percent: "25",
+  persistence: "Process-local",
 };
 
 function makeClm(
@@ -494,22 +506,141 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     expect(account).toContain("Authentication pending");
   });
 
-  it("defaults to the dashboard and exposes Start onboarding above it", () => {
+  it("defaults to Start onboarding with the CLM product heading", () => {
     const markup = renderToStaticMarkup(<App />);
-    expect(markup).toContain("Start onboarding");
+    expect(markup).toContain("Client Lifecycle Management (CLM) Onboarding");
+    expect(markup).toContain("Start CLM onboarding");
     expect(markup).not.toContain("Start an onboarding request");
     expect(markup).toContain("Loading backend connector profile");
     expect(markup).not.toContain("Load synthetic ownership");
     expect(markup).not.toContain("Submit to Mock GoldTier");
+    expect(markup).toContain("multiple=\"\"");
+    expect(markup).toContain("webkitdirectory=\"\"");
+    expect(markup).toContain("PDF, DOCX, and UTF-8 TXT");
   });
 
-  it("keeps deterministic demo controls out of the default dashboard", () => {
+  it("validates a bounded multi-format document selection", () => {
+    const valid = [
+      new File(["pdf"], "Business Profile.pdf", { type: "application/pdf" }),
+      new File(["docx"], "Constitution.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+      new File(["text"], "Company Details.txt", { type: "text/plain" }),
+    ];
+    const accepted = validateSelectedDocuments(valid);
+    expect(accepted.accepted).toHaveLength(3);
+    expect(accepted.errors).toHaveLength(0);
+
+    const rejected = validateSelectedDocuments([
+      ...valid,
+      new File(["image"], "evidence.png", { type: "image/png" }),
+      new File(["wrong"], "wrong.txt", { type: "application/pdf" }),
+    ]);
+    expect(rejected.accepted).toHaveLength(3);
+    expect(rejected.errors).toHaveLength(2);
+  });
+
+  it("summarizes only accepted deduplicated file and folder bytes", () => {
+    const selectedFile = new File(["aa"], "A.txt", {
+      type: "text/plain",
+      lastModified: 1,
+    });
+    const folderFile = new File(["bbb"], "B.txt", {
+      type: "text/plain",
+      lastModified: 2,
+    });
+    Object.defineProperty(folderFile, "webkitRelativePath", {
+      value: "supporting/B.txt",
+    });
+    const rejectedFile = new File(["ignored"], "image.png", {
+      type: "image/png",
+    });
+
+    const afterAdd = validateSelectedDocuments([
+      selectedFile,
+      selectedFile,
+      folderFile,
+      rejectedFile,
+    ]);
+    expect(afterAdd.accepted).toEqual([selectedFile, folderFile]);
+    expect(afterAdd.errors).toHaveLength(1);
+    expect(selectedDocumentTotalBytes(afterAdd.accepted)).toBe(5);
+    expect(selectedDocumentSummary(afterAdd.accepted)).toBe(
+      "2 documents selected · 5 B / 25 MiB",
+    );
+
+    const afterRemove = afterAdd.accepted.filter((file) => file !== selectedFile);
+    expect(selectedDocumentTotalBytes(afterRemove)).toBe(3);
+    expect(selectedDocumentSummary(afterRemove)).toBe(
+      "1 document selected · 3 B / 25 MiB",
+    );
+    expect(formatDocumentBytes(Math.round(7.4 * 1024 * 1024))).toBe("7.4 MiB");
+  });
+
+  it("renders backend-authored history and multiple review queue items", () => {
+    const cases = ["A", "B"].map((suffix, index) => ({
+      case_id: `00000000-0000-4000-8000-00000000000${index + 1}`,
+      requested_uen: `20240000${index + 1}${suffix}`,
+      legal_name: `COMPANY ${suffix} PTE. LTD.`,
+      status: "WAITING_FOR_REVIEW" as const,
+      current_stage: "DOCUMENT" as const,
+      updated_at: timestamp,
+      active_exception_count: index + 1,
+      human_interventions: 0,
+      final_outcome: null,
+    }));
+    const portfolio = renderToStaticMarkup(<CasePortfolio cases={cases} onOpen={() => undefined} />);
+    const queue = renderToStaticMarkup(<ReviewQueue cases={cases} onOpen={() => undefined} />);
+    expect(portfolio).toContain("Restarting the local POC clears this history");
+    expect(portfolio).toContain("COMPANY A PTE. LTD.");
+    expect(portfolio).toContain("COMPANY B PTE. LTD.");
+    expect(queue).toContain("1 active blocker(s)");
+    expect(queue).toContain("2 active blocker(s)");
+    expect(queue).toContain("session-only");
+  });
+
+  it("labels Mongo history and review as durable without production claims", () => {
+    const durable = "Mongo-backed durable POC" as const;
+    const portfolio = renderToStaticMarkup(
+      <CasePortfolio cases={[]} onOpen={() => undefined} persistence={durable} />,
+    );
+    const queue = renderToStaticMarkup(
+      <ReviewQueue cases={[]} onOpen={() => undefined} persistence={durable} />,
+    );
+
+    expect(portfolio).toContain("cases survive backend restart");
+    expect(portfolio).toContain("not a production audit repository");
+    expect(queue).toContain("Queue status survives backend restart");
+  });
+
+  it("shows accessible creation confirmation and review action on Start", () => {
+    const summary = makeZeroTouch("WAITING_FOR_REVIEW");
+    const markup = renderToStaticMarkup(
+      <StartProgressPanel
+        progress={{ stage: "waiting", message: "Waiting for review", failedFile: null }}
+        summary={summary}
+        isSubmitting={false}
+        onViewCase={() => undefined}
+        onOpenReview={() => undefined}
+        onRetry={() => undefined}
+        onStartAnother={() => undefined}
+      />,
+    );
+    expect(markup).toContain("role=\"status\"");
+    expect(markup).toContain("aria-live=\"polite\"");
+    expect(markup).toContain("CLM onboarding created");
+    expect(markup).toContain(summary.case.case_id);
+    expect(markup).toContain("Open Review");
+    expect(markup).toContain("Start another case");
+  });
+
+  it("keeps deterministic demo controls gated on the Start landing page", () => {
     const sponsor = renderToStaticMarkup(<App demoControlsEnabled={false} />);
     const demo = renderToStaticMarkup(<App demoControlsEnabled />);
     expect(sponsor).not.toContain("Demo/Test Controls");
     expect(sponsor).not.toContain("Integrated synthetic scenario");
-    expect(demo).not.toContain("Demo/Test Controls");
-    expect(demo).not.toContain("Integrated synthetic scenario");
+    expect(demo).toContain("Demo/Test Controls");
+    expect(demo).toContain("Integrated synthetic scenario");
   });
 
   it("renders backend-provided mock environments", () => {
@@ -1404,6 +1535,37 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(resolution.expected_automation_version).toBe(paused.version);
     expect(resolution.evidence_version).toBe(exception.evidence_version);
     expect(resolution.action).toBe("KEEP_REGISTRY_VALUE");
+  });
+
+  it("uses intake-only uploads, explicit completion, and the case-list API", async () => {
+    const completed = makeZeroTouch("COMPLETED");
+    const document = makeDocument();
+    const portfolio = [{
+      case_id: completed.case.case_id,
+      requested_uen: completed.case.requested_uen,
+      legal_name: completed.case.entity?.legal_name ?? null,
+      status: completed.status,
+      current_stage: completed.current_stage,
+      updated_at: completed.updated_at,
+      active_exception_count: 0,
+      human_interventions: 0,
+      final_outcome: completed.metrics.final_outcome,
+    }];
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(document), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(completed), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(portfolio), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File(["Company: Test"], "company.txt", { type: "text/plain" });
+    await intakeZeroTouchDocument(completed.case.case_id, file, false);
+    await completeZeroTouchIntake(completed.case.case_id, 1, false);
+    await fetchZeroTouchCases("COMPLETED");
+    expect(fetchMock.mock.calls[0][0]).toContain("/intake/documents");
+    expect(fetchMock.mock.calls[0][1].headers["Content-Type"]).toBe("text/plain");
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
+      expected_document_count: 1,
+    });
+    expect(fetchMock.mock.calls[2][0]).toContain("?status=COMPLETED");
   });
 });
 

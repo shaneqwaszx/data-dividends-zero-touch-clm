@@ -44,6 +44,18 @@ class ReconciliationRepository(Protocol):
     ) -> None: ...
 
 
+class ReconciliationUnitOfWork(Protocol):
+    def commit_resolution(
+        self,
+        *,
+        onboarding_candidate: OnboardingCase | None,
+        reconciliation_candidate: ReconciliationCaseRecord,
+        expected_reconciliation_version: int,
+        expected_onboarding_fingerprint: str,
+        expected_entity_fingerprint: str,
+    ) -> ReconciliationCaseRecord: ...
+
+
 class InMemoryReconciliationRepository:
     def __init__(self, *, transaction_lock: RLock | None = None) -> None:
         self._records: dict[UUID, ReconciliationCaseRecord] = {}

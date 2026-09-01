@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -16,6 +16,7 @@ from app.api_models import (
     DocumentProcessingResponse,
     OnboardingCaseResponse,
     OwnershipAnalysisResponse,
+    ZeroTouchCaseListItemResponse,
     ZeroTouchCaseSummaryResponse,
 )
 from app.composition import (
@@ -51,7 +52,12 @@ from app.domain.jurisdiction import JurisdictionCode
 from app.domain.ownership import OwnershipCandidate
 from app.domain.reconciliation import ReconciliationDecisionAction
 from app.domain.target_submission import GoldTierOperationMarker, GoldTierTargetOutcome
-from app.domain.zero_touch import ExceptionResolutionAction, ZeroTouchAutomationRecord
+from app.domain.zero_touch import (
+    AutomationStatus,
+    ExceptionResolutionAction,
+    ZeroTouchAutomationRecord,
+)
+from app.persistence.composition import build_persistence_bundle
 from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.document_errors import (
@@ -104,6 +110,14 @@ class StartOnboardingRequest(BaseModel):
                 raise ValueError("UEN must not be blank")
             return normalized
         return value
+
+
+class CompleteDocumentIntakeRequest(BaseModel):
+    """Bind explicit intake completion to the browser's intended bounded file set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_document_count: int = Field(ge=1, le=20)
 
 
 class InfrastructureFailureDetail(BaseModel):
@@ -204,9 +218,13 @@ def create_app(
     """Build the application with injectable settings for deterministic tests."""
 
     active_settings = settings or get_settings()
+    persistence = build_persistence_bundle(active_settings)
     application = FastAPI(title=active_settings.app_name, version="0.1.0")
+    application.router.add_event_handler("shutdown", persistence.close)
     catalogue = scenario_catalogue or Phase01MockScenarioCatalogue()
-    zero_touch_demo = zero_touch_demo_control or build_zero_touch_demo_control()
+    zero_touch_demo = zero_touch_demo_control or build_zero_touch_demo_control(
+        persistence.demo_scenarios
+    )
     service = onboarding_service or build_onboarding_service(
         catalogue,
         active_settings,
@@ -215,28 +233,43 @@ def create_app(
             if active_settings.demo_controls_enabled
             else None
         ),
+        repository=persistence.onboarding,
+        target_execution_repository=persistence.target_executions,
     )
     documents = document_processing_service or build_document_processing_service(
-        service, active_settings
+        service, active_settings, repository=persistence.documents
     )
     demo_idp = idp_demo_control or build_mock_idp_demo_control()
     ownership = ownership_analysis_service or build_ownership_analysis_service(
-        service, active_settings
+        service, active_settings, repository=persistence.ownership
     )
     demo_ownership = ownership_demo_control or build_mock_ownership_demo_control()
     reconciliation = (
         reconciliation_service
         or getattr(zero_touch_orchestrator, "_reconciliation", None)
-        or build_reconciliation_service(service, documents)
+        or build_reconciliation_service(
+            service,
+            documents,
+            repository=persistence.reconciliation,
+            unit_of_work=persistence.reconciliation_unit_of_work,
+        )
     )
     clm = clm_orchestration_service or build_clm_orchestration_service(
         service,
         documents,
         ownership,
         reconciliation,
+        repository=persistence.clm,
     )
     zero_touch = zero_touch_orchestrator or build_zero_touch_orchestrator(
-        service, documents, ownership, clm, reconciliation, active_settings
+        service,
+        documents,
+        ownership,
+        clm,
+        reconciliation,
+        active_settings,
+        repository=persistence.automation,
+        durable_provider_bindings=persistence.mode == "mongo",
     )
 
     def require_demo_controls() -> None:
@@ -265,6 +298,7 @@ def create_app(
             ),
             idp_review_confidence_threshold=(active_settings.idp_review_confidence_threshold),
             ubo_ownership_threshold_percent=(active_settings.ubo_ownership_threshold_percent),
+            persistence=persistence.public_label,
         )
 
     @application.exception_handler(RequestValidationError)
@@ -654,6 +688,266 @@ def create_app(
                 detail=detail.model_dump(mode="json", exclude_none=True),
             ) from None
 
+    async def intake_zero_touch_document_request(
+        *,
+        case_id: UUID,
+        request: Request,
+        active_zero_touch: ZeroTouchOrchestrator,
+        display_name: str,
+        use_demo_provider: bool,
+    ) -> DocumentProcessingResponse:
+        """Accept and analyse one file while keeping later automation paused."""
+
+        try:
+            documents.validate_upload_metadata(
+                case_id=case_id,
+                display_name=display_name,
+                content_type=request.headers.get("content-type", ""),
+            )
+            body = await _read_bounded_body(request, documents.max_upload_bytes)
+            provider = None
+            if use_demo_provider:
+                case = service.get_case(case_id)
+                if case is None or case.entity is None:
+                    raise ZeroTouchRequestError(
+                        code="ZERO_TOUCH_CASE_NOT_FOUND",
+                        message="The zero-touch onboarding case was not found.",
+                    )
+                provider = zero_touch_demo.idp_provider_for(case_id, case.entity)
+            record = active_zero_touch.intake_document(
+                case_id=case_id,
+                display_name=display_name,
+                content_type=request.headers.get("content-type", ""),
+                content=body,
+                idp_provider=provider,
+            )
+            return DocumentProcessingResponse.from_domain(record)
+        except DocumentRequestError as exc:
+            raise _document_http_error(exc) from None
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        except DocumentProcessingInfrastructureError as exc:
+            detail = DocumentFailureDetail(
+                code=exc.code,
+                message=exc.public_message,
+                case_id=exc.case_id,
+                document_id=exc.document_id,
+                correlation_id=exc.correlation_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=detail.model_dump(mode="json", exclude_none=True),
+            ) from None
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/intake/documents",
+        response_model=DocumentProcessingResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["zero-touch"],
+    )
+    async def intake_zero_touch_document(
+        case_id: UUID,
+        request: Request,
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+        x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
+    ) -> DocumentProcessingResponse:
+        return await intake_zero_touch_document_request(
+            case_id=case_id,
+            request=request,
+            active_zero_touch=active_zero_touch,
+            display_name=x_document_name or "",
+            use_demo_provider=False,
+        )
+
+    @application.post(
+        "/api/demo/clm/zero-touch/cases/{case_id}/intake/documents",
+        response_model=DocumentProcessingResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["demo"],
+    )
+    async def intake_demo_zero_touch_document(
+        case_id: UUID,
+        request: Request,
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+        x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
+    ) -> DocumentProcessingResponse:
+        require_demo_controls()
+        return await intake_zero_touch_document_request(
+            case_id=case_id,
+            request=request,
+            active_zero_touch=active_zero_touch,
+            display_name=x_document_name or "",
+            use_demo_provider=True,
+        )
+
+    async def retry_zero_touch_intake_document_request(
+        *,
+        case_id: UUID,
+        failed_document_id: UUID,
+        request: Request,
+        active_zero_touch: ZeroTouchOrchestrator,
+        display_name: str,
+        use_demo_provider: bool,
+    ) -> DocumentProcessingResponse:
+        try:
+            documents.validate_upload_metadata(
+                case_id=case_id,
+                display_name=display_name,
+                content_type=request.headers.get("content-type", ""),
+            )
+            body = await _read_bounded_body(request, documents.max_upload_bytes)
+            provider = None
+            if use_demo_provider:
+                case = service.get_case(case_id)
+                if case is None or case.entity is None:
+                    raise ZeroTouchRequestError(
+                        code="ZERO_TOUCH_CASE_NOT_FOUND",
+                        message="The zero-touch onboarding case was not found.",
+                    )
+                provider = zero_touch_demo.idp_provider_for(case_id, case.entity)
+            record = active_zero_touch.retry_intake_document(
+                case_id=case_id,
+                failed_document_id=failed_document_id,
+                display_name=display_name,
+                content_type=request.headers.get("content-type", ""),
+                content=body,
+                idp_provider=provider,
+            )
+            return DocumentProcessingResponse.from_domain(record)
+        except DocumentRequestError as exc:
+            raise _document_http_error(exc) from None
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        except DocumentProcessingInfrastructureError as exc:
+            detail = DocumentFailureDetail(
+                code=exc.code,
+                message=exc.public_message,
+                case_id=exc.case_id,
+                document_id=exc.document_id,
+                correlation_id=exc.correlation_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=detail.model_dump(mode="json", exclude_none=True),
+            ) from None
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/intake/documents/{failed_document_id}/retry",
+        response_model=DocumentProcessingResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["zero-touch"],
+    )
+    async def retry_zero_touch_intake_document(
+        case_id: UUID,
+        failed_document_id: UUID,
+        request: Request,
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+        x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
+    ) -> DocumentProcessingResponse:
+        return await retry_zero_touch_intake_document_request(
+            case_id=case_id,
+            failed_document_id=failed_document_id,
+            request=request,
+            active_zero_touch=active_zero_touch,
+            display_name=x_document_name or "",
+            use_demo_provider=False,
+        )
+
+    @application.post(
+        "/api/demo/clm/zero-touch/cases/{case_id}/intake/documents/{failed_document_id}/retry",
+        response_model=DocumentProcessingResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["demo"],
+    )
+    async def retry_demo_zero_touch_intake_document(
+        case_id: UUID,
+        failed_document_id: UUID,
+        request: Request,
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+        x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
+    ) -> DocumentProcessingResponse:
+        require_demo_controls()
+        return await retry_zero_touch_intake_document_request(
+            case_id=case_id,
+            failed_document_id=failed_document_id,
+            request=request,
+            active_zero_touch=active_zero_touch,
+            display_name=x_document_name or "",
+            use_demo_provider=True,
+        )
+
+    def complete_zero_touch_intake_request(
+        *,
+        case_id: UUID,
+        intake: CompleteDocumentIntakeRequest,
+        active_zero_touch: ZeroTouchOrchestrator,
+        use_demo_provider: bool,
+    ) -> ZeroTouchCaseSummaryResponse:
+        try:
+            ownership_provider = (
+                zero_touch_demo.ownership_provider_for(case_id)
+                if use_demo_provider
+                else None
+            )
+            return zero_touch_response(
+                active_zero_touch.start(
+                    case_id=case_id,
+                    ownership_provider=ownership_provider,
+                    expected_document_count=intake.expected_document_count,
+                )
+            )
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        except ZeroTouchInfrastructureError as exc:
+            raise _zero_touch_infrastructure_http_error(exc) from None
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/intake/complete",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    def complete_zero_touch_intake(
+        case_id: UUID,
+        intake: CompleteDocumentIntakeRequest,
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+    ) -> ZeroTouchCaseSummaryResponse:
+        return complete_zero_touch_intake_request(
+            case_id=case_id,
+            intake=intake,
+            active_zero_touch=active_zero_touch,
+            use_demo_provider=False,
+        )
+
+    @application.post(
+        "/api/demo/clm/zero-touch/cases/{case_id}/intake/complete",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["demo"],
+    )
+    def complete_demo_zero_touch_intake(
+        case_id: UUID,
+        intake: CompleteDocumentIntakeRequest,
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+    ) -> ZeroTouchCaseSummaryResponse:
+        require_demo_controls()
+        return complete_zero_touch_intake_request(
+            case_id=case_id,
+            intake=intake,
+            active_zero_touch=active_zero_touch,
+            use_demo_provider=True,
+        )
+
     @application.post(
         "/api/clm/zero-touch/cases",
         response_model=ZeroTouchCaseSummaryResponse,
@@ -672,6 +966,26 @@ def create_app(
             )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
+
+    @application.get(
+        "/api/clm/zero-touch/cases",
+        response_model=list[ZeroTouchCaseListItemResponse],
+        tags=["zero-touch"],
+    )
+    def list_zero_touch_cases(
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+        status_filter: Annotated[AutomationStatus | None, Query(alias="status")] = None,
+    ) -> list[ZeroTouchCaseListItemResponse]:
+        """Project the process-local portfolio without running any workflow stage."""
+
+        result: list[ZeroTouchCaseListItemResponse] = []
+        for record in active_zero_touch.list_cases(status=status_filter):
+            case = service.get_case(record.case_id)
+            if case is not None:
+                result.append(ZeroTouchCaseListItemResponse.from_domain(record, case))
+        return result
 
     @application.post(
         "/api/demo/clm/zero-touch/cases",
@@ -1230,7 +1544,7 @@ def create_app(
 
 
 async def _read_bounded_body(request: Request, limit: int) -> bytes:
-    """Read a request body without accepting more than the configured PDF limit."""
+    """Read a request body without accepting more than the configured per-file limit."""
 
     declared_length = request.headers.get("content-length")
     if declared_length is not None:
@@ -1254,7 +1568,7 @@ async def _read_bounded_body(request: Request, limit: int) -> bytes:
             raise _document_http_error(
                 DocumentRequestError(
                     code="DOCUMENT_TOO_LARGE",
-                    message="The uploaded PDF exceeds the configured size limit.",
+                    message="The uploaded document exceeds the configured size limit.",
                 )
             )
 
@@ -1265,7 +1579,7 @@ async def _read_bounded_body(request: Request, limit: int) -> bytes:
             raise _document_http_error(
                 DocumentRequestError(
                     code="DOCUMENT_TOO_LARGE",
-                    message="The uploaded PDF exceeds the configured size limit.",
+                    message="The uploaded document exceeds the configured size limit.",
                 )
             )
         body.extend(chunk)
@@ -1278,7 +1592,7 @@ def _document_http_error(exc: DocumentRequestError) -> HTTPException:
         status_code = status.HTTP_404_NOT_FOUND
     elif exc.code == "DOCUMENT_MEDIA_TYPE_UNSUPPORTED":
         status_code = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
-    elif exc.code == "DOCUMENT_TOO_LARGE":
+    elif exc.code in {"DOCUMENT_TOO_LARGE", "DOCUMENT_TOTAL_SIZE_LIMIT_EXCEEDED"}:
         status_code = status.HTTP_413_CONTENT_TOO_LARGE
     elif exc.code in {
         "DOCUMENT_FIELD_REVIEW_CONFLICT",

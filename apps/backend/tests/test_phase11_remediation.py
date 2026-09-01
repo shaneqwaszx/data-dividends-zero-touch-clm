@@ -1,6 +1,7 @@
 """Quality-gate remediation tests for Phase 11 integrity authority boundaries."""
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -54,9 +55,7 @@ def source_observation(
         environment="MOCK" if source == ReconciliationSourceKind.REGISTRY else "LOCAL_POC",
         observed_at=NOW,
         evidence_reference=(
-            "registry:entity"
-            if source == ReconciliationSourceKind.REGISTRY
-            else "document:field"
+            "registry:entity" if source == ReconciliationSourceKind.REGISTRY else "document:field"
         ),
         source_record_id=uuid4() if source == ReconciliationSourceKind.DOCUMENT_IDP else None,
         confidence=0.95 if source == ReconciliationSourceKind.DOCUMENT_IDP else None,
@@ -67,17 +66,11 @@ def source_observation(
 def observations_for(
     field: ReconciliationField, outcome: ReconciliationOutcome
 ) -> tuple[ReconciliationObservation, ReconciliationObservation]:
-    registry = source_observation(
-        field, ReconciliationSourceKind.REGISTRY, "ACME PTE LTD"
-    )
+    registry = source_observation(field, ReconciliationSourceKind.REGISTRY, "ACME PTE LTD")
     if outcome == ReconciliationOutcome.MATCH:
-        document = source_observation(
-            field, ReconciliationSourceKind.DOCUMENT_IDP, "ACME PTE LTD"
-        )
+        document = source_observation(field, ReconciliationSourceKind.DOCUMENT_IDP, "ACME PTE LTD")
     elif outcome == ReconciliationOutcome.CONFLICT:
-        document = source_observation(
-            field, ReconciliationSourceKind.DOCUMENT_IDP, "OTHER PTE LTD"
-        )
+        document = source_observation(field, ReconciliationSourceKind.DOCUMENT_IDP, "OTHER PTE LTD")
     elif outcome == ReconciliationOutcome.MISSING_IN_SOURCE:
         document = source_observation(
             field,
@@ -187,8 +180,7 @@ def record_with_status(status: ReconciliationStatus) -> ReconciliationCaseRecord
     else:
         fields.append(field_result(ReconciliationField.LEGAL_NAME, ReconciliationOutcome.MATCH))
     fields.extend(
-        field_result(field, ReconciliationOutcome.MATCH)
-        for field in tuple(ReconciliationField)[1:]
+        field_result(field, ReconciliationOutcome.MATCH) for field in tuple(ReconciliationField)[1:]
     )
     return ReconciliationCaseRecord(
         case_id=uuid4(),
@@ -272,9 +264,7 @@ def test_discrepancy_rejects_conflict_without_distinct_usable_values() -> None:
 
 
 def test_discrepancy_rejects_non_hex_fingerprint() -> None:
-    observations = observations_for(
-        ReconciliationField.LEGAL_NAME, ReconciliationOutcome.CONFLICT
-    )
+    observations = observations_for(ReconciliationField.LEGAL_NAME, ReconciliationOutcome.CONFLICT)
     with pytest.raises(ValidationError):
         ReconciliationDiscrepancy(
             discrepancy_id=uuid4(),
@@ -366,9 +356,7 @@ def test_case_rejects_matched_with_current_open_blocker() -> None:
 
 def test_case_rejects_review_with_unreferenced_open_discrepancy() -> None:
     matched = record_with_status(ReconciliationStatus.MATCHED)
-    unrelated = discrepancy(
-        ReconciliationField.LEGAL_NAME, ReconciliationOutcome.CONFLICT
-    )
+    unrelated = discrepancy(ReconciliationField.LEGAL_NAME, ReconciliationOutcome.CONFLICT)
     matched.status = ReconciliationStatus.REVIEW_REQUIRED
     matched.discrepancies = [unrelated]
     with pytest.raises(ValidationError):
@@ -599,9 +587,7 @@ def test_repository_rejects_original_false_matched_attack() -> None:
         for item in forged.fields
     )
     target = next(
-        item
-        for item in forged.discrepancies
-        if item.discrepancy_id == current.discrepancy_id
+        item for item in forged.discrepancies if item.discrepancy_id == current.discrepancy_id
     )
     target.status = DiscrepancyStatus.CANCELLED
     forged.status = ReconciliationStatus.MATCHED
@@ -629,10 +615,10 @@ def test_stale_duplicate_after_replacement_is_rejected_by_service() -> None:
         expected_document_event_count=len(document.events),
         display_name="replacement-conflict.pdf",
         content_type="application/pdf",
-        content=b"%PDF-1.4\nSYNTHETIC TEST ONLY\n%%EOF",
-        idp_provider=FieldOverrideIdp(
-            {DocumentFieldKey.LEGAL_NAME: "NEW CONFLICT PTE. LTD."}
-        ),
+        content=(
+            Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf"
+        ).read_bytes(),
+        idp_provider=FieldOverrideIdp({DocumentFieldKey.LEGAL_NAME: "NEW CONFLICT PTE. LTD."}),
     )
     new_current = zero._reconciliation.get(case_id=case_id)  # noqa: SLF001
     assert new_current is not None and new_current.status == ReconciliationStatus.REVIEW_REQUIRED

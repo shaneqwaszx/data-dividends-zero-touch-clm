@@ -5,7 +5,8 @@ Proof of concept for Delta Capita's Singapore new-to-bank flow:
 `ACRA Singapore → EDS/orchestration → GoldTier → unresolved human approval gate`
 
 The current POC accepts an optional country/jurisdiction, a company registration
-identifier (Singapore UEN for the implemented path), and one synthetic PDF. It resolves
+identifier (Singapore UEN for the implemented path), and a bounded set of synthetic
+PDF, DOCX, or UTF-8 TXT documents. It resolves
 jurisdiction before registry selection, then automatically runs registry validation,
 deterministic document comparison, source-neutral reconciliation, ownership/UBO analysis,
 readiness, and a Mock GoldTier sequence. It pauses only for a typed exception and
@@ -35,6 +36,13 @@ determination, or live ACRA/GoldTier interoperability.
 - Four-field Registry/Document reconciliation with no automatic source precedence,
   first-class discrepancies, backend-authorized bounded decisions, evidence-preserving
   canonical legal-name update, and idempotent resume before Ownership.
+- A backend-authored case history and review queue with explicit process-local memory
+  mode or schema-versioned Mongo durable POC mode. Mongo mode survives backend restart;
+  neither mode is production case management or a regulatory audit repository.
+- Explicit multi-document intake completion, per-document provenance, safe PDF/DOCX/TXT
+  media routing, and aggregation across every current document before Ownership or
+  Mock GoldTier may proceed. The Start workspace shows the accepted document count and
+  selected byte total against the 25 MiB technical limit.
 
 Live ACRA, live hierarchy, PingFed/real GoldTier, final document/UBO policy, related-
 party writes, authenticated reviewer roles, and Ready-for-Approval remain blocked or
@@ -80,16 +88,17 @@ Stop validates PID, creation time, executable, project command markers, listener
 port before terminating only that owned process tree. A `RUNNING` session must contain
 exactly one backend and one frontend record; incomplete/corrupt metadata fails closed,
 is retained, and prevents Reset from starting. Reset otherwise proceeds to a fresh
-healthy start only after verified stop; successful reset clears process-local cases
-without deleting repository or sponsor files. Lifecycle errors return nonzero and
+healthy start only after verified stop; successful reset clears cases only in memory
+mode and never drops durable Mongo data, repository files, or sponsor files. Lifecycle
+errors return nonzero and
 unowned port occupants are never killed. For recovery and expected outputs, use the
 [demo runbook](docs/demo/DEMO_RUNBOOK.md).
 
 ## Zero-touch demo
 
 1. Leave jurisdiction as **Not specified** (or select **Singapore**), enter synthetic
-   UEN `202400001A`, upload `clean-company-profile.pdf`, and select
-   **Start onboarding** once.
+   UEN `202400001A`, select one or more supported synthetic documents, and choose
+   **Start CLM onboarding** once.
 3. Observe Registry → Document Verification → Ownership & UBO → Readiness → Mock
    GoldTier.
 4. For the clean case, confirm zero human interventions.
@@ -148,10 +157,42 @@ contract. No connector is labeled `LIVE`.
 visibility never bypasses the backend gate. The supported local path uses Vite's API
 proxy; production/cross-origin CORS is not configured.
 
-`MONGO_URI` is optional and is used only by `scripts/check_mongodb.py` for a manual
-connectivity/read-only diagnostic. MongoDB is not wired into application composition;
-the normal onboarding pipeline does not require it and all repositories remain
-process-local/in-memory.
+`CLM_PERSISTENCE_MODE=memory` is the default and is cleared by backend restart.
+`CLM_PERSISTENCE_MODE=mongo` requires `MONGO_URI` and stores one schema-versioned
+structured envelope per case in `MONGO_DATABASE` / `MONGO_CASE_COLLECTION`. Mongo mode
+fails closed at startup and during writes; it never silently falls back to memory.
+Database names, URIs, credentials, raw uploads, complete extracted text, and raw
+Registry payloads are not exposed through the execution profile or case APIs.
+
+Mongo storage requires the document `_id` to be the canonical UUID string for the same
+envelope `case_id`; missing, malformed, noncanonical, or cross-case identities stop
+startup/reads as corrupt persistence. If restart finds a current document interrupted
+before structured evidence was retained, that document becomes
+`FAILED / DOCUMENT_REUPLOAD_REQUIRED` and automation returns to
+`PENDING_INPUTS / DOCUMENT`. Only targeted same-case retry of each affected document is
+accepted until all mandatory reuploads are resolved; completed documents and Registry
+evidence are reused.
+
+To demonstrate restart durability on Windows with a local Mongo server:
+
+```powershell
+$env:CLM_PERSISTENCE_MODE = "mongo"
+$env:MONGO_URI = "mongodb://127.0.0.1:27017"
+$env:MONGO_DATABASE = "clm_poc"
+.\scripts\start_demo_windows.bat
+# create a case, record its case ID, stop, then start again
+.\scripts\stop_demo_windows.bat
+.\scripts\start_demo_windows.bat
+```
+
+Reopen the same case ID or check Dashboard/Review. Do not use
+`reset_demo_windows.bat` as a data purge: durable-data deletion is deliberately not
+implemented.
+
+Document-intake technical defaults are 20 files per case, 5 MiB per file, and 25 MiB
+total. `IDP_MAX_FILES_PER_CASE`, `IDP_MAX_UPLOAD_BYTES`, and
+`IDP_MAX_TOTAL_INTAKE_BYTES` may tune those safeguards within validated bounds. These
+are project POC controls, not sponsor policy.
 
 See [.env.example](.env.example) and the
 [configuration reference](docs/integration/CONFIGURATION_REFERENCE.md). GoldTier/
@@ -198,12 +239,19 @@ not validated. Contradictory examples must not become canonical fixtures.
   `private/sponsor-artifacts/`.
 - Normal logs/events/export contain safe IDs, statuses, correlation, timings, and
   sanitized summaries—not KYC/PII or payloads.
-- Current stores, locks, events, bindings, metrics, target ledger, and recovery are
-  process-local; restart resets them.
-- Reconciliation observations, discrepancies, decisions, versions, and resume bindings
-  are also process-local; they are not Mongo-backed production audit records.
-- The default PDF upload limit is 5 MiB (`5242880` bytes); it is a bounded POC setting,
-  not a production document policy.
+- In memory mode, stores and recovery state are process-local. In Mongo mode, bounded
+  structured case/evidence/decision/workflow/target state survives restart through one
+  per-case envelope; locks and connector objects remain runtime-only.
+- Mongo durability is a local POC recovery feature, not production HA, distributed
+  exactly-once execution, regulatory retention, or a production audit record.
+- Supported uploads are `.pdf`/`application/pdf`, `.docx`/the standard OOXML DOCX MIME,
+  and `.txt`/`text/plain` with UTF-8 content. Extension, MIME, structure/content,
+  filename, per-file size, count, and total bytes are all checked. ZIP, macro-enabled
+  Office files, embedded DOCX objects, images, and arbitrary binary formats are rejected.
+- PDF structure is parsed strictly before IDP invocation; header/trailer markers alone
+  are insufficient. DOCX member names are rejected when rooted, UNC-like,
+  drive-qualified, traversal-containing, NUL-containing, or backslash-based. These are
+  bounded POC checks, not antivirus, CDR, or production document forensics.
 - Production RBAC, PDF antivirus/CDR, durable encrypted audit storage, distributed
   orchestration, real auth/TLS, and monitoring are not implemented.
 

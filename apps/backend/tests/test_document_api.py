@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -12,7 +14,7 @@ from app.services.document_processing import DocumentProcessingService
 from app.services.document_repository import InMemoryDocumentProcessingRepository
 from app.services.onboarding import OnboardingService
 
-PDF = b"%PDF-1.4\nSYNTHETIC API PDF\n%%EOF\n"
+PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
 
 class RecordingProvider:

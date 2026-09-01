@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from threading import Barrier
 from typing import Any
 from uuid import UUID
@@ -36,7 +37,7 @@ from app.services.zero_touch_errors import (
 from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
 from app.services.zero_touch_repository import InMemoryZeroTouchAutomationRepository
 
-PDF = b"%PDF-1.4\nSYNTHETIC TEST ONLY - NO CUSTOMER DATA\n%%EOF"
+PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
 
 class RecordingMockGoldTier(MockGoldTierConnector):
@@ -293,9 +294,7 @@ def test_existing_party_stops_after_search_and_creates_unresolvable_review() -> 
     client, _, _, target, _ = build_system()
     result = start_demo(client, "EXISTING_PARTY")
     assert result["status"] == "WAITING_FOR_REVIEW"
-    assert result["active_exceptions"][0]["exception_type"] == (
-        "EXISTING_PARTY_REVIEW_REQUIRED"
-    )
+    assert result["active_exceptions"][0]["exception_type"] == ("EXISTING_PARTY_REVIEW_REQUIRED")
     assert result["active_exceptions"][0]["available_actions"] == []
     assert target.calls == ["search"]
 
@@ -485,13 +484,16 @@ def test_unexpected_document_fault_terminalizes_with_sanitized_failure(
     current = zero.get(case_id=created.case_id)
     assert current is not None and current.status == "TECHNICAL_FAILURE"
     assert current.current_stage == "DOCUMENT"
-    assert len(
-        [
-            event
-            for event in current.events
-            if event.event_type == "AUTOMATION_TECHNICAL_FAILURE"
-        ]
-    ) == 1
+    assert (
+        len(
+            [
+                event
+                for event in current.events
+                if event.event_type == "AUTOMATION_TECHNICAL_FAILURE"
+            ]
+        )
+        == 1
+    )
     assert "PRIVATE_ASSESSMENT_SENTINEL" not in current.model_dump_json()
     assert zero.start(case_id=created.case_id).version == current.version
     assert target.calls == []
@@ -659,14 +661,10 @@ def test_P11_ONE_CURRENT_FIELD_DISCREPANCY_RETAINS_BOTH_CONFLICT_DOCUMENTS() -> 
     assert len(paused.active_exceptions) == 1
     assert reconciliation is not None
     legal = next(
-        item
-        for item in reconciliation.open_discrepancies
-        if item.field_name == "legal_name"
+        item for item in reconciliation.open_discrepancies if item.field_name == "legal_name"
     )
     document_ids = [
-        item.source_record_id
-        for item in legal.observations
-        if item.source_kind == "DOCUMENT_IDP"
+        item.source_record_id for item in legal.observations if item.source_kind == "DOCUMENT_IDP"
     ]
     assert document_ids == [first.document_id, second.document_id]
     assert target.calls == []
@@ -703,9 +701,7 @@ def test_P06_QG_013_EQUAL_TIMESTAMPS_PRESERVE_INSERTION_ORDER_100_RUNS() -> None
         assert len(paused.active_exceptions) == 1
         assert reconciliation is not None
         legal = next(
-            item
-            for item in reconciliation.open_discrepancies
-            if item.field_name == "legal_name"
+            item for item in reconciliation.open_discrepancies if item.field_name == "legal_name"
         )
         assert [
             item.source_record_id
@@ -745,9 +741,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_RESOLVED_BY_KEEP_REGISTRY() -> None:
         evidence_version=exception.evidence_version,
     )
 
-    current = documents.get_document(
-        case_id=created.case_id, document_id=reviewed.document_id
-    )
+    current = documents.get_document(case_id=created.case_id, document_id=reviewed.document_id)
     assert completed.status == "COMPLETED"
     assert current is not None
     retained = next(field for field in current.fields if field.field_key == mismatch.field_key)

@@ -30,6 +30,7 @@ export interface SimulationProfile {
   ownership_system: "OWNERSHIP_PROVIDER";
   ownership_environment: "MOCK";
   ubo_ownership_threshold_percent: string;
+  persistence: "Process-local" | "Mongo-backed durable POC";
 }
 
 export interface MockScenarioDiscovery {
@@ -204,7 +205,11 @@ export interface DocumentProcessingRecord {
   document_id: string;
   correlation_id: string;
   display_name: string;
-  media_type: "application/pdf";
+  media_type:
+    | "application/pdf"
+    | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    | "text/plain";
+  size_bytes?: number;
   profile: "PROVISIONAL_CORPORATE";
   provider_environment: "MOCK" | "LOCAL" | "SANDBOX" | "LIVE" | null;
   state: DocumentProcessingState;
@@ -528,6 +533,8 @@ export interface ReconciliationObservation {
   environment: string | null;
   observed_at: string;
   evidence_reference: string | null;
+  document_id?: string | null;
+  document_display_name?: string | null;
   confidence: number | null;
   validity: "VALID" | "MISSING" | "INVALID" | "UNVERIFIABLE";
 }
@@ -640,6 +647,18 @@ export interface ZeroTouchCaseSummary {
   }>;
   created_at: string;
   updated_at: string;
+}
+
+export interface ZeroTouchCaseListItem {
+  case_id: string;
+  requested_uen: string;
+  legal_name: string | null;
+  status: AutomationStatus;
+  current_stage: AutomationStage;
+  updated_at: string;
+  active_exception_count: number;
+  human_interventions: number;
+  final_outcome: string | null;
 }
 
 export interface UatEvidenceExport {

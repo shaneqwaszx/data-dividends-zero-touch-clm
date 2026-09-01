@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,7 +12,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.main import create_app
 
-PDF = b"%PDF-1.4\nSYNTHETIC TEST DATA - NO CUSTOMER DATA\n%%EOF"
+PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
 
 def _client(*, demo: bool = True) -> TestClient:
@@ -51,6 +52,7 @@ def test_execution_profile_is_safe_and_available_without_demo_controls() -> None
         "ownership_system": "OWNERSHIP_PROVIDER",
         "ownership_environment": "MOCK",
         "ubo_ownership_threshold_percent": "25",
+        "persistence": "Process-local",
     }
 
 
@@ -119,18 +121,14 @@ def test_recovery_preset_is_pending_then_finalizes_without_target_replay() -> No
     case_id = pending["case"]["case_id"]
 
     assert pending["status"] == "RECOVERY_PENDING"
-    first_evidence = client.get(
-        f"/api/demo/clm/zero-touch/cases/{case_id}/uat-evidence"
-    ).json()
+    first_evidence = client.get(f"/api/demo/clm/zero-touch/cases/{case_id}/uat-evidence").json()
     assert first_evidence["uat_case_id"] == "UAT-11"
     assert first_evidence["target_calls"] == ["SEARCH", "SHELL", "POLICY", "AMEND"]
 
     recovered = client.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
     assert recovered.status_code == 200
     assert recovered.json()["status"] == "COMPLETED"
-    second_evidence = client.get(
-        f"/api/demo/clm/zero-touch/cases/{case_id}/uat-evidence"
-    ).json()
+    second_evidence = client.get(f"/api/demo/clm/zero-touch/cases/{case_id}/uat-evidence").json()
     assert second_evidence["target_calls"] == first_evidence["target_calls"]
     assert second_evidence["target_outcome"] == "MOCK_GOLDTIER_SUBMITTED"
 

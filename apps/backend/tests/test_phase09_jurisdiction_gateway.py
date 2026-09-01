@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -37,7 +38,7 @@ from app.services.onboarding import OnboardingService
 from app.services.repository import InMemoryOnboardingCaseRepository
 
 NOW = datetime(2026, 8, 28, 1, 0, tzinfo=UTC)
-PDF = b"%PDF-1.4\nSYNTHETIC PHASE 09\n%%EOF"
+PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
 
 def observation(
@@ -61,9 +62,7 @@ def test_resolver_returns_unresolved_without_observations() -> None:
 
 
 def test_resolver_retains_one_observation_and_resolves_it() -> None:
-    item = observation(
-        JurisdictionCode.SINGAPORE, JurisdictionObservationSource.USER_INPUT
-    )
+    item = observation(JurisdictionCode.SINGAPORE, JurisdictionObservationSource.USER_INPUT)
 
     result = JurisdictionResolver().resolve((item,), resolved_at=NOW)
 
@@ -346,9 +345,7 @@ def test_singapore_uen_eligibility_boundaries(identifier: str, eligible: bool) -
 def test_omitted_country_preserves_singapore_uen_compatibility_with_provenance() -> None:
     client, acra = build_client()
 
-    response = client.post(
-        "/api/clm/zero-touch/cases", json={"uen": "202400001A"}
-    )
+    response = client.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
 
     assert response.status_code == 201
     payload = response.json()
@@ -416,18 +413,13 @@ def test_explicit_singapore_ineligible_identifier_stops_all_calls(
     assert payload["case"]["error"]["code"] == "REGISTRY_IDENTIFIER_NOT_ELIGIBLE"
     assert payload["case"]["registry_route"]["status"] == "SELECTED"
     assert payload["case"]["registry_route"]["provider"] == "ACRA"
-    assert (
-        payload["active_exceptions"][0]["exception_type"]
-        == "REGISTRY_IDENTIFIER_NOT_ELIGIBLE"
-    )
+    assert payload["active_exceptions"][0]["exception_type"] == "REGISTRY_IDENTIFIER_NOT_ELIGIBLE"
     assert payload["active_exceptions"][0]["available_actions"] == []
     assert attached.status_code == 200
     assert attached.json()["case"] == payload["case"]
     assert documents.status_code == 200 and documents.json() == []
     assert ownership.status_code == 404
-    assert {item["status"] for item in payload["target_operations"]} == {
-        "NOT_ATTEMPTED"
-    }
+    assert {item["status"] for item in payload["target_operations"]} == {"NOT_ATTEMPTED"}
     assert acra.calls == []
 
 
@@ -469,9 +461,7 @@ def test_explicit_foreign_country_conflicts_with_singapore_identifier_and_stops(
     assert payload["active_exceptions"][0]["blocker_code"] == "JURISDICTION_CONFLICT"
     assert payload["active_exceptions"][0]["available_actions"] == []
     assert acra.calls == []
-    assert {item["status"] for item in payload["target_operations"]} == {
-        "NOT_ATTEMPTED"
-    }
+    assert {item["status"] for item in payload["target_operations"]} == {"NOT_ATTEMPTED"}
 
 
 def test_recognised_non_singapore_country_stops_as_provider_not_implemented() -> None:
@@ -493,17 +483,13 @@ def test_recognised_non_singapore_country_stops_as_provider_not_implemented() ->
         "decided_at": "2026-08-28T01:00:00Z",
     }
     assert acra.calls == []
-    assert {item["status"] for item in payload["target_operations"]} == {
-        "NOT_ATTEMPTED"
-    }
+    assert {item["status"] for item in payload["target_operations"]} == {"NOT_ATTEMPTED"}
 
 
 def test_unknown_jurisdiction_stops_before_provider_and_remains_retrievable() -> None:
     client, acra = build_client()
 
-    created = client.post(
-        "/api/clm/zero-touch/cases", json={"uen": "UNKNOWN-123"}
-    )
+    created = client.post("/api/clm/zero-touch/cases", json={"uen": "UNKNOWN-123"})
     payload = created.json()
     case_id = payload["case"]["case_id"]
     fetched = client.get(f"/api/clm/zero-touch/cases/{case_id}")
@@ -544,9 +530,7 @@ def test_registry_blocker_refuses_document_processing_and_downstream_calls() -> 
     assert attached.json()["active_exceptions"] == created["active_exceptions"]
     assert documents.status_code == 200 and documents.json() == []
     assert ownership.status_code == 404
-    assert {item["status"] for item in attached.json()["target_operations"]} == {
-        "NOT_ATTEMPTED"
-    }
+    assert {item["status"] for item in attached.json()["target_operations"]} == {"NOT_ATTEMPTED"}
     assert acra.calls == []
 
 

@@ -61,6 +61,11 @@ from app.mappers.goldtier import (
 from app.services.canonical_validation import validate_entity
 from app.services.errors import OnboardingInfrastructureError
 from app.services.repository import OnboardingCaseRepository
+from app.services.target_execution_repository import (
+    InMemoryTargetExecutionRepository,
+    TargetExecutionRepository,
+    TargetExecutionRepositoryConflictError,
+)
 from app.services.target_response_validation import (
     InvalidTargetResponseError,
     validate_amend_response,
@@ -151,6 +156,7 @@ class OnboardingService:
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
         target_finalization_fault: Callable[[UUID], bool] | None = None,
+        target_execution_repository: TargetExecutionRepository | None = None,
     ) -> None:
         if registry_router is None:
             if acra is None:
@@ -165,8 +171,10 @@ class OnboardingService:
         self._target_finalization_fault = target_finalization_fault
         self._case_locks: dict[UUID, RLock] = {}
         self._case_locks_guard = Lock()
-        self._execution_ledger: dict[UUID, GoldTierExecutionLedgerEntry] = {}
         self._execution_ledger_guard = RLock()
+        self._target_executions = (
+            target_execution_repository or InMemoryTargetExecutionRepository()
+        )
 
     def case_lock(self, case_id: UUID) -> RLock:
         """Share one in-process evidence/submission boundary per case."""
@@ -500,14 +508,14 @@ class OnboardingService:
         self, submission_id: UUID
     ) -> GoldTierExecutionReceipt | None:
         with self._execution_ledger_guard:
-            stored = self._execution_ledger.get(submission_id)
+            stored = self._target_executions.get(submission_id)
             if stored is None or stored.receipt is None:
                 return None
             return stored.receipt.model_copy(deep=True)
 
     def get_target_outcome(self, submission_id: UUID) -> GoldTierTargetOutcome | None:
         with self._execution_ledger_guard:
-            stored = self._execution_ledger.get(submission_id)
+            stored = self._target_executions.get(submission_id)
             if stored is None or stored.target_outcome is None:
                 return None
             return stored.target_outcome.model_copy(deep=True)
@@ -516,18 +524,31 @@ class OnboardingService:
         self, submission_id: UUID
     ) -> GoldTierExecutionLedgerState:
         with self._execution_ledger_guard:
-            stored = self._execution_ledger.get(submission_id)
+            stored = self._target_executions.get(submission_id)
             return (
                 stored.state
                 if stored is not None
                 else GoldTierExecutionLedgerState.NOT_STARTED
             )
 
+    def is_execution_outcome_uncertain(self, submission_id: UUID) -> bool:
+        """Consult one authoritative ledger snapshot without invoking the target."""
+
+        with self._execution_ledger_guard:
+            stored = self._target_executions.get(submission_id)
+            return bool(
+                stored is not None
+                and stored.state == GoldTierExecutionLedgerState.IN_PROGRESS
+                and stored.attempted_operations
+                and stored.target_outcome is None
+                and stored.receipt is None
+            )
+
     def _stored_execution_entry(
         self, submission_input: GoldTierSubmissionInput
     ) -> GoldTierExecutionLedgerEntry | None:
         with self._execution_ledger_guard:
-            stored = self._execution_ledger.get(submission_input.submission_id)
+            stored = self._target_executions.get(submission_input.submission_id)
             if stored is None:
                 return None
             if stored.submission_input != submission_input:
@@ -540,10 +561,12 @@ class OnboardingService:
             state=GoldTierExecutionLedgerState.IN_PROGRESS,
         )
         with self._execution_ledger_guard:
-            existing = self._execution_ledger.get(submission_input.submission_id)
-            if existing is not None:
-                raise RuntimeError("Mock GoldTier submission identity already exists")
-            self._execution_ledger[submission_input.submission_id] = entry
+            try:
+                self._target_executions.create(entry)
+            except TargetExecutionRepositoryConflictError:
+                raise RuntimeError(
+                    "Mock GoldTier submission identity already exists"
+                ) from None
 
     def _mark_operation_attempted(
         self,
@@ -551,7 +574,7 @@ class OnboardingService:
         operation: GoldTierOperationMarker,
     ) -> None:
         with self._execution_ledger_guard:
-            entry = self._execution_ledger.get(submission_input.submission_id)
+            entry = self._target_executions.get(submission_input.submission_id)
             if (
                 entry is None
                 or entry.submission_input != submission_input
@@ -561,24 +584,27 @@ class OnboardingService:
             if operation in entry.attempted_operations:
                 raise ValueError("Target operation was attempted more than once")
             attempted = (*entry.attempted_operations, operation)
-            self._execution_ledger[submission_input.submission_id] = (
-                GoldTierExecutionLedgerEntry(
-                    submission_input=entry.submission_input,
-                    state=GoldTierExecutionLedgerState.IN_PROGRESS,
-                    attempted_operations=attempted,
-                )
+            candidate = GoldTierExecutionLedgerEntry(
+                submission_input=entry.submission_input,
+                state=GoldTierExecutionLedgerState.IN_PROGRESS,
+                attempted_operations=attempted,
+            )
+            self._target_executions.replace(
+                candidate, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value
             )
 
     def _ensure_execution_owner_exit(
         self, submission_input: GoldTierSubmissionInput
     ) -> None:
         with self._execution_ledger_guard:
-            entry = self._execution_ledger.get(submission_input.submission_id)
+            entry = self._target_executions.get(submission_input.submission_id)
             if entry is None or entry.state != GoldTierExecutionLedgerState.IN_PROGRESS:
                 return
             attempted = entry.attempted_operations
             if not attempted:
-                del self._execution_ledger[submission_input.submission_id]
+                self._target_executions.delete_if_unattempted(
+                    submission_input.submission_id
+                )
                 return
         self._record_fixed_failure_outcome(
             submission_input,
@@ -692,20 +718,21 @@ class OnboardingService:
         outcome: GoldTierTargetOutcome,
     ) -> GoldTierTargetOutcome:
         with self._execution_ledger_guard:
-            entry = self._execution_ledger.get(submission_input.submission_id)
+            entry = self._target_executions.get(submission_input.submission_id)
             if entry is None or entry.submission_input != submission_input:
                 raise ValueError("Target outcome does not match an active submission")
             if entry.target_outcome is not None:
                 if entry.target_outcome != outcome:
                     raise ValueError("Target execution produced conflicting outcomes")
                 return entry.target_outcome.model_copy(deep=True)
-            self._execution_ledger[submission_input.submission_id] = (
-                GoldTierExecutionLedgerEntry(
-                    submission_input=entry.submission_input,
-                    state=GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED,
-                    attempted_operations=outcome.completed_operations,
-                    target_outcome=outcome,
-                )
+            candidate = GoldTierExecutionLedgerEntry(
+                submission_input=entry.submission_input,
+                state=GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED,
+                attempted_operations=outcome.completed_operations,
+                target_outcome=outcome,
+            )
+            self._target_executions.replace(
+                candidate, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value
             )
         return outcome.model_copy(deep=True)
 
@@ -716,21 +743,23 @@ class OnboardingService:
     ) -> GoldTierExecutionReceipt:
         receipt = self._build_execution_receipt(submission_input, outcome)
         with self._execution_ledger_guard:
-            entry = self._execution_ledger.get(submission_input.submission_id)
+            entry = self._target_executions.get(submission_input.submission_id)
             if (
                 entry is None
                 or entry.submission_input != submission_input
                 or entry.target_outcome != outcome
             ):
                 raise ValueError("Receipt does not match the retained target outcome")
-            self._execution_ledger[submission_input.submission_id] = (
-                GoldTierExecutionLedgerEntry(
-                    submission_input=entry.submission_input,
-                    state=GoldTierExecutionLedgerState.FINALIZED,
-                    attempted_operations=outcome.completed_operations,
-                    target_outcome=outcome,
-                    receipt=receipt,
-                )
+            candidate = GoldTierExecutionLedgerEntry(
+                submission_input=entry.submission_input,
+                state=GoldTierExecutionLedgerState.FINALIZED,
+                attempted_operations=outcome.completed_operations,
+                target_outcome=outcome,
+                receipt=receipt,
+            )
+            self._target_executions.replace(
+                candidate,
+                expected_state=GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED.value,
             )
         return receipt.model_copy(deep=True)
 
@@ -1179,8 +1208,14 @@ class OnboardingService:
         return self._repository.get(case_id)
 
     @property
+    def repository(self) -> OnboardingCaseRepository:
+        """Expose the configured store only to the reconciliation unit of work."""
+
+        return self._repository
+
+    @property
     def process_local_repository(self) -> OnboardingCaseRepository:
-        """Expose the bounded in-memory store only to the Phase 11 unit of work."""
+        """Backward-compatible alias retained for focused Phase 11 tests."""
 
         return self._repository
 
@@ -1257,7 +1292,7 @@ class OnboardingService:
         """Return only the safe ordered operation markers for local UAT evidence."""
 
         with self._execution_ledger_guard:
-            entry = self._execution_ledger.get(submission_id)
+            entry = self._target_executions.get(submission_id)
             return tuple(entry.attempted_operations) if entry is not None else ()
 
     def _metadata(

@@ -11,7 +11,10 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `APP_ENV` | optional | `development` | Non-secret app label: development/test/production |
 | `DEMO_CONTROLS_ENABLED` | Mock/demo | `false` | Backend gate for every demo/test route |
 | `ZERO_TOUCH_MAX_TRANSITIONS_PER_RUN` | optional | `12` | Bounded local progress loop, 1–32 |
-| `MONGO_URI` | optional secret | empty | Used only by the manual MongoDB connectivity diagnostic; not used for onboarding persistence |
+| `CLM_PERSISTENCE_MODE` | persistence | `memory` | Explicit `memory` or `mongo`; never inferred from URI presence |
+| `MONGO_URI` | required secret in Mongo mode | empty | Backend-only Mongo connection string; never returned or logged |
+| `MONGO_DATABASE` | persistence | `clm_poc` | Bounded database namespace |
+| `MONGO_CASE_COLLECTION` | persistence | `clm_case_snapshots` | Bounded one-envelope-per-case collection |
 | `ACRA_CONNECTOR_MODE` | integration | `mock` | `mock` or sandbox-shaped `sandbox` |
 | `ACRA_BASE_URL` | integration | empty | HTTPS subscriber base; required only for sandbox mode |
 | `ACRA_COMPANY_PATH_TEMPLATE` | integration | empty | Authorized path with exactly one `{uen}` placeholder |
@@ -22,6 +25,8 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `IDP_CONNECTOR_MODE` | local POC | `local_pdf_text` | `local_pdf_text` for the normal sponsor PDF path; `mock` only for developer/test fault injection |
 | `OWNERSHIP_CONNECTOR_MODE` | Mock | `mock` | Current schema accepts `mock` only |
 | `IDP_MAX_UPLOAD_BYTES` | security | `5242880` | POC upload bound, max configurable 20 MiB |
+| `IDP_MAX_FILES_PER_CASE` | security | `20` | POC current-document count bound, capped at the supported maximum of 20 |
+| `IDP_MAX_TOTAL_INTAKE_BYTES` | security | `26214400` | POC total current-intake bound, max configurable 100 MiB and never below the per-file bound |
 | `IDP_REVIEW_CONFIDENCE_THRESHOLD` | provisional | `0.85` | Project default, not sponsor-approved |
 | `UBO_OWNERSHIP_THRESHOLD_PERCENT` | provisional | `25` | Inclusive project default pending Q-004 |
 | `OWNERSHIP_MAX_PARTIES` | security | `100` | Graph bound |
@@ -47,16 +52,16 @@ Developer controls use their dedicated demo provider boundary and do not replace
 `scripts/acra_sandbox_smoke.py`. The smoke is disabled by default and must not run until
 Q-012 and authorized access are satisfied.
 
-## Optional MongoDB diagnostic
+## MongoDB persistence and diagnostic
 
-`MONGO_URI` is consumed only by `app.mongo` and `scripts/check_mongodb.py`. The script
-performs a connection ping and a read-only count of the diagnostic `FYP.users`
-collection. It is not imported by application composition and does not persist cases,
-documents, ownership, workflow checkpoints, or target outcomes. Normal onboarding
-therefore runs without `MONGO_URI` and all application repositories remain in memory.
+Memory mode is process-local and needs no Mongo service. Mongo mode validates
+connectivity, stored schema, and bounded indexes during application composition and
+stores authoritative structured case envelopes. Missing/unreachable Mongo or invalid
+stored data fails closed and never falls back to memory. `scripts/check_mongodb.py`
+remains a separate connectivity/read-only diagnostic.
 
-When configuration is absent or the server is unavailable, the script exits nonzero
-and reports only a safe exception class; it does not print the URI or server error.
+The URI, credentials, database internals, and raw PyMongo error are never included in
+health, execution-profile, case responses, or normal logs. No TTL/purge is configured.
 
 ## Future/unconsumed placeholders
 
@@ -71,4 +76,5 @@ real readiness. D-018 still prohibits the quarantined authentication material.
 - Unsupported connector modes fail settings validation.
 - ACRA sandbox mode without valid HTTPS/path/auth configuration fails before use.
 - Demo UI visibility does not bypass the backend demo gate.
+- Mongo mode never degrades to memory when configuration, startup, read, or write fails.
 - No TLS-disable, certificate-ignore, wildcard CORS, or secret-printing option exists.

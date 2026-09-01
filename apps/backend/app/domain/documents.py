@@ -205,7 +205,14 @@ class DocumentProcessingRecord(BaseModel):
     document_id: UUID
     correlation_id: UUID
     display_name: str = Field(min_length=5, max_length=99)
-    media_type: str = Field(pattern=r"^application/pdf$")
+    media_type: str = Field(
+        pattern=(
+            r"^(?:application/pdf|"
+            r"application/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|"
+            r"text/plain)$"
+        )
+    )
+    size_bytes: int = Field(gt=0)
     profile: DocumentProfile
     provider_environment: IdpEnvironment | None = None
     state: DocumentProcessingState

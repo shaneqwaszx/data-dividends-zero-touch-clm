@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -36,7 +37,7 @@ from app.services.document_repository import InMemoryDocumentProcessingRepositor
 
 CASE_ID = UUID("00000000-0000-4000-8000-000000000101")
 OTHER_CASE_ID = UUID("00000000-0000-4000-8000-000000000102")
-PDF = b"%PDF-1.4\nSYNTHETIC PHASE 03 TEST ONLY\n%%EOF\n"
+PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
 
 def canonical_entity(*, address: RegisteredAddress | None = None) -> CanonicalLegalEntity:
@@ -241,8 +242,7 @@ def test_mismatch_low_confidence_and_missing_scenarios_are_independent() -> None
     missing = create(service, MockIdpScenario.MISSING_FIELD)
 
     assert (
-        field(mismatch, DocumentFieldKey.LEGAL_NAME).comparison_status
-        == ComparisonStatus.MISMATCH
+        field(mismatch, DocumentFieldKey.LEGAL_NAME).comparison_status == ComparisonStatus.MISMATCH
     )
     low_address = field(low, DocumentFieldKey.REGISTERED_ADDRESS)
     assert low_address.comparison_status == ComparisonStatus.MATCH
@@ -450,7 +450,7 @@ def test_invalid_review_inputs_do_not_mutate_field(
 @pytest.mark.parametrize(
     ("display_name", "content_type", "content", "code"),
     [
-        ("unsafe.txt", "application/pdf", PDF, "DOCUMENT_NAME_INVALID"),
+        ("unsafe.txt", "application/pdf", PDF, "DOCUMENT_MEDIA_TYPE_UNSUPPORTED"),
         ("../unsafe.pdf", "application/pdf", PDF, "DOCUMENT_NAME_INVALID"),
         ("unsafe.pdf", "text/plain", PDF, "DOCUMENT_MEDIA_TYPE_UNSUPPORTED"),
         ("unsafe.pdf", "application/pdf", b"", "DOCUMENT_EMPTY"),
@@ -521,6 +521,35 @@ def test_provider_failures_are_terminal_retrievable_and_sanitized(
     assert "SYNTHETIC PHASE 03 TEST ONLY" not in serialized
 
 
+def test_failed_replacement_keeps_one_current_retry_chain() -> None:
+    service, repository = make_service()
+    prior = create(service)
+
+    with pytest.raises(DocumentProcessingInfrastructureError) as exc_info:
+        service.replace_document(
+            case_id=CASE_ID,
+            document_id=prior.document_id,
+            expected_event_count=len(prior.events),
+            display_name="replacement.pdf",
+            content_type="application/pdf",
+            content=PDF,
+            provider=StubProvider(error=IdpProcessingError()),
+        )
+
+    failed = repository.get(exc_info.value.document_id)
+    superseded = repository.get(prior.document_id)
+    assert failed is not None
+    assert superseded is not None
+    assert failed.state == DocumentProcessingState.FAILED
+    assert failed.supersedes_document_id == prior.document_id
+    assert superseded.superseded_by_document_id == failed.document_id
+    assert [
+        item.document_id
+        for item in service.list_documents(case_id=CASE_ID)
+        if item.superseded_by_document_id is None
+    ] == [failed.document_id]
+
+
 def assert_terminal_document_failure(
     repository: InMemoryDocumentProcessingRepository,
     failure: DocumentProcessingInfrastructureError,
@@ -534,13 +563,14 @@ def assert_terminal_document_failure(
     assert stored.reviewed_at is None
     assert stored.events[-1].event_type == DocumentEventType.DOCUMENT_PROCESSING_FAILED
     assert stored.events[-1].state == DocumentProcessingState.FAILED
-    assert sum(
-        event.event_type == DocumentEventType.DOCUMENT_PROCESSING_FAILED
-        for event in stored.events
-    ) == 1
-    assert all(
-        event.state != DocumentProcessingState.REVIEWED for event in stored.events
+    assert (
+        sum(
+            event.event_type == DocumentEventType.DOCUMENT_PROCESSING_FAILED
+            for event in stored.events
+        )
+        == 1
     )
+    assert all(event.state != DocumentProcessingState.REVIEWED for event in stored.events)
     return stored
 
 
@@ -584,9 +614,7 @@ def test_post_validation_comparison_exception_terminalizes_safely(
     with pytest.raises(DocumentProcessingInfrastructureError) as exc_info:
         create(service)
 
-    stored = assert_terminal_document_failure(
-        repository, exc_info.value, "IDP_UNEXPECTED_FAILURE"
-    )
+    stored = assert_terminal_document_failure(repository, exc_info.value, "IDP_UNEXPECTED_FAILURE")
     assert "PRIVATE_COMPARISON_SENTINEL" not in stored.model_dump_json()
 
 
@@ -605,9 +633,7 @@ def test_post_validation_clock_failure_terminalizes_safely() -> None:
     with pytest.raises(DocumentProcessingInfrastructureError) as exc_info:
         create(service)
 
-    stored = assert_terminal_document_failure(
-        repository, exc_info.value, "IDP_UNEXPECTED_FAILURE"
-    )
+    stored = assert_terminal_document_failure(repository, exc_info.value, "IDP_UNEXPECTED_FAILURE")
     assert "PRIVATE_CLOCK_SENTINEL" not in stored.model_dump_json()
 
 
@@ -626,9 +652,7 @@ def test_recoverable_repository_update_failure_terminalizes_from_last_saved_stat
     with pytest.raises(DocumentProcessingInfrastructureError) as exc_info:
         create(service)
 
-    stored = assert_terminal_document_failure(
-        repository, exc_info.value, "IDP_UNEXPECTED_FAILURE"
-    )
+    stored = assert_terminal_document_failure(repository, exc_info.value, "IDP_UNEXPECTED_FAILURE")
     assert [event.event_type for event in stored.events] == [
         DocumentEventType.DOCUMENT_UPLOADED,
         DocumentEventType.DOCUMENT_PROCESSING_STARTED,
@@ -664,9 +688,7 @@ def test_malformed_provider_provenance_terminalizes_safely(
     with pytest.raises(DocumentProcessingInfrastructureError) as exc_info:
         create(service)
 
-    stored = assert_terminal_document_failure(
-        repository, exc_info.value, "IDP_MALFORMED_OUTPUT"
-    )
+    stored = assert_terminal_document_failure(repository, exc_info.value, "IDP_MALFORMED_OUTPUT")
     assert unsafe_provenance not in stored.model_dump_json()
 
 

@@ -278,3 +278,56 @@ actionable conflict. Legal-name canonical selection and its decision are prepare
 and then committed together under a shared process-local lock, with snapshot restoration
 before lock release on a recoverable write failure. This is not crash/restart durability.
 All state remains process-local; MongoDB is unchanged. Q-012 and Q-015 remain open.
+
+## Pre-Phase 12 workspace and multi-document refinement status
+
+The CLM browser now opens on **Start onboarding** with visible creation/upload/start/
+processing/review/completion/safe-failure feedback. A backend-authored lightweight case
+index feeds Dashboard history and the Review queue; selecting an entry loads that exact
+case without invoking Registry, IDP, Ownership, or GoldTier. History, queue, assignment,
+and all evidence remain process-local and are cleared by backend restart. MongoDB and
+production case management are not part of this refinement.
+
+Normal intake supports bounded PDF, DOCX, and UTF-8 TXT files through a media router.
+The technical defaults are 20 files, 5 MiB per file, and 25 MiB total. Browser folder
+selection supplies ordinary File objects only; no ZIP or server directory traversal is
+implemented. PDF input is structurally parsed before IDP rather than trusted from markers.
+DOCX containers reject rooted, UNC-like, drive-qualified, traversal, backslash, encrypted,
+macro, and embedded parts before bounded in-memory OOXML reading; TXT is bounded UTF-8
+and rejects binary/control content. Uploaded bytes and extracted bodies remain transient
+and absent from case history, API projections, events, and logs. The browser displays the
+accepted selected byte total, but backend limits remain authoritative.
+
+Files are independently processed and retain document ID, display name, provider,
+environment, timestamp, confidence, and current/superseded history. Explicit intake
+completion binds processing to the intended document count. Reconciliation evaluates
+all current documents: missing in one document does not override usable evidence in
+another; conflicting, invalid, and unverifiable observations remain distinct; and
+`USE_DOCUMENT_VALUE` is still limited to one unambiguous legal-name candidate. Q-012
+and Q-015 remain OPEN; Q-003/Q-013/Q-014 still govern final sponsor document, privacy,
+confidence, and authenticated-review policy.
+
+## Phase 12 implementation status
+
+Phase 12 adds an explicit `memory`/`mongo` repository composition. Mongo mode stores one
+schema-versioned, bounded structured envelope per case and reconstructs onboarding,
+Registry acquisition, documents and replacement links, reconciliation/decisions,
+ownership Decimal evidence, CLM/automation checkpoints, demo scenario metadata, and
+the Mock GoldTier intent/outcome/receipt ledger after a new application composition.
+Envelope writes use single-document revision compare-and-set; the legal-name canonical
+update and reconciliation decision are one atomic envelope update.
+
+Mongo mode requires `MONGO_URI` and fails closed when unavailable or when persisted data
+has an unknown/invalid schema. It does not silently fall back to memory or rewrite bad
+data. Completed evidence is reused and reads cause no provider calls. An attempted target
+operation without a retained outcome becomes controlled recovery pending and is never
+automatically replayed. Raw PDF/DOCX/TXT bytes, full extracted bodies, raw Registry
+payloads, credentials, and provider objects are not persisted. Interrupted document
+processing becomes a failed re-upload-required record and returns automation to the
+Document input checkpoint; targeted same-case retry is required for each affected
+document before intake can complete. Mongo key/envelope identity mismatch is corrupt
+data and fails startup/reads without repair or cross-case projection.
+
+This is durable single-instance POC recovery, not production HA, distributed workflow,
+exactly-once provider execution, regulatory retention, or Ready-for-Approval. Q-012 and
+Q-015 remain open.

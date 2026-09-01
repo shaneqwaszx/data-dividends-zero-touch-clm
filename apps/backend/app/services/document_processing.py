@@ -1,4 +1,4 @@
-"""Transient PDF processing, deterministic comparison, and field review service."""
+"""Transient multi-format processing, deterministic comparison, and field review."""
 
 import re
 from collections.abc import Callable
@@ -39,9 +39,9 @@ from app.services.document_errors import (
     DocumentProcessingInfrastructureError,
     DocumentRequestError,
 )
+from app.services.document_media import DocumentMediaRouter, ExtractedDocumentContent
 from app.services.document_repository import DocumentProcessingRepository
 
-SAFE_PDF_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,94}\.pdf$", re.IGNORECASE)
 WHITESPACE = re.compile(r"\s+")
 MAX_RETAINED_FIELD_VALUE = 512
 
@@ -64,19 +64,29 @@ class DocumentProcessingService:
         idp: IdpProvider,
         repository: DocumentProcessingRepository,
         max_upload_bytes: int,
+        max_files_per_case: int = 20,
+        max_total_intake_bytes: int = 25 * 1024 * 1024,
         review_confidence_threshold: float,
+        media_router: DocumentMediaRouter | None = None,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
     ) -> None:
         if max_upload_bytes <= 0:
             raise ValueError("max_upload_bytes must be positive")
+        if max_files_per_case <= 0:
+            raise ValueError("max_files_per_case must be positive")
+        if max_total_intake_bytes < max_upload_bytes:
+            raise ValueError("max_total_intake_bytes must allow one maximum-size document")
         if not 0.0 <= review_confidence_threshold <= 1.0:
             raise ValueError("review confidence threshold must be between zero and one")
         self._cases = cases
         self._idp = idp
         self._repository = repository
         self.max_upload_bytes = max_upload_bytes
+        self.max_files_per_case = max_files_per_case
+        self.max_total_intake_bytes = max_total_intake_bytes
         self.review_confidence_threshold = review_confidence_threshold
+        self._media_router = media_router or DocumentMediaRouter()
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
 
@@ -90,16 +100,7 @@ class DocumentProcessingService:
                 code="ONBOARDING_CASE_NOT_FOUND",
                 message="The onboarding case was not found.",
             )
-        if content_type.lower().strip() != "application/pdf":
-            raise DocumentRequestError(
-                code="DOCUMENT_MEDIA_TYPE_UNSUPPORTED",
-                message="Only application/pdf uploads are accepted.",
-            )
-        if not SAFE_PDF_NAME.fullmatch(display_name):
-            raise DocumentRequestError(
-                code="DOCUMENT_NAME_INVALID",
-                message="The upload must use a safe PDF display name.",
-            )
+        self._media_router.validate_metadata(display_name=display_name, content_type=content_type)
 
     def create_document(
         self,
@@ -117,6 +118,7 @@ class DocumentProcessingService:
                 content_type=content_type,
                 content=content,
                 provider=provider,
+                replacing_document_id=None,
             )
 
     def replace_document(
@@ -150,6 +152,7 @@ class DocumentProcessingService:
                     message="The document evidence changed before replacement.",
                 )
             if prior.state not in {
+                DocumentProcessingState.FAILED,
                 DocumentProcessingState.REVIEW_REQUIRED,
                 DocumentProcessingState.REVIEWED,
             }:
@@ -157,28 +160,48 @@ class DocumentProcessingService:
                     code="DOCUMENT_NOT_REPLACEABLE",
                     message="This document cannot be replaced at its current state.",
                 )
-            replacement = self._create_document_locked(
-                case_id=case_id,
-                display_name=display_name,
-                content_type=content_type,
-                content=content,
-                provider=provider,
-            )
-            now = self._clock()
-            prior.superseded_by_document_id = replacement.document_id
-            prior.superseded_at = now
-            prior = self._record(
-                prior,
-                event_type=DocumentEventType.DOCUMENT_SUPERSEDED,
-                state=prior.state,
-                outcome=EventOutcome.SUCCEEDED,
-                code="DOCUMENT_SUPERSEDED",
-                message="This document was superseded by explicit replacement evidence.",
-            )
-            replacement.supersedes_document_id = prior.document_id
-            replacement.updated_at = now
-            self._repository.save(replacement)
+            try:
+                replacement = self._create_document_locked(
+                    case_id=case_id,
+                    display_name=display_name,
+                    content_type=content_type,
+                    content=content,
+                    provider=provider,
+                    replacing_document_id=prior.document_id,
+                )
+            except DocumentProcessingInfrastructureError as error:
+                failed_replacement = self.get_document(
+                    case_id=case_id,
+                    document_id=error.document_id,
+                )
+                if failed_replacement is not None:
+                    self._supersede_document(prior=prior, replacement=failed_replacement)
+                raise
+            self._supersede_document(prior=prior, replacement=replacement)
             return replacement.model_copy(deep=True)
+
+    def _supersede_document(
+        self,
+        *,
+        prior: DocumentProcessingRecord,
+        replacement: DocumentProcessingRecord,
+    ) -> None:
+        """Keep exactly one current record even when a replacement fails safely."""
+
+        now = self._clock()
+        prior.superseded_by_document_id = replacement.document_id
+        prior.superseded_at = now
+        prior = self._record(
+            prior,
+            event_type=DocumentEventType.DOCUMENT_SUPERSEDED,
+            state=prior.state,
+            outcome=EventOutcome.SUCCEEDED,
+            code="DOCUMENT_SUPERSEDED",
+            message="This document was superseded by explicit replacement evidence.",
+        )
+        replacement.supersedes_document_id = prior.document_id
+        replacement.updated_at = now
+        self._repository.save(replacement)
 
     def _create_document_locked(
         self,
@@ -188,13 +211,23 @@ class DocumentProcessingService:
         content_type: str,
         content: bytes,
         provider: IdpProvider | None,
+        replacing_document_id: UUID | None,
     ) -> DocumentProcessingRecord:
         self.validate_upload_metadata(
             case_id=case_id,
             display_name=display_name,
             content_type=content_type,
         )
-        self._validate_content(content)
+        self._validate_intake_limits(
+            case_id=case_id,
+            content_size=len(content),
+            replacing_document_id=replacing_document_id,
+        )
+        extracted_content = self._media_router.extract(
+            display_name=display_name,
+            content_type=content_type,
+            content=content,
+        )
         parent_case = self._cases.get_case(case_id)
         if parent_case is None:  # Defensive against an in-process deletion race.
             raise DocumentRequestError(
@@ -208,7 +241,8 @@ class DocumentProcessingService:
             document_id=self._uuid_factory(),
             correlation_id=self._uuid_factory(),
             display_name=display_name.strip(),
-            media_type="application/pdf",
+            media_type=extracted_content.media_type,
+            size_bytes=len(content),
             profile=DocumentProfile.PROVISIONAL_CORPORATE,
             state=DocumentProcessingState.UPLOADED,
             created_at=now,
@@ -219,12 +253,12 @@ class DocumentProcessingService:
             event_type=DocumentEventType.DOCUMENT_UPLOADED,
             state=DocumentProcessingState.UPLOADED,
             outcome=EventOutcome.SUCCEEDED,
-            message="PDF accepted for transient document processing.",
+            message="Document accepted for transient processing.",
         )
         return self._process_accepted_document(
             record=record,
             parent_case=parent_case,
-            content=content,
+            extracted_content=extracted_content,
             provider=provider or self._idp,
         )
 
@@ -233,7 +267,7 @@ class DocumentProcessingService:
         *,
         record: DocumentProcessingRecord,
         parent_case: OnboardingCase,
-        content: bytes,
+        extracted_content: ExtractedDocumentContent,
         provider: IdpProvider,
     ) -> DocumentProcessingRecord:
         """Run every required post-acceptance step inside a safe terminal boundary."""
@@ -260,7 +294,9 @@ class DocumentProcessingService:
                 provider_output = provider.process(
                     IdpDocumentInput(
                         profile=DocumentProfile.PROVISIONAL_CORPORATE,
-                        content=content,
+                        content=extracted_content.content,
+                        media_type=extracted_content.media_type,
+                        extracted_text=extracted_content.extracted_text,
                     )
                 )
             except IdpProcessingError:
@@ -656,21 +692,37 @@ class DocumentProcessingService:
             return field.original_extracted_value
         return None
 
-    def _validate_content(self, content: bytes) -> None:
-        if not content:
+    def _validate_intake_limits(
+        self,
+        *,
+        case_id: UUID,
+        content_size: int,
+        replacing_document_id: UUID | None,
+    ) -> None:
+        if content_size <= 0:
             raise DocumentRequestError(
                 code="DOCUMENT_EMPTY",
-                message="The uploaded PDF is empty.",
+                message="The uploaded document is empty.",
             )
-        if len(content) > self.max_upload_bytes:
+        if content_size > self.max_upload_bytes:
             raise DocumentRequestError(
                 code="DOCUMENT_TOO_LARGE",
-                message="The uploaded PDF exceeds the configured size limit.",
+                message="The uploaded document exceeds the configured per-file size limit.",
             )
-        if not content.startswith(b"%PDF-") or not content.rstrip().endswith(b"%%EOF"):
+        current = [
+            item
+            for item in self._repository.list_for_case(case_id)
+            if item.is_current_evidence and item.document_id != replacing_document_id
+        ]
+        if len(current) >= self.max_files_per_case:
             raise DocumentRequestError(
-                code="DOCUMENT_STRUCTURE_INVALID",
-                message="The uploaded content does not pass the Phase 03 PDF structure checks.",
+                code="DOCUMENT_COUNT_LIMIT_EXCEEDED",
+                message="The document intake exceeds the configured file-count limit.",
+            )
+        if sum(item.size_bytes for item in current) + content_size > self.max_total_intake_bytes:
+            raise DocumentRequestError(
+                code="DOCUMENT_TOTAL_SIZE_LIMIT_EXCEEDED",
+                message="The document intake exceeds the configured total-size limit.",
             )
 
     def _record(

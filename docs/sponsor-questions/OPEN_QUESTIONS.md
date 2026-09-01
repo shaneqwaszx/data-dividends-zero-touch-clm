@@ -56,6 +56,11 @@ Document or Registry is authoritative. Please still confirm source authority by 
 authenticated reviewer role/separation of duties, permitted missing/invalid/confidence
 decisions, retained audit evidence, and restart-versus-resume policy. Q-015 remains OPEN.
 
+Phase 12 supplies only technical single-instance Mongo restart durability and
+conservative target replay prevention. It does not answer who may decide, what must be
+retained/deleted, whether this storage is an approved audit record, or the production
+operational restart policy. Those parts of Q-015 remain OPEN.
+
 ## A. BLOCKING REAL GOLDTIER INTEGRATION
 
 ### Q-008 — Authentication containment and replacement
@@ -128,8 +133,10 @@ encryption and storage-jurisdiction requirements, reviewer access controls, and 
 malware scanning/content-disarm or an approved PDF processing service is required.
 
 The current foundation retains no uploaded bytes or raw provider output. It retains a
-validated display name that is never used as a filesystem path and performs only narrow
-size/signature/EOF checks. Those checks are not production PDF security.
+validated display name that is never used as a filesystem path. The local POC now combines
+bounded size/type checks with strict PDF structure parsing and bounded in-memory DOCX
+package/path validation before IDP. These controls remain neither antivirus/CDR nor
+production document security and do not resolve the requested sponsor policy.
 
 ### Q-014 — Confidence and authenticated review policy
 

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from threading import Barrier, Lock
 from typing import Literal
 from uuid import UUID
@@ -52,7 +53,7 @@ from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_repository import InMemoryOwnershipAnalysisRepository
 from app.services.repository import InMemoryOnboardingCaseRepository
 
-PDF = b"%PDF-1.4\nSYNTHETIC PHASE 05 EVIDENCE\n%%EOF\n"
+PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
 
 class RecordingGoldTier:
@@ -217,22 +218,13 @@ class FailOnceClmRepository:
         *,
         expected_version: int | None,
     ) -> ClmOrchestrationRecord:
-        is_receipt = (
-            record.status == ClmStatus.SUBMITTING
-            and record.execution_receipt is not None
-        )
-        is_terminal = (
-            record.submission_snapshot is not None
-            and record.status
-            in {
-                ClmStatus.MOCK_GOLDTIER_SUBMITTED,
-                ClmStatus.REVIEW_REQUIRED,
-                ClmStatus.FAILED,
-            }
-        )
-        should_fail = (
-            self._fail_point == "receipt" and is_receipt
-        ) or (
+        is_receipt = record.status == ClmStatus.SUBMITTING and record.execution_receipt is not None
+        is_terminal = record.submission_snapshot is not None and record.status in {
+            ClmStatus.MOCK_GOLDTIER_SUBMITTED,
+            ClmStatus.REVIEW_REQUIRED,
+            ClmStatus.FAILED,
+        }
+        should_fail = (self._fail_point == "receipt" and is_receipt) or (
             self._fail_point == "terminal" and is_terminal
         )
         if should_fail and not self.failed:
@@ -253,11 +245,7 @@ class FailOnceCompletionClock:
         self.failed = False
 
     def __call__(self) -> datetime:
-        record = (
-            self._repository.get_for_case(self.case_id)
-            if self.case_id is not None
-            else None
-        )
+        record = self._repository.get_for_case(self.case_id) if self.case_id is not None else None
         if (
             record is not None
             and record.execution_receipt is not None
@@ -408,9 +396,7 @@ def recovery_case_configuration(
     if outcome == "policy":
         return (
             "202400003C",
-            RecordingGoldTier(
-                policy_failure_keys=frozenset({"202400003C"})
-            ),
+            RecordingGoldTier(policy_failure_keys=frozenset({"202400003C"})),
             ClmStatus.FAILED,
             ["search", "shell", "policy"],
             "GT_POLICY_VALIDATION_FAILED",
@@ -418,9 +404,7 @@ def recovery_case_configuration(
     if outcome == "partial":
         return (
             "202400004D",
-            RecordingGoldTier(
-                partial_amend_keys=frozenset({"202400004D"})
-            ),
+            RecordingGoldTier(partial_amend_keys=frozenset({"202400004D"})),
             ClmStatus.REVIEW_REQUIRED,
             ["search", "shell", "policy", "amend"],
             "GT_OPTIONAL_SECTION_REVIEW",
@@ -640,10 +624,7 @@ def test_snapshot_is_exact_target_mapper_source_after_live_entity_mutation(
         shell.party.non_individual_profile.country_of_incorporation
         == snapshot.canonical_entity.country_of_incorporation
     )
-    assert (
-        policy.customer_external_system_key
-        == snapshot.canonical_entity.registration_number
-    )
+    assert policy.customer_external_system_key == snapshot.canonical_entity.registration_number
     assert amend.party.names.legal_name == snapshot.canonical_entity.legal_name
     assert (
         amend.party.addresses[0].address_line_1
@@ -658,10 +639,7 @@ def test_snapshot_is_exact_target_mapper_source_after_live_entity_mutation(
         == snapshot.canonical_entity.registered_address.country_code
     )
     assert target.metadata["shell"].correlation_id == snapshot.correlation_id
-    assert (
-        target.metadata["shell"].idempotency_key
-        == snapshot.target_input.idempotency.shell
-    )
+    assert target.metadata["shell"].idempotency_key == snapshot.target_input.idempotency.shell
 
 
 @pytest.mark.parametrize(
@@ -912,9 +890,7 @@ def test_malformed_target_response_records_safe_outcome_and_never_replays(
         pytest.param("GT PARTY", False, id="party-id-invalid-grammar"),
     ],
 )
-def test_shell_party_identifier_boundary_stops_before_policy(
-    party_id: str, accepted: bool
-) -> None:
+def test_shell_party_identifier_boundary_stops_before_policy(party_id: str, accepted: bool) -> None:
     response = GoldTierOperationResult.model_construct(
         outcome=GoldTierOutcome.SUCCESS,
         status_code=201,
@@ -1041,8 +1017,8 @@ def test_receipt_construction_failure_recovers_from_pre_receipt_target_outcome(
     monkeypatch: pytest.MonkeyPatch,
     outcome: Literal["success", "match", "policy", "partial"],
 ) -> None:
-    uen, target, expected_status, expected_calls, expected_code = (
-        recovery_case_configuration(outcome)
+    uen, target, expected_status, expected_calls, expected_code = recovery_case_configuration(
+        outcome
     )
     cases, _, _, clm, _, case_id = make_ready_case(uen=uen, goldtier=target)
     build_receipt = cases._build_execution_receipt  # type: ignore[attr-defined]
@@ -1087,23 +1063,24 @@ def test_receipt_construction_failure_recovers_from_pre_receipt_target_outcome(
     assert duplicate.status == expected_status
     assert (recovered.error.code if recovered.error else None) == expected_code
     assert target.calls == expected_calls
-    assert cases.get_execution_state(submission_id) == (
-        GoldTierExecutionLedgerState.FINALIZED
-    )
+    assert cases.get_execution_state(submission_id) == (GoldTierExecutionLedgerState.FINALIZED)
     receipt = cases.get_execution_receipt(submission_id)
     assert receipt is not None
     assert "PRIVATE_RECEIPT_CONSTRUCTION_SENTINEL" not in receipt.model_dump_json()
     event_types = [event.event_type for event in recovered.events]
     assert event_types.count("MOCK_SUBMISSION_STARTED") == 1
     assert event_types.count("MOCK_TARGET_EXECUTION_RECORDED") == 1
-    assert sum(
-        event_types.count(event_type)
-        for event_type in (
-            "MOCK_SUBMISSION_COMPLETED",
-            "CLM_REVIEW_REQUIRED",
-            "CLM_SUBMISSION_FAILED",
+    assert (
+        sum(
+            event_types.count(event_type)
+            for event_type in (
+                "MOCK_SUBMISSION_COMPLETED",
+                "CLM_REVIEW_REQUIRED",
+                "CLM_SUBMISSION_FAILED",
+            )
         )
-    ) == 1
+        == 1
+    )
 
 
 @pytest.mark.parametrize(
@@ -1121,8 +1098,8 @@ def test_rich_result_or_error_mapping_failure_recovers_without_target_reexecutio
     mapping_helper: str,
     sentinel: str,
 ) -> None:
-    uen, target, expected_status, expected_calls, expected_code = (
-        recovery_case_configuration(outcome)
+    uen, target, expected_status, expected_calls, expected_code = recovery_case_configuration(
+        outcome
     )
     cases, _, _, clm, _, case_id = make_ready_case(uen=uen, goldtier=target)
     mapping = getattr(onboarding_module, mapping_helper)
@@ -1155,9 +1132,7 @@ def test_rich_result_or_error_mapping_failure_recovers_without_target_reexecutio
     assert (recovered.error.code if recovered.error else None) == expected_code
     assert target.calls == expected_calls
     assert sentinel not in recovered.model_dump_json()
-    assert cases.get_execution_state(submission_id) == (
-        GoldTierExecutionLedgerState.FINALIZED
-    )
+    assert cases.get_execution_state(submission_id) == (GoldTierExecutionLedgerState.FINALIZED)
 
 
 def test_two_concurrent_retries_after_pre_receipt_failure_finalize_once(
@@ -1248,12 +1223,8 @@ def test_result_mapping_failure_recovers_actual_target_outcome_without_reexecuti
 ) -> None:
     target = RecordingGoldTier(
         match_found=outcome == "match",
-        policy_failure_keys=(
-            frozenset({"202400003C"}) if outcome == "policy" else frozenset()
-        ),
-        partial_amend_keys=(
-            frozenset({"202400004D"}) if outcome == "partial" else frozenset()
-        ),
+        policy_failure_keys=(frozenset({"202400003C"}) if outcome == "policy" else frozenset()),
+        partial_amend_keys=(frozenset({"202400004D"}) if outcome == "partial" else frozenset()),
     )
     _, _, _, clm, _, case_id = make_ready_case(uen=uen, goldtier=target)
     translate = clm_orchestration_module._terminal_from_receipt
@@ -1368,9 +1339,7 @@ def test_post_target_repository_failures_recover_without_reexecution(
     assert repository.failed
     assert recovered.status == ClmStatus.MOCK_GOLDTIER_SUBMITTED
     assert target.calls == ["search", "shell", "policy", "amend"]
-    assert [event.event_type for event in recovered.events].count(
-        "MOCK_SUBMISSION_COMPLETED"
-    ) == 1
+    assert [event.event_type for event in recovered.events].count("MOCK_SUBMISSION_COMPLETED") == 1
 
 
 def test_case_evidence_and_submission_are_isolated() -> None:

@@ -20,6 +20,7 @@ from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.mock_idp import MockIdpProvider
+from app.connectors.ownership import OwnershipProvider
 from app.connectors.registry import AcraRegistryProviderAdapter, RegistryProviderRouter
 from app.connectors.registry_ownership import RegistryAcquisitionOwnershipProvider
 from app.demo.idp_control import MockIdpDemoControl
@@ -28,22 +29,40 @@ from app.demo.scenarios import (
     MockScenarioCatalogue,
     Phase01MockScenarioCatalogue,
 )
-from app.demo.zero_touch_control import ZeroTouchDemoControl
+from app.demo.zero_touch_control import DemoScenarioRepository, ZeroTouchDemoControl
 from app.services.clm_orchestration import ClmOrchestrationService
-from app.services.clm_repository import InMemoryClmOrchestrationRepository
+from app.services.clm_repository import (
+    ClmOrchestrationRepository,
+    InMemoryClmOrchestrationRepository,
+)
 from app.services.document_processing import DocumentProcessingService
-from app.services.document_repository import InMemoryDocumentProcessingRepository
+from app.services.document_repository import (
+    DocumentProcessingRepository,
+    InMemoryDocumentProcessingRepository,
+)
 from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
-from app.services.ownership_repository import InMemoryOwnershipAnalysisRepository
+from app.services.ownership_repository import (
+    InMemoryOwnershipAnalysisRepository,
+    OwnershipAnalysisRepository,
+)
 from app.services.reconciliation import ReconciliationService
-from app.services.reconciliation_repository import InMemoryReconciliationRepository
-from app.services.repository import InMemoryOnboardingCaseRepository
+from app.services.reconciliation_repository import (
+    InMemoryReconciliationRepository,
+    ReconciliationRepository,
+    ReconciliationUnitOfWork,
+)
+from app.services.repository import InMemoryOnboardingCaseRepository, OnboardingCaseRepository
+from app.services.target_execution_repository import TargetExecutionRepository
 from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
 from app.services.zero_touch_provider_bindings import (
+    DurableOwnershipProviderBindingResolver,
     InMemoryOwnershipProviderBindingResolver,
 )
-from app.services.zero_touch_repository import InMemoryZeroTouchAutomationRepository
+from app.services.zero_touch_repository import (
+    InMemoryZeroTouchAutomationRepository,
+    ZeroTouchAutomationRepository,
+)
 
 
 def build_onboarding_service(
@@ -54,6 +73,8 @@ def build_onboarding_service(
     acra_authorizer: AcraRequestAuthorizer | None = None,
     acra_decoder: AcraResponseDecoder | None = None,
     target_finalization_fault: Callable[[UUID], bool] | None = None,
+    repository: OnboardingCaseRepository | None = None,
+    target_execution_repository: TargetExecutionRepository | None = None,
 ) -> OnboardingService:
     """Compose configured ACRA and credential-free Mock GoldTier connectors."""
 
@@ -75,8 +96,9 @@ def build_onboarding_service(
             partial_amend_external_keys=catalogue.partial_amend_uens(),
             match_found_external_keys=frozenset({"202400005E"}),
         ),
-        repository=InMemoryOnboardingCaseRepository(),
+        repository=repository or InMemoryOnboardingCaseRepository(),
         target_finalization_fault=target_finalization_fault,
+        target_execution_repository=target_execution_repository,
     )
 
 
@@ -117,6 +139,7 @@ def build_acra_connector(
 def build_document_processing_service(
     onboarding_service: OnboardingService,
     settings: Settings,
+    repository: DocumentProcessingRepository | None = None,
 ) -> DocumentProcessingService:
     """Compose the bounded local input-driven PDF text provider by default."""
 
@@ -127,8 +150,10 @@ def build_document_processing_service(
             if settings.idp_connector_mode == "mock"
             else LocalPdfTextIdpProvider()
         ),
-        repository=InMemoryDocumentProcessingRepository(),
+        repository=repository or InMemoryDocumentProcessingRepository(),
         max_upload_bytes=settings.idp_max_upload_bytes,
+        max_files_per_case=settings.idp_max_files_per_case,
+        max_total_intake_bytes=settings.idp_max_total_intake_bytes,
         review_confidence_threshold=settings.idp_review_confidence_threshold,
     )
 
@@ -142,13 +167,14 @@ def build_mock_idp_demo_control() -> MockIdpDemoControl:
 def build_ownership_analysis_service(
     onboarding_service: OnboardingService,
     settings: Settings,
+    repository: OwnershipAnalysisRepository | None = None,
 ) -> OwnershipAnalysisService:
     """Compose the credential-free provider-neutral ownership boundary."""
 
     return OwnershipAnalysisService(
         cases=onboarding_service,
         provider=RegistryAcquisitionOwnershipProvider(onboarding_service),
-        repository=InMemoryOwnershipAnalysisRepository(),
+        repository=repository or InMemoryOwnershipAnalysisRepository(),
         threshold_percent=settings.ubo_ownership_threshold_percent,
         max_parties=settings.ownership_max_parties,
         max_relationships=settings.ownership_max_relationships,
@@ -167,13 +193,16 @@ def build_mock_ownership_demo_control() -> MockOwnershipDemoControl:
 def build_reconciliation_service(
     onboarding_service: OnboardingService,
     document_service: DocumentProcessingService,
+    repository: ReconciliationRepository | None = None,
+    unit_of_work: ReconciliationUnitOfWork | None = None,
 ) -> ReconciliationService:
     """Compose the process-local source-neutral Phase 11 reconciliation owner."""
 
     return ReconciliationService(
         cases=onboarding_service,
         documents=document_service,
-        repository=InMemoryReconciliationRepository(),
+        repository=repository or InMemoryReconciliationRepository(),
+        unit_of_work=unit_of_work,
     )
 
 
@@ -182,6 +211,7 @@ def build_clm_orchestration_service(
     document_service: DocumentProcessingService,
     ownership_service: OwnershipAnalysisService,
     reconciliation_service: ReconciliationService | None = None,
+    repository: ClmOrchestrationRepository | None = None,
 ) -> ClmOrchestrationService:
     """Compose staged readiness and serialized Mock GoldTier submission."""
 
@@ -190,7 +220,7 @@ def build_clm_orchestration_service(
         documents=document_service,
         ownership=ownership_service,
         reconciliation=reconciliation_service,
-        repository=InMemoryClmOrchestrationRepository(),
+        repository=repository or InMemoryClmOrchestrationRepository(),
     )
 
 
@@ -201,11 +231,17 @@ def build_zero_touch_orchestrator(
     clm_service: ClmOrchestrationService,
     reconciliation_service: ReconciliationService,
     settings: Settings,
+    repository: ZeroTouchAutomationRepository | None = None,
+    durable_provider_bindings: bool = False,
 ) -> ZeroTouchOrchestrator:
     """Compose the provider-neutral Phase 06 automation owner."""
 
-    provider_bindings = InMemoryOwnershipProviderBindingResolver(
-        lambda: ownership_service.configured_provider
+    def provider_factory() -> OwnershipProvider:
+        return ownership_service.configured_provider
+    provider_bindings = (
+        DurableOwnershipProviderBindingResolver(provider_factory)
+        if durable_provider_bindings
+        else InMemoryOwnershipProviderBindingResolver(provider_factory)
     )
     return ZeroTouchOrchestrator(
         cases=onboarding_service,
@@ -213,11 +249,13 @@ def build_zero_touch_orchestrator(
         ownership=ownership_service,
         clm=clm_service,
         reconciliation=reconciliation_service,
-        repository=InMemoryZeroTouchAutomationRepository(),
+        repository=repository or InMemoryZeroTouchAutomationRepository(),
         ownership_provider_bindings=provider_bindings,
         max_transitions_per_run=settings.zero_touch_max_transitions_per_run,
     )
 
 
-def build_zero_touch_demo_control() -> ZeroTouchDemoControl:
-    return ZeroTouchDemoControl()
+def build_zero_touch_demo_control(
+    scenario_repository: DemoScenarioRepository | None = None,
+) -> ZeroTouchDemoControl:
+    return ZeroTouchDemoControl(scenario_repository)

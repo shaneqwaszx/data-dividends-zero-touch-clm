@@ -188,6 +188,18 @@ class ClmOrchestrationService:
 
         with self._lock_for(case_id):
             record = self._require_record(case_id)
+            snapshot = record.submission_snapshot
+            if (
+                snapshot is not None
+                and self._cases.is_execution_outcome_uncertain(snapshot.submission_id)
+            ):
+                raise ClmRequestError(
+                    code="CLM_TARGET_OUTCOME_UNCERTAIN",
+                    message=(
+                        "A prior Mock GoldTier operation has no definitive retained "
+                        "outcome and cannot be replayed automatically."
+                    ),
+                ) from None
             if record.submission_snapshot is not None and record.status in {
                 ClmStatus.MOCK_GOLDTIER_SUBMITTED,
                 ClmStatus.REVIEW_REQUIRED,
@@ -211,8 +223,11 @@ class ClmOrchestrationService:
                 execution_state = self._cases.get_execution_state(snapshot.submission_id)
                 if execution_state == GoldTierExecutionLedgerState.IN_PROGRESS:
                     raise ClmRequestError(
-                        code="CLM_SUBMISSION_IN_PROGRESS",
-                        message="Mock GoldTier submission is already in progress.",
+                        code="CLM_TARGET_OUTCOME_UNCERTAIN",
+                        message=(
+                            "A prior Mock GoldTier operation has no definitive retained "
+                            "outcome and cannot be replayed automatically."
+                        ),
                     ) from None
                 try:
                     receipt = self._cases.execute_submission_input(snapshot.target_input)
@@ -233,8 +248,11 @@ class ClmOrchestrationService:
                             ) from None
                         if execution_state == GoldTierExecutionLedgerState.IN_PROGRESS:
                             raise ClmRequestError(
-                                code="CLM_SUBMISSION_IN_PROGRESS",
-                                message="Mock GoldTier submission is already in progress.",
+                                code="CLM_TARGET_OUTCOME_UNCERTAIN",
+                                message=(
+                                    "A prior Mock GoldTier operation has no definitive "
+                                    "retained outcome and cannot be replayed automatically."
+                                ),
                             ) from None
                         raise ClmInfrastructureError(
                             case_id=record.case_id,
