@@ -14,10 +14,10 @@ Built from two sample Postman responses:
   - GET {base}/entityQuery/coShareholdersDetails?uen=...
 
 IMPORTANT -- read before wiring this in:
-  1. Auth: confirmed via Postman that these endpoints need no
-     Authorization header at all (200 with none sent). Use
-     `NoAuthAcraAuthorizer` below. The OAuth2 class is kept on standby
-     in case another Marketplace endpoint needs it later.
+  1. Auth: the currently tested entityQuery endpoints need no
+     Authorization header. This dormant adapter therefore exposes only
+     `NoAuthAcraAuthorizer`. Any future authentication mechanism remains
+     deferred pending the authoritative contract requested by Q-012.
   2. `source_environment` is tagged "MOCK" (matching the existing
      Literal in acra.py) based on the "APIMarketplace-Mock" Postman
      environment name and the lack of auth -- confirm this against your
@@ -40,8 +40,6 @@ IMPORTANT -- read before wiring this in:
      so `fetch_relationships` fails closed, same as the sandbox adapter.
 """
 
-import threading
-import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -119,102 +117,14 @@ class AcraBizfileConnection:
 
 
 class NoAuthAcraAuthorizer:
-    """No-op authorizer for the confirmed no-auth-required Mock endpoints.
+    """No-op authorizer for the currently supported no-auth Mock endpoints.
 
-    Confirmed via Postman: GET requests to these entityQuery endpoints
-    return 200 with no Authorization header at all. Use this rather than
-    the OAuth2 authorizer below unless/until you hit an endpoint that
-    actually demands a token.
+    Authentication for any other operation remains deferred pending the
+    authoritative ACRA contract requested by Q-012.
     """
 
     def authorization_headers(self) -> Mapping[str, str]:
         return {}
-
-
-class OAuth2ClientCredentialsAcraAuthorizer:
-    """Fetch and cache a bearer token via the OAuth2 client-credentials grant.
-
-    NOT CURRENTLY NEEDED: confirmed via Postman that these entityQuery
-    endpoints return 200 with no auth at all -- use `NoAuthAcraAuthorizer`
-    above instead. Keeping this here in case a different ACRA API
-    Marketplace endpoint (filing, subscriptions, etc.) does require OAuth2.
-
-    FILL IN before use: `token_url` -- get this from your Postman
-    collection/request's Authorization tab -> "Configure New Token" ->
-    "Access Token URL". Client id/secret should come from env vars /
-    secrets manager, never hardcoded.
-
-    Caches the token in memory and refetches shortly before it expires.
-    Thread-safe enough for a typical request-per-thread web app; swap for
-    a shared cache (Redis etc.) if you run multiple processes.
-    """
-
-    def __init__(
-        self,
-        *,
-        token_url: str,
-        client_id: str,
-        client_secret: str,
-        scope: str | None = None,
-        transport: httpx.Client | None = None,
-        clock: Callable[[], float] | None = None,
-        expiry_leeway_seconds: float = 30.0,
-    ) -> None:
-        parsed = urlsplit(token_url)
-        if parsed.scheme != "https" or not parsed.netloc:
-            raise AcraConfigurationError
-        if not client_id or not client_secret:
-            raise AcraConfigurationError
-        self._token_url = token_url
-        self._client_id = client_id
-        self._client_secret = client_secret
-        self._scope = scope
-        self._transport = transport
-        self._clock = clock or time.monotonic
-        self._expiry_leeway_seconds = expiry_leeway_seconds
-        self._lock = threading.Lock()
-        self._cached_token: str | None = None
-        self._cached_expiry: float = 0.0
-
-    def authorization_headers(self) -> Mapping[str, str]:
-        return {"Authorization": f"Bearer {self._get_token()}"}
-
-    def _get_token(self) -> str:
-        with self._lock:
-            if self._cached_token is not None and self._clock() < self._cached_expiry:
-                return self._cached_token
-            token, ttl_seconds = self._request_token()
-            self._cached_token = token
-            self._cached_expiry = self._clock() + max(
-                ttl_seconds - self._expiry_leeway_seconds, 0
-            )
-            return token
-
-    def _request_token(self) -> tuple[str, float]:
-        data = {
-            "grant_type": "client_credentials",
-            "client_id": self._client_id,
-            "client_secret": self._client_secret,
-        }
-        if self._scope:
-            data["scope"] = self._scope
-        try:
-            client = self._transport or httpx.Client(verify=True)
-            with client as http_client:
-                response = http_client.post(self._token_url, data=data, timeout=10.0)
-        except httpx.TimeoutException:
-            raise AcraTimeoutError from None
-        except httpx.TransportError:
-            raise AcraServiceUnavailableError from None
-        if response.status_code != 200:
-            raise AcraAuthenticationError
-        try:
-            body = response.json()
-            access_token = str(body["access_token"])
-            expires_in = float(body.get("expires_in", 300))
-        except (ValueError, KeyError, TypeError):
-            raise AcraAuthenticationError from None
-        return access_token, expires_in
 
 
 def _combine_unit(level_no: str | None, unit_no: str | None) -> str | None:
@@ -520,9 +430,10 @@ class BizfileMockAcraConnector:
     """Retrieve company/officer/shareholder data via the Bizfile API
     Marketplace Mock-tier entityQuery endpoints.
 
-    No auth required for these endpoints -- confirmed via Postman. The
-    `authorizer` param defaults to `NoAuthAcraAuthorizer`; only override it
-    if a specific endpoint you add later turns out to need one.
+    The currently supported endpoints use no authentication. The
+    `authorizer` parameter defaults to `NoAuthAcraAuthorizer`; authoritative
+    authentication requirements for any future operation remain blocked by
+    Q-012 and are not implemented here.
     """
 
     def __init__(
