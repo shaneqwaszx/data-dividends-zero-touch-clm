@@ -77,11 +77,46 @@ function Test-ProcessExists {
     return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
 }
 
+function ConvertTo-UtcCreationInstant {
+    param([object]$Value)
+    if ($null -eq $Value) {
+        throw "Creation time is missing."
+    }
+    if ($Value -is [DateTimeOffset]) {
+        return ([DateTimeOffset]$Value).ToUniversalTime()
+    }
+    if ($Value -is [DateTime]) {
+        $dateTime = [DateTime]$Value
+        if ($dateTime.Kind -eq [DateTimeKind]::Unspecified) {
+            throw "Creation time has no timezone information."
+        }
+        return [DateTimeOffset]::new($dateTime).ToUniversalTime()
+    }
+    if ($Value -isnot [string]) {
+        throw "Creation time has an unsupported type."
+    }
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text) -or $text -notmatch "(?:[zZ]|[+-]\d{2}:\d{2})$") {
+        throw "Creation time is not an unambiguous ISO-8601 instant."
+    }
+    $instant = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse(
+        $text,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind,
+        [ref]$instant
+    )) {
+        throw "Creation time could not be parsed."
+    }
+    return $instant.ToUniversalTime()
+}
+
 function Test-SameCreationTime {
-    param([string]$Left, [string]$Right)
+    param([object]$Left, [object]$Right)
     try {
-        $leftUtc = [DateTime]::Parse($Left, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
-        $rightUtc = [DateTime]::Parse($Right, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+        $leftUtc = ConvertTo-UtcCreationInstant -Value $Left
+        $rightUtc = ConvertTo-UtcCreationInstant -Value $Right
         # Win32_Process and Get-Process can disagree by sub-microsecond precision.
         # One millisecond retains a narrow PID-reuse guard while permitting the
         # documented fallback when CIM access is denied.
@@ -348,7 +383,7 @@ function Confirm-OwnedProcess {
     if ($null -eq $identity) {
         return [pscustomobject]@{ status = "ABSENT"; reason = "process does not exist"; identity = $null }
     }
-    if (-not (Test-SameCreationTime -Left $identity.creation_time_utc -Right ([string]$Record.creation_time_utc))) {
+    if (-not (Test-SameCreationTime -Left $identity.creation_time_utc -Right $Record.creation_time_utc)) {
         return [pscustomobject]@{ status = "MISMATCH"; reason = "creation time does not match"; identity = $identity }
     }
     if (-not (Test-SamePath -Left $identity.executable_path -Right ([string]$Record.executable_path))) {
@@ -420,7 +455,7 @@ function Confirm-OwnedListener {
     if ($null -eq $identity) {
         return [pscustomobject]@{ status = "ABSENT"; reason = "listener process does not exist"; identity = $null }
     }
-    if (-not (Test-SameCreationTime -Left $identity.creation_time_utc -Right ([string]$Record.listener_creation_time_utc))) {
+    if (-not (Test-SameCreationTime -Left $identity.creation_time_utc -Right $Record.listener_creation_time_utc)) {
         return [pscustomobject]@{ status = "MISMATCH"; reason = "listener creation time does not match"; identity = $identity }
     }
     if (-not (Test-SamePath -Left $identity.executable_path -Right ([string]$Record.listener_executable_path))) {
@@ -432,7 +467,7 @@ function Confirm-OwnedListener {
     }
     $launcherIdentity = Get-ProcessIdentity -ProcessId ([int]$Record.launcher_pid)
     $recordedLauncherStillMatches = $null -ne $launcherIdentity -and
-        (Test-SameCreationTime -Left $launcherIdentity.creation_time_utc -Right ([string]$Record.creation_time_utc)) -and
+        (Test-SameCreationTime -Left $launcherIdentity.creation_time_utc -Right $Record.creation_time_utc) -and
         (Test-SamePath -Left $launcherIdentity.executable_path -Right ([string]$Record.executable_path))
     # CIM access may be denied even though Get-Process can safely verify the
     # recorded listener identity. Enforce ancestry whenever parent data is available;

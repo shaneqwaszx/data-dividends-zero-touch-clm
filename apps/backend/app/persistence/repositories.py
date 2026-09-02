@@ -32,7 +32,10 @@ from app.services.reconciliation_repository import (
 from app.services.target_execution_repository import (
     TargetExecutionRepositoryConflictError,
 )
-from app.services.zero_touch_repository import ZeroTouchRepositoryConflictError
+from app.services.zero_touch_repository import (
+    ZeroTouchRepositoryConflictError,
+    order_zero_touch_automation_records,
+)
 
 
 class MongoOnboardingCaseRepository:
@@ -241,11 +244,12 @@ class MongoZeroTouchAutomationRepository:
         return snapshot.automation.model_copy(deep=True)
 
     def list_records(self) -> list[ZeroTouchAutomationRecord]:
-        return [
+        records = (
             snapshot.automation.model_copy(deep=True)
             for snapshot in self._store.list()
             if snapshot.automation is not None
-        ]
+        )
+        return order_zero_touch_automation_records(records)
 
 
 class MongoReconciliationRepository:

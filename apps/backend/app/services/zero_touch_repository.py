@@ -1,5 +1,6 @@
 """Atomic process-local zero-touch automation repository."""
 
+from collections.abc import Iterable
 from threading import RLock
 from typing import Protocol
 from uuid import UUID
@@ -13,6 +14,18 @@ from app.domain.zero_touch import (
 
 class ZeroTouchRepositoryConflictError(Exception):
     pass
+
+
+def order_zero_touch_automation_records(
+    records: Iterable[ZeroTouchAutomationRecord],
+) -> list[ZeroTouchAutomationRecord]:
+    """Order by automation update time, using case ID only as a stable tie-break."""
+
+    return sorted(
+        records,
+        key=lambda item: (item.updated_at, str(item.case_id)),
+        reverse=True,
+    )
 
 
 class ZeroTouchAutomationRepository(Protocol):
@@ -59,4 +72,4 @@ class InMemoryZeroTouchAutomationRepository:
 
         with self._lock:
             records = [record.model_copy(deep=True) for record in self._records.values()]
-        return sorted(records, key=lambda item: (item.updated_at, str(item.case_id)), reverse=True)
+        return order_zero_touch_automation_records(records)

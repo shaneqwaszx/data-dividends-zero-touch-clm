@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
@@ -30,7 +30,11 @@ from app.domain.reconciliation import (
     derive_allowed_actions,
     derive_reconciliation_outcome,
 )
-from app.domain.zero_touch import AutomationStatus
+from app.domain.zero_touch import (
+    AutomationStage,
+    AutomationStatus,
+    ZeroTouchAutomationRecord,
+)
 from app.main import create_app
 from app.services.document_errors import DocumentRequestError
 from app.services.document_processing import DocumentProcessingService
@@ -187,20 +191,50 @@ def upload(
     return response.json()
 
 
+def pending_automation_record(
+    case_id: UUID, *, updated_at: datetime
+) -> ZeroTouchAutomationRecord:
+    return ZeroTouchAutomationRecord(
+        case_id=case_id,
+        automation_id=uuid4(),
+        ownership_provider_binding_id="a" * 32,
+        status=AutomationStatus.PENDING_INPUTS,
+        current_stage=AutomationStage.DOCUMENT,
+        completed_stages=(AutomationStage.REGISTRY,),
+        created_at=updated_at,
+        updated_at=updated_at,
+    )
+
+
 def test_repository_listing_is_empty_ordered_and_defensively_copied() -> None:
     repository = InMemoryZeroTouchAutomationRepository()
     assert repository.list_records() == []
 
+    first_id = UUID("00000000-0000-0000-0000-000000000001")
+    second_id = UUID("00000000-0000-0000-0000-000000000002")
+    first_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    second_at = datetime(2026, 1, 2, 3, 4, 6, tzinfo=UTC)
+    repository.save(
+        pending_automation_record(first_id, updated_at=first_at),
+        expected_version=None,
+    )
+    repository.save(
+        pending_automation_record(second_id, updated_at=second_at),
+        expected_version=None,
+    )
+    listed_records = repository.list_records()
+    assert [item.case_id for item in listed_records] == [second_id, first_id]
+    listed_records[0].metrics.human_interventions = 99
+    listed_records.clear()
+    assert [item.case_id for item in repository.list_records()] == [second_id, first_id]
+    assert repository.list_records()[0].metrics.human_interventions == 0
+
     client = TestClient(create_app(Settings(app_env="test")))
-    first = create_case(client)
-    second = create_case(client)
+    created = create_case(client)
     listed = client.get("/api/clm/zero-touch/cases")
     assert listed.status_code == 200
     payload = listed.json()
-    assert [item["case_id"] for item in payload] == [
-        second["case"]["case_id"],
-        first["case"]["case_id"],
-    ]
+    assert [item["case_id"] for item in payload] == [created["case"]["case_id"]]
     assert set(payload[0]) == {
         "case_id",
         "requested_uen",
@@ -212,6 +246,27 @@ def test_repository_listing_is_empty_ordered_and_defensively_copied() -> None:
         "human_interventions",
         "final_outcome",
     }
+
+
+def test_repository_equal_timestamps_use_case_id_not_save_chronology() -> None:
+    repository = InMemoryZeroTouchAutomationRepository()
+    lower_id = UUID("00000000-0000-0000-0000-000000000001")
+    higher_id = UUID("ffffffff-ffff-ffff-ffff-ffffffffffff")
+    tied_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+
+    # Save the higher ID first: the later save does not win an exact timestamp tie.
+    repository.save(
+        pending_automation_record(higher_id, updated_at=tied_at),
+        expected_version=None,
+    )
+    repository.save(
+        pending_automation_record(lower_id, updated_at=tied_at),
+        expected_version=None,
+    )
+
+    expected = [higher_id, lower_id]
+    assert [item.case_id for item in repository.list_records()] == expected
+    assert [item.case_id for item in repository.list_records()] == expected
 
 
 def test_case_list_status_filter_is_typed_and_backend_authored() -> None:
