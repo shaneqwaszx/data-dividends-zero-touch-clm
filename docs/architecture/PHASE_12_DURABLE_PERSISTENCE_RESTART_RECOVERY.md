@@ -27,6 +27,12 @@ and exactly equal `str(case_id)`. The store rejects missing, non-string, malform
 noncanonical, or mismatched identities on startup, direct reads, lists, and secondary
 lookups; it never normalizes or repairs them.
 
+Zero-touch automation case lists preserve the repository contract in both modes:
+automation `updated_at` descending, then canonical case-ID string descending for exact
+timestamp ties. The case ID supplies deterministic output only, not create/save
+chronology. Mongo envelope `updated_at` may order envelope-store reads, but it does not
+define the extracted automation case-list order.
+
 ## Concurrency and coordinated decisions
 
 Every write filters by `case_id` and the current envelope `revision`, then increments

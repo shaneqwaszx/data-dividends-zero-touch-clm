@@ -25,10 +25,12 @@ GET /api/clm/zero-touch/cases[?status=enum]
      Dashboard history    Review queue
 ```
 
-The repository returns deep defensive copies ordered by `updated_at` descending with a
-stable case-ID tie-break. The API exposes only case ID, requested UEN, optional legal
-name, status, stage, updated time, active-exception count, intervention count, and final
-outcome. Listing does not invoke or resume any provider or workflow stage.
+The repository returns deep defensive copies ordered by automation `updated_at`
+descending. Exact timestamp ties use descending canonical case-ID strings only for
+stable output; the tie-break does not represent create or save chronology. The API
+exposes only case ID, requested UEN, optional legal name, status, stage, updated time,
+active-exception count, intervention count, and final outcome. Listing does not invoke
+or resume any provider or workflow stage.
 
 All records are process-local. Restart clears cases and the browser must describe the
 portfolio as local POC history, not durable case management.
