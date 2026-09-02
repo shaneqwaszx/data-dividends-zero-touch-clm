@@ -163,6 +163,161 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
             check=False,
         )
 
+    def collect_ownership_diagnostics(self) -> dict[str, Any]:
+        """Return sanitized ownership predicates without exposing process command lines."""
+        environment = self.lifecycle_environment()
+        environment["RQG03_SCRIPT_PATH"] = str(SCRIPTS / "demo_lifecycle.ps1")
+        environment["RQG03_STATE_PATH"] = str(STATE)
+        environment["RQG03_ROOT"] = str(ROOT)
+        command = r"""
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile(
+    $env:RQG03_SCRIPT_PATH,
+    [ref]$tokens,
+    [ref]$errors
+)
+$definitions = $ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst]
+}, $true)
+if ($errors.Count -ne 0 -or $definitions.Count -lt 1) {
+    throw "Lifecycle diagnostic function extraction failed."
+}
+$definitions | ForEach-Object { Invoke-Expression $_.Extent.Text }
+
+$script:RepositoryRoot = [IO.Path]::GetFullPath($env:RQG03_ROOT)
+$script:BackendDirectory = [IO.Path]::GetFullPath((Join-Path $script:RepositoryRoot "apps\backend"))
+$script:FrontendDirectory = [IO.Path]::GetFullPath((Join-Path $script:RepositoryRoot "apps\frontend"))
+$script:PythonPath = [IO.Path]::GetFullPath((Join-Path $script:RepositoryRoot ".venv\Scripts\python.exe"))
+$script:VitePath = [IO.Path]::GetFullPath((Join-Path $script:FrontendDirectory "node_modules\vite\bin\vite.js"))
+$script:BackendPort = 8000
+$script:FrontendPort = 5173
+
+function Get-DiagnosticInstant {
+    param([object]$Value)
+    try {
+        return ConvertTo-UtcCreationInstant -Value $Value
+    }
+    catch {
+        return $null
+    }
+}
+
+$state = Get-Content -LiteralPath $env:RQG03_STATE_PATH -Raw -Encoding UTF8 | ConvertFrom-Json
+$roles = @(
+    foreach ($record in @($state.processes)) {
+        $expected = Get-RoleExpectation -Role ([string]$record.role)
+        $observed = Get-ProcessIdentity -ProcessId ([int]$record.launcher_pid)
+        $listenerObserved = if ($null -ne $record.listener_pid) {
+            Get-ProcessIdentity -ProcessId ([int]$record.listener_pid)
+        }
+        else {
+            $null
+        }
+        $launcherCheck = Confirm-OwnedProcess -Record $record
+        $listenerCheck = Confirm-OwnedListener -Record $record
+
+        $recordedInstant = Get-DiagnosticInstant -Value $record.creation_time_utc
+        $observedInstant = if ($null -ne $observed) {
+            Get-DiagnosticInstant -Value $observed.creation_time_utc
+        }
+        else {
+            $null
+        }
+        $listenerRecordedInstant = Get-DiagnosticInstant -Value $record.listener_creation_time_utc
+        $listenerObservedInstant = if ($null -ne $listenerObserved) {
+            Get-DiagnosticInstant -Value $listenerObserved.creation_time_utc
+        }
+        else {
+            $null
+        }
+
+        $creationDelta = if ($null -ne $recordedInstant -and $null -ne $observedInstant) {
+            [Math]::Abs(($observedInstant - $recordedInstant).TotalMilliseconds)
+        }
+        else {
+            $null
+        }
+        $listenerCreationDelta = if (
+            $null -ne $listenerRecordedInstant -and $null -ne $listenerObservedInstant
+        ) {
+            [Math]::Abs(($listenerObservedInstant - $listenerRecordedInstant).TotalMilliseconds)
+        }
+        else {
+            $null
+        }
+        $ancestryMatch = (
+            $null -ne $observed -and
+            $null -ne $listenerObserved -and
+            (Test-IsDescendantProcess `
+                -CandidateProcessId ([int]$listenerObserved.pid) `
+                -AncestorProcessId ([int]$observed.pid))
+        )
+
+        [ordered]@{
+            role = [string]$record.role
+            launcher_status = [string]$launcherCheck.status
+            launcher_reason = [string]$launcherCheck.reason
+            recorded_creation_utc = if ($null -ne $recordedInstant) { $recordedInstant.ToString("O") } else { $null }
+            observed_creation_utc = if ($null -ne $observedInstant) { $observedInstant.ToString("O") } else { $null }
+            creation_delta_ms = $creationDelta
+            creation_time_match = (
+                $null -ne $observed -and
+                (Test-SameCreationTime -Left $observed.creation_time_utc -Right $record.creation_time_utc)
+            )
+            executable_path_match = (
+                $null -ne $observed -and
+                (Test-SamePath -Left $observed.executable_path -Right ([string]$record.executable_path))
+            )
+            command_role_markers_match = (
+                $null -ne $observed -and
+                (Test-IdentityRoleMarkers -Identity $observed -Expected $expected)
+            )
+            listener_status = [string]$listenerCheck.status
+            listener_reason = [string]$listenerCheck.reason
+            listener_recorded_creation_utc = if ($null -ne $listenerRecordedInstant) { $listenerRecordedInstant.ToString("O") } else { $null }
+            listener_observed_creation_utc = if ($null -ne $listenerObservedInstant) { $listenerObservedInstant.ToString("O") } else { $null }
+            listener_creation_delta_ms = $listenerCreationDelta
+            listener_creation_time_match = (
+                $null -ne $listenerObserved -and
+                (Test-SameCreationTime `
+                    -Left $listenerObserved.creation_time_utc `
+                    -Right $record.listener_creation_time_utc)
+            )
+            listener_executable_path_match = (
+                $null -ne $listenerObserved -and
+                (Test-SamePath `
+                    -Left $listenerObserved.executable_path `
+                    -Right ([string]$record.listener_executable_path))
+            )
+            listener_role_markers_match = (
+                $null -ne $listenerObserved -and
+                (Test-IdentityRoleMarkers -Identity $listenerObserved -Expected $expected)
+            )
+            listener_ownership_match = $listenerCheck.status -eq "OWNED"
+            launcher_ancestry_corroboration_match = [bool]$ancestryMatch
+        }
+    }
+)
+[ordered]@{
+    powershell_version = $PSVersionTable.PSVersion.ToString()
+    windows_timezone_id = [TimeZoneInfo]::Local.Id
+    roles = $roles
+} | ConvertTo-Json -Depth 5 -Compress
+"""
+        result = subprocess.run(
+            ["pwsh.exe", "-NoProfile", "-Command", command],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return json.loads(result.stdout)
+
     def request(self, url: str, *, data: bytes | None = None) -> tuple[int, bytes]:
         request = urllib.request.Request(url, data=data)
         if data is not None:
@@ -348,7 +503,17 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
         }
 
         status = self.run_pwsh_lifecycle("Status")
-        self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+        diagnostic_message = ""
+        if status.returncode != 0:
+            diagnostics = self.collect_ownership_diagnostics()
+            diagnostic_message = "\nOWNERSHIP_DIAGNOSTICS=" + json.dumps(
+                diagnostics, sort_keys=True, separators=(",", ":")
+            )
+        self.assertEqual(
+            status.returncode,
+            0,
+            status.stdout + status.stderr + diagnostic_message,
+        )
         self.assertIn("backend:", status.stdout)
         self.assertIn("frontend:", status.stdout)
         self.assertEqual(status.stdout.count("OWNED"), 2)
@@ -380,6 +545,18 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
                 status = self.run_pwsh_lifecycle("Status")
                 self.assertNotEqual(status.returncode, 0)
                 self.assertEqual(status.stdout.count("MISMATCH"), 2)
+
+                diagnostics = self.collect_ownership_diagnostics()
+                serialized_diagnostics = json.dumps(diagnostics, sort_keys=True)
+                self.assertNotIn("command_line", serialized_diagnostics)
+                self.assertEqual(
+                    {item["role"] for item in diagnostics["roles"]}, {"backend", "frontend"}
+                )
+                for item in diagnostics["roles"]:
+                    self.assertFalse(item["creation_time_match"])
+                    self.assertFalse(item["listener_creation_time_match"])
+                    self.assertTrue(item["executable_path_match"])
+                    self.assertTrue(item["command_role_markers_match"])
 
                 stopped = self.run_pwsh_lifecycle("Stop")
                 self.assertNotEqual(stopped.returncode, 0)

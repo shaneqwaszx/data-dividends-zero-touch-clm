@@ -228,3 +228,95 @@ These are explicitly permitted environment limitations and do not affect the bou
 All required metrics are zero. The bounded remediation is ready for independent quality gate; this is not merge, push, or acceptance authority.
 
 READY FOR WINDOWS LIFECYCLE UTC OWNERSHIP INDEPENDENT QUALITY GATE
+
+## 40. GitHub Windows CI Follow-up
+
+### Original CI failure
+
+GitHub Actions ran commit `d9d17a0ea3ba397c8bc8f20a374297e0c9e0f49d` on the
+`windows-latest` `demo-lifecycle-windows` job. The only lifecycle failure was:
+
+`DemoLifecycleWindowsTests.test_start_stop_health_pids_and_unrelated_processes`
+
+PowerShell 7 Status returned exit 1 and reported both launchers as `MISMATCH`:
+
+- backend PID 6488;
+- frontend PID 5576.
+
+The surrounding lifecycle scenarios passed.
+
+### Failed predicate and decision chain
+
+`Show-DemoStatus` calls `Confirm-OwnedProcess` for each recorded role. A live process
+can return `MISMATCH` at creation-time equality, recorded executable-path equality,
+role executable-name equality, backend virtualenv-path equality, or available command
+marker equality. The first failing predicate returns immediately.
+
+The pushed commit contained the new PowerShell 7 lifecycle regression tests and the
+remediation reports but did **not** contain `scripts/demo_lifecycle.ps1`. Inspection of
+the exact committed file confirmed that CI therefore executed the old
+`Test-SameCreationTime` string parameters and the eager recorded-timestamp string cast.
+Under PowerShell 7, `ConvertFrom-Json` materializes the stored UTC timestamp as
+`DateTime(Utc)`; the eager cast converts it to a zone-less display string, which is
+reparsed as local time. Creation-time equality is therefore the failed ownership
+predicate. Path, executable-name, and marker predicates were not reached in the failing
+Status decision chain.
+
+This is a commit-content omission, not evidence of cross-API timestamp precision beyond
+the existing tolerance.
+
+### Safe diagnostic evidence
+
+The failing test now collects sanitized diagnostics only when PowerShell Status returns
+nonzero. For each role it reports normalized recorded/observed launcher and listener
+instants, absolute deltas, creation/path/marker/listener/ancestry booleans, closed-set
+ownership status/reason text, PowerShell version, and Windows timezone ID. It does not
+serialize command lines, paths, environment dumps, secrets, tokens, or payloads. The
+hostile-metadata test independently exercises this diagnostic path and asserts that no
+`command_line` field is emitted.
+
+A bounded local diagnostic run on PowerShell 7.6.4 in `Singapore Standard Time`
+reported, for both backend and frontend:
+
+- launcher and listener status: `OWNED`;
+- normalized recorded/observed delta: `0.0 ms`;
+- creation-time match: `true`;
+- executable/path match: `true`;
+- command/role marker match: `true`;
+- listener ownership match: `true`;
+- launcher ancestry/corroboration match: `true`.
+
+### CIM versus Get-Process precision
+
+Ten independent test-owned processes were measured through both `Win32_Process` CIM
+`CreationDate` and `Get-Process.StartTime`. Absolute UTC deltas ranged from `0` to
+`0.0007 ms`. These measurements do not show a legitimate local need to widen the guard.
+
+### Correction and tolerance decision
+
+The correction is to include the already independently reviewed canonical
+`scripts/demo_lifecycle.ps1` UTC normalization change in the branch, together with the
+test-only safe diagnostics above. No lifecycle redesign, CI special case, assertion
+weakening, skip, ownership-predicate removal, or unrelated subsystem change was made.
+
+The creation-time tolerance remains exactly `1 ms`. There is no CI diagnostic evidence
+supporting a wider value, and keeping the narrow guard preserves PID-reuse protection.
+
+### Local results
+
+- pre-edit exact-test reproduction with the corrected unstaged script: `5/5 PASS`;
+- focused UTC normalization: `3 passed`;
+- focused valid ownership, hostile timestamps, and wrong executable: `3 passed`;
+- complete CI-equivalent Windows lifecycle suite: `17 passed`;
+- exact previously failing test in consecutive independent processes: `20/20 PASS`;
+- secret scan: passed;
+- secret-scanner unit tests: `5 passed`;
+- Ruff over the changed lifecycle test: passed;
+- ports 8000 and 5173 and runtime state: clean after verification.
+
+### GitHub rerun result
+
+PENDING — the bounded correction has not yet been pushed. Local success alone is not
+treated as final readiness.
+
+NOT READY FOR WINDOWS LIFECYCLE CI RE-VERIFICATION
