@@ -23,6 +23,68 @@ CREATE_NO_WINDOW = 0x08000000
 
 
 @unittest.skipUnless(os.name == "nt", "Windows-only process lifecycle verification")
+class DemoLifecycleCreationTimeTests(unittest.TestCase):
+    """Exercise the script's creation-time comparison without starting the demo."""
+
+    def run_creation_time_comparison(self, observed_expression: str, recorded_expression: str) -> bool:
+        script_path = str(SCRIPTS / "demo_lifecycle.ps1").replace("'", "''")
+        command = (
+            "$tokens = $null; $errors = $null;"
+            f"$ast = [Management.Automation.Language.Parser]::ParseFile('{script_path}', [ref]$tokens, [ref]$errors);"
+            "$definitions = $ast.FindAll({"
+            "param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and "
+            "$node.Name -in @('ConvertTo-UtcCreationInstant', 'Test-SameCreationTime')"
+            "}, $true);"
+            "if ($definitions.Count -lt 1 -or $errors.Count -ne 0) { exit 2 };"
+            "$definitions | ForEach-Object { Invoke-Expression $_.Extent.Text };"
+            f"$observed = {observed_expression};"
+            f"$recorded = {recorded_expression};"
+            "if (Test-SameCreationTime -Left $observed -Right $recorded) { exit 0 } else { exit 1 }"
+        )
+        result = subprocess.run(
+            ["pwsh.exe", "-NoProfile", "-Command", command],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 2, result.stdout + result.stderr)
+        return result.returncode == 0
+
+    def test_stored_utc_and_observed_utc_plus_eight_are_the_same_instant(self) -> None:
+        observed = (
+            "[DateTimeOffset]::Parse('2026-09-02T17:37:01.1234567+08:00', "
+            "[Globalization.CultureInfo]::InvariantCulture)"
+        )
+        recorded = (
+            "('{\"creation_time_utc\":\"2026-09-02T09:37:01.1234567Z\"}' | "
+            "ConvertFrom-Json).creation_time_utc"
+        )
+        self.assertTrue(self.run_creation_time_comparison(observed, recorded))
+
+    def test_genuinely_different_instants_do_not_match(self) -> None:
+        observed = (
+            "[DateTimeOffset]::Parse('2026-09-02T17:37:03.1234567+08:00', "
+            "[Globalization.CultureInfo]::InvariantCulture)"
+        )
+        recorded = (
+            "('{\"creation_time_utc\":\"2026-09-02T09:37:01.1234567Z\"}' | "
+            "ConvertFrom-Json).creation_time_utc"
+        )
+        self.assertFalse(self.run_creation_time_comparison(observed, recorded))
+
+    def test_invalid_and_zone_less_creation_times_fail_closed(self) -> None:
+        observed = (
+            "[DateTimeOffset]::Parse('2026-09-02T17:37:01.1234567+08:00', "
+            "[Globalization.CultureInfo]::InvariantCulture)"
+        )
+        for recorded in ("'not-a-timestamp'", "'2026-09-02T09:37:01.1234567'"):
+            with self.subTest(recorded=recorded):
+                self.assertFalse(self.run_creation_time_comparison(observed, recorded))
+
+
+@unittest.skipUnless(os.name == "nt", "Windows-only process lifecycle verification")
 class DemoLifecycleWindowsTests(unittest.TestCase):
     """Use harmless exact test processes; never select processes by executable name."""
 
@@ -82,6 +144,24 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
             )
             output.seek(0)
             return result.returncode, output.read()
+
+    def run_pwsh_lifecycle(self, action: str, timeout: int = 90) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                "pwsh.exe",
+                "-NoProfile",
+                "-File",
+                str(SCRIPTS / "demo_lifecycle.ps1"),
+                "-Action",
+                action,
+            ],
+            cwd=ROOT,
+            env=self.lifecycle_environment(),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
 
     def request(self, url: str, *, data: bytes | None = None) -> tuple[int, bytes]:
         request = urllib.request.Request(url, data=data)
@@ -267,14 +347,51 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
             if process_id is not None
         }
 
-        stopped = self.run_lifecycle("stop_demo_windows.bat")
-        self.assertEqual(stopped.returncode, 0)
+        status = self.run_pwsh_lifecycle("Status")
+        self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+        self.assertIn("backend:", status.stdout)
+        self.assertIn("frontend:", status.stdout)
+        self.assertEqual(status.stdout.count("OWNED"), 2)
+
+        stopped = self.run_pwsh_lifecycle("Stop")
+        self.assertEqual(stopped.returncode, 0, stopped.stdout + stopped.stderr)
         self.assert_endpoints_stopped()
         self.assertFalse(STATE.exists())
         for process_id in owned_ids:
             self.assertFalse(self.process_alive(process_id), f"owned PID {process_id} survived")
         for process in (python_process, node_process, titled_process):
             self.assertIsNone(process.poll(), f"unrelated PID {process.pid} was terminated")
+
+    def test_wrong_or_unparseable_creation_time_fails_closed_for_status_and_stop(self) -> None:
+        started = self.run_lifecycle("start_demo_windows.bat")
+        self.assertEqual(started.returncode, 0)
+        self.assert_endpoints_healthy()
+        original_state = self.read_state()
+        self.demo_cleanup_state = original_state
+
+        for bad_creation_time in ("1970-01-01T00:00:00.0000000Z", "not-a-timestamp"):
+            with self.subTest(creation_time=bad_creation_time):
+                corrupt_state = json.loads(json.dumps(original_state))
+                for record in corrupt_state["processes"]:
+                    record["creation_time_utc"] = bad_creation_time
+                    record["listener_creation_time_utc"] = bad_creation_time
+                self.write_state(corrupt_state)
+
+                status = self.run_pwsh_lifecycle("Status")
+                self.assertNotEqual(status.returncode, 0)
+                self.assertEqual(status.stdout.count("MISMATCH"), 2)
+
+                stopped = self.run_pwsh_lifecycle("Stop")
+                self.assertNotEqual(stopped.returncode, 0)
+                self.assertIn("Launcher ownership could not be established", stopped.stdout)
+                self.assertEqual(self.read_state(), corrupt_state)
+                self.assert_endpoints_healthy()
+
+        self.write_state(original_state)
+        stopped = self.run_lifecycle("stop_demo_windows.bat")
+        self.assertEqual(stopped.returncode, 0)
+        self.demo_cleanup_state = None
+        self.assert_endpoints_stopped()
 
     def test_reset_restarts_and_clears_process_local_case(self) -> None:
         started = self.run_lifecycle("start_demo_windows.bat")
@@ -323,8 +440,9 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
                 ),
             ]
         )
-        reset = self.run_lifecycle("reset_demo_windows.bat")
-        self.assertNotEqual(reset.returncode, 0)
+        returncode, output = self.run_lifecycle_captured("reset_demo_windows.bat")
+        self.assertNotEqual(returncode, 0)
+        self.assertIn("backend executable is outside the project virtual environment", output)
         self.assertIsNone(unrelated.poll())
         self.assertFalse(self.endpoint_available("http://127.0.0.1:8000/health"))
         self.assertTrue(STATE.exists())
