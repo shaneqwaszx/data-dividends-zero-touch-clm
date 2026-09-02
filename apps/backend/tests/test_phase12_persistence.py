@@ -57,6 +57,7 @@ from app.persistence.repositories import (
     MongoTargetExecutionRepository,
     MongoZeroTouchAutomationRepository,
 )
+from app.services.zero_touch_repository import InMemoryZeroTouchAutomationRepository
 
 TEXT_PROFILE = """Legal Name: MERLION CIRCULAR LABS PTE. LTD.
 UEN: 202400001A
@@ -120,6 +121,150 @@ class MemoryEnvelopeStore:
             if any(item.document_id == document_id for item in snapshot.documents):
                 return snapshot.model_copy(deep=True)
         return None
+
+
+def _pending_automation_record(
+    case_id: UUID, *, updated_at: datetime, version: int = 0
+) -> ZeroTouchAutomationRecord:
+    return ZeroTouchAutomationRecord(
+        case_id=case_id,
+        automation_id=uuid4(),
+        version=version,
+        ownership_provider_binding_id="a" * 32,
+        status=AutomationStatus.PENDING_INPUTS,
+        current_stage=AutomationStage.DOCUMENT,
+        completed_stages=(AutomationStage.REGISTRY,),
+        created_at=updated_at,
+        updated_at=updated_at,
+    )
+
+
+def test_automation_repository_order_is_independent_of_envelope_order() -> None:
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    envelope_newer_case = onboarding.create_staged_case("202400001A")
+    automation_newer_case = onboarding.create_staged_case("202400002B")
+    automation_older_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    automation_newer_at = datetime(2026, 1, 2, 3, 4, 6, tzinfo=UTC)
+    envelope_older_at = datetime(2026, 1, 2, 4, 0, 0, tzinfo=UTC)
+    envelope_newer_at = datetime(2026, 1, 2, 5, 0, 0, tzinfo=UTC)
+
+    memory_repository = InMemoryZeroTouchAutomationRepository()
+    memory_repository.save(
+        _pending_automation_record(
+            envelope_newer_case.case_id, updated_at=automation_older_at
+        ),
+        expected_version=None,
+    )
+    memory_repository.save(
+        _pending_automation_record(
+            automation_newer_case.case_id, updated_at=automation_newer_at
+        ),
+        expected_version=None,
+    )
+
+    store = MemoryEnvelopeStore()
+    store.create(
+        DurableCaseSnapshot(
+            case_id=envelope_newer_case.case_id,
+            revision=0,
+            onboarding=envelope_newer_case,
+            automation=_pending_automation_record(
+                envelope_newer_case.case_id,
+                updated_at=automation_older_at,
+                version=1,
+            ),
+            created_at=envelope_newer_at,
+            updated_at=envelope_newer_at,
+        )
+    )
+    store.create(
+        DurableCaseSnapshot(
+            case_id=automation_newer_case.case_id,
+            revision=0,
+            onboarding=automation_newer_case,
+            automation=_pending_automation_record(
+                automation_newer_case.case_id,
+                updated_at=automation_newer_at,
+                version=1,
+            ),
+            created_at=envelope_older_at,
+            updated_at=envelope_older_at,
+        )
+    )
+
+    expected = [automation_newer_case.case_id, envelope_newer_case.case_id]
+    assert [item.case_id for item in store.list()] == list(reversed(expected))
+    assert [item.case_id for item in memory_repository.list_records()] == expected
+    mongo_repository = MongoZeroTouchAutomationRepository(store)  # type: ignore[arg-type]
+    assert [item.case_id for item in mongo_repository.list_records()] == expected
+
+    automation_latest_at = datetime(2026, 1, 2, 6, 0, 0, tzinfo=UTC)
+    memory_older = memory_repository.get_for_case(envelope_newer_case.case_id)
+    assert memory_older is not None
+    memory_repository.save(
+        memory_older.model_copy(update={"updated_at": automation_latest_at}, deep=True),
+        expected_version=memory_older.version,
+    )
+    mongo_older = mongo_repository.get_for_case(envelope_newer_case.case_id)
+    assert mongo_older is not None
+    mongo_repository.save(
+        mongo_older.model_copy(update={"updated_at": automation_latest_at}, deep=True),
+        expected_version=mongo_older.version,
+    )
+
+    updated_expected = [envelope_newer_case.case_id, automation_newer_case.case_id]
+    assert [item.case_id for item in store.list()] == updated_expected
+    assert [item.case_id for item in memory_repository.list_records()] == updated_expected
+    assert [item.case_id for item in mongo_repository.list_records()] == updated_expected
+
+    memory_result = memory_repository.list_records()
+    mongo_result = mongo_repository.list_records()
+    memory_result[0].metrics.human_interventions = 99
+    mongo_result[0].metrics.human_interventions = 99
+    memory_result.clear()
+    mongo_result.clear()
+    assert memory_repository.list_records()[0].metrics.human_interventions == 0
+    assert mongo_repository.list_records()[0].metrics.human_interventions == 0
+
+
+def test_automation_repository_equal_timestamp_order_matches_across_modes() -> None:
+    lower_id = UUID("00000000-0000-0000-0000-000000000001")
+    higher_id = UUID("ffffffff-ffff-ffff-ffff-ffffffffffff")
+    tied_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    higher_case = onboarding.create_staged_case("202400001A").model_copy(
+        update={"case_id": higher_id}, deep=True
+    )
+    lower_case = onboarding.create_staged_case("202400002B").model_copy(
+        update={"case_id": lower_id}, deep=True
+    )
+
+    memory_repository = InMemoryZeroTouchAutomationRepository()
+    store = MemoryEnvelopeStore()
+    # Save the higher ID first: stable identity ordering, not save chronology, wins the tie.
+    for case in (higher_case, lower_case):
+        memory_repository.save(
+            _pending_automation_record(case.case_id, updated_at=tied_at),
+            expected_version=None,
+        )
+        store.create(
+            DurableCaseSnapshot(
+                case_id=case.case_id,
+                revision=0,
+                onboarding=case,
+                automation=_pending_automation_record(
+                    case.case_id, updated_at=tied_at, version=1
+                ),
+                created_at=tied_at,
+                updated_at=tied_at,
+            )
+        )
+
+    mongo_repository = MongoZeroTouchAutomationRepository(store)  # type: ignore[arg-type]
+    expected = [higher_id, lower_id]
+    for _ in range(2):
+        assert [item.case_id for item in memory_repository.list_records()] == expected
+        assert [item.case_id for item in mongo_repository.list_records()] == expected
 
 
 def _durable_adapter_app(store: MemoryEnvelopeStore) -> object:
