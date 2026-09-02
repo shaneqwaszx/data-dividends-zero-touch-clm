@@ -28,7 +28,7 @@ import {
   registryOperationProgressState,
   registryRouteProgressState,
 } from "./pages/CaseStatePanels";
-import OnboardedClients from "./pages/OnboardedClients";
+import OnboardedClients, { OnboardedActionColumnHeader } from "./pages/OnboardedClients";
 import { PolicyClassificationBadge } from "./pages/PolicyRules";
 import ReturnForReworkDialog from "./pages/ReturnForReworkDialog";
 import type { DocumentProcessingRecord, ReconciliationSummary, SimulationProfile, ZeroTouchCaseListItem, ZeroTouchCaseSummary, ZeroTouchException } from "./types";
@@ -328,6 +328,14 @@ describe("UI v2 backend integration adapters", () => {
     expect(clientActions).toContain("Export record");
     expect(clientActions).toContain("Start a review");
     expect(clientActions.match(/disabled/g)?.length).toBe(2);
+  });
+
+  it("names the Onboarded action column without an out-of-flow hidden box", () => {
+    const markup = renderToStaticMarkup(
+      <table><thead><tr><OnboardedActionColumnHeader /></tr></thead></table>,
+    );
+    expect(markup).toContain('<th aria-label="Open"></th>');
+    expect(markup).not.toContain("sr-only");
   });
 
   it("detects restart-interrupted documents only from the backend recovery code", () => {

@@ -4,6 +4,10 @@ import { ApiError, fetchZeroTouchCase, fetchZeroTouchCases } from "../api";
 import type { OnboardedRowView } from "../viewModels";
 import { mapCompletedCaseToOnboardedRow } from "../viewModels";
 
+export function OnboardedActionColumnHeader() {
+  return <th aria-label="Open" />;
+}
+
 export default function OnboardedClients({
   onOpenClient,
 }: {
@@ -105,7 +109,7 @@ export default function OnboardedClients({
                 <th>Risk</th>
                 <th>Onboarded</th>
                 <th>Next review</th>
-                <th><span className="sr-only">Open</span></th>
+                <OnboardedActionColumnHeader />
               </tr>
             </thead>
             <tbody>
