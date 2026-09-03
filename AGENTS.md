@@ -25,6 +25,39 @@ The implementation must remain extensible to additional corporate registries lat
 - Do not push unless explicitly instructed.
 - Do not modify unrelated files.
 
+## Mandatory branch and integration safety
+
+- `origin/main` is the authoritative integration baseline. Before creating a development
+  branch, run `git fetch origin`, `git switch main`, and
+  `git pull --ff-only origin main`; then create a new branch and record the initial
+  `origin/main` SHA as `BASE_SHA`. Never develop directly on `main`.
+- Work only on the assigned feature branch. Do not modify `main`, delete another
+  developer's branch, rewrite another developer's commits, force-push, rebase a shared
+  branch, merge a PR, run `git clean` or `git reset --hard`, or stage unrelated files
+  with `git add -A`.
+- Minimize the integration surface. Do not perform opportunistic refactors, unrelated
+  renames, broad reformatting, unnecessary generated/lockfile changes, or rewrites of
+  working modules. Treat central frontend/backend composition, API/types, CI, README,
+  and lockfiles as deliberate-change hotspots.
+- Preserve current main behavior unless the assigned requirement explicitly supersedes
+  it. Do not restore APIs, UI behavior, security assumptions, mocks, configuration, or
+  documentation removed or changed on newer main.
+- Before PR readiness, fetch again and determine whether `origin/main` advanced from
+  `BASE_SHA`. If it did, merge `origin/main` into the feature branch when authorized;
+  do not rebase a shared branch. Resolve every conflict by preserving current main
+  intent and reapplying the smallest feature delta. Never blindly choose ours/theirs,
+  accept current/incoming, or delete one side. Stop when intent cannot be reconciled.
+- Explicitly report changes to API routes/models, shared types, persistence schemas,
+  connector interfaces, configuration names, business rules, sponsor mappings, and
+  authentication/security behavior.
+- Run `python scripts/pre_pr_check.py` and all relevant regression checks against the
+  latest `origin/main` before declaring PR readiness. A focused test or ancestry check
+  alone does not prove merge safety.
+
+Use `.agents/skills/integration-safe-development/SKILL.md` for the staged workflow,
+`docs/development/BRANCH_MERGE_PROTOCOL.md` for the human Git protocol, and the skill's
+`references/PRE_PR_CHECKLIST.md` before handoff.
+
 ## Source-of-truth and development-conflict policy
 
 When supplied project artefacts disagree, apply this provisional development policy:
