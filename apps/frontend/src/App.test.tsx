@@ -493,23 +493,24 @@ afterEach(() => {
 
 describe("Phase 04 onboarding, document review, and ownership UI", () => {
   it("renders the purpose-based workspace structure", () => {
-    const tabs = renderToStaticMarkup(<WorkspaceTabs activeTab="dashboard" onChange={() => undefined} />);
+    const tabs = renderToStaticMarkup(<WorkspaceTabs activeTab="home" onChange={() => undefined} />);
     const dashboard = renderToStaticMarkup(<DashboardSnapshot summary={null} />);
     const account = renderToStaticMarkup(<AccountPlaceholder />);
-    expect(tabs).toContain("Dashboard");
-    expect(tabs).toContain("Start onboarding");
-    expect(tabs).toContain("Review");
-    expect(tabs).toContain("Logs");
-    expect(tabs).toContain("Account info");
+    expect(tabs).toContain("New onboarding");
+    expect(tabs).toContain("Cases");
+    expect(tabs).toContain("Onboarded");
+    expect(tabs).toContain(">Audit<");
+    expect(tabs).not.toContain("Audit trail");
+    expect(tabs).toContain("Policy");
     expect(dashboard).toContain("Current stage");
     expect(dashboard).toContain("Case health");
     expect(account).toContain("Authentication pending");
   });
 
-  it("defaults to Start onboarding with the CLM product heading", () => {
+  it("defaults to Start onboarding with the screenshot-authoritative product heading", () => {
     const markup = renderToStaticMarkup(<App />);
-    expect(markup).toContain("Client Lifecycle Management (CLM) Onboarding");
-    expect(markup).toContain("Start CLM onboarding");
+    expect(markup).toContain("Autoboard");
+    expect(markup).toContain("Start onboarding");
     expect(markup).not.toContain("Start an onboarding request");
     expect(markup).toContain("Loading backend connector profile");
     expect(markup).not.toContain("Load synthetic ownership");
