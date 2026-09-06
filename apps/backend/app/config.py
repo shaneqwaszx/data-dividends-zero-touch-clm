@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     app_name: str = "Zero-Touch CLM API"
     app_env: Literal["development", "test", "production"] = "development"
-    acra_connector_mode: Literal["mock", "sandbox"] = "mock"
+    acra_connector_mode: Literal["mock", "sandbox", "bizfile_mock"] = "mock"
     goldtier_connector_mode: Literal["mock"] = "mock"
     idp_connector_mode: Literal["mock", "local_pdf_text"] = "local_pdf_text"
     ownership_connector_mode: Literal["mock"] = "mock"

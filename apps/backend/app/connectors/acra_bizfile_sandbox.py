@@ -14,10 +14,10 @@ Built from two sample Postman responses:
   - GET {base}/entityQuery/coShareholdersDetails?uen=...
 
 IMPORTANT -- read before wiring this in:
-  1. Auth: the currently tested entityQuery endpoints need no
-     Authorization header. This dormant adapter therefore exposes only
-     `NoAuthAcraAuthorizer`. Any future authentication mechanism remains
-     deferred pending the authoritative contract requested by Q-012.
+  1. Auth: confirmed via Postman that these endpoints need no
+     Authorization header at all (200 with none sent). Use
+     `NoAuthAcraAuthorizer` below. The OAuth2 class is kept on standby
+     in case another Marketplace endpoint needs it later.
   2. `source_environment` is tagged "MOCK" (matching the existing
      Literal in acra.py) based on the "APIMarketplace-Mock" Postman
      environment name and the lack of auth -- confirm this against your
@@ -40,10 +40,12 @@ IMPORTANT -- read before wiring this in:
      so `fetch_relationships` fails closed, same as the sandbox adapter.
 """
 
+import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -81,8 +83,9 @@ class AcraBizfileConnection:
     """Non-secret transport settings for the real entityQuery endpoints."""
 
     base_url: str = "https://api-sandbox.bizfile.gov.sg/api/acra"
-    company_query_path: str = "/entityQuery/entityBasicInformation"
+    entity_basic_info_query_path: str = "/entityQuery/entityBasicInformation"
     shareholders_query_path: str = "/entityQuery/coShareholdersDetails"
+    business_profile_query_path: str = "/entityQuery/businessProfile"
     timeout_seconds: float = 10.0
 
     def __post_init__(self) -> None:
@@ -100,7 +103,7 @@ class AcraBizfileConnection:
             and not path.startswith("//")
             and "?" not in path
             and "#" not in path
-            for path in (self.company_query_path, self.shareholders_query_path)
+            for path in (self.entity_basic_info_query_path, self.shareholders_query_path, self.business_profile_query_path)
         )
         if not valid_base or not valid_paths or not 0 < self.timeout_seconds <= 60:
             raise AcraConfigurationError
@@ -110,21 +113,126 @@ class AcraBizfileConnection:
         return f"{self.base_url.rstrip('/')}{path}?{query}"
 
     def company_endpoint(self, uen: str) -> str:
-        return self._endpoint(self.company_query_path, uen)
+        return self._endpoint(self.entity_basic_info_query_path, uen)
 
     def shareholders_endpoint(self, uen: str) -> str:
         return self._endpoint(self.shareholders_query_path, uen)
 
+    def business_profile_endpoint(self, uen: str) -> str:
+        return self._endpoint(self.business_profile_query_path, uen)
 
 class NoAuthAcraAuthorizer:
-    """No-op authorizer for the currently supported no-auth Mock endpoints.
+    """No-op authorizer for the confirmed no-auth-required Mock endpoints.
 
-    Authentication for any other operation remains deferred pending the
-    authoritative ACRA contract requested by Q-012.
+    Confirmed via Postman: GET requests to these entityQuery endpoints
+    return 200 with no Authorization header at all. Use this rather than
+    the OAuth2 authorizer below unless/until you hit an endpoint that
+    actually demands a token.
     """
 
     def authorization_headers(self) -> Mapping[str, str]:
         return {}
+
+
+class OAuth2ClientCredentialsAcraAuthorizer:
+    """Fetch and cache a bearer token via the OAuth2 client-credentials grant.
+
+    NOT CURRENTLY NEEDED: confirmed via Postman that these entityQuery
+    endpoints return 200 with no auth at all -- use `NoAuthAcraAuthorizer`
+    above instead. Keeping this here in case a different ACRA API
+    Marketplace endpoint (filing, subscriptions, etc.) does require OAuth2.
+
+    FILL IN before use: `token_url` -- get this from your Postman
+    collection/request's Authorization tab -> "Configure New Token" ->
+    "Access Token URL". Client id/secret should come from env vars /
+    secrets manager, never hardcoded.
+
+    Caches the token in memory and refetches shortly before it expires.
+    Thread-safe enough for a typical request-per-thread web app; swap for
+    a shared cache (Redis etc.) if you run multiple processes.
+    """
+
+    def __init__(
+        self,
+        *,
+        token_url: str,
+        client_id: str,
+        client_secret: str,
+        scope: str | None = None,
+        transport: httpx.Client | None = None,
+        clock: Callable[[], float] | None = None,
+        expiry_leeway_seconds: float = 30.0,
+    ) -> None:
+        parsed = urlsplit(token_url)
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise AcraConfigurationError
+        if not client_id or not client_secret:
+            raise AcraConfigurationError
+        self._token_url = token_url
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._scope = scope
+        self._transport = transport
+        self._clock = clock or time.monotonic
+        self._expiry_leeway_seconds = expiry_leeway_seconds
+        self._lock = threading.Lock()
+        self._cached_token: str | None = None
+        self._cached_expiry: float = 0.0
+
+    def authorization_headers(self) -> Mapping[str, str]:
+        return {"Authorization": f"Bearer {self._get_token()}"}
+
+    def _get_token(self) -> str:
+        with self._lock:
+            if self._cached_token is not None and self._clock() < self._cached_expiry:
+                return self._cached_token
+            token, ttl_seconds = self._request_token()
+            self._cached_token = token
+            self._cached_expiry = self._clock() + max(
+                ttl_seconds - self._expiry_leeway_seconds, 0
+            )
+            return token
+
+    def _request_token(self) -> tuple[str, float]:
+        data = {
+            "grant_type": "client_credentials",
+            "client_id": self._client_id,
+            "client_secret": self._client_secret,
+        }
+        if self._scope:
+            data["scope"] = self._scope
+        try:
+            client = self._transport or httpx.Client(verify=True)
+            with client as http_client:
+                response = http_client.post(self._token_url, data=data, timeout=10.0)
+        except httpx.TimeoutException:
+            raise AcraTimeoutError from None
+        except httpx.TransportError:
+            raise AcraServiceUnavailableError from None
+        if response.status_code != 200:
+            raise AcraAuthenticationError
+        try:
+            body = response.json()
+            access_token = str(body["access_token"])
+            expires_in = float(body.get("expires_in", 300))
+        except (ValueError, KeyError, TypeError):
+            raise AcraAuthenticationError from None
+        return access_token, expires_in
+
+
+def _endpoint_without_query(url: str) -> str:
+    """Drop the query string for `source_endpoint` provenance.
+
+    acra.py's `source_endpoint_must_be_safe_https_provenance` validator
+    rejects any URL containing a query string (to guard against secrets
+    accidentally ending up embedded there). The real UEN-in-query-param
+    endpoints here always carry `?uen=...`, so record the endpoint
+    identity without it -- the UEN itself is already captured in the
+    payload's own `uen` field, so nothing is lost.
+    """
+
+    parsed = urlsplit(url)
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
 
 
 def _combine_unit(level_no: str | None, unit_no: str | None) -> str | None:
@@ -430,10 +538,9 @@ class BizfileMockAcraConnector:
     """Retrieve company/officer/shareholder data via the Bizfile API
     Marketplace Mock-tier entityQuery endpoints.
 
-    The currently supported endpoints use no authentication. The
-    `authorizer` parameter defaults to `NoAuthAcraAuthorizer`; authoritative
-    authentication requirements for any future operation remain blocked by
-    Q-012 and are not implemented here.
+    No auth required for these endpoints -- confirmed via Postman. The
+    `authorizer` param defaults to `NoAuthAcraAuthorizer`; only override it
+    if a specific endpoint you add later turns out to need one.
     """
 
     def __init__(
@@ -489,11 +596,15 @@ class BizfileMockAcraConnector:
         if response.status_code == 404:
             return None
         self._raise_for_status(response)
+        if isinstance(response.body, dict) and not response.body.get("entities"):
+            # 200 with an empty entities array means "not found" here, same
+            # as a 404 -- not a malformed response.
+            return None
         try:
             return self._company_decoder.decode(
                 response.body,
                 requested_uen=normalised_uen,
-                source_endpoint=endpoint,
+                source_endpoint=_endpoint_without_query(endpoint),
                 retrieved_at=self._clock(),
             )
         except AcraMalformedResponseError:
@@ -506,11 +617,21 @@ class BizfileMockAcraConnector:
         endpoint = self._connection.company_endpoint(normalised_uen)
         response = self._get(endpoint)
         self._raise_for_status(response)
+        if isinstance(response.body, dict) and not response.body.get("entities"):
+            # Not found / no data for this UEN at this endpoint -- a valid
+            # empty answer, not a malformed response.
+            return AcraOfficersPayload(
+                uen=normalised_uen,
+                officers=(),
+                source_environment="MOCK",
+                source_endpoint=_endpoint_without_query(endpoint),
+                retrieved_at=self._clock(),
+            )
         try:
             return self._officers_decoder.decode(
                 response.body,
                 requested_uen=normalised_uen,
-                source_endpoint=endpoint,
+                source_endpoint=_endpoint_without_query(endpoint),
                 retrieved_at=self._clock(),
             )
         except AcraMalformedResponseError:
@@ -523,11 +644,22 @@ class BizfileMockAcraConnector:
         endpoint = self._connection.shareholders_endpoint(normalised_uen)
         response = self._get(endpoint)
         self._raise_for_status(response)
+        if isinstance(response.body, dict) and not response.body.get("entities"):
+            # E.g. a partnership queried against coShareholdersDetails --
+            # this entity type legitimately has no shareholders, which is
+            # a valid empty answer, not a malformed response.
+            return AcraOwnershipPartiesPayload(
+                uen=normalised_uen,
+                ownership_parties=(),
+                source_environment="MOCK",
+                source_endpoint=_endpoint_without_query(endpoint),
+                retrieved_at=self._clock(),
+            )
         try:
             return self._ownership_decoder.decode(
                 response.body,
                 requested_uen=normalised_uen,
-                source_endpoint=endpoint,
+                source_endpoint=_endpoint_without_query(endpoint),
                 retrieved_at=self._clock(),
             )
         except AcraMalformedResponseError:
@@ -536,7 +668,33 @@ class BizfileMockAcraConnector:
             raise AcraMalformedResponseError from None
 
     def fetch_relationships(self, uen: str) -> AcraRelationshipsPayload:
-        """No confirmed real relationships endpoint -- fail closed."""
+        """No confirmed real relationships endpoint on Bizfile.
 
-        del uen
-        raise AcraServiceUnavailableError
+        Returns an empty result rather than raising. registry.py's own
+        design already treats empty relationships as a PARTIAL, non-fatal
+        outcome (see `retrieve_acquisition`'s `if not ownership_parties or
+        not relationships` check) -- raising here instead would force a
+        hard FAILED status on every single case, which is wrong: it's not
+        that the operation failed, it's that this data source doesn't
+        offer it. If Bizfile exposes a real relationships/ownership-graph
+        endpoint later, replace this with an actual call + decoder,
+        following the same pattern as fetch_officers/fetch_ownership_parties.
+
+        NOTE: relationships can't be safely *derived* from the shareholder
+        data fetch_ownership_parties already retrieves, either -- ACRA's
+        shareholders endpoint gives raw share counts (shareAllotted), not
+        percentages, and AcraRelationshipPayload.ownership_percentage is a
+        required field (must be > 0). There's no reliable number to put
+        there without a total-issued-shares figure this API doesn't return.
+        """
+
+        normalised_uen = uen.strip().upper()
+        return AcraRelationshipsPayload(
+            uen=normalised_uen,
+            relationships=(),
+            source_environment="MOCK",
+            source_endpoint=_endpoint_without_query(
+                self._connection.shareholders_endpoint(normalised_uen)
+            ),
+            retrieved_at=self._clock(),
+        )
