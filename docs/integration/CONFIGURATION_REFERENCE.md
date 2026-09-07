@@ -15,6 +15,12 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `MONGO_URI` | required secret in Mongo mode | empty | Backend-only Mongo connection string; never returned or logged |
 | `MONGO_DATABASE` | persistence | `clm_poc` | Bounded database namespace |
 | `MONGO_CASE_COLLECTION` | persistence | `clm_case_snapshots` | Bounded one-envelope-per-case collection |
+| `PHASE13_TEAM_A_ONBOARDER_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the Team A Client Onboarder |
+| `PHASE13_TEAM_A_RM_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the Team A Relationship Manager |
+| `PHASE13_TEAM_B_ONBOARDER_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the Team B Client Onboarder |
+| `PHASE13_TEAM_B_RM_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the Team B Relationship Manager |
+| `PHASE13_DIRECTOR_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the Director |
+| `PHASE13_COOKIE_SECURE` | security | environment-derived | Defaults `true` in production and `false` in local development/test; explicit production `false` fails startup |
 | `ACRA_CONNECTOR_MODE` | integration | `mock` | `mock` or sandbox-shaped `sandbox` |
 | `ACRA_BASE_URL` | integration | empty | HTTPS subscriber base; required only for sandbox mode |
 | `ACRA_COMPANY_PATH_TEMPLATE` | integration | empty | Authorized path with exactly one `{uen}` placeholder |
@@ -77,4 +83,10 @@ real readiness. D-018 still prohibits the quarantined authentication material.
 - ACRA sandbox mode without valid HTTPS/path/auth configuration fails before use.
 - Demo UI visibility does not bypass the backend demo gate.
 - Mongo mode never degrades to memory when configuration, startup, read, or write fails.
+- All five Phase 13 credential hashes must be present and valid or startup fails with
+  only the missing/invalid setting name. Plaintext passwords are never accepted as
+  settings.
+- Use `python scripts/generate_phase13_demo_password_hashes.py` interactively and copy
+  its five hash assignments only into the local untracked environment. The script never
+  writes a credential file or prints plaintext.
 - No TLS-disable, certificate-ignore, wildcard CORS, or secret-printing option exists.

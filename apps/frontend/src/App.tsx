@@ -53,6 +53,8 @@ import type {
   ZeroTouchCaseListItem,
   ZeroTouchDemoScenario,
   ZeroTouchException,
+  AuthenticatedProfile,
+  TeamId,
 } from "./types";
 
 const DEFAULT_UEN = "202400001A";
@@ -1311,7 +1313,13 @@ export function WorkspaceTabs({
   );
 }
 
-export function OperatorAccount() {
+export function OperatorAccount({
+  profile,
+  onLogout,
+}: {
+  profile: AuthenticatedProfile;
+  onLogout: () => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="operator-account">
@@ -1323,14 +1331,14 @@ export function OperatorAccount() {
         aria-controls="operator-account-disclosure"
         onClick={() => setOpen((current) => !current)}
       >
-        <span>Demo operator</span>
+        <span>{profile.display_name}</span>
         <span aria-hidden="true" className="operator-account__chevron">⌄</span>
       </button>
       {open && (
-        <div id="operator-account-disclosure" className="operator-account__disclosure" role="status">
-          <strong>Local POC operator</strong>
-          <span>Authentication not connected in current POC.</span>
-          <span>No identity, reviewer role, or sign-out action is available.</span>
+        <div id="operator-account-disclosure" className="operator-account__disclosure">
+          <strong>{profile.role.replaceAll("_", " ")}</strong>
+          <span>{profile.team_display_name ?? "All teams"} · {profile.client_scope_label}</span>
+          <button type="button" className="btn btn-ghost" onClick={onLogout}>Sign out</button>
         </div>
       )}
     </div>
@@ -1748,11 +1756,15 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
 
 export interface AppProps {
   demoControlsEnabled?: boolean;
+  actor: AuthenticatedProfile;
+  onLogout: () => void;
 }
 
 export default function App({
   demoControlsEnabled = import.meta.env.VITE_DEMO_CONTROLS_ENABLED === "true",
-}: AppProps = {}) {
+  actor,
+  onLogout,
+}: AppProps) {
   const [activeTab, setActiveTab] = useState<AppTab>("home");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -1763,6 +1775,7 @@ export default function App({
   const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [caseId, setCaseId] = useState("");
   const [demoScenario, setDemoScenario] = useState<ZeroTouchDemoScenario>("STRAIGHT_THROUGH");
+  const [directorTeamId, setDirectorTeamId] = useState<TeamId | "">("");
   const [simulationProfile, setSimulationProfile] = useState<SimulationProfile | null>(null);
   const [summary, setSummary] = useState<ZeroTouchCaseSummary | null>(null);
   const [, setRetainedCreatedSummary] = useState<ZeroTouchCaseSummary | null>(null);
@@ -1800,6 +1813,10 @@ export default function App({
 
   async function beginJourney(demoScenario?: ZeroTouchDemoScenario) {
     if (resolutionActive.current) return;
+    if (actor.role === "DIRECTOR" && !directorTeamId) {
+      setRequestError("Select a team before creating the case.");
+      return;
+    }
     const validationError = validateIntakeFiles(documentFiles);
     if (validationError) { setRequestError(validationError); return; }
     setIsSubmitting(true);
@@ -1856,6 +1873,7 @@ export default function App({
             uen,
             demoScenario,
             countryOfIncorporation || undefined,
+            actor.role === "DIRECTOR" ? directorTeamId || undefined : undefined,
           ),
           onCreated: (created) => {
             setRetainedCreatedSummary(created);
@@ -2085,13 +2103,30 @@ export default function App({
         trailing={
           <>
             <SimulationBanner profile={simulationProfile} />
-            <OperatorAccount />
+            <OperatorAccount profile={actor} onLogout={onLogout} />
           </>
         }
       />
       <div className="ds-content">
           {activeTab === "home" && (
             <>
+            {actor.role === "DIRECTOR" && !summary && (
+              <section className="ds-root ds-page director-team-scope" aria-label="New case team scope">
+                <label htmlFor="director-team-id">Create case for team</label>
+                <select
+                  id="director-team-id"
+                  className="input"
+                  value={directorTeamId}
+                  required
+                  onChange={(event) => setDirectorTeamId(event.target.value as TeamId | "")}
+                >
+                  <option value="">Select a team</option>
+                  <option value="TEAM_A">Team A · DBS</option>
+                  <option value="TEAM_B">Team B · OCBC</option>
+                </select>
+                <p className="control-help">Director-created cases require an explicit team.</p>
+              </section>
+            )}
             <HomeOnboarding
               summary={summary}
               uen={uen}

@@ -4,12 +4,21 @@ import { ApiError, fetchZeroTouchCase, fetchZeroTouchCases } from "../api";
 import { formatDateNoSeconds, stageProgressLabel } from "../shared";
 import type { CaseRowView } from "../viewModels";
 import { mapZeroTouchCaseToCaseRow } from "../viewModels";
+import PriorityControl, { PriorityBadge } from "./PriorityControl";
 
 function statusTagClass(status: CaseRowView["status"]): string {
   if (status === "COMPLETED") return "tag tag-accent";
   if (status === "WAITING_FOR_REVIEW" || status === "RECOVERY_PENDING") return "tag tag-neutral";
   if (status === "TECHNICAL_FAILURE") return "tag tag-outline";
   return "tag tag-accent-2";
+}
+
+export async function loadCaseQueueRows(
+  status?: CaseRowView["status"],
+): Promise<CaseRowView[]> {
+  const items = await fetchZeroTouchCases(status);
+  const details = await Promise.all(items.map((item) => fetchZeroTouchCase(item.case_id)));
+  return items.map((item, index) => mapZeroTouchCaseToCaseRow(item, details[index]));
 }
 
 export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string) => void }) {
@@ -23,11 +32,10 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
   useEffect(() => {
     let current = true;
     setIsLoading(true);
-    void fetchZeroTouchCases(status ? status as CaseRowView["status"] : undefined)
-      .then(async (items) => {
-        const details = await Promise.all(items.map((item) => fetchZeroTouchCase(item.case_id)));
+    void loadCaseQueueRows(status ? status as CaseRowView["status"] : undefined)
+      .then((items) => {
         if (current) {
-          setCases(items.map((item, index) => mapZeroTouchCaseToCaseRow(item, details[index])));
+          setCases(items);
           setError(null);
         }
       })
@@ -46,6 +54,23 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
       current = false;
     };
   }, [status]);
+
+  async function refreshAfterPriorityUpdate(): Promise<void> {
+    setIsLoading(true);
+    setError(null);
+    try {
+      setCases(await loadCaseQueueRows(status ? status as CaseRowView["status"] : undefined));
+    } catch (requestError) {
+      setError(
+        requestError instanceof ApiError
+          ? requestError.message
+          : "The case queue is unavailable.",
+      );
+      throw requestError;
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   const filteredCases = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -119,6 +144,8 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
                 <th>Registration ID</th>
                 <th>Jurisdiction</th>
                 <th>Status</th>
+                <th>Priority</th>
+                <th>Client scope</th>
                 <th>Stage</th>
                 <th>Assigned to</th>
                 <th>Created</th>
@@ -150,6 +177,15 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
                       {item.active_exception_count} open · {item.human_interventions} human
                     </span>
                   </td>
+                  <td>
+                    <PriorityBadge priority={item.priority} />
+                    <PriorityControl
+                      caseId={item.case_id}
+                      priority={item.priority}
+                      onUpdated={refreshAfterPriorityUpdate}
+                    />
+                  </td>
+                  <td>{item.client_scope_label ?? "Legacy unassigned"}</td>
                   <td>
                     {stageProgressLabel(item.current_stage)}
                     <span className="cell-note">{item.final_outcome ?? item.current_stage.replaceAll("_", " ")}</span>

@@ -331,3 +331,22 @@ data and fails startup/reads without repair or cross-case projection.
 This is durable single-instance POC recovery, not production HA, distributed workflow,
 exactly-once provider execution, regulatory retention, or Ready-for-Approval. Q-012 and
 Q-015 remain open.
+
+## Phase 13 implementation status
+
+Phase 13 protects every `/api` route except login with a process-local opaque session,
+host-only HttpOnly strict-same-site cookie, and session-bound CSRF verification for
+unsafe methods. Five fixed synthetic profiles map Client Onboarder and Relationship
+Manager users to `TEAM_A`/DBS or `TEAM_B`/OCBC, while Director sees all teams and legacy
+unassigned cases. Case access is enforced centrally from canonical persisted ownership;
+absent and inaccessible IDs have the same safe 404. Team actors create in their own team,
+Director must select a team, and case team is immutable.
+
+Case priority is nullable or a strict integer 1–10. Backend lists place prioritised cases
+first by descending priority and then retain the accepted automation timestamp/case-ID
+tie-break. Priority has no workflow, SLA, escalation, notification, or approval meaning.
+Mongo schema v2 stores team/priority; exact v1 reads migrate only in memory to null/null.
+The frontend restores authenticated profile state in memory, attaches credentials/CSRF
+centrally, unmounts the workspace on 401, and renders only backend-returned team and
+priority truth. This remains local POC authentication, not PingFed/SSO or production
+RBAC. Q-016 remains open.

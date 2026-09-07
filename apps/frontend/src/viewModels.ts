@@ -20,6 +20,8 @@ export interface CaseRowView {
   active_exception_count: number;
   human_interventions: number;
   final_outcome: string | null;
+  priority: number | null;
+  client_scope_label: string | null;
 }
 
 export function mapZeroTouchCaseToCaseRow(
@@ -39,6 +41,8 @@ export function mapZeroTouchCaseToCaseRow(
     active_exception_count: item.active_exception_count,
     human_interventions: item.human_interventions,
     final_outcome: item.final_outcome,
+    priority: item.priority,
+    client_scope_label: item.client_scope_label,
   };
 }
 
@@ -51,6 +55,8 @@ export interface OnboardedRowView {
   risk_rating: null;
   onboarded_at: string;
   next_review_date: null;
+  priority: number | null;
+  client_scope_label: string | null;
 }
 
 export function mapCompletedCaseToOnboardedRow(
@@ -71,6 +77,8 @@ export function mapCompletedCaseToOnboardedRow(
     risk_rating: null,
     onboarded_at: completion?.timestamp ?? item.updated_at,
     next_review_date: null,
+    priority: item.priority,
+    client_scope_label: item.client_scope_label,
   };
 }
 
@@ -83,6 +91,8 @@ export interface AuditEntryView {
   actor: null;
   description: string;
   loop_number: null;
+  client_scope_label: string | null;
+  priority: number | null;
 }
 
 export function mapCaseTimelineToAuditEntries(
@@ -97,6 +107,8 @@ export function mapCaseTimelineToAuditEntries(
     actor: null,
     description: event.message,
     loop_number: null,
+    client_scope_label: summary.case.client_scope_label,
+    priority: summary.case.priority,
   }));
 }
 

@@ -10,6 +10,30 @@ export type WorkflowState =
   | "REVIEW_REQUIRED"
   | "FAILED";
 
+export type TeamId = "TEAM_A" | "TEAM_B";
+export type Role = "CLIENT_ONBOARDER" | "RELATIONSHIP_MANAGER" | "DIRECTOR";
+
+export interface AuthenticatedProfile {
+  user_id: string;
+  display_name: string;
+  role: Role;
+  team_id: TeamId | null;
+  team_display_name: string | null;
+  client_scope_label: string;
+}
+
+export interface AuthSession {
+  profile: AuthenticatedProfile;
+  csrf_token: string;
+}
+
+export interface CasePriorityResult {
+  case_id: string;
+  team_id: TeamId | null;
+  priority: number | null;
+  updated_at: string;
+}
+
 export interface MockScenario {
   uen: string;
   label: string;
@@ -127,6 +151,9 @@ export interface WorkflowEvent {
 
 export interface OnboardingCase {
   case_id: string;
+  team_id: TeamId | null;
+  priority: number | null;
+  client_scope_label: string | null;
   source_case_id: string;
   correlation_id: string;
   requested_uen: string;
@@ -651,6 +678,9 @@ export interface ZeroTouchCaseSummary {
 
 export interface ZeroTouchCaseListItem {
   case_id: string;
+  team_id: TeamId | null;
+  client_scope_label: string | null;
+  priority: number | null;
   requested_uen: string;
   legal_name: string | null;
   status: AutomationStatus;

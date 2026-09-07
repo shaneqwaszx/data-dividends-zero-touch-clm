@@ -29,6 +29,7 @@ from app.services.reconciliation_repository import (
     ReconciliationRepositoryConflictError,
     ReconciliationUnitOfWorkError,
 )
+from app.services.repository import CaseTeamImmutableError
 from app.services.target_execution_repository import (
     TargetExecutionRepositoryConflictError,
 )
@@ -62,6 +63,8 @@ class MongoOnboardingCaseRepository:
                     )
                 )
                 return
+            if current.onboarding.team_id != validated.team_id:
+                raise CaseTeamImmutableError
             candidate = current.model_copy(update={"onboarding": validated}, deep=True)
             self._store.replace(candidate, expected_revision=current.revision)
 

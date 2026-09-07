@@ -10,6 +10,7 @@ from test_zero_touch_orchestration import PDF, build_system
 
 from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
 from app.connectors.mock_ownership import MockOwnershipProvider
+from app.domain.access import TeamId
 from app.domain.documents import DocumentFieldKey
 from app.domain.reconciliation import (
     DiscrepancyStatus,
@@ -504,7 +505,7 @@ def test_duplicate_identical_reconciliation_decision_is_idempotent() -> None:
 def test_repeated_reads_do_not_rerun_idp_or_target() -> None:
     client, zero, _, target, _ = build_system()
     provider = FieldOverrideIdp({DocumentFieldKey.LEGAL_NAME: "DIFFERENT PTE. LTD."})
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     attach(zero, created.case_id, provider)
     for _ in range(3):
         response = client.get(f"/api/clm/zero-touch/cases/{created.case_id}")
@@ -542,7 +543,7 @@ def test_replacement_document_cancels_old_discrepancy_and_resumes() -> None:
 
 def test_api_exposes_normalized_safe_state_and_explicit_resolution_endpoint() -> None:
     client, zero, _, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     paused = attach(
         zero,
         created.case_id,

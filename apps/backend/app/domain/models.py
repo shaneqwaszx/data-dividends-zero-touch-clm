@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domain.access import CasePriority, TeamId
 from app.domain.jurisdiction import JurisdictionResolution, RegistryRoutingDecision
 
 
@@ -461,6 +462,8 @@ class OnboardingCase(BaseModel):
     source_case_id: str
     correlation_id: UUID
     requested_uen: str
+    team_id: TeamId | None = None
+    priority: CasePriority | None = None
     jurisdiction_resolution: JurisdictionResolution | None = None
     registry_route: RegistryRoutingDecision | None = None
     state: WorkflowState

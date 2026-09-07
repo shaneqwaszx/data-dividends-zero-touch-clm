@@ -10,8 +10,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.api_auth import build_auth_router, install_auth_boundary
 from app.api_models import (
     BrowserTargetOperationEvidence,
+    CasePriorityResponse,
     ClmCaseSummaryResponse,
     DocumentProcessingResponse,
     OnboardingCaseResponse,
@@ -23,6 +25,7 @@ from app.composition import (
     build_acra_connector as build_acra_connector,
 )
 from app.composition import (
+    build_authentication_service,
     build_clm_orchestration_service,
     build_document_processing_service,
     build_mock_idp_demo_control,
@@ -46,6 +49,7 @@ from app.demo.scenarios import (
 )
 from app.demo.uat_evidence import UatEvidenceExport, build_uat_evidence
 from app.demo.zero_touch_control import ZeroTouchDemoControl, ZeroTouchDemoScenario
+from app.domain.access import AuthenticatedActor, CasePriority, TeamId
 from app.domain.clm import GoldTierSubmissionPlan
 from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.jurisdiction import JurisdictionCode
@@ -58,6 +62,9 @@ from app.domain.zero_touch import (
     ZeroTouchAutomationRecord,
 )
 from app.persistence.composition import build_persistence_bundle
+from app.services.authentication import AuthenticationConfigurationError, AuthenticationService
+from app.services.authorization import CaseAccessPolicy, CreationTeamSelectionError
+from app.services.case_query import CaseQueryService
 from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.document_errors import (
@@ -98,6 +105,7 @@ class StartOnboardingRequest(BaseModel):
         Field(min_length=1, max_length=32, pattern=r"^[A-Z0-9-]+$"),
     ]
     country_of_incorporation: JurisdictionCode | None = None
+    team_id: TeamId | None = None
 
     @field_validator("uen", mode="before")
     @classmethod
@@ -118,6 +126,12 @@ class CompleteDocumentIntakeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_document_count: int = Field(ge=1, le=20)
+
+
+class UpdateCasePriorityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    priority: CasePriority | None
 
 
 class InfrastructureFailureDetail(BaseModel):
@@ -214,6 +228,7 @@ def create_app(
     zero_touch_orchestrator: ZeroTouchOrchestrator | None = None,
     zero_touch_demo_control: ZeroTouchDemoControl | None = None,
     scenario_catalogue: MockScenarioCatalogue | None = None,
+    authentication_service: AuthenticationService | None = None,
 ) -> FastAPI:
     """Build the application with injectable settings for deterministic tests."""
 
@@ -271,6 +286,24 @@ def create_app(
         repository=persistence.automation,
         durable_provider_bindings=persistence.mode == "mongo",
     )
+    cookie_secure = (
+        active_settings.app_env == "production"
+        if active_settings.phase13_cookie_secure is None
+        else active_settings.phase13_cookie_secure
+    )
+    if active_settings.app_env == "production" and not cookie_secure:
+        raise AuthenticationConfigurationError("PHASE13_COOKIE_SECURE")
+    authentication = authentication_service or build_authentication_service(active_settings)
+    access_policy = CaseAccessPolicy()
+    case_query = CaseQueryService(
+        cases=service,
+        case_repository=service.case_repository,
+        automation_repository=zero_touch.automation_repository,
+        access_policy=access_policy,
+    )
+    application.include_router(
+        build_auth_router(authentication, cookie_secure=cookie_secure)
+    )
 
     def require_demo_controls() -> None:
         if not active_settings.demo_controls_enabled:
@@ -306,6 +339,17 @@ def create_app(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         """Project invalid request data through fixed messages without echoing input."""
+
+        if request.url.path == "/api/auth/login":
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                content={
+                    "detail": {
+                        "code": "AUTHENTICATION_REQUEST_INVALID",
+                        "message": "The authentication request is invalid.",
+                    }
+                },
+            )
 
         if request.url.path.endswith("/reviews"):
             locations = {str(part) for error in exc.errors() for part in error.get("loc", ())}
@@ -361,6 +405,34 @@ def create_app(
 
     def get_reconciliation_service() -> ReconciliationService:
         return reconciliation
+
+    def authenticated_actor(request: Request) -> AuthenticatedActor:
+        actor = getattr(request.state, "actor", None)
+        if not isinstance(actor, AuthenticatedActor):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "code": "AUTHENTICATION_REQUIRED",
+                    "message": "A valid authenticated session is required.",
+                },
+            )
+        return actor
+
+    def creation_team(request: StartOnboardingRequest, actor: AuthenticatedActor) -> TeamId:
+        try:
+            return access_policy.resolve_creation_team(
+                actor,
+                request.team_id,
+                field_was_supplied="team_id" in request.model_fields_set,
+            )
+        except CreationTeamSelectionError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "CASE_TEAM_SELECTION_INVALID",
+                    "message": "The case team selection is invalid.",
+                },
+            ) from None
 
     def clm_response(record: object) -> ClmCaseSummaryResponse:
         from app.domain.clm import ClmOrchestrationRecord
@@ -551,11 +623,14 @@ def create_app(
     def create_onboarding_case(
         request: StartOnboardingRequest,
         active_service: Annotated[OnboardingService, Depends(get_onboarding_service)],
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
     ) -> OnboardingCaseResponse:
         try:
             return OnboardingCaseResponse.from_domain(
                 active_service.create_case(
-                    request.uen, request.country_of_incorporation
+                    request.uen,
+                    request.country_of_incorporation,
+                    team_id=creation_team(request, actor),
                 )
             )
         except OnboardingInfrastructureError as exc:
@@ -593,11 +668,14 @@ def create_app(
     def create_clm_case(
         request: StartOnboardingRequest,
         active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
     ) -> ClmCaseSummaryResponse:
         try:
             return clm_response(
                 active_clm.create_case(
-                    request.uen, request.country_of_incorporation
+                    request.uen,
+                    request.country_of_incorporation,
+                    team_id=creation_team(request, actor),
                 )
             )
         except ClmInfrastructureError as exc:
@@ -957,11 +1035,14 @@ def create_app(
     def create_zero_touch_case(
         request: StartOnboardingRequest,
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
     ) -> ZeroTouchCaseSummaryResponse:
         try:
             return zero_touch_response(
                 active_zero_touch.create_case(
-                    request.uen, request.country_of_incorporation
+                    request.uen,
+                    request.country_of_incorporation,
+                    team_id=creation_team(request, actor),
                 )
             )
         except ZeroTouchRequestError as exc:
@@ -976,16 +1057,30 @@ def create_app(
         active_zero_touch: Annotated[
             ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
         ],
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
         status_filter: Annotated[AutomationStatus | None, Query(alias="status")] = None,
     ) -> list[ZeroTouchCaseListItemResponse]:
         """Project the process-local portfolio without running any workflow stage."""
 
-        result: list[ZeroTouchCaseListItemResponse] = []
-        for record in active_zero_touch.list_cases(status=status_filter):
-            case = service.get_case(record.case_id)
-            if case is not None:
-                result.append(ZeroTouchCaseListItemResponse.from_domain(record, case))
-        return result
+        del active_zero_touch
+        return [
+            ZeroTouchCaseListItemResponse.from_domain(item.automation, item.case)
+            for item in case_query.list_cases(actor, status=status_filter)
+        ]
+
+    @application.patch(
+        "/api/clm/zero-touch/cases/{case_id}/priority",
+        response_model=CasePriorityResponse,
+        tags=["zero-touch"],
+    )
+    def update_case_priority(
+        case_id: UUID,
+        request: UpdateCasePriorityRequest,
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+    ) -> CasePriorityResponse:
+        return CasePriorityResponse.from_domain(
+            case_query.update_priority(actor, case_id, request.priority)
+        )
 
     @application.post(
         "/api/demo/clm/zero-touch/cases",
@@ -996,12 +1091,15 @@ def create_app(
     def create_demo_zero_touch_case(
         request: ZeroTouchDemoStartRequest,
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
     ) -> ZeroTouchCaseSummaryResponse:
         require_demo_controls()
         uen = zero_touch_demo.uen_for(request.uen, request.scenario)
         try:
             record = active_zero_touch.create_case(
-                uen, request.country_of_incorporation
+                uen,
+                request.country_of_incorporation,
+                team_id=creation_team(request, actor),
             )
             zero_touch_demo.register(record.case_id, request.scenario)
             return zero_touch_response(record)
@@ -1540,6 +1638,7 @@ def create_app(
             raise _document_http_error(exc) from None
         return DocumentProcessingResponse.from_domain(record)
 
+    install_auth_boundary(application, authentication, access_policy, service)
     return application
 
 

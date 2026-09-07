@@ -30,6 +30,7 @@ from app.demo.scenarios import (
     Phase01MockScenarioCatalogue,
 )
 from app.demo.zero_touch_control import DemoScenarioRepository, ZeroTouchDemoControl
+from app.services.authentication import AuthenticationService
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.clm_repository import (
     ClmOrchestrationRepository,
@@ -99,6 +100,18 @@ def build_onboarding_service(
         repository=repository or InMemoryOnboardingCaseRepository(),
         target_finalization_fault=target_finalization_fault,
         target_execution_repository=target_execution_repository,
+    )
+
+
+def build_authentication_service(settings: Settings) -> AuthenticationService:
+    return AuthenticationService(
+        {
+            "team-a-onboarder": settings.phase13_team_a_onboarder_password_hash,
+            "team-a-rm": settings.phase13_team_a_rm_password_hash,
+            "team-b-onboarder": settings.phase13_team_b_onboarder_password_hash,
+            "team-b-rm": settings.phase13_team_b_rm_password_hash,
+            "director": settings.phase13_director_password_hash,
+        }
     )
 
 

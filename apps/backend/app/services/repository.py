@@ -26,6 +26,10 @@ class OnboardingCaseRepository(Protocol):
     ) -> None: ...
 
 
+class CaseTeamImmutableError(Exception):
+    pass
+
+
 class InMemoryOnboardingCaseRepository:
     """Store defensive model copies for the lifetime of one application process."""
 
@@ -40,6 +44,9 @@ class InMemoryOnboardingCaseRepository:
     def save(self, case: OnboardingCase) -> None:
         with self._lock:
             validated = OnboardingCase.model_validate(case)
+            current = self._cases.get(validated.case_id)
+            if current is not None and current.team_id != validated.team_id:
+                raise CaseTeamImmutableError
             self._cases[validated.case_id] = validated.model_copy(deep=True)
 
     def get(self, case_id: UUID) -> OnboardingCase | None:
@@ -52,6 +59,9 @@ class InMemoryOnboardingCaseRepository:
         return case.model_copy(deep=True) if case is not None else None
 
     def transaction_replace(self, case: OnboardingCase) -> None:
+        current = self._cases.get(case.case_id)
+        if current is not None and current.team_id != case.team_id:
+            raise CaseTeamImmutableError
         self._cases[case.case_id] = case.model_copy(deep=True)
 
     def transaction_restore(

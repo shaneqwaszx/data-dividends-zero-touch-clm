@@ -19,6 +19,7 @@ from app.connectors.registry import (
     AcraRegistryProviderAdapter,
     RegistryProviderRouter,
 )
+from app.domain.access import TeamId
 from app.domain.jurisdiction import (
     JurisdictionCode,
     JurisdictionObservation,
@@ -182,14 +183,22 @@ class OnboardingService:
         with self._case_locks_guard:
             return self._case_locks.setdefault(case_id, RLock())
 
+    @property
+    def case_repository(self) -> OnboardingCaseRepository:
+        return self._repository
+
     def create_case(
         self,
         uen: str,
         country_of_incorporation: JurisdictionCode | str | None = None,
+        *,
+        team_id: TeamId | None = None,
     ) -> OnboardingCase:
         """Preserve the Phase 01 API as staged intake plus Mock GoldTier submission."""
 
-        case = self.create_staged_case(uen, country_of_incorporation)
+        case = self.create_staged_case(
+            uen, country_of_incorporation, team_id=team_id
+        )
         if case.state != WorkflowState.VALIDATED:
             return case
         return self.submit_staged_case(case.case_id, complete_legacy_flow=True)
@@ -198,6 +207,8 @@ class OnboardingService:
         self,
         uen: str,
         country_of_incorporation: JurisdictionCode | str | None = None,
+        *,
+        team_id: TeamId | None = None,
     ) -> OnboardingCase:
         """Resolve jurisdiction, route, and validate registry data without GoldTier."""
 
@@ -240,6 +251,7 @@ class OnboardingService:
             source_case_id=source_case_id,
             correlation_id=correlation_id,
             requested_uen=normalised_uen,
+            team_id=team_id,
             jurisdiction_resolution=resolution,
             state=WorkflowState.REQUESTED,
             created_at=now,

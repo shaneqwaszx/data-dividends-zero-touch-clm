@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.access import TEAM_BY_ID, CasePriority, TeamId
 from app.domain.clm import (
     ClmOrchestrationRecord,
     ClmReadinessAssessment,
@@ -213,6 +214,9 @@ class OnboardingCaseResponse(BaseModel):
     source_case_id: str
     correlation_id: UUID
     requested_uen: str
+    team_id: TeamId | None = None
+    priority: CasePriority | None = None
+    client_scope_label: str | None = None
     jurisdiction_resolution: BrowserJurisdictionResolution | None = None
     registry_route: RegistryRoutingDecision | None = None
     state: WorkflowState
@@ -228,7 +232,16 @@ class OnboardingCaseResponse(BaseModel):
     def from_domain(cls, case: OnboardingCase) -> "OnboardingCaseResponse":
         """Project a domain case without serializing its registry source link."""
 
-        return cls.model_validate(case)
+        projected = cls.model_validate(case)
+        return projected.model_copy(
+            update={
+                "client_scope_label": (
+                    TEAM_BY_ID[case.team_id].client_scope_label
+                    if case.team_id is not None
+                    else None
+                )
+            }
+        )
 
 
 class BrowserFieldProvenance(BaseModel):
@@ -641,6 +654,9 @@ class ZeroTouchCaseListItemResponse(BaseModel):
     active_exception_count: int
     human_interventions: int
     final_outcome: str | None
+    team_id: TeamId | None
+    client_scope_label: str | None
+    priority: CasePriority | None
 
     @classmethod
     def from_domain(
@@ -656,6 +672,33 @@ class ZeroTouchCaseListItemResponse(BaseModel):
             active_exception_count=len(record.active_exceptions),
             human_interventions=record.metrics.human_interventions,
             final_outcome=record.metrics.final_outcome,
+            team_id=case.team_id,
+            client_scope_label=(
+                TEAM_BY_ID[case.team_id].client_scope_label
+                if case.team_id is not None
+                else None
+            ),
+            priority=case.priority,
+        )
+
+
+class CasePriorityResponse(BaseModel):
+    """Authoritative priority result without workflow or access-policy internals."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: UUID
+    team_id: TeamId | None
+    priority: CasePriority | None
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(cls, case: OnboardingCase) -> "CasePriorityResponse":
+        return cls(
+            case_id=case.case_id,
+            team_id=case.team_id,
+            priority=case.priority,
+            updated_at=case.updated_at,
         )
 
 

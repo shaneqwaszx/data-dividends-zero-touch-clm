@@ -23,6 +23,7 @@ import type {
 import AssignReviewerDialog from "./AssignReviewerDialog";
 import { CompletedOverview, ConfirmDetailsPanel, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
 import ReturnForReworkDialog from "./ReturnForReworkDialog";
+import PriorityControl, { PriorityBadge } from "./PriorityControl";
 
 const ACCEPTED_DOCUMENTS = "application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt";
 
@@ -136,7 +137,7 @@ export default function CaseDetail({
       </div>
 
       <div className="ds-page" style={{ flex: 1 }}>
-        <div className="ds-page-header"><div><p className="card-kicker">{summary.case.requested_uen} · {summary.case.jurisdiction_resolution?.resolved_jurisdiction ?? "—"}</p><h1>{entity?.legal_name ?? summary.case.requested_uen}</h1></div><span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span></div>
+        <div className="ds-page-header"><div><p className="card-kicker">{summary.case.requested_uen} · {summary.case.jurisdiction_resolution?.resolved_jurisdiction ?? "—"} · {summary.case.client_scope_label ?? "Legacy unassigned"}</p><h1>{entity?.legal_name ?? summary.case.requested_uen}</h1></div><div className="case-header-actions"><PriorityBadge priority={summary.case.priority} /><PriorityControl caseId={caseId} priority={summary.case.priority} onUpdated={async () => { await refreshEvidence(); }} /><span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span></div></div>
         {error && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{error}</div>}
 
         {summary.active_exceptions.filter((exception) => exception.stage !== "REGISTRY").map((exception) => (

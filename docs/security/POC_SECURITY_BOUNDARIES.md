@@ -80,3 +80,26 @@ classification of an interrupted current document retains no bytes, marks only t
 record re-upload-required, and returns automation to bounded Document input. Unrelated
 intake cannot bypass the targeted retry requirement, and completed evidence is not
 reprocessed.
+
+# Phase 13 authentication and authorization boundary
+
+All `/api` operations except login now require a server-side process-local session.
+Passwords are represented only by configured per-user scrypt hashes; plaintext is never
+stored, logged, returned, written by the hash generator, or embedded in seed automation.
+Unknown-user and wrong-password attempts execute the same verification path and return
+the same bounded error. The opaque browser token exists only in a host-only HttpOnly
+`SameSite=Strict` `/api` cookie; the server stores its SHA-256 digest, absolute expiry,
+actor, and CSRF value. Login rotates the profile's old session and logout revokes it.
+
+Unsafe requests require the session-bound CSRF header and same-origin browser metadata.
+Central route classification authorizes every case route before its handler. Canonical
+persisted `team_id`, never a caller header/query/browser filter, controls access; absent
+and inaccessible cases return one fixed 404 to limit enumeration. Team ownership is
+immutable in memory and Mongo. Browser auth state and CSRF remain memory-only and any
+401 unmounts the sensitive workspace.
+
+This POC does not provide rate limiting, lockout, MFA, password recovery, a distributed
+session store, production CORS/reverse-proxy trust, enterprise IdP/SSO, separation of
+duties, or production identity governance. Cookie Secure defaults on in production and
+an explicit insecure production setting fails startup. Deployment behind a proxy needs
+a separately reviewed same-origin/TLS design.

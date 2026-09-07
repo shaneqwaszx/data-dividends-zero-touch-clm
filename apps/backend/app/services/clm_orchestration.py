@@ -7,6 +7,7 @@ from threading import RLock
 from typing import Protocol
 from uuid import UUID, uuid4
 
+from app.domain.access import TeamId
 from app.domain.clm import (
     ClmBlockerCode,
     ClmEventType,
@@ -96,12 +97,18 @@ class ClmOrchestrationService:
         self._uuid_factory = uuid_factory or uuid4
 
     def create_case(
-        self, uen: str, country_of_incorporation: str | None = None
+        self,
+        uen: str,
+        country_of_incorporation: str | None = None,
+        *,
+        team_id: TeamId | None = None,
     ) -> ClmOrchestrationRecord:
         """Create a registry-validated staged case and stop before GoldTier."""
 
         try:
-            case = self._cases.create_staged_case(uen, country_of_incorporation)
+            case = self._cases.create_staged_case(
+                uen, country_of_incorporation, team_id=team_id
+            )
         except OnboardingInfrastructureError as exc:
             failed_case = self._cases.get_case(exc.case_id)
             if failed_case is None:

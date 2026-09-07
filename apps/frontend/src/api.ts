@@ -1,4 +1,6 @@
 import type {
+  AuthSession,
+  CasePriorityResult,
   ClmCaseSummary,
   DocumentProcessingRecord,
   DocumentFieldKey,
@@ -15,9 +17,54 @@ import type {
   ZeroTouchDemoScenario,
   SimulationProfile,
   UatEvidenceExport,
+  TeamId,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+let activeCsrfToken: string | null = null;
+let unauthorizedHandler: (() => void) | null = null;
+
+export function configureAuthenticatedTransport(options: {
+  csrfToken: string | null;
+  onUnauthorized: (() => void) | null;
+}): void {
+  activeCsrfToken = options.csrfToken;
+  unauthorizedHandler = options.onUnauthorized;
+}
+
+async function fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method ?? "GET").toUpperCase();
+  const headers = new Headers(init.headers);
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && activeCsrfToken) {
+    headers.set("X-CSRF-Token", activeCsrfToken);
+  }
+  const response = await globalThis.fetch(input, {
+    ...init,
+    headers,
+    credentials: "include",
+  });
+  if (response.status === 401) unauthorizedHandler?.();
+  return response;
+}
+
+export async function login(userId: string, credential: string): Promise<AuthSession> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, "password": credential }),
+  });
+  return parseResponse<AuthSession>(response);
+}
+
+export async function fetchCurrentSession(): Promise<AuthSession> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/me`);
+  return parseResponse<AuthSession>(response);
+}
+
+export async function logout(): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/logout`, { method: "POST" });
+  if (!response.ok) await parseResponse<never>(response);
+}
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -64,6 +111,7 @@ export async function createZeroTouchCase(
   uen: string,
   demoScenario?: ZeroTouchDemoScenario,
   countryOfIncorporation?: "SG" | "AU" | "MY" | "HK",
+  teamId?: TeamId,
 ): Promise<ZeroTouchCaseSummary> {
   const demo = demoScenario !== undefined;
   const response = await fetch(
@@ -77,10 +125,26 @@ export async function createZeroTouchCase(
           ? { country_of_incorporation: countryOfIncorporation }
           : {}),
         ...(demo ? { scenario: demoScenario } : {}),
+        ...(teamId ? { team_id: teamId } : {}),
       }),
     },
   );
   return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export async function updateCasePriority(
+  caseId: string,
+  priority: number | null,
+): Promise<CasePriorityResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/priority`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ priority }),
+    },
+  );
+  return parseResponse<CasePriorityResult>(response);
 }
 
 export async function attachZeroTouchDocument(

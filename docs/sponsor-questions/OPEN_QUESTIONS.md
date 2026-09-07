@@ -3,6 +3,24 @@
 Remove or mark a question resolved only after an explicit sponsor answer. These
 questions do not block credential-free Phase 01 mock development unless stated.
 
+## POC IDENTITY, TEAM ACCESS, AND PRIORITY POLICY
+
+### Q-016 - Production identity, role, assignment, and prioritisation policy
+
+Should Client Onboarder and Relationship Manager have different mutation permissions,
+and which roles may change priority? Who may reassign a case, what reason/history must be
+retained, and may one case be shared across teams or hold multiple team memberships? Is
+Director globally read-only or permitted existing mutations? Does priority drive SLA,
+escalation, notification, or due dates? What production IdP, SSO/session, RBAC, and
+identity-governance model is expected?
+
+Pending an explicit sponsor answer, Phase 13 uses project-defined POC behavior: roles
+differ only in team/global visibility; any actor with case access may use existing
+mutations and change priority; Director has global visibility and the same mutation
+surface; there is no reassignment or sharing; priority affects ordering only; and local
+scrypt credentials plus process-local sessions are demo-only. These rules do not resolve
+the production policy requested here.
+
 ## ACRA SANDBOX BINDING AND ACCESS
 
 ### Q-012 - Authoritative ACRA Business Profile API contract and access

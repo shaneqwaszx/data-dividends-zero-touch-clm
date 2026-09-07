@@ -4,6 +4,7 @@ import { ApiError, fetchZeroTouchCase, fetchZeroTouchCases } from "../api";
 import { formatTimestamp } from "../shared";
 import type { AuditEntryView } from "../viewModels";
 import { mapCaseTimelineToAuditEntries } from "../viewModels";
+import { PriorityBadge } from "./PriorityControl";
 
 const ACTIONS = ["CREATED", "DOCUMENT", "RECONCILIATION", "OWNERSHIP", "TARGET", "COMPLETED"];
 
@@ -99,6 +100,8 @@ export default function AuditTrail({ initialCaseId }: { initialCaseId?: string |
               <tr>
                 <th>Timestamp</th>
                 <th>Action</th>
+                <th>Priority</th>
+                <th>Client scope</th>
                 <th>By</th>
                 <th>Change</th>
                 <th>Loop</th>
@@ -111,6 +114,8 @@ export default function AuditTrail({ initialCaseId }: { initialCaseId?: string |
                   <td>
                     <span className="tag tag-accent-2">{entry.action.toLowerCase()}</span>
                   </td>
+                  <td><PriorityBadge priority={entry.priority} /></td>
+                  <td>{entry.client_scope_label ?? "Legacy unassigned"}</td>
                   <td>{entry.actor ?? "—"}</td>
                   <td>{entry.description}</td>
                   <td>{entry.loop_number ?? "—"}</td>
