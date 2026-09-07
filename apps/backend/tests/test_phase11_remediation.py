@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from test_phase11_reconciliation import FieldOverrideIdp, attach
 from test_zero_touch_orchestration import build_system
 
+from app.domain.access import TeamId
 from app.domain.documents import DocumentFieldKey
 from app.domain.models import SafeError
 from app.domain.reconciliation import (
@@ -637,7 +638,7 @@ def test_stale_duplicate_after_replacement_is_rejected_by_service() -> None:
 
 def test_low_confidence_conflict_has_one_unverifiable_blocker_and_no_action() -> None:
     client, zero, _, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     paused = attach(
         zero,
         created.case_id,

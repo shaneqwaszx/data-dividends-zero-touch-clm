@@ -3,9 +3,16 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, fetchZeroTouchCase, fetchZeroTouchCases } from "../api";
 import type { OnboardedRowView } from "../viewModels";
 import { mapCompletedCaseToOnboardedRow } from "../viewModels";
+import PriorityControl, { PriorityBadge } from "./PriorityControl";
 
 export function OnboardedActionColumnHeader() {
   return <th aria-label="Open" />;
+}
+
+export async function loadOnboardedRows(): Promise<OnboardedRowView[]> {
+  const items = await fetchZeroTouchCases("COMPLETED");
+  const details = await Promise.all(items.map((item) => fetchZeroTouchCase(item.case_id)));
+  return items.map((item, index) => mapCompletedCaseToOnboardedRow(item, details[index]));
 }
 
 export default function OnboardedClients({
@@ -21,10 +28,9 @@ export default function OnboardedClients({
 
   useEffect(() => {
     setIsLoading(true);
-    void fetchZeroTouchCases("COMPLETED")
-      .then(async (items) => {
-        const details = await Promise.all(items.map((item) => fetchZeroTouchCase(item.case_id)));
-        setClients(items.map((item, index) => mapCompletedCaseToOnboardedRow(item, details[index])));
+    void loadOnboardedRows()
+      .then((items) => {
+        setClients(items);
         setError(null);
       })
       .catch((requestError) => {
@@ -36,6 +42,23 @@ export default function OnboardedClients({
       })
       .finally(() => setIsLoading(false));
   }, []);
+
+  async function refreshAfterPriorityUpdate(): Promise<void> {
+    setIsLoading(true);
+    setError(null);
+    try {
+      setClients(await loadOnboardedRows());
+    } catch (requestError) {
+      setError(
+        requestError instanceof ApiError
+          ? requestError.message
+          : "The onboarded client list is unavailable.",
+      );
+      throw requestError;
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   const filteredClients = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -106,6 +129,8 @@ export default function OnboardedClients({
                 <th>Registration ID</th>
                 <th>Company</th>
                 <th>Jurisdiction</th>
+                <th>Priority</th>
+                <th>Client scope</th>
                 <th>Risk</th>
                 <th>Onboarded</th>
                 <th>Next review</th>
@@ -120,6 +145,15 @@ export default function OnboardedClients({
                   <td>{client.registration_id}</td>
                   <td>{client.company_name ?? "—"}</td>
                   <td>{client.jurisdiction ?? "—"}</td>
+                  <td>
+                    <PriorityBadge priority={client.priority} />
+                    <PriorityControl
+                      caseId={client.case_id}
+                      priority={client.priority}
+                      onUpdated={refreshAfterPriorityUpdate}
+                    />
+                  </td>
+                  <td>{client.client_scope_label ?? "Legacy unassigned"}</td>
                   <td>{client.risk_rating ?? "—"}</td>
                   <td>{new Date(client.onboarded_at).toLocaleDateString()}</td>
                   <td>{client.next_review_date ? new Date(client.next_review_date).toLocaleDateString() : "—"}</td>

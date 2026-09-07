@@ -41,6 +41,9 @@ import {
 
 const listItem: ZeroTouchCaseListItem = {
   case_id: "00000000-0000-4000-8000-000000000001",
+  team_id: "TEAM_A",
+  client_scope_label: "DBS",
+  priority: 8,
   requested_uen: "202400001A",
   legal_name: "SYNTHETIC COMPANY PTE. LTD.",
   status: "COMPLETED",
@@ -49,6 +52,15 @@ const listItem: ZeroTouchCaseListItem = {
   active_exception_count: 0,
   human_interventions: 0,
   final_outcome: "MOCK_GOLDTIER_SUBMITTED",
+};
+
+const actor = {
+  user_id: "team-a-onboarder",
+  display_name: "Team A Client Onboarder",
+  role: "CLIENT_ONBOARDER" as const,
+  team_id: "TEAM_A" as const,
+  team_display_name: "Team A",
+  client_scope_label: "DBS",
 };
 
 const summary = {
@@ -155,8 +167,8 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("UI v2 backend integration adapters", () => {
   it("preserves the screenshot navigation and multi-format/folder uploader", () => {
-    const markup = renderToStaticMarkup(<App />);
-    for (const label of ["Autoboard", "New onboarding", "Cases", "Onboarded", "Audit", "Policy", "Signed in as", "Demo operator"]) {
+    const markup = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} />);
+    for (const label of ["Autoboard", "New onboarding", "Cases", "Onboarded", "Audit", "Policy", "Signed in as", "Team A Client Onboarder"]) {
       expect(markup).toContain(label);
     }
     expect(markup).toContain("nav-tab--active");
@@ -262,11 +274,10 @@ describe("UI v2 backend integration adapters", () => {
     expect(fetchMock.mock.calls[0][0]).toContain(`/intake/documents/failed-doc/retry`);
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST" });
     expect(fetchMock.mock.calls[1][0]).toContain(`/documents/current-doc/replacement`);
-    expect(fetchMock.mock.calls[1][1]?.headers).toMatchObject({
-      "Content-Type": "text/plain",
-      "X-Document-Name": "evidence.txt",
-      "X-Document-Event-Count": "4",
-    });
+    const headers = new Headers(fetchMock.mock.calls[1][1]?.headers);
+    expect(headers.get("Content-Type")).toBe("text/plain");
+    expect(headers.get("X-Document-Name")).toBe("evidence.txt");
+    expect(headers.get("X-Document-Event-Count")).toBe("4");
   });
 
   it("refreshes authoritative evidence after a stale 409 and not after unrelated failures", () => {
@@ -275,15 +286,15 @@ describe("UI v2 backend integration adapters", () => {
     expect(shouldRefreshAfterMutationError(new TypeError("network"))).toBe(false);
   });
 
-  it("keeps the account control informational and separate from the execution profile", () => {
-    const account = renderToStaticMarkup(<OperatorAccount />);
-    const app = renderToStaticMarkup(<App />);
-    expect(account).toContain("Demo operator");
+  it("renders the authenticated profile separately from the execution profile", () => {
+    const account = renderToStaticMarkup(<OperatorAccount profile={actor} onLogout={() => undefined} />);
+    const app = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} />);
+    expect(account).toContain("Team A Client Onboarder");
     expect(account).toContain("aria-expanded=\"false\"");
     expect(app).toContain("nav-meta");
     expect(app).toContain("environment-banner");
     expect(app).toContain("operator-account");
-    expect(app).not.toContain("Log out");
+    expect(account).not.toContain("Demo operator");
     expect(app).not.toContain("PingFed login");
   });
 

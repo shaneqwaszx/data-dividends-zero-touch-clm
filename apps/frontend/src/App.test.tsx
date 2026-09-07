@@ -76,6 +76,14 @@ import type {
 } from "./types";
 
 const timestamp = "2026-08-10T02:00:00Z";
+const actor = {
+  user_id: "team-a-onboarder",
+  display_name: "Team A Client Onboarder",
+  role: "CLIENT_ONBOARDER" as const,
+  team_id: "TEAM_A" as const,
+  team_display_name: "Team A",
+  client_scope_label: "DBS",
+};
 
 function makeDocument(state: "REVIEW_REQUIRED" | "REVIEWED" = "REVIEW_REQUIRED") {
   const record: DocumentProcessingRecord = {
@@ -133,6 +141,9 @@ function makeCase(state: WorkflowState): OnboardingCase {
       : ["REQUESTED", "REGISTRY_FETCHED", state];
   return {
     case_id: "00000000-0000-4000-8000-000000000001",
+    team_id: "TEAM_A",
+    priority: 8,
+    client_scope_label: "DBS",
     source_case_id: "CASE-202400001A-00000000",
     correlation_id: "00000000-0000-4000-8000-000000000002",
     requested_uen: "202400001A",
@@ -508,7 +519,7 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
   });
 
   it("defaults to Start onboarding with the screenshot-authoritative product heading", () => {
-    const markup = renderToStaticMarkup(<App />);
+    const markup = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} />);
     expect(markup).toContain("Autoboard");
     expect(markup).toContain("Start onboarding");
     expect(markup).not.toContain("Start an onboarding request");
@@ -581,6 +592,9 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
   it("renders backend-authored history and multiple review queue items", () => {
     const cases = ["A", "B"].map((suffix, index) => ({
       case_id: `00000000-0000-4000-8000-00000000000${index + 1}`,
+      team_id: "TEAM_A" as const,
+      client_scope_label: "DBS",
+      priority: 8,
       requested_uen: `20240000${index + 1}${suffix}`,
       legal_name: `COMPANY ${suffix} PTE. LTD.`,
       status: "WAITING_FOR_REVIEW" as const,
@@ -636,8 +650,8 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
   });
 
   it("keeps deterministic demo controls gated on the Start landing page", () => {
-    const sponsor = renderToStaticMarkup(<App demoControlsEnabled={false} />);
-    const demo = renderToStaticMarkup(<App demoControlsEnabled />);
+    const sponsor = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} demoControlsEnabled={false} />);
+    const demo = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} demoControlsEnabled />);
     expect(sponsor).not.toContain("Demo/Test Controls");
     expect(sponsor).not.toContain("Integrated synthetic scenario");
     expect(demo).toContain("Demo/Test Controls");
@@ -671,7 +685,8 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
 
     expect((await createOnboardingCase("202400001A")).state).toBe("COMPLETED");
     expect((await fetchOnboardingCase(completed.case_id)).case_id).toBe(completed.case_id);
-    expect(fetchMock).toHaveBeenLastCalledWith(`/api/onboarding/cases/${completed.case_id}`);
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe(`/api/onboarding/cases/${completed.case_id}`);
+    expect(fetchMock.mock.calls.at(-1)?.[1]).toMatchObject({ credentials: "include" });
   });
 
   it("uploads a PDF with an explicit synthetic scenario", async () => {
@@ -685,18 +700,12 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     });
 
     await uploadDocument(document.case_id, file, "FIELD_MISMATCH");
-    expect(fetchMock).toHaveBeenCalledWith(
-      `/api/demo/onboarding/cases/${document.case_id}/documents`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/pdf",
-          "X-Document-Name": "synthetic.pdf",
-          "X-Mock-IDP-Scenario": "FIELD_MISMATCH",
-        },
-        body: file,
-      },
-    );
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/demo/onboarding/cases/${document.case_id}/documents`);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST", body: file, credentials: "include" });
+    const uploadHeaders = new Headers(fetchMock.mock.calls[0][1].headers);
+    expect(uploadHeaders.get("Content-Type")).toBe("application/pdf");
+    expect(uploadHeaders.get("X-Document-Name")).toBe("synthetic.pdf");
+    expect(uploadHeaders.get("X-Mock-IDP-Scenario")).toBe("FIELD_MISMATCH");
   });
 
   it("lists case documents", async () => {
@@ -723,19 +732,18 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
       "Human Corrected Name",
       "Synthetic note",
     );
-    expect(fetchMock).toHaveBeenCalledWith(
-      `/api/onboarding/cases/${reviewed.case_id}/documents/${reviewed.document_id}/reviews`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          field_key: "legal_name",
-          decision: "CORRECTED",
-          corrected_value: "Human Corrected Name",
-          note: "Synthetic note",
-        }),
-      },
-    );
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/onboarding/cases/${reviewed.case_id}/documents/${reviewed.document_id}/reviews`);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      credentials: "include",
+      body: JSON.stringify({
+        field_key: "legal_name",
+        decision: "CORRECTED",
+        corrected_value: "Human Corrected Name",
+        note: "Synthetic note",
+      }),
+    });
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get("Content-Type")).toBe("application/json");
   });
 
   it("renders canonical workflow and truthful completion boundary", () => {
@@ -790,19 +798,11 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     await loadMockOwnership(loaded.case_id, "INDIRECT_OWNER");
     await fetchOwnership(loaded.case_id);
     await analyzeOwnership(loaded.case_id);
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      `/api/demo/onboarding/cases/${loaded.case_id}/ownership/load`,
-      {
-        method: "POST",
-        headers: { "X-Mock-Ownership-Scenario": "INDIRECT_OWNER" },
-      },
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      `/api/onboarding/cases/${loaded.case_id}/ownership/analyze`,
-      { method: "POST" },
-    );
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/demo/onboarding/cases/${loaded.case_id}/ownership/load`);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST", credentials: "include" });
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get("X-Mock-Ownership-Scenario")).toBe("INDIRECT_OWNER");
+    expect(fetchMock.mock.calls[2][0]).toBe(`/api/onboarding/cases/${loaded.case_id}/ownership/analyze`);
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: "POST", credentials: "include" });
   });
 
   it("renders indirect calculation evidence and provisional candidate wording", () => {
@@ -891,21 +891,16 @@ describe("Phase 05 unified CLM journey", () => {
     await evaluateClmReadiness(created.case.case_id);
     await submitClmCase(created.case.case_id);
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/clm/cases", {
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/clm/cases");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ uen: "202400001A" }),
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      `/api/clm/cases/${created.case.case_id}/readiness/evaluate`,
-      { method: "POST" },
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      `/api/clm/cases/${created.case.case_id}/submit`,
-      { method: "POST" },
-    );
+    expect(fetchMock.mock.calls[2][0]).toBe(`/api/clm/cases/${created.case.case_id}/readiness/evaluate`);
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: "POST", credentials: "include" });
+    expect(fetchMock.mock.calls[3][0]).toBe(`/api/clm/cases/${created.case.case_id}/submit`);
+    expect(fetchMock.mock.calls[3][1]).toMatchObject({ method: "POST", credentials: "include" });
   });
 
   it("renders all stages, typed blockers, warnings, and a disabled blocked submit", () => {
@@ -1562,7 +1557,7 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     await completeZeroTouchIntake(completed.case.case_id, 1, false);
     await fetchZeroTouchCases("COMPLETED");
     expect(fetchMock.mock.calls[0][0]).toContain("/intake/documents");
-    expect(fetchMock.mock.calls[0][1].headers["Content-Type"]).toBe("text/plain");
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get("Content-Type")).toBe("text/plain");
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
       expected_document_count: 1,
     });

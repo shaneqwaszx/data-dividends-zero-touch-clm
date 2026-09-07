@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 from app.connectors.idp import IdpProvider
 from app.connectors.ownership import OwnershipProvider
+from app.domain.access import TeamId
 from app.domain.clm import ClmStatus
 from app.domain.documents import (
     DocumentAutoClearBlocker,
@@ -107,12 +108,18 @@ class ZeroTouchOrchestrator:
         self._uuid_factory = uuid_factory or uuid4
 
     def create_case(
-        self, uen: str, country_of_incorporation: str | None = None
+        self,
+        uen: str,
+        country_of_incorporation: str | None = None,
+        *,
+        team_id: TeamId | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Create registry evidence and wait only for the required PDF input."""
 
         try:
-            clm_record = self._clm.create_case(uen, country_of_incorporation)
+            clm_record = self._clm.create_case(
+                uen, country_of_incorporation, team_id=team_id
+            )
         except ClmInfrastructureError as exc:
             recovered_clm_record = self._clm.get(case_id=exc.case_id)
             if recovered_clm_record is None:
@@ -268,6 +275,10 @@ class ZeroTouchOrchestrator:
                 actions=(),
             )
         return self._create(record)
+
+    @property
+    def automation_repository(self) -> ZeroTouchAutomationRepository:
+        return self._repository
 
     def attach_document(
         self,

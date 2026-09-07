@@ -51,6 +51,12 @@ class Settings(BaseSettings):
         max_length=64,
         pattern=r"^[A-Za-z0-9_-]+$",
     )
+    phase13_team_a_onboarder_password_hash: SecretStr | None = None
+    phase13_team_a_rm_password_hash: SecretStr | None = None
+    phase13_team_b_onboarder_password_hash: SecretStr | None = None
+    phase13_team_b_rm_password_hash: SecretStr | None = None
+    phase13_director_password_hash: SecretStr | None = None
+    phase13_cookie_secure: bool | None = None
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

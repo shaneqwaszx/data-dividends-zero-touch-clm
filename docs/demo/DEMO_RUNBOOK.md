@@ -150,3 +150,30 @@ Start the demo, create a case, record its case ID/status, stop the demo, and sta
 again. Dashboard/Review and direct case open must show the same case and structured
 evidence without provider replay. `reset_demo_windows.bat` restarts processes but does
 not delete Mongo data. No general durable-data purge command is supplied.
+
+# Phase 13 authenticated team demo
+
+Before backend startup, run `python scripts/generate_phase13_demo_password_hashes.py`.
+Enter and confirm a password for each prompt, then place only the five emitted scrypt
+hash assignments in the local untracked `.env`. Do not save plaintext passwords in the
+repository, shell history, launcher scripts, screenshots, or UAT evidence. The browser
+sign-in user IDs are `team-a-onboarder`, `team-a-rm`, `team-b-onboarder`, `team-b-rm`,
+and `director`.
+
+Team A profiles see only Team A / DBS cases; Team B profiles see only Team B / OCBC
+cases. Director sees both and must explicitly select a team when creating. Inaccessible
+case IDs appear unavailable, not forbidden. Priority accepts only unset or integer 1–10,
+orders portfolio rows on the backend, and has no SLA or approval meaning.
+
+To create the reproducible two-team portfolio through normal authenticated APIs, start
+the backend with Demo Controls enabled and run:
+
+```powershell
+python scripts/seed_phase13_demo.py --base-url http://127.0.0.1:8000
+```
+
+The script prompts for the Director password, signs in, creates or reuses five synthetic
+UEN cases per team, applies priorities `10, 8, 5, 1, unset`, and signs out. It neither
+creates credentials nor writes Mongo directly. In memory mode, rerunning within the same
+backend process reuses cases; restart clears them. In Mongo mode, restart preserves them
+and reruns reuse the matching team/UEN cases. Use only synthetic data.

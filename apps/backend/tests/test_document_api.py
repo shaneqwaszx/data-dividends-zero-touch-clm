@@ -354,7 +354,7 @@ async def test_oversize_missing_headers_unknown_case_and_unknown_document() -> N
     assert missing_scenario.json()["detail"]["code"] == "IDP_SCENARIO_INVALID"
     assert missing_name.json()["detail"]["code"] == "DOCUMENT_NAME_INVALID"
     assert unknown_case.status_code == 404
-    assert unknown_case.json()["detail"]["code"] == "ONBOARDING_CASE_NOT_FOUND"
+    assert unknown_case.json()["detail"]["code"] == "CASE_NOT_FOUND"
     assert unknown_document.status_code == 404
     assert unknown_document.json()["detail"]["code"] == "DOCUMENT_NOT_FOUND"
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -12,6 +13,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,22 @@ SCRIPTS = ROOT / "scripts"
 RUNTIME = ROOT / ".runtime"
 STATE = RUNTIME / "demo-processes.json"
 CREATE_NO_WINDOW = 0x08000000
+
+BACKEND_ROOT = ROOT / "apps" / "backend"
+sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.domain.access import SYNTHETIC_USER_PROFILES
+from app.services.authentication import (
+    credential_setting_key,
+    generate_scrypt_password_hash,
+)
+
+_LIFECYCLE_CREDENTIAL = secrets.token_urlsafe(24)
+_LIFECYCLE_HASH = generate_scrypt_password_hash(_LIFECYCLE_CREDENTIAL)
+_LIFECYCLE_AUTH_ENV = {
+    credential_setting_key(profile.user_id): _LIFECYCLE_HASH
+    for profile in SYNTHETIC_USER_PROFILES
+}
 
 
 @unittest.skipUnless(os.name == "nt", "Windows-only process lifecycle verification")
@@ -128,6 +146,7 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
             del environment[key]
         if path_values:
             environment["Path"] = max(path_values, key=len)
+        environment.update(_LIFECYCLE_AUTH_ENV)
         return environment
 
     def run_lifecycle_captured(self, script: str, timeout: int = 90) -> tuple[int, str]:
@@ -319,11 +338,30 @@ $roles = @(
         return json.loads(result.stdout)
 
     def request(self, url: str, *, data: bytes | None = None) -> tuple[int, bytes]:
+        opener: urllib.request.OpenerDirector | None = None
+        csrf_token: str | None = None
+        if "/api/" in url:
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPCookieProcessor(CookieJar())
+            )
+            login_request = urllib.request.Request(
+                "http://127.0.0.1:8000/api/auth/login",
+                data=json.dumps(
+                    {"user_id": "director", "password": _LIFECYCLE_CREDENTIAL}
+                ).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with opener.open(login_request, timeout=3) as response:
+                csrf_token = json.loads(response.read())["csrf_token"]
+
         request = urllib.request.Request(url, data=data)
         if data is not None:
             request.add_header("Content-Type", "application/json")
+            request.add_header("X-CSRF-Token", csrf_token or "")
+            request.add_header("Origin", "http://127.0.0.1:8000")
         try:
-            with urllib.request.urlopen(request, timeout=3) as response:
+            open_request = opener.open if opener is not None else urllib.request.urlopen
+            with open_request(request, timeout=3) as response:
                 return response.status, response.read()
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read()
@@ -574,7 +612,13 @@ $roles = @(
         started = self.run_lifecycle("start_demo_windows.bat")
         self.assertEqual(started.returncode, 0)
         before_state = self.read_state()
-        payload = json.dumps({"uen": "202400001A", "scenario": "STRAIGHT_THROUGH"}).encode()
+        payload = json.dumps(
+            {
+                "uen": "202400001A",
+                "scenario": "STRAIGHT_THROUGH",
+                "team_id": "TEAM_A",
+            }
+        ).encode()
         status, body = self.request("http://127.0.0.1:8000/api/demo/clm/zero-touch/cases", data=payload)
         self.assertEqual(status, 201)
         case_id = json.loads(body)["case"]["case_id"]

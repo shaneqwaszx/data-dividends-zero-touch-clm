@@ -37,7 +37,11 @@ from app.persistence.errors import (
     PersistenceSchemaUnsupportedError,
     PersistenceUnavailableError,
 )
-from app.persistence.models import CASE_SNAPSHOT_SCHEMA_VERSION, DurableCaseSnapshot
+from app.persistence.models import (
+    CASE_SNAPSHOT_SCHEMA_VERSION,
+    DurableCaseSnapshot,
+    DurableCaseSnapshotV1,
+)
 
 
 class MongoCaseStore:
@@ -181,14 +185,23 @@ class MongoCaseStore:
         value = dict(raw)
         value.pop("_id")
         schema_version = value.get("schema_version")
-        if schema_version != CASE_SNAPSHOT_SCHEMA_VERSION:
-            raise PersistenceSchemaUnsupportedError
+        if type(schema_version) is not int:
+            raise PersistenceDataInvalidError
         try:
-            snapshot = DurableCaseSnapshot.model_validate(value)
-            _reject_unknown_model_fields(value, snapshot)
+            if schema_version == 1:
+                legacy = DurableCaseSnapshotV1.model_validate(value)
+                _reject_unknown_model_fields(value, legacy)
+                snapshot = legacy.to_current()
+            elif schema_version == CASE_SNAPSHOT_SCHEMA_VERSION:
+                snapshot = DurableCaseSnapshot.model_validate(value)
+                _reject_unknown_model_fields(value, snapshot)
+            else:
+                raise PersistenceSchemaUnsupportedError
             if mongo_id != str(snapshot.case_id):
                 raise PersistenceDataInvalidError
             return snapshot
+        except PersistenceSchemaUnsupportedError:
+            raise
         except PersistenceDataInvalidError:
             raise
         except (ValidationError, ValueError, TypeError):

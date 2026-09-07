@@ -31,6 +31,7 @@ from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.mock_idp import MockIdpProvider
 from app.connectors.mock_ownership import MockOwnershipProvider
+from app.domain.access import TeamId
 from app.domain.clm import ClmEventType, ClmOrchestrationRecord, ClmStatus
 from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.models import OnboardingCase
@@ -352,7 +353,7 @@ def make_ready_case(
         clm_repository=clm_repository,
         clm_clock=clm_clock,
     )
-    record = clm.create_case(uen)
+    record = clm.create_case(uen, team_id=TeamId.TEAM_A)
     document = documents.create_document(
         case_id=record.case_id,
         display_name="synthetic-phase-05.pdf",

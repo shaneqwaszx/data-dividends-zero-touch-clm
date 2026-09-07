@@ -245,6 +245,9 @@ def test_repository_listing_is_empty_ordered_and_defensively_copied() -> None:
         "active_exception_count",
         "human_interventions",
         "final_outcome",
+        "team_id",
+        "client_scope_label",
+        "priority",
     }
 
 
