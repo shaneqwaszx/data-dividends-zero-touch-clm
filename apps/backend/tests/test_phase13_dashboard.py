@@ -226,8 +226,8 @@ def test_director_gets_exact_status_priority_team_recent_and_active_views() -> N
 
 
 def test_dashboard_route_requires_authentication_and_accepts_no_scope_authority() -> None:
-    password = secrets.token_urlsafe(24)
-    encoded = generate_scrypt_password_hash(password)
+    synthetic_login_value = secrets.token_urlsafe(24)
+    encoded = generate_scrypt_password_hash(synthetic_login_value)
     application = create_app(
         ordinary_test_settings(),
         authentication_service=AuthenticationService(
@@ -239,7 +239,7 @@ def test_dashboard_route_requires_authentication_and_accepts_no_scope_authority(
 
     response = anonymous.post(
         "/api/auth/login",
-        json={"user_id": "maya-lim", "password": password},
+        json={"user_id": "maya-lim", "password": synthetic_login_value},
     )
     assert response.status_code == 200
     dashboard = anonymous.get("/api/clm/zero-touch/dashboard?team_id=TEAM_B&role=DIRECTOR")
