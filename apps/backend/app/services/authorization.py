@@ -34,6 +34,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("GET", "/api/system/execution-profile", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/onboarding/mock-scenarios", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/clm/zero-touch/cases", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/clm/zero-touch/dashboard", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/onboarding/cases", RouteAccess.CASE_CREATION),
     RoutePolicy("POST", "/api/clm/cases", RouteAccess.CASE_CREATION),
     RoutePolicy("POST", "/api/clm/zero-touch/cases", RouteAccess.CASE_CREATION),
@@ -45,9 +46,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         "/api/clm/cases/{case_id}/readiness/evaluate",
         RouteAccess.CASE_SCOPED,
     ),
-    RoutePolicy(
-        "GET", "/api/clm/cases/{case_id}/submission-plan", RouteAccess.CASE_SCOPED
-    ),
+    RoutePolicy("GET", "/api/clm/cases/{case_id}/submission-plan", RouteAccess.CASE_SCOPED),
     RoutePolicy("POST", "/api/clm/cases/{case_id}/submit", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "POST",
@@ -66,8 +65,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     ),
     RoutePolicy(
         "POST",
-        "/api/demo/clm/zero-touch/cases/{case_id}/intake/documents/"
-        "{failed_document_id}/retry",
+        "/api/demo/clm/zero-touch/cases/{case_id}/intake/documents/{failed_document_id}/retry",
         RouteAccess.CASE_SCOPED,
     ),
     RoutePolicy(
@@ -101,12 +99,8 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         "/api/demo/clm/zero-touch/cases/{case_id}/documents",
         RouteAccess.CASE_SCOPED,
     ),
-    RoutePolicy(
-        "POST", "/api/clm/zero-touch/cases/{case_id}/start", RouteAccess.CASE_SCOPED
-    ),
-    RoutePolicy(
-        "POST", "/api/clm/zero-touch/cases/{case_id}/resume", RouteAccess.CASE_SCOPED
-    ),
+    RoutePolicy("POST", "/api/clm/zero-touch/cases/{case_id}/start", RouteAccess.CASE_SCOPED),
+    RoutePolicy("POST", "/api/clm/zero-touch/cases/{case_id}/resume", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "POST",
         "/api/clm/zero-touch/cases/{case_id}/exceptions/{exception_id}/resolve",
@@ -114,8 +108,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     ),
     RoutePolicy(
         "POST",
-        "/api/clm/zero-touch/cases/{case_id}/reconciliation/discrepancies/"
-        "{discrepancy_id}/resolve",
+        "/api/clm/zero-touch/cases/{case_id}/reconciliation/discrepancies/{discrepancy_id}/resolve",
         RouteAccess.CASE_SCOPED,
     ),
     RoutePolicy(
@@ -123,9 +116,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         "/api/clm/zero-touch/cases/{case_id}/priority",
         RouteAccess.CASE_SCOPED,
     ),
-    RoutePolicy(
-        "POST", "/api/onboarding/cases/{case_id}/ownership/load", RouteAccess.CASE_SCOPED
-    ),
+    RoutePolicy("POST", "/api/onboarding/cases/{case_id}/ownership/load", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "POST",
         "/api/demo/onboarding/cases/{case_id}/ownership/load",
@@ -136,23 +127,15 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         "/api/onboarding/cases/{case_id}/ownership/analyze",
         RouteAccess.CASE_SCOPED,
     ),
-    RoutePolicy(
-        "GET", "/api/onboarding/cases/{case_id}/ownership", RouteAccess.CASE_SCOPED
-    ),
-    RoutePolicy(
-        "GET", "/api/onboarding/cases/{case_id}/ubo-candidates", RouteAccess.CASE_SCOPED
-    ),
-    RoutePolicy(
-        "POST", "/api/onboarding/cases/{case_id}/documents", RouteAccess.CASE_SCOPED
-    ),
+    RoutePolicy("GET", "/api/onboarding/cases/{case_id}/ownership", RouteAccess.CASE_SCOPED),
+    RoutePolicy("GET", "/api/onboarding/cases/{case_id}/ubo-candidates", RouteAccess.CASE_SCOPED),
+    RoutePolicy("POST", "/api/onboarding/cases/{case_id}/documents", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "POST",
         "/api/demo/onboarding/cases/{case_id}/documents",
         RouteAccess.CASE_SCOPED,
     ),
-    RoutePolicy(
-        "GET", "/api/onboarding/cases/{case_id}/documents", RouteAccess.CASE_SCOPED
-    ),
+    RoutePolicy("GET", "/api/onboarding/cases/{case_id}/documents", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "GET",
         "/api/onboarding/cases/{case_id}/documents/{document_id}",
@@ -230,7 +213,7 @@ def _route_pattern(path: str) -> re.Pattern[str]:
     position = 0
     for match in re.finditer(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", path):
         pieces.append(re.escape(path[position : match.start()]))
-        pieces.append(fr"(?P<{match.group(1)}>[^/]+)")
+        pieces.append(rf"(?P<{match.group(1)}>[^/]+)")
         position = match.end()
     pieces.append(re.escape(path[position:]))
     return re.compile("".join(pieces))

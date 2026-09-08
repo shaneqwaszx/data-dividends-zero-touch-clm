@@ -55,12 +55,21 @@ const listItem: ZeroTouchCaseListItem = {
 };
 
 const actor = {
-  user_id: "team-a-onboarder",
-  display_name: "Team A Client Onboarder",
+  user_id: "maya-lim",
+  display_name: "Maya Lim",
   role: "CLIENT_ONBOARDER" as const,
   team_id: "TEAM_A" as const,
-  team_display_name: "Team A",
+  team_display_name: "DBS Corporate Onboarding",
+  team_type: "Corporate Client Onboarding",
+  team_description: "Type: Corporate Client Onboarding | Client coverage: DBS",
   client_scope_label: "DBS",
+  available_teams: [{
+    team_id: "TEAM_A" as const,
+    display_name: "DBS Corporate Onboarding",
+    team_type: "Corporate Client Onboarding",
+    client_scope_label: "DBS",
+    description: "Type: Corporate Client Onboarding | Client coverage: DBS",
+  }],
 };
 
 const summary = {
@@ -167,8 +176,8 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("UI v2 backend integration adapters", () => {
   it("preserves the screenshot navigation and multi-format/folder uploader", () => {
-    const markup = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} />);
-    for (const label of ["Autoboard", "New onboarding", "Cases", "Onboarded", "Audit", "Policy", "Signed in as", "Team A Client Onboarder"]) {
+    const markup = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} initialTab="home" />);
+    for (const label of ["Autoboard", "New onboarding", "Cases", "Onboarded", "Audit", "Policy", "Signed in as", "Maya Lim"]) {
       expect(markup).toContain(label);
     }
     expect(markup).toContain("nav-tab--active");
@@ -289,7 +298,9 @@ describe("UI v2 backend integration adapters", () => {
   it("renders the authenticated profile separately from the execution profile", () => {
     const account = renderToStaticMarkup(<OperatorAccount profile={actor} onLogout={() => undefined} />);
     const app = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} />);
-    expect(account).toContain("Team A Client Onboarder");
+    expect(account).toContain("Maya Lim");
+    expect(account).toContain("DBS Corporate Onboarding");
+    expect(account).toContain("Coverage: DBS");
     expect(account).toContain("aria-expanded=\"false\"");
     expect(app).toContain("nav-meta");
     expect(app).toContain("environment-banner");

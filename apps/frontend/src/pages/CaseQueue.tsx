@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { ApiError, fetchZeroTouchCase, fetchZeroTouchCases } from "../api";
+import type { PriorityFilter, PrioritySort } from "../api";
 import { formatDateNoSeconds, stageProgressLabel } from "../shared";
 import type { CaseRowView } from "../viewModels";
 import { mapZeroTouchCaseToCaseRow } from "../viewModels";
-import PriorityControl, { PriorityBadge } from "./PriorityControl";
+import PriorityControl, { PriorityBadge, PriorityListControls } from "./PriorityControl";
 
 function statusTagClass(status: CaseRowView["status"]): string {
   if (status === "COMPLETED") return "tag tag-accent";
@@ -15,8 +16,10 @@ function statusTagClass(status: CaseRowView["status"]): string {
 
 export async function loadCaseQueueRows(
   status?: CaseRowView["status"],
+  priority: PriorityFilter = "all",
+  prioritySort: PrioritySort = "highest_first",
 ): Promise<CaseRowView[]> {
-  const items = await fetchZeroTouchCases(status);
+  const items = await fetchZeroTouchCases(status, priority, prioritySort);
   const details = await Promise.all(items.map((item) => fetchZeroTouchCase(item.case_id)));
   return items.map((item, index) => mapZeroTouchCaseToCaseRow(item, details[index]));
 }
@@ -24,6 +27,8 @@ export async function loadCaseQueueRows(
 export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string) => void }) {
   const [cases, setCases] = useState<CaseRowView[]>([]);
   const [status, setStatus] = useState("");
+  const [priority, setPriority] = useState<PriorityFilter>("all");
+  const [prioritySort, setPrioritySort] = useState<PrioritySort>("highest_first");
   const [jurisdiction, setJurisdiction] = useState("");
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +37,11 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
   useEffect(() => {
     let current = true;
     setIsLoading(true);
-    void loadCaseQueueRows(status ? status as CaseRowView["status"] : undefined)
+    void loadCaseQueueRows(
+      status ? status as CaseRowView["status"] : undefined,
+      priority,
+      prioritySort,
+    )
       .then((items) => {
         if (current) {
           setCases(items);
@@ -53,13 +62,17 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
     return () => {
       current = false;
     };
-  }, [status]);
+  }, [priority, prioritySort, status]);
 
   async function refreshAfterPriorityUpdate(): Promise<void> {
     setIsLoading(true);
     setError(null);
     try {
-      setCases(await loadCaseQueueRows(status ? status as CaseRowView["status"] : undefined));
+      setCases(await loadCaseQueueRows(
+        status ? status as CaseRowView["status"] : undefined,
+        priority,
+        prioritySort,
+      ));
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
@@ -109,6 +122,12 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
           <option value="TECHNICAL_FAILURE">Technical failure</option>
           <option value="COMPLETED">Completed</option>
         </select>
+        <PriorityListControls
+          filter={priority}
+          sort={prioritySort}
+          onFilterChange={setPriority}
+          onSortChange={setPrioritySort}
+        />
         <select
           className="input"
           style={{ width: 190 }}

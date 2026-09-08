@@ -157,13 +157,17 @@ Before backend startup, run `python scripts/generate_phase13_demo_password_hashe
 Enter and confirm a password for each prompt, then place only the five emitted scrypt
 hash assignments in the local untracked `.env`. Do not save plaintext passwords in the
 repository, shell history, launcher scripts, screenshots, or UAT evidence. The browser
-sign-in user IDs are `team-a-onboarder`, `team-a-rm`, `team-b-onboarder`, `team-b-rm`,
-and `director`.
+sign-in user IDs are `maya-lim`, `ethan-tan`, `sophia-ng`, `ryan-lee`, and `olivia-koh`.
+These are synthetic POC identities. If a local `.env` contains hashes generated before
+the identity remediation, regenerate all five hashes: the old setting names are
+intentionally not reused.
 
-Team A profiles see only Team A / DBS cases; Team B profiles see only Team B / OCBC
-cases. Director sees both and must explicitly select a team when creating. Inaccessible
-case IDs appear unavailable, not forbidden. Priority accepts only unset or integer 1–10,
-orders portfolio rows on the backend, and has no SLA or approval meaning.
+Maya Lim and Ethan Tan see only DBS Corporate Onboarding cases. Sophia Ng and Ryan Lee
+see only OCBC Corporate Onboarding cases. Olivia Koh has global/cross-team Director
+scope and must explicitly select a team when creating. The persisted team IDs remain
+`TEAM_A` and `TEAM_B`. Inaccessible case IDs appear unavailable, not forbidden. Priority
+accepts only unset or integer 1–10, orders portfolio rows on the backend, and has no SLA
+or approval meaning.
 
 To create the reproducible two-team portfolio through normal authenticated APIs, start
 the backend with Demo Controls enabled and run:
@@ -173,7 +177,34 @@ python scripts/seed_phase13_demo.py --base-url http://127.0.0.1:8000
 ```
 
 The script prompts for the Director password, signs in, creates or reuses five synthetic
-UEN cases per team, applies priorities `10, 8, 5, 1, unset`, and signs out. It neither
-creates credentials nor writes Mongo directly. In memory mode, rerunning within the same
-backend process reuses cases; restart clears them. In Mongo mode, restart preserves them
-and reruns reuse the matching team/UEN cases. Use only synthetic data.
+UEN cases per team, supplies priorities `10, 8, 5, 1, unset` atomically when creating,
+and drives every missing case through the supported synthetic `STRAIGHT_THROUGH`
+document workflow. It prefers an exact successful showcase case if unrelated history
+contains the same team/UEN, and exits nonzero unless every intended pair has a correctly
+team-owned/prioritised `COMPLETED` / `MOCK_GOLDTIER_SUBMITTED` case. It never deletes or
+rewrites colliding history. It neither creates credentials, assigns terminal state, nor
+writes Mongo directly.
+
+With `CLM_PERSISTENCE_MODE=memory`, all cases are process-local. Run the seeder after
+every backend restart; a second run in the same backend process reuses the ten cases.
+With `CLM_PERSISTENCE_MODE=mongo`, the same application model and Dashboard history are
+durable. Use only synthetic data.
+
+After sign-in, Dashboard is the default view. Maya/Ethan receive DBS-only totals,
+distributions, trend, and case lists; Sophia/Ryan receive OCBC-only data; Olivia receives
+both authorized team portfolios. Select **Open** in Highest-priority active cases or
+Recent cases to reuse the existing case detail flow. **Refresh** rereads the backend;
+it does not run onboarding providers. Factual completion rate has no SLA, regulatory,
+approval, risk, or staff-performance meaning.
+
+For an engineering-only repeatable remote validation, explicitly select a newly generated
+database matching `clm_p13_<24 lowercase hex>` and run
+`python scripts/validate_phase13_mongo_dashboard.py` with `PYTHONPATH=apps/backend;.`.
+The script rejects `clm_poc` and every non-allowlisted database before application
+composition. It creates ephemeral runtime-only authentication, uses the application APIs
+and authenticated seeder, performs projection-limited checks of the disposable
+collection, restarts the local validation app, and prints only safe counts. It does not
+print the Mongo URI/host or credentials. Physical validation databases use strict
+generated `clm_p12_*` / `clm_p13_*` names; cleanup retries, verifies absence, and reports
+only a safe exception class on exhaustion. Run physical pytest with `--tb=no` so
+driver details cannot enter terminal evidence.

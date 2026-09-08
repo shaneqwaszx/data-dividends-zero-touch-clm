@@ -15,12 +15,13 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `MONGO_URI` | required secret in Mongo mode | empty | Backend-only Mongo connection string; never returned or logged |
 | `MONGO_DATABASE` | persistence | `clm_poc` | Bounded database namespace |
 | `MONGO_CASE_COLLECTION` | persistence | `clm_case_snapshots` | Bounded one-envelope-per-case collection |
-| `PHASE13_TEAM_A_ONBOARDER_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the Team A Client Onboarder |
-| `PHASE13_TEAM_A_RM_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the Team A Relationship Manager |
-| `PHASE13_TEAM_B_ONBOARDER_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the Team B Client Onboarder |
-| `PHASE13_TEAM_B_RM_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the Team B Relationship Manager |
-| `PHASE13_DIRECTOR_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for the Director |
+| `PHASE13_MAYA_LIM_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic operator Maya Lim |
+| `PHASE13_ETHAN_TAN_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic operator Ethan Tan |
+| `PHASE13_SOPHIA_NG_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic operator Sophia Ng |
+| `PHASE13_RYAN_LEE_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic operator Ryan Lee |
+| `PHASE13_OLIVIA_KOH_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic Director Olivia Koh |
 | `PHASE13_COOKIE_SECURE` | security | environment-derived | Defaults `true` in production and `false` in local development/test; explicit production `false` fails startup |
+| `PHASE13_BROWSER_ORIGIN` | security | `http://127.0.0.1:8000` locally | Canonical browser origin. Production requires an explicit exact HTTPS origin and fails before persistence initialization when absent or malformed. |
 | `ACRA_CONNECTOR_MODE` | integration | `mock` | `mock` or sandbox-shaped `sandbox` |
 | `ACRA_BASE_URL` | integration | empty | HTTPS subscriber base; required only for sandbox mode |
 | `ACRA_COMPANY_PATH_TEMPLATE` | integration | empty | Authorized path with exactly one `{uen}` placeholder |
@@ -89,4 +90,13 @@ real readiness. D-018 still prohibits the quarantined authentication material.
 - Use `python scripts/generate_phase13_demo_password_hashes.py` interactively and copy
   its five hash assignments only into the local untracked environment. The script never
   writes a credential file or prints plaintext.
+- Existing local Phase 13 hashes use retired setting names and are not migrated. After
+  this remediation, regenerate all five hashes so the new synthetic-profile setting
+  names above are populated.
+- Browser Origin/Referer validation uses configured origins only; request `Host` and
+  forwarding headers never add trust. At most one physical field of each name is
+  accepted, and duplicate fields fail closed even when identical. Origin is an exact
+  origin; Referer may include path/query but not a fragment. Development/test has exact
+  loopback origins for the backend and documented Vite proxy. Production requires one
+  explicit exact HTTPS `PHASE13_BROWSER_ORIGIN` and inherits no development origin.
 - No TLS-disable, certificate-ignore, wildcard CORS, or secret-printing option exists.

@@ -30,6 +30,7 @@ import AuditTrail from "./pages/AuditTrail";
 import CaseDetail from "./pages/CaseDetail";
 import CaseQueue from "./pages/CaseQueue";
 import ClientDetail from "./pages/ClientDetail";
+import Dashboard from "./pages/Dashboard";
 import HomeOnboarding from "./pages/HomeOnboarding";
 import OnboardedClients from "./pages/OnboardedClients";
 import PolicyRules from "./pages/PolicyRules";
@@ -1273,7 +1274,7 @@ export function LocalReviewerWorkbench({ summary }: { summary: ZeroTouchCaseSumm
   );
 }
 
-type AppTab = "home" | "queue" | "onboarded" | "audit" | "policy";
+type AppTab = "dashboard" | "home" | "queue" | "onboarded" | "audit" | "policy";
 
 export function WorkspaceTabs({
   activeTab,
@@ -1285,6 +1286,7 @@ export function WorkspaceTabs({
   trailing?: ReactNode;
 }) {
   const tabs: Array<[AppTab, string]> = [
+    ["dashboard", "Dashboard"],
     ["home", "New onboarding"],
     ["queue", "Cases"],
     ["onboarded", "Onboarded"],
@@ -1331,13 +1333,19 @@ export function OperatorAccount({
         aria-controls="operator-account-disclosure"
         onClick={() => setOpen((current) => !current)}
       >
-        <span>{profile.display_name}</span>
+        <span className="operator-account__identity">
+          <span>{profile.display_name}</span>
+          <span className="operator-account__metadata">
+            {profile.role.replaceAll("_", " ")} · {profile.team_display_name ?? "Global scope"} · {profile.team_id ? `Coverage: ${profile.client_scope_label}` : profile.team_description}
+          </span>
+        </span>
         <span aria-hidden="true" className="operator-account__chevron">⌄</span>
       </button>
       {open && (
         <div id="operator-account-disclosure" className="operator-account__disclosure">
           <strong>{profile.role.replaceAll("_", " ")}</strong>
-          <span>{profile.team_display_name ?? "All teams"} · {profile.client_scope_label}</span>
+          <span>{profile.team_display_name ?? "Global scope"}</span>
+          <span>{profile.team_description}</span>
           <button type="button" className="btn btn-ghost" onClick={onLogout}>Sign out</button>
         </div>
       )}
@@ -1756,16 +1764,18 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
 
 export interface AppProps {
   demoControlsEnabled?: boolean;
+  initialTab?: AppTab;
   actor: AuthenticatedProfile;
   onLogout: () => void;
 }
 
 export default function App({
   demoControlsEnabled = import.meta.env.VITE_DEMO_CONTROLS_ENABLED === "true",
+  initialTab = "dashboard",
   actor,
   onLogout,
 }: AppProps) {
-  const [activeTab, setActiveTab] = useState<AppTab>("home");
+  const [activeTab, setActiveTab] = useState<AppTab>(initialTab);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [auditCaseId, setAuditCaseId] = useState<string | null>(null);
@@ -1776,6 +1786,7 @@ export default function App({
   const [caseId, setCaseId] = useState("");
   const [demoScenario, setDemoScenario] = useState<ZeroTouchDemoScenario>("STRAIGHT_THROUGH");
   const [directorTeamId, setDirectorTeamId] = useState<TeamId | "">("");
+  const [casePriority, setCasePriority] = useState<number | "">("");
   const [simulationProfile, setSimulationProfile] = useState<SimulationProfile | null>(null);
   const [summary, setSummary] = useState<ZeroTouchCaseSummary | null>(null);
   const [, setRetainedCreatedSummary] = useState<ZeroTouchCaseSummary | null>(null);
@@ -1874,6 +1885,7 @@ export default function App({
             demoScenario,
             countryOfIncorporation || undefined,
             actor.role === "DIRECTOR" ? directorTeamId || undefined : undefined,
+            casePriority === "" ? undefined : casePriority,
           ),
           onCreated: (created) => {
             setRetainedCreatedSummary(created);
@@ -2046,6 +2058,7 @@ export default function App({
       clearSubmitting: () => setIsSubmitting(false),
       clearResolving: () => setIsResolving(false),
     });
+    setCasePriority("");
     intakeCaseRef.current = null;
     successfulIntakeFilesRef.current.clear();
     failedIntakeDocumentsRef.current.clear();
@@ -2061,6 +2074,11 @@ export default function App({
   function openCompletedCase(caseId: string) {
     setSelectedClientId(caseId);
     setActiveTab("onboarded");
+  }
+
+  function openDashboardCase(caseId: string) {
+    setSelectedCaseId(caseId);
+    setActiveTab("queue");
   }
 
   function openCaseAudit(caseId: string) {
@@ -2108,6 +2126,9 @@ export default function App({
         }
       />
       <div className="ds-content">
+          {activeTab === "dashboard" && (
+            <Dashboard actor={actor} onOpenCase={openDashboardCase} />
+          )}
           {activeTab === "home" && (
             <>
             {actor.role === "DIRECTOR" && !summary && (
@@ -2121,8 +2142,11 @@ export default function App({
                   onChange={(event) => setDirectorTeamId(event.target.value as TeamId | "")}
                 >
                   <option value="">Select a team</option>
-                  <option value="TEAM_A">Team A · DBS</option>
-                  <option value="TEAM_B">Team B · OCBC</option>
+                  {actor.available_teams.map((team) => (
+                    <option key={team.team_id} value={team.team_id}>
+                      {team.display_name} · {team.client_scope_label}
+                    </option>
+                  ))}
                 </select>
                 <p className="control-help">Director-created cases require an explicit team.</p>
               </section>
@@ -2135,6 +2159,14 @@ export default function App({
               onCountryChange={setCountryOfIncorporation}
               documentFiles={documentFiles}
               onDocumentFilesChange={handleDocumentFilesChange}
+              caseTeamDisplayName={
+                actor.role === "DIRECTOR"
+                  ? actor.available_teams.find((team) => team.team_id === directorTeamId)?.display_name
+                    ?? "Select a team above"
+                  : actor.team_display_name ?? "Team unavailable"
+              }
+              priority={casePriority}
+              onPriorityChange={setCasePriority}
               isSubmitting={isSubmitting}
               isResolving={isResolving}
               requestError={requestError}

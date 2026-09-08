@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.api_auth import build_auth_router, install_auth_boundary
+from app.api_auth import BrowserOriginPolicy, build_auth_router, install_auth_boundary
 from app.api_models import (
     BrowserTargetOperationEvidence,
     CasePriorityResponse,
@@ -51,6 +51,7 @@ from app.demo.uat_evidence import UatEvidenceExport, build_uat_evidence
 from app.demo.zero_touch_control import ZeroTouchDemoControl, ZeroTouchDemoScenario
 from app.domain.access import AuthenticatedActor, CasePriority, TeamId
 from app.domain.clm import GoldTierSubmissionPlan
+from app.domain.dashboard import DashboardSnapshot
 from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.jurisdiction import JurisdictionCode
 from app.domain.ownership import OwnershipCandidate
@@ -64,9 +65,10 @@ from app.domain.zero_touch import (
 from app.persistence.composition import build_persistence_bundle
 from app.services.authentication import AuthenticationConfigurationError, AuthenticationService
 from app.services.authorization import CaseAccessPolicy, CreationTeamSelectionError
-from app.services.case_query import CaseQueryService
+from app.services.case_query import CaseQueryService, PriorityFilter, PrioritySort
 from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
 from app.services.clm_orchestration import ClmOrchestrationService
+from app.services.dashboard import DashboardService
 from app.services.document_errors import (
     DocumentProcessingInfrastructureError,
     DocumentRequestError,
@@ -184,7 +186,11 @@ class DocumentFieldReviewRequest(BaseModel):
     note: str | None = Field(default=None, max_length=240)
 
 
-class ZeroTouchDemoStartRequest(StartOnboardingRequest):
+class StartZeroTouchCaseRequest(StartOnboardingRequest):
+    priority: CasePriority | None = None
+
+
+class ZeroTouchDemoStartRequest(StartZeroTouchCaseRequest):
     model_config = ConfigDict(extra="forbid")
 
     scenario: ZeroTouchDemoScenario = ZeroTouchDemoScenario.STRAIGHT_THROUGH
@@ -204,9 +210,7 @@ class ReconciliationResolutionRequest(BaseModel):
     action: ReconciliationDecisionAction
     expected_automation_version: int = Field(ge=1)
     expected_reconciliation_version: int = Field(ge=1)
-    evidence_fingerprint: str = Field(
-        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
-    )
+    evidence_fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
 class ZeroTouchFailureDetail(BaseModel):
@@ -233,6 +237,10 @@ def create_app(
     """Build the application with injectable settings for deterministic tests."""
 
     active_settings = settings or get_settings()
+    browser_origin_policy = BrowserOriginPolicy.from_origins(
+        active_settings.phase13_trusted_browser_origins,
+        require_https=active_settings.app_env == "production",
+    )
     persistence = build_persistence_bundle(active_settings)
     application = FastAPI(title=active_settings.app_name, version="0.1.0")
     application.router.add_event_handler("shutdown", persistence.close)
@@ -301,9 +309,8 @@ def create_app(
         automation_repository=zero_touch.automation_repository,
         access_policy=access_policy,
     )
-    application.include_router(
-        build_auth_router(authentication, cookie_secure=cookie_secure)
-    )
+    dashboard = DashboardService(case_query)
+    application.include_router(build_auth_router(authentication, cookie_secure=cookie_secure))
 
     def require_demo_controls() -> None:
         if not active_settings.demo_controls_enabled:
@@ -826,9 +833,7 @@ def create_app(
     async def intake_zero_touch_document(
         case_id: UUID,
         request: Request,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
         x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
     ) -> DocumentProcessingResponse:
         return await intake_zero_touch_document_request(
@@ -848,9 +853,7 @@ def create_app(
     async def intake_demo_zero_touch_document(
         case_id: UUID,
         request: Request,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
         x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
     ) -> DocumentProcessingResponse:
         require_demo_controls()
@@ -923,9 +926,7 @@ def create_app(
         case_id: UUID,
         failed_document_id: UUID,
         request: Request,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
         x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
     ) -> DocumentProcessingResponse:
         return await retry_zero_touch_intake_document_request(
@@ -947,9 +948,7 @@ def create_app(
         case_id: UUID,
         failed_document_id: UUID,
         request: Request,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
         x_document_name: Annotated[str | None, Header(alias="X-Document-Name")] = None,
     ) -> DocumentProcessingResponse:
         require_demo_controls()
@@ -971,9 +970,7 @@ def create_app(
     ) -> ZeroTouchCaseSummaryResponse:
         try:
             ownership_provider = (
-                zero_touch_demo.ownership_provider_for(case_id)
-                if use_demo_provider
-                else None
+                zero_touch_demo.ownership_provider_for(case_id) if use_demo_provider else None
             )
             return zero_touch_response(
                 active_zero_touch.start(
@@ -995,9 +992,7 @@ def create_app(
     def complete_zero_touch_intake(
         case_id: UUID,
         intake: CompleteDocumentIntakeRequest,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         return complete_zero_touch_intake_request(
             case_id=case_id,
@@ -1014,9 +1009,7 @@ def create_app(
     def complete_demo_zero_touch_intake(
         case_id: UUID,
         intake: CompleteDocumentIntakeRequest,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         require_demo_controls()
         return complete_zero_touch_intake_request(
@@ -1033,7 +1026,7 @@ def create_app(
         tags=["zero-touch"],
     )
     def create_zero_touch_case(
-        request: StartOnboardingRequest,
+        request: StartZeroTouchCaseRequest,
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
         actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
     ) -> ZeroTouchCaseSummaryResponse:
@@ -1043,6 +1036,7 @@ def create_app(
                     request.uen,
                     request.country_of_incorporation,
                     team_id=creation_team(request, actor),
+                    priority=request.priority,
                 )
             )
         except ZeroTouchRequestError as exc:
@@ -1054,19 +1048,40 @@ def create_app(
         tags=["zero-touch"],
     )
     def list_zero_touch_cases(
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
         actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
         status_filter: Annotated[AutomationStatus | None, Query(alias="status")] = None,
+        priority_filter: Annotated[
+            PriorityFilter, Query(alias="priority_filter")
+        ] = PriorityFilter.ALL,
+        priority_sort: Annotated[
+            PrioritySort, Query(alias="priority_sort")
+        ] = PrioritySort.HIGHEST_FIRST,
     ) -> list[ZeroTouchCaseListItemResponse]:
         """Project the process-local portfolio without running any workflow stage."""
 
         del active_zero_touch
         return [
             ZeroTouchCaseListItemResponse.from_domain(item.automation, item.case)
-            for item in case_query.list_cases(actor, status=status_filter)
+            for item in case_query.list_cases(
+                actor,
+                status=status_filter,
+                priority_filter=priority_filter,
+                priority_sort=priority_sort,
+            )
         ]
+
+    @application.get(
+        "/api/clm/zero-touch/dashboard",
+        response_model=DashboardSnapshot,
+        tags=["zero-touch"],
+    )
+    def get_zero_touch_dashboard(
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+    ) -> DashboardSnapshot:
+        """Return a provider-free historical view of the caller's authorized cases."""
+
+        return dashboard.get_dashboard(actor)
 
     @application.patch(
         "/api/clm/zero-touch/cases/{case_id}/priority",
@@ -1100,6 +1115,7 @@ def create_app(
                 uen,
                 request.country_of_incorporation,
                 team_id=creation_team(request, actor),
+                priority=request.priority,
             )
             zero_touch_demo.register(record.case_id, request.scenario)
             return zero_touch_response(record)
@@ -1365,9 +1381,7 @@ def create_app(
         case_id: UUID,
         discrepancy_id: UUID,
         request: ReconciliationResolutionRequest,
-        active_zero_touch: Annotated[
-            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         try:
             return zero_touch_response(
@@ -1376,9 +1390,7 @@ def create_app(
                     discrepancy_id=discrepancy_id,
                     action=request.action,
                     expected_automation_version=request.expected_automation_version,
-                    expected_reconciliation_version=(
-                        request.expected_reconciliation_version
-                    ),
+                    expected_reconciliation_version=(request.expected_reconciliation_version),
                     evidence_fingerprint=request.evidence_fingerprint,
                 )
             )
@@ -1638,7 +1650,13 @@ def create_app(
             raise _document_http_error(exc) from None
         return DocumentProcessingResponse.from_domain(record)
 
-    install_auth_boundary(application, authentication, access_policy, service)
+    install_auth_boundary(
+        application,
+        authentication,
+        access_policy,
+        service,
+        browser_origin_policy=browser_origin_policy,
+    )
     return application
 
 

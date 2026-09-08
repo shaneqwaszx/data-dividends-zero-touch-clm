@@ -10,20 +10,35 @@ import {
   logout,
   updateCasePriority,
 } from "./api";
-import { transitionAuthState, type AuthState } from "./auth";
+import { AuthProvider, transitionAuthState, type AuthState } from "./auth";
 import { loadCaseQueueRows } from "./pages/CaseQueue";
-import { PriorityBadge, updatePriorityAndRefresh } from "./pages/PriorityControl";
+import LoginPage from "./pages/LoginPage";
+import HomeOnboarding from "./pages/HomeOnboarding";
+import {
+  PriorityBadge,
+  PriorityListControls,
+  updatePriorityAndRefresh,
+} from "./pages/PriorityControl";
 import type { AuthSession, ZeroTouchCaseListItem, ZeroTouchCaseSummary } from "./types";
 import { mapZeroTouchCaseToCaseRow } from "./viewModels";
 
 const session: AuthSession = {
   profile: {
-    user_id: "team-a-onboarder",
-    display_name: "Team A Client Onboarder",
+    user_id: "maya-lim",
+    display_name: "Maya Lim",
     role: "CLIENT_ONBOARDER",
     team_id: "TEAM_A",
-    team_display_name: "Team A",
+    team_display_name: "DBS Corporate Onboarding",
+    team_type: "Corporate Client Onboarding",
+    team_description: "Type: Corporate Client Onboarding | Client coverage: DBS",
     client_scope_label: "DBS",
+    available_teams: [{
+      team_id: "TEAM_A",
+      display_name: "DBS Corporate Onboarding",
+      team_type: "Corporate Client Onboarding",
+      client_scope_label: "DBS",
+      description: "Type: Corporate Client Onboarding | Client coverage: DBS",
+    }],
   },
   csrf_token: "opaque-csrf-token",
 };
@@ -55,9 +70,18 @@ function makeDetail(caseId: string, caseUpdatedAt: string): ZeroTouchCaseSummary
   return {
     case: {
       case_id: caseId,
+      requested_uen: "202400001A",
+      priority: null,
       updated_at: caseUpdatedAt,
       jurisdiction_resolution: null,
     },
+    status: "PENDING_INPUTS",
+    current_stage: "DOCUMENT",
+    completed_stages: ["REGISTRY"],
+    active_exceptions: [],
+    technical_failure: null,
+    reconciliation: null,
+    timeline: [],
     created_at: "2026-09-07T00:00:00Z",
     updated_at: caseUpdatedAt,
   } as unknown as ZeroTouchCaseSummary;
@@ -73,6 +97,149 @@ afterEach(() => {
 });
 
 describe("Phase 13 authenticated frontend boundary", () => {
+  it("renders the canonical team and complete optional priority choices", () => {
+    const markup = renderToStaticMarkup(
+      <HomeOnboarding
+        summary={null}
+        uen="202400001A"
+        onUenChange={() => undefined}
+        countryOfIncorporation="SG"
+        onCountryChange={() => undefined}
+        documentFiles={[]}
+        onDocumentFilesChange={() => undefined}
+        caseTeamDisplayName="DBS Corporate Onboarding"
+        priority=""
+        onPriorityChange={() => undefined}
+        isSubmitting={false}
+        isResolving={false}
+        requestError={null}
+        pollingWarning={null}
+        intakeProgress={null}
+        onStart={() => undefined}
+        onResolve={() => undefined}
+        onReconcile={() => undefined}
+        onReplace={() => undefined}
+        onRecovery={() => undefined}
+        onStartNewCase={() => undefined}
+        onSummaryUpdate={() => undefined}
+        onViewOnboarded={() => undefined}
+        onViewAudit={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain("Case priority");
+    expect(markup).toContain("Optional. 10 = highest, 1 = lowest.");
+    expect(markup).toContain('value="" selected=""');
+    expect(markup).toContain("10 — Highest");
+    expect(markup).toContain(">5</option>");
+    expect(markup).toContain("1 — Lowest");
+    expect(markup).toContain("DBS Corporate Onboarding");
+    expect(markup).not.toContain("Create case for team");
+  });
+
+  it("sends priority in the one create request and omits it when unset", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createZeroTouchCase("202400001A", undefined, "SG", undefined, 7);
+    await createZeroTouchCase("202400002B", undefined, "SG", undefined, null);
+    await createZeroTouchCase("202400007G", undefined, "SG", "TEAM_B", 10);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
+      uen: "202400001A",
+      country_of_incorporation: "SG",
+      priority: 7,
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
+      uen: "202400002B",
+      country_of_incorporation: "SG",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toMatchObject({
+      team_id: "TEAM_B",
+      priority: 10,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("shows the selected priority from the returned created case", () => {
+    const created = makeDetail("00000000-0000-4000-8000-000000000001", "2026-09-07T01:00:00Z");
+    created.case.priority = 7;
+    const markup = renderToStaticMarkup(
+      <HomeOnboarding
+        summary={created}
+        uen="202400001A"
+        onUenChange={() => undefined}
+        countryOfIncorporation="SG"
+        onCountryChange={() => undefined}
+        documentFiles={[]}
+        onDocumentFilesChange={() => undefined}
+        caseTeamDisplayName="DBS Corporate Onboarding"
+        priority={7}
+        onPriorityChange={() => undefined}
+        isSubmitting={false}
+        isResolving={false}
+        requestError={null}
+        pollingWarning={null}
+        intakeProgress={null}
+        onStart={() => undefined}
+        onResolve={() => undefined}
+        onReconcile={() => undefined}
+        onReplace={() => undefined}
+        onRecovery={() => undefined}
+        onStartNewCase={() => undefined}
+        onSummaryUpdate={() => undefined}
+        onViewOnboarded={() => undefined}
+        onViewAudit={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain("P7");
+  });
+
+  it("does not consult browser storage as an authorization owner", async () => {
+    const storage = { getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() };
+    vi.stubGlobal("localStorage", storage);
+    vi.stubGlobal("sessionStorage", storage);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([])));
+
+    await fetchZeroTouchCases();
+
+    expect(storage.getItem).not.toHaveBeenCalled();
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it("sends typed priority filter and sort parameters to the backend", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchZeroTouchCases("COMPLETED", "unset", "lowest_first");
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/clm/zero-touch/cases?status=COMPLETED&priority_filter=unset&priority_sort=lowest_first",
+    );
+  });
+
+  it("renders complete priority filtering and sorting controls", () => {
+    const markup = renderToStaticMarkup(
+      <PriorityListControls
+        filter="all"
+        sort="highest_first"
+        onFilterChange={() => undefined}
+        onSortChange={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain("Priority: All");
+    expect(markup).toContain("Prioritised only");
+    expect(markup).toContain("Unprioritised only");
+    expect(markup).toContain("Priority 10");
+    expect(markup).toContain("Priority 1");
+    expect(markup).toContain("Highest priority first");
+    expect(markup).toContain("Lowest priority first");
+  });
   it("models restore/login, expiry, and logout as explicit auth transitions", () => {
     const authenticated = transitionAuthState(anonymous, { type: "AUTHENTICATED", session });
     expect(authenticated).toEqual({ status: "authenticated", session, error: null });
@@ -118,13 +285,13 @@ describe("Phase 13 authenticated frontend boundary", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(login("team-a-onboarder", "runtime-only-password")).resolves.toEqual(session);
+    await expect(login("maya-lim", "runtime-only-password")).resolves.toEqual(session);
     configureAuthenticatedTransport({ csrfToken: session.csrf_token, onUnauthorized: null });
     await logout();
     await createZeroTouchCase("202400001A", undefined, "SG", "TEAM_B");
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
-      user_id: "team-a-onboarder",
+      user_id: "maya-lim",
       "password": "runtime-only-password",
     });
     expect(new Headers(fetchMock.mock.calls[1][1].headers).get("X-CSRF-Token")).toBe(session.csrf_token);
@@ -135,11 +302,54 @@ describe("Phase 13 authenticated frontend boundary", () => {
     const account = renderToStaticMarkup(
       <OperatorAccount profile={session.profile} onLogout={() => undefined} />,
     );
-    expect(account).toContain("Team A Client Onboarder");
+    expect(account).toContain("Maya Lim");
+    expect(account).toContain("DBS Corporate Onboarding");
+    expect(account).toContain("Coverage: DBS");
     expect(account).toContain("Signed in as");
     expect(account).not.toContain("Demo operator");
     expect(renderToStaticMarkup(<PriorityBadge priority={10} />)).toContain("P10");
     expect(renderToStaticMarkup(<PriorityBadge priority={null} />)).toContain("Unprioritised");
+  });
+
+  it("presents person-like login IDs and Director global scope without a password hint", () => {
+    const loginMarkup = renderToStaticMarkup(<AuthProvider><LoginPage /></AuthProvider>);
+    const director = {
+      user_id: "olivia-koh",
+      display_name: "Olivia Koh",
+      role: "DIRECTOR" as const,
+      team_id: null,
+      team_display_name: null,
+      team_type: null,
+      team_description: "Global / cross-team access",
+      client_scope_label: "Global / cross-team",
+      available_teams: [
+        {
+          team_id: "TEAM_A" as const,
+          display_name: "DBS Corporate Onboarding",
+          team_type: "Corporate Client Onboarding",
+          client_scope_label: "DBS",
+          description: "Type: Corporate Client Onboarding | Client coverage: DBS",
+        },
+        {
+          team_id: "TEAM_B" as const,
+          display_name: "OCBC Corporate Onboarding",
+          team_type: "Corporate Client Onboarding",
+          client_scope_label: "OCBC",
+          description: "Type: Corporate Client Onboarding | Client coverage: OCBC",
+        },
+      ],
+    };
+    const account = renderToStaticMarkup(
+      <OperatorAccount profile={director} onLogout={() => undefined} />,
+    );
+
+    expect(loginMarkup).toContain('placeholder="maya-lim"');
+    expect(loginMarkup).not.toContain("runtime-only-password");
+    expect(account).toContain("Olivia Koh");
+    expect(account).toContain("Global scope");
+    expect(account).toContain("Global / cross-team access");
+    expect(account).not.toContain("Team A");
+    expect(account).not.toContain("Team B");
   });
 
   it("preserves backend priority order while mapping rows", () => {

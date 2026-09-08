@@ -7,7 +7,7 @@ from threading import RLock
 from typing import Protocol
 from uuid import UUID, uuid4
 
-from app.domain.access import TeamId
+from app.domain.access import CasePriority, TeamId
 from app.domain.clm import (
     ClmBlockerCode,
     ClmEventType,
@@ -102,12 +102,16 @@ class ClmOrchestrationService:
         country_of_incorporation: str | None = None,
         *,
         team_id: TeamId | None = None,
+        priority: CasePriority | None = None,
     ) -> ClmOrchestrationRecord:
         """Create a registry-validated staged case and stop before GoldTier."""
 
         try:
             case = self._cases.create_staged_case(
-                uen, country_of_incorporation, team_id=team_id
+                uen,
+                country_of_incorporation,
+                team_id=team_id,
+                priority=priority,
             )
         except OnboardingInfrastructureError as exc:
             failed_case = self._cases.get_case(exc.case_id)
@@ -196,9 +200,8 @@ class ClmOrchestrationService:
         with self._lock_for(case_id):
             record = self._require_record(case_id)
             snapshot = record.submission_snapshot
-            if (
-                snapshot is not None
-                and self._cases.is_execution_outcome_uncertain(snapshot.submission_id)
+            if snapshot is not None and self._cases.is_execution_outcome_uncertain(
+                snapshot.submission_id
             ):
                 raise ClmRequestError(
                     code="CLM_TARGET_OUTCOME_UNCERTAIN",

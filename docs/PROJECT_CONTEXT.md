@@ -336,17 +336,47 @@ Q-015 remain open.
 
 Phase 13 protects every `/api` route except login with a process-local opaque session,
 host-only HttpOnly strict-same-site cookie, and session-bound CSRF verification for
-unsafe methods. Five fixed synthetic profiles map Client Onboarder and Relationship
-Manager users to `TEAM_A`/DBS or `TEAM_B`/OCBC, while Director sees all teams and legacy
-unassigned cases. Case access is enforced centrally from canonical persisted ownership;
+unsafe methods. The five fixed synthetic profiles are Maya Lim and Ethan Tan for
+`TEAM_A`, Sophia Ng and Ryan Lee for `TEAM_B`, and teamless Director Olivia Koh.
+`TEAM_A`/`TEAM_B` remain the persisted identifiers while the browser presents DBS
+Corporate Onboarding and OCBC Corporate Onboarding. Director sees all teams and legacy
+unassigned cases. The documented development/test backend and Vite loopback origins are
+explicitly configured. Request `Host` never supplies origin trust; production requires
+one explicit canonical HTTPS origin and does not inherit local origins. Case access is
+enforced centrally from canonical persisted ownership;
 absent and inaccessible IDs have the same safe 404. Team actors create in their own team,
 Director must select a team, and case team is immutable.
 
 Case priority is nullable or a strict integer 1–10. Backend lists place prioritised cases
 first by descending priority and then retain the accepted automation timestamp/case-ID
-tie-break. Priority has no workflow, SLA, escalation, notification, or approval meaning.
+tie-break by default. Historical lists support backend-owned exact/unset/prioritised
+filters and either priority direction, always after RBAC and with unset last. Priority
+has no workflow, SLA, escalation, notification, or approval meaning.
+The canonical create request now accepts priority without coercion and persists it on the
+initial case in the same operation; the normal New Onboarding UI sends no follow-up
+priority PATCH. The authenticated synthetic seeder creates or reuses five cases per team
+and uses the existing `STRAIGHT_THROUGH` API lifecycle to verify genuine `COMPLETED` /
+`MOCK_GOLDTIER_SUBMITTED` showcase cases.
 Mongo schema v2 stores team/priority; exact v1 reads migrate only in memory to null/null.
 The frontend restores authenticated profile state in memory, attaches credentials/CSRF
 centrally, unmounts the workspace on 401, and renders only backend-returned team and
 priority truth. This remains local POC authentication, not PingFed/SSO or production
 RBAC. Q-016 remains open.
+
+Phase 13 demo-completeness Part 2 adds the authenticated historical Dashboard as the
+default signed-in view. Its backend read model derives factual totals, exact canonical
+status and priority distributions, authorized team counts, bounded recent/top-active
+cases, and a 30-day UTC created/completed trend from the existing case repositories.
+Authorization is applied before aggregation; team actors cannot infer the other team,
+while Director sees authorized cross-team history. Reads are provider-free, work in
+memory and Mongo, and survive restart only in Mongo mode. This is Dashboard V1, not a
+new analytics source, KPI policy, warehouse, SLA, risk model, or production BI system.
+
+The configured remote Mongo deployment was physically validated without exposing its
+connection details. Schema-v2 team, priority, completed/Mock-target state, dashboard
+RBAC, restart durability, and zero-provider historical reads passed. Atlas requires
+database names of at most 38 bytes, so physical tests use shorter unique test database
+names and clean only those generated databases. The shared demo database contains
+unrelated historical collisions for one showcase team/UEN; the selected ten-case
+showcase set remains five exact successful cases per team, and no shared history was
+deleted or manually rewritten.
