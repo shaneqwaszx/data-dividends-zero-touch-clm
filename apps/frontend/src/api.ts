@@ -3,6 +3,7 @@ import type {
   CasePriorityResult,
   ClmCaseSummary,
   DocumentProcessingRecord,
+  DashboardSnapshot,
   DocumentFieldKey,
   MockIdpScenario,
   MockOwnershipScenario,
@@ -112,6 +113,7 @@ export async function createZeroTouchCase(
   demoScenario?: ZeroTouchDemoScenario,
   countryOfIncorporation?: "SG" | "AU" | "MY" | "HK",
   teamId?: TeamId,
+  priority?: number | null,
 ): Promise<ZeroTouchCaseSummary> {
   const demo = demoScenario !== undefined;
   const response = await fetch(
@@ -126,6 +128,7 @@ export async function createZeroTouchCase(
           : {}),
         ...(demo ? { scenario: demoScenario } : {}),
         ...(teamId ? { team_id: teamId } : {}),
+        ...(priority !== undefined && priority !== null ? { priority } : {}),
       }),
     },
   );
@@ -221,12 +224,26 @@ export async function completeZeroTouchIntake(
   return parseResponse<ZeroTouchCaseSummary>(response);
 }
 
+export type PriorityFilter = "all" | "prioritised" | "unset" | `${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10}`;
+export type PrioritySort = "highest_first" | "lowest_first";
+
 export async function fetchZeroTouchCases(
   status?: ZeroTouchCaseListItem["status"],
+  priority: PriorityFilter = "all",
+  prioritySort: PrioritySort = "highest_first",
 ): Promise<ZeroTouchCaseListItem[]> {
-  const query = status ? `?status=${encodeURIComponent(status)}` : "";
-  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases${query}`);
+  const query = new URLSearchParams();
+  if (status) query.set("status", status);
+  if (priority !== "all") query.set("priority_filter", priority);
+  if (prioritySort !== "highest_first") query.set("priority_sort", prioritySort);
+  const suffix = query.size ? `?${query.toString()}` : "";
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases${suffix}`);
   return parseResponse<ZeroTouchCaseListItem[]>(response);
+}
+
+export async function fetchDashboard(): Promise<DashboardSnapshot> {
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/dashboard`);
+  return parseResponse<DashboardSnapshot>(response);
 }
 
 export async function replaceZeroTouchDocument(

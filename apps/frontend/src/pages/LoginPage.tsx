@@ -34,6 +34,7 @@ export default function LoginPage() {
             id="user-id"
             className="input"
             autoComplete="username"
+            placeholder="maya-lim"
             value={userId}
             onChange={(event) => setUserId(event.target.value)}
             required

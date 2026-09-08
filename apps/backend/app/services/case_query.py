@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from uuid import UUID
 
 from app.domain.access import AuthenticatedActor, CasePriority
@@ -20,6 +21,27 @@ from app.services.zero_touch_repository import ZeroTouchAutomationRepository
 class AuthorizedCaseRecord:
     automation: ZeroTouchAutomationRecord
     case: OnboardingCase
+
+
+class PriorityFilter(StrEnum):
+    ALL = "all"
+    PRIORITISED = "prioritised"
+    UNSET = "unset"
+    P10 = "10"
+    P9 = "9"
+    P8 = "8"
+    P7 = "7"
+    P6 = "6"
+    P5 = "5"
+    P4 = "4"
+    P3 = "3"
+    P2 = "2"
+    P1 = "1"
+
+
+class PrioritySort(StrEnum):
+    HIGHEST_FIRST = "highest_first"
+    LOWEST_FIRST = "lowest_first"
 
 
 class CaseQueryService:
@@ -45,15 +67,29 @@ class CaseQueryService:
         actor: AuthenticatedActor,
         *,
         status: AutomationStatus | None = None,
+        priority_filter: PriorityFilter = PriorityFilter.ALL,
+        priority_sort: PrioritySort = PrioritySort.HIGHEST_FIRST,
     ) -> list[AuthorizedCaseRecord]:
-        result: list[AuthorizedCaseRecord] = []
+        authorized: list[AuthorizedCaseRecord] = []
         for automation in self._automation_repository.list_records():
-            if status is not None and automation.status != status:
-                continue
             case = self._cases.get_case(automation.case_id)
             if case is not None and self._access_policy.can_access(actor, case):
-                result.append(AuthorizedCaseRecord(automation=automation, case=case))
-        return sorted(result, key=_portfolio_sort_key, reverse=True)
+                authorized.append(AuthorizedCaseRecord(automation=automation, case=case))
+
+        filtered = [
+            item
+            for item in authorized
+            if (status is None or item.automation.status == status)
+            and _matches_priority(item.case.priority, priority_filter)
+        ]
+        tie_ordered = sorted(filtered, key=_portfolio_tie_key, reverse=True)
+        prioritised = [item for item in tie_ordered if item.case.priority is not None]
+        unset = [item for item in tie_ordered if item.case.priority is None]
+        prioritised.sort(
+            key=lambda item: int(item.case.priority or 0),
+            reverse=priority_sort == PrioritySort.HIGHEST_FIRST,
+        )
+        return prioritised + unset
 
     def update_priority(
         self,
@@ -87,11 +123,15 @@ class CaseQueryService:
             return updated.model_copy(deep=True)
 
 
-def _portfolio_sort_key(item: AuthorizedCaseRecord) -> tuple[bool, int, datetime, str]:
-    priority = item.case.priority
-    return (
-        priority is not None,
-        priority if priority is not None else 0,
-        item.automation.updated_at,
-        str(item.automation.case_id),
-    )
+def _matches_priority(priority: CasePriority | None, expected: PriorityFilter) -> bool:
+    if expected == PriorityFilter.ALL:
+        return True
+    if expected == PriorityFilter.PRIORITISED:
+        return priority is not None
+    if expected == PriorityFilter.UNSET:
+        return priority is None
+    return priority == int(expected)
+
+
+def _portfolio_tie_key(item: AuthorizedCaseRecord) -> tuple[datetime, str]:
+    return item.automation.updated_at, str(item.automation.case_id)

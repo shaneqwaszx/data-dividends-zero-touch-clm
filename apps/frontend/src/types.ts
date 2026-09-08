@@ -13,13 +13,24 @@ export type WorkflowState =
 export type TeamId = "TEAM_A" | "TEAM_B";
 export type Role = "CLIENT_ONBOARDER" | "RELATIONSHIP_MANAGER" | "DIRECTOR";
 
+export interface AuthenticatedTeam {
+  team_id: TeamId;
+  display_name: string;
+  team_type: string;
+  client_scope_label: string;
+  description: string;
+}
+
 export interface AuthenticatedProfile {
   user_id: string;
   display_name: string;
   role: Role;
   team_id: TeamId | null;
   team_display_name: string | null;
+  team_type: string | null;
+  team_description: string;
   client_scope_label: string;
+  available_teams: AuthenticatedTeam[];
 }
 
 export interface AuthSession {
@@ -689,6 +700,56 @@ export interface ZeroTouchCaseListItem {
   active_exception_count: number;
   human_interventions: number;
   final_outcome: string | null;
+}
+
+export interface DashboardScope {
+  actor_role: AuthenticatedProfile["role"];
+  access: "TEAM" | "GLOBAL";
+  team_id: TeamId | null;
+  team_display_name: string | null;
+  client_scope_label: string;
+}
+
+export interface DashboardCaseItem {
+  case_id: string;
+  requested_uen: string;
+  legal_name: string | null;
+  team_id: TeamId | null;
+  team_display_name: string | null;
+  priority: number | null;
+  status: AutomationStatus;
+  final_outcome: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface DashboardSnapshot {
+  scope: DashboardScope;
+  data_as_of: string;
+  totals: {
+    total_cases: number;
+    completed_cases: number;
+    non_completed_cases: number;
+    completion_rate: number;
+    prioritised_cases: number;
+    unprioritised_cases: number;
+  };
+  status_breakdown: Array<{ status: AutomationStatus; count: number }>;
+  priority_breakdown: Array<{ priority: number | null; count: number }>;
+  team_breakdown: Array<{
+    team_id: TeamId;
+    team_display_name: string;
+    client_scope_label: string;
+    count: number;
+  }>;
+  recent_cases: DashboardCaseItem[];
+  top_active_cases: DashboardCaseItem[];
+  historical_trend: Array<{
+    day: string;
+    created_count: number;
+    completed_count: number;
+  }>;
 }
 
 export interface UatEvidenceExport {

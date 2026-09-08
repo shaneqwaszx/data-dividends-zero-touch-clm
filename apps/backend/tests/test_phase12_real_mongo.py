@@ -11,6 +11,10 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import pytest
 from fastapi.testclient import TestClient
 from pymongo import MongoClient
+from scripts.mongo_test_safety import (
+    cleanup_ephemeral_mongo_database,
+    generate_ephemeral_mongo_database,
+)
 
 import app.composition as composition
 from app.composition import (
@@ -74,8 +78,7 @@ CONFLICT_PROFILE = TEXT_PROFILE.replace(
 def _docx_bytes() -> bytes:
     output = BytesIO()
     paragraphs = "".join(
-        f"<w:p><w:r><w:t>{line}</w:t></w:r></w:p>"
-        for line in TEXT_PROFILE.splitlines()
+        f"<w:p><w:r><w:t>{line}</w:t></w:r></w:p>" for line in TEXT_PROFILE.splitlines()
     )
     with ZipFile(output, "w", ZIP_DEFLATED) as archive:
         archive.writestr(
@@ -97,7 +100,7 @@ def _docx_bytes() -> bytes:
 @pytest.fixture
 def isolated_mongo_settings() -> Iterator[Settings]:
     assert MONGO_URI is not None
-    database = f"clm_phase12_test_{uuid4().hex}"
+    database = generate_ephemeral_mongo_database("p12")
     settings = Settings(
         _env_file=None,
         app_env="test",
@@ -110,9 +113,10 @@ def isolated_mongo_settings() -> Iterator[Settings]:
     try:
         yield settings
     finally:
-        assert database.startswith("clm_phase12_test_")
-        cleanup_client.drop_database(database)
-        cleanup_client.close()
+        try:
+            cleanup_ephemeral_mongo_database(cleanup_client, database)
+        finally:
+            cleanup_client.close()
 
 
 def _open_store(settings: Settings, *, initialize: bool = True) -> MongoCaseStore:
@@ -178,9 +182,7 @@ def _install_counting_connectors(
 
     monkeypatch.setattr(composition, "MockAcraConnector", CountingAcra)
     monkeypatch.setattr(composition, "LocalPdfTextIdpProvider", CountingIdp)
-    monkeypatch.setattr(
-        composition, "RegistryAcquisitionOwnershipProvider", CountingOwnership
-    )
+    monkeypatch.setattr(composition, "RegistryAcquisitionOwnershipProvider", CountingOwnership)
     monkeypatch.setattr(composition, "MockGoldTierConnector", CountingGoldTier)
     return counters
 
@@ -207,9 +209,7 @@ def _upload_text(
     return response.json()
 
 
-def _complete_intake(
-    client: TestClient, case_id: UUID, *, expected_count: int
-) -> dict[str, Any]:
+def _complete_intake(client: TestClient, case_id: UUID, *, expected_count: int) -> dict[str, Any]:
     response = client.post(
         f"/api/clm/zero-touch/cases/{case_id}/intake/complete",
         json={"expected_document_count": expected_count},
@@ -246,7 +246,7 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert MONGO_URI is not None
-    database = f"clm_phase12_test_{uuid4().hex}"
+    database = generate_ephemeral_mongo_database("p12")
     counters = {name: 0 for name in ("registry", "idp", "ownership", "goldtier")}
 
     class CountingAcra(MockAcraConnector):
@@ -335,9 +335,7 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
             assert done.status_code == 200, done.text
             assert done.json()["status"] == "COMPLETED"
 
-            pending = first.post(
-                "/api/clm/zero-touch/cases", json={"uen": "202400001A"}
-            )
+            pending = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
             waiting = first.post(
                 "/api/clm/zero-touch/cases",
                 json={"uen": "UNKNOWN", "country_of_incorporation": "AU"},
@@ -356,15 +354,9 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
         with TestClient(create_app(settings)) as second:
             listed = second.get("/api/clm/zero-touch/cases")
             detail = second.get(f"/api/clm/zero-touch/cases/{completed_id}")
-            resumed_completed = second.post(
-                f"/api/clm/zero-touch/cases/{completed_id}/resume"
-            )
-            documents = second.get(
-                f"/api/onboarding/cases/{completed_id}/documents"
-            )
-            review = second.get(
-                "/api/clm/zero-touch/cases?status=WAITING_FOR_REVIEW"
-            )
+            resumed_completed = second.post(f"/api/clm/zero-touch/cases/{completed_id}/resume")
+            documents = second.get(f"/api/onboarding/cases/{completed_id}/documents")
+            review = second.get("/api/clm/zero-touch/cases?status=WAITING_FOR_REVIEW")
             profile = second.get("/api/system/execution-profile")
             assert (
                 listed.status_code
@@ -386,9 +378,10 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
             assert profile.json()["persistence"] == "Mongo-backed durable POC"
             assert counters == before_restart
     finally:
-        assert database.startswith("clm_phase12_test_")
-        cleanup_client.drop_database(database)
-        cleanup_client.close()
+        try:
+            cleanup_ephemeral_mongo_database(cleanup_client, database)
+        finally:
+            cleanup_client.close()
 
 
 def test_real_mongo_rejects_cross_case_storage_identity_on_every_read_path(
@@ -500,9 +493,7 @@ def test_real_mongo_interrupted_document_recovers_to_bounded_same_case_retry(
             content=TEXT_PROFILE.encode(),
         )
         assert unrelated.status_code == 409
-        assert unrelated.json()["detail"]["code"] == (
-            "ZERO_TOUCH_DOCUMENT_REUPLOAD_REQUIRED"
-        )
+        assert unrelated.json()["detail"]["code"] == ("ZERO_TOUCH_DOCUMENT_REUPLOAD_REQUIRED")
 
         retried = second.post(
             f"/api/clm/zero-touch/cases/{case_id}/intake/documents/{interrupted_id}/retry",
@@ -520,13 +511,14 @@ def test_real_mongo_interrupted_document_recovers_to_bounded_same_case_retry(
         "goldtier": before_restart["goldtier"],
     }
     records = after_retry.json()
-    old_interrupted = next(
-        item for item in records if item["document_id"] == str(interrupted_id)
-    )
+    old_interrupted = next(item for item in records if item["document_id"] == str(interrupted_id))
     assert old_interrupted["superseded_by_document_id"] == retried.json()["document_id"]
-    assert next(
-        item for item in records if item["document_id"] == str(completed_id)
-    )["superseded_by_document_id"] is None
+    assert (
+        next(item for item in records if item["document_id"] == str(completed_id))[
+            "superseded_by_document_id"
+        ]
+        is None
+    )
 
 
 def test_real_mongo_technical_failure_restart_preserves_safe_terminal_state(
@@ -584,11 +576,7 @@ def test_real_mongo_uncertain_target_restart_and_resume_never_replay(
 
     store = _open_store(settings)
     snapshot = store.get(case_id)
-    assert (
-        snapshot is not None
-        and snapshot.automation is not None
-        and snapshot.target_executions
-    )
+    assert snapshot is not None and snapshot.automation is not None and snapshot.target_executions
     running = snapshot.automation.model_copy(
         update={
             "status": AutomationStatus.RUNNING,
@@ -622,10 +610,7 @@ def test_real_mongo_uncertain_target_restart_and_resume_never_replay(
     before_restart = counters.copy()
     with TestClient(create_app(settings)) as second:
         detail = second.get(f"/api/clm/zero-touch/cases/{case_id}")
-        resumed = [
-            second.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
-            for _ in range(3)
-        ]
+        resumed = [second.post(f"/api/clm/zero-touch/cases/{case_id}/resume") for _ in range(3)]
         assert detail.status_code == 200
         assert all(item.status_code == 200 for item in resumed)
         assert detail.json()["status"] == "RECOVERY_PENDING"
@@ -642,15 +627,11 @@ def test_real_mongo_replacement_restart_preserves_history_and_stales_old_decisio
     with TestClient(create_app(settings)) as first:
         case_id = _create_case(first)
         document_a = _upload_text(first, case_id, TEXT_PROFILE, name="Document-A.txt")
-        document_b = _upload_text(
-            first, case_id, CONFLICT_PROFILE, name="Document-B.txt"
-        )
+        document_b = _upload_text(first, case_id, CONFLICT_PROFILE, name="Document-B.txt")
         paused = _complete_intake(first, case_id, expected_count=2)
         assert paused["status"] == "WAITING_FOR_REVIEW"
         old_discrepancy = next(
-            item
-            for item in paused["reconciliation"]["discrepancies"]
-            if item["status"] == "OPEN"
+            item for item in paused["reconciliation"]["discrepancies"] if item["status"] == "OPEN"
         )
         replacement = first.post(
             (
@@ -748,9 +729,7 @@ def test_real_mongo_cross_repository_stale_write_preserves_successful_section(
         stale = automation_writer.get(case_id)
         assert stale is not None and stale.automation is not None
         document = next(
-            item
-            for item in stale.documents
-            if item.document_id == UUID(uploaded["document_id"])
+            item for item in stale.documents if item.document_id == UUID(uploaded["document_id"])
         )
         MongoDocumentProcessingRepository(document_writer).save(
             document.model_copy(update={"display_name": "Writer-A.txt"}, deep=True)
@@ -774,11 +753,14 @@ def test_real_mongo_cross_repository_stale_write_preserves_successful_section(
 
         durable = document_writer.get(case_id)
         assert durable is not None
-        assert next(
-            item
-            for item in durable.documents
-            if item.document_id == UUID(uploaded["document_id"])
-        ).display_name == "Writer-A.txt"
+        assert (
+            next(
+                item
+                for item in durable.documents
+                if item.document_id == UUID(uploaded["document_id"])
+            ).display_name
+            == "Writer-A.txt"
+        )
         assert durable.automation == stale.automation
     finally:
         document_writer.close()
@@ -853,9 +835,7 @@ def test_real_mongo_phase11_stale_cas_changes_neither_atomic_half(
         )
 
     try:
-        service = _build_mongo_reconciliation_service(
-            settings, store, fault=create_stale_revision
-        )
+        service = _build_mongo_reconciliation_service(settings, store, fault=create_stale_revision)
         with pytest.raises(ReconciliationRequestError) as caught:
             _resolve_document_legal_name(service, store, case_id)
         assert caught.value.code == "RECONCILIATION_CONFLICT"
@@ -884,9 +864,7 @@ def test_real_mongo_phase11_precommit_failure_changes_neither_atomic_half(
         raise RuntimeError("bounded test fault")
 
     try:
-        service = _build_mongo_reconciliation_service(
-            settings, store, fault=fail_before_commit
-        )
+        service = _build_mongo_reconciliation_service(settings, store, fault=fail_before_commit)
         with pytest.raises(ReconciliationInfrastructureError) as caught:
             _resolve_document_legal_name(service, store, case_id)
         assert caught.value.code == "RECONCILIATION_COMMIT_FAILED"

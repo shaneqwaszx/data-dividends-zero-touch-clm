@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from app.connectors.idp import IdpProvider
 from app.connectors.ownership import OwnershipProvider
-from app.domain.access import TeamId
+from app.domain.access import CasePriority, TeamId
 from app.domain.clm import ClmStatus
 from app.domain.documents import (
     DocumentAutoClearBlocker,
@@ -113,12 +113,16 @@ class ZeroTouchOrchestrator:
         country_of_incorporation: str | None = None,
         *,
         team_id: TeamId | None = None,
+        priority: CasePriority | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Create registry evidence and wait only for the required PDF input."""
 
         try:
             clm_record = self._clm.create_case(
-                uen, country_of_incorporation, team_id=team_id
+                uen,
+                country_of_incorporation,
+                team_id=team_id,
+                priority=priority,
             )
         except ClmInfrastructureError as exc:
             recovered_clm_record = self._clm.get(case_id=exc.case_id)
@@ -181,9 +185,7 @@ class ZeroTouchOrchestrator:
             metrics=AutomationMetrics(
                 automated_stages_completed=1 if registry_ready else 0,
                 final_outcome=(
-                    AutomationStatus.TECHNICAL_FAILURE.value
-                    if registry_failed
-                    else None
+                    AutomationStatus.TECHNICAL_FAILURE.value if registry_failed else None
                 ),
             ),
             created_at=now,
@@ -213,9 +215,7 @@ class ZeroTouchOrchestrator:
                 message="Registry automation stopped after a technical failure.",
             )
         else:
-            blocker_code = (
-                case.error.code if case.error is not None else "REGISTRY_REVIEW_REQUIRED"
-            )
+            blocker_code = case.error.code if case.error is not None else "REGISTRY_REVIEW_REQUIRED"
             exception_types = {
                 "JURISDICTION_UNRESOLVED": BusinessExceptionType.JURISDICTION_UNRESOLVED,
                 "JURISDICTION_CONFLICT": BusinessExceptionType.JURISDICTION_CONFLICT,
@@ -403,9 +403,7 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_INTAKE_NOT_OPEN",
                     message="Document intake is not open for this case.",
                 )
-            failed = self._documents.get_document(
-                case_id=case_id, document_id=failed_document_id
-            )
+            failed = self._documents.get_document(case_id=case_id, document_id=failed_document_id)
             if (
                 failed is None
                 or failed.state != DocumentProcessingState.FAILED
@@ -600,8 +598,8 @@ class ZeroTouchOrchestrator:
                     message="The onboarding evidence changed before this resolution.",
                 )
             if item.evidence_version.startswith("reconciliation:"):
-                reconciliation_version, fingerprint = (
-                    _parse_reconciliation_evidence_version(item.evidence_version)
+                reconciliation_version, fingerprint = _parse_reconciliation_evidence_version(
+                    item.evidence_version
                 )
                 try:
                     reconciliation_action = ReconciliationDecisionAction(action.value)
@@ -751,7 +749,8 @@ class ZeroTouchOrchestrator:
                 "ZERO_TOUCH_EXCEPTION_STALE"
                 if exc.code == "RECONCILIATION_STALE"
                 else "ZERO_TOUCH_RESOLUTION_NOT_ALLOWED"
-                if exc.code in {
+                if exc.code
+                in {
                     "RECONCILIATION_ACTION_NOT_ALLOWED",
                     "RECONCILIATION_CANONICAL_UPDATE_REJECTED",
                 }
@@ -790,8 +789,7 @@ class ZeroTouchOrchestrator:
         )
         if reconciliation.status == ReconciliationStatus.REVIEW_REQUIRED:
             discrepancies_by_id = {
-                entry.discrepancy_id: entry
-                for entry in reconciliation.open_discrepancies
+                entry.discrepancy_id: entry for entry in reconciliation.open_discrepancies
             }
             for active in candidate.active_exceptions:
                 discrepancy = discrepancies_by_id.get(active.exception_id)
@@ -917,9 +915,7 @@ class ZeroTouchOrchestrator:
                     record = self._complete_stage(
                         record,
                         stage=AutomationStage.DOCUMENT,
-                        event_type=(
-                            AutomationEventType.RECONCILIATION_EVALUATED
-                        ),
+                        event_type=(AutomationEventType.RECONCILIATION_EVALUATED),
                         code=(
                             "RECONCILIATION_RESOLVED"
                             if reconciliation.status == ReconciliationStatus.RESOLVED
@@ -1035,10 +1031,13 @@ class ZeroTouchOrchestrator:
 
             if next_stage == AutomationStage.MOCK_GOLDTIER:
                 started_at = self._clock()
-                if not any(
-                    event.event_type == AutomationEventType.MOCK_SUBMISSION_STARTED
-                    for event in record.events
-                ) and record.status != AutomationStatus.RECOVERY_PENDING:
+                if (
+                    not any(
+                        event.event_type == AutomationEventType.MOCK_SUBMISSION_STARTED
+                        for event in record.events
+                    )
+                    and record.status != AutomationStatus.RECOVERY_PENDING
+                ):
                     candidate = record.model_copy(deep=True)
                     candidate.status = AutomationStatus.RUNNING
                     candidate.current_stage = AutomationStage.MOCK_GOLDTIER
@@ -1200,6 +1199,7 @@ class ZeroTouchOrchestrator:
             ReconciliationOutcome.UNVERIFIABLE: "DOCUMENT_LOW_CONFIDENCE",
             ReconciliationOutcome.INVALID: "RECONCILIATION_INVALID",
         }
+
         def code_for(item: ReconciliationDiscrepancy) -> str:
             if any(
                 observation.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
@@ -1214,24 +1214,17 @@ class ZeroTouchOrchestrator:
         )
         for discrepancy in reconciliation.open_discrepancies:
             if any(
-                item.exception_id == discrepancy.discrepancy_id
-                for item in record.active_exceptions
+                item.exception_id == discrepancy.discrepancy_id for item in record.active_exceptions
             ):
                 continue
             code = code_for(discrepancy)
             exception_type = {
-                ReconciliationOutcome.CONFLICT: (
-                    BusinessExceptionType.DOCUMENT_SOURCE_CONFLICT
-                ),
+                ReconciliationOutcome.CONFLICT: (BusinessExceptionType.DOCUMENT_SOURCE_CONFLICT),
                 ReconciliationOutcome.MISSING_IN_SOURCE: (
                     BusinessExceptionType.DOCUMENT_REQUIRED_FIELD_MISSING
                 ),
-                ReconciliationOutcome.UNVERIFIABLE: (
-                    BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE
-                ),
-                ReconciliationOutcome.INVALID: (
-                    BusinessExceptionType.RECONCILIATION_INVALID
-                ),
+                ReconciliationOutcome.UNVERIFIABLE: (BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE),
+                ReconciliationOutcome.INVALID: (BusinessExceptionType.RECONCILIATION_INVALID),
             }[discrepancy.outcome]
             registry = next(
                 (
@@ -1292,9 +1285,7 @@ class ZeroTouchOrchestrator:
                         "reconciliation."
                     )
                 ),
-                evidence_version=self._reconciliation_evidence_version(
-                    reconciliation, discrepancy
-                ),
+                evidence_version=self._reconciliation_evidence_version(reconciliation, discrepancy),
                 evidence=evidence,
                 actions=tuple(
                     ExceptionResolutionAction(action.value)
@@ -1337,9 +1328,7 @@ class ZeroTouchOrchestrator:
             document_observations[affected_document_index].source_record_id
             or reconciliation.source_document_ids[0]
         )
-        affected_source_index = reconciliation.source_document_ids.index(
-            affected_document_id
-        )
+        affected_source_index = reconciliation.source_document_ids.index(affected_document_id)
         return (
             f"reconciliation:{reconciliation.version}:"
             f"{reconciliation.source_document_event_counts[affected_source_index]}:"
@@ -1672,9 +1661,7 @@ def _parse_document_evidence_version(value: str) -> tuple[UUID, int]:
 
 def _parse_reconciliation_evidence_version(value: str) -> tuple[int, str]:
     try:
-        prefix, raw_version, raw_document_version, fingerprint = value.split(
-            ":", maxsplit=3
-        )
+        prefix, raw_version, raw_document_version, fingerprint = value.split(":", maxsplit=3)
         version = int(raw_version)
         document_version = int(raw_document_version)
         if (

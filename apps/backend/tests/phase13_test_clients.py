@@ -41,7 +41,7 @@ class AuthenticatedAsyncClient(httpx.AsyncClient):
         response = await super().request(
             "POST",
             "/api/auth/login",
-            json={"user_id": "team-a-onboarder", "password": TEST_PASSWORD},
+            json={"user_id": "maya-lim", "password": TEST_PASSWORD},
         )
         response.raise_for_status()
         self._phase13_csrf = response.json()["csrf_token"]
@@ -77,7 +77,7 @@ class AuthenticatedTestClient(FastApiTestClient):
         response = super().request(
             "POST",
             "/api/auth/login",
-            json={"user_id": "team-a-onboarder", "password": TEST_PASSWORD},
+            json={"user_id": "maya-lim", "password": TEST_PASSWORD},
         )
         response.raise_for_status()
         self._phase13_csrf = response.json()["csrf_token"]

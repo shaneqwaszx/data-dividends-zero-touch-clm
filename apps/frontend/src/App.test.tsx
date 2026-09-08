@@ -77,12 +77,21 @@ import type {
 
 const timestamp = "2026-08-10T02:00:00Z";
 const actor = {
-  user_id: "team-a-onboarder",
-  display_name: "Team A Client Onboarder",
+  user_id: "maya-lim",
+  display_name: "Maya Lim",
   role: "CLIENT_ONBOARDER" as const,
   team_id: "TEAM_A" as const,
-  team_display_name: "Team A",
+  team_display_name: "DBS Corporate Onboarding",
+  team_type: "Corporate Client Onboarding",
+  team_description: "Type: Corporate Client Onboarding | Client coverage: DBS",
   client_scope_label: "DBS",
+  available_teams: [{
+    team_id: "TEAM_A" as const,
+    display_name: "DBS Corporate Onboarding",
+    team_type: "Corporate Client Onboarding",
+    client_scope_label: "DBS",
+    description: "Type: Corporate Client Onboarding | Client coverage: DBS",
+  }],
 };
 
 function makeDocument(state: "REVIEW_REQUIRED" | "REVIEWED" = "REVIEW_REQUIRED") {
@@ -518,17 +527,21 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     expect(account).toContain("Authentication pending");
   });
 
-  it("defaults to Start onboarding with the screenshot-authoritative product heading", () => {
+  it("defaults to Dashboard and preserves the screenshot-authoritative onboarding view", () => {
     const markup = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} />);
     expect(markup).toContain("Autoboard");
-    expect(markup).toContain("Start onboarding");
-    expect(markup).not.toContain("Start an onboarding request");
+    expect(markup).toContain('aria-current="page">Dashboard');
+    expect(markup).toContain("Loading dashboard");
     expect(markup).toContain("Loading backend connector profile");
     expect(markup).not.toContain("Load synthetic ownership");
     expect(markup).not.toContain("Submit to Mock GoldTier");
-    expect(markup).toContain("multiple=\"\"");
-    expect(markup).toContain("webkitdirectory=\"\"");
-    expect(markup).toContain("PDF, DOCX, and UTF-8 TXT");
+
+    const onboarding = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} initialTab="home" />);
+    expect(onboarding).toContain("Start onboarding");
+    expect(onboarding).not.toContain("Start an onboarding request");
+    expect(onboarding).toContain("multiple=\"\"");
+    expect(onboarding).toContain("webkitdirectory=\"\"");
+    expect(onboarding).toContain("PDF, DOCX, and UTF-8 TXT");
   });
 
   it("validates a bounded multi-format document selection", () => {
@@ -650,8 +663,8 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
   });
 
   it("keeps deterministic demo controls gated on the Start landing page", () => {
-    const sponsor = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} demoControlsEnabled={false} />);
-    const demo = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} demoControlsEnabled />);
+    const sponsor = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} demoControlsEnabled={false} initialTab="home" />);
+    const demo = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} demoControlsEnabled initialTab="home" />);
     expect(sponsor).not.toContain("Demo/Test Controls");
     expect(sponsor).not.toContain("Integrated synthetic scenario");
     expect(demo).toContain("Demo/Test Controls");

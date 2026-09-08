@@ -1,6 +1,46 @@
 import { useState } from "react";
 
 import { ApiError, updateCasePriority } from "../api";
+import type { PriorityFilter, PrioritySort } from "../api";
+
+export function PriorityListControls({
+  filter,
+  sort,
+  onFilterChange,
+  onSortChange,
+}: {
+  filter: PriorityFilter;
+  sort: PrioritySort;
+  onFilterChange: (value: PriorityFilter) => void;
+  onSortChange: (value: PrioritySort) => void;
+}) {
+  return (
+    <>
+      <select
+        className="input"
+        aria-label="Priority filter"
+        value={filter}
+        onChange={(event) => onFilterChange(event.target.value as PriorityFilter)}
+      >
+        <option value="all">Priority: All</option>
+        <option value="prioritised">Prioritised only</option>
+        <option value="unset">Unprioritised only</option>
+        {Array.from({ length: 10 }, (_, index) => 10 - index).map((priority) => (
+          <option key={priority} value={priority}>Priority {priority}</option>
+        ))}
+      </select>
+      <select
+        className="input"
+        aria-label="Priority sort"
+        value={sort}
+        onChange={(event) => onSortChange(event.target.value as PrioritySort)}
+      >
+        <option value="highest_first">Highest priority first</option>
+        <option value="lowest_first">Lowest priority first</option>
+      </select>
+    </>
+  );
+}
 
 export function PriorityBadge({ priority }: { priority: number | null }) {
   return (

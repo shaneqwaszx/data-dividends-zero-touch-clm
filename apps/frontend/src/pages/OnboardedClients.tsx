@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { ApiError, fetchZeroTouchCase, fetchZeroTouchCases } from "../api";
+import type { PriorityFilter, PrioritySort } from "../api";
 import type { OnboardedRowView } from "../viewModels";
 import { mapCompletedCaseToOnboardedRow } from "../viewModels";
-import PriorityControl, { PriorityBadge } from "./PriorityControl";
+import PriorityControl, { PriorityBadge, PriorityListControls } from "./PriorityControl";
 
 export function OnboardedActionColumnHeader() {
   return <th aria-label="Open" />;
 }
 
-export async function loadOnboardedRows(): Promise<OnboardedRowView[]> {
-  const items = await fetchZeroTouchCases("COMPLETED");
+export async function loadOnboardedRows(
+  priority: PriorityFilter = "all",
+  prioritySort: PrioritySort = "highest_first",
+): Promise<OnboardedRowView[]> {
+  const items = await fetchZeroTouchCases("COMPLETED", priority, prioritySort);
   const details = await Promise.all(items.map((item) => fetchZeroTouchCase(item.case_id)));
   return items.map((item, index) => mapCompletedCaseToOnboardedRow(item, details[index]));
 }
@@ -22,13 +26,15 @@ export default function OnboardedClients({
 }) {
   const [clients, setClients] = useState<OnboardedRowView[]>([]);
   const [jurisdiction, setJurisdiction] = useState("");
+  const [priority, setPriority] = useState<PriorityFilter>("all");
+  const [prioritySort, setPrioritySort] = useState<PrioritySort>("highest_first");
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     setIsLoading(true);
-    void loadOnboardedRows()
+    void loadOnboardedRows(priority, prioritySort)
       .then((items) => {
         setClients(items);
         setError(null);
@@ -41,13 +47,13 @@ export default function OnboardedClients({
         );
       })
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [priority, prioritySort]);
 
   async function refreshAfterPriorityUpdate(): Promise<void> {
     setIsLoading(true);
     setError(null);
     try {
-      setClients(await loadOnboardedRows());
+      setClients(await loadOnboardedRows(priority, prioritySort));
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
@@ -80,6 +86,12 @@ export default function OnboardedClients({
       </p>
 
       <div className="ds-toolbar">
+        <PriorityListControls
+          filter={priority}
+          sort={prioritySort}
+          onFilterChange={setPriority}
+          onSortChange={setPrioritySort}
+        />
         <select
           className="input"
           style={{ width: 190 }}

@@ -44,7 +44,9 @@ _LIFECYCLE_AUTH_ENV = {
 class DemoLifecycleCreationTimeTests(unittest.TestCase):
     """Exercise the script's creation-time comparison without starting the demo."""
 
-    def run_creation_time_comparison(self, observed_expression: str, recorded_expression: str) -> bool:
+    def run_creation_time_comparison(
+        self, observed_expression: str, recorded_expression: str
+    ) -> bool:
         script_path = str(SCRIPTS / "demo_lifecycle.ps1").replace("'", "''")
         command = (
             "$tokens = $null; $errors = $null;"
@@ -76,7 +78,7 @@ class DemoLifecycleCreationTimeTests(unittest.TestCase):
             "[Globalization.CultureInfo]::InvariantCulture)"
         )
         recorded = (
-            "('{\"creation_time_utc\":\"2026-09-02T09:37:01.1234567Z\"}' | "
+            '(\'{"creation_time_utc":"2026-09-02T09:37:01.1234567Z"}\' | '
             "ConvertFrom-Json).creation_time_utc"
         )
         self.assertTrue(self.run_creation_time_comparison(observed, recorded))
@@ -87,7 +89,7 @@ class DemoLifecycleCreationTimeTests(unittest.TestCase):
             "[Globalization.CultureInfo]::InvariantCulture)"
         )
         recorded = (
-            "('{\"creation_time_utc\":\"2026-09-02T09:37:01.1234567Z\"}' | "
+            '(\'{"creation_time_utc":"2026-09-02T09:37:01.1234567Z"}\' | '
             "ConvertFrom-Json).creation_time_utc"
         )
         self.assertFalse(self.run_creation_time_comparison(observed, recorded))
@@ -112,7 +114,9 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
         self.demo_cleanup_state: dict[str, Any] | None = None
         if STATE.exists():
             result = self.run_lifecycle("stop_demo_windows.bat")
-            self.assertEqual(result.returncode, 0, (result.stdout or "") + (result.stderr or ""))
+            self.assertEqual(
+                result.returncode, 0, (result.stdout or "") + (result.stderr or "")
+            )
         self.assert_port_free(8000)
         self.assert_port_free(5173)
 
@@ -129,7 +133,9 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
         for process in reversed(self.test_processes):
             self.terminate_exact(process)
 
-    def run_lifecycle(self, script: str, timeout: int = 90) -> subprocess.CompletedProcess[str]:
+    def run_lifecycle(
+        self, script: str, timeout: int = 90
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["cmd.exe", "/d", "/c", str(SCRIPTS / script)],
             cwd=ROOT,
@@ -141,7 +147,9 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
 
     def lifecycle_environment(self) -> dict[str, str]:
         environment = dict(os.environ)
-        path_values = [value for key, value in environment.items() if key.casefold() == "path"]
+        path_values = [
+            value for key, value in environment.items() if key.casefold() == "path"
+        ]
         for key in [key for key in environment if key.casefold() == "path"]:
             del environment[key]
         if path_values:
@@ -164,7 +172,9 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
             output.seek(0)
             return result.returncode, output.read()
 
-    def run_pwsh_lifecycle(self, action: str, timeout: int = 90) -> subprocess.CompletedProcess[str]:
+    def run_pwsh_lifecycle(
+        self, action: str, timeout: int = 90
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
                 "pwsh.exe",
@@ -347,7 +357,7 @@ $roles = @(
             login_request = urllib.request.Request(
                 "http://127.0.0.1:8000/api/auth/login",
                 data=json.dumps(
-                    {"user_id": "director", "password": _LIFECYCLE_CREDENTIAL}
+                    {"user_id": "olivia-koh", "password": _LIFECYCLE_CREDENTIAL}
                 ).encode(),
                 headers={"Content-Type": "application/json"},
             )
@@ -366,6 +376,23 @@ $roles = @(
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read()
 
+    def login_through_frontend_proxy(self) -> tuple[int, dict[str, Any]]:
+        request = urllib.request.Request(
+            "http://127.0.0.1:5173/api/auth/login",
+            data=json.dumps(
+                {"user_id": "maya-lim", "password": _LIFECYCLE_CREDENTIAL}
+            ).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Origin": "http://127.0.0.1:5173",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=3) as response:
+                return response.status, json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read())
+
     def endpoint_available(self, url: str) -> bool:
         try:
             return self.request(url)[0] == 200
@@ -379,9 +406,9 @@ $roles = @(
     def assert_endpoints_stopped(self) -> None:
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            if not self.endpoint_available("http://127.0.0.1:8000/health") and not self.endpoint_available(
-                "http://127.0.0.1:5173/"
-            ):
+            if not self.endpoint_available(
+                "http://127.0.0.1:8000/health"
+            ) and not self.endpoint_available("http://127.0.0.1:5173/"):
                 return
             time.sleep(0.2)
         self.fail("Backend or frontend endpoint remained available after stop")
@@ -389,7 +416,9 @@ $roles = @(
     def assert_port_free(self, port: int) -> None:
         with socket.socket() as probe:
             probe.settimeout(0.5)
-            self.assertNotEqual(probe.connect_ex(("127.0.0.1", port)), 0, f"port {port} occupied")
+            self.assertNotEqual(
+                probe.connect_ex(("127.0.0.1", port)), 0, f"port {port} occupied"
+            )
 
     def process_alive(self, process_id: int) -> bool:
         result = subprocess.run(
@@ -461,7 +490,7 @@ $roles = @(
 
     def process_identity(self, process_id: int) -> dict[str, str | int]:
         command = (
-            f"$p=Get-CimInstance Win32_Process -Filter \"ProcessId = {process_id}\";"
+            f'$p=Get-CimInstance Win32_Process -Filter "ProcessId = {process_id}";'
             "[ordered]@{pid=[int]$p.ProcessId;"
             "creation_time_utc=$p.CreationDate.ToUniversalTime().ToString('O');"
             "executable_path=[string]$p.ExecutablePath}|ConvertTo-Json -Compress"
@@ -484,7 +513,9 @@ $roles = @(
             f"{'' if last_result is None else last_result.stderr}"
         )
 
-    def write_fake_state(self, records: list[dict[str, Any]], *, status: str = "RUNNING") -> None:
+    def write_fake_state(
+        self, records: list[dict[str, Any]], *, status: str = "RUNNING"
+    ) -> None:
         self.fake_state_written = True
         self.write_state(
             {
@@ -521,18 +552,33 @@ $roles = @(
 
     def test_start_stop_health_pids_and_unrelated_processes(self) -> None:
         base_python = str(getattr(sys, "_base_executable", sys.executable))
-        python_process = self.spawn_unrelated([base_python, "-c", "import time;time.sleep(120)"])
-        node_process = self.spawn_unrelated(["node.exe", "-e", "setTimeout(()=>{},120000)"])
+        python_process = self.spawn_unrelated(
+            [base_python, "-c", "import time;time.sleep(120)"]
+        )
+        node_process = self.spawn_unrelated(
+            ["node.exe", "-e", "setTimeout(()=>{},120000)"]
+        )
         titled_process = self.spawn_unrelated(
-            ["cmd.exe", "/d", "/c", "title Unrelated Lifecycle Safety & ping -n 120 127.0.0.1 > nul"]
+            [
+                "cmd.exe",
+                "/d",
+                "/c",
+                "title Unrelated Lifecycle Safety & ping -n 120 127.0.0.1 > nul",
+            ]
         )
 
         started = self.run_lifecycle("start_demo_windows.bat")
         self.assertEqual(started.returncode, 0)
         self.assert_endpoints_healthy()
+        proxy_login_status, proxy_login = self.login_through_frontend_proxy()
+        self.assertEqual(proxy_login_status, 200)
+        self.assertEqual(proxy_login["profile"]["user_id"], "maya-lim")
+        self.assertEqual(proxy_login["profile"]["display_name"], "Maya Lim")
         state = self.read_state()
         self.assertEqual(state["status"], "RUNNING")
-        self.assertEqual([record["role"] for record in state["processes"]], ["backend", "frontend"])
+        self.assertEqual(
+            [record["role"] for record in state["processes"]], ["backend", "frontend"]
+        )
         owned_ids = {
             int(process_id)
             for record in state["processes"]
@@ -561,11 +607,17 @@ $roles = @(
         self.assert_endpoints_stopped()
         self.assertFalse(STATE.exists())
         for process_id in owned_ids:
-            self.assertFalse(self.process_alive(process_id), f"owned PID {process_id} survived")
+            self.assertFalse(
+                self.process_alive(process_id), f"owned PID {process_id} survived"
+            )
         for process in (python_process, node_process, titled_process):
-            self.assertIsNone(process.poll(), f"unrelated PID {process.pid} was terminated")
+            self.assertIsNone(
+                process.poll(), f"unrelated PID {process.pid} was terminated"
+            )
 
-    def test_wrong_or_unparseable_creation_time_fails_closed_for_status_and_stop(self) -> None:
+    def test_wrong_or_unparseable_creation_time_fails_closed_for_status_and_stop(
+        self,
+    ) -> None:
         started = self.run_lifecycle("start_demo_windows.bat")
         self.assertEqual(started.returncode, 0)
         self.assert_endpoints_healthy()
@@ -588,7 +640,8 @@ $roles = @(
                 serialized_diagnostics = json.dumps(diagnostics, sort_keys=True)
                 self.assertNotIn("command_line", serialized_diagnostics)
                 self.assertEqual(
-                    {item["role"] for item in diagnostics["roles"]}, {"backend", "frontend"}
+                    {item["role"] for item in diagnostics["roles"]},
+                    {"backend", "frontend"},
                 )
                 for item in diagnostics["roles"]:
                     self.assertFalse(item["creation_time_match"])
@@ -598,7 +651,9 @@ $roles = @(
 
                 stopped = self.run_pwsh_lifecycle("Stop")
                 self.assertNotEqual(stopped.returncode, 0)
-                self.assertIn("Launcher ownership could not be established", stopped.stdout)
+                self.assertIn(
+                    "Launcher ownership could not be established", stopped.stdout
+                )
                 self.assertEqual(self.read_state(), corrupt_state)
                 self.assert_endpoints_healthy()
 
@@ -619,17 +674,29 @@ $roles = @(
                 "team_id": "TEAM_A",
             }
         ).encode()
-        status, body = self.request("http://127.0.0.1:8000/api/demo/clm/zero-touch/cases", data=payload)
+        status, body = self.request(
+            "http://127.0.0.1:8000/api/demo/clm/zero-touch/cases", data=payload
+        )
         self.assertEqual(status, 201)
         case_id = json.loads(body)["case"]["case_id"]
-        self.assertEqual(self.request(f"http://127.0.0.1:8000/api/clm/zero-touch/cases/{case_id}")[0], 200)
+        self.assertEqual(
+            self.request(f"http://127.0.0.1:8000/api/clm/zero-touch/cases/{case_id}")[
+                0
+            ],
+            200,
+        )
 
         reset = self.run_lifecycle("reset_demo_windows.bat", timeout=120)
         self.assertEqual(reset.returncode, 0)
         after_state = self.read_state()
         self.assertNotEqual(before_state["session_id"], after_state["session_id"])
         self.assert_endpoints_healthy()
-        self.assertEqual(self.request(f"http://127.0.0.1:8000/api/clm/zero-touch/cases/{case_id}")[0], 404)
+        self.assertEqual(
+            self.request(f"http://127.0.0.1:8000/api/clm/zero-touch/cases/{case_id}")[
+                0
+            ],
+            404,
+        )
 
     def test_occupied_ports_fail_without_terminating_occupants(self) -> None:
         for port in (8000, 5173):
@@ -643,7 +710,9 @@ $roles = @(
 
     def test_reset_stops_on_ownership_mismatch_and_does_not_start(self) -> None:
         base_python = str(getattr(sys, "_base_executable", sys.executable))
-        unrelated = self.spawn_unrelated([base_python, "-c", "import time;time.sleep(120)"])
+        unrelated = self.spawn_unrelated(
+            [base_python, "-c", "import time;time.sleep(120)"]
+        )
         identity = self.process_identity(unrelated.pid)
         self.write_fake_state(
             [
@@ -663,7 +732,9 @@ $roles = @(
         )
         returncode, output = self.run_lifecycle_captured("reset_demo_windows.bat")
         self.assertNotEqual(returncode, 0)
-        self.assertIn("backend executable is outside the project virtual environment", output)
+        self.assertIn(
+            "backend executable is outside the project virtual environment", output
+        )
         self.assertIsNone(unrelated.poll())
         self.assertFalse(self.endpoint_available("http://127.0.0.1:8000/health"))
         self.assertTrue(STATE.exists())
@@ -685,7 +756,9 @@ $roles = @(
         self.demo_cleanup_state = original_state
         corrupt_state = dict(original_state)
         corrupt_state["processes"] = [
-            record for record in original_state["processes"] if record["role"] != missing_role
+            record
+            for record in original_state["processes"]
+            if record["role"] != missing_role
         ]
         self.write_state(corrupt_state)
 
@@ -717,14 +790,21 @@ $roles = @(
         self.demo_cleanup_state = original_state
         corrupt_state = dict(original_state)
         corrupt_state["processes"] = [
-            record for record in original_state["processes"] if record["role"] != missing_role
+            record
+            for record in original_state["processes"]
+            if record["role"] != missing_role
         ]
         self.write_state(corrupt_state)
 
-        returncode, output = self.run_lifecycle_captured("reset_demo_windows.bat", timeout=120)
+        returncode, output = self.run_lifecycle_captured(
+            "reset_demo_windows.bat", timeout=120
+        )
         self.assertNotEqual(returncode, 0)
         self.assertIn("DEMO_RUNTIME_STATE_INCOMPLETE", output)
-        self.assertIn("Reset aborted because verified stop failed. No start was attempted.", output)
+        self.assertIn(
+            "Reset aborted because verified stop failed. No start was attempted.",
+            output,
+        )
         self.assertEqual(self.read_state(), corrupt_state)
         self.assertEqual(self.read_state()["session_id"], original_state["session_id"])
         self.assert_endpoints_healthy()
@@ -740,16 +820,27 @@ $roles = @(
     def test_reset_with_missing_backend_record_does_not_start(self) -> None:
         self.exercise_missing_role_reset("backend")
 
-    def test_running_rejects_duplicate_and_unknown_roles_before_process_selection(self) -> None:
+    def test_running_rejects_duplicate_and_unknown_roles_before_process_selection(
+        self,
+    ) -> None:
         missing_pid = 2_147_000_100
         backend = self.fake_record(
-            "backend", missing_pid, "2026-08-15T00:00:00Z", str(ROOT / ".venv/Scripts/python.exe")
+            "backend",
+            missing_pid,
+            "2026-08-15T00:00:00Z",
+            str(ROOT / ".venv/Scripts/python.exe"),
         )
         frontend = self.fake_record(
-            "frontend", missing_pid - 1, "2026-08-15T00:00:00Z", "C:/Program Files/nodejs/node.exe"
+            "frontend",
+            missing_pid - 1,
+            "2026-08-15T00:00:00Z",
+            "C:/Program Files/nodejs/node.exe",
         )
         unknown = self.fake_record(
-            "unknown", missing_pid - 2, "2026-08-15T00:00:00Z", "C:/Program Files/nodejs/node.exe"
+            "unknown",
+            missing_pid - 2,
+            "2026-08-15T00:00:00Z",
+            "C:/Program Files/nodejs/node.exe",
         )
         invalid_sets = (
             [backend, dict(backend)],
@@ -761,7 +852,9 @@ $roles = @(
             with self.subTest(roles=[record["role"] for record in records]):
                 self.write_fake_state(records)
                 retained = self.read_state()
-                returncode, output = self.run_lifecycle_captured("stop_demo_windows.bat")
+                returncode, output = self.run_lifecycle_captured(
+                    "stop_demo_windows.bat"
+                )
                 self.assertNotEqual(returncode, 0)
                 self.assertIn("DEMO_RUNTIME_STATE_INCOMPLETE", output)
                 self.assertNotIn("backend and frontend process trees are gone", output)
@@ -788,12 +881,24 @@ $roles = @(
         self.assertFalse(STATE.exists())
         self.fake_state_written = False
 
-    def test_stale_nonexistent_metadata_is_cleared_without_process_selection(self) -> None:
+    def test_stale_nonexistent_metadata_is_cleared_without_process_selection(
+        self,
+    ) -> None:
         missing_pid = 2_147_000_000
         self.write_fake_state(
             [
-                self.fake_record("backend", missing_pid, "2026-08-15T00:00:00Z", str(ROOT / ".venv/Scripts/python.exe")),
-                self.fake_record("frontend", missing_pid - 1, "2026-08-15T00:00:00Z", "C:/Program Files/nodejs/node.exe"),
+                self.fake_record(
+                    "backend",
+                    missing_pid,
+                    "2026-08-15T00:00:00Z",
+                    str(ROOT / ".venv/Scripts/python.exe"),
+                ),
+                self.fake_record(
+                    "frontend",
+                    missing_pid - 1,
+                    "2026-08-15T00:00:00Z",
+                    "C:/Program Files/nodejs/node.exe",
+                ),
             ]
         )
         stopped = self.run_lifecycle("stop_demo_windows.bat")

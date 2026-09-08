@@ -82,16 +82,14 @@ def build_onboarding_service(
     catalogue = scenario_catalogue or Phase01MockScenarioCatalogue()
     active_settings = settings or get_settings()
     active_acra = acra_connector or build_acra_connector(
-            active_settings,
-            transport=acra_transport,
-            authorizer=acra_authorizer,
-            decoder=acra_decoder,
-        )
+        active_settings,
+        transport=acra_transport,
+        authorizer=acra_authorizer,
+        decoder=acra_decoder,
+    )
     return OnboardingService(
         acra=None,
-        registry_router=RegistryProviderRouter(
-            AcraRegistryProviderAdapter(active_acra)
-        ),
+        registry_router=RegistryProviderRouter(AcraRegistryProviderAdapter(active_acra)),
         goldtier=MockGoldTierConnector(
             policy_validation_failure_keys=catalogue.policy_validation_failure_uens(),
             partial_amend_external_keys=catalogue.partial_amend_uens(),
@@ -106,11 +104,11 @@ def build_onboarding_service(
 def build_authentication_service(settings: Settings) -> AuthenticationService:
     return AuthenticationService(
         {
-            "team-a-onboarder": settings.phase13_team_a_onboarder_password_hash,
-            "team-a-rm": settings.phase13_team_a_rm_password_hash,
-            "team-b-onboarder": settings.phase13_team_b_onboarder_password_hash,
-            "team-b-rm": settings.phase13_team_b_rm_password_hash,
-            "director": settings.phase13_director_password_hash,
+            "maya-lim": settings.phase13_maya_lim_password_hash,
+            "ethan-tan": settings.phase13_ethan_tan_password_hash,
+            "sophia-ng": settings.phase13_sophia_ng_password_hash,
+            "ryan-lee": settings.phase13_ryan_lee_password_hash,
+            "olivia-koh": settings.phase13_olivia_koh_password_hash,
         }
     )
 
@@ -251,6 +249,7 @@ def build_zero_touch_orchestrator(
 
     def provider_factory() -> OwnershipProvider:
         return ownership_service.configured_provider
+
     provider_bindings = (
         DurableOwnershipProviderBindingResolver(provider_factory)
         if durable_provider_bindings
