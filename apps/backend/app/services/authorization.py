@@ -8,6 +8,10 @@ from enum import StrEnum
 from uuid import UUID
 
 from app.domain.access import AuthenticatedActor, Role, TeamId
+from app.domain.case_management import (
+    CasePortfolioScope,
+    PortfolioScopeKind,
+)
 from app.domain.models import OnboardingCase
 from app.services.onboarding import OnboardingService
 
@@ -79,6 +83,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         RouteAccess.CASE_SCOPED,
     ),
     RoutePolicy("GET", "/api/clm/zero-touch/cases/{case_id}", RouteAccess.CASE_SCOPED),
+    RoutePolicy("DELETE", "/api/clm/zero-touch/cases/{case_id}", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "GET",
         "/api/demo/clm/zero-touch/cases/{case_id}/uat-evidence",
@@ -176,6 +181,18 @@ class CaseAccessPolicy:
         if case is None or not self.can_access(actor, case):
             raise CaseNotAvailableError
         return case
+
+    def portfolio_scope(self, actor: AuthenticatedActor) -> CasePortfolioScope:
+        """Translate only the authenticated server profile into a repository scope."""
+
+        if actor.profile.role == Role.DIRECTOR:
+            return CasePortfolioScope(kind=PortfolioScopeKind.GLOBAL)
+        if actor.profile.team_id is None:
+            raise ValueError("team actor requires a canonical team")
+        return CasePortfolioScope(
+            kind=PortfolioScopeKind.TEAM,
+            team_id=actor.profile.team_id,
+        )
 
     def resolve_creation_team(
         self,

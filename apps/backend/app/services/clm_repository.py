@@ -21,6 +21,8 @@ class ClmOrchestrationRepository(Protocol):
 
     def get_for_case(self, case_id: UUID) -> ClmOrchestrationRecord | None: ...
 
+    def delete_for_case(self, case_id: UUID) -> None: ...
+
 
 class InMemoryClmOrchestrationRepository:
     def __init__(self) -> None:
@@ -51,3 +53,7 @@ class InMemoryClmOrchestrationRepository:
         with self._lock:
             record = self._records.get(case_id)
             return record.model_copy(deep=True) if record is not None else None
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        with self._lock:
+            self._records.pop(case_id, None)

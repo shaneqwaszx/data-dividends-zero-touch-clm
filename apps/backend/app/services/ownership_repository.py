@@ -21,6 +21,8 @@ class OwnershipAnalysisRepository(Protocol):
 
     def get_for_case(self, case_id: UUID) -> OwnershipAnalysisRecord | None: ...
 
+    def delete_for_case(self, case_id: UUID) -> None: ...
+
 
 class InMemoryOwnershipAnalysisRepository:
     def __init__(self) -> None:
@@ -60,3 +62,7 @@ class InMemoryOwnershipAnalysisRepository:
         with self._lock:
             record = self._records.get(case_id)
             return record.model_copy(deep=True) if record is not None else None
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        with self._lock:
+            self._records.pop(case_id, None)

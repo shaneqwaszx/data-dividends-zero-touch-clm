@@ -74,7 +74,7 @@ jobs:
           cache: pip
           cache-dependency-path: apps/backend/pyproject.toml
       - run: python -m pip install -e ".[dev]"
-      - run: python -m pytest tests/test_phase12_real_mongo.py tests/test_phase13_real_mongo.py
+      - run: python -m pytest tests/test_phase12_real_mongo.py tests/test_phase13_real_mongo.py tests/test_phase14_real_mongo.py
 
   demo-lifecycle-windows:
     runs-on: windows-latest

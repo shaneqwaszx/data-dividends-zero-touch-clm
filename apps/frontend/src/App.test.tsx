@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App, {
@@ -62,6 +63,7 @@ import {
   uploadDocument,
 } from "./api";
 import { nextPollingDelay, startAutomationPolling } from "./automationPolling";
+import { createSessionQueryClient } from "./queryClient";
 import type {
   ClmCaseSummary,
   DocumentProcessingRecord,
@@ -528,7 +530,7 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
   });
 
   it("defaults to Dashboard and preserves the screenshot-authoritative onboarding view", () => {
-    const markup = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} />);
+    const markup = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} /></QueryClientProvider>);
     expect(markup).toContain("Autoboard");
     expect(markup).toContain('aria-current="page">Dashboard');
     expect(markup).toContain("Loading dashboard");
@@ -536,7 +538,7 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     expect(markup).not.toContain("Load synthetic ownership");
     expect(markup).not.toContain("Submit to Mock GoldTier");
 
-    const onboarding = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} initialTab="home" />);
+    const onboarding = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} initialTab="home" /></QueryClientProvider>);
     expect(onboarding).toContain("Start onboarding");
     expect(onboarding).not.toContain("Start an onboarding request");
     expect(onboarding).toContain("multiple=\"\"");
@@ -616,6 +618,10 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
       active_exception_count: index + 1,
       human_interventions: 0,
       final_outcome: null,
+      resolved_jurisdiction: "SG" as const,
+      created_at: timestamp,
+      completed_at: null,
+      mock_goldtier_party_id: null,
     }));
     const portfolio = renderToStaticMarkup(<CasePortfolio cases={cases} onOpen={() => undefined} />);
     const queue = renderToStaticMarkup(<ReviewQueue cases={cases} onOpen={() => undefined} />);
@@ -663,8 +669,8 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
   });
 
   it("keeps deterministic demo controls gated on the Start landing page", () => {
-    const sponsor = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} demoControlsEnabled={false} initialTab="home" />);
-    const demo = renderToStaticMarkup(<App actor={actor} onLogout={() => undefined} demoControlsEnabled initialTab="home" />);
+    const sponsor = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} demoControlsEnabled={false} initialTab="home" /></QueryClientProvider>);
+    const demo = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} demoControlsEnabled initialTab="home" /></QueryClientProvider>);
     expect(sponsor).not.toContain("Demo/Test Controls");
     expect(sponsor).not.toContain("Integrated synthetic scenario");
     expect(demo).toContain("Demo/Test Controls");

@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
-import { ApiError, fetchDocuments, fetchOwnership, fetchZeroTouchCase } from "../api";
-import type { ClientDetailView } from "../viewModels";
+import { caseDetailQueryOptions, documentQueryOptions, ownershipQueryOptions } from "../caseQueries";
+import type { AuthenticatedProfile } from "../types";
 import { mapZeroTouchCaseToClientDetail } from "../viewModels";
 
 const UNAVAILABLE = "Not available in current POC";
@@ -26,35 +26,25 @@ export function ClientRecordActions() {
 
 export default function ClientDetail({
   clientId,
+  actor,
   onBack,
   onOpenAudit,
 }: {
   clientId: string;
+  actor: AuthenticatedProfile;
   onBack: () => void;
   onOpenAudit: (caseId: string) => void;
 }) {
-  const [client, setClient] = useState<ClientDetailView | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const summary = useQuery(caseDetailQueryOptions(actor.user_id, clientId));
+  const documents = useQuery(documentQueryOptions(actor.user_id, clientId));
+  const ownership = useQuery(ownershipQueryOptions(actor.user_id, clientId));
+  const client = summary.data && documents.data && ownership.data
+    ? mapZeroTouchCaseToClientDetail(summary.data, documents.data, ownership.data)
+    : null;
+  const requestError = summary.error ?? documents.error ?? ownership.error;
 
-  useEffect(() => {
-    let current = true;
-    void Promise.all([
-      fetchZeroTouchCase(clientId),
-      fetchDocuments(clientId),
-      fetchOwnership(clientId),
-    ])
-      .then(([summary, documents, ownership]) => {
-        if (current) setClient(mapZeroTouchCaseToClientDetail(summary, documents, ownership));
-      })
-      .catch((requestError) => {
-        if (!current) return;
-        setError(requestError instanceof ApiError ? requestError.message : "The client detail is unavailable.");
-      });
-    return () => { current = false; };
-  }, [clientId]);
-
-  if (error) {
-    return <div className="ds-root ds-page"><button type="button" className="btn btn-ghost" style={{ paddingLeft: 0 }} onClick={onBack}>← Back to Onboarded</button><div className="ds-banner ds-banner-warn">{error}</div></div>;
+  if (requestError && !client) {
+    return <div className="ds-root ds-page"><button type="button" className="btn btn-ghost" style={{ paddingLeft: 0 }} onClick={onBack}>← Back to Onboarded</button><div className="ds-banner ds-banner-warn">{requestError instanceof Error ? requestError.message : "The client detail is unavailable."}</div></div>;
   }
   if (!client) return <div className="ds-root ds-page"><button type="button" className="btn btn-ghost" style={{ paddingLeft: 0 }} onClick={onBack}>← Back to Onboarded</button><p className="text-muted">Loading client…</p></div>;
 

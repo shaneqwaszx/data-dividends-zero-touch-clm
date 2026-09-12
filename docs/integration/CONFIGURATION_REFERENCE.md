@@ -49,6 +49,11 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `VITE_DEMO_CONTROLS_ENABLED` | `false` | Shows synthetic selectors; backend gate remains authoritative |
 | `VITE_API_BASE_URL` | empty | Optional build-time base URL; local Vite proxy is supported. Cross-origin hosting requires a separately approved CORS design. |
 
+Phase 14 adds exact-pinned `@tanstack/react-query` as a browser runtime dependency and
+`jsdom` as a test-only dependency. The query cache is process memory with fixed code
+defaults (`staleTime` 45 seconds, `gcTime` 15 minutes); it has no environment toggle or
+persistent-storage configuration.
+
 For the scripted sponsor demo both demo flags are enabled in their respective launched
 processes, while `IDP_CONNECTOR_MODE=local_pdf_text` remains the normal sponsor path.
 Developer controls use their dedicated demo provider boundary and do not replace it.

@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.access import TEAM_BY_ID, CasePriority, TeamId
+from app.domain.case_management import CasePortfolioRecord
 from app.domain.clm import (
     ClmOrchestrationRecord,
     ClmReadinessAssessment,
@@ -657,28 +658,34 @@ class ZeroTouchCaseListItemResponse(BaseModel):
     team_id: TeamId | None
     client_scope_label: str | None
     priority: CasePriority | None
+    resolved_jurisdiction: JurisdictionCode | None
+    created_at: datetime
+    completed_at: datetime | None
+    mock_goldtier_party_id: str | None
 
     @classmethod
-    def from_domain(
-        cls, record: ZeroTouchAutomationRecord, case: OnboardingCase
-    ) -> "ZeroTouchCaseListItemResponse":
+    def from_domain(cls, record: CasePortfolioRecord) -> "ZeroTouchCaseListItemResponse":
         return cls(
             case_id=record.case_id,
-            requested_uen=case.requested_uen,
-            legal_name=case.entity.legal_name if case.entity is not None else None,
+            requested_uen=record.requested_uen,
+            legal_name=record.legal_name,
             status=record.status,
             current_stage=record.current_stage,
             updated_at=record.updated_at,
-            active_exception_count=len(record.active_exceptions),
-            human_interventions=record.metrics.human_interventions,
-            final_outcome=record.metrics.final_outcome,
-            team_id=case.team_id,
+            active_exception_count=record.active_exception_count,
+            human_interventions=record.human_interventions,
+            final_outcome=record.final_outcome,
+            team_id=record.team_id,
             client_scope_label=(
-                TEAM_BY_ID[case.team_id].client_scope_label
-                if case.team_id is not None
+                TEAM_BY_ID[record.team_id].client_scope_label
+                if record.team_id is not None
                 else None
             ),
-            priority=case.priority,
+            priority=record.priority,
+            resolved_jurisdiction=record.resolved_jurisdiction,
+            created_at=record.created_at,
+            completed_at=record.completed_at,
+            mock_goldtier_party_id=record.mock_goldtier_party_id,
         )
 
 

@@ -16,6 +16,7 @@ import urllib.request
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -155,7 +156,27 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
         if path_values:
             environment["Path"] = max(path_values, key=len)
         environment.update(_LIFECYCLE_AUTH_ENV)
+        environment.update(
+            {
+                "CLM_PERSISTENCE_MODE": "memory",
+                "MONGO_URI": "mongodb://127.0.0.1:1",
+                "MONGO_DATABASE": "clm_ordinary_tests",
+            }
+        )
         return environment
+
+    def test_lifecycle_environment_overrides_ambient_durable_persistence(self) -> None:
+        ambient = {
+            "CLM_PERSISTENCE_MODE": "mongo",
+            "MONGO_URI": "ambient-configured-value",
+            "MONGO_DATABASE": "clm_poc",
+        }
+        with patch.dict(os.environ, ambient):
+            environment = self.lifecycle_environment()
+
+        self.assertEqual(environment["CLM_PERSISTENCE_MODE"], "memory")
+        self.assertEqual(environment["MONGO_DATABASE"], "clm_ordinary_tests")
+        self.assertNotEqual(environment["MONGO_URI"], ambient["MONGO_URI"])
 
     def run_lifecycle_captured(self, script: str, timeout: int = 90) -> tuple[int, str]:
         with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as output:

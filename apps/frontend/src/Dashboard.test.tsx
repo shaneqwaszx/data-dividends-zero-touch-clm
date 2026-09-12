@@ -1,9 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App, { WorkspaceTabs } from "./App";
 import { configureAuthenticatedTransport, fetchDashboard } from "./api";
 import { DashboardView } from "./pages/Dashboard";
+import { createSessionQueryClient } from "./queryClient";
 import type { AuthenticatedProfile, DashboardSnapshot } from "./types";
 
 const maya: AuthenticatedProfile = {
@@ -101,7 +103,7 @@ afterEach(() => {
 
 describe("historical RBAC dashboard", () => {
   it("is the first authenticated landing view and preserves existing navigation", () => {
-    const markup = renderToStaticMarkup(<App actor={maya} onLogout={() => undefined} />);
+    const markup = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={maya} onLogout={() => undefined} /></QueryClientProvider>);
     expect(markup).toContain('aria-current="page">Dashboard');
     expect(markup).toContain("Loading dashboard");
     expect(markup).toContain("New onboarding");
