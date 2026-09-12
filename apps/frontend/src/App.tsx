@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   analyzeOwnership,
@@ -26,9 +27,16 @@ import {
   createZeroTouchCase,
 } from "./api";
 import { startAutomationPolling } from "./automationPolling";
+import {
+  caseCreatedEffect,
+  caseSummaryMutationEffect,
+  caseSupportingMutationEffect,
+  executionProfileQueryOptions,
+} from "./caseQueries";
 import AuditTrail from "./pages/AuditTrail";
 import CaseDetail from "./pages/CaseDetail";
-import CaseQueue from "./pages/CaseQueue";
+import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION } from "./pages/CaseQueue";
+import type { CaseQueuePresentationState } from "./pages/CaseQueue";
 import ClientDetail from "./pages/ClientDetail";
 import Dashboard from "./pages/Dashboard";
 import HomeOnboarding from "./pages/HomeOnboarding";
@@ -1777,6 +1785,8 @@ export default function App({
 }: AppProps) {
   const [activeTab, setActiveTab] = useState<AppTab>(initialTab);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [caseQueuePresentation, setCaseQueuePresentation] =
+    useState<CaseQueuePresentationState>(DEFAULT_CASE_QUEUE_PRESENTATION);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [auditCaseId, setAuditCaseId] = useState<string | null>(null);
   const [uen, setUen] = useState(DEFAULT_UEN);
@@ -1787,7 +1797,9 @@ export default function App({
   const [demoScenario, setDemoScenario] = useState<ZeroTouchDemoScenario>("STRAIGHT_THROUGH");
   const [directorTeamId, setDirectorTeamId] = useState<TeamId | "">("");
   const [casePriority, setCasePriority] = useState<number | "">("");
-  const [simulationProfile, setSimulationProfile] = useState<SimulationProfile | null>(null);
+  const queryClient = useQueryClient();
+  const profileQuery = useQuery(executionProfileQueryOptions(actor.user_id));
+  const simulationProfile = profileQuery.data ?? null;
   const [summary, setSummary] = useState<ZeroTouchCaseSummary | null>(null);
   const [, setRetainedCreatedSummary] = useState<ZeroTouchCaseSummary | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1802,10 +1814,8 @@ export default function App({
   const failedIntakeDocumentsRef = useRef(new Map<string, string>());
 
   useEffect(() => {
-    void fetchExecutionProfile()
-      .then(setSimulationProfile)
-      .catch(() => setRequestError("Connector profile discovery is unavailable."));
-  }, []);
+    if (profileQuery.isError) setRequestError("Connector profile discovery is unavailable.");
+  }, [profileQuery.isError]);
 
   useEffect(() => {
     if (!summary || !shouldPollAutomation(summary.status)) return;
@@ -1816,11 +1826,14 @@ export default function App({
       generation,
       currentGeneration: () => journeyGeneration.current,
       fetchCase: fetchZeroTouchCase,
-      onUpdate: setSummary,
+      onUpdate: (latest) => {
+        setSummary(latest);
+        caseSummaryMutationEffect(queryClient, actor.user_id, latest);
+      },
       onWarning: setPollingWarning,
       shouldContinue: shouldPollAutomation,
     });
-  }, [summary?.case.case_id, summary?.status, summary?.version]);
+  }, [actor.user_id, queryClient, summary?.case.case_id, summary?.status, summary?.version]);
 
   async function beginJourney(demoScenario?: ZeroTouchDemoScenario) {
     if (resolutionActive.current) return;
@@ -1874,6 +1887,7 @@ export default function App({
         intakeCase.demo,
       );
       setSummary(completed);
+      await caseSupportingMutationEffect(queryClient, actor.user_id, completed);
       setIntakeProgress(completed.status === "COMPLETED" ? "Completed" : "Processing case…");
     };
 
@@ -1888,6 +1902,7 @@ export default function App({
             casePriority === "" ? undefined : casePriority,
           ),
           onCreated: (created) => {
+            caseCreatedEffect(queryClient, actor.user_id, created);
             setRetainedCreatedSummary(created);
             intakeCaseRef.current = {
               caseId: created.case.case_id,
@@ -1896,6 +1911,7 @@ export default function App({
           },
           onRegistryStop: (created) => {
             setSummary(created);
+            caseSummaryMutationEffect(queryClient, actor.user_id, created);
             setIntakeProgress(null);
           },
           onDocumentIntake: async () => {
@@ -1959,11 +1975,17 @@ export default function App({
         generation === journeyGeneration.current
         && activeCaseId === updated.case.case_id
       ) setSummary(updated);
+      if (generation === journeyGeneration.current) {
+        await caseSupportingMutationEffect(queryClient, actor.user_id, updated);
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         try {
           const refreshed = await fetchZeroTouchCase(activeCaseId);
-          if (generation === journeyGeneration.current) setSummary(refreshed);
+          if (generation === journeyGeneration.current) {
+            setSummary(refreshed);
+            await caseSupportingMutationEffect(queryClient, actor.user_id, refreshed);
+          }
         } catch {
           // Keep the stable stale-resolution message below.
         }
@@ -1995,12 +2017,18 @@ export default function App({
         summary.reconciliation.version,
         discrepancy.evidence_fingerprint,
       );
-      if (generation === journeyGeneration.current) setSummary(updated);
+      if (generation === journeyGeneration.current) {
+        setSummary(updated);
+        await caseSupportingMutationEffect(queryClient, actor.user_id, updated);
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         try {
           const refreshed = await fetchZeroTouchCase(activeCaseId);
-          if (generation === journeyGeneration.current) setSummary(refreshed);
+          if (generation === journeyGeneration.current) {
+            setSummary(refreshed);
+            await caseSupportingMutationEffect(queryClient, actor.user_id, refreshed);
+          }
         } catch {
           // Preserve the safe stale-decision message returned by the original request.
         }
@@ -2020,7 +2048,9 @@ export default function App({
     setIsResolving(true);
     setRequestError(null);
     try {
-      setSummary(await replaceZeroTouchDocument(summary.case.case_id, documentId, eventCount, file));
+      const updated = await replaceZeroTouchDocument(summary.case.case_id, documentId, eventCount, file);
+      setSummary(updated);
+      await caseSupportingMutationEffect(queryClient, actor.user_id, updated);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Replacement evidence failed.");
     } finally {
@@ -2034,7 +2064,9 @@ export default function App({
     setIsSubmitting(true);
     setRequestError(null);
     try {
-      setSummary(await resumeZeroTouchCase(summary.case.case_id));
+      const updated = await resumeZeroTouchCase(summary.case.case_id);
+      setSummary(updated);
+      await caseSupportingMutationEffect(queryClient, actor.user_id, updated);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Finalization recovery failed.");
     } finally {
@@ -2178,7 +2210,10 @@ export default function App({
               onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
               onRecovery={() => void handleRecovery()}
               onStartNewCase={handleStartNewCase}
-              onSummaryUpdate={setSummary}
+              onSummaryUpdate={(updated) => {
+                setSummary(updated);
+                caseSummaryMutationEffect(queryClient, actor.user_id, updated);
+              }}
               onViewOnboarded={openCompletedCase}
               onViewAudit={openCaseAudit}
             />
@@ -2203,11 +2238,17 @@ export default function App({
           )}
 
           {activeTab === "queue" && !selectedCaseId && (
-            <CaseQueue onOpenCase={setSelectedCaseId} />
+            <CaseQueue
+              actor={actor}
+              presentation={caseQueuePresentation}
+              onPresentationChange={setCaseQueuePresentation}
+              onOpenCase={setSelectedCaseId}
+            />
           )}
           {activeTab === "queue" && selectedCaseId && (
             <CaseDetail
               caseId={selectedCaseId}
+              actor={actor}
               onBack={() => setSelectedCaseId(null)}
               onViewOnboarded={openCompletedCase}
               onViewAudit={openCaseAudit}
@@ -2215,11 +2256,12 @@ export default function App({
           )}
 
           {activeTab === "onboarded" && !selectedClientId && (
-            <OnboardedClients onOpenClient={setSelectedClientId} />
+            <OnboardedClients actor={actor} onOpenClient={setSelectedClientId} />
           )}
           {activeTab === "onboarded" && selectedClientId && (
             <ClientDetail
               clientId={selectedClientId}
+              actor={actor}
               onBack={() => setSelectedClientId(null)}
               onOpenAudit={openCaseAudit}
             />

@@ -25,6 +25,8 @@ class TargetExecutionRepository(Protocol):
 
     def delete_if_unattempted(self, submission_id: UUID) -> None: ...
 
+    def delete_for_case(self, case_id: UUID) -> None: ...
+
 
 class InMemoryTargetExecutionRepository:
     def __init__(self) -> None:
@@ -65,3 +67,12 @@ class InMemoryTargetExecutionRepository:
                 raise TargetExecutionRepositoryConflictError
             del self._entries[submission_id]
 
+    def delete_for_case(self, case_id: UUID) -> None:
+        with self._lock:
+            submission_ids = [
+                submission_id
+                for submission_id, entry in self._entries.items()
+                if entry.submission_input.case_id == case_id
+            ]
+            for submission_id in submission_ids:
+                self._entries.pop(submission_id, None)

@@ -14,6 +14,8 @@ class DocumentProcessingRepository(Protocol):
 
     def list_for_case(self, case_id: UUID) -> list[DocumentProcessingRecord]: ...
 
+    def delete_for_case(self, case_id: UUID) -> None: ...
+
 
 class InMemoryDocumentProcessingRepository:
     """Store copies only; uploaded bytes and raw provider payloads never enter storage."""
@@ -45,3 +47,14 @@ class InMemoryDocumentProcessingRepository:
                 if record.case_id == case_id
             ]
         return [record for _, record in sorted(records, key=lambda item: item[0])]
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        with self._lock:
+            document_ids = [
+                document_id
+                for document_id, record in self._records.items()
+                if record.case_id == case_id
+            ]
+            for document_id in document_ids:
+                self._records.pop(document_id, None)
+                self._insertion_sequence.pop(document_id, None)

@@ -226,8 +226,8 @@ def test_team_id_is_immutable_in_memory_and_mongo_adapters() -> None:
     legacy_case = onboarding.create_staged_case("202400002B")
 
     memory = InMemoryOnboardingCaseRepository()
-    memory.save(team_case)
-    memory.save(legacy_case)
+    memory.create(team_case)
+    memory.create(legacy_case)
     with pytest.raises(CaseTeamImmutableError):
         memory.save(team_case.model_copy(update={"team_id": TeamId.TEAM_B}, deep=True))
     with pytest.raises(CaseTeamImmutableError):

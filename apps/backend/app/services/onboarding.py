@@ -181,6 +181,11 @@ class OnboardingService:
     def case_repository(self) -> OnboardingCaseRepository:
         return self._repository
 
+    def reserve_case_identity(self) -> tuple[UUID, UUID]:
+        """Allocate the identifiers needed before the lifecycle lock is acquired."""
+
+        return self._uuid_factory(), self._uuid_factory()
+
     def create_case(
         self,
         uen: str,
@@ -208,9 +213,51 @@ class OnboardingService:
     ) -> OnboardingCase:
         """Resolve jurisdiction, route, and validate registry data without GoldTier."""
 
+        case_id, correlation_id = self.reserve_case_identity()
+        return self.create_staged_case_with_identity(
+            case_id,
+            correlation_id,
+            uen,
+            country_of_incorporation,
+            team_id=team_id,
+            priority=priority,
+        )
+
+    def create_staged_case_with_identity(
+        self,
+        case_id: UUID,
+        correlation_id: UUID,
+        uen: str,
+        country_of_incorporation: JurisdictionCode | str | None = None,
+        *,
+        team_id: TeamId | None = None,
+        priority: CasePriority | None = None,
+    ) -> OnboardingCase:
+        """Create a staged case using an identity reserved by an aggregate owner."""
+
+        with self.case_lock(case_id):
+            return self._create_staged_case_locked(
+                case_id,
+                correlation_id,
+                uen,
+                country_of_incorporation,
+                team_id=team_id,
+                priority=priority,
+            )
+
+    def _create_staged_case_locked(
+        self,
+        case_id: UUID,
+        correlation_id: UUID,
+        uen: str,
+        country_of_incorporation: JurisdictionCode | str | None,
+        *,
+        team_id: TeamId | None,
+        priority: CasePriority | None,
+    ) -> OnboardingCase:
+        """Create and mutate one case while its canonical lifecycle lock is held."""
+
         now = self._clock()
-        case_id = self._uuid_factory()
-        correlation_id = self._uuid_factory()
         normalised_uen = uen.strip().upper()
         if not normalised_uen:
             raise ValueError("Onboarding service requires a normalized non-empty UEN")
@@ -254,7 +301,13 @@ class OnboardingService:
             created_at=now,
             updated_at=now,
         )
-        self._record(case, WorkflowState.REQUESTED, EventOutcome.SUCCEEDED, "Case requested.")
+        self._record(
+            case,
+            WorkflowState.REQUESTED,
+            EventOutcome.SUCCEEDED,
+            "Case requested.",
+            create=True,
+        )
 
         if resolution.status == JurisdictionResolutionStatus.UNRESOLVED:
             return self._terminate(
@@ -1356,6 +1409,8 @@ class OnboardingService:
         outcome: EventOutcome,
         message: str,
         code: str | None = None,
+        *,
+        create: bool = False,
     ) -> None:
         timestamp = self._clock()
         case.state = stage
@@ -1372,7 +1427,10 @@ class OnboardingService:
                 message=message,
             )
         )
-        self._repository.save(case)
+        if create:
+            self._repository.create(case)
+        else:
+            self._repository.save(case)
 
     def _terminate(
         self,

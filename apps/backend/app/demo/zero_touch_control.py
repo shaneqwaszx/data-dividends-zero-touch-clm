@@ -42,6 +42,8 @@ class DemoScenarioRepository(Protocol):
 
     def get(self, case_id: UUID) -> str | None: ...
 
+    def delete_for_case(self, case_id: UUID) -> None: ...
+
 
 class InMemoryDemoScenarioRepository:
     def __init__(self) -> None:
@@ -55,6 +57,10 @@ class InMemoryDemoScenarioRepository:
     def get(self, case_id: UUID) -> str | None:
         with self._lock:
             return self._scenarios.get(case_id)
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        with self._lock:
+            self._scenarios.pop(case_id, None)
 
 
 class _CaseMatchingMockIdpProvider:
@@ -176,3 +182,16 @@ class ZeroTouchDemoControl:
             else:
                 self._finalization_failures_remaining[case_id] = remaining - 1
             return True
+
+    def release_case_transients(self, case_id: UUID) -> None:
+        """Forget process-local fault counters after a durable case deletion."""
+
+        with self._lock:
+            self._finalization_failures_remaining.pop(case_id, None)
+
+    def discard_case(self, case_id: UUID) -> None:
+        """Roll back demo-owned state created during a failed establishment."""
+
+        with self._lock:
+            self._scenario_repository.delete_for_case(case_id)
+            self._finalization_failures_remaining.pop(case_id, None)

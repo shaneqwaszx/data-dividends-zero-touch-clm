@@ -3,24 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
 
 from app.domain.access import AuthenticatedActor, CasePriority
+from app.domain.case_management import CasePortfolioRecord
 from app.domain.models import EventOutcome, OnboardingCase, WorkflowEvent
-from app.domain.zero_touch import AutomationStatus, ZeroTouchAutomationRecord
+from app.domain.zero_touch import AutomationStatus
 from app.services.authorization import CaseAccessPolicy
+from app.services.case_portfolio_repository import (
+    CasePortfolioRepository,
+    InMemoryCasePortfolioRepository,
+)
 from app.services.onboarding import OnboardingService
 from app.services.repository import OnboardingCaseRepository
 from app.services.zero_touch_repository import ZeroTouchAutomationRepository
-
-
-@dataclass(frozen=True)
-class AuthorizedCaseRecord:
-    automation: ZeroTouchAutomationRecord
-    case: OnboardingCase
 
 
 class PriorityFilter(StrEnum):
@@ -54,11 +52,15 @@ class CaseQueryService:
         case_repository: OnboardingCaseRepository,
         automation_repository: ZeroTouchAutomationRepository,
         access_policy: CaseAccessPolicy,
+        portfolio_repository: CasePortfolioRepository | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._cases = cases
         self._case_repository = case_repository
         self._automation_repository = automation_repository
+        self._portfolio_repository = portfolio_repository or InMemoryCasePortfolioRepository(
+            case_repository, automation_repository
+        )
         self._access_policy = access_policy
         self._clock = clock or (lambda: datetime.now(UTC))
 
@@ -69,24 +71,18 @@ class CaseQueryService:
         status: AutomationStatus | None = None,
         priority_filter: PriorityFilter = PriorityFilter.ALL,
         priority_sort: PrioritySort = PrioritySort.HIGHEST_FIRST,
-    ) -> list[AuthorizedCaseRecord]:
-        authorized: list[AuthorizedCaseRecord] = []
-        for automation in self._automation_repository.list_records():
-            case = self._cases.get_case(automation.case_id)
-            if case is not None and self._access_policy.can_access(actor, case):
-                authorized.append(AuthorizedCaseRecord(automation=automation, case=case))
-
+    ) -> list[CasePortfolioRecord]:
+        authorized = self._portfolio_repository.list_authorized(
+            self._access_policy.portfolio_scope(actor), status=status
+        )
         filtered = [
-            item
-            for item in authorized
-            if (status is None or item.automation.status == status)
-            and _matches_priority(item.case.priority, priority_filter)
+            item for item in authorized if _matches_priority(item.priority, priority_filter)
         ]
         tie_ordered = sorted(filtered, key=_portfolio_tie_key, reverse=True)
-        prioritised = [item for item in tie_ordered if item.case.priority is not None]
-        unset = [item for item in tie_ordered if item.case.priority is None]
+        prioritised = [item for item in tie_ordered if item.priority is not None]
+        unset = [item for item in tie_ordered if item.priority is None]
         prioritised.sort(
-            key=lambda item: int(item.case.priority or 0),
+            key=lambda item: int(item.priority or 0),
             reverse=priority_sort == PrioritySort.HIGHEST_FIRST,
         )
         return prioritised + unset
@@ -133,5 +129,5 @@ def _matches_priority(priority: CasePriority | None, expected: PriorityFilter) -
     return priority == int(expected)
 
 
-def _portfolio_tie_key(item: AuthorizedCaseRecord) -> tuple[datetime, str]:
-    return item.automation.updated_at, str(item.automation.case_id)
+def _portfolio_tie_key(item: CasePortfolioRecord) -> tuple[datetime, str]:
+    return item.updated_at, str(item.case_id)

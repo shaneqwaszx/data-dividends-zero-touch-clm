@@ -5,6 +5,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 
 from app.domain.access import TEAM_BY_ID, AuthenticatedActor, Role
+from app.domain.case_management import CasePortfolioRecord
 from app.domain.dashboard import (
     DashboardCaseItem,
     DashboardPriorityCount,
@@ -16,7 +17,7 @@ from app.domain.dashboard import (
     DashboardTrendDay,
 )
 from app.domain.zero_touch import AutomationStatus
-from app.services.case_query import AuthorizedCaseRecord, CaseQueryService
+from app.services.case_query import CaseQueryService
 
 DASHBOARD_RECENT_LIMIT = 10
 DASHBOARD_TOP_ACTIVE_LIMIT = 5
@@ -39,18 +40,18 @@ class DashboardService:
         data_as_of = self._clock()
         records = self._case_query.list_cases(actor)
         total = len(records)
-        completed = sum(item.automation.status == AutomationStatus.COMPLETED for item in records)
-        prioritised = sum(item.case.priority is not None for item in records)
-        status_counts = Counter(item.automation.status for item in records)
-        priority_counts = Counter(item.case.priority for item in records)
+        completed = sum(item.status == AutomationStatus.COMPLETED for item in records)
+        prioritised = sum(item.priority is not None for item in records)
+        status_counts = Counter(item.status for item in records)
+        priority_counts = Counter(item.priority for item in records)
         recent = sorted(
             records,
-            key=lambda item: (item.automation.updated_at, str(item.automation.case_id)),
+            key=lambda item: (item.updated_at, str(item.case_id)),
             reverse=True,
         )[:DASHBOARD_RECENT_LIMIT]
-        top_active = [
-            item for item in records if item.automation.status != AutomationStatus.COMPLETED
-        ][:DASHBOARD_TOP_ACTIVE_LIMIT]
+        top_active = [item for item in records if item.status != AutomationStatus.COMPLETED][
+            :DASHBOARD_TOP_ACTIVE_LIMIT
+        ]
 
         return DashboardSnapshot(
             scope=_dashboard_scope(actor),
@@ -99,9 +100,9 @@ def _dashboard_scope(actor: AuthenticatedActor) -> DashboardScope:
 
 
 def _team_breakdown(
-    actor: AuthenticatedActor, records: list[AuthorizedCaseRecord]
+    actor: AuthenticatedActor, records: list[CasePortfolioRecord]
 ) -> tuple[DashboardTeamCount, ...]:
-    counts = Counter(item.case.team_id for item in records)
+    counts = Counter(item.team_id for item in records)
     team_ids = (
         tuple(TEAM_BY_ID) if actor.profile.role == Role.DIRECTOR else (actor.profile.team_id,)
     )
@@ -117,30 +118,28 @@ def _team_breakdown(
     )
 
 
-def _case_item(record: AuthorizedCaseRecord) -> DashboardCaseItem:
-    team = TEAM_BY_ID.get(record.case.team_id) if record.case.team_id is not None else None
+def _case_item(record: CasePortfolioRecord) -> DashboardCaseItem:
+    team = TEAM_BY_ID.get(record.team_id) if record.team_id is not None else None
     return DashboardCaseItem(
-        case_id=record.case.case_id,
-        requested_uen=record.case.requested_uen,
-        legal_name=(record.case.entity.legal_name if record.case.entity is not None else None),
-        team_id=record.case.team_id,
+        case_id=record.case_id,
+        requested_uen=record.requested_uen,
+        legal_name=record.legal_name,
+        team_id=record.team_id,
         team_display_name=team.display_name if team is not None else None,
-        priority=record.case.priority,
-        status=record.automation.status,
-        final_outcome=record.automation.metrics.final_outcome,
-        created_at=record.automation.created_at,
-        updated_at=record.automation.updated_at,
-        completed_at=record.automation.completed_at,
+        priority=record.priority,
+        status=record.status,
+        final_outcome=record.final_outcome,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        completed_at=record.completed_at,
     )
 
 
-def _trend(records: list[AuthorizedCaseRecord], end_day: date) -> tuple[DashboardTrendDay, ...]:
+def _trend(records: list[CasePortfolioRecord], end_day: date) -> tuple[DashboardTrendDay, ...]:
     start_day = end_day - timedelta(days=DASHBOARD_TREND_DAYS - 1)
-    created = Counter(_utc_day(item.automation.created_at) for item in records)
+    created = Counter(_utc_day(item.created_at) for item in records)
     completed = Counter(
-        _utc_day(item.automation.completed_at)
-        for item in records
-        if item.automation.completed_at is not None
+        _utc_day(item.completed_at) for item in records if item.completed_at is not None
     )
     return tuple(
         DashboardTrendDay(

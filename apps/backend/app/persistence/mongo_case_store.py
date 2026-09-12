@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import builtins
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from threading import RLock
@@ -16,11 +17,14 @@ from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
+from app.domain.access import TeamId
+from app.domain.case_management import CasePortfolioRecord, CasePortfolioScope
 from app.domain.documents import (
     DocumentEventType,
     DocumentProcessingState,
     DocumentWorkflowEvent,
 )
+from app.domain.jurisdiction import JurisdictionCode
 from app.domain.models import EventOutcome, SafeError
 from app.domain.target_submission import GoldTierExecutionLedgerState
 from app.domain.zero_touch import (
@@ -79,6 +83,9 @@ class MongoCaseStore:
             self._collection.create_index(
                 [("documents.document_id", ASCENDING)], name="document_id_lookup"
             )
+            self._collection.create_index(
+                [("onboarding.team_id", ASCENDING)], name="onboarding_team_lookup"
+            )
             for raw in self._collection.find({}):
                 snapshot = self._decode(raw)
                 recovered = self._recover_interrupted(snapshot)
@@ -125,6 +132,57 @@ class MongoCaseStore:
         except PyMongoError:
             raise PersistenceUnavailableError from None
         return [self._decode(item) for item in raw_records]
+
+    def list_portfolio(
+        self,
+        scope: CasePortfolioScope,
+        *,
+        status: AutomationStatus | None = None,
+    ) -> builtins.list[CasePortfolioRecord]:
+        """Read one bounded projection without decoding complete case envelopes."""
+
+        query: dict[str, Any] = {"automation": {"$ne": None}}
+        if scope.team_id is not None:
+            query["onboarding.team_id"] = scope.team_id.value
+        if status is not None:
+            query["automation.status"] = status.value
+        projection = {
+            "_id": 1,
+            "schema_version": 1,
+            "case_id": 1,
+            "revision": 1,
+            "onboarding.case_id": 1,
+            "onboarding.team_id": 1,
+            "onboarding.priority": 1,
+            "onboarding.requested_uen": 1,
+            "onboarding.entity.legal_name": 1,
+            "onboarding.jurisdiction_resolution.resolved_jurisdiction": 1,
+            "onboarding.goldtier_result.party_id": 1,
+            "automation.case_id": 1,
+            "automation.status": 1,
+            "automation.current_stage": 1,
+            "automation.created_at": 1,
+            "automation.updated_at": 1,
+            "automation.completed_at": 1,
+            "automation.exceptions.status": 1,
+            "automation.metrics.human_interventions": 1,
+            "automation.metrics.final_outcome": 1,
+        }
+        try:
+            raw_records = list(self._collection.find(query, projection))
+        except PyMongoError:
+            raise PersistenceUnavailableError from None
+        return [self._decode_portfolio(item) for item in raw_records]
+
+    def delete(self, case_id: UUID, *, expected_revision: int) -> None:
+        try:
+            result = self._collection.delete_one(
+                {"_id": str(case_id), "revision": expected_revision}
+            )
+        except PyMongoError:
+            raise PersistenceUnavailableError from None
+        if result.deleted_count != 1:
+            raise PersistenceConflictError
 
     def find_by_submission(self, submission_id: UUID) -> DurableCaseSnapshot | None:
         try:
@@ -205,6 +263,123 @@ class MongoCaseStore:
         except PersistenceDataInvalidError:
             raise
         except (ValidationError, ValueError, TypeError):
+            raise PersistenceDataInvalidError from None
+
+    def _decode_portfolio(self, raw: dict[str, Any]) -> CasePortfolioRecord:
+        """Strictly validate only the bounded fields returned by the projection."""
+
+        try:
+            if set(raw) != {
+                "_id",
+                "schema_version",
+                "case_id",
+                "revision",
+                "onboarding",
+                "automation",
+            }:
+                raise PersistenceDataInvalidError
+            schema_version = raw["schema_version"]
+            revision = raw["revision"]
+            if type(schema_version) is not int or type(revision) is not int or revision < 0:
+                raise PersistenceDataInvalidError
+            if schema_version not in {1, CASE_SNAPSHOT_SCHEMA_VERSION}:
+                raise PersistenceSchemaUnsupportedError
+            envelope_id = _canonical_uuid(raw["_id"])
+            if _canonical_uuid(raw["case_id"]) != envelope_id:
+                raise PersistenceDataInvalidError
+            onboarding = _strict_dict(raw["onboarding"])
+            automation = _strict_dict(raw["automation"])
+            if _canonical_uuid(onboarding.get("case_id")) != envelope_id:
+                raise PersistenceDataInvalidError
+            if _canonical_uuid(automation.get("case_id")) != envelope_id:
+                raise PersistenceDataInvalidError
+
+            required_onboarding = {"case_id", "requested_uen"}
+            v2_fields = {"team_id", "priority"}
+            optional_onboarding = {"entity", "jurisdiction_resolution", "goldtier_result"}
+            keys = set(onboarding)
+            if not required_onboarding <= keys or keys - (
+                required_onboarding | v2_fields | optional_onboarding
+            ):
+                raise PersistenceDataInvalidError
+            if schema_version == 1:
+                if keys & v2_fields:
+                    raise PersistenceDataInvalidError
+                team_id = None
+                priority = None
+            else:
+                if not v2_fields <= keys:
+                    raise PersistenceDataInvalidError
+                team_id = (
+                    TeamId(onboarding["team_id"]) if onboarding["team_id"] is not None else None
+                )
+                priority = onboarding["priority"]
+                if priority is not None and (
+                    type(priority) is not int or priority < 1 or priority > 10
+                ):
+                    raise PersistenceDataInvalidError
+
+            expected_automation = {
+                "case_id",
+                "status",
+                "current_stage",
+                "created_at",
+                "updated_at",
+                "completed_at",
+                "exceptions",
+                "metrics",
+            }
+            if set(automation) != expected_automation:
+                raise PersistenceDataInvalidError
+            exceptions = automation["exceptions"]
+            if not isinstance(exceptions, list):
+                raise PersistenceDataInvalidError
+            active_count = 0
+            for item in exceptions:
+                value = _strict_dict(item)
+                if set(value) != {"status"}:
+                    raise PersistenceDataInvalidError
+                status_value = BusinessExceptionStatus(value["status"])
+                active_count += status_value == BusinessExceptionStatus.OPEN
+            metrics = _strict_dict(automation["metrics"])
+            if set(metrics) != {"human_interventions", "final_outcome"}:
+                raise PersistenceDataInvalidError
+            interventions = metrics["human_interventions"]
+            if type(interventions) is not int or interventions < 0:
+                raise PersistenceDataInvalidError
+
+            return CasePortfolioRecord(
+                case_id=envelope_id,
+                requested_uen=_bounded_string(onboarding["requested_uen"], 32),
+                legal_name=_nested_optional_string(onboarding.get("entity"), "legal_name", 512),
+                resolved_jurisdiction=_nested_optional_enum(
+                    onboarding.get("jurisdiction_resolution"),
+                    "resolved_jurisdiction",
+                    JurisdictionCode,
+                ),
+                team_id=team_id,
+                priority=priority,
+                status=AutomationStatus(automation["status"]),
+                current_stage=AutomationStage(automation["current_stage"]),
+                created_at=_utc_datetime(automation["created_at"]),
+                updated_at=_utc_datetime(automation["updated_at"]),
+                completed_at=(
+                    _utc_datetime(automation["completed_at"])
+                    if automation["completed_at"] is not None
+                    else None
+                ),
+                active_exception_count=active_count,
+                human_interventions=interventions,
+                final_outcome=_optional_bounded_string(metrics["final_outcome"], 64),
+                mock_goldtier_party_id=_nested_optional_string(
+                    onboarding.get("goldtier_result"), "party_id", 96
+                ),
+            )
+        except PersistenceSchemaUnsupportedError:
+            raise
+        except PersistenceDataInvalidError:
+            raise
+        except (KeyError, TypeError, ValueError, ValidationError):
             raise PersistenceDataInvalidError from None
 
     def _recover_interrupted(
@@ -407,3 +582,70 @@ def _reject_unknown_model_fields(raw: object, parsed: object) -> None:
         for key, parsed_item in parsed.items():
             raw_key = str(key.value if isinstance(key, Enum) else key)
             _reject_unknown_model_fields(raw[raw_key], parsed_item)
+
+
+def _strict_dict(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+        raise PersistenceDataInvalidError
+    return value
+
+
+def _canonical_uuid(value: object) -> UUID:
+    if not isinstance(value, str):
+        raise PersistenceDataInvalidError
+    parsed = UUID(value)
+    if str(parsed) != value:
+        raise PersistenceDataInvalidError
+    return parsed
+
+
+def _bounded_string(value: object, maximum: int) -> str:
+    if not isinstance(value, str) or not value or len(value) > maximum:
+        raise PersistenceDataInvalidError
+    return value
+
+
+def _optional_bounded_string(value: object, maximum: int) -> str | None:
+    if value is None:
+        return None
+    return _bounded_string(value, maximum)
+
+
+def _nested_optional_string(
+    container: object,
+    field: str,
+    maximum: int,
+) -> str | None:
+    if container is None:
+        return None
+    value = _strict_dict(container)
+    if set(value) != {field}:
+        raise PersistenceDataInvalidError
+    return _optional_bounded_string(value[field], maximum)
+
+
+def _nested_optional_enum(
+    container: object,
+    field: str,
+    enum_type: type[Enum],
+) -> Any:
+    if container is None:
+        return None
+    value = _strict_dict(container)
+    if set(value) != {field}:
+        raise PersistenceDataInvalidError
+    return enum_type(value[field]) if value[field] is not None else None
+
+
+def _utc_datetime(value: object) -> datetime:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        raise PersistenceDataInvalidError
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    if parsed.utcoffset() != timedelta(0):
+        raise PersistenceDataInvalidError
+    return parsed.astimezone(UTC)

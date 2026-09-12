@@ -82,6 +82,7 @@ class ZeroTouchOrchestrator:
         repository: ZeroTouchAutomationRepository,
         reconciliation: ReconciliationService | None = None,
         ownership_provider_bindings: OwnershipProviderBindingResolver | None = None,
+        establishment_discard: Callable[[UUID], str | None] | None = None,
         max_transitions_per_run: int = 12,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
@@ -103,9 +104,15 @@ class ZeroTouchOrchestrator:
         self._ownership_provider_bindings = ownership_provider_bindings or (
             InMemoryOwnershipProviderBindingResolver(lambda: ownership.configured_provider)
         )
+        self._establishment_discard = establishment_discard
         self._max_transitions = max_transitions_per_run
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
+
+    def release_provider_binding(self, binding_id: str) -> None:
+        """Release process-local provider state only after physical deletion succeeds."""
+
+        self._ownership_provider_bindings.release(binding_id)
 
     def create_case(
         self,
@@ -114,11 +121,48 @@ class ZeroTouchOrchestrator:
         *,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
+        establishment_action: Callable[[UUID], None] | None = None,
+        establishment_rollback: Callable[[UUID], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
-        """Create registry evidence and wait only for the required PDF input."""
+        """Atomically establish every initial case-owned record under one case lock."""
+
+        case_id, correlation_id = self._cases.reserve_case_identity()
+        with self._cases.case_lock(case_id):
+            try:
+                record = self._create_case_locked(
+                    case_id,
+                    correlation_id,
+                    uen,
+                    country_of_incorporation,
+                    team_id=team_id,
+                    priority=priority,
+                )
+                if establishment_action is not None:
+                    establishment_action(record.case_id)
+                return record
+            except Exception as primary_error:
+                try:
+                    self._discard_failed_establishment(case_id, establishment_rollback)
+                except Exception as rollback_error:
+                    raise primary_error from rollback_error
+                raise
+
+    def _create_case_locked(
+        self,
+        case_id: UUID,
+        correlation_id: UUID,
+        uen: str,
+        country_of_incorporation: str | None,
+        *,
+        team_id: TeamId | None,
+        priority: CasePriority | None,
+    ) -> ZeroTouchAutomationRecord:
+        """Create registry, CLM, and automation state while the RLock is owned."""
 
         try:
-            clm_record = self._clm.create_case(
+            clm_record = self._clm.create_case_with_identity(
+                case_id,
+                correlation_id,
                 uen,
                 country_of_incorporation,
                 team_id=team_id,
@@ -1595,6 +1639,30 @@ class ZeroTouchOrchestrator:
                 code="ZERO_TOUCH_CASE_ALREADY_EXISTS",
                 message="A zero-touch automation record already exists for this case.",
             ) from None
+
+    def _discard_failed_establishment(
+        self,
+        case_id: UUID,
+        establishment_rollback: Callable[[UUID], None] | None,
+    ) -> None:
+        """Bound rollback to the case aggregate created by this failed attempt."""
+
+        binding_id: str | None = None
+        try:
+            if self._establishment_discard is not None:
+                binding_id = self._establishment_discard(case_id)
+            else:
+                automation = self._repository.get_for_case(case_id)
+                if automation is not None:
+                    binding_id = automation.ownership_provider_binding_id
+                self._repository.delete_for_case(case_id)
+                self._clm.discard_case_establishment(case_id)
+                self._cases.case_repository.delete_for_case(case_id)
+        finally:
+            if binding_id is not None:
+                self._ownership_provider_bindings.release(binding_id)
+            if establishment_rollback is not None:
+                establishment_rollback(case_id)
 
     def _save(
         self, previous: ZeroTouchAutomationRecord, candidate: ZeroTouchAutomationRecord

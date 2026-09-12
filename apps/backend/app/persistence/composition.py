@@ -12,6 +12,8 @@ from app.mongo import create_mongo_client
 from app.persistence.errors import PersistenceConfigurationError
 from app.persistence.mongo_case_store import MongoCaseStore
 from app.persistence.repositories import (
+    MongoCaseDeletionRepository,
+    MongoCasePortfolioRepository,
     MongoClmOrchestrationRepository,
     MongoDemoScenarioRepository,
     MongoDocumentProcessingRepository,
@@ -21,6 +23,14 @@ from app.persistence.repositories import (
     MongoReconciliationUnitOfWork,
     MongoTargetExecutionRepository,
     MongoZeroTouchAutomationRepository,
+)
+from app.services.case_deletion import (
+    CaseDeletionRepository,
+    InMemoryCaseDeletionRepository,
+)
+from app.services.case_portfolio_repository import (
+    CasePortfolioRepository,
+    InMemoryCasePortfolioRepository,
 )
 from app.services.clm_repository import (
     ClmOrchestrationRepository,
@@ -64,6 +74,8 @@ class PersistenceBundle:
     automation: ZeroTouchAutomationRepository
     target_executions: TargetExecutionRepository
     demo_scenarios: DemoScenarioRepository
+    portfolio: CasePortfolioRepository
+    deletion: CaseDeletionRepository
     reconciliation_unit_of_work: ReconciliationUnitOfWork | None = None
     mongo_store: MongoCaseStore | None = None
 
@@ -82,16 +94,35 @@ class PersistenceBundle:
 
 def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
     if settings.clm_persistence_mode == "memory":
+        onboarding = InMemoryOnboardingCaseRepository()
+        automation = InMemoryZeroTouchAutomationRepository()
+        documents = InMemoryDocumentProcessingRepository()
+        ownership = InMemoryOwnershipAnalysisRepository()
+        reconciliation = InMemoryReconciliationRepository()
+        clm = InMemoryClmOrchestrationRepository()
+        target_executions = InMemoryTargetExecutionRepository()
+        demo_scenarios = InMemoryDemoScenarioRepository()
         return PersistenceBundle(
             mode="memory",
-            onboarding=InMemoryOnboardingCaseRepository(),
-            documents=InMemoryDocumentProcessingRepository(),
-            ownership=InMemoryOwnershipAnalysisRepository(),
-            reconciliation=InMemoryReconciliationRepository(),
-            clm=InMemoryClmOrchestrationRepository(),
-            automation=InMemoryZeroTouchAutomationRepository(),
-            target_executions=InMemoryTargetExecutionRepository(),
-            demo_scenarios=InMemoryDemoScenarioRepository(),
+            onboarding=onboarding,
+            documents=documents,
+            ownership=ownership,
+            reconciliation=reconciliation,
+            clm=clm,
+            automation=automation,
+            target_executions=target_executions,
+            demo_scenarios=demo_scenarios,
+            portfolio=InMemoryCasePortfolioRepository(onboarding, automation),
+            deletion=InMemoryCaseDeletionRepository(
+                onboarding=onboarding,
+                documents=documents,
+                ownership=ownership,
+                reconciliation=reconciliation,
+                clm=clm,
+                automation=automation,
+                target_executions=target_executions,
+                demo_scenarios=demo_scenarios,
+            ),
         )
 
     if settings.mongo_uri is None:
@@ -113,6 +144,8 @@ def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
         automation=MongoZeroTouchAutomationRepository(store),
         target_executions=MongoTargetExecutionRepository(store),
         demo_scenarios=MongoDemoScenarioRepository(store),
+        portfolio=MongoCasePortfolioRepository(store),
+        deletion=MongoCaseDeletionRepository(store),
         reconciliation_unit_of_work=MongoReconciliationUnitOfWork(store),
         mongo_store=store,
     )

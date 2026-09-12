@@ -1,0 +1,60 @@
+"""Strict lightweight case-management portfolio contracts."""
+
+from datetime import datetime, timedelta
+from enum import StrEnum
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.domain.access import CasePriority, TeamId
+from app.domain.jurisdiction import JurisdictionCode
+from app.domain.zero_touch import AutomationStage, AutomationStatus
+
+
+class PortfolioScopeKind(StrEnum):
+    GLOBAL = "GLOBAL"
+    TEAM = "TEAM"
+
+
+class CasePortfolioScope(BaseModel):
+    """Server-authored visibility scope accepted by portfolio repositories."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: PortfolioScopeKind
+    team_id: TeamId | None = None
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> "CasePortfolioScope":
+        if (self.kind == PortfolioScopeKind.GLOBAL) != (self.team_id is None):
+            raise ValueError("portfolio scope kind and team must agree")
+        return self
+
+
+class CasePortfolioRecord(BaseModel):
+    """Bounded scalar projection used by lists and Dashboard."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: UUID
+    requested_uen: str = Field(min_length=1, max_length=32)
+    legal_name: str | None = Field(default=None, max_length=512)
+    resolved_jurisdiction: JurisdictionCode | None = None
+    team_id: TeamId | None = None
+    priority: CasePriority | None = None
+    status: AutomationStatus
+    current_stage: AutomationStage
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+    active_exception_count: int = Field(ge=0)
+    human_interventions: int = Field(ge=0)
+    final_outcome: str | None = Field(default=None, max_length=64)
+    mock_goldtier_party_id: str | None = Field(default=None, min_length=1, max_length=96)
+
+    @model_validator(mode="after")
+    def validate_timestamps(self) -> "CasePortfolioRecord":
+        for value in (self.created_at, self.updated_at, self.completed_at):
+            if value is not None and (value.tzinfo is None or value.utcoffset() != timedelta(0)):
+                raise ValueError("portfolio timestamps must be timezone-aware UTC")
+        return self

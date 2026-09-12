@@ -106,8 +106,32 @@ class ClmOrchestrationService:
     ) -> ClmOrchestrationRecord:
         """Create a registry-validated staged case and stop before GoldTier."""
 
+        case_id, correlation_id = self._cases.reserve_case_identity()
+        return self.create_case_with_identity(
+            case_id,
+            correlation_id,
+            uen,
+            country_of_incorporation,
+            team_id=team_id,
+            priority=priority,
+        )
+
+    def create_case_with_identity(
+        self,
+        case_id: UUID,
+        correlation_id: UUID,
+        uen: str,
+        country_of_incorporation: str | None = None,
+        *,
+        team_id: TeamId | None = None,
+        priority: CasePriority | None = None,
+    ) -> ClmOrchestrationRecord:
+        """Create CLM state for an identity already inside its lifecycle boundary."""
+
         try:
-            case = self._cases.create_staged_case(
+            case = self._cases.create_staged_case_with_identity(
+                case_id,
+                correlation_id,
                 uen,
                 country_of_incorporation,
                 team_id=team_id,
@@ -126,6 +150,11 @@ class ClmOrchestrationService:
                 message=exc.public_message,
             ) from None
         return self._create_record(case)
+
+    def discard_case_establishment(self, case_id: UUID) -> None:
+        """Remove CLM state created by an establishment attempt."""
+
+        self._repository.delete_for_case(case_id)
 
     def get(self, *, case_id: UUID) -> ClmOrchestrationRecord | None:
         record = self._repository.get_for_case(case_id)
