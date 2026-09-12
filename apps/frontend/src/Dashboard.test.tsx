@@ -15,7 +15,7 @@ const maya: AuthenticatedProfile = {
   team_type: "Corporate Client Onboarding",
   team_description: "Type: Corporate Client Onboarding | Client coverage: DBS",
   client_scope_label: "DBS",
-  available_teams: [],
+  capabilities: ["POLICY_VIEW", "CASE_ACCESS"],
 };
 
 const olivia: AuthenticatedProfile = {
@@ -28,6 +28,7 @@ const olivia: AuthenticatedProfile = {
   team_type: null,
   team_description: "Global / cross-team access",
   client_scope_label: "Global / cross-team",
+  capabilities: ["POLICY_VIEW", "POLICY_MUTATE", "CASE_ACCESS", "CASE_GLOBAL"],
 };
 
 function snapshot(actor: AuthenticatedProfile, total = 2): DashboardSnapshot {
@@ -105,7 +106,7 @@ describe("historical RBAC dashboard", () => {
     expect(markup).toContain('aria-current="page">Dashboard');
     expect(markup).toContain("Loading dashboard");
     expect(markup).toContain("New onboarding");
-    expect(renderToStaticMarkup(<WorkspaceTabs activeTab="home" onChange={() => undefined} />)).toContain("Cases");
+    expect(renderToStaticMarkup(<WorkspaceTabs activeTab="home" onChange={() => undefined} actor={maya} />)).toContain("Cases");
   });
 
   it("renders exact backend totals, status, priority, recent, active, and trend data", () => {

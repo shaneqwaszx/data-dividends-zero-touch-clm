@@ -12,12 +12,14 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.access import TEAM_BY_ID, TEAMS, Role, Team, TeamId, UserProfile
+from app.domain.access import ROLE_CAPABILITIES, Capability, Role, TeamId, UserProfile
+from app.domain.administration import TeamRecord
+from app.services.administration import TeamDirectoryService
 from app.services.authentication import (
+    AuthenticatedSession,
     AuthenticationError,
     AuthenticationService,
     SessionCapacityError,
-    SessionRecord,
 )
 from app.services.authorization import (
     CaseAccessPolicy,
@@ -48,13 +50,13 @@ class TeamResponse(BaseModel):
     description: str
 
     @classmethod
-    def from_domain(cls, team: Team) -> "TeamResponse":
+    def from_domain(cls, team: TeamRecord) -> "TeamResponse":
         return cls(
             team_id=team.team_id,
             display_name=team.display_name,
             team_type=team.team_type,
             client_scope_label=team.client_scope_label,
-            description=team.description,
+            description=team.presentation_description,
         )
 
 
@@ -69,23 +71,36 @@ class AuthenticatedProfileResponse(BaseModel):
     team_type: str | None
     team_description: str
     client_scope_label: str
-    available_teams: tuple[TeamResponse, ...]
+    capabilities: tuple[Capability, ...]
 
     @classmethod
-    def from_domain(cls, profile: UserProfile) -> "AuthenticatedProfileResponse":
+    def from_domain(
+        cls, profile: UserProfile, teams: TeamDirectoryService
+    ) -> "AuthenticatedProfileResponse":
+        team = teams.get(profile.team_id)
+        is_hr = profile.role == Role.HR
         return cls(
             user_id=profile.user_id,
             display_name=profile.display_name,
             role=profile.role,
             team_id=profile.team_id,
-            team_display_name=profile.team_display_name,
-            team_type=profile.team_type,
-            team_description=profile.team_description,
-            client_scope_label=profile.client_scope_label,
-            available_teams=tuple(
-                TeamResponse.from_domain(team)
-                for team in (TEAMS if profile.team_id is None else (TEAM_BY_ID[profile.team_id],))
+            team_display_name=team.display_name if team is not None else None,
+            team_type=team.team_type if team is not None else None,
+            team_description=(
+                team.presentation_description
+                if team is not None
+                else (
+                    "Administration only; no client-case access"
+                    if is_hr
+                    else "Global / cross-team access"
+                )
             ),
+            client_scope_label=(
+                team.client_scope_label
+                if team is not None
+                else ("Administration" if is_hr else "Global / cross-team")
+            ),
+            capabilities=tuple(sorted(ROLE_CAPABILITIES[profile.role], key=str)),
         )
 
 
@@ -130,6 +145,7 @@ class BrowserOriginPolicy:
 
 def build_auth_router(
     auth: AuthenticationService,
+    teams: TeamDirectoryService,
     *,
     cookie_secure: bool,
 ) -> APIRouter:
@@ -158,12 +174,12 @@ def build_auth_router(
             path="/api",
             max_age=8 * 60 * 60,
         )
-        return _session_response(issued.record)
+        return _session_response(issued.record, teams)
 
     @router.get("/me", response_model=AuthSessionResponse)
     def me(request: Request) -> AuthSessionResponse:
         record = _request_session(request)
-        return _session_response(record)
+        return _session_response(record, teams)
 
     @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
     def logout(request: Request, response: Response) -> Response:
@@ -244,6 +260,20 @@ def install_auth_boundary(
                     "CASE_NOT_FOUND",
                     "The requested case was not found.",
                 )
+        elif (
+            policy is not None
+            and policy.access
+            in {
+                RouteAccess.CASE_CREATION,
+                RouteAccess.CASE_PORTFOLIO,
+            }
+            and not access.can_use_case_routes(session.actor)
+        ):
+            return _fixed_error(
+                status.HTTP_403_FORBIDDEN,
+                "CASE_ACCESS_FORBIDDEN",
+                "Client-case access is not permitted.",
+            )
         return await call_next(request)
 
 
@@ -321,16 +351,18 @@ def _fixed_error(status_code: int, code: str, message: str) -> JSONResponse:
     )
 
 
-def _request_session(request: Request) -> SessionRecord:
+def _request_session(request: Request) -> AuthenticatedSession:
     record = getattr(request.state, "auth_session", None)
-    if not isinstance(record, SessionRecord):
+    if not isinstance(record, AuthenticatedSession):
         raise _unauthorized()
     return record
 
 
-def _session_response(record: SessionRecord) -> AuthSessionResponse:
+def _session_response(
+    record: AuthenticatedSession, teams: TeamDirectoryService
+) -> AuthSessionResponse:
     return AuthSessionResponse(
-        profile=AuthenticatedProfileResponse.from_domain(record.actor.profile),
+        profile=AuthenticatedProfileResponse.from_domain(record.actor.profile, teams),
         csrf_token=record.csrf_token,
     )
 

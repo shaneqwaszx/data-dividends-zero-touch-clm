@@ -315,7 +315,9 @@ class ClmOrchestrationService:
             case=case,
             documents=documents,
             ownership=ownership,
-            document_confidence_threshold=self._documents.review_confidence_threshold,
+            document_confidence_threshold=float(
+                case.policy_snapshot.idp_review_confidence_threshold
+            ),
             reconciliation_cleared=(
                 self._reconciliation.is_currently_cleared(case_id=record.case_id)
                 if self._reconciliation is not None
@@ -492,7 +494,9 @@ class ClmOrchestrationService:
             case=case,
             documents=documents,
             ownership=ownership,
-            document_confidence_threshold=self._documents.review_confidence_threshold,
+            document_confidence_threshold=float(
+                case.policy_snapshot.idp_review_confidence_threshold
+            ),
             reconciliation_cleared=(
                 self._reconciliation.is_currently_cleared(case_id=case.case_id)
                 if self._reconciliation is not None

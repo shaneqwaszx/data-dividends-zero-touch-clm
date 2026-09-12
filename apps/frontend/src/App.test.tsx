@@ -73,10 +73,11 @@ import type {
   ZeroTouchCaseSummary,
   ZeroTouchException,
   WorkflowState,
+  AuthenticatedProfile,
 } from "./types";
 
 const timestamp = "2026-08-10T02:00:00Z";
-const actor = {
+const actor: AuthenticatedProfile = {
   user_id: "maya-lim",
   display_name: "Maya Lim",
   role: "CLIENT_ONBOARDER" as const,
@@ -85,13 +86,7 @@ const actor = {
   team_type: "Corporate Client Onboarding",
   team_description: "Type: Corporate Client Onboarding | Client coverage: DBS",
   client_scope_label: "DBS",
-  available_teams: [{
-    team_id: "TEAM_A" as const,
-    display_name: "DBS Corporate Onboarding",
-    team_type: "Corporate Client Onboarding",
-    client_scope_label: "DBS",
-    description: "Type: Corporate Client Onboarding | Client coverage: DBS",
-  }],
+  capabilities: ["POLICY_VIEW", "CASE_ACCESS"],
 };
 
 function makeDocument(state: "REVIEW_REQUIRED" | "REVIEWED" = "REVIEW_REQUIRED") {
@@ -513,7 +508,7 @@ afterEach(() => {
 
 describe("Phase 04 onboarding, document review, and ownership UI", () => {
   it("renders the purpose-based workspace structure", () => {
-    const tabs = renderToStaticMarkup(<WorkspaceTabs activeTab="home" onChange={() => undefined} />);
+    const tabs = renderToStaticMarkup(<WorkspaceTabs activeTab="home" onChange={() => undefined} actor={actor} />);
     const dashboard = renderToStaticMarkup(<DashboardSnapshot summary={null} />);
     const account = renderToStaticMarkup(<AccountPlaceholder />);
     expect(tabs).toContain("New onboarding");

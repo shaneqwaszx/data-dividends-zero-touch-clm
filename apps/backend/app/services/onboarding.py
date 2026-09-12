@@ -38,6 +38,7 @@ from app.domain.models import (
     WorkflowEvent,
     WorkflowState,
 )
+from app.domain.policy import CasePolicySnapshot, legacy_phase13_policy_snapshot
 from app.domain.reconciliation import ReconciliationField
 from app.domain.target_submission import (
     GoldTierExecutionClassification,
@@ -154,6 +155,7 @@ class OnboardingService:
         uuid_factory: Callable[[], UUID] | None = None,
         target_finalization_fault: Callable[[UUID], bool] | None = None,
         target_execution_repository: TargetExecutionRepository | None = None,
+        policy_snapshot_provider: Callable[[], CasePolicySnapshot] | None = None,
     ) -> None:
         if registry_router is None:
             if acra is None:
@@ -170,6 +172,7 @@ class OnboardingService:
         self._case_locks_guard = Lock()
         self._execution_ledger_guard = RLock()
         self._target_executions = target_execution_repository or InMemoryTargetExecutionRepository()
+        self._policy_snapshot_provider = policy_snapshot_provider or legacy_phase13_policy_snapshot
 
     def case_lock(self, case_id: UUID) -> RLock:
         """Share one in-process evidence/submission boundary per case."""
@@ -247,6 +250,7 @@ class OnboardingService:
             source_case_id=source_case_id,
             correlation_id=correlation_id,
             requested_uen=normalised_uen,
+            policy_snapshot=self._policy_snapshot_provider(),
             team_id=team_id,
             priority=priority,
             jurisdiction_resolution=resolution,

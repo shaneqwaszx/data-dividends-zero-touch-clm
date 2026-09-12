@@ -24,6 +24,7 @@ import {
   submitClmCase,
   uploadDocument,
   createZeroTouchCase,
+  fetchTeamOptions,
 } from "./api";
 import { startAutomationPolling } from "./automationPolling";
 import AuditTrail from "./pages/AuditTrail";
@@ -34,6 +35,8 @@ import Dashboard from "./pages/Dashboard";
 import HomeOnboarding from "./pages/HomeOnboarding";
 import OnboardedClients from "./pages/OnboardedClients";
 import PolicyRules from "./pages/PolicyRules";
+import AdminTeams from "./pages/AdminTeams";
+import AdminUsers from "./pages/AdminUsers";
 import { formatTimestamp, shouldPollAutomation } from "./shared";
 import type {
   ClmCaseSummary,
@@ -56,6 +59,7 @@ import type {
   ZeroTouchException,
   AuthenticatedProfile,
   TeamId,
+  AuthenticatedTeam,
 } from "./types";
 
 const DEFAULT_UEN = "202400001A";
@@ -1274,24 +1278,27 @@ export function LocalReviewerWorkbench({ summary }: { summary: ZeroTouchCaseSumm
   );
 }
 
-type AppTab = "dashboard" | "home" | "queue" | "onboarded" | "audit" | "policy";
+type AppTab = "dashboard" | "home" | "queue" | "onboarded" | "audit" | "policy" | "users" | "teams";
 
 export function WorkspaceTabs({
   activeTab,
   onChange,
   trailing,
+  actor,
 }: {
   activeTab: AppTab;
   onChange: (tab: AppTab) => void;
   trailing?: ReactNode;
+  actor: AuthenticatedProfile;
 }) {
   const tabs: Array<[AppTab, string]> = [
-    ["dashboard", "Dashboard"],
-    ["home", "New onboarding"],
-    ["queue", "Cases"],
-    ["onboarded", "Onboarded"],
-    ["audit", "Audit"],
-    ["policy", "Policy"],
+    ...(actor.capabilities.includes("CASE_ACCESS") ? [
+      ["dashboard", "Dashboard"], ["home", "New onboarding"], ["queue", "Cases"],
+      ["onboarded", "Onboarded"], ["audit", "Audit"],
+    ] as Array<[AppTab, string]> : []),
+    ...(actor.capabilities.includes("POLICY_VIEW") ? [["policy", "Policy"]] as Array<[AppTab, string]> : []),
+    ...(actor.capabilities.includes("IDENTITY_ADMIN") ? [["users", "Users"]] as Array<[AppTab, string]> : []),
+    ...(actor.capabilities.includes("TEAM_ADMIN") ? [["teams", "Teams"]] as Array<[AppTab, string]> : []),
   ];
   return (
     <nav className="ds-root nav" aria-label="Main workspace">
@@ -1775,7 +1782,9 @@ export default function App({
   actor,
   onLogout,
 }: AppProps) {
-  const [activeTab, setActiveTab] = useState<AppTab>(initialTab);
+  const [activeTab, setActiveTab] = useState<AppTab>(
+    actor.capabilities.includes("CASE_ACCESS") ? initialTab : "users",
+  );
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [auditCaseId, setAuditCaseId] = useState<string | null>(null);
@@ -1786,6 +1795,7 @@ export default function App({
   const [caseId, setCaseId] = useState("");
   const [demoScenario, setDemoScenario] = useState<ZeroTouchDemoScenario>("STRAIGHT_THROUGH");
   const [directorTeamId, setDirectorTeamId] = useState<TeamId | "">("");
+  const [teamOptions, setTeamOptions] = useState<AuthenticatedTeam[]>([]);
   const [casePriority, setCasePriority] = useState<number | "">("");
   const [simulationProfile, setSimulationProfile] = useState<SimulationProfile | null>(null);
   const [summary, setSummary] = useState<ZeroTouchCaseSummary | null>(null);
@@ -1806,6 +1816,12 @@ export default function App({
       .then(setSimulationProfile)
       .catch(() => setRequestError("Connector profile discovery is unavailable."));
   }, []);
+
+  useEffect(() => {
+    if (actor.role === "DIRECTOR") {
+      void fetchTeamOptions().then(setTeamOptions).catch(() => setTeamOptions([]));
+    }
+  }, [actor.role]);
 
   useEffect(() => {
     if (!summary || !shouldPollAutomation(summary.status)) return;
@@ -2118,6 +2134,7 @@ export default function App({
       <WorkspaceTabs
         activeTab={activeTab}
         onChange={handleWorkspaceTabChange}
+        actor={actor}
         trailing={
           <>
             <SimulationBanner profile={simulationProfile} />
@@ -2142,7 +2159,7 @@ export default function App({
                   onChange={(event) => setDirectorTeamId(event.target.value as TeamId | "")}
                 >
                   <option value="">Select a team</option>
-                  {actor.available_teams.map((team) => (
+                  {teamOptions.map((team) => (
                     <option key={team.team_id} value={team.team_id}>
                       {team.display_name} · {team.client_scope_label}
                     </option>
@@ -2161,7 +2178,7 @@ export default function App({
               onDocumentFilesChange={handleDocumentFilesChange}
               caseTeamDisplayName={
                 actor.role === "DIRECTOR"
-                  ? actor.available_teams.find((team) => team.team_id === directorTeamId)?.display_name
+                  ? teamOptions.find((team) => team.team_id === directorTeamId)?.display_name
                     ?? "Select a team above"
                   : actor.team_display_name ?? "Team unavailable"
               }
@@ -2203,7 +2220,7 @@ export default function App({
           )}
 
           {activeTab === "queue" && !selectedCaseId && (
-            <CaseQueue onOpenCase={setSelectedCaseId} />
+            <CaseQueue actor={actor} onOpenCase={setSelectedCaseId} />
           )}
           {activeTab === "queue" && selectedCaseId && (
             <CaseDetail
@@ -2215,7 +2232,7 @@ export default function App({
           )}
 
           {activeTab === "onboarded" && !selectedClientId && (
-            <OnboardedClients onOpenClient={setSelectedClientId} />
+            <OnboardedClients actor={actor} onOpenClient={setSelectedClientId} />
           )}
           {activeTab === "onboarded" && selectedClientId && (
             <ClientDetail
@@ -2227,7 +2244,9 @@ export default function App({
 
           {activeTab === "audit" && <AuditTrail initialCaseId={auditCaseId} />}
 
-          {activeTab === "policy" && <PolicyRules />}
+          {activeTab === "policy" && <PolicyRules actor={actor} />}
+          {activeTab === "users" && <AdminUsers />}
+          {activeTab === "teams" && <AdminTeams />}
       </div>
     </main>
   );

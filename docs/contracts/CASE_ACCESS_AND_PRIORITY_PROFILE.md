@@ -1,106 +1,84 @@
 # Case Access and Priority Profile
 
-## Fixed identities
+## Current identity and team authority
 
-The backend owns exactly five explicitly synthetic profiles:
+This is **PROJECT-DEFINED POC BEHAVIOR PENDING SPONSOR CONFIRMATION**. The
+backend team and profile repositories are the runtime authority. The five Phase 13
+identities retain their user IDs, roles, and persisted assignments; `hr-admin` is added
+as an administration-only identity.
 
-| User ID | Display name | Role | Internal team |
-|---|---|---|---|
-| `maya-lim` | Maya Lim | `CLIENT_ONBOARDER` | `TEAM_A` |
-| `ethan-tan` | Ethan Tan | `RELATIONSHIP_MANAGER` | `TEAM_A` |
-| `sophia-ng` | Sophia Ng | `CLIENT_ONBOARDER` | `TEAM_B` |
-| `ryan-lee` | Ryan Lee | `RELATIONSHIP_MANAGER` | `TEAM_B` |
-| `olivia-koh` | Olivia Koh | `DIRECTOR` | none/global |
+| User ID | Role | Team |
+|---|---|---|
+| `maya-lim` | `CLIENT_ONBOARDER` | `TEAM_A` |
+| `ethan-tan` | `RELATIONSHIP_MANAGER` | `TEAM_A` |
+| `sophia-ng` | `CLIENT_ONBOARDER` | `TEAM_B` |
+| `ryan-lee` | `RELATIONSHIP_MANAGER` | `TEAM_B` |
+| `olivia-koh` | `DIRECTOR` | none/global |
+| `hr-admin` | `HR` | none/administration-only |
 
-`TEAM_A` is presented as DBS Corporate Onboarding and `TEAM_B` as OCBC Corporate
-Onboarding. Both use the team type Corporate Client Onboarding, with DBS and OCBC client
-coverage respectively. User IDs, role names, persisted team IDs, and client-scope labels
-are closed server-side values. Passwords are supplied only as scrypt hashes through
-backend configuration.
+`TEAM_A` is displayed as Alpha and `TEAM_B` as Beta. Their persisted IDs are not
+migrated. New server-generated IDs match `TEAM_<24 uppercase hex>` and inherit no
+existing cases. Current team display metadata is repository data rather than access
+authority; case access always uses exact canonical stored team-ID equality.
 
-## Access contract
+## Capability and case-access contract
 
-- Team actors may list, read, and use existing mutation routes only for an exact
-  canonical case-team match.
-- Director may list, read, and use existing mutation routes for all cases, including
-  legacy unassigned records.
-- Inaccessible and absent case IDs have the identical `404 CASE_NOT_FOUND` projection.
-- A team actor's supplied creation team is rejected; the server assigns its profile
-  team. Director creation requires `TEAM_A` or `TEAM_B` explicitly.
-- `team_id` cannot be changed after first persistence, including from null to non-null.
-- No route reassigns or shares a case.
+- Client Onboarders and Relationship Managers may access only exact own-team cases.
+- Directors have global case access, including legacy unassigned cases.
+- HR has no case list, detail, creation, mutation, Dashboard, Onboarded, or Audit
+  authority. An HR direct case lookup uses the same `404 CASE_NOT_FOUND` projection as
+  an absent case.
+- Inaccessible and absent case IDs have the identical non-enumerating projection.
+- Team-scoped creation derives the team from the authenticated profile. Director
+  creation requires an existing canonical team.
+- No route reassigns or shares a case. HR profile administration may change a user's
+  future authority, increments `security_version`, and invalidates existing sessions.
+
+`GET /api/clm/zero-touch/cases` and Dashboard/Onboarded reads accept a Director-only
+`team_filter`: `all`, `unassigned`, or a canonical existing team ID. Team-scoped actors
+cannot use the filter. Filtering is performed by backend query services before
+projection or aggregation; frontend filtering is not an authority boundary.
 
 ## Priority contract
 
-The canonical case-create JSON accepts optional `priority`. Omitted or explicit null is
-stored as null; otherwise the value must be a strict JSON integer in `[1, 10]`. The
-initial `OnboardingCase` is persisted with that value in the same creation operation.
-Numeric strings, booleans, and floats are not coerced. Existing clients that omit the
-field remain compatible.
-
-`PATCH /api/clm/zero-touch/cases/{case_id}/priority` accepts JSON
-`{"priority": null}` or a strict JSON integer in `[1, 10]`. Floats, booleans, strings,
-collections, values below 1, and values above 10 are rejected. Any actor with access to
-the case may change or clear priority under the case lock.
-
-Lists are filtered for access before any status or priority selection and ordering.
-`GET /api/clm/zero-touch/cases` accepts `priority_filter=all|prioritised|unset|1..10` and
-`priority_sort=highest_first|lowest_first`. Invalid values receive `422`. Unset always
-sorts after numbered priorities. The default canonical order remains:
+Case create accepts optional strict integer `priority` in `[1, 10]` or null. Priority
+updates accept the same values. Numeric strings, booleans, floats, collections, and
+out-of-range values are rejected. Lists authorize and filter before applying
+`priority_filter`, `priority_sort`, and canonical ordering:
 
 1. prioritised before unprioritised;
 2. priority descending;
 3. automation `updated_at` descending;
 4. canonical string `case_id` descending.
 
-Status filtering does not alter this ordering. Priority never changes workflow stage,
-readiness, target execution, SLA, escalation, notification, or due dates.
+Priority does not change workflow stage, readiness, target execution, SLA,
+escalation, notification, or due dates.
 
-The normal browser create flow has no POST-then-PATCH sequence. It submits the optional
-priority once, keeps team authority server-side, and renders the priority returned by
-the create response.
+## Session and browser protections
 
-## Session and CSRF contract
+Authentication loads the current persisted account for every request. Opaque
+process-local session records retain only bounded session metadata, `user_id`, and the
+account `security_version`; they are not permanent profile snapshots. A missing
+account or version mismatch removes the stale session and returns the fixed `401`.
+Role/team changes also attempt explicit revocation. One active session per user,
+session rotation, dummy-hash unknown-user handling, generic login failure,
+session-bound CSRF, cookie behavior, and exact Origin/Referer checks remain in force.
 
-Login returns the authenticated profile plus a session-bound CSRF value and sets an
-opaque session cookie. `/api/auth/me` returns the same bounded response. Logout revokes
-the server record and expires the cookie. Invalid/unknown credentials, invalid/expired
-sessions, cross-team access, and malformed security inputs use fixed safe errors without
-echoing secrets or internal details.
-
-Origin/Referer validation accepts only configured exact origins. Each request may contain
-zero or one physical Origin field and zero or one physical Referer field; any duplicate
-field fails closed regardless of ordering, capitalization, or identical values. Request
-`Host` and forwarding headers cannot extend this allowlist. Origin must be exactly
-`scheme://host[:port]`; a same-origin Referer may contain a path and query but no
-fragment. Production requires an explicit HTTPS canonical origin and receives no
-development-origin trust. Foreign, duplicate, or malformed values fail with
-`CSRF_VALIDATION_FAILED`, and authenticated unsafe requests still require the
-session-bound CSRF token.
+Browser-safe profiles never contain passwords, credential hashes, sessions, CSRF
+values, or secret configuration.
 
 ## Persistence compatibility
 
-New writes use strict envelope schema version 2. Exact version-1 documents remain
-readable as `team_id=null, priority=null` and are not rewritten by reads. Team actors do
-not see those records; Director does. Invalid or unknown storage is unavailable rather
-than repaired heuristically.
+New case snapshots use schema version 3 and contain an immutable
+`CasePolicySnapshot`. Exact schema-v1 and schema-v2 records remain readable, bind the
+fixed legacy `0.85` IDP and `25.000000` inclusive UBO thresholds in memory, and are not
+rewritten by reads. Existing team IDs and priorities retain their prior meaning.
 
-## Dashboard read contract
+## Dashboard contract
 
-`GET /api/clm/zero-touch/dashboard` accepts no actor, role, team, or scope parameters.
-The authenticated server actor is the only authority. The response contains:
-
-- backend-authored scope and team display metadata;
-- a UTC `data_as_of` timestamp;
-- total/completed/non-completed and prioritised/unprioritised counts plus the factual
-  completion ratio;
-- one count for every canonical `AutomationStatus`;
-- priority counts for 10 through 1 and unset;
-- only authorized team counts;
-- at most ten recent cases and five non-completed cases in canonical priority order;
-- a zero-filled 30-day UTC created/completed trend from persisted automation timestamps.
-
-All calculation occurs after `CaseQueryService` authorization. Team responses contain
-no global or other-team total, distribution, case identifier, UEN, name, or trend data.
-The endpoint is provider-free and read-only in both memory and Mongo modes. Optional
-safe case fields remain null when absent; no provider is called to enrich them.
+Dashboard calculations occur only after authorization and the Director team filter.
+The response carries backend-authored team/scope metadata, UTC `data_as_of`, canonical
+status and priority counts, completion ratio, authorized team counts, bounded recent
+case projections, and a zero-filled 30-day UTC trend. The endpoint is provider-free
+and read-only. Team-scoped responses contain no global or other-team totals or case
+data; HR is denied.

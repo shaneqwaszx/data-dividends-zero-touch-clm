@@ -19,7 +19,7 @@ import {
   PriorityListControls,
   updatePriorityAndRefresh,
 } from "./pages/PriorityControl";
-import type { AuthSession, ZeroTouchCaseListItem, ZeroTouchCaseSummary } from "./types";
+import type { AuthenticatedProfile, AuthSession, ZeroTouchCaseListItem, ZeroTouchCaseSummary } from "./types";
 import { mapZeroTouchCaseToCaseRow } from "./viewModels";
 
 const session: AuthSession = {
@@ -32,13 +32,7 @@ const session: AuthSession = {
     team_type: "Corporate Client Onboarding",
     team_description: "Type: Corporate Client Onboarding | Client coverage: DBS",
     client_scope_label: "DBS",
-    available_teams: [{
-      team_id: "TEAM_A",
-      display_name: "DBS Corporate Onboarding",
-      team_type: "Corporate Client Onboarding",
-      client_scope_label: "DBS",
-      description: "Type: Corporate Client Onboarding | Client coverage: DBS",
-    }],
+    capabilities: ["POLICY_VIEW", "CASE_ACCESS"],
   },
   csrf_token: "opaque-csrf-token",
 };
@@ -313,7 +307,7 @@ describe("Phase 13 authenticated frontend boundary", () => {
 
   it("presents person-like login IDs and Director global scope without a password hint", () => {
     const loginMarkup = renderToStaticMarkup(<AuthProvider><LoginPage /></AuthProvider>);
-    const director = {
+    const director: AuthenticatedProfile = {
       user_id: "olivia-koh",
       display_name: "Olivia Koh",
       role: "DIRECTOR" as const,
@@ -322,22 +316,7 @@ describe("Phase 13 authenticated frontend boundary", () => {
       team_type: null,
       team_description: "Global / cross-team access",
       client_scope_label: "Global / cross-team",
-      available_teams: [
-        {
-          team_id: "TEAM_A" as const,
-          display_name: "DBS Corporate Onboarding",
-          team_type: "Corporate Client Onboarding",
-          client_scope_label: "DBS",
-          description: "Type: Corporate Client Onboarding | Client coverage: DBS",
-        },
-        {
-          team_id: "TEAM_B" as const,
-          display_name: "OCBC Corporate Onboarding",
-          team_type: "Corporate Client Onboarding",
-          client_scope_label: "OCBC",
-          description: "Type: Corporate Client Onboarding | Client coverage: OCBC",
-        },
-      ],
+      capabilities: ["POLICY_VIEW", "POLICY_MUTATE", "CASE_ACCESS", "CASE_GLOBAL"],
     };
     const account = renderToStaticMarkup(
       <OperatorAccount profile={director} onLogout={() => undefined} />,

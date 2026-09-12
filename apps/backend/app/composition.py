@@ -30,6 +30,8 @@ from app.demo.scenarios import (
     Phase01MockScenarioCatalogue,
 )
 from app.demo.zero_touch_control import DemoScenarioRepository, ZeroTouchDemoControl
+from app.domain.policy import CasePolicySnapshot
+from app.services.admin_repository import ProfileRepository, TeamRepository
 from app.services.authentication import AuthenticationService
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.clm_repository import (
@@ -76,6 +78,7 @@ def build_onboarding_service(
     target_finalization_fault: Callable[[UUID], bool] | None = None,
     repository: OnboardingCaseRepository | None = None,
     target_execution_repository: TargetExecutionRepository | None = None,
+    policy_snapshot_provider: Callable[[], CasePolicySnapshot] | None = None,
 ) -> OnboardingService:
     """Compose configured ACRA and credential-free Mock GoldTier connectors."""
 
@@ -98,18 +101,19 @@ def build_onboarding_service(
         repository=repository or InMemoryOnboardingCaseRepository(),
         target_finalization_fault=target_finalization_fault,
         target_execution_repository=target_execution_repository,
+        policy_snapshot_provider=policy_snapshot_provider,
     )
 
 
-def build_authentication_service(settings: Settings) -> AuthenticationService:
+def build_authentication_service(
+    settings: Settings,
+    profiles: ProfileRepository,
+    teams: TeamRepository,
+) -> AuthenticationService:
     return AuthenticationService(
-        {
-            "maya-lim": settings.phase13_maya_lim_password_hash,
-            "ethan-tan": settings.phase13_ethan_tan_password_hash,
-            "sophia-ng": settings.phase13_sophia_ng_password_hash,
-            "ryan-lee": settings.phase13_ryan_lee_password_hash,
-            "olivia-koh": settings.phase13_olivia_koh_password_hash,
-        }
+        profiles,
+        teams,
+        max_active_sessions=settings.phase14_5_max_active_sessions,
     )
 
 

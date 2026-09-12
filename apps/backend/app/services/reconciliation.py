@@ -51,9 +51,7 @@ FIELD_TO_DOCUMENT = {
     ReconciliationField.LEGAL_NAME: DocumentFieldKey.LEGAL_NAME,
     ReconciliationField.REGISTRATION_IDENTIFIER: DocumentFieldKey.REGISTRATION_NUMBER,
     ReconciliationField.REGISTERED_ADDRESS: DocumentFieldKey.REGISTERED_ADDRESS,
-    ReconciliationField.COUNTRY_OF_INCORPORATION: (
-        DocumentFieldKey.COUNTRY_OF_INCORPORATION
-    ),
+    ReconciliationField.COUNTRY_OF_INCORPORATION: (DocumentFieldKey.COUNTRY_OF_INCORPORATION),
 }
 
 
@@ -167,17 +165,11 @@ class ReconciliationService:
             current_document_ids = tuple(item.document_id for item in documents)
             current_document_versions = tuple(len(item.events) for item in documents)
             existing = next(
-                (
-                    item
-                    for item in record.discrepancies
-                    if item.discrepancy_id == discrepancy_id
-                ),
+                (item for item in record.discrepancies if item.discrepancy_id == discrepancy_id),
                 None,
             )
             current_discrepancy_ids = {
-                item.discrepancy_id
-                for item in record.fields
-                if item.discrepancy_id is not None
+                item.discrepancy_id for item in record.fields if item.discrepancy_id is not None
             }
             if (
                 existing is not None
@@ -188,12 +180,8 @@ class ReconciliationService:
                     existing.discrepancy_id in current_discrepancy_ids
                     and existing.decision.reconciliation_version == expected_version
                     and existing.decision.action == action
-                    and hmac.compare_digest(
-                        existing.evidence_fingerprint, evidence_fingerprint
-                    )
-                    and hmac.compare_digest(
-                        record.evidence_fingerprint, current_fingerprint
-                    )
+                    and hmac.compare_digest(existing.evidence_fingerprint, evidence_fingerprint)
+                    and hmac.compare_digest(record.evidence_fingerprint, current_fingerprint)
                     and record.source_document_ids == current_document_ids
                     and record.source_document_event_counts == current_document_versions
                 ):
@@ -249,9 +237,7 @@ class ReconciliationService:
             now = self._clock()
             candidate = record.model_copy(deep=True)
             target = next(
-                item
-                for item in candidate.discrepancies
-                if item.discrepancy_id == discrepancy_id
+                item for item in candidate.discrepancies if item.discrepancy_id == discrepancy_id
             )
             target.status = DiscrepancyStatus.RESOLVED
             target.decision = ReconciliationDecision(
@@ -343,11 +329,7 @@ class ReconciliationService:
         self, case_id: UUID
     ) -> tuple[OnboardingCase, list[DocumentProcessingRecord]]:
         case = self._cases.get_case(case_id)
-        if (
-            case is None
-            or case.entity is None
-            or case.registry_acquisition is None
-        ):
+        if case is None or case.entity is None or case.registry_acquisition is None:
             raise ReconciliationRequestError(
                 code="RECONCILIATION_CASE_NOT_READY",
                 message="Registry evidence is not ready for reconciliation.",
@@ -382,19 +364,19 @@ class ReconciliationService:
             discrepancy_id = None
             if outcome != ReconciliationOutcome.MATCH:
                 discrepancy_id = self._uuid_factory()
-                discrepancies.append(ReconciliationDiscrepancy(
-                    discrepancy_id=discrepancy_id,
-                    field_name=field_name,
-                    outcome=outcome,
-                    observations=observations,
-                    created_at=self._clock(),
-                    allowed_actions=derive_allowed_actions(
-                        field_name, outcome, observations
-                    ),
-                    evidence_fingerprint=self._discrepancy_fingerprint(
-                        base_fingerprint, field_name, observations
-                    ),
-                ))
+                discrepancies.append(
+                    ReconciliationDiscrepancy(
+                        discrepancy_id=discrepancy_id,
+                        field_name=field_name,
+                        outcome=outcome,
+                        observations=observations,
+                        created_at=self._clock(),
+                        allowed_actions=derive_allowed_actions(field_name, outcome, observations),
+                        evidence_fingerprint=self._discrepancy_fingerprint(
+                            base_fingerprint, field_name, observations
+                        ),
+                    )
+                )
             results.append(
                 FieldReconciliationResult(
                     field_name=field_name,
@@ -414,18 +396,27 @@ class ReconciliationService:
         field_name: ReconciliationField,
     ) -> tuple[ReconciliationObservation, ...]:
         document_key = FIELD_TO_DOCUMENT[field_name]
+        confidence_threshold = float(case.policy_snapshot.idp_review_confidence_threshold)
         operation = case.registry_acquisition.operation_results[0]  # type: ignore[union-attr]
         provenance = operation.provenance
         if provenance is None:
             raise ValueError("registry entity provenance is unavailable")
         registry_value = canonical_value_for_field(registry_entity, document_key)
         registry_normalized, registry_validity = self._normalize(
-            field_name, registry_value, confidence=None, unavailable=False
+            field_name,
+            registry_value,
+            confidence=None,
+            unavailable=False,
+            confidence_threshold=confidence_threshold,
         )
         observations: list[ReconciliationObservation] = []
         if field_name == ReconciliationField.REGISTRATION_IDENTIFIER:
             user_normalized, user_validity = self._normalize(
-                field_name, case.requested_uen, confidence=None, unavailable=False
+                field_name,
+                case.requested_uen,
+                confidence=None,
+                unavailable=False,
+                confidence_threshold=confidence_threshold,
             )
             observations.append(
                 ReconciliationObservation(
@@ -462,6 +453,7 @@ class ReconciliationService:
                 field.original_extracted_value,
                 confidence=field.confidence,
                 unavailable=unavailable,
+                confidence_threshold=confidence_threshold,
             )
             observations.append(
                 ReconciliationObservation(
@@ -489,6 +481,7 @@ class ReconciliationService:
         *,
         confidence: float | None,
         unavailable: bool,
+        confidence_threshold: float,
     ) -> tuple[str | None, ObservationValidity]:
         if value is None:
             return None, ObservationValidity.MISSING
@@ -503,10 +496,7 @@ class ReconciliationService:
             COUNTRY_CODE.fullmatch(normalized)
         ):
             return normalized, ObservationValidity.INVALID
-        if unavailable or (
-            confidence is not None
-            and confidence < self._documents.review_confidence_threshold
-        ):
+        if unavailable or (confidence is not None and confidence < confidence_threshold):
             return normalized, ObservationValidity.UNVERIFIABLE
         return normalized, ObservationValidity.VALID
 
@@ -558,7 +548,7 @@ class ReconciliationService:
             "observations": [item.model_dump(mode="json") for item in observations],
         }
         return sha256(
-            json.dumps(
-                payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-            ).encode("utf-8")
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(
+                "utf-8"
+            )
         ).hexdigest()

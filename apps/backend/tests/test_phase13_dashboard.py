@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from phase13_test_clients import RawTestClient
+from phase13_test_credentials import build_test_authentication_service
 from phase13_test_settings import ordinary_test_settings
 
 from app.composition import build_onboarding_service
@@ -13,6 +14,7 @@ from app.domain.access import (
     AuthenticatedActor,
     TeamId,
 )
+from app.domain.administration import TeamRecord, normalize_display_name
 from app.domain.models import OnboardingCase, WorkflowState
 from app.domain.zero_touch import (
     AutomationMetrics,
@@ -21,13 +23,35 @@ from app.domain.zero_touch import (
     ZeroTouchAutomationRecord,
 )
 from app.main import create_app
-from app.services.authentication import AuthenticationService, generate_scrypt_password_hash
+from app.services.admin_repository import InMemoryTeamRepository
+from app.services.administration import TeamDirectoryService
+from app.services.authentication import generate_scrypt_password_hash
 from app.services.authorization import CaseAccessPolicy
 from app.services.case_query import CaseQueryService
 from app.services.dashboard import DashboardService
 from app.services.repository import InMemoryOnboardingCaseRepository
 
 NOW = datetime(2026, 9, 8, 12, 0, tzinfo=UTC)
+
+
+def _teams() -> InMemoryTeamRepository:
+    repository = InMemoryTeamRepository()
+    for team_id, name in ((TeamId.TEAM_A, "Alpha"), (TeamId.TEAM_B, "Beta")):
+        repository.create(
+            TeamRecord(
+                team_id=team_id,
+                display_name=name,
+                normalized_display_name=normalize_display_name(name),
+                client_scope_label=name,
+                normalized_client_scope_label=normalize_display_name(name),
+                version=1,
+                created_at=NOW,
+                updated_at=NOW,
+                created_by="system-bootstrap",
+                updated_by="system-bootstrap",
+            )
+        )
+    return repository
 
 
 class StaticAutomationRepository:
@@ -126,26 +150,31 @@ def _dashboard() -> tuple[DashboardService, StaticAutomationRepository]:
         cases.save(case)
     onboarding = build_onboarding_service(settings=ordinary_test_settings(), repository=cases)
     automations = StaticAutomationRepository([record for _, record in fixtures])
+    teams = _teams()
     query = CaseQueryService(
         cases=onboarding,
         case_repository=cases,
         automation_repository=automations,  # type: ignore[arg-type]
         access_policy=CaseAccessPolicy(),
+        teams=teams,
     )
-    return DashboardService(query, clock=lambda: NOW), automations
+    return DashboardService(query, TeamDirectoryService(teams), clock=lambda: NOW), automations
 
 
 def test_empty_dashboard_is_deterministic_and_safe() -> None:
     cases = InMemoryOnboardingCaseRepository()
     onboarding = build_onboarding_service(settings=ordinary_test_settings(), repository=cases)
     automations = StaticAutomationRepository([])
+    teams = _teams()
     service = DashboardService(
         CaseQueryService(
             cases=onboarding,
             case_repository=cases,
             automation_repository=automations,  # type: ignore[arg-type]
             access_policy=CaseAccessPolicy(),
+            teams=teams,
         ),
+        TeamDirectoryService(teams),
         clock=lambda: NOW,
     )
 
@@ -172,7 +201,7 @@ def test_team_dashboards_are_server_scoped_across_every_metric_and_list() -> Non
     team_b = service.get_dashboard(_actor("sophia-ng"))
 
     assert team_a.scope.access == "TEAM"
-    assert team_a.scope.team_display_name == "DBS Corporate Onboarding"
+    assert team_a.scope.team_display_name == "Alpha"
     assert team_a.totals.total_cases == 2
     assert team_a.totals.completed_cases == 1
     assert team_a.totals.completion_rate == 0.5
@@ -183,7 +212,7 @@ def test_team_dashboards_are_server_scoped_across_every_metric_and_list() -> Non
     assert sum(item.created_count for item in team_a.historical_trend) == 2
     assert sum(item.completed_count for item in team_a.historical_trend) == 1
 
-    assert team_b.scope.team_display_name == "OCBC Corporate Onboarding"
+    assert team_b.scope.team_display_name == "Beta"
     assert team_b.totals.total_cases == 2
     assert {item.team_id for item in team_b.team_breakdown} == {TeamId.TEAM_B}
     assert {item.team_id for item in (*team_b.recent_cases, *team_b.top_active_cases)} == {
@@ -230,7 +259,7 @@ def test_dashboard_route_requires_authentication_and_accepts_no_scope_authority(
     encoded = generate_scrypt_password_hash(synthetic_login_value)
     application = create_app(
         ordinary_test_settings(),
-        authentication_service=AuthenticationService(
+        authentication_service=build_test_authentication_service(
             {profile.user_id: encoded for profile in SYNTHETIC_USER_PROFILES}
         ),
     )
@@ -248,6 +277,6 @@ def test_dashboard_route_requires_authentication_and_accepts_no_scope_authority(
         "actor_role": "CLIENT_ONBOARDER",
         "access": "TEAM",
         "team_id": "TEAM_A",
-        "team_display_name": "DBS Corporate Onboarding",
-        "client_scope_label": "DBS",
+        "team_display_name": "Alpha",
+        "client_scope_label": "Alpha",
     }

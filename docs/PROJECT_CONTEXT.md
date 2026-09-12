@@ -363,6 +363,39 @@ centrally, unmounts the workspace on 401, and renders only backend-returned team
 priority truth. This remains local POC authentication, not PingFed/SSO or production
 RBAC. Q-016 remains open.
 
+## Phase 14.5 implementation status
+
+Phase 14.5 replaces the fixed runtime identity/team owners with persistent, bounded
+administration records. `TEAM_A` and `TEAM_B` remain stable IDs and are presented as
+Alpha and Beta. HR can create teams and profiles through capability-guarded APIs; HR
+has no case access or policy-mutation capability. Authentication reloads the current
+profile on every request, binds sessions to a security version, and revokes all of a
+user's process-local sessions immediately after an authority change. Password hashes
+remain backend-only and are never included in administration responses or audit events.
+Profile authority mutation now owns last-HR protection inside the repository critical
+section: memory uses one repository-wide lock and Mongo uses one process-local
+administration lock plus target CAS. The guarantee is scoped to this supported
+single-process POC runtime, not distributed IAM. Team display names and coverage labels
+each use backend-derived normalized uniqueness keys with memory/Mongo parity.
+
+The persistent policy catalogue contains exactly eight project/system rules by default.
+All authenticated roles may read it; Relationship Manager and Director may mutate only
+the two runtime thresholds using catalogue/rule compare-and-swap versions. Custom rules
+are always display-only. Each case captures an immutable policy snapshot before Registry
+processing. New Mongo envelopes use schema v3; exact schema-v1/v2 reads receive the fixed
+Phase 13 `0.85`/`25.000000` inclusive snapshot in memory without a read rewrite.
+User-authored showcase strings use a strict plain-text grammar that rejects
+script/expression syntax. RM/Director policy edits and confirmed resets synchronize from
+server catalogue truth; conflicts refetch once without automatically retrying. Client
+Onboarder and HR remain read-only, and custom rules stay visibly non-runtime.
+
+Director can filter Cases, Dashboard, and Onboarded by all teams, a canonical team ID,
+or legacy unassigned cases. Authorization is applied before filtering. Team actors
+cannot supply this filter, and the browser obtains options from the dynamic team
+directory, so newly created Gamma teams appear without a frontend release. These are
+synthetic project decisions pending sponsor confirmation under Q-004, Q-014, and Q-016;
+they are not production IdP/RBAC or sponsor-approved policy.
+
 Phase 13 demo-completeness Part 2 adds the authenticated historical Dashboard as the
 default signed-in view. Its backend read model derives factual totals, exact canonical
 status and priority distributions, authorized team counts, bounded recent/top-active

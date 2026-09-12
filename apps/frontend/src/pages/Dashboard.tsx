@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { fetchDashboard } from "../api";
+import DirectorTeamFilter from "./DirectorTeamFilter";
 import { formatDateNoSeconds } from "../shared";
 import type { AuthenticatedProfile, DashboardCaseItem, DashboardSnapshot } from "../types";
 
@@ -98,12 +99,13 @@ export default function Dashboard({
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [teamFilter, setTeamFilter] = useState("all");
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      setDashboard(await fetchDashboard());
+      setDashboard(await fetchDashboard(teamFilter));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Dashboard data is unavailable.");
     } finally {
@@ -111,11 +113,11 @@ export default function Dashboard({
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [teamFilter]);
 
-  if (loading) return <section className="ds-root ds-page"><p className="text-muted">Loading dashboard…</p></section>;
-  if (error) return <section className="ds-root ds-page"><div className="ds-banner ds-banner-warn" role="alert">{error}</div><button className="btn btn-secondary" type="button" onClick={() => void load()}>Try again</button></section>;
+  if (loading) return <section className="ds-root ds-page"><DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} /><p className="text-muted">Loading dashboard…</p></section>;
+  if (error) return <section className="ds-root ds-page"><DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} /><div className="ds-banner ds-banner-warn" role="alert">{error}</div><button className="btn btn-secondary" type="button" onClick={() => void load()}>Try again</button></section>;
   if (!dashboard) return null;
 
-  return <DashboardView actor={actor} dashboard={dashboard} onOpenCase={onOpenCase} onRefresh={() => void load()} />;
+  return <><DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} /><DashboardView actor={actor} dashboard={dashboard} onOpenCase={onOpenCase} onRefresh={() => void load()} /></>;
 }

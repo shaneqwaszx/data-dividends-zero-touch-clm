@@ -19,3 +19,7 @@ def provision_contract_hash_environment() -> None:
             credential_setting_key(profile.user_id),
             generate_scrypt_password_hash(credential),
         )
+    os.environ.setdefault(
+        credential_setting_key("hr-admin"),
+        generate_scrypt_password_hash(credential),
+    )

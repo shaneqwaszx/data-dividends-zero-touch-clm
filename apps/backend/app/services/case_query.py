@@ -8,9 +8,10 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
 
-from app.domain.access import AuthenticatedActor, CasePriority
+from app.domain.access import AuthenticatedActor, CasePriority, Role, TeamId
 from app.domain.models import EventOutcome, OnboardingCase, WorkflowEvent
 from app.domain.zero_touch import AutomationStatus, ZeroTouchAutomationRecord
+from app.services.admin_repository import TeamRepository
 from app.services.authorization import CaseAccessPolicy
 from app.services.onboarding import OnboardingService
 from app.services.repository import OnboardingCaseRepository
@@ -44,6 +45,14 @@ class PrioritySort(StrEnum):
     LOWEST_FIRST = "lowest_first"
 
 
+class CaseTeamFilterForbiddenError(Exception):
+    pass
+
+
+class CaseTeamFilterInvalidError(Exception):
+    pass
+
+
 class CaseQueryService:
     """Join canonical cases to automation, filter access, and own final ordering."""
 
@@ -54,12 +63,14 @@ class CaseQueryService:
         case_repository: OnboardingCaseRepository,
         automation_repository: ZeroTouchAutomationRepository,
         access_policy: CaseAccessPolicy,
+        teams: TeamRepository,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._cases = cases
         self._case_repository = case_repository
         self._automation_repository = automation_repository
         self._access_policy = access_policy
+        self._teams = teams
         self._clock = clock or (lambda: datetime.now(UTC))
 
     def list_cases(
@@ -69,6 +80,7 @@ class CaseQueryService:
         status: AutomationStatus | None = None,
         priority_filter: PriorityFilter = PriorityFilter.ALL,
         priority_sort: PrioritySort = PrioritySort.HIGHEST_FIRST,
+        team_filter: str | None = None,
     ) -> list[AuthorizedCaseRecord]:
         authorized: list[AuthorizedCaseRecord] = []
         for automation in self._automation_repository.list_records():
@@ -76,11 +88,28 @@ class CaseQueryService:
             if case is not None and self._access_policy.can_access(actor, case):
                 authorized.append(AuthorizedCaseRecord(automation=automation, case=case))
 
+        if actor.profile.role != Role.DIRECTOR and team_filter is not None:
+            raise CaseTeamFilterForbiddenError
+        selected_team: TeamId | None = None
+        unassigned = False
+        if actor.profile.role == Role.DIRECTOR and team_filter not in {None, "all"}:
+            if team_filter == "unassigned":
+                unassigned = True
+            else:
+                try:
+                    selected_team = TeamId(str(team_filter))
+                except ValueError:
+                    raise CaseTeamFilterInvalidError from None
+                if self._teams.get(selected_team) is None:
+                    raise CaseTeamFilterInvalidError
+
         filtered = [
             item
             for item in authorized
             if (status is None or item.automation.status == status)
             and _matches_priority(item.case.priority, priority_filter)
+            and (not unassigned or item.case.team_id is None)
+            and (selected_team is None or item.case.team_id == selected_team)
         ]
         tie_ordered = sorted(filtered, key=_portfolio_tie_key, reverse=True)
         prioritised = [item for item in tie_ordered if item.case.priority is not None]

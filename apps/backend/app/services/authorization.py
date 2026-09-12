@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
 
-from app.domain.access import AuthenticatedActor, Role, TeamId
+from app.domain.access import ROLE_CAPABILITIES, AuthenticatedActor, Capability, Role, TeamId
 from app.domain.models import OnboardingCase
 from app.services.onboarding import OnboardingService
 
@@ -17,6 +17,7 @@ class RouteAccess(StrEnum):
     ACTOR_ONLY = "ACTOR_ONLY"
     CASE_SCOPED = "CASE_SCOPED"
     CASE_CREATION = "CASE_CREATION"
+    CASE_PORTFOLIO = "CASE_PORTFOLIO"
 
 
 @dataclass(frozen=True)
@@ -31,10 +32,23 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("POST", "/api/auth/login", RouteAccess.PUBLIC),
     RoutePolicy("GET", "/api/auth/me", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/auth/logout", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/teams/options", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/admin/teams", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/admin/teams", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("PATCH", "/api/admin/teams/{team_id}", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/admin/profiles", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/admin/profiles", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("PATCH", "/api/admin/profiles/{user_id}", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/policies", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/policies/{policy_id}", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/policies", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("PATCH", "/api/policies/{policy_id}", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/policies/{policy_id}/reset", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/policies/reset", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/system/execution-profile", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/onboarding/mock-scenarios", RouteAccess.ACTOR_ONLY),
-    RoutePolicy("GET", "/api/clm/zero-touch/cases", RouteAccess.ACTOR_ONLY),
-    RoutePolicy("GET", "/api/clm/zero-touch/dashboard", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/clm/zero-touch/cases", RouteAccess.CASE_PORTFOLIO),
+    RoutePolicy("GET", "/api/clm/zero-touch/dashboard", RouteAccess.CASE_PORTFOLIO),
     RoutePolicy("POST", "/api/onboarding/cases", RouteAccess.CASE_CREATION),
     RoutePolicy("POST", "/api/clm/cases", RouteAccess.CASE_CREATION),
     RoutePolicy("POST", "/api/clm/zero-touch/cases", RouteAccess.CASE_CREATION),
@@ -160,8 +174,13 @@ class CreationTeamSelectionError(Exception):
 class CaseAccessPolicy:
     """Authorize only from typed canonical case ownership and server actor data."""
 
+    def can_use_case_routes(self, actor: AuthenticatedActor) -> bool:
+        return Capability.CASE_ACCESS in ROLE_CAPABILITIES[actor.profile.role]
+
     def can_access(self, actor: AuthenticatedActor, case: OnboardingCase) -> bool:
         profile = actor.profile
+        if not self.can_use_case_routes(actor):
+            return False
         if profile.role == Role.DIRECTOR:
             return profile.team_id is None
         return profile.team_id is not None and profile.team_id == case.team_id
@@ -185,6 +204,8 @@ class CaseAccessPolicy:
         field_was_supplied: bool,
     ) -> TeamId:
         profile = actor.profile
+        if not self.can_use_case_routes(actor):
+            raise CreationTeamSelectionError
         if profile.role == Role.DIRECTOR:
             if not field_was_supplied or requested_team is None:
                 raise CreationTeamSelectionError

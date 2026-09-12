@@ -31,7 +31,7 @@ import {
 import OnboardedClients, { OnboardedActionColumnHeader } from "./pages/OnboardedClients";
 import { PolicyClassificationBadge } from "./pages/PolicyRules";
 import ReturnForReworkDialog from "./pages/ReturnForReworkDialog";
-import type { DocumentProcessingRecord, ReconciliationSummary, SimulationProfile, ZeroTouchCaseListItem, ZeroTouchCaseSummary, ZeroTouchException } from "./types";
+import type { AuthenticatedProfile, DocumentProcessingRecord, ReconciliationSummary, SimulationProfile, ZeroTouchCaseListItem, ZeroTouchCaseSummary, ZeroTouchException } from "./types";
 import {
   mapCaseTimelineToAuditEntries,
   mapCompletedCaseToOnboardedRow,
@@ -54,7 +54,7 @@ const listItem: ZeroTouchCaseListItem = {
   final_outcome: "MOCK_GOLDTIER_SUBMITTED",
 };
 
-const actor = {
+const actor: AuthenticatedProfile = {
   user_id: "maya-lim",
   display_name: "Maya Lim",
   role: "CLIENT_ONBOARDER" as const,
@@ -63,13 +63,7 @@ const actor = {
   team_type: "Corporate Client Onboarding",
   team_description: "Type: Corporate Client Onboarding | Client coverage: DBS",
   client_scope_label: "DBS",
-  available_teams: [{
-    team_id: "TEAM_A" as const,
-    display_name: "DBS Corporate Onboarding",
-    team_type: "Corporate Client Onboarding",
-    client_scope_label: "DBS",
-    description: "Type: Corporate Client Onboarding | Client coverage: DBS",
-  }],
+  capabilities: ["POLICY_VIEW", "CASE_ACCESS"],
 };
 
 const summary = {
@@ -342,7 +336,7 @@ describe("UI v2 backend integration adapters", () => {
   });
 
   it("preserves unsupported risk, record export, review, and rework controls as disabled disclosures", () => {
-    const onboarded = renderToStaticMarkup(<OnboardedClients onOpenClient={() => undefined} />);
+    const onboarded = renderToStaticMarkup(<OnboardedClients actor={actor} onOpenClient={() => undefined} />);
     const clientActions = renderToStaticMarkup(<ClientRecordActions />);
     expect(onboarded).toContain("Risk: All");
     expect(onboarded).toContain("disabled");

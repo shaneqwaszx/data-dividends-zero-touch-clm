@@ -10,8 +10,15 @@ export type WorkflowState =
   | "REVIEW_REQUIRED"
   | "FAILED";
 
-export type TeamId = "TEAM_A" | "TEAM_B";
-export type Role = "CLIENT_ONBOARDER" | "RELATIONSHIP_MANAGER" | "DIRECTOR";
+export type TeamId = string;
+export type Role = "CLIENT_ONBOARDER" | "RELATIONSHIP_MANAGER" | "DIRECTOR" | "HR";
+export type Capability =
+  | "POLICY_VIEW"
+  | "POLICY_MUTATE"
+  | "CASE_ACCESS"
+  | "CASE_GLOBAL"
+  | "IDENTITY_ADMIN"
+  | "TEAM_ADMIN";
 
 export interface AuthenticatedTeam {
   team_id: TeamId;
@@ -30,7 +37,69 @@ export interface AuthenticatedProfile {
   team_type: string | null;
   team_description: string;
   client_scope_label: string;
-  available_teams: AuthenticatedTeam[];
+  capabilities: Capability[];
+}
+
+export interface AdminTeam extends AuthenticatedTeam {
+  active: true;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+  updated_by: string;
+}
+
+export interface AdminProfile {
+  user_id: string;
+  display_name: string;
+  role: Role;
+  team_id: TeamId | null;
+  team_display_name: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+  updated_by: string;
+}
+
+export type PolicyValue =
+  | { type: "BOOLEAN"; value: boolean }
+  | { type: "INTEGER"; value: number }
+  | { type: "DECIMAL"; value: string }
+  | { type: "STRING"; value: string }
+  | { type: "STRING_LIST"; value: string[] };
+
+export interface PolicyRule {
+  policy_id: string;
+  category: string;
+  name: string;
+  description: string;
+  value: PolicyValue;
+  value_type: PolicyValue["type"];
+  default_value: PolicyValue;
+  minimum: string | number | null;
+  maximum: string | number | null;
+  allowed_values: string[];
+  classifications: Array<
+    | "PROJECT_DEFAULT"
+    | "PENDING_SPONSOR_CONFIRMATION"
+    | "SYSTEM_DERIVED"
+    | "DISPLAY_ONLY_NOT_RUNTIME_ENFORCED"
+  >;
+  enforcement: "RUNTIME_ENFORCED" | "DISPLAY_SHOWCASE_ONLY" | "NOT_EDITABLE";
+  version: number;
+  created_at: string;
+  updated_at: string;
+  updated_by: string;
+}
+
+export interface PolicyCatalogue {
+  catalogue_id: string;
+  version: number;
+  rules: PolicyRule[];
+  created_at: string;
+  updated_at: string;
+  updated_by: string;
 }
 
 export interface AuthSession {
@@ -168,6 +237,14 @@ export interface OnboardingCase {
   source_case_id: string;
   correlation_id: string;
   requested_uen: string;
+  policy_snapshot?: {
+    snapshot_label: string;
+    catalogue_version: number;
+    idp_review_confidence_threshold: string;
+    ubo_threshold_percent: string;
+    comparator: "GREATER_THAN_OR_EQUAL_TO";
+    bound_at: string;
+  };
   jurisdiction_resolution?: {
     status: "RESOLVED" | "UNRESOLVED" | "CONFLICT";
     resolved_jurisdiction: "SG" | "AU" | "MY" | "HK" | null;

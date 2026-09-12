@@ -21,6 +21,14 @@ surface; there is no reassignment or sharing; priority affects ordering only; an
 scrypt credentials plus process-local sessions are demo-only. These rules do not resolve
 the production policy requested here.
 
+Phase 14.5 adds a synthetic HR administrator, persistent team/profile records,
+capability-driven navigation, immediate local-session revocation after authority
+changes, and Director-only server-side team filters. Relationship Manager and Director
+may edit the two already-provisional runtime thresholds, which are snapshotted onto new
+cases. These remain project POC decisions and do not answer the requested production
+identity governance, separation of duties, policy ownership, or sponsor-approved
+threshold questions.
+
 ## ACRA SANDBOX BINDING AND ACCESS
 
 ### Q-012 - Authoritative ACRA Business Profile API contract and access

@@ -15,8 +15,9 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 from phase13_test_clients import RawTestClient  # noqa: E402
+from phase13_test_credentials import build_test_authentication_service  # noqa: E402
 from phase13_test_settings import ordinary_test_settings  # noqa: E402
-from scripts.generate_phase13_demo_password_hashes import (  # noqa: E402
+from scripts.generate_admin_bootstrap_password_hashes import (  # noqa: E402
     main as generate_hashes,
 )
 from scripts.seed_phase13_demo import (  # noqa: E402
@@ -35,7 +36,6 @@ from scripts.seed_phase13_demo import (  # noqa: E402
 from app.domain.access import SYNTHETIC_USER_PROFILES  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.services.authentication import (  # noqa: E402
-    AuthenticationService,
     generate_scrypt_password_hash,
     parse_scrypt_password_hash,
 )
@@ -92,7 +92,7 @@ def test_generator_emits_only_new_profile_hash_assignments(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    credentials = [secrets.token_urlsafe(24) for _ in range(5)]
+    credentials = [secrets.token_urlsafe(24) for _ in range(6)]
     entries = iter(value for credential in credentials for value in (credential, credential))
     monkeypatch.setattr("getpass.getpass", lambda _prompt: next(entries))
 
@@ -107,6 +107,7 @@ def test_generator_emits_only_new_profile_hash_assignments(
         "PHASE13_SOPHIA_NG_PASSWORD_HASH",
         "PHASE13_RYAN_LEE_PASSWORD_HASH",
         "PHASE13_OLIVIA_KOH_PASSWORD_HASH",
+        "PHASE14_5_HR_ADMIN_PASSWORD_HASH",
     ]
     for line in lines:
         parse_scrypt_password_hash(line.split("=", 1)[1])
@@ -323,7 +324,7 @@ class ApplicationSeedApi:
 def test_memory_mode_seed_twice_produces_genuine_shared_team_portfolios() -> None:
     credential = secrets.token_urlsafe(24)
     encoded = generate_scrypt_password_hash(credential)
-    authentication = AuthenticationService(
+    authentication = build_test_authentication_service(
         {profile.user_id: encoded for profile in SYNTHETIC_USER_PROFILES}
     )
     application = create_app(
@@ -376,7 +377,7 @@ def test_memory_mode_seed_twice_produces_genuine_shared_team_portfolios() -> Non
 def test_http_seeder_runs_twice_against_one_live_memory_backend() -> None:
     credential = secrets.token_urlsafe(24)
     encoded = generate_scrypt_password_hash(credential)
-    authentication = AuthenticationService(
+    authentication = build_test_authentication_service(
         {profile.user_id: encoded for profile in SYNTHETIC_USER_PROFILES}
     )
     application = create_app(

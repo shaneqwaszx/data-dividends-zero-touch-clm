@@ -392,7 +392,7 @@ class OwnershipAnalysisService:
             analysis_id=self._uuid_factory(),
             correlation_id=self._uuid_factory(),
             state=OwnershipAnalysisState.LOADING,
-            threshold_percent=self.threshold_percent,
+            threshold_percent=parent.policy_snapshot.ubo_threshold_percent,
             created_at=now,
             updated_at=now,
         )
@@ -553,7 +553,7 @@ class OwnershipAnalysisService:
                 graph,
                 calculation,
                 aggregated,
-                threshold_percent=self.threshold_percent,
+                threshold_percent=record.threshold_percent,
             )
             record.candidates = candidates
             record.issues = list(calculation.issues)

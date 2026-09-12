@@ -7,7 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.access import TEAM_BY_ID, CasePriority, TeamId
+from app.domain.access import CasePriority, TeamId
+from app.domain.administration import TeamRecord
 from app.domain.clm import (
     ClmOrchestrationRecord,
     ClmReadinessAssessment,
@@ -59,6 +60,7 @@ from app.domain.ownership import (
     OwnershipWorkflowEvent,
     Party,
 )
+from app.domain.policy import CasePolicySnapshot
 from app.domain.reconciliation import (
     DiscrepancyStatus,
     ObservationValidity,
@@ -116,9 +118,7 @@ class BrowserJurisdictionObservation(BaseModel):
     jurisdiction: JurisdictionCode
     source: JurisdictionObservationSource
     observed_at: datetime
-    evidence_reference: str | None = Field(
-        default=None, validation_alias="source_reference"
-    )
+    evidence_reference: str | None = Field(default=None, validation_alias="source_reference")
     confidence: float | None = None
 
 
@@ -214,6 +214,7 @@ class OnboardingCaseResponse(BaseModel):
     source_case_id: str
     correlation_id: UUID
     requested_uen: str
+    policy_snapshot: CasePolicySnapshot
     team_id: TeamId | None = None
     priority: CasePriority | None = None
     client_scope_label: str | None = None
@@ -229,18 +230,14 @@ class OnboardingCaseResponse(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_domain(cls, case: OnboardingCase) -> "OnboardingCaseResponse":
+    def from_domain(
+        cls, case: OnboardingCase, team: TeamRecord | None = None
+    ) -> "OnboardingCaseResponse":
         """Project a domain case without serializing its registry source link."""
 
         projected = cls.model_validate(case)
         return projected.model_copy(
-            update={
-                "client_scope_label": (
-                    TEAM_BY_ID[case.team_id].client_scope_label
-                    if case.team_id is not None
-                    else None
-                )
-            }
+            update={"client_scope_label": team.client_scope_label if team is not None else None}
         )
 
 
@@ -395,7 +392,10 @@ class ClmCaseSummaryResponse(BaseModel):
 
     @classmethod
     def from_domain(
-        cls, record: ClmOrchestrationRecord, case: OnboardingCase
+        cls,
+        record: ClmOrchestrationRecord,
+        case: OnboardingCase,
+        team: TeamRecord | None = None,
     ) -> "ClmCaseSummaryResponse":
         snapshot = record.submission_snapshot
         submission = (
@@ -411,7 +411,7 @@ class ClmCaseSummaryResponse(BaseModel):
             else None
         )
         return cls(
-            case=OnboardingCaseResponse.from_domain(case),
+            case=OnboardingCaseResponse.from_domain(case, team),
             orchestration_id=record.orchestration_id,
             correlation_id=record.correlation_id,
             version=record.version,
@@ -565,14 +565,10 @@ class ReconciliationResponse(BaseModel):
                     decision=(
                         BrowserReconciliationDecision(
                             action=item.decision.action,
-                            selected_observation_id=(
-                                item.decision.selected_observation_id
-                            ),
+                            selected_observation_id=(item.decision.selected_observation_id),
                             selected_value=item.decision.selected_value,
                             decided_at=item.decision.decided_at,
-                            reconciliation_version=(
-                                item.decision.reconciliation_version
-                            ),
+                            reconciliation_version=(item.decision.reconciliation_version),
                         )
                         if item.decision is not None
                         else None
@@ -613,18 +609,18 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         case: OnboardingCase,
         reconciliation: ReconciliationCaseRecord | None = None,
         target_operations: tuple["BrowserTargetOperationEvidence", ...] = (),
+        team: TeamRecord | None = None,
     ) -> "ZeroTouchCaseSummaryResponse":
         return cls(
-            case=OnboardingCaseResponse.from_domain(case),
-            clm=ClmCaseSummaryResponse.from_domain(clm_record, case),
+            case=OnboardingCaseResponse.from_domain(case, team),
+            clm=ClmCaseSummaryResponse.from_domain(clm_record, case, team),
             automation_id=record.automation_id,
             version=record.version,
             status=record.status,
             current_stage=record.current_stage,
             completed_stages=record.completed_stages,
             active_exceptions=[
-                BusinessExceptionResponse.model_validate(item)
-                for item in record.active_exceptions
+                BusinessExceptionResponse.model_validate(item) for item in record.active_exceptions
             ],
             reconciliation=(
                 ReconciliationResponse.from_domain(reconciliation)
@@ -660,7 +656,10 @@ class ZeroTouchCaseListItemResponse(BaseModel):
 
     @classmethod
     def from_domain(
-        cls, record: ZeroTouchAutomationRecord, case: OnboardingCase
+        cls,
+        record: ZeroTouchAutomationRecord,
+        case: OnboardingCase,
+        team: TeamRecord | None = None,
     ) -> "ZeroTouchCaseListItemResponse":
         return cls(
             case_id=record.case_id,
@@ -673,11 +672,7 @@ class ZeroTouchCaseListItemResponse(BaseModel):
             human_interventions=record.metrics.human_interventions,
             final_outcome=record.metrics.final_outcome,
             team_id=case.team_id,
-            client_scope_label=(
-                TEAM_BY_ID[case.team_id].client_scope_label
-                if case.team_id is not None
-                else None
-            ),
+            client_scope_label=team.client_scope_label if team is not None else None,
             priority=case.priority,
         )
 

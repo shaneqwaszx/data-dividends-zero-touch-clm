@@ -5,6 +5,8 @@ import type { PriorityFilter, PrioritySort } from "../api";
 import type { OnboardedRowView } from "../viewModels";
 import { mapCompletedCaseToOnboardedRow } from "../viewModels";
 import PriorityControl, { PriorityBadge, PriorityListControls } from "./PriorityControl";
+import DirectorTeamFilter from "./DirectorTeamFilter";
+import type { AuthenticatedProfile } from "../types";
 
 export function OnboardedActionColumnHeader() {
   return <th aria-label="Open" />;
@@ -13,15 +15,18 @@ export function OnboardedActionColumnHeader() {
 export async function loadOnboardedRows(
   priority: PriorityFilter = "all",
   prioritySort: PrioritySort = "highest_first",
+  teamFilter?: string,
 ): Promise<OnboardedRowView[]> {
-  const items = await fetchZeroTouchCases("COMPLETED", priority, prioritySort);
+  const items = await fetchZeroTouchCases("COMPLETED", priority, prioritySort, teamFilter);
   const details = await Promise.all(items.map((item) => fetchZeroTouchCase(item.case_id)));
   return items.map((item, index) => mapCompletedCaseToOnboardedRow(item, details[index]));
 }
 
 export default function OnboardedClients({
+  actor,
   onOpenClient,
 }: {
+  actor: AuthenticatedProfile;
   onOpenClient: (clientId: string) => void;
 }) {
   const [clients, setClients] = useState<OnboardedRowView[]>([]);
@@ -31,10 +36,11 @@ export default function OnboardedClients({
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [teamFilter, setTeamFilter] = useState("all");
 
   useEffect(() => {
     setIsLoading(true);
-    void loadOnboardedRows(priority, prioritySort)
+    void loadOnboardedRows(priority, prioritySort, teamFilter)
       .then((items) => {
         setClients(items);
         setError(null);
@@ -47,13 +53,13 @@ export default function OnboardedClients({
         );
       })
       .finally(() => setIsLoading(false));
-  }, [priority, prioritySort]);
+  }, [priority, prioritySort, teamFilter]);
 
   async function refreshAfterPriorityUpdate(): Promise<void> {
     setIsLoading(true);
     setError(null);
     try {
-      setClients(await loadOnboardedRows(priority, prioritySort));
+      setClients(await loadOnboardedRows(priority, prioritySort, teamFilter));
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
@@ -86,6 +92,7 @@ export default function OnboardedClients({
       </p>
 
       <div className="ds-toolbar">
+        <DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} />
         <PriorityListControls
           filter={priority}
           sort={prioritySort}

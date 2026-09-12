@@ -6,6 +6,8 @@ import { formatDateNoSeconds, stageProgressLabel } from "../shared";
 import type { CaseRowView } from "../viewModels";
 import { mapZeroTouchCaseToCaseRow } from "../viewModels";
 import PriorityControl, { PriorityBadge, PriorityListControls } from "./PriorityControl";
+import DirectorTeamFilter from "./DirectorTeamFilter";
+import type { AuthenticatedProfile } from "../types";
 
 function statusTagClass(status: CaseRowView["status"]): string {
   if (status === "COMPLETED") return "tag tag-accent";
@@ -18,13 +20,14 @@ export async function loadCaseQueueRows(
   status?: CaseRowView["status"],
   priority: PriorityFilter = "all",
   prioritySort: PrioritySort = "highest_first",
+  teamFilter?: string,
 ): Promise<CaseRowView[]> {
-  const items = await fetchZeroTouchCases(status, priority, prioritySort);
+  const items = await fetchZeroTouchCases(status, priority, prioritySort, teamFilter);
   const details = await Promise.all(items.map((item) => fetchZeroTouchCase(item.case_id)));
   return items.map((item, index) => mapZeroTouchCaseToCaseRow(item, details[index]));
 }
 
-export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string) => void }) {
+export default function CaseQueue({ actor, onOpenCase }: { actor: AuthenticatedProfile; onOpenCase: (caseId: string) => void }) {
   const [cases, setCases] = useState<CaseRowView[]>([]);
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState<PriorityFilter>("all");
@@ -33,6 +36,7 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [teamFilter, setTeamFilter] = useState("all");
 
   useEffect(() => {
     let current = true;
@@ -41,6 +45,7 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
       status ? status as CaseRowView["status"] : undefined,
       priority,
       prioritySort,
+      teamFilter,
     )
       .then((items) => {
         if (current) {
@@ -62,7 +67,7 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
     return () => {
       current = false;
     };
-  }, [priority, prioritySort, status]);
+  }, [priority, prioritySort, status, teamFilter]);
 
   async function refreshAfterPriorityUpdate(): Promise<void> {
     setIsLoading(true);
@@ -72,6 +77,7 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
         status ? status as CaseRowView["status"] : undefined,
         priority,
         prioritySort,
+        teamFilter,
       ));
     } catch (requestError) {
       setError(
@@ -107,6 +113,7 @@ export default function CaseQueue({ onOpenCase }: { onOpenCase: (caseId: string)
         </div>
       </div>
       <div className="ds-toolbar">
+        <DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} />
         <select
           className="input"
           style={{ width: 200 }}
