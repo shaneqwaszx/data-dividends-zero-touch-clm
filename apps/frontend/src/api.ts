@@ -19,6 +19,12 @@ import type {
   SimulationProfile,
   UatEvidenceExport,
   TeamId,
+  AuthenticatedTeam,
+  AdminTeam,
+  AdminProfile,
+  PolicyCatalogue,
+  PolicyValue,
+  Role,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -238,19 +244,24 @@ export async function fetchZeroTouchCases(
   status?: ZeroTouchCaseListItem["status"],
   priority: PriorityFilter = "all",
   prioritySort: PrioritySort = "highest_first",
+  teamFilter?: string,
   signal?: AbortSignal,
 ): Promise<ZeroTouchCaseListItem[]> {
   const query = new URLSearchParams();
   if (status) query.set("status", status);
   if (priority !== "all") query.set("priority_filter", priority);
   if (prioritySort !== "highest_first") query.set("priority_sort", prioritySort);
+  if (teamFilter && teamFilter !== "all") query.set("team_filter", teamFilter);
   const suffix = query.size ? `?${query.toString()}` : "";
   const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases${suffix}`, { signal });
   return parseResponse<ZeroTouchCaseListItem[]>(response);
 }
 
-export async function fetchDashboard(signal?: AbortSignal): Promise<DashboardSnapshot> {
-  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/dashboard`, { signal });
+export async function fetchDashboard(teamFilter?: string, signal?: AbortSignal): Promise<DashboardSnapshot> {
+  const query = teamFilter && teamFilter !== "all"
+    ? `?team_filter=${encodeURIComponent(teamFilter)}`
+    : "";
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/dashboard${query}`, { signal });
   return parseResponse<DashboardSnapshot>(response);
 }
 
@@ -497,4 +508,135 @@ export async function analyzeOwnership(caseId: string): Promise<OwnershipAnalysi
     { method: "POST" },
   );
   return parseResponse<OwnershipAnalysisRecord>(response);
+}
+
+export async function fetchTeamOptions(): Promise<AuthenticatedTeam[]> {
+  return parseResponse<AuthenticatedTeam[]>(await fetch(`${API_BASE_URL}/api/teams/options`));
+}
+
+export async function fetchAdminTeams(): Promise<AdminTeam[]> {
+  return parseResponse<AdminTeam[]>(await fetch(`${API_BASE_URL}/api/admin/teams`));
+}
+
+export async function createAdminTeam(input: {
+  display_name: string;
+  client_scope_label: string;
+  description?: string;
+}): Promise<AdminTeam> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/teams`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<AdminTeam>(response);
+}
+
+export async function updateAdminTeam(
+  teamId: TeamId,
+  input: { expected_version: number; display_name?: string; client_scope_label?: string; description?: string | null },
+): Promise<AdminTeam> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/teams/${encodeURIComponent(teamId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<AdminTeam>(response);
+}
+
+export async function fetchAdminProfiles(): Promise<AdminProfile[]> {
+  return parseResponse<AdminProfile[]>(await fetch(`${API_BASE_URL}/api/admin/profiles`));
+}
+
+export async function createAdminProfile(input: {
+  user_id: string;
+  display_name: string;
+  role: Role;
+  team_id: TeamId | null;
+  password: string;
+}): Promise<AdminProfile> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/profiles`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<AdminProfile>(response);
+}
+
+export async function updateAdminProfile(
+  userId: string,
+  input: { expected_version: number; display_name?: string; role?: Role; team_id?: TeamId | null },
+): Promise<AdminProfile> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/profiles/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<AdminProfile>(response);
+}
+
+export async function fetchPolicies(): Promise<PolicyCatalogue> {
+  return parseResponse<PolicyCatalogue>(await fetch(`${API_BASE_URL}/api/policies`));
+}
+
+export async function createShowcasePolicy(input: {
+  expected_catalogue_version: number;
+  policy_id: string;
+  category: string;
+  name: string;
+  description: string;
+  value: PolicyValue;
+}): Promise<PolicyCatalogue> {
+  const response = await fetch(`${API_BASE_URL}/api/policies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<PolicyCatalogue>(response);
+}
+
+export async function updatePolicy(
+  policyId: string,
+  input: {
+    expected_catalogue_version: number;
+    expected_rule_version: number;
+    value: PolicyValue;
+    name?: string;
+    description?: string;
+  },
+): Promise<PolicyCatalogue> {
+  const response = await fetch(`${API_BASE_URL}/api/policies/${encodeURIComponent(policyId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<PolicyCatalogue>(response);
+}
+
+export async function resetPolicy(
+  policyId: string,
+  catalogueVersion: number,
+  ruleVersion: number,
+): Promise<PolicyCatalogue> {
+  const response = await fetch(`${API_BASE_URL}/api/policies/${encodeURIComponent(policyId)}/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      expected_catalogue_version: catalogueVersion,
+      expected_rule_version: ruleVersion,
+      confirmation: "RESET_POLICY_DEFAULT",
+    }),
+  });
+  return parseResponse<PolicyCatalogue>(response);
+}
+
+export async function resetAllPolicies(catalogueVersion: number): Promise<PolicyCatalogue> {
+  const response = await fetch(`${API_BASE_URL}/api/policies/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      expected_catalogue_version: catalogueVersion,
+      confirmation: "RESET_ALL_POLICY_DEFAULTS",
+    }),
+  });
+  return parseResponse<PolicyCatalogue>(response);
 }

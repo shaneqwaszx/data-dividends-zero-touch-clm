@@ -153,21 +153,27 @@ not delete Mongo data. No general durable-data purge command is supplied.
 
 # Phase 13 authenticated team demo
 
-Before backend startup, run `python scripts/generate_phase13_demo_password_hashes.py`.
-Enter and confirm a password for each prompt, then place only the five emitted scrypt
+Before backend startup, run
+`python scripts/generate_admin_bootstrap_password_hashes.py`.
+Enter and confirm a password for each prompt, then place only the six emitted scrypt
 hash assignments in the local untracked `.env`. Do not save plaintext passwords in the
 repository, shell history, launcher scripts, screenshots, or UAT evidence. The browser
 sign-in user IDs are `maya-lim`, `ethan-tan`, `sophia-ng`, `ryan-lee`, and `olivia-koh`.
 These are synthetic POC identities. If a local `.env` contains hashes generated before
-the identity remediation, regenerate all five hashes: the old setting names are
+the identity remediation, regenerate all six hashes: the old setting names are
 intentionally not reused.
 
-Maya Lim and Ethan Tan see only DBS Corporate Onboarding cases. Sophia Ng and Ryan Lee
-see only OCBC Corporate Onboarding cases. Olivia Koh has global/cross-team Director
+Maya Lim and Ethan Tan see only Alpha cases. Sophia Ng and Ryan Lee
+see only Beta cases. Olivia Koh has global/cross-team Director
 scope and must explicitly select a team when creating. The persisted team IDs remain
 `TEAM_A` and `TEAM_B`. Inaccessible case IDs appear unavailable, not forbidden. Priority
 accepts only unset or integer 1–10, orders portfolio rows on the backend, and has no SLA
 or approval meaning.
+
+The sixth bootstrap identity is `hr-admin`. It can administer synthetic users and
+teams, but it cannot view cases, Dashboard, Onboarded, Audit, or mutate policy. Policy
+values are read from the backend catalogue; only Relationship Manager and Director can
+edit the two runtime thresholds. Such an edit affects newly created cases only.
 
 To create the reproducible two-team portfolio through normal authenticated APIs, start
 the backend with Demo Controls enabled and run:

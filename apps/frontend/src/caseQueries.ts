@@ -20,19 +20,29 @@ import type {
 
 const absent = "all";
 
+function dashboardTeamScope(teamFilter?: string): string {
+  return teamFilter ?? absent;
+}
+
 export const caseQueryKeys = {
   auth: (userId: string) => ["auth", userId] as const,
-  dashboard: (userId: string) => ["auth", userId, "dashboard"] as const,
+  dashboards: (userId: string) => ["auth", userId, "dashboard"] as const,
+  dashboard: (userId: string, teamFilter?: string) => [
+    ...caseQueryKeys.dashboards(userId),
+    { teamFilter: dashboardTeamScope(teamFilter) },
+  ] as const,
   caseLists: (userId: string) => ["auth", userId, "cases", "list"] as const,
   caseList: (
     userId: string,
     status: AutomationStatus | undefined,
     priority: PriorityFilter,
     prioritySort: PrioritySort,
+    teamFilter?: string,
   ) => ["auth", userId, "cases", "list", {
     status: status ?? absent,
     priorityFilter: priority,
     prioritySort,
+    teamFilter: teamFilter ?? absent,
   }] as const,
   caseResources: (userId: string, caseId: string) =>
     ["auth", userId, "cases", "resources", caseId] as const,
@@ -46,10 +56,11 @@ export const caseQueryKeys = {
     ["auth", userId, "system", "execution-profile"] as const,
 };
 
-export function dashboardQueryOptions(userId: string) {
+export function dashboardQueryOptions(userId: string, teamFilter?: string) {
+  const scope = dashboardTeamScope(teamFilter);
   return {
-    queryKey: caseQueryKeys.dashboard(userId),
-    queryFn: ({ signal }: { signal: AbortSignal }) => fetchDashboard(signal),
+    queryKey: caseQueryKeys.dashboard(userId, scope),
+    queryFn: ({ signal }: { signal: AbortSignal }) => fetchDashboard(scope, signal),
   };
 }
 
@@ -58,11 +69,12 @@ export function caseListQueryOptions(
   status: AutomationStatus | undefined,
   priority: PriorityFilter,
   prioritySort: PrioritySort,
+  teamFilter?: string,
 ) {
   return {
-    queryKey: caseQueryKeys.caseList(userId, status, priority, prioritySort),
+    queryKey: caseQueryKeys.caseList(userId, status, priority, prioritySort, teamFilter),
     queryFn: ({ signal }: { signal: AbortSignal }) =>
-      fetchZeroTouchCases(status, priority, prioritySort, signal),
+      fetchZeroTouchCases(status, priority, prioritySort, teamFilter, signal),
   };
 }
 
@@ -98,7 +110,7 @@ export function prefetchSessionQueries(
   queryClient: QueryClient,
   profile: AuthenticatedProfile,
 ): void {
-  void queryClient.prefetchQuery(dashboardQueryOptions(profile.user_id));
+  void queryClient.prefetchQuery(dashboardQueryOptions(profile.user_id, absent));
   void queryClient.prefetchQuery(
     caseListQueryOptions(profile.user_id, undefined, "all", "highest_first"),
   );
@@ -122,7 +134,7 @@ export function caseCreatedEffect(
 ): void {
   publishCaseDetail(queryClient, userId, summary);
   void queryClient.invalidateQueries({ queryKey: caseQueryKeys.caseLists(userId) });
-  queryClient.removeQueries({ queryKey: caseQueryKeys.dashboard(userId), exact: true });
+  queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
 }
 
 export function caseSummaryMutationEffect(
@@ -132,7 +144,7 @@ export function caseSummaryMutationEffect(
 ): void {
   publishCaseDetail(queryClient, userId, summary);
   void queryClient.invalidateQueries({ queryKey: caseQueryKeys.caseLists(userId) });
-  queryClient.removeQueries({ queryKey: caseQueryKeys.dashboard(userId), exact: true });
+  queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
 }
 
 export async function caseSupportingMutationEffect(
@@ -166,7 +178,7 @@ export async function priorityMutationEffect(
     queryKey: caseQueryKeys.caseLists(userId),
     type: "active",
   });
-  queryClient.removeQueries({ queryKey: caseQueryKeys.dashboard(userId), exact: true });
+  queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
 }
 
 export async function caseDeletedEffect(
@@ -177,8 +189,7 @@ export async function caseDeletedEffect(
   await Promise.all([
     queryClient.cancelQueries({ queryKey: caseQueryKeys.caseLists(userId) }),
     queryClient.cancelQueries({
-      queryKey: caseQueryKeys.dashboard(userId),
-      exact: true,
+      queryKey: caseQueryKeys.dashboards(userId),
     }),
     queryClient.cancelQueries({
       queryKey: caseQueryKeys.detail(userId, caseId),
@@ -200,12 +211,13 @@ export async function caseDeletedEffect(
   queryClient.removeQueries({ queryKey: caseQueryKeys.detail(userId, caseId), exact: true });
   queryClient.removeQueries({ queryKey: caseQueryKeys.documents(userId, caseId), exact: true });
   queryClient.removeQueries({ queryKey: caseQueryKeys.ownership(userId, caseId), exact: true });
-  queryClient.removeQueries({ queryKey: caseQueryKeys.dashboard(userId), exact: true });
+  queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
 }
 
 export function cachedDashboard(
   queryClient: QueryClient,
   userId: string,
+  teamFilter?: string,
 ): DashboardSnapshot | undefined {
-  return queryClient.getQueryData(caseQueryKeys.dashboard(userId));
+  return queryClient.getQueryData(caseQueryKeys.dashboard(userId, teamFilter));
 }

@@ -51,3 +51,8 @@ Phase 13's fixed synthetic identity/team policy, non-enumerating case access, st
 nullable priority, canonical ordering, and schema-v1/v2 compatibility are recorded in
 `CASE_ACCESS_AND_PRIORITY_PROFILE.md`. These are project-defined POC rules pending
 Q-016, not production RBAC, assignment, SLA, or identity governance.
+
+Phase 14.5's repository-backed teams/profiles, HR capability boundary, typed policy
+catalogue, and immutable schema-v3 case policy snapshot are recorded in
+`POLICY_TEAM_IDENTITY_ADMIN_PROFILE.md`. These remain project-defined POC behavior
+pending sponsor confirmation, not production IAM or approved compliance policy.

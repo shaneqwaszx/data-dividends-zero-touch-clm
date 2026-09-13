@@ -20,7 +20,11 @@ import CaseQueue, {
 import DeleteCaseDialog from "./pages/DeleteCaseDialog";
 import OnboardedClients from "./pages/OnboardedClients";
 import { clearSessionQueries, createSessionQueryClient, SESSION_STALE_TIME_MS } from "./queryClient";
-import type { AuthenticatedProfile, ZeroTouchCaseListItem, ZeroTouchCaseSummary } from "./types";
+import type {
+  AuthenticatedProfile,
+  ZeroTouchCaseListItem,
+  ZeroTouchCaseSummary,
+} from "./types";
 
 const actor: AuthenticatedProfile = {
   user_id: "ethan-tan",
@@ -31,7 +35,7 @@ const actor: AuthenticatedProfile = {
   team_type: "Corporate Client Onboarding",
   team_description: "Type: Corporate Client Onboarding | Client coverage: DBS",
   client_scope_label: "DBS",
-  available_teams: [],
+  capabilities: ["CASE_ACCESS"],
 };
 
 const listItem: ZeroTouchCaseListItem = {
@@ -107,6 +111,40 @@ describe("Phase 14 session query cache", () => {
     expect(loader).toHaveBeenCalledTimes(1);
     expect(aborted).toBe(true);
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it("keeps Director Dashboard results isolated when switching from TEAM_A to TEAM_B", async () => {
+    const queryClient = createSessionQueryClient();
+    const teamA = { scope: { team_id: "TEAM_A" }, marker: "TEAM_A" };
+    const teamB = { scope: { team_id: "TEAM_B" }, marker: "TEAM_B" };
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      return Promise.resolve(new Response(JSON.stringify(
+        url.includes("team_filter=TEAM_B") ? teamB : teamA,
+      ), { status: 200, headers: { "Content-Type": "application/json" } }));
+    });
+    const teamAOptions = dashboardQueryOptions("olivia-koh", "TEAM_A");
+    const teamBOptions = dashboardQueryOptions("olivia-koh", "TEAM_B");
+
+    await queryClient.fetchQuery(teamAOptions);
+    await queryClient.fetchQuery(teamBOptions);
+
+    expect(teamAOptions.queryKey).not.toEqual(teamBOptions.queryKey);
+    expect(queryClient.getQueryData(teamAOptions.queryKey)).toMatchObject({ marker: "TEAM_A" });
+    expect(queryClient.getQueryData(teamBOptions.queryKey)).toMatchObject({ marker: "TEAM_B" });
+    expect(request.mock.calls.map(([url]) => String(url))).toEqual([
+      "/api/clm/zero-touch/dashboard?team_filter=TEAM_A",
+      "/api/clm/zero-touch/dashboard?team_filter=TEAM_B",
+    ]);
+    expect(caseQueryKeys.dashboard("olivia-koh", "all")).not.toEqual(teamAOptions.queryKey);
+    expect(caseQueryKeys.dashboard("olivia-koh", "unassigned")).not.toEqual(teamAOptions.queryKey);
+
+    await queryClient.fetchQuery(teamAOptions);
+    expect(request).toHaveBeenCalledTimes(2);
+
+    await caseDeletedEffect(queryClient, "olivia-koh", listItem.case_id);
+    expect(queryClient.getQueryData(teamAOptions.queryKey)).toBeUndefined();
+    expect(queryClient.getQueryData(teamBOptions.queryKey)).toBeUndefined();
   });
 
   it("publishes polling detail and removes all deleted case resources and list variants", async () => {

@@ -4,7 +4,7 @@ from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 
-from app.domain.access import TEAM_BY_ID, AuthenticatedActor, Role
+from app.domain.access import AuthenticatedActor, Role, TeamId
 from app.domain.case_management import CasePortfolioRecord
 from app.domain.dashboard import (
     DashboardCaseItem,
@@ -17,6 +17,7 @@ from app.domain.dashboard import (
     DashboardTrendDay,
 )
 from app.domain.zero_touch import AutomationStatus
+from app.services.administration import TeamDirectoryService
 from app.services.case_query import CaseQueryService
 
 DASHBOARD_RECENT_LIMIT = 10
@@ -30,15 +31,19 @@ class DashboardService:
     def __init__(
         self,
         case_query: CaseQueryService,
+        teams: TeamDirectoryService,
         *,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._case_query = case_query
+        self._teams = teams
         self._clock = clock or (lambda: datetime.now(UTC))
 
-    def get_dashboard(self, actor: AuthenticatedActor) -> DashboardSnapshot:
+    def get_dashboard(
+        self, actor: AuthenticatedActor, *, team_filter: str | None = None
+    ) -> DashboardSnapshot:
         data_as_of = self._clock()
-        records = self._case_query.list_cases(actor)
+        records = self._case_query.list_cases(actor, team_filter=team_filter)
         total = len(records)
         completed = sum(item.status == AutomationStatus.COMPLETED for item in records)
         prioritised = sum(item.priority is not None for item in records)
@@ -54,7 +59,7 @@ class DashboardService:
         ]
 
         return DashboardSnapshot(
-            scope=_dashboard_scope(actor),
+            scope=self._dashboard_scope(actor, team_filter),
             data_as_of=data_as_of,
             totals=DashboardTotals(
                 total_cases=total,
@@ -72,67 +77,94 @@ class DashboardService:
                 DashboardPriorityCount(priority=priority, count=priority_counts[priority])
                 for priority in (*range(10, 0, -1), None)
             ),
-            team_breakdown=_team_breakdown(actor, records),
-            recent_cases=tuple(_case_item(item) for item in recent),
-            top_active_cases=tuple(_case_item(item) for item in top_active),
+            team_breakdown=self._team_breakdown(actor, records, team_filter),
+            recent_cases=tuple(self._case_item(item) for item in recent),
+            top_active_cases=tuple(self._case_item(item) for item in top_active),
             historical_trend=_trend(records, data_as_of.date()),
         )
 
-
-def _dashboard_scope(actor: AuthenticatedActor) -> DashboardScope:
-    profile = actor.profile
-    if profile.role == Role.DIRECTOR:
+    def _dashboard_scope(
+        self, actor: AuthenticatedActor, team_filter: str | None
+    ) -> DashboardScope:
+        profile = actor.profile
+        if profile.role == Role.DIRECTOR:
+            team = None
+            if team_filter not in {None, "all", "unassigned"}:
+                try:
+                    team = self._teams.get(TeamId(str(team_filter)))
+                except ValueError:
+                    team = None
+            return DashboardScope(
+                actor_role=profile.role,
+                access="GLOBAL",
+                team_id=team.team_id if team is not None else None,
+                team_display_name=(
+                    team.display_name
+                    if team is not None
+                    else ("Legacy unassigned" if team_filter == "unassigned" else None)
+                ),
+                client_scope_label=(
+                    team.client_scope_label
+                    if team is not None
+                    else (
+                        "Legacy unassigned"
+                        if team_filter == "unassigned"
+                        else "Global / cross-team"
+                    )
+                ),
+            )
+        team = self._teams.get(profile.team_id)
+        if team is None:
+            raise ValueError("authenticated team metadata is unavailable")
         return DashboardScope(
             actor_role=profile.role,
-            access="GLOBAL",
-            team_id=None,
-            team_display_name=None,
-            client_scope_label=profile.client_scope_label,
+            access="TEAM",
+            team_id=team.team_id,
+            team_display_name=team.display_name,
+            client_scope_label=team.client_scope_label,
         )
-    team = TEAM_BY_ID[profile.team_id]  # type: ignore[index]
-    return DashboardScope(
-        actor_role=profile.role,
-        access="TEAM",
-        team_id=team.team_id,
-        team_display_name=team.display_name,
-        client_scope_label=team.client_scope_label,
-    )
 
-
-def _team_breakdown(
-    actor: AuthenticatedActor, records: list[CasePortfolioRecord]
-) -> tuple[DashboardTeamCount, ...]:
-    counts = Counter(item.team_id for item in records)
-    team_ids = (
-        tuple(TEAM_BY_ID) if actor.profile.role == Role.DIRECTOR else (actor.profile.team_id,)
-    )
-    return tuple(
-        DashboardTeamCount(
-            team_id=team_id,
-            team_display_name=TEAM_BY_ID[team_id].display_name,
-            client_scope_label=TEAM_BY_ID[team_id].client_scope_label,
-            count=counts[team_id],
+    def _team_breakdown(
+        self,
+        actor: AuthenticatedActor,
+        records: list[CasePortfolioRecord],
+        team_filter: str | None,
+    ) -> tuple[DashboardTeamCount, ...]:
+        counts = Counter(item.team_id for item in records)
+        if actor.profile.role == Role.DIRECTOR:
+            teams = self._teams.options_for(actor)
+            if team_filter == "unassigned":
+                teams = []
+            elif team_filter not in {None, "all"}:
+                teams = [team for team in teams if str(team.team_id) == team_filter]
+        else:
+            team = self._teams.get(actor.profile.team_id)
+            teams = [team] if team is not None else []
+        return tuple(
+            DashboardTeamCount(
+                team_id=team.team_id,
+                team_display_name=team.display_name,
+                client_scope_label=team.client_scope_label,
+                count=counts[team.team_id],
+            )
+            for team in teams
         )
-        for team_id in team_ids
-        if team_id is not None
-    )
 
-
-def _case_item(record: CasePortfolioRecord) -> DashboardCaseItem:
-    team = TEAM_BY_ID.get(record.team_id) if record.team_id is not None else None
-    return DashboardCaseItem(
-        case_id=record.case_id,
-        requested_uen=record.requested_uen,
-        legal_name=record.legal_name,
-        team_id=record.team_id,
-        team_display_name=team.display_name if team is not None else None,
-        priority=record.priority,
-        status=record.status,
-        final_outcome=record.final_outcome,
-        created_at=record.created_at,
-        updated_at=record.updated_at,
-        completed_at=record.completed_at,
-    )
+    def _case_item(self, record: CasePortfolioRecord) -> DashboardCaseItem:
+        team = self._teams.get(record.team_id)
+        return DashboardCaseItem(
+            case_id=record.case_id,
+            requested_uen=record.requested_uen,
+            legal_name=record.legal_name,
+            team_id=record.team_id,
+            team_display_name=team.display_name if team is not None else None,
+            priority=record.priority,
+            status=record.status,
+            final_outcome=record.final_outcome,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+            completed_at=record.completed_at,
+        )
 
 
 def _trend(records: list[CasePortfolioRecord], end_day: date) -> tuple[DashboardTrendDay, ...]:

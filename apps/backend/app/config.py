@@ -52,11 +52,31 @@ class Settings(BaseSettings):
         max_length=64,
         pattern=r"^[A-Za-z0-9_-]+$",
     )
+    mongo_admin_teams_collection: str = Field(
+        default="clm_admin_teams",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    mongo_admin_profiles_collection: str = Field(
+        default="clm_admin_profiles",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    mongo_admin_policies_collection: str = Field(
+        default="clm_admin_policies",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
     phase13_maya_lim_password_hash: SecretStr | None = None
     phase13_ethan_tan_password_hash: SecretStr | None = None
     phase13_sophia_ng_password_hash: SecretStr | None = None
     phase13_ryan_lee_password_hash: SecretStr | None = None
     phase13_olivia_koh_password_hash: SecretStr | None = None
+    phase14_5_hr_admin_password_hash: SecretStr | None = None
+    phase14_5_max_active_sessions: int = Field(default=256, ge=1, le=1000)
     phase13_cookie_secure: bool | None = None
     phase13_browser_origin: str | None = None
 

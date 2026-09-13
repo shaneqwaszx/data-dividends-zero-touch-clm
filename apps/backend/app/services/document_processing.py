@@ -90,6 +90,17 @@ class DocumentProcessingService:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
 
+    def review_confidence_threshold_for_case(self, case_id: UUID) -> float:
+        """Return the immutable IDP threshold captured when the case was created."""
+
+        case = self._cases.get_case(case_id)
+        if case is None:
+            raise DocumentRequestError(
+                code="ONBOARDING_CASE_NOT_FOUND",
+                message="The onboarding case was not found.",
+            )
+        return float(case.policy_snapshot.idp_review_confidence_threshold)
+
     def validate_upload_metadata(
         self, *, case_id: UUID, display_name: str, content_type: str
     ) -> None:
@@ -493,7 +504,7 @@ class DocumentProcessingService:
         return document_semantic_assessment(
             record=record,
             current_entity=parent.entity,
-            confidence_threshold=self.review_confidence_threshold,
+            confidence_threshold=float(parent.policy_snapshot.idp_review_confidence_threshold),
         )
 
     def auto_confirm_document(
@@ -611,7 +622,7 @@ class DocumentProcessingService:
             remaining = document_semantic_assessment(
                 record=record,
                 current_entity=parent.entity,
-                confidence_threshold=self.review_confidence_threshold,
+                confidence_threshold=float(parent.policy_snapshot.idp_review_confidence_threshold),
             )
             next_state = DocumentProcessingState.REVIEW_REQUIRED
             if not remaining.blockers:

@@ -12,6 +12,7 @@ import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 from phase13_test_clients import RawTestClient
+from phase13_test_credentials import build_test_authentication_service
 from phase13_test_settings import ordinary_test_settings
 from starlette.routing import BaseRoute
 
@@ -25,6 +26,11 @@ from app.domain.access import (
     TeamId,
 )
 from app.main import create_app
+from app.services.admin_repository import (
+    InMemoryProfileRepository,
+    InMemoryTeamRepository,
+    bootstrap_administration,
+)
 from app.services.authentication import (
     SESSION_TTL,
     AuthenticationConfigurationError,
@@ -110,29 +116,29 @@ def test_exact_five_profiles_are_typed_and_team_scoped() -> None:
         Role.DIRECTOR,
     ]
     assert [profile.client_scope_label for profile in SYNTHETIC_USER_PROFILES] == [
-        "DBS",
-        "DBS",
-        "OCBC",
-        "OCBC",
+        "Alpha",
+        "Alpha",
+        "Beta",
+        "Beta",
         "Global / cross-team",
     ]
     assert TEAM_BY_ID[TeamId.TEAM_A].model_dump() == {
         "team_id": TeamId.TEAM_A,
-        "display_name": "DBS Corporate Onboarding",
+        "display_name": "Alpha",
         "team_type": "Corporate Client Onboarding",
-        "client_scope_label": "DBS",
+        "client_scope_label": "Alpha",
     }
     assert TEAM_BY_ID[TeamId.TEAM_A].description == (
-        "Type: Corporate Client Onboarding | Client coverage: DBS"
+        "Type: Corporate Client Onboarding | Client coverage: Alpha"
     )
     assert TEAM_BY_ID[TeamId.TEAM_B].model_dump() == {
         "team_id": TeamId.TEAM_B,
-        "display_name": "OCBC Corporate Onboarding",
+        "display_name": "Beta",
         "team_type": "Corporate Client Onboarding",
-        "client_scope_label": "OCBC",
+        "client_scope_label": "Beta",
     }
     assert TEAM_BY_ID[TeamId.TEAM_B].description == (
-        "Type: Corporate Client Onboarding | Client coverage: OCBC"
+        "Type: Corporate Client Onboarding | Client coverage: Beta"
     )
 
 
@@ -149,7 +155,7 @@ def test_every_profile_can_login_with_runtime_credentials(
     runtime_credentials: tuple[str, dict[str, str]],
 ) -> None:
     password, hashes = runtime_credentials
-    service = AuthenticationService(hashes)
+    service = build_test_authentication_service(hashes)
 
     for profile in SYNTHETIC_USER_PROFILES:
         issued = service.login(profile.user_id, password)
@@ -162,7 +168,7 @@ def test_bad_password_and_unknown_user_use_same_failure(
     runtime_credentials: tuple[str, dict[str, str]],
 ) -> None:
     password, hashes = runtime_credentials
-    service = AuthenticationService(hashes)
+    service = build_test_authentication_service(hashes)
 
     failures = []
     for user_id, candidate in (
@@ -181,7 +187,7 @@ def test_login_rotates_previous_session(
     runtime_credentials: tuple[str, dict[str, str]],
 ) -> None:
     password, hashes = runtime_credentials
-    service = AuthenticationService(hashes)
+    service = build_test_authentication_service(hashes)
     user_id = SYNTHETIC_USER_PROFILES[0].user_id
 
     first = service.login(user_id, password)
@@ -199,7 +205,7 @@ def test_concurrent_login_keeps_exactly_one_active_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     password, hashes = runtime_credentials
-    service = AuthenticationService(hashes)
+    service = build_test_authentication_service(hashes)
     workers = 4
     barrier = Barrier(workers)
     original_token_urlsafe = authentication_module.secrets.token_urlsafe
@@ -233,7 +239,7 @@ def test_session_uses_absolute_eight_hour_expiry(
 ) -> None:
     password, hashes = runtime_credentials
     clock = MutableClock()
-    service = AuthenticationService(hashes, clock=clock)
+    service = build_test_authentication_service(hashes, clock=clock)
     issued = service.login(SYNTHETIC_USER_PROFILES[0].user_id, password)
 
     clock.now += SESSION_TTL - timedelta(microseconds=1)
@@ -246,7 +252,7 @@ def test_session_uses_absolute_eight_hour_expiry(
 
 
 def _raw_client(hashes: dict[str, str]) -> tuple[RawTestClient, AuthenticationService]:
-    service = AuthenticationService(hashes)
+    service = build_test_authentication_service(hashes)
     application = create_app(
         ordinary_test_settings(demo_controls_enabled=True),
         authentication_service=service,
@@ -270,7 +276,7 @@ def _production_raw_client(hashes: dict[str, str]) -> RawTestClient:
             phase13_browser_origin="https://clm.example",
             phase13_cookie_secure=True,
         ),
-        authentication_service=AuthenticationService(hashes),
+        authentication_service=build_test_authentication_service(hashes),
     )
     return RawTestClient(application, base_url="https://clm.example")
 
@@ -324,20 +330,12 @@ def test_authenticated_profile_projects_canonical_team_metadata(
         json={"user_id": "maya-lim", "password": password},
     ).json()["profile"]
 
-    assert team_profile["team_display_name"] == "DBS Corporate Onboarding"
+    assert team_profile["team_display_name"] == "Alpha"
     assert team_profile["team_type"] == "Corporate Client Onboarding"
     assert team_profile["team_description"] == (
-        "Type: Corporate Client Onboarding | Client coverage: DBS"
+        "Type: Corporate Client Onboarding | Client coverage: Alpha"
     )
-    assert team_profile["available_teams"] == [
-        {
-            "team_id": "TEAM_A",
-            "display_name": "DBS Corporate Onboarding",
-            "team_type": "Corporate Client Onboarding",
-            "client_scope_label": "DBS",
-            "description": "Type: Corporate Client Onboarding | Client coverage: DBS",
-        }
-    ]
+    assert team_profile["capabilities"] == ["CASE_ACCESS", "POLICY_VIEW"]
 
     director_client = RawTestClient(team_client.app)
     director_profile = director_client.post(
@@ -348,9 +346,11 @@ def test_authenticated_profile_projects_canonical_team_metadata(
     assert director_profile["team_display_name"] is None
     assert director_profile["team_type"] is None
     assert director_profile["team_description"] == "Global / cross-team access"
-    assert [team["team_id"] for team in director_profile["available_teams"]] == [
-        "TEAM_A",
-        "TEAM_B",
+    assert director_profile["capabilities"] == [
+        "CASE_ACCESS",
+        "CASE_GLOBAL",
+        "POLICY_MUTATE",
+        "POLICY_VIEW",
     ]
 
 
@@ -454,7 +454,7 @@ def test_documented_vite_origin_reaches_login_credential_verification(
     password, hashes = runtime_credentials
     application = create_app(
         ordinary_test_settings(),
-        authentication_service=AuthenticationService(hashes),
+        authentication_service=build_test_authentication_service(hashes),
     )
     client = RawTestClient(application, base_url="http://127.0.0.1:8000")
     headers = {"Origin": "http://127.0.0.1:5173"}
@@ -482,7 +482,7 @@ def test_login_rejects_foreign_origin_and_referer(
     password, hashes = runtime_credentials
     application = create_app(
         ordinary_test_settings(),
-        authentication_service=AuthenticationService(hashes),
+        authentication_service=build_test_authentication_service(hashes),
     )
     client = RawTestClient(application, base_url="http://127.0.0.1:8000")
     body = {"user_id": "maya-lim", "password": password}
@@ -736,7 +736,7 @@ def test_vite_origin_does_not_bypass_authenticated_csrf_token(
     password, hashes = runtime_credentials
     application = create_app(
         ordinary_test_settings(demo_controls_enabled=True),
-        authentication_service=AuthenticationService(hashes),
+        authentication_service=build_test_authentication_service(hashes),
     )
     client = RawTestClient(application, base_url="http://127.0.0.1:8000")
     origin = {"Origin": "http://127.0.0.1:5173"}
@@ -770,7 +770,7 @@ def test_production_does_not_trust_the_development_vite_origin(
             phase13_browser_origin="https://clm.example",
             phase13_cookie_secure=True,
         ),
-        authentication_service=AuthenticationService(hashes),
+        authentication_service=build_test_authentication_service(hashes),
     )
     client = RawTestClient(application, base_url="https://clm.example")
 
@@ -1025,11 +1025,12 @@ def test_every_current_application_route_is_deliberately_classified(
     counts = Counter(policy.access for policy in ROUTE_POLICIES)
 
     assert actual == expected
-    assert len(expected) == len(ROUTE_POLICIES) == 44
+    assert len(expected) == len(ROUTE_POLICIES) == 57
     assert counts == {
         RouteAccess.PUBLIC: 2,
-        RouteAccess.ACTOR_ONLY: 6,
+        RouteAccess.ACTOR_ONLY: 17,
         RouteAccess.CASE_CREATION: 4,
+        RouteAccess.CASE_PORTFOLIO: 2,
         RouteAccess.CASE_SCOPED: 32,
     }
 
@@ -1056,7 +1057,7 @@ def test_logout_invalidates_server_session_before_reuse(
     runtime_credentials: tuple[str, dict[str, str]],
 ) -> None:
     password, hashes = runtime_credentials
-    service = AuthenticationService(hashes)
+    service = build_test_authentication_service(hashes)
     issued = service.login(SYNTHETIC_USER_PROFILES[0].user_id, password)
 
     service.logout(issued.token)
@@ -1075,13 +1076,13 @@ def test_missing_or_malformed_credential_configuration_fails_safely(
     missing.pop(missing_user)
 
     with pytest.raises(AuthenticationConfigurationError) as missing_error:
-        AuthenticationService(missing)
+        build_test_authentication_service(missing)
     assert missing_error.value.setting_key == "PHASE13_OLIVIA_KOH_PASSWORD_HASH"
 
     malformed = dict(hashes)
     malformed[missing_user] = secrets.token_urlsafe(32)
     with pytest.raises(AuthenticationConfigurationError) as malformed_error:
-        AuthenticationService(malformed)
+        build_test_authentication_service(malformed)
     assert malformed_error.value.setting_key == "PHASE13_OLIVIA_KOH_PASSWORD_HASH"
 
 
@@ -1095,9 +1096,19 @@ def test_authentication_composition_uses_new_synthetic_profile_settings() -> Non
         phase13_sophia_ng_password_hash=encoded,
         phase13_ryan_lee_password_hash=encoded,
         phase13_olivia_koh_password_hash=encoded,
+        phase14_5_hr_admin_password_hash=encoded,
     )
-
-    service = build_authentication_service(settings)
+    teams = InMemoryTeamRepository()
+    profiles = InMemoryProfileRepository()
+    bootstrap_administration(
+        teams,
+        profiles,
+        {
+            **{profile.user_id: encoded for profile in SYNTHETIC_USER_PROFILES},
+            "hr-admin": encoded,
+        },
+    )
+    service = build_authentication_service(settings, profiles, teams)
 
     assert service.login("maya-lim", credential).record.actor.profile.display_name == "Maya Lim"
     assert service.login("olivia-koh", credential).record.actor.profile.role == Role.DIRECTOR
@@ -1107,7 +1118,7 @@ def test_authentication_values_are_not_logged(
     runtime_credentials: tuple[str, dict[str, str]], caplog: pytest.LogCaptureFixture
 ) -> None:
     password, hashes = runtime_credentials
-    service = AuthenticationService(hashes)
+    service = build_test_authentication_service(hashes)
     issued = service.login(SYNTHETIC_USER_PROFILES[0].user_id, password)
     service.authenticate_session(issued.token)
     service.logout(issued.token)

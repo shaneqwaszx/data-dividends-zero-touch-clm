@@ -39,6 +39,7 @@ _LIFECYCLE_AUTH_ENV = {
     credential_setting_key(profile.user_id): _LIFECYCLE_HASH
     for profile in SYNTHETIC_USER_PROFILES
 }
+_LIFECYCLE_AUTH_ENV[credential_setting_key("hr-admin")] = _LIFECYCLE_HASH
 
 
 @unittest.skipUnless(os.name == "nt", "Windows-only process lifecycle verification")

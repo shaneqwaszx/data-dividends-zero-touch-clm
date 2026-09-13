@@ -8,6 +8,7 @@ import type { AuthenticatedProfile } from "../types";
 import type { OnboardedRowView } from "../viewModels";
 import { mapCompletedCaseToOnboardedRow } from "../viewModels";
 import PriorityControl, { PriorityBadge, PriorityListControls } from "./PriorityControl";
+import DirectorTeamFilter from "./DirectorTeamFilter";
 
 export function OnboardedActionColumnHeader() {
   return <th aria-label="Open" />;
@@ -16,8 +17,9 @@ export function OnboardedActionColumnHeader() {
 export async function loadOnboardedRows(
   priority: PriorityFilter = "all",
   prioritySort: PrioritySort = "highest_first",
+  teamFilter?: string,
 ): Promise<OnboardedRowView[]> {
-  const items = await fetchZeroTouchCases("COMPLETED", priority, prioritySort);
+  const items = await fetchZeroTouchCases("COMPLETED", priority, prioritySort, teamFilter);
   return items.map(mapCompletedCaseToOnboardedRow);
 }
 
@@ -32,12 +34,14 @@ export default function OnboardedClients({
   const [priority, setPriority] = useState<PriorityFilter>("all");
   const [prioritySort, setPrioritySort] = useState<PrioritySort>("highest_first");
   const [search, setSearch] = useState("");
+  const [teamFilter, setTeamFilter] = useState("all");
   const queryClient = useQueryClient();
   const query = useQuery(caseListQueryOptions(
     actor.user_id,
     "COMPLETED",
     priority,
     prioritySort,
+    teamFilter,
   ));
   const clients = useMemo(
     () => (query.data ?? []).map(mapCompletedCaseToOnboardedRow),
@@ -68,6 +72,7 @@ export default function OnboardedClients({
       </p>
 
       <div className="ds-toolbar">
+        <DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} />
         <PriorityListControls
           filter={priority}
           sort={prioritySort}

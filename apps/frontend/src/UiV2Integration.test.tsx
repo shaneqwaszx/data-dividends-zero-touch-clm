@@ -33,7 +33,7 @@ import OnboardedClients, { OnboardedActionColumnHeader } from "./pages/Onboarded
 import { PolicyClassificationBadge } from "./pages/PolicyRules";
 import ReturnForReworkDialog from "./pages/ReturnForReworkDialog";
 import { createSessionQueryClient } from "./queryClient";
-import type { DocumentProcessingRecord, ReconciliationSummary, SimulationProfile, ZeroTouchCaseListItem, ZeroTouchCaseSummary, ZeroTouchException } from "./types";
+import type { AuthenticatedProfile, DocumentProcessingRecord, ReconciliationSummary, SimulationProfile, ZeroTouchCaseListItem, ZeroTouchCaseSummary, ZeroTouchException } from "./types";
 import {
   mapCaseTimelineToAuditEntries,
   mapCompletedCaseToOnboardedRow,
@@ -60,7 +60,7 @@ const listItem: ZeroTouchCaseListItem = {
   mock_goldtier_party_id: "GT-MOCK-1",
 };
 
-const actor = {
+const actor: AuthenticatedProfile = {
   user_id: "maya-lim",
   display_name: "Maya Lim",
   role: "CLIENT_ONBOARDER" as const,
@@ -69,13 +69,7 @@ const actor = {
   team_type: "Corporate Client Onboarding",
   team_description: "Type: Corporate Client Onboarding | Client coverage: DBS",
   client_scope_label: "DBS",
-  available_teams: [{
-    team_id: "TEAM_A" as const,
-    display_name: "DBS Corporate Onboarding",
-    team_type: "Corporate Client Onboarding",
-    client_scope_label: "DBS",
-    description: "Type: Corporate Client Onboarding | Client coverage: DBS",
-  }],
+  capabilities: ["POLICY_VIEW", "CASE_ACCESS"],
 };
 
 const summary = {

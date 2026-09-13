@@ -29,6 +29,9 @@ def test_hostile_environment_cannot_activate_shared_database() -> None:
             "CLM_PERSISTENCE_MODE": "mongo",
             "MONGO_DATABASE": "clm_poc",
             "MONGO_URI": "mongodb://127.0.0.1:1",
+            # The child runs at repository root, so constrain imports to this exact
+            # backend source tree instead of inheriting any ambient module location.
+            "PYTHONPATH": str(test_file.parents[1]),
         }
     )
     completed = subprocess.run(

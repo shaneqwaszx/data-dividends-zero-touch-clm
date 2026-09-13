@@ -34,6 +34,7 @@ def _legacy_case(case: OnboardingCase) -> LegacyOnboardingCaseV1:
     value = case.model_dump()
     value.pop("team_id")
     value.pop("priority")
+    value.pop("policy_snapshot")
     return LegacyOnboardingCaseV1.model_validate(value)
 
 
@@ -111,14 +112,14 @@ def test_schema_v1_reads_as_unassigned_null_priority_without_rewrite() -> None:
     decoded = store._decode(raw)  # noqa: SLF001
 
     assert raw == before
-    assert decoded.schema_version == 2
+    assert decoded.schema_version == 3
     assert decoded.revision == 7
     assert decoded.onboarding.team_id is None
     assert decoded.onboarding.priority is None
     assert decoded.onboarding.case_id == case.case_id
 
 
-def test_schema_v2_is_written_and_invalid_metadata_fails_closed() -> None:
+def test_schema_v3_is_written_and_invalid_metadata_fails_closed() -> None:
     onboarding = build_onboarding_service(settings=ordinary_test_settings())
     case = onboarding.create_staged_case("202400001A", team_id=TeamId.TEAM_A)
     case.priority = 10
@@ -133,7 +134,7 @@ def test_schema_v2_is_written_and_invalid_metadata_fails_closed() -> None:
     store = object.__new__(MongoCaseStore)
     raw = store._encode(snapshot)  # noqa: SLF001
 
-    assert raw["schema_version"] == 2
+    assert raw["schema_version"] == 3
     assert store._decode(raw) == snapshot  # noqa: SLF001
 
     bad_team = copy.deepcopy(raw)
@@ -190,7 +191,7 @@ def test_schema_discriminator_rejects_every_non_exact_integer(
         store._decode(raw)  # noqa: SLF001
 
 
-def test_schema_discriminator_accepts_only_raw_integer_one_or_two() -> None:
+def test_schema_discriminator_accepts_only_supported_raw_integers() -> None:
     onboarding = build_onboarding_service(settings=ordinary_test_settings())
     case = onboarding.create_staged_case("202400001A", team_id=TeamId.TEAM_A)
     now = datetime.now(UTC)
@@ -215,8 +216,8 @@ def test_schema_discriminator_accepts_only_raw_integer_one_or_two() -> None:
 
     assert type(raw_current["schema_version"]) is int
     assert type(raw_legacy["schema_version"]) is int
-    assert store._decode(raw_current).schema_version == 2  # noqa: SLF001
-    assert store._decode(raw_legacy).schema_version == 2  # noqa: SLF001
+    assert store._decode(raw_current).schema_version == 3  # noqa: SLF001
+    assert store._decode(raw_legacy).schema_version == 3  # noqa: SLF001
 
 
 def test_team_id_is_immutable_in_memory_and_mongo_adapters() -> None:
@@ -435,5 +436,5 @@ def test_team_lists_are_filtered_and_director_sees_both_teams() -> None:
     assert [item["case_id"] for item in list_a] == [case_a]
     assert [item["case_id"] for item in list_b] == [case_b]
     assert {item["case_id"] for item in list_director} == {case_a, case_b}
-    assert list_a[0]["client_scope_label"] == "DBS"
-    assert list_b[0]["client_scope_label"] == "OCBC"
+    assert list_a[0]["client_scope_label"] == "Alpha"
+    assert list_b[0]["client_scope_label"] == "Beta"

@@ -45,6 +45,7 @@ from app.persistence.models import (
     CASE_SNAPSHOT_SCHEMA_VERSION,
     DurableCaseSnapshot,
     DurableCaseSnapshotV1,
+    DurableCaseSnapshotV2,
 )
 
 
@@ -143,7 +144,7 @@ class MongoCaseStore:
 
         query: dict[str, Any] = {"automation": {"$ne": None}}
         if scope.team_id is not None:
-            query["onboarding.team_id"] = scope.team_id.value
+            query["onboarding.team_id"] = str(scope.team_id)
         if status is not None:
             query["automation.status"] = status.value
         projection = {
@@ -247,9 +248,13 @@ class MongoCaseStore:
             raise PersistenceDataInvalidError
         try:
             if schema_version == 1:
-                legacy = DurableCaseSnapshotV1.model_validate(value)
-                _reject_unknown_model_fields(value, legacy)
-                snapshot = legacy.to_current()
+                legacy_v1 = DurableCaseSnapshotV1.model_validate(value)
+                _reject_unknown_model_fields(value, legacy_v1)
+                snapshot = legacy_v1.to_current()
+            elif schema_version == 2:
+                legacy_v2 = DurableCaseSnapshotV2.model_validate(value)
+                _reject_unknown_model_fields(value, legacy_v2)
+                snapshot = legacy_v2.to_current()
             elif schema_version == CASE_SNAPSHOT_SCHEMA_VERSION:
                 snapshot = DurableCaseSnapshot.model_validate(value)
                 _reject_unknown_model_fields(value, snapshot)
@@ -282,7 +287,7 @@ class MongoCaseStore:
             revision = raw["revision"]
             if type(schema_version) is not int or type(revision) is not int or revision < 0:
                 raise PersistenceDataInvalidError
-            if schema_version not in {1, CASE_SNAPSHOT_SCHEMA_VERSION}:
+            if schema_version not in {1, 2, CASE_SNAPSHOT_SCHEMA_VERSION}:
                 raise PersistenceSchemaUnsupportedError
             envelope_id = _canonical_uuid(raw["_id"])
             if _canonical_uuid(raw["case_id"]) != envelope_id:
@@ -382,9 +387,7 @@ class MongoCaseStore:
         except (KeyError, TypeError, ValueError, ValidationError):
             raise PersistenceDataInvalidError from None
 
-    def _recover_interrupted(
-        self, snapshot: DurableCaseSnapshot
-    ) -> DurableCaseSnapshot:
+    def _recover_interrupted(self, snapshot: DurableCaseSnapshot) -> DurableCaseSnapshot:
         """Conservatively classify state whose transient inputs/outcome were lost."""
 
         now = datetime.now(UTC)
@@ -422,9 +425,7 @@ class MongoCaseStore:
                     document_id=recovered.document_id,
                     correlation_id=recovered.correlation_id,
                     code="DOCUMENT_REUPLOAD_REQUIRED",
-                    message=(
-                        "Interrupted processing requires explicit document re-upload."
-                    ),
+                    message=("Interrupted processing requires explicit document re-upload."),
                 )
             )
             documents.append(recovered)
@@ -532,10 +533,7 @@ def _persistence_value(value: object) -> Any:
     """Serialize every declared model field, including backend-only excluded fields."""
 
     if isinstance(value, BaseModel):
-        return {
-            name: _persistence_value(getattr(value, name))
-            for name in type(value).model_fields
-        }
+        return {name: _persistence_value(getattr(value, name)) for name in type(value).model_fields}
     if isinstance(value, dict):
         return {
             str(key.value if isinstance(key, Enum) else key): _persistence_value(item)

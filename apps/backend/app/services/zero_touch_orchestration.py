@@ -1210,7 +1210,8 @@ class ZeroTouchOrchestrator:
             for field in document.fields
             if (
                 field.original_extracted_value is None
-                or field.confidence < self._documents.review_confidence_threshold
+                or field.confidence
+                < self._documents.review_confidence_threshold_for_case(record.case_id)
                 or field.comparison_status.value != "MATCH"
             )
         )[:4]

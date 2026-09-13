@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Protocol
 from uuid import uuid4
 
-EPHEMERAL_MONGO_DATABASE_PATTERN = re.compile(r"^clm_p(?:12|13|14)_[0-9a-f]{24}$")
+EPHEMERAL_MONGO_DATABASE_PATTERN = re.compile(r"^clm_p(?:12|13|14|145)_[0-9a-f]{24}$")
 
 
 class MongoCleanupClient(Protocol):
@@ -22,7 +22,7 @@ class MongoCleanupFailure(RuntimeError):
 
 
 def generate_ephemeral_mongo_database(phase: str) -> str:
-    if phase not in {"p12", "p13", "p14"}:
+    if phase not in {"p12", "p13", "p14", "p145"}:
         raise ValueError("unsupported physical-test phase")
     return f"clm_{phase}_{uuid4().hex[:24]}"
 

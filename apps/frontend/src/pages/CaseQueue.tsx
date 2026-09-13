@@ -5,11 +5,12 @@ import { deleteZeroTouchCase, fetchZeroTouchCases } from "../api";
 import type { PriorityFilter, PrioritySort } from "../api";
 import { caseDeletedEffect, caseListQueryOptions, priorityMutationEffect } from "../caseQueries";
 import { formatDateNoSeconds, stageProgressLabel } from "../shared";
-import type { AuthenticatedProfile } from "../types";
 import type { CaseRowView } from "../viewModels";
 import { mapZeroTouchCaseToCaseRow } from "../viewModels";
 import DeleteCaseDialog from "./DeleteCaseDialog";
 import PriorityControl, { PriorityBadge, PriorityListControls } from "./PriorityControl";
+import DirectorTeamFilter from "./DirectorTeamFilter";
+import type { AuthenticatedProfile } from "../types";
 
 function statusTagClass(status: CaseRowView["status"]): string {
   if (status === "COMPLETED") return "tag tag-accent";
@@ -22,8 +23,9 @@ export async function loadCaseQueueRows(
   status?: CaseRowView["status"],
   priority: PriorityFilter = "all",
   prioritySort: PrioritySort = "highest_first",
+  teamFilter?: string,
 ): Promise<CaseRowView[]> {
-  const items = await fetchZeroTouchCases(status, priority, prioritySort);
+  const items = await fetchZeroTouchCases(status, priority, prioritySort, teamFilter);
   return items.map(mapZeroTouchCaseToCaseRow);
 }
 
@@ -55,6 +57,7 @@ export default function CaseQueue({
   onOpenCase: (caseId: string) => void;
 }) {
   const { status, priority, prioritySort, jurisdiction, search } = presentation;
+  const [teamFilter, setTeamFilter] = useState("all");
   const updatePresentation = (change: Partial<CaseQueuePresentationState>) =>
     onPresentationChange({ ...presentation, ...change });
   const queryClient = useQueryClient();
@@ -64,6 +67,7 @@ export default function CaseQueue({
     status ? status as CaseRowView["status"] : undefined,
     priority,
     prioritySort,
+    teamFilter,
   ));
   const cases = useMemo(
     () => (query.data ?? []).map(mapZeroTouchCaseToCaseRow),
@@ -104,6 +108,7 @@ export default function CaseQueue({
         </div>
       </div>
       <div className="ds-toolbar">
+        <DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} />
         <select
           className="input"
           style={{ width: 200 }}
