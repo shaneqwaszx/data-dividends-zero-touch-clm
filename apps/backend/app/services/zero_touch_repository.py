@@ -37,6 +37,8 @@ class ZeroTouchAutomationRepository(Protocol):
 
     def list_records(self) -> list[ZeroTouchAutomationRecord]: ...
 
+    def delete_for_case(self, case_id: UUID) -> None: ...
+
 
 class InMemoryZeroTouchAutomationRepository:
     def __init__(self) -> None:
@@ -73,3 +75,7 @@ class InMemoryZeroTouchAutomationRepository:
         with self._lock:
             records = [record.model_copy(deep=True) for record in self._records.values()]
         return order_zero_touch_automation_records(records)
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        with self._lock:
+            self._records.pop(case_id, None)

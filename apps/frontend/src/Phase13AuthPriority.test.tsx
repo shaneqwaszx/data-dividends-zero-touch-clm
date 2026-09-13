@@ -57,6 +57,10 @@ function makeListItem(
     active_exception_count: 0,
     human_interventions: 0,
     final_outcome: null,
+    resolved_jurisdiction: "SG",
+    created_at: updatedAt,
+    completed_at: null,
+    mock_goldtier_party_id: null,
   };
 }
 
@@ -345,6 +349,10 @@ describe("Phase 13 authenticated frontend boundary", () => {
       active_exception_count: 0,
       human_interventions: 0,
       final_outcome: null,
+      resolved_jurisdiction: "SG",
+      created_at: "2026-09-07T00:00:00Z",
+      completed_at: null,
+      mock_goldtier_party_id: null,
     }));
     expect(items.map((item) => mapZeroTouchCaseToCaseRow(item).priority)).toEqual([10, 5, null]);
   });
@@ -367,19 +375,13 @@ describe("Phase 13 authenticated frontend boundary", () => {
     ];
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(initial))
-      .mockResolvedValueOnce(jsonResponse(makeDetail(caseA, "2026-09-07T05:00:00Z")))
-      .mockResolvedValueOnce(jsonResponse(makeDetail(caseB, "2026-09-07T04:00:00Z")))
-      .mockResolvedValueOnce(jsonResponse(makeDetail(caseC, "2026-09-07T02:00:00Z")))
       .mockResolvedValueOnce(jsonResponse({
         case_id: caseC,
         team_id: "TEAM_A",
         priority: 9,
         updated_at: caseMutationTimestamp,
       }))
-      .mockResolvedValueOnce(jsonResponse(refetched))
-      .mockResolvedValueOnce(jsonResponse(makeDetail(caseA, "2026-09-07T05:00:00Z")))
-      .mockResolvedValueOnce(jsonResponse(makeDetail(caseC, caseMutationTimestamp)))
-      .mockResolvedValueOnce(jsonResponse(makeDetail(caseB, "2026-09-07T04:00:00Z")));
+      .mockResolvedValueOnce(jsonResponse(refetched));
     vi.stubGlobal("fetch", fetchMock);
     configureAuthenticatedTransport({ csrfToken: session.csrf_token, onUnauthorized: null });
 

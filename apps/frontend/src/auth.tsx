@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
 
 import {
   ApiError,
@@ -16,6 +17,8 @@ import {
   logout as requestLogout,
 } from "./api";
 import type { AuthSession } from "./types";
+import { prefetchSessionQueries } from "./caseQueries";
+import { clearSessionQueries, createSessionQueryClient } from "./queryClient";
 
 type AuthStatus = "loading" | "anonymous" | "authenticated";
 export interface AuthState {
@@ -50,6 +53,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(createSessionQueryClient);
   const [authState, setAuthState] = useState<AuthState>({
     status: "loading",
     session: null,
@@ -57,9 +61,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const clearSession = useCallback(() => {
+    clearSessionQueries(queryClient);
     configureAuthenticatedTransport({ csrfToken: null, onUnauthorized: null });
     setAuthState((state) => transitionAuthState(state, { type: "ANONYMOUS" }));
-  }, []);
+  }, [queryClient]);
+
+  const acceptSession = useCallback((authenticated: AuthSession) => {
+    clearSessionQueries(queryClient);
+    configureAuthenticatedTransport({
+      csrfToken: authenticated.csrf_token,
+      onUnauthorized: clearSession,
+    });
+    setAuthState((state) => transitionAuthState(state, {
+      type: "AUTHENTICATED",
+      session: authenticated,
+    }));
+    prefetchSessionQueries(queryClient, authenticated.profile);
+  }, [clearSession, queryClient]);
 
   useEffect(() => {
     let current = true;
@@ -67,14 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void fetchCurrentSession()
       .then((restored) => {
         if (!current) return;
-        configureAuthenticatedTransport({
-          csrfToken: restored.csrf_token,
-          onUnauthorized: clearSession,
-        });
-        setAuthState((state) => transitionAuthState(state, {
-          type: "AUTHENTICATED",
-          session: restored,
-        }));
+        acceptSession(restored);
       })
       .catch(() => {
         if (current) clearSession();
@@ -82,20 +93,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       current = false;
     };
-  }, [clearSession]);
+  }, [acceptSession, clearSession]);
 
   const login = useCallback(async (userId: string, credential: string) => {
     setAuthState((state) => ({ ...state, error: null }));
     try {
       const authenticated = await requestLogin(userId, credential);
-      configureAuthenticatedTransport({
-        csrfToken: authenticated.csrf_token,
-        onUnauthorized: clearSession,
-      });
-      setAuthState((state) => transitionAuthState(state, {
-        type: "AUTHENTICATED",
-        session: authenticated,
-      }));
+      acceptSession(authenticated);
     } catch (loginError) {
       const message = loginError instanceof ApiError
           ? loginError.message
@@ -103,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthState((state) => transitionAuthState(state, { type: "LOGIN_ERROR", message }));
       throw loginError;
     }
-  }, [clearSession]);
+  }, [acceptSession]);
 
   const logout = useCallback(async () => {
     try {
@@ -117,7 +121,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({ ...authState, login, logout }),
     [authState, login, logout],
   );
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+    </QueryClientProvider>
+  );
 }
 
 export function useAuth(): AuthContextValue {

@@ -30,14 +30,14 @@ class FakeCleanupClient:
 
 
 def test_generated_physical_database_names_are_narrowly_allowlisted() -> None:
-    for phase in ("p12", "p13", "p145"):
+    for phase in ("p12", "p13", "p14", "p145"):
         database = generate_ephemeral_mongo_database(phase)
         assert require_ephemeral_mongo_database(database) == database
 
 
 @pytest.mark.parametrize(
     "database",
-    ["clm_poc", "clm_p13_test", "clm_p14_0123456789abcdef01234567", "", "clm_p13_../x"],
+    ["clm_poc", "clm_p13_test", "clm_p14_short", "", "clm_p13_../x"],
 )
 def test_cleanup_rejects_shared_or_arbitrary_database_names(database: str) -> None:
     client = FakeCleanupClient()

@@ -100,6 +100,8 @@
 .ds-root .btn-primary:hover { background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
 .btn-secondary { border-color: var(--color-divider); }
 .ds-root .btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.btn-danger { color: #9f1c1c; border-color: #c94040; }
+.ds-root .btn-danger:hover { color: #741414; background: #fff0f0; }
 .btn-ghost { color: var(--color-accent); padding-inline: var(--space-1); }
 .ds-root .btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
 .btn-block { width: 100%; margin-top: var(--space-2); }

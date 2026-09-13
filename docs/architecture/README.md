@@ -29,5 +29,8 @@ priority ordering, and schema-v2 compatibility boundary are documented in
 Phase 14.5's persistent identity/team administration, typed policy catalogue, dynamic
 Director filter, and immutable schema-v3 case policy binding are documented in
 [PHASE_14_5_POLICY_TEAM_IDENTITY_ADMIN.md](PHASE_14_5_POLICY_TEAM_IDENTITY_ADMIN.md).
+Phase 14's projected portfolio read model, session-memory query cache, explicit
+create/update lifecycle, and authorized hard-delete boundary are documented in
+[PHASE_14_CASE_MANAGEMENT_PERFORMANCE.md](PHASE_14_CASE_MANAGEMENT_PERFORMANCE.md).
 
 Later phases should update that baseline only when an approved planner handoff introduces a new boundary or decision.

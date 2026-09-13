@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { ApiError, fetchZeroTouchCase, fetchZeroTouchCases } from "../api";
+import { fetchZeroTouchCases } from "../api";
 import type { PriorityFilter, PrioritySort } from "../api";
+import { caseListQueryOptions, priorityMutationEffect } from "../caseQueries";
+import type { AuthenticatedProfile } from "../types";
 import type { OnboardedRowView } from "../viewModels";
 import { mapCompletedCaseToOnboardedRow } from "../viewModels";
 import PriorityControl, { PriorityBadge, PriorityListControls } from "./PriorityControl";
 import DirectorTeamFilter from "./DirectorTeamFilter";
-import type { AuthenticatedProfile } from "../types";
 
 export function OnboardedActionColumnHeader() {
   return <th aria-label="Open" />;
@@ -18,8 +20,7 @@ export async function loadOnboardedRows(
   teamFilter?: string,
 ): Promise<OnboardedRowView[]> {
   const items = await fetchZeroTouchCases("COMPLETED", priority, prioritySort, teamFilter);
-  const details = await Promise.all(items.map((item) => fetchZeroTouchCase(item.case_id)));
-  return items.map((item, index) => mapCompletedCaseToOnboardedRow(item, details[index]));
+  return items.map(mapCompletedCaseToOnboardedRow);
 }
 
 export default function OnboardedClients({
@@ -29,47 +30,26 @@ export default function OnboardedClients({
   actor: AuthenticatedProfile;
   onOpenClient: (clientId: string) => void;
 }) {
-  const [clients, setClients] = useState<OnboardedRowView[]>([]);
   const [jurisdiction, setJurisdiction] = useState("");
   const [priority, setPriority] = useState<PriorityFilter>("all");
   const [prioritySort, setPrioritySort] = useState<PrioritySort>("highest_first");
   const [search, setSearch] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [teamFilter, setTeamFilter] = useState("all");
-
-  useEffect(() => {
-    setIsLoading(true);
-    void loadOnboardedRows(priority, prioritySort, teamFilter)
-      .then((items) => {
-        setClients(items);
-        setError(null);
-      })
-      .catch((requestError) => {
-        setError(
-          requestError instanceof ApiError
-            ? requestError.message
-            : "The onboarded client list is unavailable.",
-        );
-      })
-      .finally(() => setIsLoading(false));
-  }, [priority, prioritySort, teamFilter]);
+  const queryClient = useQueryClient();
+  const query = useQuery(caseListQueryOptions(
+    actor.user_id,
+    "COMPLETED",
+    priority,
+    prioritySort,
+    teamFilter,
+  ));
+  const clients = useMemo(
+    () => (query.data ?? []).map(mapCompletedCaseToOnboardedRow),
+    [query.data],
+  );
 
   async function refreshAfterPriorityUpdate(): Promise<void> {
-    setIsLoading(true);
-    setError(null);
-    try {
-      setClients(await loadOnboardedRows(priority, prioritySort, teamFilter));
-    } catch (requestError) {
-      setError(
-        requestError instanceof ApiError
-          ? requestError.message
-          : "The onboarded client list is unavailable.",
-      );
-      throw requestError;
-    } finally {
-      setIsLoading(false);
-    }
+    await priorityMutationEffect(queryClient, actor.user_id);
   }
 
   const filteredClients = useMemo(() => {
@@ -133,12 +113,14 @@ export default function OnboardedClients({
         Risk assessment is not connected in this POC; risk and next-review values remain unavailable.
       </p>
 
-      {error && <div className="ds-banner ds-banner-warn">{error}</div>}
-      {!error && isLoading && <p className="text-muted">Loading clients…</p>}
-      {!error && !isLoading && filteredClients.length === 0 && (
+      {query.isError && !query.data && <div className="ds-banner ds-banner-warn">{query.error instanceof Error ? query.error.message : "The onboarded client list is unavailable."}</div>}
+      {query.isError && query.data && <div className="ds-banner ds-banner-warn">Refresh failed; cached clients remain visible.</div>}
+      {query.isPending && <p className="text-muted">Loading clients…</p>}
+      {query.isFetching && !query.isPending && <p className="refreshing-indicator">Refreshing…</p>}
+      {!query.isError && !query.isPending && filteredClients.length === 0 && (
         <p className="text-muted">No clients match these filters.</p>
       )}
-      {!error && filteredClients.length > 0 && (
+      {filteredClients.length > 0 && (
         <div className="table-card table-scroll" tabIndex={0} aria-label="Completed Mock workflow cases">
           <table className="table onboarded-table">
             <thead>

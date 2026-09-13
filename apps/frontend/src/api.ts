@@ -156,6 +156,13 @@ export async function updateCasePriority(
   return parseResponse<CasePriorityResult>(response);
 }
 
+export async function deleteZeroTouchCase(caseId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) await parseResponse<never>(response);
+}
+
 export async function attachZeroTouchDocument(
   caseId: string,
   file: File,
@@ -238,6 +245,7 @@ export async function fetchZeroTouchCases(
   priority: PriorityFilter = "all",
   prioritySort: PrioritySort = "highest_first",
   teamFilter?: string,
+  signal?: AbortSignal,
 ): Promise<ZeroTouchCaseListItem[]> {
   const query = new URLSearchParams();
   if (status) query.set("status", status);
@@ -245,15 +253,15 @@ export async function fetchZeroTouchCases(
   if (prioritySort !== "highest_first") query.set("priority_sort", prioritySort);
   if (teamFilter && teamFilter !== "all") query.set("team_filter", teamFilter);
   const suffix = query.size ? `?${query.toString()}` : "";
-  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases${suffix}`);
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases${suffix}`, { signal });
   return parseResponse<ZeroTouchCaseListItem[]>(response);
 }
 
-export async function fetchDashboard(teamFilter?: string): Promise<DashboardSnapshot> {
+export async function fetchDashboard(teamFilter?: string, signal?: AbortSignal): Promise<DashboardSnapshot> {
   const query = teamFilter && teamFilter !== "all"
     ? `?team_filter=${encodeURIComponent(teamFilter)}`
     : "";
-  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/dashboard${query}`);
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/dashboard${query}`, { signal });
   return parseResponse<DashboardSnapshot>(response);
 }
 
@@ -289,8 +297,8 @@ export async function fetchZeroTouchCase(
   return parseResponse<ZeroTouchCaseSummary>(response);
 }
 
-export async function fetchExecutionProfile(): Promise<SimulationProfile> {
-  const response = await fetch(`${API_BASE_URL}/api/system/execution-profile`);
+export async function fetchExecutionProfile(signal?: AbortSignal): Promise<SimulationProfile> {
+  const response = await fetch(`${API_BASE_URL}/api/system/execution-profile`, { signal });
   return parseResponse<SimulationProfile>(response);
 }
 
@@ -416,8 +424,14 @@ export async function submitClmCase(caseId: string): Promise<ClmCaseSummary> {
   return parseResponse<ClmCaseSummary>(response);
 }
 
-export async function fetchDocuments(caseId: string): Promise<DocumentProcessingRecord[]> {
-  const response = await fetch(`${API_BASE_URL}/api/onboarding/cases/${caseId}/documents`);
+export async function fetchDocuments(
+  caseId: string,
+  signal?: AbortSignal,
+): Promise<DocumentProcessingRecord[]> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/onboarding/cases/${caseId}/documents`,
+    { signal },
+  );
   return parseResponse<DocumentProcessingRecord[]>(response);
 }
 
@@ -464,8 +478,12 @@ export async function reviewDocument(
 
 export async function fetchOwnership(
   caseId: string,
+  signal?: AbortSignal,
 ): Promise<OwnershipAnalysisRecord | null> {
-  const response = await fetch(`${API_BASE_URL}/api/onboarding/cases/${caseId}/ownership`);
+  const response = await fetch(
+    `${API_BASE_URL}/api/onboarding/cases/${caseId}/ownership`,
+    { signal },
+  );
   if (response.status === 404) return null;
   return parseResponse<OwnershipAnalysisRecord>(response);
 }

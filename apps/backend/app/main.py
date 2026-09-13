@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api_admin import build_admin_router
@@ -67,7 +67,17 @@ from app.domain.zero_touch import (
 from app.persistence.composition import build_persistence_bundle
 from app.services.administration import AdministrationService, AdministrationValidationError
 from app.services.authentication import AuthenticationConfigurationError, AuthenticationService
-from app.services.authorization import CaseAccessPolicy, CreationTeamSelectionError
+from app.services.authorization import (
+    CaseAccessPolicy,
+    CaseNotAvailableError,
+    CreationTeamSelectionError,
+)
+from app.services.case_deletion import (
+    CaseDeleteConflictError,
+    CaseDeleteForbiddenError,
+    CaseDeleteUnavailableError,
+    CaseDeletionService,
+)
 from app.services.case_query import (
     CaseQueryService,
     CaseTeamFilterForbiddenError,
@@ -305,6 +315,7 @@ def create_app(
         reconciliation,
         active_settings,
         repository=persistence.automation,
+        establishment_discard=persistence.deletion.discard,
         durable_provider_bindings=persistence.mode == "mongo",
     )
     cookie_secure = (
@@ -325,8 +336,20 @@ def create_app(
         automation_repository=zero_touch.automation_repository,
         access_policy=access_policy,
         teams=persistence.teams,
+        portfolio_repository=(
+            persistence.portfolio
+            if onboarding_service is None and zero_touch_orchestrator is None
+            else None
+        ),
     )
     dashboard = DashboardService(case_query, administration.directory)
+    case_deletion = CaseDeletionService(
+        cases=service,
+        access_policy=access_policy,
+        repository=persistence.deletion,
+        release_provider_binding=zero_touch.release_provider_binding,
+        release_demo_transients=zero_touch_demo.release_case_transients,
+    )
     application.include_router(
         build_auth_router(
             authentication,
@@ -1136,12 +1159,52 @@ def create_app(
             ) from None
         return [
             ZeroTouchCaseListItemResponse.from_domain(
-                item.automation,
-                item.case,
-                administration.directory.get(item.case.team_id),
+                item, administration.directory.get(item.team_id)
             )
             for item in records
         ]
+
+    @application.delete(
+        "/api/clm/zero-touch/cases/{case_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["zero-touch"],
+    )
+    def delete_zero_touch_case(
+        case_id: UUID,
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+    ) -> Response:
+        try:
+            case_deletion.delete(actor, case_id)
+        except CaseNotAvailableError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Zero-touch case not found",
+            ) from None
+        except CaseDeleteForbiddenError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "CASE_DELETE_FORBIDDEN",
+                    "message": "This role cannot delete cases.",
+                },
+            ) from None
+        except CaseDeleteConflictError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "CASE_DELETE_CONFLICT",
+                    "message": "The case changed before deletion completed.",
+                },
+            ) from None
+        except CaseDeleteUnavailableError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "CASE_DELETE_UNAVAILABLE",
+                    "message": "Case deletion is temporarily unavailable.",
+                },
+            ) from None
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @application.get(
         "/api/clm/zero-touch/dashboard",
@@ -1206,8 +1269,11 @@ def create_app(
                 request.country_of_incorporation,
                 team_id=creation_team(request, actor),
                 priority=request.priority,
+                establishment_action=lambda case_id: zero_touch_demo.register(
+                    case_id, request.scenario
+                ),
+                establishment_rollback=zero_touch_demo.discard_case,
             )
-            zero_touch_demo.register(record.case_id, request.scenario)
             return zero_touch_response(record)
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None

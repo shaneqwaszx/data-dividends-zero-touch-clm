@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
-import { fetchDashboard } from "../api";
 import DirectorTeamFilter from "./DirectorTeamFilter";
+import { dashboardQueryOptions } from "../caseQueries";
 import { formatDateNoSeconds } from "../shared";
 import type { AuthenticatedProfile, DashboardCaseItem, DashboardSnapshot } from "../types";
 
@@ -96,28 +97,13 @@ export default function Dashboard({
   actor: AuthenticatedProfile;
   onOpenCase: (caseId: string) => void;
 }) {
-  const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [teamFilter, setTeamFilter] = useState("all");
+  const query = useQuery(dashboardQueryOptions(actor.user_id, teamFilter));
+  const dashboard = query.data;
 
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      setDashboard(await fetchDashboard(teamFilter));
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Dashboard data is unavailable.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { void load(); }, [teamFilter]);
-
-  if (loading) return <section className="ds-root ds-page"><DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} /><p className="text-muted">Loading dashboard…</p></section>;
-  if (error) return <section className="ds-root ds-page"><DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} /><div className="ds-banner ds-banner-warn" role="alert">{error}</div><button className="btn btn-secondary" type="button" onClick={() => void load()}>Try again</button></section>;
+  if (query.isPending) return <section className="ds-root ds-page"><DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} /><p className="text-muted">Loading dashboard…</p></section>;
+  if (query.isError && !dashboard) return <section className="ds-root ds-page"><DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} /><div className="ds-banner ds-banner-warn" role="alert">{query.error instanceof Error ? query.error.message : "Dashboard data is unavailable."}</div><button className="btn btn-secondary" type="button" onClick={() => void query.refetch()}>Try again</button></section>;
   if (!dashboard) return null;
 
-  return <><DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} /><DashboardView actor={actor} dashboard={dashboard} onOpenCase={onOpenCase} onRefresh={() => void load()} /></>;
+  return <><DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} />{query.isFetching && <p className="refreshing-indicator">Refreshing…</p>}{query.isError && <div className="ds-banner ds-banner-warn" role="alert">Refresh failed; the last dashboard snapshot remains visible.</div>}<DashboardView actor={actor} dashboard={dashboard} onOpenCase={onOpenCase} onRefresh={() => void query.refetch()} /></>;
 }

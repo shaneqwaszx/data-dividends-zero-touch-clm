@@ -247,6 +247,7 @@ def build_zero_touch_orchestrator(
     reconciliation_service: ReconciliationService,
     settings: Settings,
     repository: ZeroTouchAutomationRepository | None = None,
+    establishment_discard: Callable[[UUID], str | None] | None = None,
     durable_provider_bindings: bool = False,
 ) -> ZeroTouchOrchestrator:
     """Compose the provider-neutral Phase 06 automation owner."""
@@ -267,6 +268,7 @@ def build_zero_touch_orchestrator(
         reconciliation=reconciliation_service,
         repository=repository or InMemoryZeroTouchAutomationRepository(),
         ownership_provider_bindings=provider_bindings,
+        establishment_discard=establishment_discard,
         max_transitions_per_run=settings.zero_touch_max_transitions_per_run,
     )
 

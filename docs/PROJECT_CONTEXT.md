@@ -413,3 +413,29 @@ names and clean only those generated databases. The shared demo database contain
 unrelated historical collisions for one showcase team/UEN; the selected ten-case
 showcase set remains five exact successful cases per team, and no shared history was
 deleted or manually rewritten.
+
+## Phase 14 implementation status
+
+Phase 14 uses one backend-authored portfolio projection for historical Cases, Onboarded,
+and Dashboard input. Normal list rendering is one HTTP request and zero row-detail
+requests; Mongo supplies it with one team-scoped projected query and no per-case gets.
+The additive list contract includes jurisdiction, lifecycle timestamps, and Mock target
+identifier without exposing heavy evidence bodies. TanStack Query retains authenticated
+GET results in browser memory for 45 seconds, cancels and clears all data on logout/401/
+login/identity change, and never uses browser persistent storage.
+
+The canonical case lifecycle now separates insert-only create from update-only save.
+Zero-touch establishment reserves its case identity and holds the same canonical
+per-case reentrant lock used by DELETE across onboarding, initial CLM, automation, and
+applicable demo-scenario writes. A failed required establishment write triggers bounded
+same-case aggregate rollback through local repository boundaries, with no external
+Registry/IDP/Ownership/GoldTier deletion. Confirmed deletion first cancels the
+authenticated user's in-flight case-list and Dashboard queries before removing cached
+case resources, so an older response cannot restore a deleted row.
+Authorized Director and Relationship Manager users can permanently delete any accessible
+case through a CSRF-protected `DELETE` route under the existing case lock; Client
+Onboarders cannot. Mongo uses revision compare-and-delete and memory removes the complete
+case-owned aggregate before transient provider/demo state is released. No external
+connector or target rollback is called. The role matrix, permanent-deletion policy, and
+cache interval are **PROJECT-DEFINED POC BEHAVIOR PENDING SPONSOR CONFIRMATION.** This is
+not a production retention/erasure policy or distributed concurrency guarantee.

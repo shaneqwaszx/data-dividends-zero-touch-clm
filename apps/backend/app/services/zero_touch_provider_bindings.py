@@ -21,6 +21,8 @@ class OwnershipProviderBindingResolver(Protocol):
 
     def resolve(self, binding_id: str) -> OwnershipProvider | None: ...
 
+    def release(self, binding_id: str) -> None: ...
+
 
 class InMemoryOwnershipProviderBindingResolver:
     """Keep provider factories outside persisted automation records."""
@@ -44,6 +46,11 @@ class InMemoryOwnershipProviderBindingResolver:
         with self._lock:
             factory = self._factories.get(binding_id)
         return factory() if factory is not None else None
+
+    def release(self, binding_id: str) -> None:
+        with self._lock:
+            if binding_id != self._default_binding_id:
+                self._factories.pop(binding_id, None)
 
 
 class DurableOwnershipProviderBindingResolver:
@@ -74,6 +81,9 @@ class DurableOwnershipProviderBindingResolver:
             if binding_id == self._binding_id(f"MOCK:{scenario.value}"):
                 return MockOwnershipProvider(scenario)
         return None
+
+    def release(self, binding_id: str) -> None:
+        del binding_id
 
     @staticmethod
     def _binding_id(profile: str) -> str:

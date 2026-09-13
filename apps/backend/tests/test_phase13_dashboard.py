@@ -147,7 +147,7 @@ def _dashboard() -> tuple[DashboardService, StaticAutomationRepository]:
     ]
     cases = InMemoryOnboardingCaseRepository()
     for case, _ in fixtures:
-        cases.save(case)
+        cases.create(case)
     onboarding = build_onboarding_service(settings=ordinary_test_settings(), repository=cases)
     automations = StaticAutomationRepository([record for _, record in fixtures])
     teams = _teams()

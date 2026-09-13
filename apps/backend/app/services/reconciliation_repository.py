@@ -43,6 +43,8 @@ class ReconciliationRepository(Protocol):
         self, case_id: UUID, snapshot: ReconciliationCaseRecord | None
     ) -> None: ...
 
+    def delete_for_case(self, case_id: UUID) -> None: ...
+
 
 class ReconciliationUnitOfWork(Protocol):
     def commit_resolution(
@@ -117,6 +119,10 @@ class InMemoryReconciliationRepository:
             self._records.pop(case_id, None)
         else:
             self._records[case_id] = snapshot.model_copy(deep=True)
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        with self._lock:
+            self._records.pop(case_id, None)
 
 
 class ProcessLocalReconciliationUnitOfWork:

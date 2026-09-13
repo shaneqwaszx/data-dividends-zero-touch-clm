@@ -777,6 +777,10 @@ export interface ZeroTouchCaseListItem {
   active_exception_count: number;
   human_interventions: number;
   final_outcome: string | null;
+  resolved_jurisdiction: "SG" | "AU" | "MY" | "HK" | null;
+  created_at: string;
+  completed_at: string | null;
+  mock_goldtier_party_id: string | null;
 }
 
 export interface DashboardScope {
