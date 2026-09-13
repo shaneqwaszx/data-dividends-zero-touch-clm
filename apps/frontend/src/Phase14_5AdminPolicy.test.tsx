@@ -37,6 +37,8 @@ const hr: AuthenticatedProfile = {
   capabilities: ["POLICY_VIEW", "IDENTITY_ADMIN", "TEAM_ADMIN"],
 };
 
+const testCredential = "test_placeholder";
+
 const director: AuthenticatedProfile = {
   ...hr,
   user_id: "olivia-koh",
@@ -128,7 +130,7 @@ describe("Phase 14.5 administration and team filtering", () => {
       display_name: "Gamma RM",
       role: "RELATIONSHIP_MANAGER",
       team_id: "TEAM_0123456789ABCDEF01234567",
-      password: "runtime-only test credential",
+      password: testCredential,
     });
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect(init.method).toBe("POST");

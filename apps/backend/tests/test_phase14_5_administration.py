@@ -32,7 +32,7 @@ def _repositories():
     teams = InMemoryTeamRepository()
     profiles = InMemoryProfileRepository()
     policies = InMemoryPolicyRepository()
-    encoded = SecretStr(generate_scrypt_password_hash("runtime-only test password"))
+    encoded = SecretStr(generate_scrypt_password_hash(TEST_PASSWORD))
     hashes = {
         user_id: encoded
         for user_id in (
@@ -198,7 +198,7 @@ def test_profile_mongo_codec_round_trips_seeded_roles_and_new_profile() -> None:
         display_name="Gamma RM",
         role=Role.RELATIONSHIP_MANAGER,
         team_id=TeamId.TEAM_B,
-        password="runtime-only Gamma password",
+        password=TEST_PASSWORD,
     )
     selected_ids = ("maya-lim", "ethan-tan", "olivia-koh", "hr-admin")
     selected = [profiles.get(user_id) for user_id in selected_ids]
@@ -280,7 +280,7 @@ def test_hr_admin_api_creates_dynamic_team_and_safe_profile() -> None:
     gamma_id = created_team.json()["team_id"]
     assert gamma_id.startswith("TEAM_") and len(gamma_id) == 29
 
-    password = "runtime-only Gamma password"
+    password = TEST_PASSWORD
     created_profile = client.post(
         "/api/admin/profiles",
         headers={"X-CSRF-Token": csrf},
@@ -397,7 +397,7 @@ def test_hr_cannot_self_demote_when_another_hr_exists() -> None:
         display_name="Second HR",
         role=Role.HR,
         team_id=None,
-        password="runtime-only second HR password",
+        password=TEST_PASSWORD,
     )
     current = profiles.get("hr-admin")
     assert current is not None
@@ -426,7 +426,7 @@ def test_concurrent_cross_demotion_atomically_preserves_exactly_one_hr() -> None
         display_name="Second HR",
         role=Role.HR,
         team_id=None,
-        password="runtime-only second HR password",
+        password=TEST_PASSWORD,
     )
     start = Barrier(3)
     actors = {
