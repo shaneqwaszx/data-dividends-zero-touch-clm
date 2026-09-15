@@ -197,12 +197,6 @@ def validate(root: Path) -> list[str]:
             failures.append(
                 "verified_main_sha must exist and be reachable from origin/main"
             )
-        else:
-            origin_main = _git(root, "rev-parse", "origin/main").stdout.strip()
-            if origin_main != baseline:
-                failures.append(
-                    "origin/main has advanced beyond verified_main_sha; refresh project state"
-                )
 
     verified_date: date | None = None
     raw_date = state.get("verified_date")

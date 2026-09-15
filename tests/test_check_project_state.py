@@ -171,13 +171,26 @@ class ProjectStateCheckerTests(unittest.TestCase):
         finally:
             temporary.cleanup()
 
-    def test_catches_origin_main_advancing_beyond_verified_baseline(self) -> None:
+    def test_allows_origin_main_descendant_of_verified_baseline(self) -> None:
         temporary, root = self._fixture()
         try:
+            self._git(root, "commit", "--allow-empty", "-m", "main advances")
             self._git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+            self.assertEqual(CHECK.validate(root), [])
+        finally:
+            temporary.cleanup()
+
+    def test_catches_verified_baseline_not_ancestor_of_origin_main(self) -> None:
+        temporary, root = self._fixture()
+        try:
+            tree = self._git(root, "write-tree").stdout.strip()
+            unrelated = self._git(
+                root, "commit-tree", tree, "-m", "unrelated main"
+            ).stdout.strip()
+            self._git(root, "update-ref", "refs/remotes/origin/main", unrelated)
             failures = CHECK.validate(root)
             self.assertTrue(
-                any("origin/main has advanced" in item for item in failures)
+                any("reachable from origin/main" in item for item in failures), failures
             )
         finally:
             temporary.cleanup()
