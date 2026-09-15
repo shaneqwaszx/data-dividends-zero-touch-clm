@@ -1,42 +1,43 @@
-## Scope
+## Change
 
-<!-- What is intentionally changed, and what is explicitly out of scope? -->
+- Phase/change name:
+- Change class(es):
+- Purpose and explicit non-goals:
+- Feature branch / initial BASE_SHA / latest origin/main SHA:
 
-## Base/integration
+## Architecture and authority
 
-- Feature branch:
-- Initial BASE_SHA:
-- Latest origin/main integrated: Yes / No
-- Latest origin/main SHA:
+- Canonical architecture owner(s) affected:
+- Architecture invariant changed: Yes / No — detail:
+- ADR required: Yes / No — link/reason:
+- Sponsor authority used:
+- Project-defined/provisional behavior:
+- Open questions/blockers:
+- External providers: name / mode / classification (Mock, Local, Sandbox, Partial, Dormant, Live):
 
-## Changed areas
+## Impact
 
-- Backend:
-- Frontend:
-- API/contracts:
-- Persistence:
-- Configuration:
-- CI/tooling:
+- API/shared types/configuration:
+- Security/auth/RBAC/data/logging:
+- Persistence/schema/CAS/restart/deletion:
+- Hotspot/dependency/CI files and why necessary:
 
-## Shared/hotspot files touched
+## Verification
 
-<!-- List each hotspot and why the change could not be isolated elsewhere. Use "None" if none. -->
+<!-- Exact commands and results; state skipped/unavailable checks. -->
 
-## Tests run
-
-<!-- Exact commands and results; identify required checks that were not run. -->
-
-## Pre-PR check
-
+- Focused and broad affected checks:
+- Contract/security/physical/regression evidence:
+- `python scripts/check_project_state.py`:
+- `python scripts/check_architecture.py`:
 - `python scripts/pre_pr_check.py`:
-- Result:
+- Independent QG/re-QG:
 
-## Merge conflicts resolved
+## Integration and context
 
-<!-- Describe each conflict and how both main intent and feature intent were preserved. Use "None" if none. -->
+- Latest main integrated and conflicts reconciled:
+- `PROJECT_STATE` / `ARCHITECTURE` / workflow context refreshed or not applicable:
+- Mock/sandbox/live labeling reviewed:
+- Known limitations and reviewer attention:
 
-## Sponsor/business-rule assumptions
-
-## Known limitations
-
-## Reviewer attention
+Final merge is performed by a human repository owner.
