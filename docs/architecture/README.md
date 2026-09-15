@@ -1,5 +1,11 @@
 # Architecture Workspace
 
+Start with the current canonical agent map at [../ARCHITECTURE.md](../ARCHITECTURE.md),
+plus [../PROJECT_STATE.md](../PROJECT_STATE.md) and
+[../DEVELOPMENT_WORKFLOW.md](../DEVELOPMENT_WORKFLOW.md). Files in this directory retain
+phase-specific detail and historical boundaries; current source and the canonical map
+govern when an older statement has drifted.
+
 The Phase 00 architecture baseline is documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 Implemented phase boundaries are documented in
 [PHASE_01_VERTICAL_SLICE.md](PHASE_01_VERTICAL_SLICE.md) and

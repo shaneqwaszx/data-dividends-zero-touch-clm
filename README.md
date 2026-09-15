@@ -1,5 +1,18 @@
 # Data Dividends — Zero-Touch CLM
 
+## Start here for development
+
+New coding agents and developers should read, in order:
+
+1. [AGENTS.md](AGENTS.md)
+2. [Current Project State](docs/PROJECT_STATE.md)
+3. [Architecture](docs/ARCHITECTURE.md)
+4. [Development Workflow](docs/DEVELOPMENT_WORKFLOW.md)
+
+Then run `python scripts/dev_context.py` and load only the relevant contract, sponsor
+question, repository skill, source and tests. Historical phase reports are consulted on
+demand, not reconstructed at every task start.
+
 Proof of concept for Delta Capita's Singapore new-to-bank flow:
 
 `ACRA Singapore → EDS/orchestration → GoldTier → unresolved human approval gate`
@@ -209,6 +222,10 @@ From the repository root:
 .\.venv\Scripts\python.exe -m mypy apps\backend\app
 .\.venv\Scripts\python.exe -m unittest discover -s tests\contract -p "test_*.py"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_check_secrets.py"
+.\.venv\Scripts\python.exe -m unittest tests.test_dev_context tests.test_check_project_state tests.test_check_architecture -v
+.\.venv\Scripts\python.exe scripts\check_project_state.py
+.\.venv\Scripts\python.exe scripts\check_architecture.py
+.\.venv\Scripts\python.exe scripts\dev_context.py
 .\.venv\Scripts\python.exe -m unittest tests.test_demo_lifecycle_windows -v
 .\.venv\Scripts\python.exe scripts\check_secrets.py
 .\.venv\Scripts\python.exe -m pip check

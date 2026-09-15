@@ -10,6 +10,7 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -160,7 +161,9 @@ def _changes_from_name_status(result: subprocess.CompletedProcess) -> list[Chang
             previous_path = os.fsdecode(fields[index])
             path = os.fsdecode(fields[index + 1])
             index += 2
-            changes.append(Change(status=status, path=path, previous_path=previous_path))
+            changes.append(
+                Change(status=status, path=path, previous_path=previous_path)
+            )
         else:
             if index >= len(fields):
                 raise ValueError("incomplete change record")
@@ -372,7 +375,8 @@ def _is_dependency_file(path: str) -> bool:
     return (
         name in LOCKFILE_NAMES
         or name in MANIFEST_NAMES
-        or name.startswith("requirements") and name.endswith(".txt")
+        or name.startswith("requirements")
+        and name.endswith(".txt")
     )
 
 
@@ -413,11 +417,7 @@ def _is_obvious_sensitive_file(path: str) -> bool:
 
 
 def _classification_paths(changes: list[Change]) -> set[str]:
-    return {
-        path
-        for change in changes
-        for path in change.classification_paths
-    }
+    return {path for change in changes for path in change.classification_paths}
 
 
 def _scan_git_changes(
@@ -456,6 +456,40 @@ def _scan_worktree_changes(
     return source_texts
 
 
+def _run_governance_check(root: Path, report: Report, script_name: str) -> None:
+    script = root / "scripts" / script_name
+    if not script.is_file():
+        return
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    result = subprocess.run(
+        [sys.executable, str(script), "--root", str(root)],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=environment,
+        shell=False,
+    )
+    if result.returncode == 0:
+        report.detail(f"{script_name}: PASS")
+    else:
+        diagnostics: list[str] = []
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+        if stdout:
+            diagnostics.append(f"stdout:\n{stdout[:2000]}")
+        if stderr:
+            diagnostics.append(f"stderr:\n{stderr[:2000]}")
+        if not diagnostics:
+            diagnostics.append("no checker diagnostics")
+        report.fail(
+            f"{script_name}: FAIL (exit {result.returncode})\n" + "\n".join(diagnostics)
+        )
+
+
 def audit_repository(root: Path) -> Report:
     report = Report()
 
@@ -490,7 +524,9 @@ def audit_repository(root: Path) -> Report:
     if ancestry.returncode != 0:
         report.fail("Current branch does not contain the latest origin/main commit.")
 
-    relationship = _git(root, "rev-list", "--left-right", "--count", "origin/main...HEAD")
+    relationship = _git(
+        root, "rev-list", "--left-right", "--count", "origin/main...HEAD"
+    )
     if relationship.returncode == 0:
         values = relationship.stdout.split()
         if len(values) == 2:
@@ -516,20 +552,26 @@ def audit_repository(root: Path) -> Report:
     if unresolved:
         report.fail("Unresolved Git conflicts: " + ", ".join(sorted(unresolved)))
 
-    branch_changes, unstaged_changes, staged_changes, untracked_changes = _changed_files(
-        root, report
+    branch_changes, unstaged_changes, staged_changes, untracked_changes = (
+        _changed_files(root, report)
     )
     all_changes = branch_changes + unstaged_changes + staged_changes + untracked_changes
     changed_paths = _classification_paths(all_changes)
 
     if unstaged_changes:
-        report.fail("Unstaged tracked changes must be committed before the pre-PR check.")
+        report.fail(
+            "Unstaged tracked changes must be committed before the pre-PR check."
+        )
     if staged_changes:
         report.fail("Staged changes must be committed before the pre-PR check.")
     if untracked_changes:
-        report.fail("Untracked files must be committed, ignored, or removed before the pre-PR check.")
+        report.fail(
+            "Untracked files must be committed, ignored, or removed before the pre-PR check."
+        )
 
-    branch_texts = _scan_git_changes(root, report, branch_changes, "HEAD:", "changed file")
+    branch_texts = _scan_git_changes(
+        root, report, branch_changes, "HEAD:", "changed file"
+    )
     staged_texts = _scan_git_changes(root, report, staged_changes, ":", "staged file")
     unstaged_texts = _scan_worktree_changes(root, report, unstaged_changes)
 
@@ -563,7 +605,9 @@ def audit_repository(root: Path) -> Report:
         report.detail("Committed branch delta:")
         report.details.extend(
             f"  {change.render()}"
-            for change in sorted(branch_changes, key=lambda item: (item.path, item.status))
+            for change in sorted(
+                branch_changes, key=lambda item: (item.path, item.status)
+            )
         )
     else:
         report.detail("Committed branch delta: none")
@@ -573,7 +617,9 @@ def audit_repository(root: Path) -> Report:
         report.fail("Unable to inspect working-tree status.")
     elif status.stdout.rstrip():
         report.detail("Working-tree inventory:")
-        report.details.extend(f"  {line}" for line in status.stdout.rstrip().splitlines())
+        report.details.extend(
+            f"  {line}" for line in status.stdout.rstrip().splitlines()
+        )
     else:
         report.detail("Working-tree inventory: clean")
 
@@ -582,15 +628,25 @@ def audit_repository(root: Path) -> Report:
         report.warn("Integration hotspot files changed: " + ", ".join(hotspots))
     dependencies = sorted(path for path in changed_paths if _is_dependency_file(path))
     if dependencies:
-        report.warn("Dependency manifests/lockfiles changed: " + ", ".join(dependencies))
+        report.warn(
+            "Dependency manifests/lockfiles changed: " + ", ".join(dependencies)
+        )
     ci_files = sorted(
-        path for path in changed_paths if path.replace("\\", "/").startswith(".github/workflows/")
+        path
+        for path in changed_paths
+        if path.replace("\\", "/").startswith(".github/workflows/")
     )
     if ci_files:
         report.warn("CI workflow changed: " + ", ".join(ci_files))
-    shared_contracts = sorted(path for path in changed_paths if _is_api_config_or_shared_type(path))
+    shared_contracts = sorted(
+        path for path in changed_paths if _is_api_config_or_shared_type(path)
+    )
     if shared_contracts:
-        report.warn("API/config/shared type files changed: " + ", ".join(shared_contracts))
+        report.warn(
+            "API/config/shared type files changed: " + ", ".join(shared_contracts)
+        )
+    _run_governance_check(root, report, "check_project_state.py")
+    _run_governance_check(root, report, "check_architecture.py")
     return report
 
 
@@ -603,7 +659,9 @@ def _render(report: Report) -> None:
     for message in report.failures:
         print(f"FAIL: {message}")
     if report.failures:
-        print(f"SUMMARY: FAIL ({len(report.failures)} unsafe condition(s), {len(report.warnings)} warning(s))")
+        print(
+            f"SUMMARY: FAIL ({len(report.failures)} unsafe condition(s), {len(report.warnings)} warning(s))"
+        )
     else:
         print(f"SUMMARY: PASS (0 unsafe conditions, {len(report.warnings)} warning(s))")
     print("NOTE: PASS does not prove semantic merge safety.")
