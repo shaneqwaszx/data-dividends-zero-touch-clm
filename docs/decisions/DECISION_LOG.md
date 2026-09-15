@@ -2,6 +2,11 @@
 
 Use this file for requirements that have been explicitly resolved.
 
+For a new durable architecture decision, use [ADR_TEMPLATE.md](ADR_TEMPLATE.md) when the
+criteria in `docs/DEVELOPMENT_WORKFLOW.md` apply, then link the accepted ADR from this
+log. Do not retroactively create an ADR when the original context, alternatives or
+rationale cannot be proved; retain the existing decision entry as historical evidence.
+
 | ID | Decision | Source / reason | Status |
 |---|---|---|---|
 | D-001 | Main project flow is ACRA Singapore -> EDS/orchestration -> GoldTier using Singapore NTB. | Latest sponsor clarification | Confirmed |

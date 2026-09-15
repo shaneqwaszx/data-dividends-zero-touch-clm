@@ -14,9 +14,35 @@ They supplement the project control documents; they do not replace them.
 | `integration-security-review` | Review ACRA, IDP/upload, GoldTier/PingFed, HTTP, credential, TLS, KYC/PII, logging, and sponsor-artefact boundaries. | `Use $integration-security-review to review the new document-upload and IDP path.` |
 | `poc-regression-check` | Verify accepted synthetic scenarios, terminal statuses, connector call stopping, truthful mode labels, and no false completion. | `Use $poc-regression-check after the connector changes and report every canonical scenario.` |
 | `integration-safe-development` | Keep feature work based on latest `origin/main`, resolve conflicts by intent, and audit deterministic pre-PR hazards without broad rewrites or unsafe Git operations. | `Use $integration-safe-development to sync this feature branch and assess PR readiness.` |
+| `architecture-change-review` | Review any new/replaced owner, dependency direction, major library, persistence ownership, or compatibility retirement before implementation. | `Use $architecture-change-review before adding the new provider manager.` |
+| `phase-closeout-context-refresh` | Reconcile current state/architecture/provider/question context after independent acceptance or merge without inventing a squash SHA. | `Use $phase-closeout-context-refresh after the accepted phase is merged.` |
+| `external-provider-integration` | Implement or change ACRA, GoldTier/PingFed, vendor IDP, ownership-service, sandbox/auth/TLS, or other external API boundaries. | `Use $external-provider-integration for the authorized ACRA sandbox operation.` |
+| `persistence-schema-change` | Change a durable schema, repository CAS/create/update/delete behavior, index, migration, or restart recovery. | `Use $persistence-schema-change for the case-envelope version change.` |
+| `frontend-state-cache-change` | Change React Query keys, session cache lifecycle, cancellation, invalidation, mutation retry, or stale-response/deletion behavior. | `Use $frontend-state-cache-change for Dashboard query caching changes.` |
 
 Skill descriptions also support implicit triggering when a request clearly matches. Use
 the `$skill-name` form when a teammate wants to require a particular workflow.
+
+## When not to use and composition
+
+| Skill | Do not use when | Relationship / precedence |
+|---|---|---|
+| `fyp-phase-execution` | the task is review-only, CI-only, or not an assigned phase/remediation | coordinates applicable specialist skills; never starts the next phase |
+| `fyp-quality-gate` | implementation or remediation is requested | independent review-only owner after implementation/regression |
+| `sponsor-contract-reconciliation` | no evidence conflict or sponsor/API authority question exists | runs before provider/domain implementation; feeds decisions/questions |
+| `ci-failure-triage` | checks are green or no actual failing log exists | diagnoses the first causal failure; then invokes the owning change skill |
+| `integration-security-review` | no trust, secret, auth, upload, external-data or logging boundary changes | mandatory review component of external/security work; normally read-only |
+| `poc-regression-check` | a change cannot affect accepted POC behavior/calls/labels | follows affected implementation/integration; catalogue changes need planner authority |
+| `integration-safe-development` | no branch/integration/PR lifecycle is involved | owns Git baseline/drift/merge-safety procedure, not product acceptance |
+| `architecture-change-review` | edits stay inside an existing owner/invariant | precedes every specialist skill when ownership/dependency/retirement changes |
+| `phase-closeout-context-refresh` | work is unaccepted implementation or a speculative future phase | follows independent acceptance; publishes current main only after merge verification |
+| `external-provider-integration` | a purely internal Mock fixture changes without parity/claim impact | composes contract reconciliation, architecture review and security review |
+| `persistence-schema-change` | state is memory-only and cannot affect storage | composes architecture review if ownership changes; physical Mongo only when relevant |
+| `frontend-state-cache-change` | UI-local presentation state has no server/cache effect | uses backend API/auth authority; architecture review if adding a new state owner/library |
+
+Overlap order: phase coordinator -> architecture existence review -> contract
+reconciliation -> provider/persistence/cache procedure -> security review -> POC
+regression -> integration-safe development -> independent QG -> closeout refresh.
 
 ## How the control layers differ
 

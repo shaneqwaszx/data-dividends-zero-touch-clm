@@ -488,7 +488,10 @@ class PrePrCheckTests(unittest.TestCase):
             ".env",
             "private.pem",
         ):
-            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as directory:
+            with (
+                self.subTest(filename=filename),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 repo = Path(directory)
                 self._initialize_standalone_repo(repo, filename)
                 output = io.StringIO()
@@ -552,7 +555,9 @@ class PrePrCheckTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         warning = next(
-            line for line in output.splitlines() if "API/config/shared type files changed" in line
+            line
+            for line in output.splitlines()
+            if "API/config/shared type files changed" in line
         )
         for path in paths:
             self.assertIn(path, warning)
@@ -672,6 +677,82 @@ class PrePrCheckTests(unittest.TestCase):
         self.assertIn("Working-tree inventory: clean", output)
         self.assertIn("SUMMARY: PASS", output)
         self.assertEqual(after, before)
+
+    def test_governance_check_runs_read_only_script_and_reports_result(self) -> None:
+        script = self.repo / "scripts" / "check_project_state.py"
+        script.parent.mkdir()
+        script.write_text("raise SystemExit(0)\n", encoding="utf-8")
+        report = PRE_PR_CHECK.Report()
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="PROJECT STATE CHECK: PASS\n", stderr=""
+        )
+
+        with patch.object(
+            PRE_PR_CHECK.subprocess, "run", return_value=completed
+        ) as run:
+            PRE_PR_CHECK._run_governance_check(
+                self.repo, report, "check_project_state.py"
+            )
+
+        self.assertEqual(report.failures, [])
+        self.assertIn("check_project_state.py: PASS", report.details)
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                PRE_PR_CHECK.sys.executable,
+                str(script),
+                "--root",
+                str(self.repo),
+            ],
+        )
+        self.assertFalse(run.call_args.kwargs["shell"])
+
+    def test_governance_check_failure_surfaces_stderr_only(self) -> None:
+        script = self.repo / "scripts" / "check_project_state.py"
+        script.parent.mkdir()
+        script.write_text("raise SystemExit(1)\n", encoding="utf-8")
+        report = PRE_PR_CHECK.Report()
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="structured drift\n"
+        )
+        with patch.object(PRE_PR_CHECK.subprocess, "run", return_value=completed):
+            PRE_PR_CHECK._run_governance_check(
+                self.repo, report, "check_project_state.py"
+            )
+        self.assertEqual(len(report.failures), 1)
+        self.assertIn("stderr:\nstructured drift", report.failures[0])
+
+    def test_governance_check_failure_surfaces_stdout_only(self) -> None:
+        script = self.repo / "scripts" / "check_architecture.py"
+        script.parent.mkdir()
+        script.write_text("raise SystemExit(1)\n", encoding="utf-8")
+        report = PRE_PR_CHECK.Report()
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="boundary violation\n", stderr=""
+        )
+        with patch.object(PRE_PR_CHECK.subprocess, "run", return_value=completed):
+            PRE_PR_CHECK._run_governance_check(
+                self.repo, report, "check_architecture.py"
+            )
+        self.assertEqual(len(report.failures), 1)
+        self.assertIn("stdout:\nboundary violation", report.failures[0])
+
+    def test_governance_check_failure_surfaces_stdout_and_stderr(self) -> None:
+        script = self.repo / "scripts" / "check_architecture.py"
+        script.parent.mkdir()
+        script.write_text("raise SystemExit(2)\n", encoding="utf-8")
+        report = PRE_PR_CHECK.Report()
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=2, stdout="checker summary\n", stderr="parse detail\n"
+        )
+        with patch.object(PRE_PR_CHECK.subprocess, "run", return_value=completed):
+            PRE_PR_CHECK._run_governance_check(
+                self.repo, report, "check_architecture.py"
+            )
+        self.assertEqual(len(report.failures), 1)
+        self.assertIn("exit 2", report.failures[0])
+        self.assertIn("stdout:\nchecker summary", report.failures[0])
+        self.assertIn("stderr:\nparse detail", report.failures[0])
 
 
 if __name__ == "__main__":
