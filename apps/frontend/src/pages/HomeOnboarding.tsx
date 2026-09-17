@@ -129,9 +129,9 @@ export default function HomeOnboarding({
           <div>
             <h1>Start onboarding</h1>
             <p className="text-muted">
-              Enter the registration ID and attach the corporate documents. Onboarding pulls
-              the registry record, fills the case, and progresses automatically once every
-              required field is complete.
+              Provide the onboarding package available to you: the registration ID and
+              supporting corporate documents. This POC begins processing after the package
+              is supplied; it does not solicit or collect documents from upstream systems.
             </p>
           </div>
         </div>

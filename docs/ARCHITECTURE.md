@@ -248,6 +248,25 @@ localStorage, sessionStorage, IndexedDB or a service worker.
 16. Logout/session change/401 clear incompatible cached data.
 17. `clm_poc` is never a physical test database or cleanup target.
 
+## Phase 15A evidence and future-boundary constraints (provisional)
+
+The conceptual evidence lens is **Value + Source + Evidence + Date + Confidence +
+Status**. It is descriptive only: not every source or attribute necessarily has every
+property. Presence or acquisition is not verification (**PRESENT != VERIFIED**), and
+the POC preserves observations and current reconciliation semantics without an implicit
+global source-precedence rule.
+
+For Singapore, UEN is the current routing and returned-registry identity evidence;
+legal name remains reconciliation evidence. Fuzzy name matching is not authoritative
+identity. ACRA cache-first reuse is future architecture only, and a 90-day freshness
+period is an example configurable policy rather than a current rule. The POC has no
+ageing, SLA, refresh, OCDD, or perpetual-KYC engine.
+
+The current external Zero-Touch -> Mock GoldTier arrangement is prototype architecture,
+not a confirmed production deployment or handoff boundary. Production placement,
+handoff, and transferred-state authority remain open. Camunda has no runtime role in
+this architecture.
+
 ## 18. Explicit non-goals and prohibited assumptions
 
 Do not assume Live ACRA/GoldTier, production OCR/SSO, Camunda, sponsor-approved UBO or
