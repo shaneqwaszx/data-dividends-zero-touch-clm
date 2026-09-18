@@ -36,8 +36,9 @@ IMPORTANT -- read before wiring this in:
          share figure -- left unset rather than guessed.
        - "grouping" array in shareholders response is unmapped (always
          empty in the sample; shape unconfirmed).
-  4. No sample was provided for a relationships/ownership-graph endpoint,
-     so `fetch_relationships` fails closed, same as the sandbox adapter.
+  4. No sample was provided for a relationships/ownership-graph endpoint.
+     Apart from the explicitly bounded Garden Business synthetic POC chain,
+     `fetch_relationships` therefore returns an empty result.
 """
 
 import threading
@@ -45,6 +46,8 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from decimal import Decimal, ROUND_HALF_UP
+from typing import cast
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
@@ -57,6 +60,7 @@ from app.connectors.acra import (
     AcraOfficersPayload,
     AcraOwnershipPartiesPayload,
     AcraOwnershipPartyPayload,
+    AcraRelationshipPayload,
     AcraRelationshipsPayload,
     NonBlankSourceText,
     OptionalSourceText,
@@ -76,7 +80,11 @@ from app.connectors.errors import (
     AcraUnexpectedConnectorError,
     ConnectorError,
 )
-
+from app.connectors.garden_business_shareholders import (
+    GARDEN_BUSINESS_MOCK_SHAREHOLDERS_BODY,
+    GARDEN_BUSINESS_UEN,
+    SIM_LIM_UEN,
+)
 
 @dataclass(frozen=True)
 class AcraBizfileConnection:
@@ -449,6 +457,7 @@ class _RealShareholder(BaseModel):
     shareholder_category: TrimmedSourceText = Field(alias="shareholderCategory")
     shareholder_id: NonBlankSourceText = Field(alias="shareholderId")
     shareholder_name: NonBlankSourceText = Field(alias="shareholderName")
+    share_allotted: Decimal | None = Field(default=None, alias="shareAllotted", gt=0)
     status: TrimmedSourceText | None = None
 
 
@@ -641,6 +650,32 @@ class BizfileMockAcraConnector:
 
     def fetch_ownership_parties(self, uen: str) -> AcraOwnershipPartiesPayload:
         normalised_uen = uen.strip().upper()
+        if normalised_uen == GARDEN_BUSINESS_UEN:
+            root_body, root_endpoint, child_body, child_endpoint = (
+                self._garden_business_shareholder_bodies()
+            )
+            root_payload = self._ownership_decoder.decode(
+                root_body,
+                requested_uen=GARDEN_BUSINESS_UEN,
+                source_endpoint=_endpoint_without_query(root_endpoint),
+                retrieved_at=self._clock(),
+            )
+            child_payload = self._ownership_decoder.decode(
+                child_body,
+                requested_uen=SIM_LIM_UEN,
+                source_endpoint=_endpoint_without_query(child_endpoint),
+                retrieved_at=self._clock(),
+            )
+            return AcraOwnershipPartiesPayload(
+                uen=GARDEN_BUSINESS_UEN,
+                ownership_parties=(
+                    *root_payload.ownership_parties,
+                    *child_payload.ownership_parties,
+                ),
+                source_environment="MOCK",
+                source_endpoint=_endpoint_without_query(root_endpoint),
+                retrieved_at=self._clock(),
+            )
         endpoint = self._connection.shareholders_endpoint(normalised_uen)
         response = self._get(endpoint)
         self._raise_for_status(response)
@@ -667,18 +702,86 @@ class BizfileMockAcraConnector:
         except Exception:
             raise AcraMalformedResponseError from None
 
-    def fetch_relationships(self, uen: str) -> AcraRelationshipsPayload:
-        """No confirmed real relationships endpoint on Bizfile.
+    def _garden_business_shareholder_bodies(self) -> tuple[object, str, object, str]:
+        """Load the bounded Garden Business synthetic POC ownership chain.
 
-        Returns an empty result rather than raising. registry.py's own
+        Garden Business uses a local direct-shareholder fixture only when the
+        Marketplace Mock has no shareholder entities.  SIM LIM is then read
+        from the Marketplace Mock response.  This is a project-defined POC
+        path: active share counts are equal economic units and are never a
+        claim about live ACRA ownership or control rights.
+        """
+        root_endpoint = self._connection.shareholders_endpoint(GARDEN_BUSINESS_UEN)
+        root_response = self._get(root_endpoint)
+        self._raise_for_status(root_response)
+        root_body = root_response.body
+        if isinstance(root_body, dict) and not root_body.get("entities"):
+            root_body = GARDEN_BUSINESS_MOCK_SHAREHOLDERS_BODY
+
+        child_endpoint = self._connection.shareholders_endpoint(SIM_LIM_UEN)
+        child_response = self._get(child_endpoint)
+        self._raise_for_status(child_response)
+        if isinstance(child_response.body, dict) and not child_response.body.get("entities"):
+            raise AcraMalformedResponseError
+        return root_body, root_endpoint, child_response.body, child_endpoint
+
+    @staticmethod
+    def _active_shareholders(body: object, *, requested_uen: str) -> tuple[_RealShareholder, ...]:
+        try:
+            envelope = _RealShareholderEnvelope.model_validate(body)
+        except ValidationError:
+            raise AcraMalformedResponseError from None
+        if len(envelope.entities) != 1 or envelope.entities[0].uen.upper() != requested_uen:
+            raise AcraMalformedResponseError
+        shareholders = envelope.entities[0].shareholders
+        if shareholders is None:
+            raise AcraMalformedResponseError
+        active = tuple(
+            holder
+            for holder in shareholders.individual
+            if not holder.status or holder.status.strip().lower() != "withdrawn"
+        )
+        if not active or any(holder.share_allotted is None for holder in active):
+            raise AcraMalformedResponseError
+        return active
+
+    @staticmethod
+    def _equal_unit_relationships(
+        *,
+        parent_party_id: str,
+        relationship_prefix: str,
+        shareholders: tuple[_RealShareholder, ...],
+    ) -> tuple[AcraRelationshipPayload, ...]:
+        shares = tuple(cast(Decimal, holder.share_allotted) for holder in shareholders)
+        total = sum(shares, Decimal("0"))
+        if total <= 0:
+            raise AcraMalformedResponseError
+        unit = Decimal("0.000001")
+        return tuple(
+            AcraRelationshipPayload(
+                relationship_id=f"{relationship_prefix}_{index}",
+                owned_entity_id=parent_party_id,
+                owner_party_id=holder.shareholder_id,
+                ownership_percentage=(share_count * Decimal("100") / total).quantize(
+                    unit, rounding=ROUND_HALF_UP
+                ),
+            )
+            for index, (holder, share_count) in enumerate(
+                zip(shareholders, shares, strict=True), start=1
+            )
+        )
+
+    def fetch_relationships(self, uen: str) -> AcraRelationshipsPayload:
+        """Return the bounded Garden Business synthetic graph when requested.
+
+        Other UENs return an empty result rather than raising. registry.py's own
         design already treats empty relationships as a PARTIAL, non-fatal
         outcome (see `retrieve_acquisition`'s `if not ownership_parties or
         not relationships` check) -- raising here instead would force a
         hard FAILED status on every single case, which is wrong: it's not
-        that the operation failed, it's that this data source doesn't
-        offer it. If Bizfile exposes a real relationships/ownership-graph
-        endpoint later, replace this with an actual call + decoder,
-        following the same pattern as fetch_officers/fetch_ownership_parties.
+        that the operation failed, it's that this data source doesn't offer it.
+        If Bizfile exposes a real relationships/ownership-graph endpoint later,
+        replace the synthetic POC seam with actual call + decoder behavior.
 
         NOTE: relationships can't be safely *derived* from the shareholder
         data fetch_ownership_parties already retrieves, either -- ACRA's
@@ -689,6 +792,38 @@ class BizfileMockAcraConnector:
         """
 
         normalised_uen = uen.strip().upper()
+        if normalised_uen == GARDEN_BUSINESS_UEN:
+            root_body, root_endpoint, child_body, _ = self._garden_business_shareholder_bodies()
+            root_shareholders = self._active_shareholders(
+                root_body, requested_uen=GARDEN_BUSINESS_UEN
+            )
+            if not any(
+                holder.shareholder_id == SIM_LIM_UEN
+                and holder.shareholder_category.strip().lower() == "corporate"
+                for holder in root_shareholders
+            ):
+                raise AcraMalformedResponseError
+            child_shareholders = self._active_shareholders(
+                child_body, requested_uen=SIM_LIM_UEN
+            )
+            return AcraRelationshipsPayload(
+                uen=GARDEN_BUSINESS_UEN,
+                relationships=(
+                    *self._equal_unit_relationships(
+                        parent_party_id=f"ENTITY_{GARDEN_BUSINESS_UEN}",
+                        relationship_prefix="REL_GARDEN_DIRECT",
+                        shareholders=root_shareholders,
+                    ),
+                    *self._equal_unit_relationships(
+                        parent_party_id=SIM_LIM_UEN,
+                        relationship_prefix="REL_SIM_LIM_DIRECT",
+                        shareholders=child_shareholders,
+                    ),
+                ),
+                source_environment="MOCK",
+                source_endpoint=_endpoint_without_query(root_endpoint),
+                retrieved_at=self._clock(),
+            )
         return AcraRelationshipsPayload(
             uen=normalised_uen,
             relationships=(),

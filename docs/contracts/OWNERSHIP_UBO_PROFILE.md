@@ -27,6 +27,17 @@ A `NATURAL_PERSON` cannot be an owned parent or intermediate in this orientation
 shape is graph-semantic invalidity rather than a source-decoding rule: analysis
 terminalizes safely with no definitive candidate, including when another branch is valid.
 
+### Garden Business synthetic recursive demo exception
+
+For the bounded `11111999A -> 111111111M` Marketplace Mock demo chain only, D-034
+permits the connector to replace Garden Business's empty shareholder collection with a
+local synthetic fixture and to retrieve the supplied SIM LIM shareholder collection.
+Active `shareAllotted` counts, including different share classes, are treated as equal
+economic units; withdrawn holders are excluded; each owner percentage is the active
+share count divided by the active-count total, rounded to six decimal places. This is a
+project-defined demonstration rule only, not an ACRA, legal, voting-rights, or
+production UBO policy.
+
 ## Calculation and aggregation
 
 For edges `p1 ... pn`, effective ownership percent is
