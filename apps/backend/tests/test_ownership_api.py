@@ -39,7 +39,7 @@ async def test_demo_load_analyze_get_and_candidate_contract() -> None:
         "30.000",
         "10.000",
     ]
-    assert analyzed.json()["threshold_percent"] == "25"
+    assert analyzed.json()["threshold_percent"] == "25.000000"
     assert analyzed.json()["threshold_comparator"] == "GREATER_THAN_OR_EQUAL_TO"
     assert analyzed.json()["provider_environment"] == "MOCK"
     assert "source_reference" not in json.dumps(analyzed.json())

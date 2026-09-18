@@ -159,4 +159,4 @@ def test_uat_evidence_is_whitelisted_and_demo_gated() -> None:
         "/api/demo/clm/zero-touch/cases/00000000-0000-4000-8000-000000000001/uat-evidence"
     )
     assert disabled.status_code == 404
-    assert disabled.json()["detail"]["code"] == "DEMO_CONTROLS_DISABLED"
+    assert disabled.json()["detail"]["code"] == "CASE_NOT_FOUND"

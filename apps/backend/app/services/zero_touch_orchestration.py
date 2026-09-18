@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 from app.connectors.idp import IdpProvider
 from app.connectors.ownership import OwnershipProvider
+from app.domain.access import CasePriority, TeamId
 from app.domain.clm import ClmStatus
 from app.domain.documents import (
     DocumentAutoClearBlocker,
@@ -81,6 +82,7 @@ class ZeroTouchOrchestrator:
         repository: ZeroTouchAutomationRepository,
         reconciliation: ReconciliationService | None = None,
         ownership_provider_bindings: OwnershipProviderBindingResolver | None = None,
+        establishment_discard: Callable[[UUID], str | None] | None = None,
         max_transitions_per_run: int = 12,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
@@ -102,17 +104,70 @@ class ZeroTouchOrchestrator:
         self._ownership_provider_bindings = ownership_provider_bindings or (
             InMemoryOwnershipProviderBindingResolver(lambda: ownership.configured_provider)
         )
+        self._establishment_discard = establishment_discard
         self._max_transitions = max_transitions_per_run
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
 
+    def release_provider_binding(self, binding_id: str) -> None:
+        """Release process-local provider state only after physical deletion succeeds."""
+
+        self._ownership_provider_bindings.release(binding_id)
+
     def create_case(
-        self, uen: str, country_of_incorporation: str | None = None
+        self,
+        uen: str,
+        country_of_incorporation: str | None = None,
+        *,
+        team_id: TeamId | None = None,
+        priority: CasePriority | None = None,
+        establishment_action: Callable[[UUID], None] | None = None,
+        establishment_rollback: Callable[[UUID], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
-        """Create registry evidence and wait only for the required PDF input."""
+        """Atomically establish every initial case-owned record under one case lock."""
+
+        case_id, correlation_id = self._cases.reserve_case_identity()
+        with self._cases.case_lock(case_id):
+            try:
+                record = self._create_case_locked(
+                    case_id,
+                    correlation_id,
+                    uen,
+                    country_of_incorporation,
+                    team_id=team_id,
+                    priority=priority,
+                )
+                if establishment_action is not None:
+                    establishment_action(record.case_id)
+                return record
+            except Exception as primary_error:
+                try:
+                    self._discard_failed_establishment(case_id, establishment_rollback)
+                except Exception as rollback_error:
+                    raise primary_error from rollback_error
+                raise
+
+    def _create_case_locked(
+        self,
+        case_id: UUID,
+        correlation_id: UUID,
+        uen: str,
+        country_of_incorporation: str | None,
+        *,
+        team_id: TeamId | None,
+        priority: CasePriority | None,
+    ) -> ZeroTouchAutomationRecord:
+        """Create registry, CLM, and automation state while the RLock is owned."""
 
         try:
-            clm_record = self._clm.create_case(uen, country_of_incorporation)
+            clm_record = self._clm.create_case_with_identity(
+                case_id,
+                correlation_id,
+                uen,
+                country_of_incorporation,
+                team_id=team_id,
+                priority=priority,
+            )
         except ClmInfrastructureError as exc:
             recovered_clm_record = self._clm.get(case_id=exc.case_id)
             if recovered_clm_record is None:
@@ -174,9 +229,7 @@ class ZeroTouchOrchestrator:
             metrics=AutomationMetrics(
                 automated_stages_completed=1 if registry_ready else 0,
                 final_outcome=(
-                    AutomationStatus.TECHNICAL_FAILURE.value
-                    if registry_failed
-                    else None
+                    AutomationStatus.TECHNICAL_FAILURE.value if registry_failed else None
                 ),
             ),
             created_at=now,
@@ -206,9 +259,7 @@ class ZeroTouchOrchestrator:
                 message="Registry automation stopped after a technical failure.",
             )
         else:
-            blocker_code = (
-                case.error.code if case.error is not None else "REGISTRY_REVIEW_REQUIRED"
-            )
+            blocker_code = case.error.code if case.error is not None else "REGISTRY_REVIEW_REQUIRED"
             exception_types = {
                 "JURISDICTION_UNRESOLVED": BusinessExceptionType.JURISDICTION_UNRESOLVED,
                 "JURISDICTION_CONFLICT": BusinessExceptionType.JURISDICTION_CONFLICT,
@@ -268,6 +319,10 @@ class ZeroTouchOrchestrator:
                 actions=(),
             )
         return self._create(record)
+
+    @property
+    def automation_repository(self) -> ZeroTouchAutomationRepository:
+        return self._repository
 
     def attach_document(
         self,
@@ -392,9 +447,7 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_INTAKE_NOT_OPEN",
                     message="Document intake is not open for this case.",
                 )
-            failed = self._documents.get_document(
-                case_id=case_id, document_id=failed_document_id
-            )
+            failed = self._documents.get_document(case_id=case_id, document_id=failed_document_id)
             if (
                 failed is None
                 or failed.state != DocumentProcessingState.FAILED
@@ -589,8 +642,8 @@ class ZeroTouchOrchestrator:
                     message="The onboarding evidence changed before this resolution.",
                 )
             if item.evidence_version.startswith("reconciliation:"):
-                reconciliation_version, fingerprint = (
-                    _parse_reconciliation_evidence_version(item.evidence_version)
+                reconciliation_version, fingerprint = _parse_reconciliation_evidence_version(
+                    item.evidence_version
                 )
                 try:
                     reconciliation_action = ReconciliationDecisionAction(action.value)
@@ -740,7 +793,8 @@ class ZeroTouchOrchestrator:
                 "ZERO_TOUCH_EXCEPTION_STALE"
                 if exc.code == "RECONCILIATION_STALE"
                 else "ZERO_TOUCH_RESOLUTION_NOT_ALLOWED"
-                if exc.code in {
+                if exc.code
+                in {
                     "RECONCILIATION_ACTION_NOT_ALLOWED",
                     "RECONCILIATION_CANONICAL_UPDATE_REJECTED",
                 }
@@ -779,8 +833,7 @@ class ZeroTouchOrchestrator:
         )
         if reconciliation.status == ReconciliationStatus.REVIEW_REQUIRED:
             discrepancies_by_id = {
-                entry.discrepancy_id: entry
-                for entry in reconciliation.open_discrepancies
+                entry.discrepancy_id: entry for entry in reconciliation.open_discrepancies
             }
             for active in candidate.active_exceptions:
                 discrepancy = discrepancies_by_id.get(active.exception_id)
@@ -906,9 +959,7 @@ class ZeroTouchOrchestrator:
                     record = self._complete_stage(
                         record,
                         stage=AutomationStage.DOCUMENT,
-                        event_type=(
-                            AutomationEventType.RECONCILIATION_EVALUATED
-                        ),
+                        event_type=(AutomationEventType.RECONCILIATION_EVALUATED),
                         code=(
                             "RECONCILIATION_RESOLVED"
                             if reconciliation.status == ReconciliationStatus.RESOLVED
@@ -1024,10 +1075,13 @@ class ZeroTouchOrchestrator:
 
             if next_stage == AutomationStage.MOCK_GOLDTIER:
                 started_at = self._clock()
-                if not any(
-                    event.event_type == AutomationEventType.MOCK_SUBMISSION_STARTED
-                    for event in record.events
-                ) and record.status != AutomationStatus.RECOVERY_PENDING:
+                if (
+                    not any(
+                        event.event_type == AutomationEventType.MOCK_SUBMISSION_STARTED
+                        for event in record.events
+                    )
+                    and record.status != AutomationStatus.RECOVERY_PENDING
+                ):
                     candidate = record.model_copy(deep=True)
                     candidate.status = AutomationStatus.RUNNING
                     candidate.current_stage = AutomationStage.MOCK_GOLDTIER
@@ -1156,7 +1210,8 @@ class ZeroTouchOrchestrator:
             for field in document.fields
             if (
                 field.original_extracted_value is None
-                or field.confidence < self._documents.review_confidence_threshold
+                or field.confidence
+                < self._documents.review_confidence_threshold_for_case(record.case_id)
                 or field.comparison_status.value != "MATCH"
             )
         )[:4]
@@ -1189,6 +1244,7 @@ class ZeroTouchOrchestrator:
             ReconciliationOutcome.UNVERIFIABLE: "DOCUMENT_LOW_CONFIDENCE",
             ReconciliationOutcome.INVALID: "RECONCILIATION_INVALID",
         }
+
         def code_for(item: ReconciliationDiscrepancy) -> str:
             if any(
                 observation.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
@@ -1203,24 +1259,17 @@ class ZeroTouchOrchestrator:
         )
         for discrepancy in reconciliation.open_discrepancies:
             if any(
-                item.exception_id == discrepancy.discrepancy_id
-                for item in record.active_exceptions
+                item.exception_id == discrepancy.discrepancy_id for item in record.active_exceptions
             ):
                 continue
             code = code_for(discrepancy)
             exception_type = {
-                ReconciliationOutcome.CONFLICT: (
-                    BusinessExceptionType.DOCUMENT_SOURCE_CONFLICT
-                ),
+                ReconciliationOutcome.CONFLICT: (BusinessExceptionType.DOCUMENT_SOURCE_CONFLICT),
                 ReconciliationOutcome.MISSING_IN_SOURCE: (
                     BusinessExceptionType.DOCUMENT_REQUIRED_FIELD_MISSING
                 ),
-                ReconciliationOutcome.UNVERIFIABLE: (
-                    BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE
-                ),
-                ReconciliationOutcome.INVALID: (
-                    BusinessExceptionType.RECONCILIATION_INVALID
-                ),
+                ReconciliationOutcome.UNVERIFIABLE: (BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE),
+                ReconciliationOutcome.INVALID: (BusinessExceptionType.RECONCILIATION_INVALID),
             }[discrepancy.outcome]
             registry = next(
                 (
@@ -1281,9 +1330,7 @@ class ZeroTouchOrchestrator:
                         "reconciliation."
                     )
                 ),
-                evidence_version=self._reconciliation_evidence_version(
-                    reconciliation, discrepancy
-                ),
+                evidence_version=self._reconciliation_evidence_version(reconciliation, discrepancy),
                 evidence=evidence,
                 actions=tuple(
                     ExceptionResolutionAction(action.value)
@@ -1326,9 +1373,7 @@ class ZeroTouchOrchestrator:
             document_observations[affected_document_index].source_record_id
             or reconciliation.source_document_ids[0]
         )
-        affected_source_index = reconciliation.source_document_ids.index(
-            affected_document_id
-        )
+        affected_source_index = reconciliation.source_document_ids.index(affected_document_id)
         return (
             f"reconciliation:{reconciliation.version}:"
             f"{reconciliation.source_document_event_counts[affected_source_index]}:"
@@ -1596,6 +1641,30 @@ class ZeroTouchOrchestrator:
                 message="A zero-touch automation record already exists for this case.",
             ) from None
 
+    def _discard_failed_establishment(
+        self,
+        case_id: UUID,
+        establishment_rollback: Callable[[UUID], None] | None,
+    ) -> None:
+        """Bound rollback to the case aggregate created by this failed attempt."""
+
+        binding_id: str | None = None
+        try:
+            if self._establishment_discard is not None:
+                binding_id = self._establishment_discard(case_id)
+            else:
+                automation = self._repository.get_for_case(case_id)
+                if automation is not None:
+                    binding_id = automation.ownership_provider_binding_id
+                self._repository.delete_for_case(case_id)
+                self._clm.discard_case_establishment(case_id)
+                self._cases.case_repository.delete_for_case(case_id)
+        finally:
+            if binding_id is not None:
+                self._ownership_provider_bindings.release(binding_id)
+            if establishment_rollback is not None:
+                establishment_rollback(case_id)
+
     def _save(
         self, previous: ZeroTouchAutomationRecord, candidate: ZeroTouchAutomationRecord
     ) -> ZeroTouchAutomationRecord:
@@ -1661,9 +1730,7 @@ def _parse_document_evidence_version(value: str) -> tuple[UUID, int]:
 
 def _parse_reconciliation_evidence_version(value: str) -> tuple[int, str]:
     try:
-        prefix, raw_version, raw_document_version, fingerprint = value.split(
-            ":", maxsplit=3
-        )
+        prefix, raw_version, raw_document_version, fingerprint = value.split(":", maxsplit=3)
         version = int(raw_version)
         document_version = int(raw_document_version)
         if (

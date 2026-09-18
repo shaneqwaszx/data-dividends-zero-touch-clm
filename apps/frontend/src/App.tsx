@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   analyzeOwnership,
@@ -24,15 +25,26 @@ import {
   submitClmCase,
   uploadDocument,
   createZeroTouchCase,
+  fetchTeamOptions,
 } from "./api";
 import { startAutomationPolling } from "./automationPolling";
+import {
+  caseCreatedEffect,
+  caseSummaryMutationEffect,
+  caseSupportingMutationEffect,
+  executionProfileQueryOptions,
+} from "./caseQueries";
 import AuditTrail from "./pages/AuditTrail";
 import CaseDetail from "./pages/CaseDetail";
-import CaseQueue from "./pages/CaseQueue";
+import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION } from "./pages/CaseQueue";
+import type { CaseQueuePresentationState } from "./pages/CaseQueue";
 import ClientDetail from "./pages/ClientDetail";
+import Dashboard from "./pages/Dashboard";
 import HomeOnboarding from "./pages/HomeOnboarding";
 import OnboardedClients from "./pages/OnboardedClients";
 import PolicyRules from "./pages/PolicyRules";
+import AdminTeams from "./pages/AdminTeams";
+import AdminUsers from "./pages/AdminUsers";
 import { formatTimestamp, shouldPollAutomation } from "./shared";
 import type {
   ClmCaseSummary,
@@ -53,6 +65,9 @@ import type {
   ZeroTouchCaseListItem,
   ZeroTouchDemoScenario,
   ZeroTouchException,
+  AuthenticatedProfile,
+  TeamId,
+  AuthenticatedTeam,
 } from "./types";
 
 const DEFAULT_UEN = "202400001A";
@@ -1271,23 +1286,27 @@ export function LocalReviewerWorkbench({ summary }: { summary: ZeroTouchCaseSumm
   );
 }
 
-type AppTab = "home" | "queue" | "onboarded" | "audit" | "policy";
+type AppTab = "dashboard" | "home" | "queue" | "onboarded" | "audit" | "policy" | "users" | "teams";
 
 export function WorkspaceTabs({
   activeTab,
   onChange,
   trailing,
+  actor,
 }: {
   activeTab: AppTab;
   onChange: (tab: AppTab) => void;
   trailing?: ReactNode;
+  actor: AuthenticatedProfile;
 }) {
   const tabs: Array<[AppTab, string]> = [
-    ["home", "New onboarding"],
-    ["queue", "Cases"],
-    ["onboarded", "Onboarded"],
-    ["audit", "Audit"],
-    ["policy", "Policy"],
+    ...(actor.capabilities.includes("CASE_ACCESS") ? [
+      ["dashboard", "Dashboard"], ["home", "New onboarding"], ["queue", "Cases"],
+      ["onboarded", "Onboarded"], ["audit", "Audit"],
+    ] as Array<[AppTab, string]> : []),
+    ...(actor.capabilities.includes("POLICY_VIEW") ? [["policy", "Policy"]] as Array<[AppTab, string]> : []),
+    ...(actor.capabilities.includes("IDENTITY_ADMIN") ? [["users", "Users"]] as Array<[AppTab, string]> : []),
+    ...(actor.capabilities.includes("TEAM_ADMIN") ? [["teams", "Teams"]] as Array<[AppTab, string]> : []),
   ];
   return (
     <nav className="ds-root nav" aria-label="Main workspace">
@@ -1311,7 +1330,13 @@ export function WorkspaceTabs({
   );
 }
 
-export function OperatorAccount() {
+export function OperatorAccount({
+  profile,
+  onLogout,
+}: {
+  profile: AuthenticatedProfile;
+  onLogout: () => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="operator-account">
@@ -1323,14 +1348,20 @@ export function OperatorAccount() {
         aria-controls="operator-account-disclosure"
         onClick={() => setOpen((current) => !current)}
       >
-        <span>Demo operator</span>
+        <span className="operator-account__identity">
+          <span>{profile.display_name}</span>
+          <span className="operator-account__metadata">
+            {profile.role.replaceAll("_", " ")} · {profile.team_display_name ?? "Global scope"} · {profile.team_id ? `Coverage: ${profile.client_scope_label}` : profile.team_description}
+          </span>
+        </span>
         <span aria-hidden="true" className="operator-account__chevron">⌄</span>
       </button>
       {open && (
-        <div id="operator-account-disclosure" className="operator-account__disclosure" role="status">
-          <strong>Local POC operator</strong>
-          <span>Authentication not connected in current POC.</span>
-          <span>No identity, reviewer role, or sign-out action is available.</span>
+        <div id="operator-account-disclosure" className="operator-account__disclosure">
+          <strong>{profile.role.replaceAll("_", " ")}</strong>
+          <span>{profile.team_display_name ?? "Global scope"}</span>
+          <span>{profile.team_description}</span>
+          <button type="button" className="btn btn-ghost" onClick={onLogout}>Sign out</button>
         </div>
       )}
     </div>
@@ -1748,13 +1779,23 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
 
 export interface AppProps {
   demoControlsEnabled?: boolean;
+  initialTab?: AppTab;
+  actor: AuthenticatedProfile;
+  onLogout: () => void;
 }
 
 export default function App({
   demoControlsEnabled = import.meta.env.VITE_DEMO_CONTROLS_ENABLED === "true",
-}: AppProps = {}) {
-  const [activeTab, setActiveTab] = useState<AppTab>("home");
+  initialTab = "dashboard",
+  actor,
+  onLogout,
+}: AppProps) {
+  const [activeTab, setActiveTab] = useState<AppTab>(
+    actor.capabilities.includes("CASE_ACCESS") ? initialTab : "users",
+  );
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [caseQueuePresentation, setCaseQueuePresentation] =
+    useState<CaseQueuePresentationState>(DEFAULT_CASE_QUEUE_PRESENTATION);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [auditCaseId, setAuditCaseId] = useState<string | null>(null);
   const [uen, setUen] = useState(DEFAULT_UEN);
@@ -1763,7 +1804,12 @@ export default function App({
   const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [caseId, setCaseId] = useState("");
   const [demoScenario, setDemoScenario] = useState<ZeroTouchDemoScenario>("STRAIGHT_THROUGH");
-  const [simulationProfile, setSimulationProfile] = useState<SimulationProfile | null>(null);
+  const [directorTeamId, setDirectorTeamId] = useState<TeamId | "">("");
+  const [teamOptions, setTeamOptions] = useState<AuthenticatedTeam[]>([]);
+  const [casePriority, setCasePriority] = useState<number | "">("");
+  const queryClient = useQueryClient();
+  const profileQuery = useQuery(executionProfileQueryOptions(actor.user_id));
+  const simulationProfile = profileQuery.data ?? null;
   const [summary, setSummary] = useState<ZeroTouchCaseSummary | null>(null);
   const [, setRetainedCreatedSummary] = useState<ZeroTouchCaseSummary | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1778,10 +1824,14 @@ export default function App({
   const failedIntakeDocumentsRef = useRef(new Map<string, string>());
 
   useEffect(() => {
-    void fetchExecutionProfile()
-      .then(setSimulationProfile)
-      .catch(() => setRequestError("Connector profile discovery is unavailable."));
-  }, []);
+    if (profileQuery.isError) setRequestError("Connector profile discovery is unavailable.");
+  }, [profileQuery.isError]);
+
+  useEffect(() => {
+    if (actor.role === "DIRECTOR") {
+      void fetchTeamOptions().then(setTeamOptions).catch(() => setTeamOptions([]));
+    }
+  }, [actor.role]);
 
   useEffect(() => {
     if (!summary || !shouldPollAutomation(summary.status)) return;
@@ -1792,14 +1842,21 @@ export default function App({
       generation,
       currentGeneration: () => journeyGeneration.current,
       fetchCase: fetchZeroTouchCase,
-      onUpdate: setSummary,
+      onUpdate: (latest) => {
+        setSummary(latest);
+        caseSummaryMutationEffect(queryClient, actor.user_id, latest);
+      },
       onWarning: setPollingWarning,
       shouldContinue: shouldPollAutomation,
     });
-  }, [summary?.case.case_id, summary?.status, summary?.version]);
+  }, [actor.user_id, queryClient, summary?.case.case_id, summary?.status, summary?.version]);
 
   async function beginJourney(demoScenario?: ZeroTouchDemoScenario) {
     if (resolutionActive.current) return;
+    if (actor.role === "DIRECTOR" && !directorTeamId) {
+      setRequestError("Select a team before creating the case.");
+      return;
+    }
     const validationError = validateIntakeFiles(documentFiles);
     if (validationError) { setRequestError(validationError); return; }
     setIsSubmitting(true);
@@ -1846,6 +1903,7 @@ export default function App({
         intakeCase.demo,
       );
       setSummary(completed);
+      await caseSupportingMutationEffect(queryClient, actor.user_id, completed);
       setIntakeProgress(completed.status === "COMPLETED" ? "Completed" : "Processing case…");
     };
 
@@ -1856,8 +1914,11 @@ export default function App({
             uen,
             demoScenario,
             countryOfIncorporation || undefined,
+            actor.role === "DIRECTOR" ? directorTeamId || undefined : undefined,
+            casePriority === "" ? undefined : casePriority,
           ),
           onCreated: (created) => {
+            caseCreatedEffect(queryClient, actor.user_id, created);
             setRetainedCreatedSummary(created);
             intakeCaseRef.current = {
               caseId: created.case.case_id,
@@ -1866,6 +1927,7 @@ export default function App({
           },
           onRegistryStop: (created) => {
             setSummary(created);
+            caseSummaryMutationEffect(queryClient, actor.user_id, created);
             setIntakeProgress(null);
           },
           onDocumentIntake: async () => {
@@ -1929,11 +1991,17 @@ export default function App({
         generation === journeyGeneration.current
         && activeCaseId === updated.case.case_id
       ) setSummary(updated);
+      if (generation === journeyGeneration.current) {
+        await caseSupportingMutationEffect(queryClient, actor.user_id, updated);
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         try {
           const refreshed = await fetchZeroTouchCase(activeCaseId);
-          if (generation === journeyGeneration.current) setSummary(refreshed);
+          if (generation === journeyGeneration.current) {
+            setSummary(refreshed);
+            await caseSupportingMutationEffect(queryClient, actor.user_id, refreshed);
+          }
         } catch {
           // Keep the stable stale-resolution message below.
         }
@@ -1965,12 +2033,18 @@ export default function App({
         summary.reconciliation.version,
         discrepancy.evidence_fingerprint,
       );
-      if (generation === journeyGeneration.current) setSummary(updated);
+      if (generation === journeyGeneration.current) {
+        setSummary(updated);
+        await caseSupportingMutationEffect(queryClient, actor.user_id, updated);
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         try {
           const refreshed = await fetchZeroTouchCase(activeCaseId);
-          if (generation === journeyGeneration.current) setSummary(refreshed);
+          if (generation === journeyGeneration.current) {
+            setSummary(refreshed);
+            await caseSupportingMutationEffect(queryClient, actor.user_id, refreshed);
+          }
         } catch {
           // Preserve the safe stale-decision message returned by the original request.
         }
@@ -1990,7 +2064,9 @@ export default function App({
     setIsResolving(true);
     setRequestError(null);
     try {
-      setSummary(await replaceZeroTouchDocument(summary.case.case_id, documentId, eventCount, file));
+      const updated = await replaceZeroTouchDocument(summary.case.case_id, documentId, eventCount, file);
+      setSummary(updated);
+      await caseSupportingMutationEffect(queryClient, actor.user_id, updated);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Replacement evidence failed.");
     } finally {
@@ -2004,7 +2080,9 @@ export default function App({
     setIsSubmitting(true);
     setRequestError(null);
     try {
-      setSummary(await resumeZeroTouchCase(summary.case.case_id));
+      const updated = await resumeZeroTouchCase(summary.case.case_id);
+      setSummary(updated);
+      await caseSupportingMutationEffect(queryClient, actor.user_id, updated);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Finalization recovery failed.");
     } finally {
@@ -2028,6 +2106,7 @@ export default function App({
       clearSubmitting: () => setIsSubmitting(false),
       clearResolving: () => setIsResolving(false),
     });
+    setCasePriority("");
     intakeCaseRef.current = null;
     successfulIntakeFilesRef.current.clear();
     failedIntakeDocumentsRef.current.clear();
@@ -2043,6 +2122,11 @@ export default function App({
   function openCompletedCase(caseId: string) {
     setSelectedClientId(caseId);
     setActiveTab("onboarded");
+  }
+
+  function openDashboardCase(caseId: string) {
+    setSelectedCaseId(caseId);
+    setActiveTab("queue");
   }
 
   function openCaseAudit(caseId: string) {
@@ -2082,16 +2166,40 @@ export default function App({
       <WorkspaceTabs
         activeTab={activeTab}
         onChange={handleWorkspaceTabChange}
+        actor={actor}
         trailing={
           <>
             <SimulationBanner profile={simulationProfile} />
-            <OperatorAccount />
+            <OperatorAccount profile={actor} onLogout={onLogout} />
           </>
         }
       />
       <div className="ds-content">
+          {activeTab === "dashboard" && (
+            <Dashboard actor={actor} onOpenCase={openDashboardCase} />
+          )}
           {activeTab === "home" && (
             <>
+            {actor.role === "DIRECTOR" && !summary && (
+              <section className="ds-root ds-page director-team-scope" aria-label="New case team scope">
+                <label htmlFor="director-team-id">Create case for team</label>
+                <select
+                  id="director-team-id"
+                  className="input"
+                  value={directorTeamId}
+                  required
+                  onChange={(event) => setDirectorTeamId(event.target.value as TeamId | "")}
+                >
+                  <option value="">Select a team</option>
+                  {teamOptions.map((team) => (
+                    <option key={team.team_id} value={team.team_id}>
+                      {team.display_name} · {team.client_scope_label}
+                    </option>
+                  ))}
+                </select>
+                <p className="control-help">Director-created cases require an explicit team.</p>
+              </section>
+            )}
             <HomeOnboarding
               summary={summary}
               uen={uen}
@@ -2100,6 +2208,14 @@ export default function App({
               onCountryChange={setCountryOfIncorporation}
               documentFiles={documentFiles}
               onDocumentFilesChange={handleDocumentFilesChange}
+              caseTeamDisplayName={
+                actor.role === "DIRECTOR"
+                  ? teamOptions.find((team) => team.team_id === directorTeamId)?.display_name
+                    ?? "Select a team above"
+                  : actor.team_display_name ?? "Team unavailable"
+              }
+              priority={casePriority}
+              onPriorityChange={setCasePriority}
               isSubmitting={isSubmitting}
               isResolving={isResolving}
               requestError={requestError}
@@ -2111,7 +2227,10 @@ export default function App({
               onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
               onRecovery={() => void handleRecovery()}
               onStartNewCase={handleStartNewCase}
-              onSummaryUpdate={setSummary}
+              onSummaryUpdate={(updated) => {
+                setSummary(updated);
+                caseSummaryMutationEffect(queryClient, actor.user_id, updated);
+              }}
               onViewOnboarded={openCompletedCase}
               onViewAudit={openCaseAudit}
             />
@@ -2136,11 +2255,17 @@ export default function App({
           )}
 
           {activeTab === "queue" && !selectedCaseId && (
-            <CaseQueue onOpenCase={setSelectedCaseId} />
+            <CaseQueue
+              actor={actor}
+              presentation={caseQueuePresentation}
+              onPresentationChange={setCaseQueuePresentation}
+              onOpenCase={setSelectedCaseId}
+            />
           )}
           {activeTab === "queue" && selectedCaseId && (
             <CaseDetail
               caseId={selectedCaseId}
+              actor={actor}
               onBack={() => setSelectedCaseId(null)}
               onViewOnboarded={openCompletedCase}
               onViewAudit={openCaseAudit}
@@ -2148,11 +2273,12 @@ export default function App({
           )}
 
           {activeTab === "onboarded" && !selectedClientId && (
-            <OnboardedClients onOpenClient={setSelectedClientId} />
+            <OnboardedClients actor={actor} onOpenClient={setSelectedClientId} />
           )}
           {activeTab === "onboarded" && selectedClientId && (
             <ClientDetail
               clientId={selectedClientId}
+              actor={actor}
               onBack={() => setSelectedClientId(null)}
               onOpenAudit={openCaseAudit}
             />
@@ -2160,7 +2286,9 @@ export default function App({
 
           {activeTab === "audit" && <AuditTrail initialCaseId={auditCaseId} />}
 
-          {activeTab === "policy" && <PolicyRules />}
+          {activeTab === "policy" && <PolicyRules actor={actor} />}
+          {activeTab === "users" && <AdminUsers />}
+          {activeTab === "teams" && <AdminTeams />}
       </div>
     </main>
   );

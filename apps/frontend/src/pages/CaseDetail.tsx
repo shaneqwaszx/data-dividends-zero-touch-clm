@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   ApiError,
+  deleteZeroTouchCase,
   fetchDocuments,
   fetchOwnership,
   fetchZeroTouchCase,
@@ -12,9 +14,19 @@ import {
   retryZeroTouchIntakeDocument,
 } from "../api";
 import { startAutomationPolling } from "../automationPolling";
+import {
+  caseDeletedEffect,
+  caseDetailQueryOptions,
+  caseSummaryMutationEffect,
+  caseSupportingMutationEffect,
+  documentQueryOptions,
+  ownershipQueryOptions,
+  priorityMutationEffect,
+} from "../caseQueries";
 import { formatTimestamp, shouldPollAutomation } from "../shared";
 import type {
   DocumentProcessingRecord,
+  AuthenticatedProfile,
   ExceptionResolutionAction,
   OwnershipAnalysisRecord,
   ZeroTouchCaseSummary,
@@ -23,6 +35,8 @@ import type {
 import AssignReviewerDialog from "./AssignReviewerDialog";
 import { CompletedOverview, ConfirmDetailsPanel, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
 import ReturnForReworkDialog from "./ReturnForReworkDialog";
+import PriorityControl, { PriorityBadge } from "./PriorityControl";
+import DeleteCaseDialog from "./DeleteCaseDialog";
 
 const ACCEPTED_DOCUMENTS = "application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt";
 
@@ -42,20 +56,27 @@ export function isDocumentReuploadRequired(document: DocumentProcessingRecord): 
 
 export default function CaseDetail({
   caseId,
+  actor,
   onBack,
   onViewOnboarded,
   onViewAudit,
 }: {
   caseId: string;
+  actor: AuthenticatedProfile;
   onBack: () => void;
   onViewOnboarded: (caseId: string) => void;
   onViewAudit: (caseId: string) => void;
 }) {
-  const [summary, setSummary] = useState<ZeroTouchCaseSummary | null>(null);
-  const [documents, setDocuments] = useState<DocumentProcessingRecord[]>([]);
-  const [ownership, setOwnership] = useState<OwnershipAnalysisRecord | null>(null);
+  const queryClient = useQueryClient();
+  const detailQuery = useQuery(caseDetailQueryOptions(actor.user_id, caseId));
+  const documentQuery = useQuery(documentQueryOptions(actor.user_id, caseId));
+  const ownershipQuery = useQuery(ownershipQueryOptions(actor.user_id, caseId));
+  const summary = detailQuery.data ?? null;
+  const documents = documentQuery.data ?? [];
+  const ownership = ownershipQuery.data ?? null;
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [dialogException, setDialogException] = useState<{ exception: ZeroTouchException; kind: "assign" | "rework" } | null>(null);
   const generation = useRef(0);
 
@@ -65,22 +86,18 @@ export default function CaseDetail({
       fetchDocuments(caseId),
       fetchOwnership(caseId),
     ]);
-    setSummary(latest);
-    setDocuments(latestDocuments);
-    setOwnership(latestOwnership);
+    queryClient.setQueryData(caseDetailQueryOptions(actor.user_id, caseId).queryKey, latest);
+    queryClient.setQueryData(documentQueryOptions(actor.user_id, caseId).queryKey, latestDocuments);
+    queryClient.setQueryData(ownershipQueryOptions(actor.user_id, caseId).queryKey, latestOwnership);
     return latest;
-  }, [caseId]);
+  }, [actor.user_id, caseId, queryClient]);
 
   useEffect(() => {
     generation.current += 1;
     const current = generation.current;
-    setSummary(null);
     setError(null);
-    void refreshEvidence().catch((requestError) => {
-      if (current !== generation.current) return;
-      setError(requestError instanceof ApiError ? requestError.message : "The case is unavailable.");
-    });
-  }, [refreshEvidence]);
+    return () => { generation.current = current + 1; };
+  }, [caseId]);
 
   useEffect(() => {
     if (!summary || !shouldPollAutomation(summary.status)) return;
@@ -91,22 +108,24 @@ export default function CaseDetail({
       currentGeneration: () => generation.current,
       fetchCase: fetchZeroTouchCase,
       onUpdate: (latest) => {
-        setSummary(latest);
+        caseSummaryMutationEffect(queryClient, actor.user_id, latest);
         void Promise.all([fetchDocuments(caseId), fetchOwnership(caseId)]).then(([docs, owner]) => {
-          if (activeGeneration === generation.current) { setDocuments(docs); setOwnership(owner); }
+          if (activeGeneration === generation.current) {
+            queryClient.setQueryData(documentQueryOptions(actor.user_id, caseId).queryKey, docs);
+            queryClient.setQueryData(ownershipQueryOptions(actor.user_id, caseId).queryKey, owner);
+          }
         });
       },
       onWarning: (warning) => setError(warning),
       shouldContinue: shouldPollAutomation,
     });
-  }, [caseId, summary?.status, summary?.version]);
+  }, [actor.user_id, caseId, queryClient, summary?.status, summary?.version]);
 
   async function runMutation(operation: () => Promise<ZeroTouchCaseSummary>) {
     setIsBusy(true);
     setError(null);
     try {
-      setSummary(await operation());
-      await refreshEvidence();
+      await caseSupportingMutationEffect(queryClient, actor.user_id, await operation());
     } catch (mutationError) {
       if (shouldRefreshAfterMutationError(mutationError)) {
         await refreshEvidence().catch(() => undefined);
@@ -117,7 +136,15 @@ export default function CaseDetail({
     }
   }
 
-  if (error && !summary) return <div className="ds-root ds-page"><button type="button" className="btn btn-ghost" onClick={onBack}>← Back to Cases</button><div className="ds-banner ds-banner-warn">{error}</div></div>;
+  async function deleteCase(): Promise<void> {
+    await deleteZeroTouchCase(caseId);
+    await caseDeletedEffect(queryClient, actor.user_id, caseId);
+    setDeleteDialogOpen(false);
+    onBack();
+  }
+
+  const loadError = detailQuery.error ?? documentQuery.error ?? ownershipQuery.error;
+  if ((error || loadError) && !summary) return <div className="ds-root ds-page"><button type="button" className="btn btn-ghost" onClick={onBack}>← Back to Cases</button><div className="ds-banner ds-banner-warn">{error ?? (loadError instanceof Error ? loadError.message : "The case is unavailable.")}</div></div>;
   if (!summary) return <div className="ds-root ds-page"><p className="text-muted">Loading case…</p></div>;
 
   const entity = summary.case.entity;
@@ -136,7 +163,7 @@ export default function CaseDetail({
       </div>
 
       <div className="ds-page" style={{ flex: 1 }}>
-        <div className="ds-page-header"><div><p className="card-kicker">{summary.case.requested_uen} · {summary.case.jurisdiction_resolution?.resolved_jurisdiction ?? "—"}</p><h1>{entity?.legal_name ?? summary.case.requested_uen}</h1></div><span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span></div>
+        <div className="ds-page-header"><div><p className="card-kicker">{summary.case.requested_uen} · {summary.case.jurisdiction_resolution?.resolved_jurisdiction ?? "—"} · {summary.case.client_scope_label ?? "Legacy unassigned"}</p><h1>{entity?.legal_name ?? summary.case.requested_uen}</h1></div><div className="case-header-actions"><PriorityBadge priority={summary.case.priority} /><PriorityControl caseId={caseId} priority={summary.case.priority} onUpdated={async () => { await refreshEvidence(); await priorityMutationEffect(queryClient, actor.user_id); }} />{(actor.role === "DIRECTOR" || actor.role === "RELATIONSHIP_MANAGER") && <button type="button" className="btn btn-danger" onClick={() => setDeleteDialogOpen(true)}>Delete case</button>}<span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span></div></div>
         {error && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{error}</div>}
 
         {summary.active_exceptions.filter((exception) => exception.stage !== "REGISTRY").map((exception) => (
@@ -285,8 +312,9 @@ export default function CaseDetail({
         <h4 style={{ marginTop: 24 }}>Automation timeline</h4><div className="table-card"><table className="table"><thead><tr><th>Timestamp</th><th>Stage</th><th>Event</th><th>Outcome</th></tr></thead><tbody>{summary.timeline.map((event) => <tr key={event.sequence}><td>{formatTimestamp(event.timestamp)}</td><td>{event.stage}</td><td>{event.message}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>
       </div>
 
-      {dialogException?.kind === "assign" && <AssignReviewerDialog summary={summary} exception={dialogException.exception} onClose={() => setDialogException(null)} onAssigned={(updated) => { setSummary(updated); setDialogException(null); }} />}
-      {dialogException?.kind === "rework" && <ReturnForReworkDialog summary={summary} exception={dialogException.exception} onClose={() => setDialogException(null)} onReturned={(updated) => { setSummary(updated); setDialogException(null); }} />}
+      {dialogException?.kind === "assign" && <AssignReviewerDialog summary={summary} exception={dialogException.exception} onClose={() => setDialogException(null)} onAssigned={(updated) => { caseSummaryMutationEffect(queryClient, actor.user_id, updated); setDialogException(null); }} />}
+      {dialogException?.kind === "rework" && <ReturnForReworkDialog summary={summary} exception={dialogException.exception} onClose={() => setDialogException(null)} onReturned={(updated) => { caseSummaryMutationEffect(queryClient, actor.user_id, updated); setDialogException(null); }} />}
+      {deleteDialogOpen && <DeleteCaseDialog caseId={caseId} companyName={entity?.legal_name ?? summary.case.requested_uen} requestedUen={summary.case.requested_uen} onCancel={() => setDeleteDialogOpen(false)} onConfirm={deleteCase} />}
     </div>
   );
 }

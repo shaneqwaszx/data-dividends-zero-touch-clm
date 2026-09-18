@@ -1,8 +1,12 @@
 import unittest
 from pathlib import Path
 
+from phase13_contract_credentials import provision_contract_hash_environment
+
+provision_contract_hash_environment()
+
 from app.config import Settings
-from app.main import create_app
+from app.main import create_app  # noqa: E402
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[2]

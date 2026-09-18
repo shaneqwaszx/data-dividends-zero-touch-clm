@@ -79,7 +79,12 @@ async def test_unknown_case_returns_application_404() -> None:
         response = await client.get("/api/onboarding/cases/00000000-0000-4000-8000-000000000000")
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "Onboarding case not found"}
+    assert response.json() == {
+        "detail": {
+            "code": "CASE_NOT_FOUND",
+            "message": "The requested case was not found.",
+        }
+    }
 
 
 @pytest.mark.anyio

@@ -12,6 +12,7 @@ from app.domain.ownership import OwnershipPercent
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 ENV_FILE = REPOSITORY_ROOT / ".env"
+PHASE13_LOCAL_BROWSER_ORIGINS = frozenset({"http://127.0.0.1:8000", "http://127.0.0.1:5173"})
 
 
 class Settings(BaseSettings):
@@ -51,12 +52,54 @@ class Settings(BaseSettings):
         max_length=64,
         pattern=r"^[A-Za-z0-9_-]+$",
     )
+    mongo_admin_teams_collection: str = Field(
+        default="clm_admin_teams",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    mongo_admin_profiles_collection: str = Field(
+        default="clm_admin_profiles",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    mongo_admin_policies_collection: str = Field(
+        default="clm_admin_policies",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    phase13_maya_lim_password_hash: SecretStr | None = None
+    phase13_ethan_tan_password_hash: SecretStr | None = None
+    phase13_sophia_ng_password_hash: SecretStr | None = None
+    phase13_ryan_lee_password_hash: SecretStr | None = None
+    phase13_olivia_koh_password_hash: SecretStr | None = None
+    phase14_5_hr_admin_password_hash: SecretStr | None = None
+    phase14_5_max_active_sessions: int = Field(default=256, ge=1, le=1000)
+    phase13_cookie_secure: bool | None = None
+    phase13_browser_origin: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @property
+    def phase13_trusted_browser_origins(self) -> frozenset[str]:
+        """Return configured browser origins without consulting request metadata."""
+
+        if self.app_env in {"development", "test"}:
+            configured = (
+                frozenset({self.phase13_browser_origin})
+                if self.phase13_browser_origin is not None
+                else frozenset()
+            )
+            return PHASE13_LOCAL_BROWSER_ORIGINS | configured
+        if self.phase13_browser_origin is None:
+            raise ValueError("PHASE13_BROWSER_ORIGIN is required in the production environment")
+        return frozenset({self.phase13_browser_origin})
 
 
 @lru_cache

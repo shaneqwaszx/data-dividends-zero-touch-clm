@@ -1,6 +1,9 @@
 import type {
+  AuthSession,
+  CasePriorityResult,
   ClmCaseSummary,
   DocumentProcessingRecord,
+  DashboardSnapshot,
   DocumentFieldKey,
   MockIdpScenario,
   MockOwnershipScenario,
@@ -15,9 +18,60 @@ import type {
   ZeroTouchDemoScenario,
   SimulationProfile,
   UatEvidenceExport,
+  TeamId,
+  AuthenticatedTeam,
+  AdminTeam,
+  AdminProfile,
+  PolicyCatalogue,
+  PolicyValue,
+  Role,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+let activeCsrfToken: string | null = null;
+let unauthorizedHandler: (() => void) | null = null;
+
+export function configureAuthenticatedTransport(options: {
+  csrfToken: string | null;
+  onUnauthorized: (() => void) | null;
+}): void {
+  activeCsrfToken = options.csrfToken;
+  unauthorizedHandler = options.onUnauthorized;
+}
+
+async function fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method ?? "GET").toUpperCase();
+  const headers = new Headers(init.headers);
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && activeCsrfToken) {
+    headers.set("X-CSRF-Token", activeCsrfToken);
+  }
+  const response = await globalThis.fetch(input, {
+    ...init,
+    headers,
+    credentials: "include",
+  });
+  if (response.status === 401) unauthorizedHandler?.();
+  return response;
+}
+
+export async function login(userId: string, credential: string): Promise<AuthSession> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, "password": credential }),
+  });
+  return parseResponse<AuthSession>(response);
+}
+
+export async function fetchCurrentSession(): Promise<AuthSession> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/me`);
+  return parseResponse<AuthSession>(response);
+}
+
+export async function logout(): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/logout`, { method: "POST" });
+  if (!response.ok) await parseResponse<never>(response);
+}
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -64,6 +118,8 @@ export async function createZeroTouchCase(
   uen: string,
   demoScenario?: ZeroTouchDemoScenario,
   countryOfIncorporation?: "SG" | "AU" | "MY" | "HK",
+  teamId?: TeamId,
+  priority?: number | null,
 ): Promise<ZeroTouchCaseSummary> {
   const demo = demoScenario !== undefined;
   const response = await fetch(
@@ -77,10 +133,34 @@ export async function createZeroTouchCase(
           ? { country_of_incorporation: countryOfIncorporation }
           : {}),
         ...(demo ? { scenario: demoScenario } : {}),
+        ...(teamId ? { team_id: teamId } : {}),
+        ...(priority !== undefined && priority !== null ? { priority } : {}),
       }),
     },
   );
   return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export async function updateCasePriority(
+  caseId: string,
+  priority: number | null,
+): Promise<CasePriorityResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/priority`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ priority }),
+    },
+  );
+  return parseResponse<CasePriorityResult>(response);
+}
+
+export async function deleteZeroTouchCase(caseId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) await parseResponse<never>(response);
 }
 
 export async function attachZeroTouchDocument(
@@ -157,12 +237,32 @@ export async function completeZeroTouchIntake(
   return parseResponse<ZeroTouchCaseSummary>(response);
 }
 
+export type PriorityFilter = "all" | "prioritised" | "unset" | `${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10}`;
+export type PrioritySort = "highest_first" | "lowest_first";
+
 export async function fetchZeroTouchCases(
   status?: ZeroTouchCaseListItem["status"],
+  priority: PriorityFilter = "all",
+  prioritySort: PrioritySort = "highest_first",
+  teamFilter?: string,
+  signal?: AbortSignal,
 ): Promise<ZeroTouchCaseListItem[]> {
-  const query = status ? `?status=${encodeURIComponent(status)}` : "";
-  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases${query}`);
+  const query = new URLSearchParams();
+  if (status) query.set("status", status);
+  if (priority !== "all") query.set("priority_filter", priority);
+  if (prioritySort !== "highest_first") query.set("priority_sort", prioritySort);
+  if (teamFilter && teamFilter !== "all") query.set("team_filter", teamFilter);
+  const suffix = query.size ? `?${query.toString()}` : "";
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases${suffix}`, { signal });
   return parseResponse<ZeroTouchCaseListItem[]>(response);
+}
+
+export async function fetchDashboard(teamFilter?: string, signal?: AbortSignal): Promise<DashboardSnapshot> {
+  const query = teamFilter && teamFilter !== "all"
+    ? `?team_filter=${encodeURIComponent(teamFilter)}`
+    : "";
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/dashboard${query}`, { signal });
+  return parseResponse<DashboardSnapshot>(response);
 }
 
 export async function replaceZeroTouchDocument(
@@ -197,8 +297,8 @@ export async function fetchZeroTouchCase(
   return parseResponse<ZeroTouchCaseSummary>(response);
 }
 
-export async function fetchExecutionProfile(): Promise<SimulationProfile> {
-  const response = await fetch(`${API_BASE_URL}/api/system/execution-profile`);
+export async function fetchExecutionProfile(signal?: AbortSignal): Promise<SimulationProfile> {
+  const response = await fetch(`${API_BASE_URL}/api/system/execution-profile`, { signal });
   return parseResponse<SimulationProfile>(response);
 }
 
@@ -324,8 +424,14 @@ export async function submitClmCase(caseId: string): Promise<ClmCaseSummary> {
   return parseResponse<ClmCaseSummary>(response);
 }
 
-export async function fetchDocuments(caseId: string): Promise<DocumentProcessingRecord[]> {
-  const response = await fetch(`${API_BASE_URL}/api/onboarding/cases/${caseId}/documents`);
+export async function fetchDocuments(
+  caseId: string,
+  signal?: AbortSignal,
+): Promise<DocumentProcessingRecord[]> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/onboarding/cases/${caseId}/documents`,
+    { signal },
+  );
   return parseResponse<DocumentProcessingRecord[]>(response);
 }
 
@@ -372,8 +478,12 @@ export async function reviewDocument(
 
 export async function fetchOwnership(
   caseId: string,
+  signal?: AbortSignal,
 ): Promise<OwnershipAnalysisRecord | null> {
-  const response = await fetch(`${API_BASE_URL}/api/onboarding/cases/${caseId}/ownership`);
+  const response = await fetch(
+    `${API_BASE_URL}/api/onboarding/cases/${caseId}/ownership`,
+    { signal },
+  );
   if (response.status === 404) return null;
   return parseResponse<OwnershipAnalysisRecord>(response);
 }
@@ -398,4 +508,135 @@ export async function analyzeOwnership(caseId: string): Promise<OwnershipAnalysi
     { method: "POST" },
   );
   return parseResponse<OwnershipAnalysisRecord>(response);
+}
+
+export async function fetchTeamOptions(): Promise<AuthenticatedTeam[]> {
+  return parseResponse<AuthenticatedTeam[]>(await fetch(`${API_BASE_URL}/api/teams/options`));
+}
+
+export async function fetchAdminTeams(): Promise<AdminTeam[]> {
+  return parseResponse<AdminTeam[]>(await fetch(`${API_BASE_URL}/api/admin/teams`));
+}
+
+export async function createAdminTeam(input: {
+  display_name: string;
+  client_scope_label: string;
+  description?: string;
+}): Promise<AdminTeam> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/teams`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<AdminTeam>(response);
+}
+
+export async function updateAdminTeam(
+  teamId: TeamId,
+  input: { expected_version: number; display_name?: string; client_scope_label?: string; description?: string | null },
+): Promise<AdminTeam> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/teams/${encodeURIComponent(teamId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<AdminTeam>(response);
+}
+
+export async function fetchAdminProfiles(): Promise<AdminProfile[]> {
+  return parseResponse<AdminProfile[]>(await fetch(`${API_BASE_URL}/api/admin/profiles`));
+}
+
+export async function createAdminProfile(input: {
+  user_id: string;
+  display_name: string;
+  role: Role;
+  team_id: TeamId | null;
+  password: string;
+}): Promise<AdminProfile> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/profiles`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<AdminProfile>(response);
+}
+
+export async function updateAdminProfile(
+  userId: string,
+  input: { expected_version: number; display_name?: string; role?: Role; team_id?: TeamId | null },
+): Promise<AdminProfile> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/profiles/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<AdminProfile>(response);
+}
+
+export async function fetchPolicies(): Promise<PolicyCatalogue> {
+  return parseResponse<PolicyCatalogue>(await fetch(`${API_BASE_URL}/api/policies`));
+}
+
+export async function createShowcasePolicy(input: {
+  expected_catalogue_version: number;
+  policy_id: string;
+  category: string;
+  name: string;
+  description: string;
+  value: PolicyValue;
+}): Promise<PolicyCatalogue> {
+  const response = await fetch(`${API_BASE_URL}/api/policies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<PolicyCatalogue>(response);
+}
+
+export async function updatePolicy(
+  policyId: string,
+  input: {
+    expected_catalogue_version: number;
+    expected_rule_version: number;
+    value: PolicyValue;
+    name?: string;
+    description?: string;
+  },
+): Promise<PolicyCatalogue> {
+  const response = await fetch(`${API_BASE_URL}/api/policies/${encodeURIComponent(policyId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<PolicyCatalogue>(response);
+}
+
+export async function resetPolicy(
+  policyId: string,
+  catalogueVersion: number,
+  ruleVersion: number,
+): Promise<PolicyCatalogue> {
+  const response = await fetch(`${API_BASE_URL}/api/policies/${encodeURIComponent(policyId)}/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      expected_catalogue_version: catalogueVersion,
+      expected_rule_version: ruleVersion,
+      confirmation: "RESET_POLICY_DEFAULT",
+    }),
+  });
+  return parseResponse<PolicyCatalogue>(response);
+}
+
+export async function resetAllPolicies(catalogueVersion: number): Promise<PolicyCatalogue> {
+  const response = await fetch(`${API_BASE_URL}/api/policies/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      expected_catalogue_version: catalogueVersion,
+      confirmation: "RESET_ALL_POLICY_DEFAULTS",
+    }),
+  });
+  return parseResponse<PolicyCatalogue>(response);
 }

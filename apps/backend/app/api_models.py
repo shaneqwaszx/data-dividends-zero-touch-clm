@@ -7,6 +7,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.access import CasePriority, TeamId
+from app.domain.administration import TeamRecord
+from app.domain.case_management import CasePortfolioRecord
 from app.domain.clm import (
     ClmOrchestrationRecord,
     ClmReadinessAssessment,
@@ -58,6 +61,7 @@ from app.domain.ownership import (
     OwnershipWorkflowEvent,
     Party,
 )
+from app.domain.policy import CasePolicySnapshot
 from app.domain.reconciliation import (
     DiscrepancyStatus,
     ObservationValidity,
@@ -115,9 +119,7 @@ class BrowserJurisdictionObservation(BaseModel):
     jurisdiction: JurisdictionCode
     source: JurisdictionObservationSource
     observed_at: datetime
-    evidence_reference: str | None = Field(
-        default=None, validation_alias="source_reference"
-    )
+    evidence_reference: str | None = Field(default=None, validation_alias="source_reference")
     confidence: float | None = None
 
 
@@ -213,6 +215,10 @@ class OnboardingCaseResponse(BaseModel):
     source_case_id: str
     correlation_id: UUID
     requested_uen: str
+    policy_snapshot: CasePolicySnapshot
+    team_id: TeamId | None = None
+    priority: CasePriority | None = None
+    client_scope_label: str | None = None
     jurisdiction_resolution: BrowserJurisdictionResolution | None = None
     registry_route: RegistryRoutingDecision | None = None
     state: WorkflowState
@@ -225,10 +231,15 @@ class OnboardingCaseResponse(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_domain(cls, case: OnboardingCase) -> "OnboardingCaseResponse":
+    def from_domain(
+        cls, case: OnboardingCase, team: TeamRecord | None = None
+    ) -> "OnboardingCaseResponse":
         """Project a domain case without serializing its registry source link."""
 
-        return cls.model_validate(case)
+        projected = cls.model_validate(case)
+        return projected.model_copy(
+            update={"client_scope_label": team.client_scope_label if team is not None else None}
+        )
 
 
 class BrowserFieldProvenance(BaseModel):
@@ -382,7 +393,10 @@ class ClmCaseSummaryResponse(BaseModel):
 
     @classmethod
     def from_domain(
-        cls, record: ClmOrchestrationRecord, case: OnboardingCase
+        cls,
+        record: ClmOrchestrationRecord,
+        case: OnboardingCase,
+        team: TeamRecord | None = None,
     ) -> "ClmCaseSummaryResponse":
         snapshot = record.submission_snapshot
         submission = (
@@ -398,7 +412,7 @@ class ClmCaseSummaryResponse(BaseModel):
             else None
         )
         return cls(
-            case=OnboardingCaseResponse.from_domain(case),
+            case=OnboardingCaseResponse.from_domain(case, team),
             orchestration_id=record.orchestration_id,
             correlation_id=record.correlation_id,
             version=record.version,
@@ -552,14 +566,10 @@ class ReconciliationResponse(BaseModel):
                     decision=(
                         BrowserReconciliationDecision(
                             action=item.decision.action,
-                            selected_observation_id=(
-                                item.decision.selected_observation_id
-                            ),
+                            selected_observation_id=(item.decision.selected_observation_id),
                             selected_value=item.decision.selected_value,
                             decided_at=item.decision.decided_at,
-                            reconciliation_version=(
-                                item.decision.reconciliation_version
-                            ),
+                            reconciliation_version=(item.decision.reconciliation_version),
                         )
                         if item.decision is not None
                         else None
@@ -600,18 +610,18 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         case: OnboardingCase,
         reconciliation: ReconciliationCaseRecord | None = None,
         target_operations: tuple["BrowserTargetOperationEvidence", ...] = (),
+        team: TeamRecord | None = None,
     ) -> "ZeroTouchCaseSummaryResponse":
         return cls(
-            case=OnboardingCaseResponse.from_domain(case),
-            clm=ClmCaseSummaryResponse.from_domain(clm_record, case),
+            case=OnboardingCaseResponse.from_domain(case, team),
+            clm=ClmCaseSummaryResponse.from_domain(clm_record, case, team),
             automation_id=record.automation_id,
             version=record.version,
             status=record.status,
             current_stage=record.current_stage,
             completed_stages=record.completed_stages,
             active_exceptions=[
-                BusinessExceptionResponse.model_validate(item)
-                for item in record.active_exceptions
+                BusinessExceptionResponse.model_validate(item) for item in record.active_exceptions
             ],
             reconciliation=(
                 ReconciliationResponse.from_domain(reconciliation)
@@ -641,21 +651,55 @@ class ZeroTouchCaseListItemResponse(BaseModel):
     active_exception_count: int
     human_interventions: int
     final_outcome: str | None
+    team_id: TeamId | None
+    client_scope_label: str | None
+    priority: CasePriority | None
+    resolved_jurisdiction: JurisdictionCode | None
+    created_at: datetime
+    completed_at: datetime | None
+    mock_goldtier_party_id: str | None
 
     @classmethod
     def from_domain(
-        cls, record: ZeroTouchAutomationRecord, case: OnboardingCase
+        cls, record: CasePortfolioRecord, team: TeamRecord | None = None
     ) -> "ZeroTouchCaseListItemResponse":
         return cls(
             case_id=record.case_id,
-            requested_uen=case.requested_uen,
-            legal_name=case.entity.legal_name if case.entity is not None else None,
+            requested_uen=record.requested_uen,
+            legal_name=record.legal_name,
             status=record.status,
             current_stage=record.current_stage,
             updated_at=record.updated_at,
-            active_exception_count=len(record.active_exceptions),
-            human_interventions=record.metrics.human_interventions,
-            final_outcome=record.metrics.final_outcome,
+            active_exception_count=record.active_exception_count,
+            human_interventions=record.human_interventions,
+            final_outcome=record.final_outcome,
+            team_id=record.team_id,
+            client_scope_label=team.client_scope_label if team is not None else None,
+            priority=record.priority,
+            resolved_jurisdiction=record.resolved_jurisdiction,
+            created_at=record.created_at,
+            completed_at=record.completed_at,
+            mock_goldtier_party_id=record.mock_goldtier_party_id,
+        )
+
+
+class CasePriorityResponse(BaseModel):
+    """Authoritative priority result without workflow or access-policy internals."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: UUID
+    team_id: TeamId | None
+    priority: CasePriority | None
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(cls, case: OnboardingCase) -> "CasePriorityResponse":
+        return cls(
+            case_id=case.case_id,
+            team_id=case.team_id,
+            priority=case.priority,
+            updated_at=case.updated_at,
         )
 
 

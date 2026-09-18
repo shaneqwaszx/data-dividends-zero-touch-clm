@@ -34,6 +34,8 @@ SENSITIVE_FILE_SUFFIXES = {
     ".pem",
     ".pfx",
 }
+SOURCE_CODE_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx"}
+RUNTIME_VALUE_REFERENCE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$")
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,12 @@ RULES = (
     Rule("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
     Rule("slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b")),
     Rule("stripe-live-secret", re.compile(r"\bsk_live_[A-Za-z0-9]{20,}\b")),
+    Rule(
+        "credential-uri",
+        re.compile(
+            r"(?i)\b(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|redis)://[^\s/:@]+:[^\s@]+@"
+        ),
+    ),
     Rule(
         "jwt-token",
         re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
@@ -86,6 +94,16 @@ def is_placeholder(value: str) -> bool:
     return normalized in PLACEHOLDERS or normalized.startswith(("your_", "example_", "test_"))
 
 
+def is_runtime_sensitive_forwarding(path: Path, value: str) -> bool:
+    """Allow source-code references while continuing to reject committed literals."""
+
+    if path.suffix.lower() not in SOURCE_CODE_SUFFIXES:
+        return False
+    normalized = value.strip().rstrip(",;)]}")
+    normalized = normalized.split("[", maxsplit=1)[0]
+    return bool(RUNTIME_VALUE_REFERENCE.fullmatch(normalized))
+
+
 def scan_file(path: Path) -> list[tuple[str, int]]:
     if path.suffix.lower() in SENSITIVE_FILE_SUFFIXES:
         return [("sensitive-file-type", 0)]
@@ -104,10 +122,14 @@ def scan_file(path: Path) -> list[tuple[str, int]]:
             match = rule.pattern.search(line)
             if match is None:
                 continue
-            if rule.captured_value_group is not None and is_placeholder(
-                match.group(rule.captured_value_group)
-            ):
-                continue
+            if rule.captured_value_group is not None:
+                value = match.group(rule.captured_value_group)
+                if is_placeholder(value) or (
+                    rule.name == "sensitive-assignment"
+                    and re.search(r"[:=]\s*[\"']", match.group(0)) is None
+                    and is_runtime_sensitive_forwarding(path, value)
+                ):
+                    continue
             findings.append((rule.name, line_number))
     return findings
 

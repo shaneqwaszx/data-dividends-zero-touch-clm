@@ -1,41 +1,56 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { ApiError, fetchZeroTouchCase, fetchZeroTouchCases } from "../api";
+import { fetchZeroTouchCases } from "../api";
+import type { PriorityFilter, PrioritySort } from "../api";
+import { caseListQueryOptions, priorityMutationEffect } from "../caseQueries";
+import type { AuthenticatedProfile } from "../types";
 import type { OnboardedRowView } from "../viewModels";
 import { mapCompletedCaseToOnboardedRow } from "../viewModels";
+import PriorityControl, { PriorityBadge, PriorityListControls } from "./PriorityControl";
+import DirectorTeamFilter from "./DirectorTeamFilter";
 
 export function OnboardedActionColumnHeader() {
   return <th aria-label="Open" />;
 }
 
+export async function loadOnboardedRows(
+  priority: PriorityFilter = "all",
+  prioritySort: PrioritySort = "highest_first",
+  teamFilter?: string,
+): Promise<OnboardedRowView[]> {
+  const items = await fetchZeroTouchCases("COMPLETED", priority, prioritySort, teamFilter);
+  return items.map(mapCompletedCaseToOnboardedRow);
+}
+
 export default function OnboardedClients({
+  actor,
   onOpenClient,
 }: {
+  actor: AuthenticatedProfile;
   onOpenClient: (clientId: string) => void;
 }) {
-  const [clients, setClients] = useState<OnboardedRowView[]>([]);
   const [jurisdiction, setJurisdiction] = useState("");
+  const [priority, setPriority] = useState<PriorityFilter>("all");
+  const [prioritySort, setPrioritySort] = useState<PrioritySort>("highest_first");
   const [search, setSearch] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [teamFilter, setTeamFilter] = useState("all");
+  const queryClient = useQueryClient();
+  const query = useQuery(caseListQueryOptions(
+    actor.user_id,
+    "COMPLETED",
+    priority,
+    prioritySort,
+    teamFilter,
+  ));
+  const clients = useMemo(
+    () => (query.data ?? []).map(mapCompletedCaseToOnboardedRow),
+    [query.data],
+  );
 
-  useEffect(() => {
-    setIsLoading(true);
-    void fetchZeroTouchCases("COMPLETED")
-      .then(async (items) => {
-        const details = await Promise.all(items.map((item) => fetchZeroTouchCase(item.case_id)));
-        setClients(items.map((item, index) => mapCompletedCaseToOnboardedRow(item, details[index])));
-        setError(null);
-      })
-      .catch((requestError) => {
-        setError(
-          requestError instanceof ApiError
-            ? requestError.message
-            : "The onboarded client list is unavailable.",
-        );
-      })
-      .finally(() => setIsLoading(false));
-  }, []);
+  async function refreshAfterPriorityUpdate(): Promise<void> {
+    await priorityMutationEffect(queryClient, actor.user_id);
+  }
 
   const filteredClients = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -57,6 +72,13 @@ export default function OnboardedClients({
       </p>
 
       <div className="ds-toolbar">
+        <DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} />
+        <PriorityListControls
+          filter={priority}
+          sort={prioritySort}
+          onFilterChange={setPriority}
+          onSortChange={setPrioritySort}
+        />
         <select
           className="input"
           style={{ width: 190 }}
@@ -91,12 +113,14 @@ export default function OnboardedClients({
         Risk assessment is not connected in this POC; risk and next-review values remain unavailable.
       </p>
 
-      {error && <div className="ds-banner ds-banner-warn">{error}</div>}
-      {!error && isLoading && <p className="text-muted">Loading clients…</p>}
-      {!error && !isLoading && filteredClients.length === 0 && (
+      {query.isError && !query.data && <div className="ds-banner ds-banner-warn">{query.error instanceof Error ? query.error.message : "The onboarded client list is unavailable."}</div>}
+      {query.isError && query.data && <div className="ds-banner ds-banner-warn">Refresh failed; cached clients remain visible.</div>}
+      {query.isPending && <p className="text-muted">Loading clients…</p>}
+      {query.isFetching && !query.isPending && <p className="refreshing-indicator">Refreshing…</p>}
+      {!query.isError && !query.isPending && filteredClients.length === 0 && (
         <p className="text-muted">No clients match these filters.</p>
       )}
-      {!error && filteredClients.length > 0 && (
+      {filteredClients.length > 0 && (
         <div className="table-card table-scroll" tabIndex={0} aria-label="Completed Mock workflow cases">
           <table className="table onboarded-table">
             <thead>
@@ -106,6 +130,8 @@ export default function OnboardedClients({
                 <th>Registration ID</th>
                 <th>Company</th>
                 <th>Jurisdiction</th>
+                <th>Priority</th>
+                <th>Client scope</th>
                 <th>Risk</th>
                 <th>Onboarded</th>
                 <th>Next review</th>
@@ -120,6 +146,15 @@ export default function OnboardedClients({
                   <td>{client.registration_id}</td>
                   <td>{client.company_name ?? "—"}</td>
                   <td>{client.jurisdiction ?? "—"}</td>
+                  <td>
+                    <PriorityBadge priority={client.priority} />
+                    <PriorityControl
+                      caseId={client.case_id}
+                      priority={client.priority}
+                      onUpdated={refreshAfterPriorityUpdate}
+                    />
+                  </td>
+                  <td>{client.client_scope_label ?? "Legacy unassigned"}</td>
                   <td>{client.risk_rating ?? "—"}</td>
                   <td>{new Date(client.onboarded_at).toLocaleDateString()}</td>
                   <td>{client.next_review_date ? new Date(client.next_review_date).toLocaleDateString() : "—"}</td>

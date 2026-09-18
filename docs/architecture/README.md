@@ -1,5 +1,11 @@
 # Architecture Workspace
 
+Start with the current canonical agent map at [../ARCHITECTURE.md](../ARCHITECTURE.md),
+plus [../PROJECT_STATE.md](../PROJECT_STATE.md) and
+[../DEVELOPMENT_WORKFLOW.md](../DEVELOPMENT_WORKFLOW.md). Files in this directory retain
+phase-specific detail and historical boundaries; current source and the canonical map
+govern when an older statement has drifted.
+
 The Phase 00 architecture baseline is documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 Implemented phase boundaries are documented in
 [PHASE_01_VERTICAL_SLICE.md](PHASE_01_VERTICAL_SLICE.md) and
@@ -23,5 +29,14 @@ explicit multi-document intake boundary in
 Phase 12's explicit memory/Mongo repository composition, single-envelope CAS boundary,
 and conservative restart recovery are documented in
 [PHASE_12_DURABLE_PERSISTENCE_RESTART_RECOVERY.md](PHASE_12_DURABLE_PERSISTENCE_RESTART_RECOVERY.md).
+Phase 13's local authentication, centralized case authorization, immutable team scope,
+priority ordering, and schema-v2 compatibility boundary are documented in
+[PHASE_13_CASE_PRIORITY_AUTH_RBAC.md](PHASE_13_CASE_PRIORITY_AUTH_RBAC.md).
+Phase 14.5's persistent identity/team administration, typed policy catalogue, dynamic
+Director filter, and immutable schema-v3 case policy binding are documented in
+[PHASE_14_5_POLICY_TEAM_IDENTITY_ADMIN.md](PHASE_14_5_POLICY_TEAM_IDENTITY_ADMIN.md).
+Phase 14's projected portfolio read model, session-memory query cache, explicit
+create/update lifecycle, and authorized hard-delete boundary are documented in
+[PHASE_14_CASE_MANAGEMENT_PERFORMANCE.md](PHASE_14_CASE_MANAGEMENT_PERFORMANCE.md).
 
 Later phases should update that baseline only when an approved planner handoff introduces a new boundary or decision.

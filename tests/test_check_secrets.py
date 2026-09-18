@@ -59,6 +59,28 @@ class SecretScannerTests(unittest.TestCase):
 
         self.assertEqual(CHECK_SECRETS.scan_file(path), [])
 
+    def test_allows_runtime_sensitive_field_forwarding_in_source_code(self) -> None:
+        path = self._temporary_file(
+            "handler.py", "pass" + "word = request.password\npass" + "word: str\n"
+        )
+
+        self.assertEqual(CHECK_SECRETS.scan_file(path), [])
+
+    def test_detects_literal_password_assignment(self) -> None:
+        path = self._temporary_file(
+            "settings.py", "pass" + "word = \"literal_not_allowed\"\n"
+        )
+
+        self.assertEqual(CHECK_SECRETS.scan_file(path), [("sensitive-assignment", 1)])
+
+    def test_detects_credential_bearing_connection_uri(self) -> None:
+        path = self._temporary_file(
+            "settings.txt",
+            "connection_uri=" + "mongo" + "db://user:credential@host/database\n",
+        )
+
+        self.assertEqual(CHECK_SECRETS.scan_file(path), [("credential-uri", 1)])
+
     def test_flags_sensitive_certificate_or_keystore_file_type(self) -> None:
         path = self._temporary_file("safe-fake.jks")
 

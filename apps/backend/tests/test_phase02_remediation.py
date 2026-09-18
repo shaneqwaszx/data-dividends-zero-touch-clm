@@ -23,6 +23,7 @@ from app.connectors.errors import (
 from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.demo.scenarios import VALID_SME_UEN
+from app.domain.access import TeamId
 from app.domain.models import CanonicalLegalEntity
 from app.main import create_app
 from app.mappers.acra import map_acra_company
@@ -331,7 +332,7 @@ async def test_browser_case_omits_internal_registry_source_link() -> None:
         repository=InMemoryOnboardingCaseRepository(),
         clock=lambda: FIXED_TIME,
     )
-    internal_case = service.create_case(VALID_SME_UEN)
+    internal_case = service.create_case(VALID_SME_UEN, team_id=TeamId.TEAM_A)
     assert internal_case.entity is not None
     assert internal_case.entity.source.registry_source_link.endswith(VALID_SME_UEN)
     application = create_app(Settings(app_env="test"), onboarding_service=service)

@@ -1,185 +1,189 @@
-# Data Dividends — Codex Project Rules
+# Data Dividends — Codex Project Constitution
 
-## Project goal
+## Project and scope
 
-Build the FYP Proof of Concept for:
+Build the Zero-Touch Onboarding CLM proof of concept:
 
-**Zero-Touch Onboarding - Client Lifecycle Management (CLM)**
+`ACRA Singapore -> orchestration -> GoldTier -> unresolved human approval gate`
 
-Primary project flow:
+Work only on the explicitly assigned task/phase. Singapore ACRA is the sole implemented
+registry route. Do not silently invent a business rule, sponsor decision, contract,
+mapping, source precedence, security assumption, or Live integration claim. Record a
+material ambiguity/contradiction and stop the dependent work.
 
-**ACRA Singapore -> EDS/orchestration layer -> GoldTier -> Ready-for-Approval / human review gate**
+## Mandatory context-loading order
 
-The implementation must remain extensible to additional corporate registries later, but the live POC registry scope is Singapore ACRA.
+For non-trivial work, read in order:
 
-## How Codex should work
+1. `AGENTS.md`
+2. `docs/PROJECT_STATE.md`
+3. `docs/ARCHITECTURE.md`
+4. `docs/DEVELOPMENT_WORKFLOW.md`
+5. relevant contracts, decisions, and `docs/sponsor-questions/OPEN_QUESTIONS.md`
+6. the relevant repository skill under `.agents/skills/`
+7. current owning source and tests
 
-- Work only on the task/phase explicitly assigned.
-- Read this file before making changes.
-- Read `docs/PROJECT_CONTEXT.md` for current project scope and sponsor decisions.
-- Read the active phase prompt under `.ai-pipeline/`.
-- Do not silently invent missing business rules.
-- If a material requirement is ambiguous or contradictory, record it and stop that part of the implementation rather than guessing.
-- Prefer small, testable changes over large rewrites.
-- Do not merge to `main`.
-- Do not push unless explicitly instructed.
-- Do not modify unrelated files.
+Then read the assigned planner handoff and nearest relevant accepted gate/report for a
+phase, remediation, integration, or quality gate. Historical reports are supporting
+evidence on demand, not mandatory task-start context or current truth by recency.
+Run `python scripts/dev_context.py` at task start after it exists on the branch.
 
-## Mandatory branch and integration safety
+## Source-of-truth priority
 
-- `origin/main` is the authoritative integration baseline. Before creating a development
-  branch, run `git fetch origin`, `git switch main`, and
-  `git pull --ff-only origin main`; then create a new branch and record the initial
-  `origin/main` SHA as `BASE_SHA`. Never develop directly on `main`.
-- Work only on the assigned feature branch. Do not modify `main`, delete another
-  developer's branch, rewrite another developer's commits, force-push, rebase a shared
-  branch, merge a PR, run `git clean` or `git reset --hard`, or stage unrelated files
-  with `git add -A`.
-- Minimize the integration surface. Do not perform opportunistic refactors, unrelated
-  renames, broad reformatting, unnecessary generated/lockfile changes, or rewrites of
-  working modules. Treat central frontend/backend composition, API/types, CI, README,
-  and lockfiles as deliberate-change hotspots.
-- Preserve current main behavior unless the assigned requirement explicitly supersedes
-  it. Do not restore APIs, UI behavior, security assumptions, mocks, configuration, or
-  documentation removed or changed on newer main.
-- Before PR readiness, fetch again and determine whether `origin/main` advanced from
-  `BASE_SHA`. If it did, merge `origin/main` into the feature branch when authorized;
-  do not rebase a shared branch. Resolve every conflict by preserving current main
-  intent and reapplying the smallest feature delta. Never blindly choose ours/theirs,
-  accept current/incoming, or delete one side. Stop when intent cannot be reconciled.
-- Explicitly report changes to API routes/models, shared types, persistence schemas,
-  connector interfaces, configuration names, business rules, sponsor mappings, and
-  authentication/security behavior.
-- Run `python scripts/pre_pr_check.py` and all relevant regression checks against the
-  latest `origin/main` before declaring PR readiness. A focused test or ancestry check
-  alone does not prove merge safety.
+When facts disagree, use:
 
-Use `.agents/skills/integration-safe-development/SKILL.md` for the staged workflow,
-`docs/development/BRANCH_MERGE_PROTOCOL.md` for the human Git protocol, and the skill's
-`references/PRE_PR_CHECKLIST.md` before handoff.
+1. current synchronized source code and tests;
+2. current contracts and decision records;
+3. current configuration and composition;
+4. current sponsor-question and decision documentation;
+5. explicitly supplied external audits/planner context;
+6. existing architecture/project context documentation;
+7. latest phase reports;
+8. historical phase reports/prompts.
 
-## Source-of-truth and development-conflict policy
+For GoldTier contract conflicts within level 2, preserve the recorded provisional rule:
+latest direct sponsor clarification; corrected standalone operation OpenAPI for machine
+structure; a sponsor-directed artefact for its delegated question (including the
+provisional mandatory-field overlay); validating examples as reference only; then the
+combined bundle and other supporting evidence at recorded confidence.
 
-When supplied project artefacts disagree, apply this provisional development policy:
+A contradictory example is `INVALID / QUARANTINED`; never use it as a fixture, enum,
+DTO or assertion. Record material differences in
+`docs/contracts/GOLDTIER_CONTRACT_DISCREPANCIES.md` and unresolved authority in the
+decision/open-question logs. Project-defined/provisional is not sponsor-confirmed.
 
-1. Latest direct Delta Capita sponsor clarification recorded in
-   `docs/decisions/DECISION_LOG.md` remains the highest authority.
-2. For endpoint paths, schemas, property names, enums, and other
-   machine-validation structure, use the corrected standalone operation OpenAPI.
-3. Where Delta Capita explicitly directs the team to a different artefact for a
-   specific question, follow that direction. In particular, the sponsor has directed
-   the team to the EDS-GoldTier Integration API Specification for each operation's
-   minimum mandatory fields; apply that mandatory-field overlay provisionally and
-   record any difference from the standalone OpenAPI.
-4. A JSON example is reference material only if it validates against this provisional
-   canonical contract. A contradictory example is `INVALID / QUARANTINED` and must
-   not become a canonical fixture, DTO enum source, or contract assertion.
-5. The combined OpenAPI bundle is lower-confidence wherever it conflicts with a
-   corrected standalone operation file or direct sponsor decision.
-6. The GoldTier EDS Data Dictionary provides candidate mapping evidence only unless
-   a mapping is separately sponsor-confirmed. The connection guide, sanitised
-   Postman examples, and approved FYP proposal are supporting evidence in that order.
+## Git baseline and branch safety
 
-This ordering is a **project development decision pending sponsor/API-owner
-confirmation**. It is not a claim that Delta Capita has formally corrected the
-conflicting artefacts. Never resolve a material conflict silently: catalogue contract
-differences in `docs/contracts/GOLDTIER_CONTRACT_DISCREPANCIES.md` and record decisions
-or unanswered sponsor questions in the relevant project logs.
+`origin/main` is the authoritative integration baseline. Before creating a branch:
 
-## Current implementation scope
+```powershell
+git fetch origin
+git switch main
+git pull --ff-only origin main
+git rev-parse HEAD
+git rev-parse origin/main
+```
 
-### Implement
-- Singapore NTB onboarding POC
-- ACRA as the sole live external corporate registry source
-- Registry data ingestion
-- Canonical internal entity model
-- ACRA -> internal model -> GoldTier mapping
-- IDP for agreed PDF/document inputs
-- Confidence scoring and human review for low-confidence/exception cases
-- Related-party processing
-- Deterministic ownership/UBO percentage calculation
-- UBO tagging using configurable business rules
-- GoldTier EDS/XPI integration
-- Basic workflow/status UI
-- Audit-safe technical logging
-- Mock connectors so development is not blocked by sandbox availability
+The SHAs must match. The tracked primary repository must be clean. Create an explicitly
+assigned feature branch and record that SHA as `BASE_SHA`. Never develop on `main`.
 
-### Do not implement unless explicitly assigned
-- ASIC live integration
-- Malaysia or Hong Kong live registry integrations
-- `createRelationship`
-- creation of multi-level corporate hierarchies through GoldTier
-- full compliance/risk assessment engine
-- autonomous AI approval decisions
-- ML-based final UBO decisions
-- full analytics/MIS dashboard
-- full Exception Workbench
+Do not delete/reuse an existing branch blindly; modify another developer's branch;
+rewrite or amend accepted/shared history; reset; rebase a shared branch; stash; run
+`git clean`; force-push; merge a PR; or stage broadly with `git add -A`. Do not move,
+delete, scan, hash, stage, or inspect unrelated parent/sibling repositories or protected
+root artefacts. Do not overwrite another worktree. Use a task worktree only when the
+assigned workflow/user requires or existing state makes it necessary.
 
-## GoldTier contract decisions already confirmed
+Preserve current main behavior unless the assigned requirement explicitly supersedes
+it. Avoid unrelated refactors/renames/reformatting and unnecessary generated/lockfile
+changes. Treat backend/frontend composition, API/shared types, persistence schemas, CI,
+README and lockfiles as integration hotspots.
 
-- Canonical amend endpoint:
-  `POST /v1/eds/parties/{partyId}/amend`
-- `createRelatedParty` supports direct, first-level related parties.
-- Multi-level hierarchy creation is not supported through the current API.
-- Complex hierarchy demo data will be seeded in GoldTier and should be retrieved/displayed when the relevant API is available.
-- ACRA is the only external registry source for the POC.
-- GoldTier authentication target is PingFed-based token retrieval when sandbox details are supplied.
-- TLS 1.3 is required for the sponsor sandbox connection.
-- ACRA registry proof should reference ACRA and the corresponding API endpoint.
-- UTC ISO-8601 is acceptable/recommended for sourcing timestamps.
+Before PR readiness, fetch again. If `origin/main` advanced, merge it into the feature
+branch only when authorized; do not rebase shared work. Resolve each conflict by current
+main intent plus the smallest feature delta—never blindly accept ours/theirs. Stop when
+intent cannot be reconciled. Repository-owner humans merge PRs.
 
-## Security rules
+## Change classification and workflow
 
-Never commit:
-- `.env`
-- passwords
-- client secrets
-- access tokens
-- bearer tokens
-- private keys/certificates
-- sponsor credentials
-- raw confidential sponsor artefacts in `private/`
+Before editing, classify every applicable type from `docs/DEVELOPMENT_WORKFLOW.md`:
 
-Do not copy secrets from Postman collections into source code, documentation, tests, examples, or commits.
+`DOCS_ONLY`, `FRONTEND_UI`, `FRONTEND_STATE_CACHE`, `BACKEND_DOMAIN`, `BACKEND_API`,
+`AUTH_RBAC_SECURITY`, `PERSISTENCE`, `EXTERNAL_PROVIDER`, `ARCHITECTURE_REFACTOR`, or
+`CI_TOOLING`.
 
-KYC/PII must not be written to normal application logs. Logs should contain safe identifiers, statuses, correlation IDs, and masked/sanitised summaries.
+Use its verification matrix, role separation, stop conditions, ADR criteria and sponsor-
+authority gates. Read the matching skill from `.agents/skills/README.md`. A skill cannot
+broaden scope or authorize commit/push/merge. Independent QG is required for meaningful
+development/governance change; implementation, remediation and independent gates remain
+separate assigned runs.
 
-## Architecture rules
+## Architecture constitution
 
-- External systems must be accessed through connector/service interfaces.
-- Business logic must not depend directly on ACRA or GoldTier HTTP payloads.
-- Use the flow:
-  `source payload -> canonical internal model -> target mapping`
-- Mock and real connectors should be switchable without changing business logic.
-- UBO percentage calculation must be deterministic and testable.
-- Human review is permitted and expected for exceptions.
+`docs/ARCHITECTURE.md` is the current canonical owner/dependency map. Preserve:
 
-## Testing rules
+- untrusted source payload -> strict source DTO -> canonical model/evidence -> target mapping;
+- controlled provider/service/repository interfaces and fail-closed unsupported behavior;
+- evidence lineage and safe/minimal projection;
+- one deterministic Decimal ownership/UBO engine;
+- ledger-owned target call ordering, stopping and no-replay recovery;
+- backend-authoritative capability/RBAC/team scope and safe inaccessible-case 404;
+- sensitive-mutation reauthorization inside the owning lock/CAS boundary;
+- explicit memory/Mongo modes with no silent fallback;
+- strict Mongo schema/identity and revision CAS;
+- insert-only create and update-only mutation where required;
+- no stale resurrection after case deletion;
+- user/session-scoped React Query keys including Director team-filter identity;
+- cancellation/cache clearing on logout, session/identity change and 401.
 
-Every meaningful feature must have tests.
+Do not add Mongo logic directly to API routes, frontend authorization, direct ACRA-to-
+GoldTier mapping, a second ownership engine, second authorization owner, parallel
+persistence model, target-ledger bypass, or runtime composition of dormant BizFile
+without an explicitly reviewed architecture/provider change.
 
-Before reporting a task complete, run the relevant:
-- backend tests
-- frontend tests
-- type/lint checks
-- contract tests
-- security/secret checks where configured
+## Current external-integration truth
 
-Do not claim success if checks were skipped or failed.
+Use `docs/PROJECT_STATE.md` for the dated matrix. Critical current prohibitions remain:
 
-## Definition of done
+- ACRA is Mock by default; generic sandbox-shaped support is partial; BizFile is dormant;
+  no Live ACRA is proved.
+- IDP is local deterministic extraction by default with a Mock demo/fault path; there is
+  no production/vendor OCR.
+- Ownership is the local deterministic Decimal graph engine; no external ownership service.
+- GoldTier is Mock only; PingFed/live target integration is not active.
+- Mongo is optional explicit persistence; memory remains default.
+- Camunda and production SSO/IdP are not implemented.
 
-A task is complete only when:
+Never claim Mock, Local, Sandbox, Partial or Dormant behavior is Live. Tool availability,
+placeholders, credentials, a passing mock test, or mock submission is not sponsor approval
+or interoperability proof.
 
-1. Assigned requirements are implemented.
-2. Relevant tests pass.
-3. No secrets or confidential raw artefacts are newly tracked.
-4. Documentation impacted by the change is updated.
-5. Assumptions and unresolved questions are explicitly recorded.
-6. The final Codex report includes:
-   - files changed
-   - tests/checks run
-   - results
-   - decisions/assumptions
-   - blockers/risks
-   - recommended next step
+## Sponsor authority and scope boundaries
+
+Recorded sponsor-confirmed points include the amend route
+`POST /v1/eds/parties/{partyId}/amend`, first-level `createRelatedParty` support, no
+current multi-level hierarchy creation, PingFed target when authorized details arrive,
+GoldTier TLS 1.3, ACRA source-proof labeling, and UTC ISO-8601 sourcing timestamps.
+Consult current decisions/contracts before relying on them.
+
+Unless explicitly assigned and supported by authority, do not implement ASIC/MY/HK live
+registries, `createRelationship`, GoldTier hierarchy creation, autonomous/final approval,
+ML-based UBO decisions, a compliance/risk engine, full MIS, or a full Exception Workbench.
+
+## Secrets, data and protected artefacts
+
+Never access `.env` for ordinary development/governance work or commit `.env`, passwords,
+password hashes, client secrets, tokens, bearer headers, private keys/certificates,
+sponsor credentials, or raw confidential sponsor artefacts under `private/`. Do not copy
+secrets from Postman/external tools into source, docs, tests, examples, commits or output.
+
+Keep KYC/PII, document bodies, raw provider payloads and private exception details out of
+normal logs. Log safe identifiers, states, correlation IDs and sanitized summaries only.
+Do not run broad scans that traverse unknown untracked/protected files. Repository checks
+operate on tracked or explicit task-owned paths.
+
+Physical Mongo tests require explicit relevance and a newly generated allowlisted
+disposable database. Never use, modify, clean, drop or test against `clm_poc`. Never
+print or persist the Mongo URI.
+
+## Testing and completion
+
+Every meaningful change has tests/evidence proportional to its change classes. Run
+focused checks first, then every required affected backend/frontend/type/lint/contract/
+security/regression/physical check. Do not claim success for skipped, failed or stale
+evidence.
+
+Before PR readiness against latest main, run `python scripts/pre_pr_check.py` and complete
+`.agents/skills/integration-safe-development/references/PRE_PR_CHECKLIST.md`. The checker
+does not replace semantic/security review, regression, physical evidence or independent
+QG where applicable.
+
+A task is complete only when assigned requirements are implemented, relevant checks pass,
+no secret/confidential artefact is newly tracked, affected docs/context are updated,
+assumptions/questions are recorded, and the final report includes branch/base/current
+main, files, behavior, checks/results, decisions, blockers/risks and next human action.
+Explicitly report API/model/type, schema, connector, configuration, business-rule,
+mapping, auth/security, architecture or provider-status changes.
+
+Do not commit, push, create a PR, merge, or start the next phase unless explicitly
+authorized. Final human PR merge and external account/secret setup remain owner actions.

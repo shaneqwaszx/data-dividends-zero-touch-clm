@@ -46,3 +46,13 @@ provisional automatic-continuation, exception, and replay rules are recorded in
 Phase 12's schema-version, configuration, structured-data retention, restart, and
 side-effect replay boundaries are recorded in `PERSISTENCE_RECOVERY_PROFILE.md`. It is a
 local durable POC contract, not a sponsor-approved retention/audit standard.
+
+Phase 13's fixed synthetic identity/team policy, non-enumerating case access, strict
+nullable priority, canonical ordering, and schema-v1/v2 compatibility are recorded in
+`CASE_ACCESS_AND_PRIORITY_PROFILE.md`. These are project-defined POC rules pending
+Q-016, not production RBAC, assignment, SLA, or identity governance.
+
+Phase 14.5's repository-backed teams/profiles, HR capability boundary, typed policy
+catalogue, and immutable schema-v3 case policy snapshot are recorded in
+`POLICY_TEAM_IDENTITY_ADMIN_PROFILE.md`. These remain project-defined POC behavior
+pending sponsor confirmation, not production IAM or approved compliance policy.

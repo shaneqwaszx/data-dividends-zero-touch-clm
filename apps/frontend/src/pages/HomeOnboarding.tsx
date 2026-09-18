@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import AssignReviewerDialog from "./AssignReviewerDialog";
 import { CompletedOverview, ConfirmDetailsPanel, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
+import { PriorityBadge } from "./PriorityControl";
 import ReturnForReworkDialog from "./ReturnForReworkDialog";
 
 export type JurisdictionSelection = "" | "SG" | "AU" | "MY" | "HK";
@@ -55,6 +56,9 @@ export default function HomeOnboarding({
   onCountryChange,
   documentFiles,
   onDocumentFilesChange,
+  caseTeamDisplayName,
+  priority,
+  onPriorityChange,
   isSubmitting,
   isResolving,
   requestError,
@@ -77,6 +81,9 @@ export default function HomeOnboarding({
   onCountryChange: (value: JurisdictionSelection) => void;
   documentFiles: File[];
   onDocumentFilesChange: (files: File[]) => void;
+  caseTeamDisplayName: string;
+  priority: number | "";
+  onPriorityChange: (value: number | "") => void;
   isSubmitting: boolean;
   isResolving: boolean;
   requestError: string | null;
@@ -122,9 +129,9 @@ export default function HomeOnboarding({
           <div>
             <h1>Start onboarding</h1>
             <p className="text-muted">
-              Enter the registration ID and attach the corporate documents. Onboarding pulls
-              the registry record, fills the case, and progresses automatically once every
-              required field is complete.
+              Provide the onboarding package available to you: the registration ID and
+              supporting corporate documents. This POC begins processing after the package
+              is supplied; it does not solicit or collect documents from upstream systems.
             </p>
           </div>
         </div>
@@ -162,6 +169,29 @@ export default function HomeOnboarding({
                   maxLength={32}
                   required
                 />
+              </div>
+              <div className="field">
+                <span className="control-label">Team</span>
+                <strong>{caseTeamDisplayName}</strong>
+              </div>
+              <div className="field">
+                <label htmlFor="home-priority">Case priority</label>
+                <select
+                  id="home-priority"
+                  className="input"
+                  value={priority}
+                  onChange={(event) => {
+                    onPriorityChange(event.target.value === "" ? "" : Number(event.target.value));
+                  }}
+                >
+                  <option value="">Unset</option>
+                  <option value={10}>10 — Highest</option>
+                  {[9, 8, 7, 6, 5, 4, 3, 2].map((value) => (
+                    <option key={value} value={value}>{value}</option>
+                  ))}
+                  <option value={1}>1 — Lowest</option>
+                </select>
+                <p className="control-help">Optional. 10 = highest, 1 = lowest.</p>
               </div>
             </div>
 
@@ -282,7 +312,10 @@ export default function HomeOnboarding({
             </p>
             <h1>{entity?.legal_name ?? summary.case.requested_uen}</h1>
           </div>
-          <span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span>
+          <div className="case-header-actions">
+            <PriorityBadge priority={summary.case.priority} />
+            <span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span>
+          </div>
         </div>
 
         {requestError && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{requestError}</div>}

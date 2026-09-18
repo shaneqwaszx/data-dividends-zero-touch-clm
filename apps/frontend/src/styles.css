@@ -2517,3 +2517,60 @@ dd {
     grid-template-columns: 1fr;
   }
 }
+.auth-page {
+  align-items: center;
+  background: var(--ds-canvas, #f6f7f8);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.auth-card {
+  max-width: 420px;
+  width: 100%;
+}
+
+.auth-card form {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.priority-badge {
+  background: #143d2c;
+  border-radius: 999px;
+  color: #fff;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+}
+
+.priority-badge--unset {
+  background: #e8eaec;
+  color: #4e555b;
+}
+
+.priority-control {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.priority-select {
+  min-width: 76px;
+  width: 76px;
+}
+
+.case-header-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.director-team-scope {
+  padding-bottom: 0;
+}

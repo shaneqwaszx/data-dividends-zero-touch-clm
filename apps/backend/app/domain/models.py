@@ -8,7 +8,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domain.access import CasePriority, TeamId
 from app.domain.jurisdiction import JurisdictionResolution, RegistryRoutingDecision
+from app.domain.policy import CasePolicySnapshot, legacy_phase13_policy_snapshot
 
 
 class WorkflowState(StrEnum):
@@ -229,9 +231,7 @@ class RegistryAcquisitionBundle(BaseModel):
     officers: tuple[RegistryOfficer, ...] = Field(default=(), max_length=32)
     ownership_parties: tuple[RegistryOwnershipParty, ...] = Field(default=(), max_length=64)
     relationships: tuple[RegistryRelationship, ...] = Field(default=(), max_length=128)
-    operation_results: tuple[RegistryOperationResult, ...] = Field(
-        min_length=4, max_length=4
-    )
+    operation_results: tuple[RegistryOperationResult, ...] = Field(min_length=4, max_length=4)
     status: RegistryAcquisitionStatus
     issues: tuple[RegistryAcquisitionIssue, ...] = Field(default=(), max_length=4)
     retrieved_at: datetime
@@ -249,9 +249,7 @@ class RegistryAcquisitionBundle(BaseModel):
         if tuple(item.operation for item in self.operation_results) != expected_operations:
             raise ValueError("registry operation results must be complete and ordered")
 
-        results_by_operation = {
-            item.operation: item for item in self.operation_results
-        }
+        results_by_operation = {item.operation: item for item in self.operation_results}
         expected_counts = {
             RegistryOperation.ENTITY_PROFILE: 1,
             RegistryOperation.OFFICERS: len(self.officers),
@@ -264,21 +262,22 @@ class RegistryAcquisitionBundle(BaseModel):
                 raise ValueError("registry operation count does not match normalized evidence")
             if result.status == RegistryOperationStatus.COMPLETE and evidence_count == 0:
                 raise ValueError("complete registry operations require normalized evidence")
-            if result.status in {
-                RegistryOperationStatus.EMPTY,
-                RegistryOperationStatus.FAILED,
-                RegistryOperationStatus.NOT_ATTEMPTED,
-            } and evidence_count != 0:
+            if (
+                result.status
+                in {
+                    RegistryOperationStatus.EMPTY,
+                    RegistryOperationStatus.FAILED,
+                    RegistryOperationStatus.NOT_ATTEMPTED,
+                }
+                and evidence_count != 0
+            ):
                 raise ValueError("non-complete registry operations cannot retain evidence")
 
         entity_result = results_by_operation[RegistryOperation.ENTITY_PROFILE]
         if entity_result.status != RegistryOperationStatus.COMPLETE:
             raise ValueError("registry acquisition requires a complete entity profile")
         canonical_identifier = self.entity_profile.registration_number.strip()
-        if (
-            canonical_identifier
-            and canonical_identifier != self.requested_identifier
-        ):
+        if canonical_identifier and canonical_identifier != self.requested_identifier:
             raise ValueError("registry entity profile must match the requested identifier")
         if self.root_party_id != f"ENTITY_{self.requested_identifier}":
             raise ValueError("registry root party must match the requested identifier")
@@ -295,9 +294,7 @@ class RegistryAcquisitionBundle(BaseModel):
             raise ValueError("entity operation provenance must match canonical source metadata")
 
         attempted_provenance = tuple(
-            item.provenance
-            for item in self.operation_results
-            if item.provenance is not None
+            item.provenance for item in self.operation_results if item.provenance is not None
         )
         if any(
             provenance.provider != entity_source.source_system
@@ -305,9 +302,7 @@ class RegistryAcquisitionBundle(BaseModel):
             for provenance in attempted_provenance
         ):
             raise ValueError("registry operation provenance must use one source and environment")
-        if self.retrieved_at != max(
-            provenance.retrieved_at for provenance in attempted_provenance
-        ):
+        if self.retrieved_at != max(provenance.retrieved_at for provenance in attempted_provenance):
             raise ValueError("registry acquisition timestamp must match its latest operation")
 
         collection_evidence = (
@@ -327,9 +322,7 @@ class RegistryAcquisitionBundle(BaseModel):
         for operation, record_provenance in collection_evidence:
             result_provenance = results_by_operation[operation].provenance
             if any(provenance != result_provenance for provenance in record_provenance):
-                raise ValueError(
-                    "registry record provenance must match its operation result"
-                )
+                raise ValueError("registry record provenance must match its operation result")
 
         officer_ids = [officer.officer_id for officer in self.officers]
         if len(officer_ids) != len(set(officer_ids)):
@@ -461,6 +454,9 @@ class OnboardingCase(BaseModel):
     source_case_id: str
     correlation_id: UUID
     requested_uen: str
+    policy_snapshot: CasePolicySnapshot = Field(default_factory=legacy_phase13_policy_snapshot)
+    team_id: TeamId | None = None
+    priority: CasePriority | None = None
     jurisdiction_resolution: JurisdictionResolution | None = None
     registry_route: RegistryRoutingDecision | None = None
     state: WorkflowState

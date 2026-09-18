@@ -9,6 +9,7 @@ from hashlib import sha256
 from threading import RLock
 from uuid import UUID
 
+from app.domain.case_management import CasePortfolioRecord, CasePortfolioScope
 from app.domain.clm import ClmOrchestrationRecord
 from app.domain.documents import DocumentProcessingRecord
 from app.domain.models import OnboardingCase
@@ -16,6 +17,7 @@ from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState
 from app.domain.reconciliation import ReconciliationCaseRecord
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import (
+    AutomationStatus,
     ZeroTouchAutomationRecord,
     validate_automation_record,
     validate_automation_transition,
@@ -29,6 +31,7 @@ from app.services.reconciliation_repository import (
     ReconciliationRepositoryConflictError,
     ReconciliationUnitOfWorkError,
 )
+from app.services.repository import CaseTeamImmutableError
 from app.services.target_execution_repository import (
     TargetExecutionRepositoryConflictError,
 )
@@ -46,22 +49,28 @@ class MongoOnboardingCaseRepository:
     def transaction_lock(self) -> RLock:
         return self._store.transaction_lock
 
+    def create(self, case: OnboardingCase) -> None:
+        validated = OnboardingCase.model_validate(case)
+        with self._store.locked():
+            now = datetime.now(UTC)
+            self._store.create(
+                DurableCaseSnapshot(
+                    case_id=validated.case_id,
+                    revision=0,
+                    onboarding=validated,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
     def save(self, case: OnboardingCase) -> None:
         validated = OnboardingCase.model_validate(case)
         with self._store.locked():
             current = self._store.get(validated.case_id)
             if current is None:
-                now = datetime.now(UTC)
-                self._store.create(
-                    DurableCaseSnapshot(
-                        case_id=validated.case_id,
-                        revision=0,
-                        onboarding=validated,
-                        created_at=now,
-                        updated_at=now,
-                    )
-                )
-                return
+                raise PersistenceConflictError
+            if current.onboarding.team_id != validated.team_id:
+                raise CaseTeamImmutableError
             candidate = current.model_copy(update={"onboarding": validated}, deep=True)
             self._store.replace(candidate, expected_revision=current.revision)
 
@@ -81,6 +90,53 @@ class MongoOnboardingCaseRepository:
         if snapshot is None:
             raise PersistenceConflictError
         self.save(snapshot)
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        with self._store.locked():
+            snapshot = self._store.get(case_id)
+            if snapshot is not None:
+                self._store.delete(case_id, expected_revision=snapshot.revision)
+
+
+class MongoCasePortfolioRepository:
+    def __init__(self, store: MongoCaseStore) -> None:
+        self._store = store
+
+    def list_authorized(
+        self,
+        scope: CasePortfolioScope,
+        *,
+        status: AutomationStatus | None = None,
+    ) -> list[CasePortfolioRecord]:
+        return self._store.list_portfolio(scope, status=status)
+
+
+class MongoCaseDeletionRepository:
+    def __init__(self, store: MongoCaseStore) -> None:
+        self._store = store
+
+    def delete(self, case_id: UUID) -> str | None:
+        with self._store.locked():
+            snapshot = self._store.get(case_id)
+            if snapshot is None:
+                raise PersistenceConflictError
+            return self._delete_snapshot(snapshot)
+
+    def discard(self, case_id: UUID) -> str | None:
+        with self._store.locked():
+            snapshot = self._store.get(case_id)
+            if snapshot is None:
+                return None
+            return self._delete_snapshot(snapshot)
+
+    def _delete_snapshot(self, snapshot: DurableCaseSnapshot) -> str | None:
+        binding_id = (
+            snapshot.automation.ownership_provider_binding_id
+            if snapshot.automation is not None
+            else None
+        )
+        self._store.delete(snapshot.case_id, expected_revision=snapshot.revision)
+        return binding_id
 
 
 class MongoDocumentProcessingRepository:
@@ -120,6 +176,9 @@ class MongoDocumentProcessingRepository:
         if snapshot is None:
             raise PersistenceConflictError
         return snapshot
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        del case_id
 
 
 class MongoOwnershipAnalysisRepository:
@@ -166,6 +225,9 @@ class MongoOwnershipAnalysisRepository:
             return None
         return snapshot.ownership.model_copy(deep=True)
 
+    def delete_for_case(self, case_id: UUID) -> None:
+        del case_id
+
 
 class MongoClmOrchestrationRepository:
     def __init__(self, store: MongoCaseStore) -> None:
@@ -204,6 +266,9 @@ class MongoClmOrchestrationRepository:
         if snapshot is None or snapshot.clm is None:
             return None
         return snapshot.clm.model_copy(deep=True)
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        del case_id
 
 
 class MongoZeroTouchAutomationRepository:
@@ -250,6 +315,9 @@ class MongoZeroTouchAutomationRepository:
             if snapshot.automation is not None
         )
         return order_zero_touch_automation_records(records)
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        del case_id
 
 
 class MongoReconciliationRepository:
@@ -311,6 +379,9 @@ class MongoReconciliationRepository:
     ) -> None:
         del case_id, snapshot
         raise ReconciliationUnitOfWorkError
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        del case_id
 
 
 class MongoReconciliationUnitOfWork:
@@ -462,6 +533,9 @@ class MongoTargetExecutionRepository:
             except PersistenceConflictError:
                 raise TargetExecutionRepositoryConflictError from None
 
+    def delete_for_case(self, case_id: UUID) -> None:
+        del case_id
+
 
 class MongoDemoScenarioRepository:
     def __init__(self, store: MongoCaseStore) -> None:
@@ -478,3 +552,6 @@ class MongoDemoScenarioRepository:
     def get(self, case_id: UUID) -> str | None:
         snapshot = self._store.get(case_id)
         return snapshot.demo_scenario if snapshot is not None else None
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        del case_id

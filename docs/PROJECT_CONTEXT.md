@@ -331,3 +331,111 @@ data and fails startup/reads without repair or cross-case projection.
 This is durable single-instance POC recovery, not production HA, distributed workflow,
 exactly-once provider execution, regulatory retention, or Ready-for-Approval. Q-012 and
 Q-015 remain open.
+
+## Phase 13 implementation status
+
+Phase 13 protects every `/api` route except login with a process-local opaque session,
+host-only HttpOnly strict-same-site cookie, and session-bound CSRF verification for
+unsafe methods. The five fixed synthetic profiles are Maya Lim and Ethan Tan for
+`TEAM_A`, Sophia Ng and Ryan Lee for `TEAM_B`, and teamless Director Olivia Koh.
+`TEAM_A`/`TEAM_B` remain the persisted identifiers while the browser presents DBS
+Corporate Onboarding and OCBC Corporate Onboarding. Director sees all teams and legacy
+unassigned cases. The documented development/test backend and Vite loopback origins are
+explicitly configured. Request `Host` never supplies origin trust; production requires
+one explicit canonical HTTPS origin and does not inherit local origins. Case access is
+enforced centrally from canonical persisted ownership;
+absent and inaccessible IDs have the same safe 404. Team actors create in their own team,
+Director must select a team, and case team is immutable.
+
+Case priority is nullable or a strict integer 1–10. Backend lists place prioritised cases
+first by descending priority and then retain the accepted automation timestamp/case-ID
+tie-break by default. Historical lists support backend-owned exact/unset/prioritised
+filters and either priority direction, always after RBAC and with unset last. Priority
+has no workflow, SLA, escalation, notification, or approval meaning.
+The canonical create request now accepts priority without coercion and persists it on the
+initial case in the same operation; the normal New Onboarding UI sends no follow-up
+priority PATCH. The authenticated synthetic seeder creates or reuses five cases per team
+and uses the existing `STRAIGHT_THROUGH` API lifecycle to verify genuine `COMPLETED` /
+`MOCK_GOLDTIER_SUBMITTED` showcase cases.
+Mongo schema v2 stores team/priority; exact v1 reads migrate only in memory to null/null.
+The frontend restores authenticated profile state in memory, attaches credentials/CSRF
+centrally, unmounts the workspace on 401, and renders only backend-returned team and
+priority truth. This remains local POC authentication, not PingFed/SSO or production
+RBAC. Q-016 remains open.
+
+## Phase 14.5 implementation status
+
+Phase 14.5 replaces the fixed runtime identity/team owners with persistent, bounded
+administration records. `TEAM_A` and `TEAM_B` remain stable IDs and are presented as
+Alpha and Beta. HR can create teams and profiles through capability-guarded APIs; HR
+has no case access or policy-mutation capability. Authentication reloads the current
+profile on every request, binds sessions to a security version, and revokes all of a
+user's process-local sessions immediately after an authority change. Password hashes
+remain backend-only and are never included in administration responses or audit events.
+Profile authority mutation now owns last-HR protection inside the repository critical
+section: memory uses one repository-wide lock and Mongo uses one process-local
+administration lock plus target CAS. The guarantee is scoped to this supported
+single-process POC runtime, not distributed IAM. Team display names and coverage labels
+each use backend-derived normalized uniqueness keys with memory/Mongo parity.
+
+The persistent policy catalogue contains exactly eight project/system rules by default.
+All authenticated roles may read it; Relationship Manager and Director may mutate only
+the two runtime thresholds using catalogue/rule compare-and-swap versions. Custom rules
+are always display-only. Each case captures an immutable policy snapshot before Registry
+processing. New Mongo envelopes use schema v3; exact schema-v1/v2 reads receive the fixed
+Phase 13 `0.85`/`25.000000` inclusive snapshot in memory without a read rewrite.
+User-authored showcase strings use a strict plain-text grammar that rejects
+script/expression syntax. RM/Director policy edits and confirmed resets synchronize from
+server catalogue truth; conflicts refetch once without automatically retrying. Client
+Onboarder and HR remain read-only, and custom rules stay visibly non-runtime.
+
+Director can filter Cases, Dashboard, and Onboarded by all teams, a canonical team ID,
+or legacy unassigned cases. Authorization is applied before filtering. Team actors
+cannot supply this filter, and the browser obtains options from the dynamic team
+directory, so newly created Gamma teams appear without a frontend release. These are
+synthetic project decisions pending sponsor confirmation under Q-004, Q-014, and Q-016;
+they are not production IdP/RBAC or sponsor-approved policy.
+
+Phase 13 demo-completeness Part 2 adds the authenticated historical Dashboard as the
+default signed-in view. Its backend read model derives factual totals, exact canonical
+status and priority distributions, authorized team counts, bounded recent/top-active
+cases, and a 30-day UTC created/completed trend from the existing case repositories.
+Authorization is applied before aggregation; team actors cannot infer the other team,
+while Director sees authorized cross-team history. Reads are provider-free, work in
+memory and Mongo, and survive restart only in Mongo mode. This is Dashboard V1, not a
+new analytics source, KPI policy, warehouse, SLA, risk model, or production BI system.
+
+The configured remote Mongo deployment was physically validated without exposing its
+connection details. Schema-v2 team, priority, completed/Mock-target state, dashboard
+RBAC, restart durability, and zero-provider historical reads passed. Atlas requires
+database names of at most 38 bytes, so physical tests use shorter unique test database
+names and clean only those generated databases. The shared demo database contains
+unrelated historical collisions for one showcase team/UEN; the selected ten-case
+showcase set remains five exact successful cases per team, and no shared history was
+deleted or manually rewritten.
+
+## Phase 14 implementation status
+
+Phase 14 uses one backend-authored portfolio projection for historical Cases, Onboarded,
+and Dashboard input. Normal list rendering is one HTTP request and zero row-detail
+requests; Mongo supplies it with one team-scoped projected query and no per-case gets.
+The additive list contract includes jurisdiction, lifecycle timestamps, and Mock target
+identifier without exposing heavy evidence bodies. TanStack Query retains authenticated
+GET results in browser memory for 45 seconds, cancels and clears all data on logout/401/
+login/identity change, and never uses browser persistent storage.
+
+The canonical case lifecycle now separates insert-only create from update-only save.
+Zero-touch establishment reserves its case identity and holds the same canonical
+per-case reentrant lock used by DELETE across onboarding, initial CLM, automation, and
+applicable demo-scenario writes. A failed required establishment write triggers bounded
+same-case aggregate rollback through local repository boundaries, with no external
+Registry/IDP/Ownership/GoldTier deletion. Confirmed deletion first cancels the
+authenticated user's in-flight case-list and Dashboard queries before removing cached
+case resources, so an older response cannot restore a deleted row.
+Authorized Director and Relationship Manager users can permanently delete any accessible
+case through a CSRF-protected `DELETE` route under the existing case lock; Client
+Onboarders cannot. Mongo uses revision compare-and-delete and memory removes the complete
+case-owned aggregate before transient provider/demo state is released. No external
+connector or target rollback is called. The role matrix, permanent-deletion policy, and
+cache interval are **PROJECT-DEFINED POC BEHAVIOR PENDING SPONSOR CONFIRMATION.** This is
+not a production retention/erasure policy or distributed concurrency guarantee.

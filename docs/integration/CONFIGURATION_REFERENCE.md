@@ -15,6 +15,18 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `MONGO_URI` | required secret in Mongo mode | empty | Backend-only Mongo connection string; never returned or logged |
 | `MONGO_DATABASE` | persistence | `clm_poc` | Bounded database namespace |
 | `MONGO_CASE_COLLECTION` | persistence | `clm_case_snapshots` | Bounded one-envelope-per-case collection |
+| `MONGO_ADMIN_TEAMS_COLLECTION` | persistence | `clm_admin_teams` | Canonical team and bounded audit records |
+| `MONGO_ADMIN_PROFILES_COLLECTION` | persistence | `clm_admin_profiles` | Account authority, security version, and backend-only password hash records |
+| `MONGO_ADMIN_POLICIES_COLLECTION` | persistence | `clm_admin_policies` | Singleton typed policy catalogue and bounded audit record |
+| `PHASE13_MAYA_LIM_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic operator Maya Lim |
+| `PHASE13_ETHAN_TAN_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic operator Ethan Tan |
+| `PHASE13_SOPHIA_NG_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic operator Sophia Ng |
+| `PHASE13_RYAN_LEE_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic operator Ryan Lee |
+| `PHASE13_OLIVIA_KOH_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic Director Olivia Koh |
+| `PHASE14_5_HR_ADMIN_PASSWORD_HASH` | required secret | empty | Backend-only scrypt hash for synthetic HR administrator |
+| `PHASE14_5_MAX_ACTIVE_SESSIONS` | security | `256` | Process-local global session capacity, 1–1000 |
+| `PHASE13_COOKIE_SECURE` | security | environment-derived | Defaults `true` in production and `false` in local development/test; explicit production `false` fails startup |
+| `PHASE13_BROWSER_ORIGIN` | security | `http://127.0.0.1:8000` locally | Canonical browser origin. Production requires an explicit exact HTTPS origin and fails before persistence initialization when absent or malformed. |
 | `ACRA_CONNECTOR_MODE` | integration | `mock` | `mock` or sandbox-shaped `sandbox` |
 | `ACRA_BASE_URL` | integration | empty | HTTPS subscriber base; required only for sandbox mode |
 | `ACRA_COMPANY_PATH_TEMPLATE` | integration | empty | Authorized path with exactly one `{uen}` placeholder |
@@ -41,6 +53,11 @@ credentials in examples, tests, docs, frontend variables, or commits.
 |---|---|---|
 | `VITE_DEMO_CONTROLS_ENABLED` | `false` | Shows synthetic selectors; backend gate remains authoritative |
 | `VITE_API_BASE_URL` | empty | Optional build-time base URL; local Vite proxy is supported. Cross-origin hosting requires a separately approved CORS design. |
+
+Phase 14 adds exact-pinned `@tanstack/react-query` as a browser runtime dependency and
+`jsdom` as a test-only dependency. The query cache is process memory with fixed code
+defaults (`staleTime` 45 seconds, `gcTime` 15 minutes); it has no environment toggle or
+persistent-storage configuration.
 
 For the scripted sponsor demo both demo flags are enabled in their respective launched
 processes, while `IDP_CONNECTOR_MODE=local_pdf_text` remains the normal sponsor path.
@@ -77,4 +94,19 @@ real readiness. D-018 still prohibits the quarantined authentication material.
 - ACRA sandbox mode without valid HTTPS/path/auth configuration fails before use.
 - Demo UI visibility does not bypass the backend demo gate.
 - Mongo mode never degrades to memory when configuration, startup, read, or write fails.
+- All six bootstrap credential hashes must be present and valid or startup fails with
+  only the missing/invalid setting name. Plaintext passwords are never accepted as
+  settings.
+- Use `python scripts/generate_admin_bootstrap_password_hashes.py` interactively and copy
+  its six hash assignments only into the local untracked environment. The script never
+  writes a credential file or prints plaintext.
+- Existing local Phase 13 hashes use retired setting names and are not migrated. After
+  this remediation, regenerate all five hashes so the new synthetic-profile setting
+  names above are populated.
+- Browser Origin/Referer validation uses configured origins only; request `Host` and
+  forwarding headers never add trust. At most one physical field of each name is
+  accepted, and duplicate fields fail closed even when identical. Origin is an exact
+  origin; Referer may include path/query but not a fragment. Development/test has exact
+  loopback origins for the backend and documented Vite proxy. Production requires one
+  explicit exact HTTPS `PHASE13_BROWSER_ORIGIN` and inherits no development origin.
 - No TLS-disable, certificate-ignore, wildcard CORS, or secret-printing option exists.

@@ -19,6 +19,7 @@ from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
 from app.connectors.mock_ownership import MockOwnershipProvider, MockOwnershipScenario
 from app.demo.zero_touch_control import ZeroTouchDemoScenario
+from app.domain.access import TeamId
 from app.domain.documents import ReviewDecision
 from app.domain.zero_touch import ExceptionResolutionAction
 from app.main import create_app
@@ -223,7 +224,16 @@ def test_demo_routes_are_disabled_by_default(
     client = TestClient(create_app(Settings(app_env="test")))
     response = client.request(method, path, **kwargs)
     assert response.status_code == 404
-    assert response.json()["detail"]["code"] == "DEMO_CONTROLS_DISABLED"
+    expected_code = (
+        "DEMO_CONTROLS_DISABLED"
+        if path
+        in {
+            "/api/onboarding/mock-scenarios",
+            "/api/demo/clm/zero-touch/cases",
+        }
+        else "CASE_NOT_FOUND"
+    )
+    assert response.json()["detail"]["code"] == expected_code
 
 
 @pytest.mark.parametrize(
@@ -317,7 +327,7 @@ def test_provider_and_target_failures_are_technical_not_business_review() -> Non
 
 def test_duplicate_and_concurrent_start_do_not_repeat_completed_work() -> None:
     client, zero, documents, target, demo = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     demo.register(created.case_id, ZeroTouchDemoScenario.STRAIGHT_THROUGH)
     case = created
     entity = client.get(f"/api/clm/zero-touch/cases/{created.case_id}").json()["case"]
@@ -354,7 +364,7 @@ def test_duplicate_and_concurrent_start_do_not_repeat_completed_work() -> None:
 
 def test_low_confidence_conflict_is_one_unverifiable_review_checkpoint() -> None:
     _, zero, _, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     result = zero.attach_document(
         case_id=created.case_id,
         display_name="synthetic.pdf",
@@ -371,7 +381,7 @@ def test_low_confidence_conflict_is_one_unverifiable_review_checkpoint() -> None
 
 def test_low_confidence_conflict_rejects_value_selection() -> None:
     _, zero, _, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     paused = zero.attach_document(
         case_id=created.case_id,
         display_name="synthetic.pdf",
@@ -432,7 +442,7 @@ def test_canonical_mutation_without_new_events_makes_resolution_stale(
 
 def test_invalid_pdf_does_not_publish_started_state() -> None:
     client, zero, _, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     response = client.post(
         f"/api/clm/zero-touch/cases/{created.case_id}/documents",
         headers={"content-type": "application/pdf", "X-Document-Name": "invalid.pdf"},
@@ -467,7 +477,7 @@ def test_unexpected_document_fault_terminalizes_with_sanitized_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, zero, _, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
 
     def fail_assessment(**_: object) -> object:
         raise RuntimeError("PRIVATE_ASSESSMENT_SENTINEL")
@@ -501,7 +511,7 @@ def test_unexpected_document_fault_terminalizes_with_sanitized_failure(
 
 def test_ownership_provider_binding_survives_document_resolution() -> None:
     _, zero, _, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     paused = zero.attach_document(
         case_id=created.case_id,
         display_name="synthetic.pdf",
@@ -539,7 +549,7 @@ def test_phase05_finalization_recovery_completes_without_target_replay(
         return original(*args, **kwargs)
 
     monkeypatch.setattr(zero._cases, "_build_execution_receipt", fail_once)  # noqa: SLF001
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     completed = zero.attach_document(
         case_id=created.case_id,
         display_name="synthetic.pdf",
@@ -593,7 +603,7 @@ def _create_pending_document(
 
 def test_P06_QG_005_REVIEWED_CONFLICT_EARLIER_DOCUMENT() -> None:
     _, zero, documents, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     conflict = _create_reviewed_document(
         documents,
         case_id=created.case_id,
@@ -618,7 +628,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_EARLIER_DOCUMENT() -> None:
 
 def test_P06_QG_005_REVIEWED_CONFLICT_LATER_DOCUMENT() -> None:
     _, zero, documents, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     _create_pending_document(
         documents,
         case_id=created.case_id,
@@ -641,7 +651,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_LATER_DOCUMENT() -> None:
 
 def test_P11_ONE_CURRENT_FIELD_DISCREPANCY_RETAINS_BOTH_CONFLICT_DOCUMENTS() -> None:
     _, zero, documents, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     first = _create_reviewed_document(
         documents,
         case_id=created.case_id,
@@ -676,7 +686,7 @@ def test_P06_QG_013_EQUAL_TIMESTAMPS_PRESERVE_INSERTION_ORDER_100_RUNS() -> None
     documents._clock = lambda: fixed_document_time  # noqa: SLF001
 
     for index in range(100):
-        created = zero.create_case("202400001A")
+        created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
         first = _create_reviewed_document(
             documents,
             case_id=created.case_id,
@@ -720,7 +730,7 @@ def test_P06_QG_013_FORMER_FLAKY_TEST_IS_STABLE_100_RUNS() -> None:
 
 def test_P06_QG_005_REVIEWED_CONFLICT_RESOLVED_BY_KEEP_REGISTRY() -> None:
     _, zero, documents, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     reviewed = _create_reviewed_document(
         documents,
         case_id=created.case_id,
@@ -758,7 +768,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_RESOLVED_BY_KEEP_REGISTRY() -> None:
 
 def test_P06_QG_005_REVIEWED_LOW_CONFIDENCE_REMAINS_BLOCKED() -> None:
     _, zero, documents, target, _ = build_system()
-    created = zero.create_case("202400001A")
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     _create_reviewed_document(
         documents,
         case_id=created.case_id,

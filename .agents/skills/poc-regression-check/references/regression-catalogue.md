@@ -392,11 +392,29 @@ and fixed safe issues. They label the surface as a project-owned synthetic Mock 
 - Registry routing is a backend-owned closed table. User input cannot select an
   endpoint, module, class, credential, or foreign connector. AU/MY/HK recognition is not
   an implementation claim.
+- Every `/api` operation except login is authenticated from a process-local opaque
+  server session. Unsafe methods additionally require the session-bound CSRF value;
+  invalid, expired, revoked, missing, or rotated sessions cannot retain browser access.
+- Team A/DBS and Team B/OCBC cases are authorized only from immutable canonical
+  `team_id`. Every case-scoped route family returns the same fixed 404 for a cross-team
+  ID and an absent ID. Director sees both teams and legacy unassigned cases; team users
+  do not enumerate legacy records.
+- Team-scoped creation is server-assigned and rejects supplied team claims. Director
+  creation requires an explicit fixed team. Headers, query values, and browser state
+  cannot spoof user, role, or team authority.
+- Priority is null or a strict integer 1–10, changes only case/audit metadata, and leaves
+  automation workflow state/timestamp and all provider call sequences unchanged. Lists
+  are access-filtered first, then order non-null priority descending before the accepted
+  automation timestamp and case-ID tie-break.
+- Mongo schema-v2 preserves team/priority through restart without provider replay. Exact
+  schema-v1 reads become null/null only in memory and are not rewritten; invalid or
+  unknown persistence and team changes fail closed.
 
 ## Catalogue evolution record
 
 | Established by | Change |
 |---|---|
+| Phase 13 implementation | Preserved all Registry→Document→Reconciliation→Ownership→Readiness→Mock GoldTier scenarios and call stopping; added authenticated session/CSRF enforcement, exhaustive non-enumerating team access, immutable team creation, strict nullable priority/backend ordering, schema-v1 compatibility, schema-v2 adapter parity, and a genuine-Mongo restart scenario in CI |
 | Phase 12 quality-gate remediation | Preserved the accepted architecture and prior phases; added canonical Mongo key/envelope identity validation, coordinated interrupted-document input recovery, bounded targeted same-case retry, and genuine-Mongo adverse restart/CAS/atomicity coverage |
 | Phase 12 implementation | Preserved Phase 09–11 and Pre-Phase 12 behavior; added explicit memory/Mongo durability, schema/CAS validation, restart reconstruction, read-only no-provider-replay, and uncertain-target recovery scenarios |
 | Pre-Phase 12 quality-gate remediation | Preserved all workspace/multi-document behavior; strengthened pre-IDP PDF structural recognition and DOCX archive-member namespace validation, and added accepted selected-byte visibility without moving authority to the browser |

@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import UTC, datetime
 from threading import RLock
 from uuid import UUID, uuid4
@@ -101,9 +102,7 @@ class MemoryEnvelopeStore:
         current = self.records.get(snapshot.case_id)
         if current is None or current.revision != expected_revision:
             raise AssertionError("stale envelope")
-        persisted = snapshot.model_copy(
-            update={"revision": expected_revision + 1}, deep=True
-        )
+        persisted = snapshot.model_copy(update={"revision": expected_revision + 1}, deep=True)
         self.records[snapshot.case_id] = persisted
         return persisted.model_copy(deep=True)
 
@@ -150,15 +149,11 @@ def test_automation_repository_order_is_independent_of_envelope_order() -> None:
 
     memory_repository = InMemoryZeroTouchAutomationRepository()
     memory_repository.save(
-        _pending_automation_record(
-            envelope_newer_case.case_id, updated_at=automation_older_at
-        ),
+        _pending_automation_record(envelope_newer_case.case_id, updated_at=automation_older_at),
         expected_version=None,
     )
     memory_repository.save(
-        _pending_automation_record(
-            automation_newer_case.case_id, updated_at=automation_newer_at
-        ),
+        _pending_automation_record(automation_newer_case.case_id, updated_at=automation_newer_at),
         expected_version=None,
     )
 
@@ -252,9 +247,7 @@ def test_automation_repository_equal_timestamp_order_matches_across_modes() -> N
                 case_id=case.case_id,
                 revision=0,
                 onboarding=case,
-                automation=_pending_automation_record(
-                    case.case_id, updated_at=tied_at, version=1
-                ),
+                automation=_pending_automation_record(case.case_id, updated_at=tied_at, version=1),
                 created_at=tied_at,
                 updated_at=tied_at,
             )
@@ -341,9 +334,7 @@ def _install_counting_goldtier(
             calls["policy"] += 1
             return super().create_policy(request, metadata)  # type: ignore[arg-type]
 
-        def amend_party(
-            self, party_id: str, request: object, metadata: object
-        ) -> object:
+        def amend_party(self, party_id: str, request: object, metadata: object) -> object:
             calls["amend"] += 1
             return super().amend_party(  # type: ignore[arg-type]
                 party_id, request, metadata
@@ -379,14 +370,39 @@ def test_schema_version_is_explicit_and_unknown_version_is_rejected() -> None:
         created_at=now,
         updated_at=now,
     )
-    assert snapshot.schema_version == 1
+    assert snapshot.schema_version == 3
 
     store = object.__new__(MongoCaseStore)
     raw = snapshot.model_dump(mode="json")
     raw["_id"] = str(snapshot.case_id)
-    raw["schema_version"] = 2
+    raw["schema_version"] = 4
     with pytest.raises(PersistenceSchemaUnsupportedError):
         store._decode(raw)  # noqa: SLF001 - direct corruption boundary test
+
+
+def test_schema_v2_read_receives_legacy_policy_snapshot_without_rewrite() -> None:
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    current = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=4,
+        onboarding=case,
+        created_at=now,
+        updated_at=now,
+    )
+    raw = current.model_dump(mode="json")
+    raw["schema_version"] = 2
+    raw["onboarding"].pop("policy_snapshot")
+    raw["_id"] = str(case.case_id)
+    original = deepcopy(raw)
+
+    decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
+
+    assert decoded.schema_version == 3
+    assert decoded.onboarding.policy_snapshot.snapshot_label == "LEGACY_PHASE13_DEFAULTS_V1"
+    assert str(decoded.onboarding.policy_snapshot.idp_review_confidence_threshold) == "0.85"
+    assert raw == original
 
 
 @pytest.mark.parametrize(
@@ -566,9 +582,7 @@ def test_multiple_interrupted_documents_require_individual_targeted_retries() ->
             content=TEXT_PROFILE.encode(),
         )
         assert unrelated.status_code == 409
-        assert unrelated.json()["detail"]["code"] == (
-            "ZERO_TOUCH_DOCUMENT_REUPLOAD_REQUIRED"
-        )
+        assert unrelated.json()["detail"]["code"] == ("ZERO_TOUCH_DOCUMENT_REUPLOAD_REQUIRED")
 
         first_retry = second.post(
             f"/api/clm/zero-touch/cases/{case_id}/intake/documents/{document_ids[0]}/retry",
@@ -699,9 +713,7 @@ def test_new_composition_reconstructs_pending_and_review_queue_from_adapters() -
 
     with TestClient(_durable_adapter_app(store)) as second:  # type: ignore[arg-type]
         listed = second.get("/api/clm/zero-touch/cases")
-        review = second.get(
-            "/api/clm/zero-touch/cases?status=WAITING_FOR_REVIEW"
-        )
+        review = second.get("/api/clm/zero-touch/cases?status=WAITING_FOR_REVIEW")
         assert listed.status_code == review.status_code == 200
         assert {item["case_id"] for item in listed.json()} == {
             completed_id,
@@ -798,9 +810,7 @@ def test_memory_mode_preserves_safe_pending_and_completed_resume_behavior(
         pending_id = pending.json()["case"]["case_id"]
         calls_before_pending_resume = goldtier_calls.copy()
 
-        pending_resume = client.post(
-            f"/api/clm/zero-touch/cases/{pending_id}/resume"
-        )
+        pending_resume = client.post(f"/api/clm/zero-touch/cases/{pending_id}/resume")
         pending_detail = client.get(f"/api/clm/zero-touch/cases/{pending_id}")
         assert pending_resume.status_code == 409
         assert pending_resume.json()["detail"]["code"] == "ZERO_TOUCH_DOCUMENTS_REQUIRED"
@@ -808,9 +818,7 @@ def test_memory_mode_preserves_safe_pending_and_completed_resume_behavior(
         assert pending_detail.json()["status"] == "PENDING_INPUTS"
         assert goldtier_calls == calls_before_pending_resume
 
-        completed = client.post(
-            "/api/clm/zero-touch/cases", json={"uen": "202400001A"}
-        )
+        completed = client.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
         completed_id = completed.json()["case"]["case_id"]
         uploaded = client.post(
             f"/api/clm/zero-touch/cases/{completed_id}/intake/documents",
@@ -827,9 +835,7 @@ def test_memory_mode_preserves_safe_pending_and_completed_resume_behavior(
         assert goldtier_calls == {"search": 1, "shell": 1, "policy": 1, "amend": 1}
         calls_before_completed_resume = goldtier_calls.copy()
 
-        completed_resume = client.post(
-            f"/api/clm/zero-touch/cases/{completed_id}/resume"
-        )
+        completed_resume = client.post(f"/api/clm/zero-touch/cases/{completed_id}/resume")
         assert completed_resume.status_code == 200
         assert completed_resume.json()["status"] == "COMPLETED"
         assert goldtier_calls == calls_before_completed_resume

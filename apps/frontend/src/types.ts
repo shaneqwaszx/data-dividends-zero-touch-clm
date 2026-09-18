@@ -10,6 +10,110 @@ export type WorkflowState =
   | "REVIEW_REQUIRED"
   | "FAILED";
 
+export type TeamId = string;
+export type Role = "CLIENT_ONBOARDER" | "RELATIONSHIP_MANAGER" | "DIRECTOR" | "HR";
+export type Capability =
+  | "POLICY_VIEW"
+  | "POLICY_MUTATE"
+  | "CASE_ACCESS"
+  | "CASE_GLOBAL"
+  | "IDENTITY_ADMIN"
+  | "TEAM_ADMIN";
+
+export interface AuthenticatedTeam {
+  team_id: TeamId;
+  display_name: string;
+  team_type: string;
+  client_scope_label: string;
+  description: string;
+}
+
+export interface AuthenticatedProfile {
+  user_id: string;
+  display_name: string;
+  role: Role;
+  team_id: TeamId | null;
+  team_display_name: string | null;
+  team_type: string | null;
+  team_description: string;
+  client_scope_label: string;
+  capabilities: Capability[];
+}
+
+export interface AdminTeam extends AuthenticatedTeam {
+  active: true;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+  updated_by: string;
+}
+
+export interface AdminProfile {
+  user_id: string;
+  display_name: string;
+  role: Role;
+  team_id: TeamId | null;
+  team_display_name: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+  updated_by: string;
+}
+
+export type PolicyValue =
+  | { type: "BOOLEAN"; value: boolean }
+  | { type: "INTEGER"; value: number }
+  | { type: "DECIMAL"; value: string }
+  | { type: "STRING"; value: string }
+  | { type: "STRING_LIST"; value: string[] };
+
+export interface PolicyRule {
+  policy_id: string;
+  category: string;
+  name: string;
+  description: string;
+  value: PolicyValue;
+  value_type: PolicyValue["type"];
+  default_value: PolicyValue;
+  minimum: string | number | null;
+  maximum: string | number | null;
+  allowed_values: string[];
+  classifications: Array<
+    | "PROJECT_DEFAULT"
+    | "PENDING_SPONSOR_CONFIRMATION"
+    | "SYSTEM_DERIVED"
+    | "DISPLAY_ONLY_NOT_RUNTIME_ENFORCED"
+  >;
+  enforcement: "RUNTIME_ENFORCED" | "DISPLAY_SHOWCASE_ONLY" | "NOT_EDITABLE";
+  version: number;
+  created_at: string;
+  updated_at: string;
+  updated_by: string;
+}
+
+export interface PolicyCatalogue {
+  catalogue_id: string;
+  version: number;
+  rules: PolicyRule[];
+  created_at: string;
+  updated_at: string;
+  updated_by: string;
+}
+
+export interface AuthSession {
+  profile: AuthenticatedProfile;
+  csrf_token: string;
+}
+
+export interface CasePriorityResult {
+  case_id: string;
+  team_id: TeamId | null;
+  priority: number | null;
+  updated_at: string;
+}
+
 export interface MockScenario {
   uen: string;
   label: string;
@@ -127,9 +231,20 @@ export interface WorkflowEvent {
 
 export interface OnboardingCase {
   case_id: string;
+  team_id: TeamId | null;
+  priority: number | null;
+  client_scope_label: string | null;
   source_case_id: string;
   correlation_id: string;
   requested_uen: string;
+  policy_snapshot?: {
+    snapshot_label: string;
+    catalogue_version: number;
+    idp_review_confidence_threshold: string;
+    ubo_threshold_percent: string;
+    comparator: "GREATER_THAN_OR_EQUAL_TO";
+    bound_at: string;
+  };
   jurisdiction_resolution?: {
     status: "RESOLVED" | "UNRESOLVED" | "CONFLICT";
     resolved_jurisdiction: "SG" | "AU" | "MY" | "HK" | null;
@@ -651,6 +766,9 @@ export interface ZeroTouchCaseSummary {
 
 export interface ZeroTouchCaseListItem {
   case_id: string;
+  team_id: TeamId | null;
+  client_scope_label: string | null;
+  priority: number | null;
   requested_uen: string;
   legal_name: string | null;
   status: AutomationStatus;
@@ -659,6 +777,60 @@ export interface ZeroTouchCaseListItem {
   active_exception_count: number;
   human_interventions: number;
   final_outcome: string | null;
+  resolved_jurisdiction: "SG" | "AU" | "MY" | "HK" | null;
+  created_at: string;
+  completed_at: string | null;
+  mock_goldtier_party_id: string | null;
+}
+
+export interface DashboardScope {
+  actor_role: AuthenticatedProfile["role"];
+  access: "TEAM" | "GLOBAL";
+  team_id: TeamId | null;
+  team_display_name: string | null;
+  client_scope_label: string;
+}
+
+export interface DashboardCaseItem {
+  case_id: string;
+  requested_uen: string;
+  legal_name: string | null;
+  team_id: TeamId | null;
+  team_display_name: string | null;
+  priority: number | null;
+  status: AutomationStatus;
+  final_outcome: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface DashboardSnapshot {
+  scope: DashboardScope;
+  data_as_of: string;
+  totals: {
+    total_cases: number;
+    completed_cases: number;
+    non_completed_cases: number;
+    completion_rate: number;
+    prioritised_cases: number;
+    unprioritised_cases: number;
+  };
+  status_breakdown: Array<{ status: AutomationStatus; count: number }>;
+  priority_breakdown: Array<{ priority: number | null; count: number }>;
+  team_breakdown: Array<{
+    team_id: TeamId;
+    team_display_name: string;
+    client_scope_label: string;
+    count: number;
+  }>;
+  recent_cases: DashboardCaseItem[];
+  top_active_cases: DashboardCaseItem[];
+  historical_trend: Array<{
+    day: string;
+    created_count: number;
+    completed_count: number;
+  }>;
 }
 
 export interface UatEvidenceExport {

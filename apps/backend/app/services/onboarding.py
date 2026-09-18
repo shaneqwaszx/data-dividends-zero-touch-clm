@@ -19,6 +19,7 @@ from app.connectors.registry import (
     AcraRegistryProviderAdapter,
     RegistryProviderRouter,
 )
+from app.domain.access import CasePriority, TeamId
 from app.domain.jurisdiction import (
     JurisdictionCode,
     JurisdictionObservation,
@@ -37,6 +38,7 @@ from app.domain.models import (
     WorkflowEvent,
     WorkflowState,
 )
+from app.domain.policy import CasePolicySnapshot, legacy_phase13_policy_snapshot
 from app.domain.reconciliation import ReconciliationField
 from app.domain.target_submission import (
     GoldTierExecutionClassification,
@@ -91,9 +93,7 @@ def _submission_fingerprint(submission_input: GoldTierSubmissionInput) -> str:
 
 
 def _idempotency_fingerprint(submission_input: GoldTierSubmissionInput) -> str:
-    return sha256(
-        submission_input.idempotency.model_dump_json().encode("utf-8")
-    ).hexdigest()
+    return sha256(submission_input.idempotency.model_dump_json().encode("utf-8")).hexdigest()
 
 
 def _map_execution_result(
@@ -136,9 +136,7 @@ def _controlled_target_failure_message(code: str) -> str:
     return messages.get(code, "Mock GoldTier operation returned a controlled failure.")
 
 
-def _project_target_error_code(
-    code: str | None, *, allowed: frozenset[str], fallback: str
-) -> str:
+def _project_target_error_code(code: str | None, *, allowed: frozenset[str], fallback: str) -> str:
     """Retain only locally recognized Mock business codes after shape validation."""
 
     return code if code in allowed else fallback
@@ -157,6 +155,7 @@ class OnboardingService:
         uuid_factory: Callable[[], UUID] | None = None,
         target_finalization_fault: Callable[[UUID], bool] | None = None,
         target_execution_repository: TargetExecutionRepository | None = None,
+        policy_snapshot_provider: Callable[[], CasePolicySnapshot] | None = None,
     ) -> None:
         if registry_router is None:
             if acra is None:
@@ -172,9 +171,8 @@ class OnboardingService:
         self._case_locks: dict[UUID, RLock] = {}
         self._case_locks_guard = Lock()
         self._execution_ledger_guard = RLock()
-        self._target_executions = (
-            target_execution_repository or InMemoryTargetExecutionRepository()
-        )
+        self._target_executions = target_execution_repository or InMemoryTargetExecutionRepository()
+        self._policy_snapshot_provider = policy_snapshot_provider or legacy_phase13_policy_snapshot
 
     def case_lock(self, case_id: UUID) -> RLock:
         """Share one in-process evidence/submission boundary per case."""
@@ -182,14 +180,28 @@ class OnboardingService:
         with self._case_locks_guard:
             return self._case_locks.setdefault(case_id, RLock())
 
+    @property
+    def case_repository(self) -> OnboardingCaseRepository:
+        return self._repository
+
+    def reserve_case_identity(self) -> tuple[UUID, UUID]:
+        """Allocate the identifiers needed before the lifecycle lock is acquired."""
+
+        return self._uuid_factory(), self._uuid_factory()
+
     def create_case(
         self,
         uen: str,
         country_of_incorporation: JurisdictionCode | str | None = None,
+        *,
+        team_id: TeamId | None = None,
+        priority: CasePriority | None = None,
     ) -> OnboardingCase:
         """Preserve the Phase 01 API as staged intake plus Mock GoldTier submission."""
 
-        case = self.create_staged_case(uen, country_of_incorporation)
+        case = self.create_staged_case(
+            uen, country_of_incorporation, team_id=team_id, priority=priority
+        )
         if case.state != WorkflowState.VALIDATED:
             return case
         return self.submit_staged_case(case.case_id, complete_legacy_flow=True)
@@ -198,12 +210,57 @@ class OnboardingService:
         self,
         uen: str,
         country_of_incorporation: JurisdictionCode | str | None = None,
+        *,
+        team_id: TeamId | None = None,
+        priority: CasePriority | None = None,
     ) -> OnboardingCase:
         """Resolve jurisdiction, route, and validate registry data without GoldTier."""
 
+        case_id, correlation_id = self.reserve_case_identity()
+        return self.create_staged_case_with_identity(
+            case_id,
+            correlation_id,
+            uen,
+            country_of_incorporation,
+            team_id=team_id,
+            priority=priority,
+        )
+
+    def create_staged_case_with_identity(
+        self,
+        case_id: UUID,
+        correlation_id: UUID,
+        uen: str,
+        country_of_incorporation: JurisdictionCode | str | None = None,
+        *,
+        team_id: TeamId | None = None,
+        priority: CasePriority | None = None,
+    ) -> OnboardingCase:
+        """Create a staged case using an identity reserved by an aggregate owner."""
+
+        with self.case_lock(case_id):
+            return self._create_staged_case_locked(
+                case_id,
+                correlation_id,
+                uen,
+                country_of_incorporation,
+                team_id=team_id,
+                priority=priority,
+            )
+
+    def _create_staged_case_locked(
+        self,
+        case_id: UUID,
+        correlation_id: UUID,
+        uen: str,
+        country_of_incorporation: JurisdictionCode | str | None,
+        *,
+        team_id: TeamId | None,
+        priority: CasePriority | None,
+    ) -> OnboardingCase:
+        """Create and mutate one case while its canonical lifecycle lock is held."""
+
         now = self._clock()
-        case_id = self._uuid_factory()
-        correlation_id = self._uuid_factory()
         normalised_uen = uen.strip().upper()
         if not normalised_uen:
             raise ValueError("Onboarding service requires a normalized non-empty UEN")
@@ -240,12 +297,21 @@ class OnboardingService:
             source_case_id=source_case_id,
             correlation_id=correlation_id,
             requested_uen=normalised_uen,
+            policy_snapshot=self._policy_snapshot_provider(),
+            team_id=team_id,
+            priority=priority,
             jurisdiction_resolution=resolution,
             state=WorkflowState.REQUESTED,
             created_at=now,
             updated_at=now,
         )
-        self._record(case, WorkflowState.REQUESTED, EventOutcome.SUCCEEDED, "Case requested.")
+        self._record(
+            case,
+            WorkflowState.REQUESTED,
+            EventOutcome.SUCCEEDED,
+            "Case requested.",
+            create=True,
+        )
 
         if resolution.status == JurisdictionResolutionStatus.UNRESOLVED:
             return self._terminate(
@@ -280,9 +346,8 @@ class OnboardingService:
                 "REGISTRY_PROVIDER_NOT_IMPLEMENTED",
                 "The registry provider for the resolved jurisdiction is not implemented.",
             )
-        if (
-            resolved_jurisdiction == JurisdictionCode.SINGAPORE
-            and not is_eligible_singapore_uen(normalised_uen)
+        if resolved_jurisdiction == JurisdictionCode.SINGAPORE and not is_eligible_singapore_uen(
+            normalised_uen
         ):
             return self._terminate(
                 case,
@@ -335,11 +400,7 @@ class OnboardingService:
                 case,
                 WorkflowState.FAILED,
                 EventOutcome.FAILED,
-                (
-                    failure.code
-                    if failure is not None
-                    else "REGISTRY_OPERATION_UNAVAILABLE"
-                ),
+                (failure.code if failure is not None else "REGISTRY_OPERATION_UNAVAILABLE"),
                 (
                     failure.message
                     if failure is not None
@@ -384,9 +445,7 @@ class OnboardingService:
             if case is None:
                 raise ValueError("Onboarding case was not found")
             if case.state != WorkflowState.VALIDATED or case.entity is None:
-                raise ValueError(
-                    "Onboarding case is not eligible for Mock GoldTier submission"
-                )
+                raise ValueError("Onboarding case is not eligible for Mock GoldTier submission")
             submission_input = self.build_submission_input(
                 case,
                 correlation_id=case.correlation_id,
@@ -445,9 +504,7 @@ class OnboardingService:
                 party_type=entity.party_type,
                 registration_date=entity.registration_date,
                 entity_status=entity.entity_status,
-                registered_address=SubmissionRegisteredAddress.model_validate(
-                    address.model_dump()
-                ),
+                registered_address=SubmissionRegisteredAddress.model_validate(address.model_dump()),
             ),
             idempotency=GoldTierIdempotencyBindings(
                 search=self._uuid_factory(),
@@ -504,9 +561,7 @@ class OnboardingService:
                 raise RuntimeError("Mock GoldTier execution outcome was not retained")
             return self._finalize_execution_receipt(submission_input, recorded)
 
-    def get_execution_receipt(
-        self, submission_id: UUID
-    ) -> GoldTierExecutionReceipt | None:
+    def get_execution_receipt(self, submission_id: UUID) -> GoldTierExecutionReceipt | None:
         with self._execution_ledger_guard:
             stored = self._target_executions.get(submission_id)
             if stored is None or stored.receipt is None:
@@ -520,16 +575,10 @@ class OnboardingService:
                 return None
             return stored.target_outcome.model_copy(deep=True)
 
-    def get_execution_state(
-        self, submission_id: UUID
-    ) -> GoldTierExecutionLedgerState:
+    def get_execution_state(self, submission_id: UUID) -> GoldTierExecutionLedgerState:
         with self._execution_ledger_guard:
             stored = self._target_executions.get(submission_id)
-            return (
-                stored.state
-                if stored is not None
-                else GoldTierExecutionLedgerState.NOT_STARTED
-            )
+            return stored.state if stored is not None else GoldTierExecutionLedgerState.NOT_STARTED
 
     def is_execution_outcome_uncertain(self, submission_id: UUID) -> bool:
         """Consult one authoritative ledger snapshot without invoking the target."""
@@ -564,9 +613,7 @@ class OnboardingService:
             try:
                 self._target_executions.create(entry)
             except TargetExecutionRepositoryConflictError:
-                raise RuntimeError(
-                    "Mock GoldTier submission identity already exists"
-                ) from None
+                raise RuntimeError("Mock GoldTier submission identity already exists") from None
 
     def _mark_operation_attempted(
         self,
@@ -593,18 +640,14 @@ class OnboardingService:
                 candidate, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value
             )
 
-    def _ensure_execution_owner_exit(
-        self, submission_input: GoldTierSubmissionInput
-    ) -> None:
+    def _ensure_execution_owner_exit(self, submission_input: GoldTierSubmissionInput) -> None:
         with self._execution_ledger_guard:
             entry = self._target_executions.get(submission_input.submission_id)
             if entry is None or entry.state != GoldTierExecutionLedgerState.IN_PROGRESS:
                 return
             attempted = entry.attempted_operations
             if not attempted:
-                self._target_executions.delete_if_unattempted(
-                    submission_input.submission_id
-                )
+                self._target_executions.delete_if_unattempted(submission_input.submission_id)
                 return
         self._record_fixed_failure_outcome(
             submission_input,
@@ -772,9 +815,7 @@ class OnboardingService:
     ) -> OnboardingCase:
         entity = submission_input.canonical_entity
 
-        self._mark_operation_attempted(
-            submission_input, GoldTierOperationMarker.SEARCH
-        )
+        self._mark_operation_attempted(submission_input, GoldTierOperationMarker.SEARCH)
         untrusted_search = self._run_required_stage(
             case,
             code="GT_SEARCH_UNEXPECTED_FAILURE",
@@ -811,9 +852,7 @@ class OnboardingService:
                 onboarding_state=WorkflowState.REVIEW_REQUIRED,
                 completed_operations=(GoldTierOperationMarker.SEARCH,),
                 error_code="GT_EXISTING_PARTY_REVIEW_REQUIRED",
-                error_message=(
-                    "An existing GoldTier party candidate requires human review."
-                ),
+                error_message=("An existing GoldTier party candidate requires human review."),
             )
             self._record(
                 case,
@@ -867,9 +906,7 @@ class OnboardingService:
             "Mock GoldTier search completed; no existing party was found.",
         )
 
-        self._mark_operation_attempted(
-            submission_input, GoldTierOperationMarker.SHELL
-        )
+        self._mark_operation_attempted(submission_input, GoldTierOperationMarker.SHELL)
         untrusted_shell = self._run_required_stage(
             case,
             code="GT_SHELL_UNEXPECTED_FAILURE",
@@ -940,9 +977,7 @@ class OnboardingService:
             "Mock GoldTier shell customer created.",
         )
 
-        self._mark_operation_attempted(
-            submission_input, GoldTierOperationMarker.POLICY
-        )
+        self._mark_operation_attempted(submission_input, GoldTierOperationMarker.POLICY)
         untrusted_policy = self._run_required_stage(
             case,
             code="GT_POLICY_UNEXPECTED_FAILURE",
@@ -976,9 +1011,7 @@ class OnboardingService:
             ),
         )
         try:
-            policy = validate_policy_response(
-                untrusted_policy, expected_party_id=party_id
-            )
+            policy = validate_policy_response(untrusted_policy, expected_party_id=party_id)
         except InvalidTargetResponseError:
             return self._malformed_target_response(
                 case,
@@ -1027,9 +1060,7 @@ class OnboardingService:
             "Mock Singapore policy created.",
         )
 
-        self._mark_operation_attempted(
-            submission_input, GoldTierOperationMarker.AMEND
-        )
+        self._mark_operation_attempted(submission_input, GoldTierOperationMarker.AMEND)
         untrusted_amend = self._run_required_stage(
             case,
             code="GT_AMEND_UNEXPECTED_FAILURE",
@@ -1066,9 +1097,7 @@ class OnboardingService:
             ),
         )
         try:
-            amend = validate_amend_response(
-                untrusted_amend, expected_party_id=party_id
-            )
+            amend = validate_amend_response(untrusted_amend, expected_party_id=party_id)
         except InvalidTargetResponseError:
             return self._malformed_target_response(
                 case,
@@ -1151,9 +1180,7 @@ class OnboardingService:
             submission_input,
             classification=GoldTierExecutionClassification.SUCCESS,
             onboarding_state=(
-                WorkflowState.COMPLETED
-                if complete_legacy_flow
-                else WorkflowState.GT_ENRICHED
+                WorkflowState.COMPLETED if complete_legacy_flow else WorkflowState.GT_ENRICHED
             ),
             completed_operations=(
                 GoldTierOperationMarker.SEARCH,
@@ -1246,9 +1273,7 @@ class OnboardingService:
             case = self._repository.get(case_id)
             if case is None or case.entity is None:
                 raise ValueError("canonical entity is unavailable")
-            current_fingerprint = sha256(
-                case.entity.model_dump_json().encode("utf-8")
-            ).hexdigest()
+            current_fingerprint = sha256(case.entity.model_dump_json().encode("utf-8")).hexdigest()
             if current_fingerprint != expected_entity_fingerprint:
                 raise ValueError("canonical entity changed before reconciliation")
             if field_name != ReconciliationField.LEGAL_NAME:
@@ -1279,8 +1304,7 @@ class OnboardingService:
                     correlation_id=candidate.correlation_id,
                     code="RECONCILIATION_CANONICAL_UPDATED",
                     message=(
-                        "Canonical legal name updated by an explicit reconciliation "
-                        "decision."
+                        "Canonical legal name updated by an explicit reconciliation decision."
                     ),
                 )
             )
@@ -1318,8 +1342,7 @@ class OnboardingService:
             or outcome.case_id != submission_input.case_id
             or outcome.correlation_id != submission_input.correlation_id
             or outcome.input_fingerprint != _submission_fingerprint(submission_input)
-            or outcome.idempotency_fingerprint
-            != _idempotency_fingerprint(submission_input)
+            or outcome.idempotency_fingerprint != _idempotency_fingerprint(submission_input)
         ):
             raise ValueError("Target outcome does not match the immutable submission")
 
@@ -1390,6 +1413,8 @@ class OnboardingService:
         outcome: EventOutcome,
         message: str,
         code: str | None = None,
+        *,
+        create: bool = False,
     ) -> None:
         timestamp = self._clock()
         case.state = stage
@@ -1406,7 +1431,10 @@ class OnboardingService:
                 message=message,
             )
         )
-        self._repository.save(case)
+        if create:
+            self._repository.create(case)
+        else:
+            self._repository.save(case)
 
     def _terminate(
         self,

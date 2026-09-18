@@ -20,25 +20,28 @@ export interface CaseRowView {
   active_exception_count: number;
   human_interventions: number;
   final_outcome: string | null;
+  priority: number | null;
+  client_scope_label: string | null;
 }
 
 export function mapZeroTouchCaseToCaseRow(
   item: ZeroTouchCaseListItem,
-  detail?: ZeroTouchCaseSummary,
 ): CaseRowView {
   return {
     case_id: item.case_id,
     requested_uen: item.requested_uen,
     company_name: item.legal_name,
-    jurisdiction: detail?.case.jurisdiction_resolution?.resolved_jurisdiction ?? null,
+    jurisdiction: item.resolved_jurisdiction,
     status: item.status,
     current_stage: item.current_stage,
     assigned_to: null,
-    created_at: detail?.created_at ?? null,
+    created_at: item.created_at,
     updated_at: item.updated_at,
     active_exception_count: item.active_exception_count,
     human_interventions: item.human_interventions,
     final_outcome: item.final_outcome,
+    priority: item.priority,
+    client_scope_label: item.client_scope_label,
   };
 }
 
@@ -51,26 +54,24 @@ export interface OnboardedRowView {
   risk_rating: null;
   onboarded_at: string;
   next_review_date: null;
+  priority: number | null;
+  client_scope_label: string | null;
 }
 
 export function mapCompletedCaseToOnboardedRow(
   item: ZeroTouchCaseListItem,
-  detail?: ZeroTouchCaseSummary,
 ): OnboardedRowView {
-  const completion = detail
-    ? [...detail.timeline].reverse().find(
-        (event) => event.event_type === "MOCK_SUBMISSION_COMPLETED",
-      )
-    : undefined;
   return {
     case_id: item.case_id,
-    mock_goldtier_party_id: detail?.case.goldtier_result?.party_id ?? null,
+    mock_goldtier_party_id: item.mock_goldtier_party_id,
     company_name: item.legal_name,
     registration_id: item.requested_uen,
-    jurisdiction: detail?.case.jurisdiction_resolution?.resolved_jurisdiction ?? null,
+    jurisdiction: item.resolved_jurisdiction,
     risk_rating: null,
-    onboarded_at: completion?.timestamp ?? item.updated_at,
+    onboarded_at: item.completed_at ?? item.updated_at,
     next_review_date: null,
+    priority: item.priority,
+    client_scope_label: item.client_scope_label,
   };
 }
 
@@ -83,6 +84,8 @@ export interface AuditEntryView {
   actor: null;
   description: string;
   loop_number: null;
+  client_scope_label: string | null;
+  priority: number | null;
 }
 
 export function mapCaseTimelineToAuditEntries(
@@ -97,6 +100,8 @@ export function mapCaseTimelineToAuditEntries(
     actor: null,
     description: event.message,
     loop_number: null,
+    client_scope_label: summary.case.client_scope_label,
+    priority: summary.case.priority,
   }));
 }
 

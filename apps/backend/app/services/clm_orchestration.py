@@ -7,6 +7,7 @@ from threading import RLock
 from typing import Protocol
 from uuid import UUID, uuid4
 
+from app.domain.access import CasePriority, TeamId
 from app.domain.clm import (
     ClmBlockerCode,
     ClmEventType,
@@ -96,12 +97,46 @@ class ClmOrchestrationService:
         self._uuid_factory = uuid_factory or uuid4
 
     def create_case(
-        self, uen: str, country_of_incorporation: str | None = None
+        self,
+        uen: str,
+        country_of_incorporation: str | None = None,
+        *,
+        team_id: TeamId | None = None,
+        priority: CasePriority | None = None,
     ) -> ClmOrchestrationRecord:
         """Create a registry-validated staged case and stop before GoldTier."""
 
+        case_id, correlation_id = self._cases.reserve_case_identity()
+        return self.create_case_with_identity(
+            case_id,
+            correlation_id,
+            uen,
+            country_of_incorporation,
+            team_id=team_id,
+            priority=priority,
+        )
+
+    def create_case_with_identity(
+        self,
+        case_id: UUID,
+        correlation_id: UUID,
+        uen: str,
+        country_of_incorporation: str | None = None,
+        *,
+        team_id: TeamId | None = None,
+        priority: CasePriority | None = None,
+    ) -> ClmOrchestrationRecord:
+        """Create CLM state for an identity already inside its lifecycle boundary."""
+
         try:
-            case = self._cases.create_staged_case(uen, country_of_incorporation)
+            case = self._cases.create_staged_case_with_identity(
+                case_id,
+                correlation_id,
+                uen,
+                country_of_incorporation,
+                team_id=team_id,
+                priority=priority,
+            )
         except OnboardingInfrastructureError as exc:
             failed_case = self._cases.get_case(exc.case_id)
             if failed_case is None:
@@ -115,6 +150,11 @@ class ClmOrchestrationService:
                 message=exc.public_message,
             ) from None
         return self._create_record(case)
+
+    def discard_case_establishment(self, case_id: UUID) -> None:
+        """Remove CLM state created by an establishment attempt."""
+
+        self._repository.delete_for_case(case_id)
 
     def get(self, *, case_id: UUID) -> ClmOrchestrationRecord | None:
         record = self._repository.get_for_case(case_id)
@@ -189,9 +229,8 @@ class ClmOrchestrationService:
         with self._lock_for(case_id):
             record = self._require_record(case_id)
             snapshot = record.submission_snapshot
-            if (
-                snapshot is not None
-                and self._cases.is_execution_outcome_uncertain(snapshot.submission_id)
+            if snapshot is not None and self._cases.is_execution_outcome_uncertain(
+                snapshot.submission_id
             ):
                 raise ClmRequestError(
                     code="CLM_TARGET_OUTCOME_UNCERTAIN",
@@ -305,7 +344,9 @@ class ClmOrchestrationService:
             case=case,
             documents=documents,
             ownership=ownership,
-            document_confidence_threshold=self._documents.review_confidence_threshold,
+            document_confidence_threshold=float(
+                case.policy_snapshot.idp_review_confidence_threshold
+            ),
             reconciliation_cleared=(
                 self._reconciliation.is_currently_cleared(case_id=record.case_id)
                 if self._reconciliation is not None
@@ -482,7 +523,9 @@ class ClmOrchestrationService:
             case=case,
             documents=documents,
             ownership=ownership,
-            document_confidence_threshold=self._documents.review_confidence_threshold,
+            document_confidence_threshold=float(
+                case.policy_snapshot.idp_review_confidence_threshold
+            ),
             reconciliation_cleared=(
                 self._reconciliation.is_currently_cleared(case_id=case.case_id)
                 if self._reconciliation is not None

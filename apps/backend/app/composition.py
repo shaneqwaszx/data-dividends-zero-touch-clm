@@ -34,6 +34,9 @@ from app.demo.scenarios import (
     Phase01MockScenarioCatalogue,
 )
 from app.demo.zero_touch_control import DemoScenarioRepository, ZeroTouchDemoControl
+from app.domain.policy import CasePolicySnapshot
+from app.services.admin_repository import ProfileRepository, TeamRepository
+from app.services.authentication import AuthenticationService
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.clm_repository import (
     ClmOrchestrationRepository,
@@ -79,22 +82,21 @@ def build_onboarding_service(
     target_finalization_fault: Callable[[UUID], bool] | None = None,
     repository: OnboardingCaseRepository | None = None,
     target_execution_repository: TargetExecutionRepository | None = None,
+    policy_snapshot_provider: Callable[[], CasePolicySnapshot] | None = None,
 ) -> OnboardingService:
     """Compose configured ACRA and credential-free Mock GoldTier connectors."""
 
     catalogue = scenario_catalogue or Phase01MockScenarioCatalogue()
     active_settings = settings or get_settings()
     active_acra = acra_connector or build_acra_connector(
-            active_settings,
-            transport=acra_transport,
-            authorizer=acra_authorizer,
-            decoder=acra_decoder,
-        )
+        active_settings,
+        transport=acra_transport,
+        authorizer=acra_authorizer,
+        decoder=acra_decoder,
+    )
     return OnboardingService(
         acra=None,
-        registry_router=RegistryProviderRouter(
-            AcraRegistryProviderAdapter(active_acra)
-        ),
+        registry_router=RegistryProviderRouter(AcraRegistryProviderAdapter(active_acra)),
         goldtier=MockGoldTierConnector(
             policy_validation_failure_keys=catalogue.policy_validation_failure_uens(),
             partial_amend_external_keys=catalogue.partial_amend_uens(),
@@ -103,6 +105,19 @@ def build_onboarding_service(
         repository=repository or InMemoryOnboardingCaseRepository(),
         target_finalization_fault=target_finalization_fault,
         target_execution_repository=target_execution_repository,
+        policy_snapshot_provider=policy_snapshot_provider,
+    )
+
+
+def build_authentication_service(
+    settings: Settings,
+    profiles: ProfileRepository,
+    teams: TeamRepository,
+) -> AuthenticationService:
+    return AuthenticationService(
+        profiles,
+        teams,
+        max_active_sessions=settings.phase14_5_max_active_sessions,
     )
 
 
@@ -254,12 +269,14 @@ def build_zero_touch_orchestrator(
     reconciliation_service: ReconciliationService,
     settings: Settings,
     repository: ZeroTouchAutomationRepository | None = None,
+    establishment_discard: Callable[[UUID], str | None] | None = None,
     durable_provider_bindings: bool = False,
 ) -> ZeroTouchOrchestrator:
     """Compose the provider-neutral Phase 06 automation owner."""
 
     def provider_factory() -> OwnershipProvider:
         return ownership_service.configured_provider
+
     provider_bindings = (
         DurableOwnershipProviderBindingResolver(provider_factory)
         if durable_provider_bindings
@@ -273,6 +290,7 @@ def build_zero_touch_orchestrator(
         reconciliation=reconciliation_service,
         repository=repository or InMemoryZeroTouchAutomationRepository(),
         ownership_provider_bindings=provider_bindings,
+        establishment_discard=establishment_discard,
         max_transitions_per_run=settings.zero_touch_max_transitions_per_run,
     )
 
