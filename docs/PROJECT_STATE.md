@@ -28,7 +28,7 @@ It is not a sponsor contract, phase report, or substitute for current source and
     "production_sso": "not_implemented"
   },
   "workflow_engine": {"camunda": "not_implemented"},
-  "open_sponsor_questions": ["Q-001", "Q-002", "Q-003", "Q-004", "Q-005", "Q-006", "Q-007", "Q-008", "Q-009", "Q-010", "Q-011", "Q-012", "Q-013", "Q-014", "Q-015", "Q-016"]
+  "open_sponsor_questions": ["Q-001", "Q-002", "Q-003", "Q-004", "Q-005", "Q-006", "Q-007", "Q-008", "Q-009", "Q-010", "Q-011", "Q-012", "Q-013", "Q-014", "Q-015", "Q-016", "Q-017", "Q-018"]
 }
 ```
 
@@ -179,6 +179,26 @@ unknown or blocked.
   audit repository, distributed workflow, or multi-instance exactly-once guarantee.
 - No full analytics/MIS platform or full Exception Workbench.
 
+## Phase 15A sponsor rebaseline (provisional / authority-labelled)
+
+**Observed current implementation:** onboarding starts when a user supplies the
+onboarding package: a registration identifier and supporting corporate documents. The
+POC processes that supplied package; it does not claim upstream document solicitation
+or collection. ACRA is Mock by default, its generic sandbox-shaped seam is partial,
+BizFile is dormant, IDP is local deterministic, and GoldTier is Mock only. No Live
+ACRA, Live GoldTier, or Live PingFed connection is proved.
+
+**Project/sponsor direction, not current runtime:** LOW/MEDIUM/HIGH is a supplied-risk
+direction; the POC has no risk field, risk engine, score, or calculated risk. The
+current P1–P10 ordering implementation conflicts with an emerging 1–3 direction and
+remains unchanged pending Q-016. There is no ACRA cache: 90 days is only an example of
+a future configurable freshness policy, not a runtime/configured rule.
+
+**Future/KIV and open authority:** there is no ageing/SLA, OCDD, periodic refresh, or
+perpetual-KYC runtime. The implemented external Zero-Touch -> Mock GoldTier sequence
+is POC architecture only; its production deployment and handoff boundary remain open
+pending sponsor authority.
+
 ## Current open sponsor blockers
 
 - Q-012 blocks authoritative/live ACRA binding, operation schema, auth, errors, rate
@@ -190,6 +210,13 @@ unknown or blocked.
   privacy/retention, confidence/reviewer policy, and jurisdiction/reconciliation authority.
 - Q-004 blocks final legal UBO threshold/control policy.
 - Q-016 blocks production identity, role, assignment, prioritization, and admin policy.
+- Q-017 blocks supplied LOW/MEDIUM/HIGH risk input authority: its producer/source,
+  validation/provenance, update authority, workflow reactions, EDD/approval, and
+  readiness-blocking semantics remain unresolved; no calculated risk score is authorized.
+- Q-018 blocks the production Zero-Touch / GoldTier deployment and handoff boundary.
+  The current external Zero-Touch -> Mock GoldTier sequence is POC architecture; its
+  production placement (external versus inside/alongside GoldTier), handoff point,
+  transferred state/evidence, and ownership remain unresolved.
 - Q-009/Q-010/Q-011 retain contract value/mandatory-field/corrected-artefact questions.
 
 Consult `docs/sponsor-questions/OPEN_QUESTIONS.md` for exact wording and current status.

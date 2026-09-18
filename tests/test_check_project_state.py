@@ -77,11 +77,14 @@ class ProjectStateCheckerTests(unittest.TestCase):
         self._git(root, "add", ".")
         self._git(root, "commit", "-m", "source")
         sha = self._git(root, "rev-parse", "HEAD").stdout.strip()
+        baseline_date = self._git(
+            root, "show", "-s", "--format=%cs", sha
+        ).stdout.strip()
         self._git(root, "update-ref", "refs/remotes/origin/main", sha)
         metadata = {
             "schema_version": 1,
             "case_envelope_schema_version": 3,
-            "verified_date": "2026-09-15",
+            "verified_date": baseline_date,
             "verified_main_sha": sha,
             "verification_status": "verified-against-main",
             "providers": {

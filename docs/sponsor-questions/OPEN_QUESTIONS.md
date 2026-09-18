@@ -8,11 +8,14 @@ questions do not block credential-free Phase 01 mock development unless stated.
 ### Q-016 - Production identity, role, assignment, and prioritisation policy
 
 Should Client Onboarder and Relationship Manager have different mutation permissions,
-and which roles may change priority? Who may reassign a case, what reason/history must be
-retained, and may one case be shared across teams or hold multiple team memberships? Is
-Director globally read-only or permitted existing mutations? Does priority drive SLA,
-escalation, notification, or due dates? What production IdP, SSO/session, RBAC, and
-identity-governance model is expected?
+and which roles may change priority? Are only priority values 1–3 permitted, and is 1
+or 3 the highest/most urgent value? Who assigns or changes priority, and does it affect
+routing, SLA, escalation, notification, due dates, risk, or any other downstream
+behaviour? What downstream behaviour is authorized? Who may reassign a case, what
+reason/history must be retained, and may one case be shared across teams or hold
+multiple team memberships? Is Director globally read-only or permitted existing
+mutations? What production IdP, SSO/session, RBAC, and identity-governance model is
+expected?
 
 Pending an explicit sponsor answer, Phase 13 uses project-defined POC behavior: roles
 differ only in team/global visibility; any actor with case access may use existing
@@ -28,6 +31,21 @@ may edit the two already-provisional runtime thresholds, which are snapshotted o
 cases. These remain project POC decisions and do not answer the requested production
 identity governance, separation of duties, policy ownership, or sponsor-approved
 threshold questions.
+
+### Q-017 - Supplied risk input and workflow authority
+
+For a supplied LOW/MEDIUM/HIGH risk input, who is the authoritative producer, which
+vocabulary and validation rules apply, and what evidence/provenance must accompany it?
+Who may update it, what retention is required, and which workflow reactions are
+permitted or required? Please define any EDD or human-approval authority and whether
+risk may block readiness. The system must not invent a calculated risk score.
+
+### Q-018 - Production Zero-Touch / GoldTier deployment and handoff boundary
+
+For production, should Zero-Touch remain an external service or operate inside or
+alongside GoldTier? Where is the handoff point, which state and evidence transfer, who
+owns the target-side continuation, and what production identity and audit implications
+apply?
 
 ## ACRA SANDBOX BINDING AND ACCESS
 

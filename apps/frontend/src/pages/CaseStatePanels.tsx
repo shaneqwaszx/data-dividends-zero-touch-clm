@@ -118,7 +118,7 @@ export function RegistryStatePanel({ summary }: { summary: ZeroTouchCaseSummary 
     <section className="state-composition" aria-labelledby="registry-state-heading">
       <div className="state-composition__header">
         <div>
-          <p className="card-kicker">Registry verification</p>
+          <p className="card-kicker">Registry acquisition</p>
           <h2 id="registry-state-heading">{attention ? "Registry unavailable" : "Reading the registry"}</h2>
           <p className="text-muted">
             {attention
