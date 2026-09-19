@@ -467,23 +467,30 @@ def test_explicit_foreign_country_conflicts_with_singapore_identifier_and_stops(
 def test_recognised_non_singapore_country_stops_as_provider_not_implemented() -> None:
     client, acra = build_client()
 
-    response = client.post(
-        "/api/clm/zero-touch/cases",
-        json={"uen": "AU-REG-123", "country_of_incorporation": "AU"},
-    )
+    for identifier, country in (
+        ("AU-REG-123", "AU"),
+        ("MY-REG-123", "MY"),
+        ("HK-REG-123", "HK"),
+    ):
+        response = client.post(
+            "/api/clm/zero-touch/cases",
+            json={"uen": identifier, "country_of_incorporation": country},
+        )
 
-    payload = response.json()
-    assert response.status_code == 201
-    assert payload["status"] == "WAITING_FOR_REVIEW"
-    assert payload["case"]["error"]["code"] == "REGISTRY_PROVIDER_NOT_IMPLEMENTED"
-    assert payload["case"]["registry_route"] == {
-        "status": "PROVIDER_NOT_IMPLEMENTED",
-        "jurisdiction": "AU",
-        "provider": None,
-        "decided_at": "2026-08-28T01:00:00Z",
-    }
+        payload = response.json()
+        assert response.status_code == 201
+        assert payload["status"] == "WAITING_FOR_REVIEW"
+        assert payload["case"]["error"]["code"] == "REGISTRY_PROVIDER_NOT_IMPLEMENTED"
+        assert payload["case"]["registry_route"] == {
+            "status": "PROVIDER_NOT_IMPLEMENTED",
+            "jurisdiction": country,
+            "provider": None,
+            "decided_at": "2026-08-28T01:00:00Z",
+        }
+        assert {item["status"] for item in payload["target_operations"]} == {
+            "NOT_ATTEMPTED"
+        }
     assert acra.calls == []
-    assert {item["status"] for item in payload["target_operations"]} == {"NOT_ATTEMPTED"}
 
 
 def test_unknown_jurisdiction_stops_before_provider_and_remains_retrievable() -> None:
