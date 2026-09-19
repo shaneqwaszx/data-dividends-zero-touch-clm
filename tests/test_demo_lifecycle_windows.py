@@ -13,6 +13,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
@@ -369,7 +370,9 @@ $roles = @(
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return json.loads(result.stdout)
 
-    def request(self, url: str, *, data: bytes | None = None) -> tuple[int, bytes]:
+    def request(
+        self, url: str, *, data: bytes | None = None, timeout: float = 3
+    ) -> tuple[int, bytes]:
         opener: urllib.request.OpenerDirector | None = None
         csrf_token: str | None = None
         if "/api/" in url:
@@ -383,7 +386,7 @@ $roles = @(
                 ).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with opener.open(login_request, timeout=3) as response:
+            with opener.open(login_request, timeout=timeout) as response:
                 csrf_token = json.loads(response.read())["csrf_token"]
 
         request = urllib.request.Request(url, data=data)
@@ -393,7 +396,7 @@ $roles = @(
             request.add_header("Origin", "http://127.0.0.1:8000")
         try:
             open_request = opener.open if opener is not None else urllib.request.urlopen
-            with open_request(request, timeout=3) as response:
+            with open_request(request, timeout=timeout) as response:
                 return response.status, response.read()
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read()
@@ -415,15 +418,132 @@ $roles = @(
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read())
 
-    def endpoint_available(self, url: str) -> bool:
+    def endpoint_available(self, url: str, *, timeout: float = 3) -> bool:
         try:
-            return self.request(url)[0] == 200
+            return self.request(url, timeout=timeout)[0] == 200
         except (OSError, urllib.error.URLError):
             return False
 
-    def assert_endpoints_healthy(self) -> None:
-        self.assertTrue(self.endpoint_available("http://127.0.0.1:8000/health"))
-        self.assertTrue(self.endpoint_available("http://127.0.0.1:5173/"))
+    def assert_owned_endpoints_healthy_within(
+        self,
+        expected_state: dict[str, Any],
+        *,
+        timeout: float = 5.0,
+        poll_interval: float = 0.1,
+        endpoint_probe: Callable[[str, str], bool] | None = None,
+        identity_probe: Callable[[int], dict[str, str | int] | None] | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
+        wait: Callable[[float], None] = time.sleep,
+    ) -> None:
+        """Require the original owned trees while allowing bounded HTTP recovery."""
+
+        endpoints = {
+            "backend": "http://127.0.0.1:8000/health",
+            "frontend": "http://127.0.0.1:5173/",
+        }
+        if endpoint_probe is None:
+            endpoint_probe = lambda _name, url: self.endpoint_available(
+                url, timeout=min(timeout, 0.5)
+            )
+        expected_identities: list[dict[str, str | int]] = []
+        for record in expected_state["processes"]:
+            expected_identities.append(
+                {
+                    "role": str(record["role"]),
+                    "kind": "launcher",
+                    "pid": int(record["launcher_pid"]),
+                    "creation_time_utc": str(record["creation_time_utc"]),
+                    "executable_path": str(record["executable_path"]),
+                }
+            )
+            if record.get("listener_pid") is not None:
+                expected_identities.append(
+                    {
+                        "role": str(record["role"]),
+                        "kind": "listener",
+                        "pid": int(record["listener_pid"]),
+                        "creation_time_utc": str(
+                            record["listener_creation_time_utc"]
+                        ),
+                        "executable_path": str(record["listener_executable_path"]),
+                    }
+                )
+
+        attempts = 0
+        last_endpoint_status = {name: False for name in endpoints}
+
+        def observe_owned_identities() -> list[dict[str, str | int | bool | None]]:
+            identity_diagnostics: list[dict[str, str | int | bool | None]] = []
+            identity_changed = False
+            if identity_probe is None:
+                observed_by_pid = self.probe_process_identities(
+                    sorted({int(item["pid"]) for item in expected_identities})
+                )
+            else:
+                observed_by_pid = {
+                    int(item["pid"]): identity_probe(int(item["pid"]))
+                    for item in expected_identities
+                }
+            for expected in expected_identities:
+                observed = observed_by_pid.get(int(expected["pid"]))
+                same_identity = (
+                    observed is not None
+                    and int(observed["pid"]) == int(expected["pid"])
+                    and str(observed["creation_time_utc"])
+                    == str(expected["creation_time_utc"])
+                    and os.path.normcase(str(observed["executable_path"]))
+                    == os.path.normcase(str(expected["executable_path"]))
+                )
+                identity_changed = identity_changed or not same_identity
+                identity_diagnostics.append(
+                    {
+                        "role": expected["role"],
+                        "kind": expected["kind"],
+                        "pid": expected["pid"],
+                        "present": observed is not None,
+                        "same_identity": same_identity,
+                    }
+                )
+            if identity_changed:
+                self.fail(
+                    "Post-rejection owned process identity changed before endpoint "
+                    f"recovery: {json.dumps(identity_diagnostics, sort_keys=True)}"
+                )
+            return identity_diagnostics
+
+        identity_diagnostics = observe_owned_identities()
+        deadline = monotonic() + timeout
+        while True:
+            if monotonic() > deadline:
+                self.fail(
+                    "Post-rejection endpoints did not recover before the monotonic "
+                    f"deadline: attempts={attempts}, endpoints={last_endpoint_status}, "
+                    f"identities={json.dumps(identity_diagnostics, sort_keys=True)}"
+                )
+            attempts += 1
+            for name, url in endpoints.items():
+                last_endpoint_status[name] = endpoint_probe(name, url)
+                probe_completed_at = monotonic()
+                identity_diagnostics = observe_owned_identities()
+                if probe_completed_at > deadline:
+                    self.fail(
+                        "Post-rejection endpoints did not recover before the "
+                        f"monotonic deadline: attempts={attempts}, "
+                        f"endpoints={last_endpoint_status}, identities="
+                        f"{json.dumps(identity_diagnostics, sort_keys=True)}"
+                    )
+            if all(last_endpoint_status.values()):
+                return
+
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                self.fail(
+                    "Post-rejection endpoints did not recover while the original "
+                    "owned process identities remained alive: "
+                    f"attempts={attempts}, endpoints={last_endpoint_status}, "
+                    f"identities={json.dumps(identity_diagnostics, sort_keys=True)}"
+                )
+            wait(min(poll_interval, remaining))
 
     def assert_endpoints_stopped(self) -> None:
         deadline = time.monotonic() + 10
@@ -510,30 +630,58 @@ $roles = @(
         RUNTIME.mkdir(parents=True, exist_ok=True)
         STATE.write_text(json.dumps(state), encoding="utf-8")
 
-    def process_identity(self, process_id: int) -> dict[str, str | int]:
-        command = (
-            f'$p=Get-CimInstance Win32_Process -Filter "ProcessId = {process_id}";'
-            "[ordered]@{pid=[int]$p.ProcessId;"
-            "creation_time_utc=$p.CreationDate.ToUniversalTime().ToString('O');"
-            "executable_path=[string]$p.ExecutablePath}|ConvertTo-Json -Compress"
+    def probe_process_identity(
+        self, process_id: int
+    ) -> dict[str, str | int] | None:
+        return self.probe_process_identities([process_id]).get(process_id)
+
+    def probe_process_identities(
+        self, process_ids: list[int]
+    ) -> dict[int, dict[str, str | int]]:
+        if not process_ids:
+            return {}
+        process_filter = " OR ".join(
+            f"ProcessId = {process_id}" for process_id in process_ids
         )
-        deadline = time.monotonic() + 5
-        last_result: subprocess.CompletedProcess[str] | None = None
-        while time.monotonic() < deadline:
-            last_result = subprocess.run(
+        command = (
+            "$items=@(Get-CimInstance Win32_Process "
+            f'-Filter "{process_filter}" -ErrorAction SilentlyContinue | '
+            "ForEach-Object {[ordered]@{pid=[int]$_.ProcessId;"
+            "creation_time_utc=$_.CreationDate.ToUniversalTime().ToString('O');"
+            "executable_path=[string]$_.ExecutablePath}});"
+            "ConvertTo-Json -InputObject @($items) -Compress"
+        )
+        try:
+            result = subprocess.run(
                 ["powershell.exe", "-NoProfile", "-Command", command],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=5,
                 check=False,
             )
-            if last_result.returncode == 0:
-                return json.loads(last_result.stdout)
+        except (OSError, subprocess.TimeoutExpired):
+            return {}
+        if result.returncode != 0 or not result.stdout.strip():
+            return {}
+        try:
+            decoded = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return {}
+        items = decoded if isinstance(decoded, list) else [decoded]
+        return {
+            int(item["pid"]): item
+            for item in items
+            if isinstance(item, dict) and "pid" in item
+        }
+
+    def process_identity(self, process_id: int) -> dict[str, str | int]:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            identity = self.probe_process_identity(process_id)
+            if identity is not None:
+                return identity
             time.sleep(0.1)
-        self.fail(
-            f"could not read identity for test-owned PID {process_id}: "
-            f"{'' if last_result is None else last_result.stderr}"
-        )
+        self.fail(f"could not read identity for test-owned PID {process_id}")
 
     def write_fake_state(
         self, records: list[dict[str, Any]], *, status: str = "RUNNING"
@@ -591,12 +739,12 @@ $roles = @(
 
         started = self.run_lifecycle("start_demo_windows.bat")
         self.assertEqual(started.returncode, 0)
-        self.assert_endpoints_healthy()
+        state = self.read_state()
+        self.assert_owned_endpoints_healthy_within(state)
         proxy_login_status, proxy_login = self.login_through_frontend_proxy()
         self.assertEqual(proxy_login_status, 200)
         self.assertEqual(proxy_login["profile"]["user_id"], "maya-lim")
         self.assertEqual(proxy_login["profile"]["display_name"], "Maya Lim")
-        state = self.read_state()
         self.assertEqual(state["status"], "RUNNING")
         self.assertEqual(
             [record["role"] for record in state["processes"]], ["backend", "frontend"]
@@ -640,10 +788,170 @@ $roles = @(
     def test_wrong_or_unparseable_creation_time_fails_closed_for_status_and_stop(
         self,
     ) -> None:
+        expected_state = {
+            "processes": [
+                {
+                    "role": "backend",
+                    "launcher_pid": 101,
+                    "creation_time_utc": "2026-09-19T00:00:00.0000000Z",
+                    "executable_path": "backend-python.exe",
+                    "listener_pid": 102,
+                    "listener_creation_time_utc": "2026-09-19T00:00:01.0000000Z",
+                    "listener_executable_path": "backend-python.exe",
+                },
+                {
+                    "role": "frontend",
+                    "launcher_pid": 201,
+                    "creation_time_utc": "2026-09-19T00:00:02.0000000Z",
+                    "executable_path": "node.exe",
+                    "listener_pid": 201,
+                    "listener_creation_time_utc": "2026-09-19T00:00:02.0000000Z",
+                    "listener_executable_path": "node.exe",
+                },
+            ]
+        }
+        stable_identities = {
+            101: {
+                "pid": 101,
+                "creation_time_utc": "2026-09-19T00:00:00.0000000Z",
+                "executable_path": "backend-python.exe",
+            },
+            102: {
+                "pid": 102,
+                "creation_time_utc": "2026-09-19T00:00:01.0000000Z",
+                "executable_path": "backend-python.exe",
+            },
+            201: {
+                "pid": 201,
+                "creation_time_utc": "2026-09-19T00:00:02.0000000Z",
+                "executable_path": "node.exe",
+            },
+        }
+
+        def exercise_probe_sequence(
+            responses: dict[str, list[bool]],
+            *,
+            identities: dict[int, dict[str, str | int] | None] | None = None,
+            probe_effect: Callable[
+                [str, list[float], dict[int, dict[str, str | int] | None]], None
+            ]
+            | None = None,
+            expect_failure: str | None = None,
+        ) -> dict[str, int]:
+            now = [0.0]
+            calls = {name: 0 for name in responses}
+            active_identities = (
+                identities if identities is not None else dict(stable_identities)
+            )
+
+            def endpoint_probe(name: str, _url: str) -> bool:
+                index = calls[name]
+                calls[name] += 1
+                if probe_effect is not None:
+                    probe_effect(name, now, active_identities)
+                values = responses[name]
+                return values[min(index, len(values) - 1)]
+
+            def identity_probe(process_id: int) -> dict[str, str | int] | None:
+                return active_identities.get(process_id)
+
+            def wait(seconds: float) -> None:
+                now[0] += seconds
+
+            arguments = {
+                "expected_state": expected_state,
+                "timeout": 0.2,
+                "poll_interval": 0.1,
+                "endpoint_probe": endpoint_probe,
+                "identity_probe": identity_probe,
+                "monotonic": lambda: now[0],
+                "wait": wait,
+            }
+            if expect_failure is None:
+                self.assert_owned_endpoints_healthy_within(**arguments)
+            else:
+                with self.assertRaisesRegex(AssertionError, expect_failure):
+                    self.assert_owned_endpoints_healthy_within(**arguments)
+            return calls
+
+        with self.subTest(post_rejection_probe="transient_frontend"):
+            calls = exercise_probe_sequence(
+                {"backend": [True, True], "frontend": [False, True]}
+            )
+            self.assertEqual(calls, {"backend": 2, "frontend": 2})
+
+        with self.subTest(post_rejection_probe="permanent_frontend"):
+            exercise_probe_sequence(
+                {"backend": [True], "frontend": [False]},
+                expect_failure="endpoints did not recover",
+            )
+
+        with self.subTest(post_rejection_probe="dead_frontend"):
+            dead_frontend = dict(stable_identities)
+            dead_frontend[201] = None
+            exercise_probe_sequence(
+                {"backend": [True], "frontend": [True]},
+                identities=dead_frontend,
+                expect_failure="owned process identity changed",
+            )
+
+        with self.subTest(post_rejection_probe="replaced_frontend"):
+            replaced_frontend = {
+                **stable_identities,
+                201: {
+                    **stable_identities[201],
+                    "creation_time_utc": "2026-09-19T00:01:02.0000000Z",
+                },
+            }
+            exercise_probe_sequence(
+                {"backend": [True], "frontend": [True]},
+                identities=replaced_frontend,
+                expect_failure="owned process identity changed",
+            )
+
+        with self.subTest(post_rejection_probe="frontend_replaced_during_probe"):
+            def replace_frontend_during_backend_probe(
+                name: str,
+                _now: list[float],
+                identities: dict[int, dict[str, str | int] | None],
+            ) -> None:
+                if name == "backend":
+                    identities[201] = {
+                        **stable_identities[201],
+                        "creation_time_utc": "2026-09-19T00:01:02.0000000Z",
+                    }
+
+            exercise_probe_sequence(
+                {"backend": [True], "frontend": [True]},
+                probe_effect=replace_frontend_during_backend_probe,
+                expect_failure="owned process identity changed",
+            )
+
+        with self.subTest(post_rejection_probe="health_after_deadline"):
+            def advance_past_deadline(
+                name: str,
+                now: list[float],
+                _identities: dict[int, dict[str, str | int] | None],
+            ) -> None:
+                if name == "frontend":
+                    now[0] = 1.0
+
+            exercise_probe_sequence(
+                {"backend": [True], "frontend": [True]},
+                probe_effect=advance_past_deadline,
+                expect_failure="monotonic deadline",
+            )
+
+        with self.subTest(post_rejection_probe="backend_remains_checked"):
+            calls = exercise_probe_sequence(
+                {"backend": [False, True], "frontend": [True, True]}
+            )
+            self.assertEqual(calls, {"backend": 2, "frontend": 2})
+
         started = self.run_lifecycle("start_demo_windows.bat")
         self.assertEqual(started.returncode, 0)
-        self.assert_endpoints_healthy()
         original_state = self.read_state()
+        self.assert_owned_endpoints_healthy_within(original_state)
         self.demo_cleanup_state = original_state
 
         for bad_creation_time in ("1970-01-01T00:00:00.0000000Z", "not-a-timestamp"):
@@ -677,7 +985,7 @@ $roles = @(
                     "Launcher ownership could not be established", stopped.stdout
                 )
                 self.assertEqual(self.read_state(), corrupt_state)
-                self.assert_endpoints_healthy()
+                self.assert_owned_endpoints_healthy_within(original_state)
 
         self.write_state(original_state)
         stopped = self.run_lifecycle("stop_demo_windows.bat")
@@ -712,7 +1020,7 @@ $roles = @(
         self.assertEqual(reset.returncode, 0)
         after_state = self.read_state()
         self.assertNotEqual(before_state["session_id"], after_state["session_id"])
-        self.assert_endpoints_healthy()
+        self.assert_owned_endpoints_healthy_within(after_state)
         self.assertEqual(
             self.request(f"http://127.0.0.1:8000/api/clm/zero-touch/cases/{case_id}")[
                 0
@@ -773,8 +1081,8 @@ $roles = @(
     def exercise_missing_role_stop(self, missing_role: str) -> None:
         started = self.run_lifecycle("start_demo_windows.bat")
         self.assertEqual(started.returncode, 0)
-        self.assert_endpoints_healthy()
         original_state = self.read_state()
+        self.assert_owned_endpoints_healthy_within(original_state)
         self.demo_cleanup_state = original_state
         corrupt_state = dict(original_state)
         corrupt_state["processes"] = [
@@ -790,7 +1098,7 @@ $roles = @(
         self.assertIn("Runtime metadata was retained", output)
         self.assertNotIn("backend and frontend process trees are gone", output)
         self.assertEqual(self.read_state(), corrupt_state)
-        self.assert_endpoints_healthy()
+        self.assert_owned_endpoints_healthy_within(original_state)
 
         self.write_state(original_state)
         stopped = self.run_lifecycle("stop_demo_windows.bat")
@@ -829,7 +1137,7 @@ $roles = @(
         )
         self.assertEqual(self.read_state(), corrupt_state)
         self.assertEqual(self.read_state()["session_id"], original_state["session_id"])
-        self.assert_endpoints_healthy()
+        self.assert_owned_endpoints_healthy_within(original_state)
 
         self.write_state(original_state)
         stopped = self.run_lifecycle("stop_demo_windows.bat")
@@ -939,7 +1247,7 @@ $roles = @(
             result = self.run_lifecycle(script, timeout=120)
             self.assertEqual(result.returncode, 0, script)
             if expected_healthy:
-                self.assert_endpoints_healthy()
+                self.assert_owned_endpoints_healthy_within(self.read_state())
             else:
                 self.assert_endpoints_stopped()
         self.assertFalse(STATE.exists())
