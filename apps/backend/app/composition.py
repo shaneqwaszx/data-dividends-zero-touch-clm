@@ -5,10 +5,6 @@ from uuid import UUID
 
 from app.config import Settings, get_settings
 from app.connectors.acra import AcraConnector
-from app.connectors.acra_bizfile_sandbox import (
-    AcraBizfileConnection,
-    BizfileMockAcraConnector,
-)
 from app.connectors.acra_sandbox import (
     AcraHttpTransport,
     AcraRequestAuthorizer,
@@ -128,28 +124,10 @@ def build_acra_connector(
     authorizer: AcraRequestAuthorizer | None = None,
     decoder: AcraResponseDecoder | None = None,
 ) -> AcraConnector:
-    """Select Mock (synthetic), Bizfile Mock (real API), or Sandbox ACRA
-    without changing business orchestration.
-    """
+    """Select Mock or Sandbox ACRA without changing business orchestration."""
 
     if settings.acra_connector_mode == "mock":
         return MockAcraConnector()
-
-    if settings.acra_connector_mode == "bizfile_mock":
-        active_authorizer = authorizer
-        if active_authorizer is None:
-            secret = settings.acra_auth_header_value
-            if not settings.acra_auth_header_name or secret is None:
-                raise AcraConfigurationError
-            active_authorizer = StaticHeaderAcraRequestAuthorizer(
-                settings.acra_auth_header_name,
-                secret.get_secret_value(),
-            )
-        return BizfileMockAcraConnector(
-            connection=AcraBizfileConnection(),
-            transport=transport or HttpxAcraTransport(),
-            authorizer=active_authorizer,
-        )
 
     connection = AcraSandboxConnection(
         base_url=settings.acra_base_url,

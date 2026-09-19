@@ -6,23 +6,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-# Three official ACRA UEN formats (see ACRA/MOF UEN format reference):
-#   - Businesses:            nnnnnnnnX   -> 8 digits + check letter (9 chars)
-#   - Local companies:       yyyynnnnnX  -> 9 digits + check letter (10 chars)
-#   - All other entities
-#     (LLPs, foreign cos,
-#     societies, etc.):      TyyPQnnnnX  -> T/S/R + 2-digit year +
-#                                            2-char entity-type code +
-#                                            4 digits + check letter (10 chars)
-# The previous pattern only matched the middle (local company) format,
-# which is why UENs from other valid formats were rejected as ineligible.
-_SINGAPORE_UEN_PATTERN = re.compile(
-    r"^(?:"
-    r"[0-9]{8}[A-Z]"                  # businesses
-    r"|[0-9]{9}[A-Z]"                 # local companies
-    r"|[TSR][0-9]{2}[A-Z]{2}[0-9]{4}[A-Z]"  # all other entities
-    r")$"
-)
+_SINGAPORE_UEN_PATTERN = re.compile(r"^[0-9]{9}[A-Z]$")
 
 
 def is_eligible_singapore_uen(identifier: str) -> bool:
