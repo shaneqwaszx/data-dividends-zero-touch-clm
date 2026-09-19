@@ -214,6 +214,17 @@ adapter task; never populate them from the quarantined collection.
 
 ## Tests and checks
 
+The [development tooling runbook](docs/development/DEVELOPMENT_TOOLING_RUNBOOK.md)
+documents authenticated browser smoke, read-only GitHub check observation, physical
+Mongo opt-in, and project-scoped Codex MCP safety. Safe entry commands are:
+
+```bat
+npm.cmd --prefix apps\frontend run e2e:list
+.venv\Scripts\python.exe scripts\run_e2e.py
+.venv\Scripts\python.exe scripts\github_pr_ci.py
+.venv\Scripts\python.exe scripts\check_tooling_config.py
+```
+
 From the repository root:
 
 ```powershell

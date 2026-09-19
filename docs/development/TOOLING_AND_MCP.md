@@ -18,8 +18,11 @@ Live status, permission to mutate external state, or permission to expose retrie
 ### GitHub
 
 GitHub is useful for source, PRs, CI evidence and review. Use repository tools and the
-integration workflow. Do not embed tokens or credentials. This task does not change
-repository settings, branch protection, accounts, secrets, checks or merge policy.
+integration workflow. `scripts/github_pr_ci.py` may observe `gh pr view` and
+`gh pr checks` only; its SHA-bound result is evidence, not merge approval. It has no
+push, create/edit, review, rerun/cancel, settings, approval, or merge path. Do not embed
+tokens or credentials. This task does not change repository settings, branch
+protection, accounts, secrets, checks or merge policy.
 
 ### Sponsor document connector
 
@@ -35,7 +38,9 @@ Agents do not receive unrestricted production-style database access. Application
 explicit and URIs remain runtime secrets. Physical tests use only fresh generated
 allowlisted disposable database names through the project safety harness. Never test,
 drop, clean or mutate `clm_poc`; never store or print a Mongo URI. Owner setup of a local
-or CI Mongo service and secret is manual.
+or CI Mongo service and secret is manual. `scripts/run_physical_mongo_tests.py` reads
+only `PHASE12_MONGO_URI`, contains pytest output, and treats all-skipped execution as
+blocked. `scripts/check_mongodb.py` is a connectivity-only ping.
 
 ### ACRA and GoldTier/PingFed
 
@@ -47,15 +52,32 @@ reconciliation and integration-security review; retain only sanitized evidence.
 
 ### Camunda
 
-The current runtime has no Camunda adapter/composition. Do not recommend or install a
-Camunda MCP/integration until an explicit phase and architecture decision require it.
+The current runtime has no Camunda adapter/composition. The project-scoped Codex config
+contains two developer-tool entries only:
+
+- `camunda_docs` is optional, prompt-approved, and restricted in this client to the
+  Kapa-powered `search_camunda_knowledge_sources` documentation search tool. Queries
+  leave the machine; never send sponsor-confidential material, source payloads, PII,
+  secrets, or private code, and verify consequential answers against official Camunda
+  documentation.
+- `camunda_cluster` is disabled and restricted to `getClusterStatus` and `getTopology`.
+  Enabling it requires a separate authorized architecture/security change and owner
+  provisioning. It does not make Camunda part of product runtime.
+
+`enabled_tools` is a Codex client exposure restriction. It is not server-side
+authorization and does not constrain other clients.
 
 ## Repository configuration boundary
 
-No official tracked repo-local MCP configuration schema was found at the verified
-baseline. Therefore this task creates no `.mcp.json` or guessed equivalent. Follow the
-Codex/connector owner's official installation flow outside the repository, authorize the
-minimum account/scope, and keep machine-global configuration/secrets out of Git.
+Official Codex documentation supports project-local `.codex/config.toml` for trusted
+repositories. The tracked file contains only public endpoint/command metadata, exact
+tool allowlists, prompt approvals, optional startup, and bounded timeouts. It contains
+no credential, token, header, client/cluster identifier, environment-forwarding map, or
+machine-global preference. `scripts/check_tooling_config.py` validates that exact shape
+offline and is wired into CI and the pre-PR checker.
+
+See [Development Tooling Runbook](DEVELOPMENT_TOOLING_RUNBOOK.md) for manual sign-in,
+privacy/rate-limit boundaries, safe commands, and the future disabled cluster gate.
 
 ## Manual-only setup
 

@@ -31,3 +31,17 @@ outcome, multiple blockers, stale/cross-case resolution, automatic resume, dupli
 start/resume, loop guard, malformed target output, provider conformance, UI polling,
 server-authorized actions, and Demo/Test Controls separation. The canonical matrix is
 maintained in `.agents/skills/poc-regression-check/references/regression-catalogue.md`.
+
+Development-tooling coverage adds two authenticated Chromium smoke tests against the
+real local frontend/backend composition: unauthenticated workspace protection plus
+login/navigation, and the Singapore `202400001A` clean-fixture path through
+`COMPLETED` with a truthful Mock GoldTier result. The launcher owns isolated loopback
+ports, per-run test credentials, readiness, bounded output, and process-tree teardown.
+Recording artefacts and non-loopback browser traffic are disabled. This coverage does
+not prove Live ACRA, Live GoldTier/PingFed, Camunda runtime integration, production SSO,
+or production browser compatibility.
+
+Physical Mongo evidence remains separate and opt-in. The repository runner selects the
+four current real-Mongo modules, while each module owns its generated allowlisted
+database and verified cleanup. Missing infrastructure and all-skipped execution are
+blocked evidence, never a pass.
