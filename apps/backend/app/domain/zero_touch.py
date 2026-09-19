@@ -238,7 +238,19 @@ def validate_automation_transition(
 ) -> None:
     """Reject status or checkpoint changes outside the Phase 06 state table."""
 
-    if candidate.status not in LEGAL_AUTOMATION_TRANSITIONS[previous.status]:
+    document_reupload_recovery = (
+        previous.status == AutomationStatus.WAITING_FOR_REVIEW
+        and previous.current_stage == AutomationStage.DOCUMENT
+        and candidate.status == AutomationStatus.PENDING_INPUTS
+        and candidate.current_stage == AutomationStage.DOCUMENT
+        and candidate.completed_stages == (AutomationStage.REGISTRY,)
+        and bool(candidate.events)
+        and candidate.events[-1].event_type == AutomationEventType.DOCUMENT_REUPLOAD_REQUIRED
+    )
+    if (
+        candidate.status not in LEGAL_AUTOMATION_TRANSITIONS[previous.status]
+        and not document_reupload_recovery
+    ):
         raise ValueError("illegal zero-touch automation status transition")
     validate_automation_record(candidate)
 

@@ -64,6 +64,13 @@ Role/team changes also attempt explicit revocation. One active session per user,
 session rotation, dummy-hash unknown-user handling, generic login failure,
 session-bound CSRF, cookie behavior, and exact Origin/Referer checks remain in force.
 
+Sensitive review/rework mutations capture only the request session token and then load
+the current session/profile and case access again inside the owning case lock immediately
+before actionable evidence is read. This applies to field review, replacement and
+targeted retry, reconciliation resolution, and explicit start/resume. Revoked or stale
+sessions receive the fixed `401`; an actor who no longer has case scope receives the
+same safe `404 CASE_NOT_FOUND` as an absent case, with no evidence or target mutation.
+
 Browser-safe profiles never contain passwords, credential hashes, sessions, CSRF
 values, or secret configuration.
 

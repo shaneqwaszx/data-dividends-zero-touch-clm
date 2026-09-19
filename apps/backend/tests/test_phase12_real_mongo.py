@@ -2,8 +2,10 @@
 
 import os
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from io import BytesIO
+from threading import Barrier
 from typing import Any
 from uuid import UUID, uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -23,14 +25,18 @@ from app.composition import (
     build_reconciliation_service,
 )
 from app.config import Settings
+from app.connectors.idp import IdpDocumentInput, IdpProcessingError
 from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.registry_ownership import RegistryAcquisitionOwnershipProvider
 from app.domain.documents import (
+    DocumentFieldKey,
     DocumentProcessingRecord,
     DocumentProcessingState,
     DocumentProfile,
+    FieldReviewStatus,
+    ReviewDecision,
 )
 from app.domain.models import SafeError
 from app.domain.reconciliation import ReconciliationDecisionAction
@@ -129,6 +135,278 @@ def _open_store(settings: Settings, *, initialize: bool = True) -> MongoCaseStor
     if initialize:
         store.initialize()
     return store
+
+
+def test_real_mongo_concurrent_field_review_has_one_durable_winner(
+    isolated_mongo_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = isolated_mongo_settings
+    with TestClient(create_app(settings)) as client:
+        case_id = _create_case(client)
+        uploaded = _upload_text(client, case_id, CONFLICT_PROFILE, name="Review.txt")
+    document_id = UUID(uploaded["document_id"])
+    stores = (_open_store(settings), _open_store(settings))
+    services = []
+    barrier = Barrier(2)
+    try:
+        for store in stores:
+            onboarding = build_onboarding_service(
+                settings=settings,
+                repository=MongoOnboardingCaseRepository(store),
+                target_execution_repository=MongoTargetExecutionRepository(store),
+            )
+            services.append(
+                build_document_processing_service(
+                    onboarding,
+                    settings,
+                    repository=MongoDocumentProcessingRepository(store),
+                )
+            )
+            original_replace = store.replace
+
+            def synchronized_replace(
+                snapshot: object,
+                *,
+                expected_revision: int,
+                replace: Callable[..., object] = original_replace,
+            ) -> object:
+                barrier.wait()
+                return replace(snapshot, expected_revision=expected_revision)
+
+            monkeypatch.setattr(store, "replace", synchronized_replace)
+
+        def decide(index: int, decision: ReviewDecision) -> object:
+            try:
+                return services[index].review_field(
+                    case_id=case_id,
+                    document_id=document_id,
+                    field_key=DocumentFieldKey.LEGAL_NAME,
+                    decision=decision,
+                )
+            except Exception as exc:  # inspected below as the durable CAS loser
+                return exc
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            outcomes = [
+                executor.submit(decide, 0, ReviewDecision.ACCEPTED),
+                executor.submit(decide, 1, ReviewDecision.REJECTED),
+            ]
+            results = [future.result() for future in outcomes]
+
+        assert sum(isinstance(item, DocumentProcessingRecord) for item in results) == 1
+        assert sum(isinstance(item, PersistenceConflictError) for item in results) == 1
+        winner = next(item for item in results if isinstance(item, DocumentProcessingRecord))
+        fresh_store = _open_store(settings, initialize=False)
+        try:
+            persisted = MongoDocumentProcessingRepository(fresh_store).get(document_id)
+            assert persisted is not None
+            legal_name = next(
+                item
+                for item in persisted.fields
+                if item.field_key == DocumentFieldKey.LEGAL_NAME
+            )
+            winning_legal_name = next(
+                item
+                for item in winner.fields
+                if item.field_key == DocumentFieldKey.LEGAL_NAME
+            )
+            assert legal_name.review_status == winning_legal_name.review_status
+            assert legal_name.review_status in {
+                FieldReviewStatus.ACCEPTED,
+                FieldReviewStatus.REJECTED,
+            }
+        finally:
+            fresh_store.close()
+    finally:
+        for store in stores:
+            store.close()
+
+
+def test_real_mongo_restart_preserves_review_refresh_and_stops_target(
+    isolated_mongo_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = isolated_mongo_settings
+    counters = _install_counting_connectors(monkeypatch)
+    with TestClient(create_app(settings)) as first:
+        case_id = _create_case(first)
+        uploaded = _upload_text(first, case_id, CONFLICT_PROFILE, name="Partial.txt")
+        paused = _complete_intake(first, case_id, expected_count=1)
+        initial_exception_ids = {
+            item["exception_id"] for item in paused["active_exceptions"]
+        }
+        reviewed = first.post(
+            (
+                f"/api/onboarding/cases/{case_id}/documents/"
+                f"{uploaded['document_id']}/reviews"
+            ),
+            json={
+                "field_key": "legal_name",
+                "decision": "CORRECTED",
+                "corrected_value": "MERLION CIRCULAR LABS PTE. LTD.",
+            },
+        )
+        assert reviewed.status_code == 200, reviewed.text
+        refreshed = first.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        assert refreshed["status"] == "WAITING_FOR_REVIEW"
+        assert initial_exception_ids.isdisjoint(
+            item["exception_id"] for item in refreshed["active_exceptions"]
+        )
+        assert counters == {"registry": 4, "idp": 1, "ownership": 0, "goldtier": 0}
+
+    before_restart = counters.copy()
+    with TestClient(create_app(settings)) as second:
+        restored = second.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        repeated = second.post(f"/api/clm/zero-touch/cases/{case_id}/resume").json()
+        restored_document = second.get(
+            f"/api/onboarding/cases/{case_id}/documents/{uploaded['document_id']}"
+        ).json()
+
+    assert restored["status"] == repeated["status"] == "WAITING_FOR_REVIEW"
+    assert restored["version"] == repeated["version"]
+    legal_name = next(
+        item
+        for item in restored_document["fields"]
+        if item["field_key"] == "legal_name"
+    )
+    pending = [
+        item for item in restored_document["fields"]
+        if item["review_status"] == "PENDING"
+    ]
+    assert legal_name["review_status"] == "CORRECTED"
+    assert legal_name["reviewed_value"] == "MERLION CIRCULAR LABS PTE. LTD."
+    assert len(pending) == 3
+    assert counters == before_restart
+    snapshot = _open_store(settings, initialize=False)
+    try:
+        durable = snapshot.get(case_id)
+        assert durable is not None
+        assert durable.target_executions == ()
+    finally:
+        snapshot.close()
+
+
+def test_real_mongo_failed_replacement_restart_requires_retry_without_replay(
+    isolated_mongo_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = isolated_mongo_settings
+    counters = _install_counting_connectors(monkeypatch)
+    failure_marker = b"FAIL_REPLACEMENT_IDP"
+
+    class FailingReplacementIdp(LocalPdfTextIdpProvider):
+        def process(self, document: IdpDocumentInput) -> object:
+            counters["idp"] += 1
+            if document.content == failure_marker:
+                raise IdpProcessingError
+            return LocalPdfTextIdpProvider.process(self, document)
+
+    monkeypatch.setattr(composition, "LocalPdfTextIdpProvider", FailingReplacementIdp)
+    with TestClient(create_app(settings)) as first:
+        case_id = _create_case(first)
+        original = _upload_text(first, case_id, CONFLICT_PROFILE, name="Original.txt")
+        paused = _complete_intake(first, case_id, expected_count=1)
+        assert paused["status"] == "WAITING_FOR_REVIEW"
+        stale_exception = paused["active_exceptions"][0]
+        failed = first.post(
+            (
+                f"/api/clm/zero-touch/cases/{case_id}/documents/"
+                f"{original['document_id']}/replacement"
+            ),
+            headers={
+                "Content-Type": "text/plain",
+                "X-Document-Name": "Failed.txt",
+                "X-Document-Event-Count": str(len(original["events"])),
+            },
+            content=failure_marker,
+        )
+        assert failed.status_code == 503
+        assert failed.json()["detail"]["code"] == "IDP_PROCESSING_FAILED"
+        pending = first.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        documents = first.get(f"/api/onboarding/cases/{case_id}/documents").json()
+        by_id = {item["document_id"]: item for item in documents}
+        current_documents = [
+            item for item in documents if item["superseded_by_document_id"] is None
+        ]
+        assert len(current_documents) == 1
+        current = current_documents[0]
+        assert pending["status"] == "PENDING_INPUTS"
+        assert pending["current_stage"] == "DOCUMENT"
+        assert pending["active_exceptions"] == []
+        assert pending["timeline"][-1]["event_type"] == "DOCUMENT_REUPLOAD_REQUIRED"
+        assert current["state"] == "FAILED"
+        failed_document_id = current["document_id"]
+        assert current["supersedes_document_id"] == original["document_id"]
+        assert by_id[original["document_id"]]["superseded_by_document_id"] == (
+            failed_document_id
+        )
+        assert by_id[original["document_id"]]["superseded_at"] is not None
+        assert counters == {"registry": 4, "idp": 2, "ownership": 0, "goldtier": 0}
+
+    before_restart = counters.copy()
+    with TestClient(create_app(settings)) as second:
+        restored = second.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        restored_documents = second.get(
+            f"/api/onboarding/cases/{case_id}/documents"
+        ).json()
+        assert restored["status"] == "PENDING_INPUTS"
+        assert restored["current_stage"] == "DOCUMENT"
+        restored_by_id = {item["document_id"]: item for item in restored_documents}
+        assert restored_by_id[failed_document_id]["state"] == "FAILED"
+        assert restored_by_id[failed_document_id]["supersedes_document_id"] == (
+            original["document_id"]
+        )
+        assert restored_by_id[failed_document_id]["superseded_by_document_id"] is None
+        assert restored_by_id[original["document_id"]]["superseded_by_document_id"] == (
+            failed_document_id
+        )
+        assert counters == before_restart
+
+        stale = second.post(
+            (
+                f"/api/clm/zero-touch/cases/{case_id}/exceptions/"
+                f"{stale_exception['exception_id']}/resolve"
+            ),
+            json={
+                "action": "KEEP_REGISTRY_VALUE",
+                "expected_automation_version": paused["version"],
+                "evidence_version": stale_exception["evidence_version"],
+            },
+        )
+        assert stale.status_code == 409
+        assert stale.json()["detail"]["code"] == "ZERO_TOUCH_EXCEPTION_STALE"
+        assert counters == before_restart
+
+        retried = second.post(
+            (
+                f"/api/clm/zero-touch/cases/{case_id}/intake/documents/"
+                f"{failed_document_id}/retry"
+            ),
+            headers={"Content-Type": "text/plain", "X-Document-Name": "Retry.txt"},
+            content=TEXT_PROFILE.encode(),
+        )
+        assert retried.status_code == 201, retried.text
+        retried_document = retried.json()
+        retried_document_id = retried_document["document_id"]
+        assert retried_document["supersedes_document_id"] == failed_document_id
+        assert retried_document["superseded_by_document_id"] is None
+        after_retry = second.get(
+            f"/api/onboarding/cases/{case_id}/documents"
+        ).json()
+        after_retry_by_id = {item["document_id"]: item for item in after_retry}
+        assert after_retry_by_id[failed_document_id]["superseded_by_document_id"] == (
+            retried_document_id
+        )
+        assert after_retry_by_id[retried_document_id]["supersedes_document_id"] == (
+            failed_document_id
+        )
+        assert after_retry_by_id[retried_document_id]["superseded_by_document_id"] is None
+        assert counters == {"registry": 4, "idp": 3, "ownership": 0, "goldtier": 0}
+        completed = _complete_intake(second, case_id, expected_count=1)
+        assert completed["status"] == "COMPLETED"
+
+    assert counters == {"registry": 4, "idp": 3, "ownership": 1, "goldtier": 4}
 
 
 def _install_counting_connectors(

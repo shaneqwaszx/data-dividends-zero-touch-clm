@@ -1,12 +1,14 @@
 from pathlib import Path
+from uuid import UUID
 
 import httpx
 import pytest
+from test_zero_touch_orchestration import build_system, start_demo
 
 from app.composition import build_onboarding_service
 from app.config import Settings
 from app.connectors.idp import IdpDocumentInput, IdpProvider
-from app.connectors.mock_idp import MockIdpProvider
+from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
 from app.demo.scenarios import VALID_SME_UEN
 from app.domain.documents import DocumentFieldKey
 from app.main import create_app
@@ -477,3 +479,29 @@ def test_review_openapi_contract_exposes_enums_bounds_and_forbids_extras() -> No
         "post"
     ]["parameters"]
     assert "X-Mock-IDP-Scenario" in {parameter["name"] for parameter in demo_upload_parameters}
+
+
+def test_failed_zero_touch_replacement_returns_retryable_controlled_response() -> None:
+    client, zero, documents, target, _ = build_system()
+    paused = start_demo(client, "DOCUMENT_DISCREPANCY")
+    case_id = UUID(paused["case"]["case_id"])
+    current = documents.list_documents(case_id=case_id)[0]
+    documents._idp = MockIdpProvider(MockIdpScenario.PROCESSOR_FAILURE)  # noqa: SLF001
+
+    failed = client.post(
+        f"/api/clm/zero-touch/cases/{case_id}/documents/{current.document_id}/replacement",
+        content=PDF,
+        headers={
+            "Content-Type": "application/pdf",
+            "X-Document-Name": "failed-replacement.pdf",
+            "X-Document-Event-Count": str(len(current.events)),
+        },
+    )
+
+    automation = zero.get(case_id=current.case_id)
+    assert failed.status_code == 503
+    assert failed.json()["detail"]["code"] == "IDP_PROCESSING_FAILED"
+    assert automation is not None and automation.status == "PENDING_INPUTS"
+    assert automation.active_exceptions == []
+    assert automation.events[-1].event_type == "DOCUMENT_REUPLOAD_REQUIRED"
+    assert target.calls == []

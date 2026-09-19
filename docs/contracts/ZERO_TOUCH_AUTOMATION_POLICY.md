@@ -55,6 +55,32 @@ canonical-mutated, forged, or cross-case request cannot advance.
 Start/resume returns the accepted checkpoint without replaying completed work. The
 orchestration transition count is bounded per invocation.
 
+A current field-review mutation is coordinated under the case lock. It refreshes the
+existing reconciliation fingerprint, cancels stale document-stage exceptions, advances
+the automation version, and remains waiting while any field or independent blocker is
+unresolved. A safe final correction may enter the existing `RESUMING` path; target work
+still passes only through the retained ledger. An exact repeated final decision is
+idempotent. Explicit `/resume` may repair a stale document checkpoint after an
+interrupted composed write; ordinary reads do not trigger refresh.
+
+The composed write is monotonic and sequential, not cross-section atomic. A rejected
+reconciliation request/CAS save, reconciliation infrastructure failure, authorization
+failure, or automation checkpoint save is surfaced and stops the request with existing
+blockers intact, zero ownership/target progression, and no same-request prerequisite
+retry. Only a later exact review repeat or explicit `/resume` may repair the next
+checkpoint; progression requires durable reconciliation and automation acceptance.
+
+If explicit replacement persists a current failed record, the stale document exception
+is cancelled and automation returns through the narrowly validated
+`WAITING_FOR_REVIEW / DOCUMENT` to `PENDING_INPUTS / DOCUMENT` recovery transition. The
+event is `DOCUMENT_REUPLOAD_REQUIRED`; targeted retry must replace that failed current
+record before intake completion can continue.
+
+That transition is limited to the expected persisted `IDP_PROCESSING_FAILED` replacement
+outcome. A document repository/CAS or other infrastructure rejection preserves the
+current review automation and blockers and surfaces its safe infrastructure error; it
+does not masquerade as a re-upload request.
+
 `REVIEWED` records review lifecycle completion only. A reviewed value that differs from
 current canonical authority remains `SOURCE_CONFLICT_REQUIRES_POLICY`/the corresponding
 Phase 06 exception because Q-005 is unresolved. Reviewed low-confidence evidence remains
@@ -69,4 +95,7 @@ target calls. Repeated typed recovery persists nonterminal `RECOVERY_PENDING` ra
 than consuming the ordinary progression loop guard. A later start delegates to Phase 05
 again and reconciles its actual success, match, failure, or partial-amend outcome.
 
-All guarantees are in-process POC guarantees only.
+The case lock and composed review/reconciliation transitions are single-process POC
+guarantees. Mongo envelope revision CAS detects stale durable writes, and the target
+ledger prevents known replay paths; distributed transaction or exactly-once claims are
+not made.
