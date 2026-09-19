@@ -1,8 +1,8 @@
 # Phase 15B Execution Addendum
 
-Date: 2026-09-19  
-Branch: `phase/15b-review-rework`  
-Planning baseline: `a81e7da1c677f063408952e2ae1a1a2478afc22b`  
+Date: 2026-09-19<br>
+Branch: `phase/15b-review-rework`<br>
+Planning baseline: `a81e7da1c677f063408952e2ae1a1a2478afc22b`<br>
 Observed `HEAD` / locally known `origin/main`: `a81e7da1c677f063408952e2ae1a1a2478afc22b`
 
 This addendum refines, but does not replace,
