@@ -726,6 +726,62 @@ def test_new_composition_reconstructs_pending_and_review_queue_from_adapters() -
         assert reopened.json()["status"] == "COMPLETED"
 
 
+def test_partial_document_review_round_trips_across_adapter_restart() -> None:
+    store = MemoryEnvelopeStore()
+    mismatched_profile = TEXT_PROFILE.replace(
+        "MERLION CIRCULAR LABS PTE. LTD.", "MERLION CIRCULAR LABS PTE. LIMITED"
+    )
+    with TestClient(_durable_adapter_app(store)) as first:  # type: ignore[arg-type]
+        created = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
+        case_id = created.json()["case"]["case_id"]
+        uploaded = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
+            headers={"Content-Type": "text/plain", "X-Document-Name": "Mismatch.txt"},
+            content=mismatched_profile.encode(),
+        )
+        paused = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/complete",
+            json={"expected_document_count": 1},
+        )
+        reviewed = first.post(
+            (
+                f"/api/onboarding/cases/{case_id}/documents/"
+                f"{uploaded.json()['document_id']}/reviews"
+            ),
+            json={
+                "field_key": "legal_name",
+                "decision": "CORRECTED",
+                "corrected_value": "MERLION CIRCULAR LABS PTE. LTD.",
+            },
+        )
+        after_review = first.get(f"/api/clm/zero-touch/cases/{case_id}")
+        assert paused.json()["status"] == "WAITING_FOR_REVIEW"
+        assert reviewed.status_code == 200
+        assert after_review.json()["status"] == "WAITING_FOR_REVIEW"
+        expected_version = after_review.json()["version"]
+        expected_events = reviewed.json()["events"]
+
+    with TestClient(_durable_adapter_app(store)) as second:  # type: ignore[arg-type]
+        restored = second.get(f"/api/clm/zero-touch/cases/{case_id}")
+        restored_document = second.get(
+            f"/api/onboarding/cases/{case_id}/documents/{uploaded.json()['document_id']}"
+        )
+
+    assert restored.status_code == 200
+    assert restored.json()["status"] == "WAITING_FOR_REVIEW"
+    assert restored.json()["version"] == expected_version
+    assert restored_document.json()["events"] == expected_events
+    legal_name = next(
+        item
+        for item in restored_document.json()["fields"]
+        if item["field_key"] == "legal_name"
+    )
+    assert legal_name["original_extracted_value"] == (
+        "MERLION CIRCULAR LABS PTE. LIMITED"
+    )
+    assert legal_name["reviewed_value"] == "MERLION CIRCULAR LABS PTE. LTD."
+
+
 def test_uncertain_target_resume_stays_recovery_pending_without_replay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

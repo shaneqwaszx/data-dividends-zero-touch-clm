@@ -13,8 +13,11 @@ from app.domain.access import CasePriority, TeamId
 from app.domain.clm import ClmStatus
 from app.domain.documents import (
     DocumentAutoClearBlocker,
+    DocumentFieldKey,
     DocumentProcessingRecord,
     DocumentProcessingState,
+    FieldReviewStatus,
+    ReviewDecision,
 )
 from app.domain.models import EventOutcome, SafeError, WorkflowState
 from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState
@@ -437,10 +440,13 @@ class ZeroTouchOrchestrator:
         content_type: str,
         content: bytes,
         idp_provider: IdpProvider | None = None,
+        reauthorize: Callable[[], None] | None = None,
     ) -> DocumentProcessingRecord:
         """Explicitly supersede one failed intake record without creating a new case."""
 
         with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
             automation = self._require_record(case_id)
             if automation.status != AutomationStatus.PENDING_INPUTS:
                 raise ZeroTouchRequestError(
@@ -468,13 +474,14 @@ class ZeroTouchOrchestrator:
             )
 
     def _has_required_document_reuploads(self, case_id: UUID) -> bool:
-        return any(
-            document.is_current_evidence
-            and document.state == DocumentProcessingState.FAILED
-            and document.error is not None
-            and document.error.code == "DOCUMENT_REUPLOAD_REQUIRED"
-            for document in self._documents.list_documents(case_id=case_id)
-        )
+        documents = self._current_documents(case_id)
+        return any(item.state == DocumentProcessingState.FAILED for item in documents)
+
+    def _current_documents(self, case_id: UUID) -> list[DocumentProcessingRecord]:
+        return [
+            item for item in self._documents.list_documents(case_id=case_id)
+            if item.is_current_evidence
+        ]
 
     def start(
         self,
@@ -482,22 +489,28 @@ class ZeroTouchOrchestrator:
         case_id: UUID,
         ownership_provider: OwnershipProvider | None = None,
         expected_document_count: int | None = None,
+        reauthorize: Callable[[], None] | None = None,
+        refresh_document_checkpoint: bool = False,
     ) -> ZeroTouchAutomationRecord:
         """Idempotently start or continue; normal upload already invokes this."""
 
         with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
             record = self._require_record(case_id)
+            if (
+                refresh_document_checkpoint
+                and record.status == AutomationStatus.WAITING_FOR_REVIEW
+                and record.current_stage == AutomationStage.DOCUMENT
+            ):
+                return self._refresh_document_checkpoint_locked(record)
             if record.status in {
                 AutomationStatus.COMPLETED,
                 AutomationStatus.TECHNICAL_FAILURE,
                 AutomationStatus.WAITING_FOR_REVIEW,
             }:
                 return record
-            current_documents = [
-                item
-                for item in self._documents.list_documents(case_id=case_id)
-                if item.is_current_evidence
-            ]
+            current_documents = self._current_documents(case_id)
             if not current_documents:
                 raise ZeroTouchRequestError(
                     code="ZERO_TOUCH_DOCUMENTS_REQUIRED",
@@ -548,10 +561,13 @@ class ZeroTouchOrchestrator:
         content_type: str,
         content: bytes,
         idp_provider: IdpProvider | None = None,
+        reauthorize: Callable[[], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Supersede blocked document evidence and automatically re-evaluate it."""
 
         with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
             record = self._require_record(case_id)
             if record.status in {AutomationStatus.COMPLETED, AutomationStatus.TECHNICAL_FAILURE}:
                 raise ZeroTouchRequestError(
@@ -566,15 +582,24 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_REPLACEMENT_NOT_ALLOWED",
                     message="Replacement evidence is only accepted for the active document review.",
                 )
-            self._documents.replace_document(
-                case_id=case_id,
-                document_id=document_id,
-                expected_event_count=expected_document_event_count,
-                display_name=display_name,
-                content_type=content_type,
-                content=content,
-                provider=idp_provider,
-            )
+            try:
+                self._documents.replace_document(
+                    case_id=case_id,
+                    document_id=document_id,
+                    expected_event_count=expected_document_event_count,
+                    display_name=display_name,
+                    content_type=content_type,
+                    content=content,
+                    provider=idp_provider,
+                )
+            except DocumentProcessingInfrastructureError as exc:
+                recovered = record
+                if exc.code == "IDP_PROCESSING_FAILED":
+                    recovered = self._return_to_document_intake(record)
+                raise ZeroTouchInfrastructureError(
+                    case_id=recovered.case_id, automation_id=recovered.automation_id,
+                    code=exc.code, message=exc.public_message,
+                ) from None
             candidate = record.model_copy(deep=True)
             for exception in candidate.active_exceptions:
                 if exception.stage == AutomationStage.DOCUMENT:
@@ -592,6 +617,67 @@ class ZeroTouchOrchestrator:
             )
             self._save(record, candidate)
             return self._advance_locked(case_id=case_id)
+
+    def review_document_field(
+        self,
+        *,
+        case_id: UUID,
+        document_id: UUID,
+        field_key: DocumentFieldKey,
+        decision: ReviewDecision,
+        corrected_value: str | None = None,
+        note: str | None = None,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> DocumentProcessingRecord:
+        """Apply a current-evidence review and refresh its document checkpoint."""
+
+        with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            automation = self._repository.get_for_case(case_id)
+            document = self._documents.get_document(
+                case_id=case_id, document_id=document_id
+            )
+            reviewed_field = (
+                next((item for item in document.fields if item.field_key == field_key), None)
+                if document is not None
+                else None
+            )
+            is_final_repeat = (
+                reviewed_field is not None
+                and reviewed_field.review_status != FieldReviewStatus.PENDING
+            )
+            if automation is not None and not is_final_repeat and not (
+                automation.status == AutomationStatus.PENDING_INPUTS
+                or (
+                    automation.status == AutomationStatus.WAITING_FOR_REVIEW
+                    and automation.current_stage == AutomationStage.DOCUMENT
+                )
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_REVIEW_NOT_ALLOWED",
+                    message="Document review is not accepted at the current onboarding stage.",
+                )
+            previous_event_count = len(document.events) if document is not None else 0
+            reviewed = self._documents.review_field(
+                case_id=case_id,
+                document_id=document_id,
+                field_key=field_key,
+                decision=decision,
+                corrected_value=corrected_value,
+                note=note,
+            )
+            if (
+                automation is None
+                or automation.status == AutomationStatus.PENDING_INPUTS
+                or (
+                    len(reviewed.events) == previous_event_count
+                    and automation.status != AutomationStatus.WAITING_FOR_REVIEW
+                )
+            ):
+                return reviewed
+            self._refresh_document_checkpoint_locked(automation)
+            return reviewed
 
     def get(self, *, case_id: UUID) -> ZeroTouchAutomationRecord | None:
         return self._repository.get_for_case(case_id)
@@ -612,10 +698,13 @@ class ZeroTouchOrchestrator:
         action: ExceptionResolutionAction,
         expected_automation_version: int,
         evidence_version: str,
+        reauthorize: Callable[[], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Resolve current evidence once and automatically resume from the checkpoint."""
 
         with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
             record = self._require_record(case_id)
             if record.version != expected_automation_version:
                 raise ZeroTouchRequestError(
@@ -740,10 +829,13 @@ class ZeroTouchOrchestrator:
         expected_automation_version: int,
         expected_reconciliation_version: int,
         evidence_fingerprint: str,
+        reauthorize: Callable[[], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Resolve one case-bound discrepancy through the typed backend authority."""
 
         with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
             record = self._require_record(case_id)
             if record.version != expected_automation_version:
                 raise ZeroTouchRequestError(
@@ -863,6 +955,73 @@ class ZeroTouchOrchestrator:
         self._save(record, candidate)
         return self._advance_locked(case_id=record.case_id)
 
+    def _refresh_document_checkpoint_locked(
+        self, record: ZeroTouchAutomationRecord
+    ) -> ZeroTouchAutomationRecord:
+        current_documents = self._current_documents(record.case_id)
+        if any(item.state == DocumentProcessingState.FAILED for item in current_documents):
+            return self._return_to_document_intake(record)
+        try:
+            reconciliation = self._reconciliation.reconcile_current(case_id=record.case_id)
+            expected_versions = {
+                self._reconciliation_evidence_version(reconciliation, item)
+                for item in reconciliation.open_discrepancies
+            }
+        except ReconciliationRequestError as exc:
+            raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
+        except ReconciliationInfrastructureError as exc:
+            raise ZeroTouchInfrastructureError(
+                case_id=record.case_id, automation_id=record.automation_id,
+                code=exc.code, message=exc.public_message,
+            ) from None
+        actual_versions = {
+            item.evidence_version
+            for item in record.active_exceptions
+            if item.stage == AutomationStage.DOCUMENT
+        }
+        if (
+            record.status == AutomationStatus.WAITING_FOR_REVIEW
+            and actual_versions == expected_versions
+            and len(actual_versions) == len(record.active_exceptions)
+        ):
+            return record
+        candidate = record.model_copy(deep=True)
+        for item in candidate.active_exceptions:
+            item.status = BusinessExceptionStatus.CANCELLED
+        candidate.status = AutomationStatus.RESUMING
+        candidate.current_stage = AutomationStage.DOCUMENT
+        candidate = self._append_event(
+            candidate,
+            event_type=AutomationEventType.AUTOMATION_RESUMING,
+            outcome=EventOutcome.SUCCEEDED,
+            code="DOCUMENT_REVIEW_UPDATED",
+            message="Current document review evidence is being re-evaluated.",
+        )
+        self._save(record, candidate)
+        return self._advance_locked(case_id=record.case_id)
+
+    def _return_to_document_intake(
+        self, record: ZeroTouchAutomationRecord
+    ) -> ZeroTouchAutomationRecord:
+        candidate = record.model_copy(deep=True)
+        candidate.status = AutomationStatus.PENDING_INPUTS
+        candidate.current_stage = AutomationStage.DOCUMENT
+        candidate.completed_stages = (AutomationStage.REGISTRY,)
+        candidate.technical_failure = None
+        candidate.completed_at = None
+        candidate.metrics.automated_stages_completed = 1
+        candidate.metrics.final_outcome = None
+        for item in candidate.active_exceptions:
+            item.status = BusinessExceptionStatus.CANCELLED
+        candidate = self._append_event(
+            candidate,
+            event_type=AutomationEventType.DOCUMENT_REUPLOAD_REQUIRED,
+            outcome=EventOutcome.PARTIAL,
+            code="DOCUMENT_REUPLOAD_REQUIRED",
+            message="Failed replacement evidence requires targeted re-upload.",
+        )
+        return self._save(record, candidate)
+
     def _advance_locked(self, *, case_id: UUID) -> ZeroTouchAutomationRecord:
         try:
             return self._advance_locked_impl(case_id=case_id)
@@ -901,9 +1060,7 @@ class ZeroTouchOrchestrator:
                     candidate.status = AutomationStatus.PENDING_INPUTS
                     candidate.current_stage = AutomationStage.DOCUMENT
                     return self._save(record, candidate)
-                current_documents = [
-                    document for document in documents if document.is_current_evidence
-                ]
+                current_documents = self._current_documents(case_id)
                 failed_document = next(
                     (
                         document
@@ -1252,6 +1409,12 @@ class ZeroTouchOrchestrator:
                 for observation in item.observations
             ):
                 return "DOCUMENT_TEXT_UNAVAILABLE"
+            if any(
+                observation.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
+                and observation.evidence_reference == "DOCUMENT_REVIEW_PENDING"
+                for observation in item.observations
+            ):
+                return "DOCUMENT_REVIEW_REQUIRED"
             return outcome_codes[item.outcome]
 
         aggregate_codes = tuple(
@@ -1263,14 +1426,24 @@ class ZeroTouchOrchestrator:
             ):
                 continue
             code = code_for(discrepancy)
-            exception_type = {
-                ReconciliationOutcome.CONFLICT: (BusinessExceptionType.DOCUMENT_SOURCE_CONFLICT),
-                ReconciliationOutcome.MISSING_IN_SOURCE: (
-                    BusinessExceptionType.DOCUMENT_REQUIRED_FIELD_MISSING
-                ),
-                ReconciliationOutcome.UNVERIFIABLE: (BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE),
-                ReconciliationOutcome.INVALID: (BusinessExceptionType.RECONCILIATION_INVALID),
-            }[discrepancy.outcome]
+            exception_type = (
+                BusinessExceptionType.DOCUMENT_REVIEW_REQUIRED
+                if code == "DOCUMENT_REVIEW_REQUIRED"
+                else {
+                    ReconciliationOutcome.CONFLICT: (
+                        BusinessExceptionType.DOCUMENT_SOURCE_CONFLICT
+                    ),
+                    ReconciliationOutcome.MISSING_IN_SOURCE: (
+                        BusinessExceptionType.DOCUMENT_REQUIRED_FIELD_MISSING
+                    ),
+                    ReconciliationOutcome.UNVERIFIABLE: (
+                        BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE
+                    ),
+                    ReconciliationOutcome.INVALID: (
+                        BusinessExceptionType.RECONCILIATION_INVALID
+                    ),
+                }[discrepancy.outcome]
+            )
             registry = next(
                 (
                     item

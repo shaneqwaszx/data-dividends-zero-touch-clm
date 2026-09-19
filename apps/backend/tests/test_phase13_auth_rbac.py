@@ -1015,6 +1015,67 @@ def test_every_case_route_family_has_identical_cross_team_and_absent_behavior(
         assert inaccessible.json() == absent.json(), policy
 
 
+@pytest.mark.parametrize(("mode", "expected_status"), [("revoked", 401), ("cross_team", 404)])
+def test_review_reauthorizes_inside_case_lock_before_mutation(
+    runtime_credentials: tuple[str, dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    expected_status: int,
+) -> None:
+    password, hashes = runtime_credentials
+    client, authentication = _raw_client(hashes)
+    csrf = _login(client, "maya-lim", password)
+    created = client.post(
+        "/api/demo/clm/zero-touch/cases",
+        json={"uen": "202400001A", "scenario": "DOCUMENT_DISCREPANCY"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    case_id = created.json()["case"]["case_id"]
+    paused = client.post(
+        f"/api/demo/clm/zero-touch/cases/{case_id}/documents",
+        content=b"synthetic review evidence",
+        headers={
+            "Content-Type": "text/plain",
+            "X-Document-Name": "review.txt",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    document = client.get(f"/api/onboarding/cases/{case_id}/documents").json()[0]
+    original_authenticate = authentication.authenticate_session
+    cross_team_session = (
+        authentication.login("sophia-ng", password).record if mode == "cross_team" else None
+    )
+    calls = 0
+
+    def authenticate_with_mid_request_change(token: str | None):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return original_authenticate(token)
+        if cross_team_session is not None:
+            return cross_team_session
+        raise AuthenticationError
+
+    monkeypatch.setattr(
+        authentication, "authenticate_session", authenticate_with_mid_request_change
+    )
+    denied = client.post(
+        f"/api/onboarding/cases/{case_id}/documents/{document['document_id']}/reviews",
+        json={"field_key": "legal_name", "decision": "ACCEPTED"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    monkeypatch.setattr(authentication, "authenticate_session", original_authenticate)
+    after_document = client.get(f"/api/onboarding/cases/{case_id}/documents").json()[0]
+    after_automation = client.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+
+    assert denied.status_code == expected_status
+    assert denied.json()["detail"]["code"] == (
+        "AUTHENTICATION_REQUIRED" if mode == "revoked" else "CASE_NOT_FOUND"
+    )
+    assert len(after_document["events"]) == len(document["events"])
+    assert after_automation["version"] == paused.json()["version"]
+
+
 def test_every_current_application_route_is_deliberately_classified(
     runtime_credentials: tuple[str, dict[str, str]],
 ) -> None:
