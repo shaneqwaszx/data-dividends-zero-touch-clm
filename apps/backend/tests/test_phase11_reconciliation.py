@@ -11,7 +11,7 @@ from test_zero_touch_orchestration import PDF, build_system
 from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
 from app.connectors.mock_ownership import MockOwnershipProvider
 from app.domain.access import TeamId
-from app.domain.documents import DocumentFieldKey
+from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.reconciliation import (
     DiscrepancyStatus,
     FieldReconciliationResult,
@@ -249,6 +249,124 @@ def test_all_fields_match_and_formatting_only_legal_name_match() -> None:
         ReconciliationOutcome.MATCH
     ] * 4
     assert target.calls == ["search", "shell", "policy", "amend"]
+
+
+def test_safe_review_correction_is_effective_and_preserves_original_evidence() -> None:
+    _, zero, documents, _, _ = build_system()
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+    document = documents.create_document(
+        case_id=created.case_id,
+        display_name="corrected.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        provider=MockIdpProvider(MockIdpScenario.FIELD_MISMATCH),
+    )
+    original = next(
+        item.original_extracted_value
+        for item in document.fields
+        if item.field_key == DocumentFieldKey.LEGAL_NAME
+    )
+    for field in document.fields:
+        document = documents.review_field(
+            case_id=created.case_id,
+            document_id=document.document_id,
+            field_key=field.field_key,
+            decision=(
+                ReviewDecision.CORRECTED
+                if field.field_key == DocumentFieldKey.LEGAL_NAME
+                else ReviewDecision.ACCEPTED
+            ),
+            corrected_value=(
+                "MERLION CIRCULAR LABS PTE. LTD."
+                if field.field_key == DocumentFieldKey.LEGAL_NAME
+                else None
+            ),
+        )
+
+    reconciliation = zero._reconciliation.reconcile_current(  # noqa: SLF001
+        case_id=created.case_id
+    )
+    legal = next(item for item in reconciliation.fields if item.field_name == "legal_name")
+    reviewed_observation = next(
+        item for item in legal.observations if item.source_kind == "DOCUMENT_IDP"
+    )
+    stored = documents.get_document(
+        case_id=created.case_id, document_id=document.document_id
+    )
+    assert reconciliation.status == "MATCHED"
+    assert reviewed_observation.raw_value == "MERLION CIRCULAR LABS PTE. LTD."
+    assert reviewed_observation.source_system == "HUMAN_REVIEW"
+    assert reviewed_observation.evidence_reference == "DOCUMENT_REVIEW_CORRECTION"
+    assert reviewed_observation.confidence is None
+    assert stored is not None
+    assert next(
+        item.original_extracted_value
+        for item in stored.fields
+        if item.field_key == DocumentFieldKey.LEGAL_NAME
+    ) == original
+
+
+@pytest.mark.parametrize(
+    ("scenario", "key", "decision", "expected_outcome"),
+    [
+        (
+            MockIdpScenario.ALL_FIELDS_MATCH,
+            DocumentFieldKey.LEGAL_NAME,
+            ReviewDecision.REJECTED,
+            ReconciliationOutcome.MISSING_IN_SOURCE,
+        ),
+        (
+            MockIdpScenario.MISSING_FIELD,
+            DocumentFieldKey.REGISTERED_ADDRESS,
+            ReviewDecision.CORRECTED,
+            ReconciliationOutcome.MISSING_IN_SOURCE,
+        ),
+        (
+            MockIdpScenario.LOW_CONFIDENCE,
+            DocumentFieldKey.REGISTERED_ADDRESS,
+            ReviewDecision.CORRECTED,
+            ReconciliationOutcome.UNVERIFIABLE,
+        ),
+    ],
+)
+def test_rejected_missing_and_low_confidence_reviews_remain_blocking(
+    scenario: MockIdpScenario,
+    key: DocumentFieldKey,
+    decision: ReviewDecision,
+    expected_outcome: ReconciliationOutcome,
+) -> None:
+    _, zero, documents, target, _ = build_system()
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+    document = documents.create_document(
+        case_id=created.case_id,
+        display_name="blocked.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        provider=MockIdpProvider(scenario),
+    )
+    for field in document.fields:
+        field_decision = decision if field.field_key == key else ReviewDecision.ACCEPTED
+        document = documents.review_field(
+            case_id=created.case_id,
+            document_id=document.document_id,
+            field_key=field.field_key,
+            decision=field_decision,
+            corrected_value=(
+                "18 INNOVATION WAY, #04-01, 018956, SG"
+                if field_decision == ReviewDecision.CORRECTED
+                else None
+            ),
+        )
+
+    reconciliation = zero._reconciliation.reconcile_current(  # noqa: SLF001
+        case_id=created.case_id
+    )
+    discrepancy = current_discrepancy(
+        reconciliation, ReconciliationField(key.value)
+    )
+    assert reconciliation.status == "REVIEW_REQUIRED"
+    assert discrepancy.outcome == expected_outcome
+    assert target.calls == []
 
 
 @pytest.mark.parametrize(

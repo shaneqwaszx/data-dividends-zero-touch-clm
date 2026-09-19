@@ -411,6 +411,11 @@ class DocumentProcessingService:
                 code="DOCUMENT_NOT_FOUND",
                 message="The document review record was not found.",
             )
+        if not record.is_current_evidence:
+            raise DocumentRequestError(
+                code="DOCUMENT_ALREADY_SUPERSEDED",
+                message="This document has already been replaced.",
+            )
         if record.state not in {
             DocumentProcessingState.REVIEW_REQUIRED,
             DocumentProcessingState.REVIEWED,

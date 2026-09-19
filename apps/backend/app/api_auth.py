@@ -277,6 +277,36 @@ def install_auth_boundary(
         return await call_next(request)
 
 
+def build_case_reauthorizer(
+    request: Request,
+    auth: AuthenticationService,
+    access: CaseAccessPolicy,
+    cases: OnboardingService,
+    case_id: UUID,
+) -> Callable[[], None]:
+    """Capture request credentials for a fresh check inside the case mutation lock."""
+
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+
+    def reauthorize() -> None:
+        try:
+            session = auth.authenticate_session(token)
+        except AuthenticationError:
+            raise _unauthorized() from None
+        try:
+            access.require_case_access(session.actor, case_id, cases)
+        except CaseNotAvailableError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "CASE_NOT_FOUND",
+                    "message": "The requested case was not found.",
+                },
+            ) from None
+
+    return reauthorize
+
+
 def _normalize_configured_origin(raw: str, *, require_https: bool = False) -> str:
     normalized = _parse_http_url(raw, allow_resource=False)
     if not normalized or (require_https and not normalized.startswith("https://")):

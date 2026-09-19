@@ -20,23 +20,31 @@ from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
 from app.connectors.mock_ownership import MockOwnershipProvider, MockOwnershipScenario
 from app.demo.zero_touch_control import ZeroTouchDemoScenario
 from app.domain.access import TeamId
-from app.domain.documents import ReviewDecision
-from app.domain.zero_touch import ExceptionResolutionAction
+from app.domain.documents import DocumentFieldKey, ReviewDecision
+from app.domain.zero_touch import ExceptionResolutionAction, ZeroTouchAutomationRecord
 from app.main import create_app
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.clm_repository import InMemoryClmOrchestrationRepository
+from app.services.document_errors import DocumentProcessingInfrastructureError
 from app.services.document_processing import DocumentProcessingService
 from app.services.document_repository import InMemoryDocumentProcessingRepository
 from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_repository import InMemoryOwnershipAnalysisRepository
+from app.services.reconciliation_errors import (
+    ReconciliationInfrastructureError,
+    ReconciliationRequestError,
+)
 from app.services.repository import InMemoryOnboardingCaseRepository
 from app.services.zero_touch_errors import (
     ZeroTouchInfrastructureError,
     ZeroTouchRequestError,
 )
 from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
-from app.services.zero_touch_repository import InMemoryZeroTouchAutomationRepository
+from app.services.zero_touch_repository import (
+    InMemoryZeroTouchAutomationRepository,
+    ZeroTouchRepositoryConflictError,
+)
 
 PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
@@ -403,6 +411,541 @@ def test_low_confidence_conflict_rejects_value_selection() -> None:
     current = zero.get(case_id=created.case_id)
     assert current is not None and current.status == "WAITING_FOR_REVIEW"
     assert current.metrics.human_interventions == 0
+    assert target.calls == []
+
+
+def test_partial_review_stays_waiting_then_safe_correction_resumes_once() -> None:
+    _, zero, documents, target, _ = build_system()
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+    paused = zero.attach_document(
+        case_id=created.case_id,
+        display_name="review.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=MockIdpProvider(MockIdpScenario.FIELD_MISMATCH),
+        ownership_provider=MockOwnershipProvider(),
+    )
+    document = documents.list_documents(case_id=created.case_id)[0]
+    original_name = next(
+        item.original_extracted_value
+        for item in document.fields
+        if item.field_key == DocumentFieldKey.LEGAL_NAME
+    )
+
+    zero.review_document_field(
+        case_id=created.case_id,
+        document_id=document.document_id,
+        field_key=DocumentFieldKey.LEGAL_NAME,
+        decision=ReviewDecision.CORRECTED,
+        corrected_value="MERLION CIRCULAR LABS PTE. LTD.",
+    )
+    partial = zero.get(case_id=created.case_id)
+    assert partial is not None
+    assert partial.status == "WAITING_FOR_REVIEW"
+    assert {item.blocker_code for item in partial.active_exceptions} == {
+        "DOCUMENT_REVIEW_REQUIRED"
+    }
+    assert partial.version > paused.version
+    assert target.calls == []
+
+    for key in (
+        DocumentFieldKey.REGISTRATION_NUMBER,
+        DocumentFieldKey.REGISTERED_ADDRESS,
+        DocumentFieldKey.COUNTRY_OF_INCORPORATION,
+    ):
+        zero.review_document_field(
+            case_id=created.case_id,
+            document_id=document.document_id,
+            field_key=key,
+            decision=ReviewDecision.ACCEPTED,
+        )
+
+    completed = zero.get(case_id=created.case_id)
+    reviewed = documents.get_document(
+        case_id=created.case_id, document_id=document.document_id
+    )
+    assert completed is not None and completed.status == "COMPLETED"
+    assert reviewed is not None
+    legal_name = next(
+        item for item in reviewed.fields if item.field_key == DocumentFieldKey.LEGAL_NAME
+    )
+    assert legal_name.original_extracted_value == original_name
+    assert legal_name.reviewed_value == "MERLION CIRCULAR LABS PTE. LTD."
+    assert target.calls == ["search", "shell", "policy", "amend"]
+
+    zero.review_document_field(
+        case_id=created.case_id,
+        document_id=document.document_id,
+        field_key=DocumentFieldKey.LEGAL_NAME,
+        decision=ReviewDecision.CORRECTED,
+        corrected_value="MERLION CIRCULAR LABS PTE. LTD.",
+    )
+    assert zero.get(case_id=created.case_id).version == completed.version  # type: ignore[union-attr]
+    assert target.calls == ["search", "shell", "policy", "amend"]
+
+
+def test_failed_replacement_returns_to_targeted_intake_and_resumes_once() -> None:
+    _, zero, documents, target, _ = build_system()
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+    zero.attach_document(
+        case_id=created.case_id,
+        display_name="review.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=MockIdpProvider(MockIdpScenario.FIELD_MISMATCH),
+        ownership_provider=MockOwnershipProvider(),
+    )
+    current = documents.list_documents(case_id=created.case_id)[0]
+
+    with pytest.raises(ZeroTouchInfrastructureError) as exc_info:
+        zero.replace_document(
+            case_id=created.case_id,
+            document_id=current.document_id,
+            expected_document_event_count=len(current.events),
+            display_name="failed-replacement.pdf",
+            content_type="application/pdf",
+            content=PDF,
+            idp_provider=MockIdpProvider(MockIdpScenario.PROCESSOR_FAILURE),
+        )
+
+    assert exc_info.value.code == "IDP_PROCESSING_FAILED"
+    recovered = zero.get(case_id=created.case_id)
+    current_documents = [
+        item
+        for item in documents.list_documents(case_id=created.case_id)
+        if item.is_current_evidence
+    ]
+    assert recovered is not None
+    assert recovered.status == "PENDING_INPUTS"
+    assert recovered.current_stage == "DOCUMENT"
+    assert recovered.active_exceptions == []
+    assert recovered.events[-1].event_type == "DOCUMENT_REUPLOAD_REQUIRED"
+    assert len(current_documents) == 1 and current_documents[0].state == "FAILED"
+    assert target.calls == []
+
+    retried = zero.retry_intake_document(
+        case_id=created.case_id,
+        failed_document_id=current_documents[0].document_id,
+        display_name="retry.pdf",
+        content_type="application/pdf",
+        content=PDF,
+    )
+    assert retried.is_current_evidence
+    completed = zero.start(case_id=created.case_id)
+    assert completed.status == "COMPLETED"
+    assert target.calls == ["search", "shell", "policy", "amend"]
+    assert zero.start(case_id=created.case_id).version == completed.version
+    assert target.calls == ["search", "shell", "policy", "amend"]
+
+
+def test_replacement_repository_failure_does_not_enter_reupload_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, zero, documents, target, _ = build_system()
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+    paused = zero.attach_document(
+        case_id=created.case_id,
+        display_name="review.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=MockIdpProvider(MockIdpScenario.FIELD_MISMATCH),
+        ownership_provider=MockOwnershipProvider(),
+    )
+    current = documents.list_documents(case_id=created.case_id)[0]
+
+    def reject_save(**_: object) -> object:
+        raise DocumentProcessingInfrastructureError(
+            case_id=created.case_id,
+            document_id=current.document_id,
+            correlation_id=current.correlation_id,
+            code="DOCUMENT_PERSISTENCE_FAILED",
+            message="Document evidence could not be saved.",
+        )
+
+    monkeypatch.setattr(zero._documents, "replace_document", reject_save)  # noqa: SLF001
+    with pytest.raises(ZeroTouchInfrastructureError) as caught:
+        zero.replace_document(
+            case_id=created.case_id,
+            document_id=current.document_id,
+            expected_document_event_count=len(current.events),
+            display_name="replacement.pdf",
+            content_type="application/pdf",
+            content=PDF,
+        )
+
+    assert caught.value.code == "DOCUMENT_PERSISTENCE_FAILED"
+    unchanged = zero.get(case_id=created.case_id)
+    assert unchanged is not None
+    assert unchanged.version == paused.version
+    assert unchanged.status == "WAITING_FOR_REVIEW"
+    assert unchanged.current_stage == "DOCUMENT"
+    assert unchanged.active_exceptions == paused.active_exceptions
+    assert target.calls == []
+    assert zero.start(case_id=created.case_id).version == paused.version
+    assert target.calls == []
+
+
+def test_in_lock_reauthorization_failure_prevents_review_mutation() -> None:
+    _, zero, documents, target, _ = build_system()
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+    zero.attach_document(
+        case_id=created.case_id,
+        display_name="review.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=MockIdpProvider(MockIdpScenario.FIELD_MISMATCH),
+        ownership_provider=MockOwnershipProvider(),
+    )
+    document = documents.list_documents(case_id=created.case_id)[0]
+    automation = zero.get(case_id=created.case_id)
+    assert automation is not None
+
+    def deny() -> None:
+        raise PermissionError("revoked")
+
+    with pytest.raises(PermissionError):
+        zero.review_document_field(
+            case_id=created.case_id,
+            document_id=document.document_id,
+            field_key=DocumentFieldKey.LEGAL_NAME,
+            decision=ReviewDecision.ACCEPTED,
+            reauthorize=deny,
+        )
+
+    unchanged_document = documents.get_document(
+        case_id=created.case_id, document_id=document.document_id
+    )
+    unchanged_automation = zero.get(case_id=created.case_id)
+    assert unchanged_document is not None and unchanged_automation is not None
+    assert len(unchanged_document.events) == len(document.events)
+    assert unchanged_automation.version == automation.version
+    assert target.calls == []
+
+
+def test_explicit_resume_repairs_interrupted_review_checkpoint_without_replay() -> None:
+    _, zero, documents, target, _ = build_system()
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+    paused = zero.attach_document(
+        case_id=created.case_id,
+        display_name="review.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=MockIdpProvider(MockIdpScenario.FIELD_MISMATCH),
+        ownership_provider=MockOwnershipProvider(),
+    )
+    document = documents.list_documents(case_id=created.case_id)[0]
+    for field in document.fields:
+        documents.review_field(
+            case_id=created.case_id,
+            document_id=document.document_id,
+            field_key=field.field_key,
+            decision=(
+                ReviewDecision.CORRECTED
+                if field.field_key == DocumentFieldKey.LEGAL_NAME
+                else ReviewDecision.ACCEPTED
+            ),
+            corrected_value=(
+                "MERLION CIRCULAR LABS PTE. LTD."
+                if field.field_key == DocumentFieldKey.LEGAL_NAME
+                else None
+            ),
+        )
+
+    unchanged = zero.start(case_id=created.case_id)
+    assert unchanged.version == paused.version
+    assert unchanged.status == "WAITING_FOR_REVIEW"
+    repaired = zero.start(
+        case_id=created.case_id,
+        refresh_document_checkpoint=True,
+    )
+    assert repaired.status == "COMPLETED"
+    assert target.calls == ["search", "shell", "policy", "amend"]
+    repeated = zero.start(
+        case_id=created.case_id,
+        refresh_document_checkpoint=True,
+    )
+    assert repeated.version == repaired.version
+    assert target.calls == ["search", "shell", "policy", "amend"]
+
+
+def _prepare_final_document_review(
+    zero: ZeroTouchOrchestrator,
+    documents: DocumentProcessingService,
+    *,
+    uen: str = "202400001A",
+    demo: Any | None = None,
+) -> tuple[UUID, UUID, int]:
+    created = zero.create_case(uen, team_id=TeamId.TEAM_A)
+    case = zero._cases.get_case(created.case_id)  # noqa: SLF001
+    assert case is not None and case.entity is not None
+    idp_provider = MockIdpProvider(MockIdpScenario.FIELD_MISMATCH)
+    if demo is not None:
+        demo.register(created.case_id, ZeroTouchDemoScenario.DOCUMENT_DISCREPANCY)
+        idp_provider = demo.idp_provider_for(created.case_id, case.entity)
+    zero.attach_document(
+        case_id=created.case_id,
+        display_name="review.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=idp_provider,
+        ownership_provider=MockOwnershipProvider(),
+    )
+    document = documents.list_documents(case_id=created.case_id)[0]
+    for key in (
+        DocumentFieldKey.LEGAL_NAME,
+        DocumentFieldKey.REGISTRATION_NUMBER,
+        DocumentFieldKey.REGISTERED_ADDRESS,
+    ):
+        zero.review_document_field(
+            case_id=created.case_id,
+            document_id=document.document_id,
+            field_key=key,
+            decision=(
+                ReviewDecision.CORRECTED
+                if key == DocumentFieldKey.LEGAL_NAME
+                else ReviewDecision.ACCEPTED
+            ),
+            corrected_value=(
+                case.entity.legal_name
+                if key == DocumentFieldKey.LEGAL_NAME
+                else None
+            ),
+        )
+    current = documents.get_document(
+        case_id=created.case_id, document_id=document.document_id
+    )
+    assert current is not None
+    return created.case_id, document.document_id, len(current.events)
+
+
+def _install_ownership_counter(
+    monkeypatch: pytest.MonkeyPatch, zero: ZeroTouchOrchestrator
+) -> dict[str, int]:
+    calls = {"count": 0}
+    original = zero._ownership.analyze  # noqa: SLF001
+
+    def counted(**kwargs: object) -> object:
+        calls["count"] += 1
+        return original(**kwargs)
+
+    monkeypatch.setattr(zero._ownership, "analyze", counted)  # noqa: SLF001
+    return calls
+
+
+def test_reconciliation_conflict_after_review_fails_closed_then_repeat_repairs_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, zero, documents, target, demo = build_system()
+    case_id, document_id, event_count = _prepare_final_document_review(
+        zero, documents, uen="202400005E", demo=demo
+    )
+    before = zero.get(case_id=case_id)
+    assert before is not None
+    blocker_ids = {item.exception_id for item in before.active_exceptions}
+    reconciliation_calls = {"count": 0}
+    original = zero._reconciliation.reconcile_current  # noqa: SLF001
+
+    def reject_once(*, case_id: UUID) -> object:
+        reconciliation_calls["count"] += 1
+        raise ReconciliationRequestError(
+            code="RECONCILIATION_CONFLICT",
+            message="Reconciliation changed during this operation.",
+        )
+
+    monkeypatch.setattr(zero._reconciliation, "reconcile_current", reject_once)  # noqa: SLF001
+    ownership_calls = _install_ownership_counter(monkeypatch, zero)
+
+    with pytest.raises(ZeroTouchRequestError) as caught:
+        zero.review_document_field(
+            case_id=case_id,
+            document_id=document_id,
+            field_key=DocumentFieldKey.COUNTRY_OF_INCORPORATION,
+            decision=ReviewDecision.ACCEPTED,
+        )
+
+    assert caught.value.code == "RECONCILIATION_CONFLICT"
+    failed = zero.get(case_id=case_id)
+    assert failed is not None
+    assert failed.version == before.version
+    assert {item.exception_id for item in failed.active_exceptions} == blocker_ids
+    assert reconciliation_calls["count"] == 1
+    assert ownership_calls["count"] == 0
+    assert target.calls == []
+    reviewed = documents.get_document(case_id=case_id, document_id=document_id)
+    assert reviewed is not None and len(reviewed.events) > event_count
+    durable_event_count = len(reviewed.events)
+
+    monkeypatch.setattr(zero._reconciliation, "reconcile_current", original)  # noqa: SLF001
+    zero.review_document_field(
+        case_id=case_id,
+        document_id=document_id,
+        field_key=DocumentFieldKey.COUNTRY_OF_INCORPORATION,
+        decision=ReviewDecision.ACCEPTED,
+    )
+
+    completed = zero.get(case_id=case_id)
+    repeated = documents.get_document(case_id=case_id, document_id=document_id)
+    assert completed is not None
+    assert completed.status == "WAITING_FOR_REVIEW"
+    assert completed.current_stage == "MOCK_GOLDTIER"
+    assert repeated is not None and len(repeated.events) == durable_event_count
+    assert ownership_calls["count"] == 1
+    assert target.calls == ["search"]
+
+
+def test_reconciliation_infrastructure_failure_after_review_resume_repairs_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, zero, documents, target, _ = build_system()
+    case_id, document_id, _ = _prepare_final_document_review(zero, documents)
+    before = zero.get(case_id=case_id)
+    assert before is not None
+    blocker_ids = {item.exception_id for item in before.active_exceptions}
+    reconciliation_calls = {"count": 0}
+    original = zero._reconciliation.reconcile_current  # noqa: SLF001
+
+    def fail_once(*, case_id: UUID) -> object:
+        reconciliation_calls["count"] += 1
+        raise ReconciliationInfrastructureError(
+            code="RECONCILIATION_PERSISTENCE_FAILED",
+            message="Reconciliation could not be saved.",
+        )
+
+    monkeypatch.setattr(zero._reconciliation, "reconcile_current", fail_once)  # noqa: SLF001
+    ownership_calls = _install_ownership_counter(monkeypatch, zero)
+
+    with pytest.raises(ZeroTouchInfrastructureError) as caught:
+        zero.review_document_field(
+            case_id=case_id,
+            document_id=document_id,
+            field_key=DocumentFieldKey.COUNTRY_OF_INCORPORATION,
+            decision=ReviewDecision.ACCEPTED,
+        )
+
+    assert caught.value.code == "RECONCILIATION_PERSISTENCE_FAILED"
+    failed = zero.get(case_id=case_id)
+    assert failed is not None and failed.version == before.version
+    assert {item.exception_id for item in failed.active_exceptions} == blocker_ids
+    assert reconciliation_calls["count"] == 1
+    assert ownership_calls["count"] == 0
+    assert target.calls == []
+
+    monkeypatch.setattr(zero._reconciliation, "reconcile_current", original)  # noqa: SLF001
+    completed = zero.start(case_id=case_id, refresh_document_checkpoint=True)
+    assert completed.status == "COMPLETED"
+    assert ownership_calls["count"] == 1
+    assert target.calls == ["search", "shell", "policy", "amend"]
+
+
+@pytest.mark.parametrize("recovery", ["repeat", "resume"])
+def test_automation_checkpoint_rejection_stops_progress_and_is_recoverable(
+    monkeypatch: pytest.MonkeyPatch,
+    recovery: str,
+) -> None:
+    _, zero, documents, target, _ = build_system()
+    case_id, document_id, event_count = _prepare_final_document_review(zero, documents)
+    before = zero.get(case_id=case_id)
+    assert before is not None
+    original_save = zero._repository.save  # noqa: SLF001
+    rejected = {"count": 0}
+
+    def reject_checkpoint(
+        record: ZeroTouchAutomationRecord, *, expected_version: int | None
+    ) -> ZeroTouchAutomationRecord:
+        if record.events[-1].code == "DOCUMENT_REVIEW_UPDATED" and rejected["count"] == 0:
+            rejected["count"] += 1
+            raise ZeroTouchRepositoryConflictError
+        return original_save(record, expected_version=expected_version)
+
+    monkeypatch.setattr(zero._repository, "save", reject_checkpoint)  # noqa: SLF001
+    ownership_calls = _install_ownership_counter(monkeypatch, zero)
+
+    with pytest.raises(ZeroTouchRequestError) as caught:
+        zero.review_document_field(
+            case_id=case_id,
+            document_id=document_id,
+            field_key=DocumentFieldKey.COUNTRY_OF_INCORPORATION,
+            decision=ReviewDecision.ACCEPTED,
+        )
+
+    assert caught.value.code == "ZERO_TOUCH_AUTOMATION_CONFLICT"
+    failed = zero.get(case_id=case_id)
+    assert failed is not None and failed.version == before.version
+    assert failed.active_exceptions
+    assert rejected["count"] == 1
+    assert ownership_calls["count"] == 0
+    assert target.calls == []
+    durable = documents.get_document(case_id=case_id, document_id=document_id)
+    assert durable is not None
+    durable_event_count = len(durable.events)
+    assert durable_event_count > event_count
+
+    if recovery == "repeat":
+        zero.review_document_field(
+            case_id=case_id,
+            document_id=document_id,
+            field_key=DocumentFieldKey.COUNTRY_OF_INCORPORATION,
+            decision=ReviewDecision.ACCEPTED,
+        )
+    else:
+        zero.start(case_id=case_id, refresh_document_checkpoint=True)
+
+    completed = zero.get(case_id=case_id)
+    reviewed = documents.get_document(case_id=case_id, document_id=document_id)
+    assert completed is not None and completed.status == "COMPLETED"
+    assert reviewed is not None and len(reviewed.events) == durable_event_count
+    assert ownership_calls["count"] == 1
+    assert target.calls == ["search", "shell", "policy", "amend"]
+
+
+def test_reconciliation_failure_preserves_an_independent_document_blocker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, zero, documents, target, _ = build_system()
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+    conflict = zero.intake_document(
+        case_id=created.case_id,
+        display_name="conflict.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=MockIdpProvider(MockIdpScenario.FIELD_MISMATCH),
+    )
+    zero.intake_document(
+        case_id=created.case_id,
+        display_name="low-confidence.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=MockIdpProvider(MockIdpScenario.LOW_CONFIDENCE),
+    )
+    paused = zero.start(
+        case_id=created.case_id,
+        ownership_provider=MockOwnershipProvider(),
+        expected_document_count=2,
+    )
+    before_codes = {item.blocker_code for item in paused.active_exceptions}
+    calls = {"count": 0}
+
+    def reject(*, case_id: UUID) -> object:
+        calls["count"] += 1
+        raise ReconciliationRequestError(
+            code="RECONCILIATION_CONFLICT",
+            message="Reconciliation changed during this operation.",
+        )
+
+    monkeypatch.setattr(zero._reconciliation, "reconcile_current", reject)  # noqa: SLF001
+    with pytest.raises(ZeroTouchRequestError):
+        zero.review_document_field(
+            case_id=created.case_id,
+            document_id=conflict.document_id,
+            field_key=DocumentFieldKey.LEGAL_NAME,
+            decision=ReviewDecision.CORRECTED,
+            corrected_value="MERLION CIRCULAR LABS PTE. LTD.",
+        )
+
+    failed = zero.get(case_id=created.case_id)
+    assert failed is not None
+    assert {item.blocker_code for item in failed.active_exceptions} == before_codes
+    assert calls["count"] == 1
     assert target.calls == []
 
 

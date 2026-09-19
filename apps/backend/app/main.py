@@ -11,7 +11,12 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api_admin import build_admin_router
-from app.api_auth import BrowserOriginPolicy, build_auth_router, install_auth_boundary
+from app.api_auth import (
+    BrowserOriginPolicy,
+    build_auth_router,
+    build_case_reauthorizer,
+    install_auth_boundary,
+)
 from app.api_models import (
     BrowserTargetOperationEvidence,
     CasePriorityResponse,
@@ -968,6 +973,9 @@ def create_app(
                 content_type=request.headers.get("content-type", ""),
                 content=body,
                 idp_provider=provider,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id
+                ),
             )
             return DocumentProcessingResponse.from_domain(record)
         except DocumentRequestError as exc:
@@ -1035,6 +1043,7 @@ def create_app(
     def complete_zero_touch_intake_request(
         *,
         case_id: UUID,
+        request: Request,
         intake: CompleteDocumentIntakeRequest,
         active_zero_touch: ZeroTouchOrchestrator,
         use_demo_provider: bool,
@@ -1048,6 +1057,9 @@ def create_app(
                     case_id=case_id,
                     ownership_provider=ownership_provider,
                     expected_document_count=intake.expected_document_count,
+                    reauthorize=build_case_reauthorizer(
+                        request, authentication, access_policy, service, case_id
+                    ),
                 )
             )
         except ZeroTouchRequestError as exc:
@@ -1062,11 +1074,13 @@ def create_app(
     )
     def complete_zero_touch_intake(
         case_id: UUID,
+        request: Request,
         intake: CompleteDocumentIntakeRequest,
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         return complete_zero_touch_intake_request(
             case_id=case_id,
+            request=request,
             intake=intake,
             active_zero_touch=active_zero_touch,
             use_demo_provider=False,
@@ -1079,12 +1093,14 @@ def create_app(
     )
     def complete_demo_zero_touch_intake(
         case_id: UUID,
+        request: Request,
         intake: CompleteDocumentIntakeRequest,
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         require_demo_controls()
         return complete_zero_touch_intake_request(
             case_id=case_id,
+            request=request,
             intake=intake,
             active_zero_touch=active_zero_touch,
             use_demo_provider=True,
@@ -1436,6 +1452,9 @@ def create_app(
                 display_name=x_document_name or "",
                 content_type=request.headers.get("content-type", ""),
                 content=body,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id
+                ),
             )
             return zero_touch_response(record)
         except DocumentRequestError as exc:
@@ -1472,10 +1491,18 @@ def create_app(
     )
     def start_zero_touch_case(
         case_id: UUID,
+        request: Request,
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         try:
-            return zero_touch_response(active_zero_touch.start(case_id=case_id))
+            return zero_touch_response(
+                active_zero_touch.start(
+                    case_id=case_id,
+                    reauthorize=build_case_reauthorizer(
+                        request, authentication, access_policy, service, case_id
+                    ),
+                )
+            )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
         except ZeroTouchInfrastructureError as exc:
@@ -1488,12 +1515,21 @@ def create_app(
     )
     def resume_zero_touch_case(
         case_id: UUID,
+        request: Request,
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
         """Idempotently resume only when no unresolved exception blocks progress."""
 
         try:
-            return zero_touch_response(active_zero_touch.start(case_id=case_id))
+            return zero_touch_response(
+                active_zero_touch.start(
+                    case_id=case_id,
+                    reauthorize=build_case_reauthorizer(
+                        request, authentication, access_policy, service, case_id
+                    ),
+                    refresh_document_checkpoint=True,
+                )
+            )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
         except ZeroTouchInfrastructureError as exc:
@@ -1507,6 +1543,7 @@ def create_app(
     def resolve_zero_touch_exception(
         case_id: UUID,
         exception_id: UUID,
+        http_request: Request,
         request: ZeroTouchExceptionResolutionRequest,
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
@@ -1518,6 +1555,9 @@ def create_app(
                     action=request.action,
                     expected_automation_version=request.expected_automation_version,
                     evidence_version=request.evidence_version,
+                    reauthorize=build_case_reauthorizer(
+                        http_request, authentication, access_policy, service, case_id
+                    ),
                 )
             )
         except ZeroTouchRequestError as exc:
@@ -1536,6 +1576,7 @@ def create_app(
     def resolve_reconciliation_discrepancy(
         case_id: UUID,
         discrepancy_id: UUID,
+        http_request: Request,
         request: ReconciliationResolutionRequest,
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> ZeroTouchCaseSummaryResponse:
@@ -1548,6 +1589,9 @@ def create_app(
                     expected_automation_version=request.expected_automation_version,
                     expected_reconciliation_version=(request.expected_reconciliation_version),
                     evidence_fingerprint=request.evidence_fingerprint,
+                    reauthorize=build_case_reauthorizer(
+                        http_request, authentication, access_policy, service, case_id
+                    ),
                 )
             )
         except ZeroTouchRequestError as exc:
@@ -1788,22 +1832,28 @@ def create_app(
     def review_document_field(
         case_id: UUID,
         document_id: UUID,
+        request: Request,
         review: DocumentFieldReviewRequest,
-        active_documents: Annotated[
-            DocumentProcessingService, Depends(get_document_processing_service)
-        ],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
     ) -> DocumentProcessingResponse:
         try:
-            record = active_documents.review_field(
+            record = active_zero_touch.review_document_field(
                 case_id=case_id,
                 document_id=document_id,
                 field_key=review.field_key,
                 decision=review.decision,
                 corrected_value=review.corrected_value,
                 note=review.note,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id
+                ),
             )
         except DocumentRequestError as exc:
             raise _document_http_error(exc) from None
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        except ZeroTouchInfrastructureError as exc:
+            raise _zero_touch_infrastructure_http_error(exc) from None
         return DocumentProcessingResponse.from_domain(record)
 
     install_auth_boundary(
