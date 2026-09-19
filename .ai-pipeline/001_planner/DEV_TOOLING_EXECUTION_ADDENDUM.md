@@ -1,9 +1,9 @@
 # Development Tooling Automation — Execution Addendum
 
-Date: 2026-09-19  
-Role: IMPLEMENTER  
-Branch: `dev-tooling`  
-BASE_SHA / initial HEAD / initial `origin/main`: `a81e7da1c677f063408952e2ae1a1a2478afc22b`  
+Date: 2026-09-19<br>
+Role: IMPLEMENTER<br>
+Branch: `dev-tooling`<br>
+BASE_SHA / initial HEAD / initial `origin/main`: `a81e7da1c677f063408952e2ae1a1a2478afc22b`<br>
 Parent plan: `.ai-pipeline/001_planner/DEV_TOOLING_AUTOMATION.md`
 
 ## Intent and scope lock
