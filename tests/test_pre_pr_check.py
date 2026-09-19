@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "pre_pr_check.py"
@@ -753,6 +753,14 @@ class PrePrCheckTests(unittest.TestCase):
         self.assertIn("exit 2", report.failures[0])
         self.assertIn("stdout:\nchecker summary", report.failures[0])
         self.assertIn("stderr:\nparse detail", report.failures[0])
+
+    def test_audit_routes_tooling_config_through_governance_owner(self) -> None:
+        with patch.object(PRE_PR_CHECK, "_run_governance_check") as governance:
+            PRE_PR_CHECK.audit_repository(self.repo)
+        self.assertIn(
+            (self.repo, ANY, "check_tooling_config.py"),
+            [call.args for call in governance.call_args_list],
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,29 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+[mcp_servers.camunda_docs]
+url = "https://camunda-docs.mcp.kapa.ai"
+enabled = true
+required = false
+default_tools_approval_mode = "prompt"
+startup_timeout_sec = 15
+tool_timeout_sec = 60
+enabled_tools = ["search_camunda_knowledge_sources"]
+
+[mcp_servers.camunda_docs.tools.search_camunda_knowledge_sources]
+approval_mode = "prompt"
+
+[mcp_servers.camunda_cluster]
+command = "c8"
+args = ["mcp-proxy", "--profile", "fyp-camunda"]
+enabled = false
+required = false
+default_tools_approval_mode = "prompt"
+startup_timeout_sec = 10
+tool_timeout_sec = 30
+enabled_tools = ["getClusterStatus", "getTopology"]
+
+[mcp_servers.camunda_cluster.tools.getClusterStatus]
+approval_mode = "prompt"
+
+[mcp_servers.camunda_cluster.tools.getTopology]
+approval_mode = "prompt"
