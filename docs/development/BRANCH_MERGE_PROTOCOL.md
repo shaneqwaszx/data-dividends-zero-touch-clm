@@ -23,6 +23,9 @@ develop on `main`.
 Before changing files, record `git status --short`, map the intended files and shared
 interfaces, and identify integration hotspots. Preserve existing work. If the tree is
 not clean or the assigned branch is unexpected, stop before moving or deleting anything.
+Also record current-session tool permissions, required runtimes and any browser,
+database, lifecycle or shared-port prerequisite relevant to the task. Configuration or
+availability in another session is not current capability evidence.
 
 ## Develop a bounded change
 
@@ -42,6 +45,12 @@ git push -u origin feature/<short-name>
 Never use `git add -A` when unrelated files are present. A development agent must not
 merge a pull request, force-push, rebase a shared branch, modify `main`, delete another
 developer's branch, or run `git clean` or `git reset --hard`.
+
+Before independent review, check whitespace in tracked files and every task-owned new
+file explicitly; `git diff --check` omits untracked Markdown. Freeze and record the
+reviewed implementation/instruction path set and diff/tree identity. The reviewer may
+write its report but must not fix reviewed content. A later content change invalidates
+the old verdict for that changed scope.
 
 ## Integrate main before the PR
 
@@ -99,7 +108,7 @@ unresolved and report the ambiguity.
 - **Documentation:** Reconcile against the merged implementation. Newer implementation
   truth wins over stale phase claims.
 
-## Verify and open the PR
+## Verify and publish after exact independent PASS
 
 Use commands defined by the repository and CI; do not invent substitutes. Run focused
 tests first, then the applicable backend, frontend, type, lint, contract, security, and
@@ -127,9 +136,25 @@ feature delta; otherwise preserve it and stop for owner guidance. The checker is
 read-only and fail-closed for deterministic hazards, but passing it does not prove
 semantic merge safety.
 
-When explicitly authorized, push normally, open a PR targeting `main`, complete the PR
-template, and wait for GitHub CI. The repository owner performs the squash merge after
-review; a normal feature-development agent does not merge the PR.
+Only exact independent `PASS` on the frozen content permits the publication stage;
+`PASS WITH MINOR FIXES` requires remediation and an independent recheck to `PASS`.
+Explicit task/owner authorization is also required for external actions. A separate
+publisher verifies the reviewed content is unchanged, stages only
+reviewed task-owned paths plus the assigned independent report, inspects the staged
+diff/whitespace, creates the authorized descriptive commit, fetches and assesses drift,
+performs only understood authorized integration, reruns affected checks, and reaches a
+clean-tree pre-PR result. If integration changes reviewed content, obtain a fresh
+independent recheck before publication continues.
+
+When authorized, push normally, verify local/remote branch SHA identity, open or update
+a PR targeting `main`, complete the PR template, and observe applicable GitHub CI. Do
+not bypass an approval prompt. For each relevant run record repository/PR, head/base,
+workflow event, actual checkout SHA/tree when available, run/attempt and job conclusions.
+Push and `pull_request` events may test different checkouts: a PR-only query does not
+prove push checks passed, and a passing run never cancels a failing applicable run.
+Report pending CI as `CI IN PROGRESS` and identify actual failing checks when present;
+do not promise unattended monitoring. The repository owner performs the squash merge;
+the publisher does not merge the PR.
 
 ## Evidence language
 

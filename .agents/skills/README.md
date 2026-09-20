@@ -8,7 +8,7 @@ They supplement the project control documents; they do not replace them.
 | Skill | Purpose | Example |
 |---|---|---|
 | `fyp-phase-execution` | Execute one assigned planner phase through implementation, tests, and handoff without starting the next phase. | `Use $fyp-phase-execution to implement the assigned Phase 03 planner handoff.` |
-| `fyp-quality-gate` | Run the combined independent contract, test, architecture, security, and adversarial review and write the sole phase gate report. | `Use $fyp-quality-gate to review Phase 03 and write PHASE_03_QUALITY_GATE.md.` |
+| `fyp-quality-gate` | Run the combined independent contract, test, architecture, security, and adverse-path review for a phase or bounded governance change and write the sole assigned gate report. | `Use $fyp-quality-gate to review Phase 03 and write PHASE_03_QUALITY_GATE.md.` |
 | `sponsor-contract-reconciliation` | Reconcile conflicting sponsor/API evidence, quarantine invalid examples, and update discrepancies, decisions, or open questions. | `Use $sponsor-contract-reconciliation to reconcile the createRelatedParty mandatory fields.` |
 | `ci-failure-triage` | Find the first causal CI failure, reproduce and classify it, then apply and verify the smallest authorized fix. | `Use $ci-failure-triage to diagnose and fix the failing backend typecheck job.` |
 | `integration-security-review` | Review ACRA, IDP/upload, GoldTier/PingFed, HTTP, credential, TLS, KYC/PII, logging, and sponsor-artefact boundaries. | `Use $integration-security-review to review the new document-upload and IDP path.` |

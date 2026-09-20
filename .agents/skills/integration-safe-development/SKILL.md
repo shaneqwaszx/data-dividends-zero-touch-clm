@@ -10,9 +10,10 @@ Keep feature work bounded to its intended delta and prove it is based on the lat
 rebases, resets, cleanup, or pull-request completion when the task has not authorized
 those actions.
 
-Read `AGENTS.md`, `docs/PROJECT_CONTEXT.md`, the assigned planner/task, and
-`docs/development/BRANCH_MERGE_PROTOCOL.md`. Before PR readiness, also read
-`references/PRE_PR_CHECKLIST.md`.
+Follow the mandatory context-loading order in `AGENTS.md`, then read the assigned
+planner/task and `docs/development/BRANCH_MERGE_PROTOCOL.md`.
+`docs/PROJECT_CONTEXT.md` is additional context only when the task needs it. Before PR
+readiness, also read `references/PRE_PR_CHECKLIST.md`.
 
 ## Stage 0 — Inspect repository
 
@@ -59,6 +60,10 @@ Run focused tests first, then applicable repository-defined backend tests, front
 tests, typecheck, lint, contract validation, security checks, and build. Read the
 current-main CI definition plus package/tool configuration for exact commands. Never
 invent a command or report an unexecuted check.
+
+Run whitespace/hygiene checks across tracked changes and every task-owned new file.
+Plain `git diff --check` does not inspect untracked Markdown. Derive test inventory from
+the current owned suites and record counts only as revision-specific evidence.
 
 ## Stage 5 — Main-drift check
 
@@ -122,12 +127,41 @@ stop for owner guidance. A checker PASS proves only its listed deterministic che
 does not prove semantic merge safety. Do not claim `MERGE SAFE` while any required
 check failed, was skipped, or origin/main remains ahead.
 
-## Stage 9 — Handoff
+## Stage 9 — Publication after exact independent PASS
+
+Publication requires both exact independent `PASS` on frozen content and explicit
+task/owner authorization for the external actions. `PASS WITH MINOR FIXES` requires
+remediation and an independent recheck to `PASS` before publication. Use a separate
+publication role when available.
+
+1. Compare the current implementation/instruction paths and diff/tree identity with the
+   reviewer's frozen-content record. If reviewed content changed, return it to review.
+2. Stage only specific reviewed task-owned paths plus the assigned independent report.
+   Inspect `git diff --cached`, staged whitespace and file classification before
+   committing.
+3. Create the authorized descriptive commit, fetch `origin`, and assess latest-main
+   drift. Integrate only understood, explicitly authorized changes; never rebase shared
+   history or guess through a conflict. If integration changes reviewed content, obtain
+   a fresh independent recheck before publication continues.
+4. Rerun affected checks after any integration and reach a clean-tree
+   `scripts/pre_pr_check.py` result before push.
+5. Push the authorized branch, verify local/remote SHA identity, and create or update the
+   PR against `main`. Never bypass an approval prompt and never merge the PR.
+6. Observe applicable push and `pull_request` workflow runs. Record repository/PR,
+   head/base, event, actual checkout SHA/tree when available, run/attempt and relevant job
+   conclusions. A PR-only query is not proof of push CI, and one passing run does not
+   excuse another failing applicable run. Report pending CI as in progress and do not
+   promise unattended monitoring.
+
+## Stage 10 — Handoff
 
 Report feature branch, `BASE_SHA`, latest `origin/main` SHA, `HEAD_SHA`, whether main was
 merged after development, files and hotspots changed, API/schema/config changes, exact
 tests and results, limitations, conflict resolutions, remaining integration risks, and
 a recommended PR title.
+
+When publication occurred, also report the commit, remote branch/SHA identity, PR, each
+applicable CI event/run/attempt and its current conclusion.
 
 Distinguish `OBSERVED`, `INFERRED`, and `ASSUMED`. No normal feature-development agent
 merges the PR.

@@ -15,12 +15,17 @@ output; do not mark an item complete from memory.
 
 ## Conflict and delta audit
 
+- [ ] Current implementation/instruction content matches the frozen path/diff/tree
+      identity accepted by the independent reviewer; later report-only changes are
+      separately identified.
 - [ ] All intended/supporting feature work and reviewed integration resolutions are
       committed.
 - [ ] `git status --short` is empty: no staged, unstaged, or untracked files remain.
 - [ ] `git diff --name-only --diff-filter=U` is empty.
 - [ ] No conflict marker remains in a changed text/source file or staged content.
 - [ ] `git diff --check` passes.
+- [ ] Before task-owned new files were staged, their whitespace was checked explicitly;
+      plain `git diff --check` was not treated as coverage for untracked Markdown.
 - [ ] Every file in `git status --short` and
       `git diff --name-status origin/main...HEAD` is classified:
   - `INTENDED`: directly implements the task.
@@ -57,3 +62,21 @@ output; do not mark an item complete from memory.
 - [ ] Every claim is labeled accurately as observed, inferred, or assumed where the
       distinction matters.
 - [ ] PR targets `main`; final integration is a repository-owner squash merge.
+
+## Publication and remote evidence
+
+- [ ] Publication was explicitly authorized after exact independent `PASS`; `PASS WITH
+      MINOR FIXES` did not qualify without remediation and recheck. The publisher did not
+      alter reviewed content or bypass a platform approval prompt.
+- [ ] Only reviewed task-owned paths plus the assigned independent report were staged,
+      and the staged diff/whitespace was inspected before commit.
+- [ ] Any latest-main integration that changed reviewed content received a fresh
+      independent recheck before publication continued.
+- [ ] Local and remote feature-branch SHAs match after push.
+- [ ] Remote evidence records repository/PR, head/base, workflow event, actual checkout
+      SHA/tree when available, run/attempt, and relevant job conclusions.
+- [ ] Applicable push and `pull_request` runs are assessed separately; a PR-only query is
+      not used as push evidence and no failing applicable run is dismissed because a
+      different run passed.
+- [ ] Pending CI is reported as `CI IN PROGRESS`; failures identify the actual check and
+      evidence. No unattended monitoring is promised.
