@@ -1,6 +1,6 @@
 ---
 name: fyp-quality-gate
-description: "Run the independent combined quality gate for a completed Data Dividends FYP phase. Use when Codex must review contract/integration behavior, tests, code and architecture, security, and adversarial failure paths; write PHASE_XX_QUALITY_GATE.md; issue PASS, PASS WITH MINOR FIXES, or FAIL; and state next-phase readiness without implementing fixes."
+description: "Run the independent combined quality gate for a completed Data Dividends FYP phase or bounded governance change. Use when Codex must review contract/integration behavior, tests, code or instructions and architecture, security, and adverse failure paths; write the assigned gate report; issue PASS, PASS WITH MINOR FIXES, or FAIL; and state readiness without implementing fixes."
 ---
 
 # FYP Quality Gate
@@ -10,16 +10,24 @@ documentation fixes during the gate.
 
 ## Establish evidence and write boundary
 
-1. Confirm the phase from the explicit task and matching planner handoff; do not infer it
-   from the highest phase number. Inspect the branch, HEAD, full diff, staged files, and
-   untracked files.
+1. Confirm the phase or governance change from the explicit task and matching planner
+   handoff/assignment; do not infer it from the highest phase number. Inspect the branch,
+   HEAD, full diff, staged files, and untracked files.
 2. Read AGENTS.md, project context, workflow, the current planner and remediation
    handoffs, the preceding gate, relevant role files, architecture/contracts, decisions,
    open questions, and changed tests/code.
-3. Remain read-only except for exactly
-   .ai-pipeline/reports/PHASE_XX_QUALITY_GATE.md. Run checks without writing caches or
-   build output into the repository where configurable. Do not install fixes or edit
-   reviewed artifacts.
+3. Remain read-only except for exactly the assigned report path. A phase defaults to
+   `.ai-pipeline/reports/PHASE_XX_QUALITY_GATE.md`; a governance task uses its explicitly
+   assigned report name. Run checks without writing caches or build output into the
+   repository where configurable. Do not install fixes or edit reviewed artifacts.
+4. Record the frozen reviewed-content identity: branch/HEAD, base, complete reviewed path
+   set (including task-owned new files), and a deterministic diff/tree identity when
+   available. If implementation/instruction content changes during the gate, stop the
+   verdict and require a fresh review of the changed scope. The reviewer may write only
+   its assigned report and must not change acceptance criteria.
+5. Confirm the current session can run each required check. Classify absent prerequisites
+   as missing infrastructure and name only the dependent claim they block; never borrow
+   tool availability or evidence from another chat.
 
 ## Run the combined review
 
@@ -40,6 +48,19 @@ Assess each current-phase acceptance criterion through these workstreams:
 Do not treat an authored test alone as proof; inspect implementation and obtain focused
 execution evidence where practical.
 
+Use actual runtime evidence when the affected surface requires it: configured
+Playwright plus real HTTP/process behavior for browser claims, guarded physical Mongo
+for driver/server persistence claims, the lifecycle harness for startup/process claims,
+authoritative GitHub observations for remote PR/CI state, and official installed-version
+documentation plus local execution for consequential framework behavior. Derive test
+inventory from the current owned suites and record collected/executed counts as
+revision-specific evidence, never permanent constants.
+
+Check whitespace and hygiene across tracked changes and every task-owned new file. Plain
+`git diff --check` does not cover untracked Markdown. Keep reproducible defects, missing
+infrastructure, stale evidence and unresolved sponsor authority separate; one missing
+lane blocks its dependent claim rather than erasing unrelated verified evidence.
+
 ## Classify findings and decide the gate
 
 - Classify a bug when current behavior violates AGENTS.md, the current planner, an
@@ -59,7 +80,15 @@ Use one result:
 - FAIL: any current critical/high-risk defect, unverified required criterion, unsafe
   behavior, material contract error, false success, or phase-scope violation remains.
 
-State next-phase readiness explicitly and separately from real ACRA/GoldTier readiness.
-Do not begin the next phase and do not implement review findings.
+The independent verdict applies only to the frozen reviewed content and recorded
+evidence revisions. Self-review, a prior gate on another tree, or a report authored by
+the implementer cannot supply independence.
 
-Use references/report-template.md when writing the sole report file.
+For a phase gate, state next-phase readiness explicitly and separately from real
+ACRA/GoldTier readiness. For a governance gate, state only governance/publication
+readiness and do not invent product-phase readiness. Do not begin another phase and do
+not implement review findings.
+
+Use `references/report-template.md` for a phase. For a governance task, adapt the same
+acceptance/evidence/finding/verdict/Git-status structure without inventing phase
+readiness or product claims.
