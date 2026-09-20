@@ -117,6 +117,43 @@ host process permissions. The first sandboxed governance unit attempt was likewi
 invalidated by temporary-directory permission errors; its exact authorized rerun passed
 all 79 tests.
 
+## Fresh CI follow-up and bounded-polling correction
+
+Commit `ff58edd80d14740e618019b0a8d598dec600419e` triggered push run
+`35480722245` and pull-request run `35480723978`. The PR run passed all jobs,
+including Windows lifecycle job `105997910662`. The push run again failed only its
+Windows lifecycle job, `105997906007`, while every other job passed.
+
+The original repeated-start/reset identity failure was fixed: that test passed in both
+fresh jobs. The new push failure was
+`test_start_stop_health_pids_and_unrelated_processes`. Its diagnostic showed both
+endpoints healthy and all four launcher/listener identity checks true, but the second
+endpoint probe completed after the unchanged five-second monotonic deadline.
+
+The remaining cause was test-verifier overhead. Each polling attempt launched the same
+batched PowerShell/CIM identity observation once after the backend probe and again after
+the frontend probe. On the slower push runner, the first redundant observation consumed
+enough of the fixed deadline that the second endpoint's successful probe became a
+correctly rejected late success. The same commit passed on the concurrent PR runner.
+
+The verifier now probes both endpoints, records each completion time, and performs one
+batched identity observation for the polling attempt before accepting success. This
+preserves all safety properties:
+
+- every accepted attempt still requires both endpoints healthy;
+- every accepted attempt still requires all launcher/listener identities unchanged;
+- replacement during either endpoint probe is detected before return;
+- any endpoint completion after the original deadline still fails;
+- the timeout remains `5.0s` and poll interval remains `0.1s`;
+- no retry of the lifecycle action or retry-until-green behavior was added.
+
+A regression-first deterministic check observed `20` identity-probe calls where one
+initial batch plus one batch per two polling attempts requires `12`. After the change,
+the focused bounded/hostile test passed in `39.460s`, the exact fresh-CI failing test
+passed in `26.223s`, and the complete lifecycle suite passed `18/18` in `268.524s`.
+The creation-time matrix remained `3/3 PASS`; Ruff, all four direct governance/security
+checks, `git diff --check`, and the `79/79` governance unit bundle remained green.
+
 ## Scope and impact
 
 No API/model/type, persistence schema, connector, configuration, business rule,
@@ -124,4 +161,4 @@ mapping, authentication/security, architecture, provider status, frontend naviga
 Playwright, Mongo, backend, or frontend production behavior changed. No lifecycle
 timeout was broadened and no retry-until-green behavior was added.
 
-Status: **READY FOR INDEPENDENT FOCUSED RECHECK**
+Status: **READY FOR SECOND INDEPENDENT FOCUSED RECHECK**

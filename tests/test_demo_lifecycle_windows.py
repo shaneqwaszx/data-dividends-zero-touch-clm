@@ -699,17 +699,18 @@ $roles = @(
                     f"identities={json.dumps(identity_diagnostics, sort_keys=True)}"
                 )
             attempts += 1
+            probe_completed_at: dict[str, float] = {}
             for name, url in endpoints.items():
                 last_endpoint_status[name] = endpoint_probe(name, url)
-                probe_completed_at = monotonic()
-                identity_diagnostics = observe_owned_identities()
-                if probe_completed_at > deadline:
-                    self.fail(
-                        "Post-rejection endpoints did not recover before the "
-                        f"monotonic deadline: attempts={attempts}, "
-                        f"endpoints={last_endpoint_status}, identities="
-                        f"{json.dumps(identity_diagnostics, sort_keys=True)}"
-                    )
+                probe_completed_at[name] = monotonic()
+            identity_diagnostics = observe_owned_identities()
+            if any(completed_at > deadline for completed_at in probe_completed_at.values()):
+                self.fail(
+                    "Post-rejection endpoints did not recover before the "
+                    f"monotonic deadline: attempts={attempts}, "
+                    f"endpoints={last_endpoint_status}, identities="
+                    f"{json.dumps(identity_diagnostics, sort_keys=True)}"
+                )
             if all(last_endpoint_status.values()):
                 return
 
@@ -1015,9 +1016,11 @@ $roles = @(
             ]
             | None = None,
             expect_failure: str | None = None,
+            expect_one_identity_batch_per_attempt: bool = False,
         ) -> dict[str, int]:
             now = [0.0]
             calls = {name: 0 for name in responses}
+            identity_probe_calls = [0]
             active_identities = (
                 identities if identities is not None else dict(stable_identities)
             )
@@ -1031,6 +1034,7 @@ $roles = @(
                 return values[min(index, len(values) - 1)]
 
             def identity_probe(process_id: int) -> dict[str, str | int] | None:
+                identity_probe_calls[0] += 1
                 return active_identities.get(process_id)
 
             def wait(seconds: float) -> None:
@@ -1050,11 +1054,18 @@ $roles = @(
             else:
                 with self.assertRaisesRegex(AssertionError, expect_failure):
                     self.assert_owned_endpoints_healthy_within(**arguments)
+            if expect_one_identity_batch_per_attempt:
+                expected_batches = 1 + max(calls.values())
+                self.assertEqual(
+                    identity_probe_calls[0],
+                    len(expected_state["processes"]) * 2 * expected_batches,
+                )
             return calls
 
         with self.subTest(post_rejection_probe="transient_frontend"):
             calls = exercise_probe_sequence(
-                {"backend": [True, True], "frontend": [False, True]}
+                {"backend": [True, True], "frontend": [False, True]},
+                expect_one_identity_batch_per_attempt=True,
             )
             self.assertEqual(calls, {"backend": 2, "frontend": 2})
 

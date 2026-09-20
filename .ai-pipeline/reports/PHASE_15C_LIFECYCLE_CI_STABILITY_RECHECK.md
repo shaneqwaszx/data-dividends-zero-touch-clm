@@ -1,121 +1,131 @@
-# Phase 15C Lifecycle CI Stability Independent Recheck
+# Phase 15C Lifecycle CI Stability Second Independent Recheck
 
 Date: 2026-09-20
 Role: independent focused reviewer
 Change class: `CI_TOOLING`
 Branch: `phase/15c-frontend-navigation`
-Reviewed HEAD / assigned baseline: `3abecd673726200e8bcd8eb333c7d384d798eb57`
+Reviewed HEAD / baseline: `ff58edd80d14740e618019b0a8d598dec600419e`
 Current `origin/main`: `4d1f646b3445c8d88df44dbc68abd109fe4d7aa5`
 
 ## 1. Findings
 
-No critical, high, medium, or low findings remain in the reviewed lifecycle CI
-stability remediation.
+No critical, high, medium, or low findings remain in the final reviewed delta.
 
-The remediation applies the production lifecycle's `<= 1 ms` creation-instant
-equivalence to the Python post-rejection verifier without weakening PID,
-executable-path, process-presence, launcher, or listener replacement protection.
-No required fix remains.
+The verifier now performs one identity observation after both endpoint probes in each
+polling attempt. It still verifies every expected launcher/listener identity before any
+success return, detects replacement during either endpoint probe, and rejects each
+endpoint independently when its completion time is later than the unchanged monotonic
+deadline. No required fix remains.
 
 ## 2. Executive Result
 
 **PASS**
 
-The tracked working-tree delta is limited to
-`tests/test_demo_lifecycle_windows.py`. The production lifecycle controller is
-unchanged, the former inline raw-string comparison is retired, one shared Python
-identity helper owns the comparison, and focused independent execution passed.
+The correction removes redundant verifier overhead without widening the five-second
+endpoint deadline, changing the 0.1-second poll interval, weakening identity checks, or
+adding lifecycle-action retries. Production lifecycle and application code are
+unchanged.
 
-This is an advisory recheck only. It does not authorize a commit, push, pull request,
-merge, or next phase.
+This is an advisory independent recheck only. It does not authorize a commit, push,
+pull request, merge, or next phase.
 
 ## 3. Acceptance Checklist
 
-| Requirement | Result | Evidence |
+| Requirement | Result | Direct evidence |
 |---|---|---|
-| Production lifecycle script unchanged | PASS | `git diff -- scripts/demo_lifecycle.ps1` returned no diff. `git diff --name-only` from reviewed HEAD names only the lifecycle test. |
-| No Phase 15C production code changed | PASS | The only tracked unstaged delta is `tests/test_demo_lifecycle_windows.py`; staged content is empty. |
-| Same creation-time contract as production | PASS | Production `Test-SameCreationTime` normalizes unambiguous instants to UTC and accepts absolute delta `<= 1 ms`. `_same_process_identity` compares integer 100 ns ticks with a `10,000`-tick inclusive boundary. |
-| Equivalent UTC/offset/precision representations pass | PASS | Tests cover six- versus seven-digit UTC, UTC versus `+08:00`, sub-millisecond delta, and exactly one millisecond. Fresh focused creation-time run: `3 passed`. |
-| More than one millisecond fails | PASS | `1.0001 ms` differs by `10,001` ticks and is rejected; the focused matrix passed. Integer ticks avoid rounding an over-boundary value down. |
-| Malformed or timezone-less input fails closed | PASS | The parser requires a terminal `Z` or bounded explicit offset and returns no identity match on missing, malformed, timezone-less, invalid-calendar, invalid-offset, type, or field errors. Focused tests passed. |
-| PID reuse/process replacement protection remains | PASS | Identity still requires equal PID, valid creation instant, delta within tolerance, and case-normalized executable path. Changed PID, changed executable, absent process, over-tolerance time, replacement during probing, and dead process remain failure paths. |
-| Same-PID launcher/listener is deterministic | PASS | Expected launcher and listener records for PID `201` are compared through the same helper against one PID-keyed observed identity in the real batched path. The deterministic pair asserts `[True, True]` for harmless representation differences and `[False, False]` for over-tolerance time, executable replacement, PID change, or disappearance. |
-| Bounded endpoint recovery behavior unchanged | PASS | The diff does not change the monotonic deadline, `5.0 s` default timeout, `0.1 s` poll interval, per-endpoint identity recheck, endpoint recovery requirement, both-endpoint polling, or rejection of success completed after the deadline. |
-| No timeout/retry weakening | PASS | No timeout, sleep, deadline, poll, retry, or endpoint-probe line changed. The helper replaces only the former inline identity predicate. |
-| Old comparison retired | PASS | Search found no remaining inline raw creation-time equality in the verifier. `_same_process_identity` is the single Python owner used by production-equivalence matrix tests and `observe_owned_identities`. |
+| One identity observation per polling attempt | PASS | After both endpoint probes, `observe_owned_identities()` is called exactly once at `tests/test_demo_lifecycle_windows.py:706`. The deterministic two-attempt path observed 12 identity-probe calls: four expected launcher/listener records times one initial observation plus two attempt observations. Pre-fix evidence observed 20. |
+| Identity verified before accepting success | PASS | The post-probe identity observation runs before the deadline check and before `all(last_endpoint_status.values())` can return. Any mismatch calls `self.fail`; success cannot bypass identity verification. |
+| Replacement during either endpoint probe detected | PASS | Both probes complete before the single identity observation. A replacement introduced during either backend or frontend probing is therefore present when the observation runs and is rejected. Fresh in-memory adversarial runs rejected both placements. |
+| Missing/dead process remains fail-closed | PASS | Missing observed identity still makes `_same_process_identity` false and `observe_owned_identities` fails. Fresh adversarial execution rejected an absent frontend PID. |
+| Changed PID remains fail-closed | PASS | `_same_process_identity` still requires numeric PID equality. Fresh adversarial execution rejected a changed PID. |
+| Changed executable remains fail-closed | PASS | The unchanged helper still requires case-normalized executable equality. Fresh adversarial execution rejected a changed executable. |
+| Creation-time safety remains fail-closed | PASS | The committed shared helper and `<= 1 ms` integer-tick boundary are unchanged by this delta. Fresh adversarial execution rejected `1.0001 ms`; creation-time matrix passed 3/3. Malformed and timezone-less inputs remain rejected. |
+| Same-PID launcher/listener safety preserved | PASS | All expected launcher and listener records are checked against the post-probe PID-keyed observation before return. The shared helper remains the only Python identity comparator. |
+| Per-endpoint no-late-success preserved | PASS | Each endpoint's completion time is captured immediately after its probe. `any(completed_at > deadline ...)` fails before success. Fresh adversarial execution independently rejected late backend and late frontend completions. |
+| Both endpoints still required | PASS | `all(last_endpoint_status.values())` remains the only success condition; the existing deterministic recovery path still polls and requires backend plus frontend health. |
+| Timeout and polling interval unchanged | PASS | Defaults remain `timeout=5.0` and `poll_interval=0.1`. The diff changes no timeout, sleep, wait, or deadline value. |
+| No retry-until-green behavior added | PASS | The existing bounded endpoint polling loop remains controlled by the same monotonic deadline. No lifecycle action, process launch, reset, stop, or unbounded retry was added. |
+| Production code unchanged | PASS | Diff from `ff58edd80d14740e618019b0a8d598dec600419e` contains only the lifecycle test and remediation evidence. `scripts/demo_lifecycle.ps1`, `.github/**`, `apps/**`, and `scripts/**` have no diff. |
 
 ## 4. Contract and Integration Findings
 
-This remediation changes test verification semantics only. It does not change an API,
-model/type, schema, connector, configuration, business rule, mapping, authentication or
-security boundary, architecture owner, provider status, frontend/backend production
-behavior, or external integration claim.
+The final delta changes only test-verifier scheduling. It does not change an API,
+model/type, persistence schema, connector, configuration, business rule, mapping,
+authentication/security boundary, architecture owner, provider status, frontend or
+backend production behavior, or external integration claim.
 
-ACRA remains Mock by default, GoldTier remains Mock only, and this lifecycle recheck
-does not establish Live provider readiness.
+The five-second bound continues to govern endpoint completion. Identity verification
+may finish after an on-time endpoint completion because it is verifier overhead, but it
+must still complete successfully before the test accepts health. This is the intended
+and bounded distinction established by the remediation: instrumentation latency no
+longer converts an already on-time endpoint result into a false late result, while a
+late backend or frontend probe still fails.
 
-The production comparison remains authoritative. The Python helper is intentionally
-limited to the offset-bearing ISO strings emitted into lifecycle state and by the CIM
-probe, and uses the same inclusive one-millisecond instant boundary.
+ACRA remains Mock by default, GoldTier remains Mock only, and this recheck does not
+establish Live provider readiness.
 
 ## 5. Tester and Adversarial Findings
 
 Fresh reviewer evidence:
 
+- In-memory verifier matrix using the production test method: PASS. It independently
+  rejected replacement during backend probing and frontend probing; late backend and
+  frontend completion; absent identity; changed PID; changed executable; and a
+  `1.0001 ms` creation-time delta.
+- The same matrix proved the transient two-attempt path called the injected identity
+  probe 12 times, matching four expected identity records across one initial plus two
+  per-attempt observations.
 - `python -m pytest -p no:cacheprovider tests/test_demo_lifecycle_windows.py::DemoLifecycleCreationTimeTests -q`
-  -> `3 passed in 1.96s`.
+  -> `3 passed in 1.90s`.
 - `python -m ruff check --no-cache tests/test_demo_lifecycle_windows.py`
   -> `All checks passed!`.
-- Focused hostile ownership selector, rerun with the Windows process permissions it
-  requires -> `1 passed in 43.47s`.
-- `git diff --check` -> PASS, with only Git's informational LF-to-CRLF working-copy
-  warning.
+- `git diff --check` -> PASS, with only informational LF-to-CRLF working-copy warnings.
 
-The first sandboxed attempt at the focused hostile ownership selector is excluded from
-product evidence. It reached the real-process portion after its deterministic cases,
-then failed startup cleanup solely because Windows process termination returned
-`Access denied`. The repository's supported exact-ownership `Stop` action was run with
-the required host permission and reported that every recorded launcher-owned process
-tree was gone. Post-cleanup checks found no runtime manifest and zero listeners on
-ports 8000 and 5173. The same focused selector then passed under the required host
-permissions.
+Coordinator-provided fresh post-fix evidence:
 
-The complete 18-test lifecycle suite was deliberately not rerun by this reviewer.
-Coordinator-provided fresh evidence records one post-remediation run at `18/18 PASS in
-280.403s`, plus the exact prior failure at `1/1 PASS`, the focused bounded/hostile test
-at `1/1 PASS`, and the creation-time matrix at `3/3 PASS`. That evidence is consistent
-with the independently inspected source and the focused reruns above.
+- bounded/hostile focused selector: `1/1 PASS in 39.460s`;
+- exact new CI failure selector: `1/1 PASS in 26.223s`;
+- complete lifecycle suite, run once: `18/18 PASS in 268.524s`;
+- creation-time matrix: `3/3 PASS`;
+- governance unit bundle: `79/79 PASS`;
+- direct project-state, architecture, tooling, and secret checks: PASS;
+- Ruff and diff check: PASS.
 
-The coordinator-provided CI comparison is also consistent with a flaky test-side
-contract mismatch: push run `35479055483` failed only Windows lifecycle job
-`105993373958`, while PR run `35479069804` passed the same head tree. Both used the
-same runner image and Python/Node/npm versions. No production-source delta explains
-the different result.
+The full 18-test lifecycle suite was deliberately not rerun by this reviewer.
+
+Fresh CI evidence at committed head `ff58edd80d14740e618019b0a8d598dec600419e`
+showed push run `35480722245` failing only lifecycle job `105997906007`, while PR
+run `35480723978` passed all jobs. The earlier repeated-start/reset identity failure
+passed in both. The new push failure had both endpoints healthy and every
+launcher/listener identity true, but the frontend probe was reported late only because
+the previous implementation ran a redundant PowerShell/CIM observation between the
+two endpoint probes. The reviewed working-tree correction directly removes that
+redundancy while retaining the endpoint completion timestamps and all identity checks.
 
 ## 6. Code and Architecture Review
 
-The helper is local to the Windows lifecycle test and has one responsibility:
+The control flow is now:
 
-1. parse offset-bearing ISO creation times to integer UTC ticks;
-2. compare the absolute delta to the production-equivalent inclusive one-millisecond
-   boundary; and
-3. combine that result with PID and executable identity.
+1. perform the existing initial identity observation;
+2. establish the unchanged monotonic deadline;
+3. probe backend and frontend, recording each completion time immediately;
+4. perform one post-probe observation of all expected launcher/listener identities;
+5. reject any late endpoint completion;
+6. return only if both endpoints are healthy; otherwise continue within the existing
+   bounded polling loop.
 
-The integer tick representation preserves the seventh fractional digit used by
-PowerShell round-trip timestamps. Invalid input is converted to a false identity match,
-not an exception or permissive fallback. There is no second raw comparison, fallback,
-retry-until-green loop, timeout widening, production hook, or duplicate identity owner.
-
-The change remains inside the existing test owner and does not meet ADR criteria.
+That order is safety-preserving. Moving the identity observation after both probes
+increases coverage of the attempt's full probe interval: any irreversible process
+replacement during either probe is visible before return. The observation remains
+batched by unique PID on the real CIM path. No new owner, fallback, duplicate identity
+comparison, broad timeout, or production hook was introduced, and no ADR is required.
 
 ## 7. Security Review
 
 No security finding was identified. The change does not alter process termination,
 production ownership decisions, command-line inspection, logging, credentials,
-authentication, provider transport, TLS, or external data handling. Fail-closed
-identity behavior is preserved for absent, malformed, over-tolerance, wrong-PID, and
-wrong-executable observations.
+authentication, provider transport, TLS, or external data handling. PID, executable,
+creation-time, launcher, and listener verification remain fail-closed before success.
 
 No secret or confidential artefact was added by the reviewed delta or remediation
 report.
@@ -126,25 +136,25 @@ None.
 
 ## 9. Readiness
 
-The bounded Phase 15C lifecycle CI stability remediation is ready for owner review and
-the repository's next authorized integration step. This PASS is not merge
-authorization and does not establish real ACRA, PingFed, or GoldTier readiness.
+The final bounded Phase 15C lifecycle CI stability remediation is ready for owner
+review and the next authorized integration step. This PASS is not merge authorization
+and does not establish real ACRA, PingFed, or GoldTier readiness.
 
 ## 10. Git Status and Review Boundary
 
 - Branch: `phase/15c-frontend-navigation`.
-- HEAD remained `3abecd673726200e8bcd8eb333c7d384d798eb57`.
+- HEAD remained `ff58edd80d14740e618019b0a8d598dec600419e`.
 - Current local `origin/main`: `4d1f646b3445c8d88df44dbc68abd109fe4d7aa5`.
-- Tracked unstaged implementation/test delta: only
+- Starting unstaged delta: modified
+  `.ai-pipeline/reports/PHASE_15C_LIFECYCLE_CI_STABILITY_REMEDIATION.md` and
   `tests/test_demo_lifecycle_windows.py`.
-- Task-owned untracked remediation evidence:
-  `.ai-pipeline/reports/PHASE_15C_LIFECYCLE_CI_STABILITY_REMEDIATION.md`.
 - Staged files: none.
-- This recheck created only
-  `.ai-pipeline/reports/PHASE_15C_LIFECYCLE_CI_STABILITY_RECHECK.md`.
-- No implementation, test, configuration, or ordinary documentation file was edited
-  by the reviewer. No commit, push, pull request, merge, branch operation, or next
-  phase was performed.
+- Untracked files at review start: none.
+- This recheck overwrote only
+  `.ai-pipeline/reports/PHASE_15C_LIFECYCLE_CI_STABILITY_RECHECK.md`, as authorized.
+- No implementation, test, configuration, or other documentation file was edited by
+  the reviewer. No commit, push, pull request, merge, branch operation, or next phase
+  was performed.
 
 ## 11. Final Verdict
 
