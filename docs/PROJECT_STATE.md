@@ -9,8 +9,8 @@ It is not a sponsor contract, phase report, or substitute for current source and
 {
   "schema_version": 1,
   "case_envelope_schema_version": 3,
-  "verified_date": "2026-09-15",
-  "verified_main_sha": "fd760e4f74019002f5f9374467cc6a701f6cf585",
+  "verified_date": "2026-09-20",
+  "verified_main_sha": "614e9ffc36bc8f0d1a9a4674d04639ad6b2bc638",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -63,6 +63,16 @@ Major implemented phases are:
   permanent authorized deletion, and session-memory React Query caching.
 - Phase 14.5: repository-backed synthetic team/profile administration, typed policy
   catalogue, and immutable per-case policy snapshots.
+- Phase 15A: authority-labelled evidence terminology and future-policy boundaries,
+  without adding runtime ageing, supplied-risk, or production-handoff behavior.
+- Phase 15B: current-evidence-only review mutation, fail-closed reviewed-value
+  reconciliation, partial-review blocking, failed-replacement reupload recovery, and
+  bounded repeat/resume recovery under the existing target no-replay ledger.
+- Development tooling: repository-only Playwright, guarded browser-network, physical
+  Mongo, read-only GitHub PR/CI, and Windows lifecycle verification support. This is
+  development infrastructure, not business or product functionality.
+- Phase 15C: React Router URL navigation, deep-link/history-safe case identity, stale
+  callback isolation, and truthful Vite development history fallback behavior.
 
 ## Current runtime pipeline
 
@@ -135,7 +145,12 @@ unknown or blocked.
 - Raw uploads, full extracted text, raw external payloads, credentials, sessions, and
   connection strings are excluded from case envelopes.
 - Physical tests use generated allowlisted `clm_p12_*`, `clm_p13_*`, or newer explicitly
-  approved disposable names. `clm_poc` is never a physical test/cleanup database.
+  approved disposable names. `clm_poc` is never a physical test/cleanup database. The
+  guarded runner owns four explicit suites and reports their dynamic collection and
+  execution counts. Project acceptance requires every currently collected owned test
+  to execute and pass with zero failures, errors, or skips. On this verified baseline
+  that was 17 collected, 17 executed, and 17 passed; 17 is evidence for this baseline,
+  not a permanent future test-count contract.
 
 ## Authentication, authorization and administration
 
@@ -198,6 +213,48 @@ a future configurable freshness policy, not a runtime/configured rule.
 perpetual-KYC runtime. The implemented external Zero-Touch -> Mock GoldTier sequence
 is POC architecture only; its production deployment and handoff boundary remain open
 pending sponsor authority.
+
+## Phase 15B review/rework stabilization
+
+Review mutations are limited to current evidence; superseded document records remain
+historical lineage. Reviewed values enter reconciliation only through the existing
+bounded decision rules, with fail-closed evidence, canonical, version, and fingerprint
+checks. Partial review remains blocking and cannot silently clear another document,
+reconciliation, ownership, or workflow blocker.
+
+A failed replacement remains the current failed record and returns the case to targeted
+reupload/retry rather than leaving an active exception bound to superseded evidence.
+Explicit repeat/resume paths are bounded and idempotent: they repair supported
+interrupted checkpoints or return the current state, while the target ledger remains
+the sole owner of target ordering and no-replay behavior. This is monotonic sequential
+recoverability for the single-instance POC; it is not distributed transaction
+atomicity, exactly-once execution, final reviewer assignment, source precedence, or
+final approval.
+
+## Repository and development tooling
+
+The repository includes an exact-pinned Playwright Chromium E2E harness with guarded
+browser network policy, a guarded runner for the four owned physical Mongo suites,
+read-only GitHub PR/CI inspection tooling, and hardened Windows demo lifecycle
+verification. These capabilities support local development, CI, and verification;
+they do not add a product workflow, business capability, Live provider integration, or
+sponsor-approved behavior.
+
+## Phase 15C frontend URL navigation
+
+The frontend uses exact `react-router` 7.18.4 in declarative `BrowserRouter` mode.
+Browser location is the sole page and case-navigation identity, and `NavLink`/`Link`
+navigation supports direct links, refresh, new-tab links, and browser Back/Forward
+without making route entry a business mutation. Case detail actions are isolated by
+case/action generation so a stale action from a previously displayed case cannot be
+published against the current route. Retained-intake callbacks use the same generation
+principle so stale work from an earlier intake cannot alter a later intake identity.
+
+Local development uses Vite 7.1.11 with `appType: "mpa"` and Vite-first request
+handling. Only a positively admitted unresolved document-navigation request may receive
+the SPA entry document; API requests, existing or missing resources/file requests, and
+unsafe methods retain truthful Vite/proxy/not-found/method behavior. Equivalent
+production-host history fallback remains unverified and outside Phase 15C scope.
 
 ## Current open sponsor blockers
 
