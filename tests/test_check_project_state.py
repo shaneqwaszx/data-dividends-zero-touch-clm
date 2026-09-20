@@ -152,6 +152,12 @@ class ProjectStateCheckerTests(unittest.TestCase):
         )
         return CHECK.validate(root)
 
+    def _add_to_fixture_index(self, root: Path, relative_path: str) -> None:
+        path = root / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# fixture\n", encoding="utf-8")
+        self._git(root, "add", relative_path)
+
     def test_accepts_current_repository_baseline(self) -> None:
         self.assertEqual(CHECK.validate(ROOT), [])
 
@@ -329,6 +335,38 @@ class ProjectStateCheckerTests(unittest.TestCase):
             )
         finally:
             temporary.cleanup()
+
+    def test_allows_camunda_named_files_in_exact_backend_test_tree(self) -> None:
+        temporary, root = self._fixture()
+        try:
+            self._add_to_fixture_index(
+                root, "apps/backend/tests/test_camunda_observer_contract.py"
+            )
+            self._add_to_fixture_index(
+                root, "apps/backend/tests/camunda_observer_contract_support.py"
+            )
+            self.assertEqual(CHECK.validate(root), [])
+        finally:
+            temporary.cleanup()
+
+    def test_rejects_camunda_named_files_outside_exact_backend_test_tree(self) -> None:
+        runtime_paths = (
+            "apps/backend/app/camunda_worker.py",
+            "apps/frontend/src/camundaRuntime.ts",
+            "apps/backend/app/tests_camunda_runtime.py",
+        )
+        for runtime_path in runtime_paths:
+            with self.subTest(runtime_path=runtime_path):
+                temporary, root = self._fixture()
+                try:
+                    self._add_to_fixture_index(root, runtime_path)
+                    self.assertIn(
+                        "Camunda runtime files exist but PROJECT_STATE says "
+                        "not_implemented",
+                        CHECK.validate(root),
+                    )
+                finally:
+                    temporary.cleanup()
 
     def test_checker_does_not_read_env_untracked_or_mutate_repository(self) -> None:
         temporary, root = self._fixture()
