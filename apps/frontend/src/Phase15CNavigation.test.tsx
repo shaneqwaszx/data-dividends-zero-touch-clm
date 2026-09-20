@@ -161,8 +161,20 @@ function documentFixture(caseId: string): DocumentProcessingRecord {
     size_bytes: 7,
     profile: "PROVISIONAL_CORPORATE",
     provider_environment: "LOCAL",
-    state: "REVIEWED",
-    fields: [],
+    state: "REVIEW_REQUIRED",
+    fields: [{
+      field_key: "legal_name",
+      original_extracted_value: "SYNTHETIC CASE",
+      normalized_value: "SYNTHETIC CASE",
+      confidence: 0.97,
+      provenance: { provider: "LOCAL_PDF_TEXT", environment: "LOCAL", page_number: 1, source_reference: "safe:navigation" },
+      canonical_value: "SYNTHETIC CASE",
+      comparison_status: "MATCH",
+      review_status: "PENDING",
+      reviewed_value: null,
+      reviewed_at: null,
+      review_note: null,
+    }],
     events: [],
     error: null,
     created_at: NOW,
@@ -256,7 +268,7 @@ function caseDetailFixture(caseId: string, label: string): ZeroTouchCaseSummary 
 
 function seedCaseDetail(queryClient: QueryClient, caseId: string, label: string) {
   queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, caseId), caseDetailFixture(caseId, label));
-  queryClient.setQueryData(caseQueryKeys.documents(relationshipActor.user_id, caseId), []);
+  queryClient.setQueryData(caseQueryKeys.documents(relationshipActor.user_id, caseId), [documentFixture(caseId)]);
   queryClient.setQueryData(caseQueryKeys.ownership(relationshipActor.user_id, caseId), null);
 }
 
@@ -519,7 +531,7 @@ describe("Phase 15C canonical route ownership", () => {
 });
 
 describe("Phase 15C case-bound action lifetime", () => {
-  it("closes A delete and exception dialogs when the routed identity changes to B", async () => {
+  it("closes A delete and correction state when the routed identity changes to B and omits unsupported actions", async () => {
     const request = vi.spyOn(globalThis, "fetch");
     const queryClient = testClient();
     seedCaseDetail(queryClient, CASE_A, "CASE A");
@@ -545,16 +557,11 @@ describe("Phase 15C case-bound action lifetime", () => {
     expect(container?.textContent).not.toContain("Delete case permanently?");
 
     await click("Open A");
-    await click("Assign reviewer");
-    expect(container?.querySelector("#assign-reviewer-title")).not.toBeNull();
+    await click("Record legal name correction");
+    expect(container?.querySelector(".document-correction")).not.toBeNull();
     await click("Open B");
-    expect(container?.querySelector("#assign-reviewer-title")).toBeNull();
-
-    await click("Open A");
-    await click("Return for rework");
-    expect(container?.querySelector("#rework-title")).not.toBeNull();
-    await click("Open B");
-    expect(container?.querySelector("#rework-title")).toBeNull();
+    expect(container?.querySelector(".document-correction")).toBeNull();
+    expect(container?.textContent).not.toMatch(/Assign reviewer|Return for rework/);
     expect(request.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(0);
   });
 
@@ -635,7 +642,290 @@ describe("Phase 15C case-bound action lifetime", () => {
     expect(onBack).not.toHaveBeenCalled();
   });
 
-  it("does not migrate action dialogs through browser Back and Forward", async () => {
+  it.each(["success", "failure"] as const)(
+    "contains a pending A review %s after navigation to B and rejects same-tick duplicates",
+    async (outcome) => {
+      const pendingReview = deferred<Response>();
+      const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        if (init?.method === "POST" && String(input).endsWith("/reviews")) return pendingReview.promise;
+        return unavailable();
+      });
+      const queryClient = testClient();
+      seedCaseDetail(queryClient, CASE_A, "CASE A");
+      seedCaseDetail(queryClient, CASE_B, "CASE B");
+      await act(async () => root?.render(
+        <MemoryRouter initialEntries={[paths.caseDetail(CASE_A)]}>
+          <QueryClientProvider client={queryClient}>
+            <CaseDetailRouteHarness onBack={() => undefined} />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      ));
+
+      const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+        .find((button) => button.textContent === "Accept legal name suggestion")!;
+      act(() => {
+        accept.click();
+        accept.click();
+      });
+      await vi.waitFor(() => expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
+      const openB = Array.from(container?.querySelectorAll<HTMLAnchorElement>("a") ?? [])
+        .find((link) => link.textContent === "Open B")!;
+      await act(async () => openB.click());
+      await vi.waitFor(() => expect(container?.querySelector("h1")?.textContent).toBe("CASE B"));
+
+      await act(async () => {
+        if (outcome === "success") pendingReview.resolve(json(documentFixture(CASE_A)));
+        else pendingReview.reject(new TypeError("Synthetic uncertain A review"));
+        await pendingReview.promise.catch(() => undefined);
+        await Promise.resolve();
+      });
+
+      expect(container?.querySelector("h1")?.textContent).toBe("CASE B");
+      expect(container?.textContent).not.toContain("Synthetic uncertain A review");
+      expect(request.mock.calls.filter(([url, init]) => init?.method === "POST" && String(url).includes(CASE_B))).toHaveLength(0);
+    },
+  );
+
+  it("contains a pending review after actor replacement on the same case", async () => {
+    const pendingReview = deferred<Response>();
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (init?.method === "POST" && String(input).endsWith("/reviews")) return pendingReview.promise;
+      return unavailable();
+    });
+    const queryClient = testClient();
+    seedCaseDetail(queryClient, CASE_A, "CASE A");
+    queryClient.setQueryData(caseQueryKeys.detail(replacementActor.user_id, CASE_A), caseDetailFixture(CASE_A, "CASE A REPLACEMENT ACTOR"));
+    queryClient.setQueryData(caseQueryKeys.documents(replacementActor.user_id, CASE_A), [documentFixture(CASE_A)]);
+    queryClient.setQueryData(caseQueryKeys.ownership(replacementActor.user_id, CASE_A), null);
+
+    await act(async () => root?.render(
+      <QueryClientProvider client={queryClient}>
+        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+      </QueryClientProvider>,
+    ));
+    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    await act(async () => accept.click());
+    await vi.waitFor(() => expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
+
+    await act(async () => root?.render(
+      <QueryClientProvider client={queryClient}>
+        <CaseDetail caseId={CASE_A} actor={replacementActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+      </QueryClientProvider>,
+    ));
+    await vi.waitFor(() => expect(container?.querySelector("h1")?.textContent).toBe("CASE A REPLACEMENT ACTOR"));
+    await act(async () => {
+      pendingReview.reject(new TypeError("Old actor uncertain review"));
+      await pendingReview.promise.catch(() => undefined);
+      await Promise.resolve();
+    });
+
+    expect(container?.textContent).toContain("CASE A REPLACEMENT ACTOR");
+    expect(container?.textContent).not.toContain("Old actor uncertain review");
+    expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("serializes priority and delete controls behind a pending evidence mutation", async () => {
+    const pendingReview = deferred<Response>();
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (init?.method === "POST" && String(input).endsWith("/reviews")) return pendingReview.promise;
+      return unavailable();
+    });
+    const queryClient = testClient();
+    seedCaseDetail(queryClient, CASE_A, "CASE A");
+    await act(async () => root?.render(
+      <MemoryRouter initialEntries={[paths.caseDetail(CASE_A)]}>
+        <QueryClientProvider client={queryClient}>
+          <CaseDetailRouteHarness onBack={() => undefined} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    ));
+
+    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    await act(async () => accept.click());
+    await vi.waitFor(() => expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
+    expect(container?.querySelector<HTMLSelectElement>(".priority-select")?.disabled).toBe(true);
+    expect(Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((button) => button.textContent === "Set")?.disabled).toBe(true);
+    expect(Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((button) => button.textContent === "Delete case")?.disabled).toBe(true);
+
+    await act(async () => {
+      pendingReview.resolve(json(documentFixture(CASE_A)));
+      await pendingReview.promise;
+    });
+  });
+
+  it("serializes evidence and delete controls behind a pending priority mutation", async () => {
+    const pendingPriority = deferred<Response>();
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      if (init?.method === "PATCH") return pendingPriority.promise;
+      return unavailable();
+    });
+    const queryClient = testClient();
+    seedCaseDetail(queryClient, CASE_A, "CASE A");
+    await act(async () => root?.render(
+      <MemoryRouter initialEntries={[paths.caseDetail(CASE_A)]}>
+        <QueryClientProvider client={queryClient}>
+          <CaseDetailRouteHarness onBack={() => undefined} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    ));
+
+    const setPriority = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Set")!;
+    await act(async () => setPriority.click());
+    await vi.waitFor(() => expect(request.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1));
+    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    const deleteButton = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Delete case")!;
+    expect(accept.disabled).toBe(true);
+    expect(deleteButton.disabled).toBe(true);
+    act(() => accept.click());
+    expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+
+    await act(async () => {
+      pendingPriority.resolve(json({ case_id: CASE_A, priority: null }));
+      await pendingPriority.promise;
+    });
+  });
+
+  it("submits one targeted retry and authoritatively refreshes all case evidence", async () => {
+    const failed = {
+      ...documentFixture(CASE_A),
+      state: "FAILED" as const,
+      error: { code: "DOCUMENT_REUPLOAD_REQUIRED", message: "Retry required" },
+    };
+    const recovered = {
+      ...documentFixture(CASE_A),
+      document_id: "00000000-0000-4000-8000-000000000151",
+      supersedes_document_id: failed.document_id,
+    };
+    const historical = { ...failed, superseded_by_document_id: recovered.document_id };
+    const refreshedSummary = { ...caseDetailFixture(CASE_A, "CASE A"), status: "PENDING_INPUTS" as const };
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (init?.method === "POST" && url.endsWith(`/intake/documents/${failed.document_id}/retry`)) return json(recovered);
+      if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) return json(refreshedSummary);
+      if (url.endsWith(`/api/onboarding/cases/${CASE_A}/documents`)) return json([historical, recovered]);
+      if (url.endsWith(`/api/onboarding/cases/${CASE_A}/ownership`)) return unavailable();
+      return unavailable();
+    });
+    const queryClient = testClient();
+    queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A), refreshedSummary);
+    queryClient.setQueryData(caseQueryKeys.documents(relationshipActor.user_id, CASE_A), [failed]);
+    queryClient.setQueryData(caseQueryKeys.ownership(relationshipActor.user_id, CASE_A), null);
+    await act(async () => root?.render(
+      <QueryClientProvider client={queryClient}>
+        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+      </QueryClientProvider>,
+    ));
+
+    const input = container?.querySelector<HTMLInputElement>(".document-upload-input")!;
+    const file = new File(["safe synthetic retry"], "retry.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    await vi.waitFor(() => expect(container?.textContent).toContain("Evidence history (1)"));
+
+    const posts = request.mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(posts).toHaveLength(1);
+    expect(String(posts[0][0])).toContain(`/intake/documents/${failed.document_id}/retry`);
+    expect(request.mock.calls.filter(([, init]) => !init?.method || init.method === "GET")).toHaveLength(3);
+  });
+
+  it("locks mutations after review success plus refresh failure and exposes only read-only refresh recovery", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (init?.method === "POST" && String(input).endsWith("/reviews")) return json(documentFixture(CASE_A));
+      return json({ detail: { code: "UNAVAILABLE", message: "Temporarily unavailable" } }, 503);
+    });
+    const queryClient = testClient();
+    seedCaseDetail(queryClient, CASE_A, "CASE A");
+    await act(async () => root?.render(
+      <MemoryRouter initialEntries={[paths.caseDetail(CASE_A)]}>
+        <QueryClientProvider client={queryClient}>
+          <CaseDetailRouteHarness onBack={() => undefined} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    ));
+    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    await act(async () => accept.click());
+    await vi.waitFor(() => expect(container?.textContent).toContain("Evidence reload could not be confirmed."));
+    expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    const reject = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Reject legal name suggestion")!;
+    expect(reject.disabled).toBe(true);
+    const refresh = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Refresh case evidence")!;
+    expect(refresh.disabled).toBe(false);
+    await act(async () => refresh.click());
+    await vi.waitFor(() => expect(container?.textContent).toContain("Case evidence could not be refreshed."));
+    expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it.each(["409", "503", "network"] as const)(
+    "refreshes authoritative evidence once after a %s review outcome without replay or resume",
+    async (outcome) => {
+      const refreshedSummary = caseDetailFixture(CASE_A, "CASE A REFRESHED");
+      const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (init?.method === "POST" && url.endsWith("/reviews")) {
+          if (outcome === "network") throw new TypeError("uncertain transport");
+          return json({ detail: { code: `REVIEW_${outcome}`, message: "Safe review outcome" } }, Number(outcome));
+        }
+        if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) return json(refreshedSummary);
+        if (url.endsWith(`/api/onboarding/cases/${CASE_A}/documents`)) return json([documentFixture(CASE_A)]);
+        if (url.endsWith(`/api/onboarding/cases/${CASE_A}/ownership`)) return unavailable();
+        return unavailable();
+      });
+      const queryClient = testClient();
+      seedCaseDetail(queryClient, CASE_A, "CASE A");
+      await act(async () => root?.render(
+        <MemoryRouter initialEntries={[paths.caseDetail(CASE_A)]}>
+          <QueryClientProvider client={queryClient}>
+            <CaseDetailRouteHarness onBack={() => undefined} />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      ));
+      const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+        .find((button) => button.textContent === "Accept legal name suggestion")!;
+      await act(async () => accept.click());
+      await vi.waitFor(() => expect(container?.querySelector("h1")?.textContent).toBe("CASE A REFRESHED"));
+
+      const posts = request.mock.calls.filter(([, init]) => init?.method === "POST");
+      expect(posts).toHaveLength(1);
+      expect(String(posts[0][0])).toContain(`/cases/${CASE_A}/documents/`);
+      expect(JSON.parse(String(posts[0][1]?.body))).toEqual({ field_key: "legal_name", decision: "ACCEPTED" });
+      expect(request.mock.calls.filter(([url]) => String(url).endsWith("/resume"))).toHaveLength(0);
+      expect(request.mock.calls.filter(([, init]) => !init?.method || init.method === "GET")).toHaveLength(3);
+      expect(container?.textContent).toContain(
+        outcome === "409"
+          ? "The evidence changed before this action. Current case evidence was reloaded."
+          : "The outcome could not be confirmed. Current case evidence was reloaded",
+      );
+    },
+  );
+
+  it("uses the generic unavailable presentation after a review returns safe 404", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(unavailable());
+    const queryClient = testClient();
+    seedCaseDetail(queryClient, CASE_A, "CASE A");
+    await act(async () => root?.render(
+      <MemoryRouter initialEntries={[paths.caseDetail(CASE_A)]}>
+        <QueryClientProvider client={queryClient}>
+          <CaseDetailRouteHarness onBack={() => undefined} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    ));
+    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    await act(async () => accept.click());
+    await vi.waitFor(() => expect(container?.textContent).toContain("The case is unavailable."));
+    expect(container?.textContent).not.toContain("CASE A");
+    expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("does not migrate inline correction state through browser Back and Forward", async () => {
     const queryClient = testClient();
     seedCaseDetail(queryClient, CASE_A, "CASE A");
     seedCaseDetail(queryClient, CASE_B, "CASE B");
@@ -651,18 +941,18 @@ describe("Phase 15C case-bound action lifetime", () => {
         .find((item) => item.textContent === label);
       await act(async () => target?.click());
     };
-    await click("Assign reviewer");
-    expect(container?.querySelector("#assign-reviewer-title")).not.toBeNull();
+    await click("Record legal name correction");
+    expect(container?.querySelector(".document-correction")).not.toBeNull();
     await click("Open B");
-    expect(container?.querySelector("#assign-reviewer-title")).toBeNull();
+    expect(container?.querySelector(".document-correction")).toBeNull();
     await click("History back");
     await vi.waitFor(() => expect(container?.querySelector("[data-testid='location']")?.textContent)
       .toBe(paths.caseDetail(CASE_A)));
-    expect(container?.querySelector("#assign-reviewer-title")).toBeNull();
+    expect(container?.querySelector(".document-correction")).toBeNull();
     await click("History forward");
     await vi.waitFor(() => expect(container?.querySelector("[data-testid='location']")?.textContent)
       .toBe(paths.caseDetail(CASE_B)));
-    expect(container?.querySelector("#assign-reviewer-title")).toBeNull();
+    expect(container?.querySelector(".document-correction")).toBeNull();
   });
 });
 

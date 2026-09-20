@@ -13,6 +13,10 @@ const cleanFixture = path.resolve(
   currentDirectory,
   "../../backend/tests/fixtures/uat/clean-company-profile.pdf",
 );
+const mismatchFixture = path.resolve(
+  currentDirectory,
+  "../../backend/tests/fixtures/uat/legal-name-mismatch.pdf",
+);
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -49,7 +53,7 @@ async function login(page: Page) {
   await page.getByLabel("User ID").fill("maya-lim");
   await page.getByLabel("Password").fill(ephemeralCredential);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main workspace" })).toBeVisible({ timeout: 30_000 });
 }
 
 test.describe.configure({ mode: "serial" });
@@ -96,7 +100,15 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await page.locator("#home-document").setInputFiles(cleanFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
 
-  await expect(page.getByText("Completed Mock workflow")).toBeVisible({ timeout: 120_000 });
+  await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
+  const caseId = page.url().split("/").at(-1)!;
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
+    if (!response.ok()) return null;
+    return (await response.json() as { status: string }).status;
+  }, { timeout: 120_000 }).toBe("COMPLETED");
+  await page.goto(`/cases/${caseId}`);
+  await expect(page.getByText("Completed Mock workflow")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
   await expect(page.getByText(/not production approval or Ready-for-Approval/i)).toBeVisible();
   const casesLink = page.getByRole("link", { name: "Cases" });
@@ -104,4 +116,107 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await casesLink.click();
   await expect(page.getByRole("heading", { name: "Cases" })).toBeVisible();
   await expect(page.getByText("MOCK_GOLDTIER_SUBMITTED", { exact: true })).toBeVisible();
+});
+
+test("current document review progresses authoritatively and keeps superseded history read-only", async ({ page }) => {
+  const reviewRequests: string[] = [];
+  const resumeRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/reviews")) reviewRequests.push(request.postData() ?? "");
+    if (request.method() === "POST" && request.url().endsWith("/resume")) resumeRequests.push(request.url());
+  });
+
+  await page.goto("/");
+  await login(page);
+  await page.getByRole("link", { name: "New onboarding" }).click();
+  await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Registration ID / UEN").fill("202400001A");
+  await page.locator("#home-document").setInputFiles(mismatchFixture);
+  await page.getByRole("button", { name: "Create onboarding" }).click();
+  await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
+  const caseId = page.url().split("/").at(-1)!;
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
+    if (!response.ok()) return 0;
+    return (await response.json() as unknown[]).length;
+  }, { timeout: 120_000 }).toBe(1);
+
+  await page.goto(`/cases/${caseId}`);
+  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("0 final / 4 fields")).toBeVisible();
+  await expect(page.getByText(/4 fields remain for review/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Assign reviewer" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Return for rework" })).toHaveCount(0);
+
+  const acceptRegistration = page.getByRole("button", { name: "Accept registration number suggestion" });
+  await acceptRegistration.dblclick();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
+    if (!response.ok()) return 0;
+    const documents = await response.json() as Array<{ fields: Array<{ review_status: string }>; superseded_by_document_id: string | null }>;
+    return documents.find((document) => document.superseded_by_document_id === null)
+      ?.fields.filter((item) => item.review_status !== "PENDING").length ?? 0;
+  }, { timeout: 120_000 }).toBe(1);
+  expect(reviewRequests).toHaveLength(1);
+  expect(JSON.parse(reviewRequests[0])).toEqual({ field_key: "registration_number", decision: "ACCEPTED" });
+  expect(resumeRequests).toHaveLength(0);
+  await page.goto(`/cases/${caseId}`);
+  await expect(page.getByText("1 final / 4 fields")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/3 fields remain for review/)).toBeVisible();
+
+  for (const [index, field] of ["legal name", "registered address", "country of incorporation"].entries()) {
+    const action = page.getByRole("button", { name: `Accept ${field} suggestion` });
+    if (await action.count() === 0) await page.goto(`/cases/${caseId}`);
+    await expect(action).toBeVisible({ timeout: 30_000 });
+    await action.click();
+    await expect.poll(async () => {
+      const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
+      if (!response.ok()) return 0;
+      const documents = await response.json() as Array<{ fields: Array<{ review_status: string }>; superseded_by_document_id: string | null }>;
+      return documents.find((document) => document.superseded_by_document_id === null)
+        ?.fields.filter((item) => item.review_status !== "PENDING").length ?? 0;
+    }, { timeout: 120_000 }).toBe(index + 2);
+    if (index < 2) await page.goto(`/cases/${caseId}`);
+  }
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
+    if (!response.ok()) return null;
+    const documents = await response.json() as Array<{ state: string; superseded_by_document_id: string | null }>;
+    return documents.find((document) => document.superseded_by_document_id === null)?.state ?? null;
+  }, { timeout: 120_000 }).toBe("REVIEWED");
+  await page.goto(`/cases/${caseId}`);
+  await expect(page.getByText("REVIEWED", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+  expect(reviewRequests).toHaveLength(4);
+  expect(resumeRequests).toHaveLength(0);
+
+  const replacementInput = page.getByLabel("Replace current document");
+  await replacementInput.focus();
+  await expect(replacementInput).toBeFocused();
+  await replacementInput.setInputFiles(cleanFixture);
+  await expect(page.getByText("Completed Mock workflow")).toBeVisible({ timeout: 120_000 });
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
+    if (!response.ok()) return false;
+    const documents = await response.json() as Array<{ superseded_by_document_id: string | null }>;
+    return documents.length === 2
+      && documents.filter((document) => document.superseded_by_document_id === null).length === 1
+      && documents.filter((document) => document.superseded_by_document_id !== null).length === 1;
+  }, { timeout: 120_000 }).toBe(true);
+  const history = page.getByText(/Evidence history \(1\)/);
+  await history.click();
+  const historicalCard = page.locator(".document-card--history");
+  await expect(historicalCard).toBeVisible();
+  await expect(historicalCard.getByRole("button")).toHaveCount(0);
+  await expect(historicalCard.locator("input[type=file]")).toHaveCount(0);
+
+  await page.reload();
+  await expect(page).toHaveURL(`/cases/${caseId}`);
+  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+  const reloadedHistory = page.getByText(/Evidence history \(1\)/);
+  await expect(reloadedHistory).toBeVisible({ timeout: 30_000 });
+  await reloadedHistory.click();
+  await expect(page.locator(".document-card--history")).toBeVisible();
+  await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
+  await expect(page.getByText(/Ready-for-Approval: NOT AVAILABLE/i)).toBeVisible();
+  expect(resumeRequests).toHaveLength(0);
 });
