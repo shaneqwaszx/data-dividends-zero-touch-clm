@@ -370,12 +370,12 @@ def test_schema_version_is_explicit_and_unknown_version_is_rejected() -> None:
         created_at=now,
         updated_at=now,
     )
-    assert snapshot.schema_version == 3
+    assert snapshot.schema_version == 4
 
     store = object.__new__(MongoCaseStore)
     raw = snapshot.model_dump(mode="json")
     raw["_id"] = str(snapshot.case_id)
-    raw["schema_version"] = 4
+    raw["schema_version"] = 5
     with pytest.raises(PersistenceSchemaUnsupportedError):
         store._decode(raw)  # noqa: SLF001 - direct corruption boundary test
 
@@ -394,14 +394,40 @@ def test_schema_v2_read_receives_legacy_policy_snapshot_without_rewrite() -> Non
     raw = current.model_dump(mode="json")
     raw["schema_version"] = 2
     raw["onboarding"].pop("policy_snapshot")
+    raw["onboarding"].pop("registry_evidence_binding")
     raw["_id"] = str(case.case_id)
     original = deepcopy(raw)
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 3
+    assert decoded.schema_version == 4
     assert decoded.onboarding.policy_snapshot.snapshot_label == "LEGACY_PHASE13_DEFAULTS_V1"
+    assert decoded.onboarding.registry_evidence_binding is None
     assert str(decoded.onboarding.policy_snapshot.idp_review_confidence_threshold) == "0.85"
+    assert raw == original
+
+
+def test_schema_v3_read_has_absent_binding_without_rewrite() -> None:
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    current = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=7,
+        onboarding=case,
+        created_at=now,
+        updated_at=now,
+    )
+    raw = current.model_dump(mode="json")
+    raw["schema_version"] = 3
+    raw["onboarding"].pop("registry_evidence_binding")
+    raw["_id"] = str(case.case_id)
+    original = deepcopy(raw)
+
+    decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
+
+    assert decoded.schema_version == 4
+    assert decoded.onboarding.registry_evidence_binding is None
     assert raw == original
 
 

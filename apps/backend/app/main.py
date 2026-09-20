@@ -286,6 +286,7 @@ def create_app(
         repository=persistence.onboarding,
         target_execution_repository=persistence.target_executions,
         policy_snapshot_provider=policy_management.case_snapshot,
+        registry_snapshot_repository=persistence.registry_snapshots,
     )
     documents = document_processing_service or build_document_processing_service(
         service, active_settings, repository=persistence.documents

@@ -11,6 +11,7 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 
+import app.composition as composition
 from app.composition import build_zero_touch_demo_control
 from app.config import Settings
 from app.connectors.goldtier_models import GoldTierOperationResult, GoldTierOutcome
@@ -69,6 +70,28 @@ class RecordingMockGoldTier(MockGoldTierConnector):
     def amend_party(self, party_id: str, request: Any, metadata: Any) -> Any:
         self.calls.append("amend")
         return super().amend_party(party_id, request, metadata)
+
+
+class RecordingMockAcra(MockAcraConnector):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[str] = []
+
+    def fetch_company(self, uen: str) -> Any:
+        self.calls.append("entity")
+        return super().fetch_company(uen)
+
+    def fetch_officers(self, uen: str) -> Any:
+        self.calls.append("officers")
+        return super().fetch_officers(uen)
+
+    def fetch_ownership_parties(self, uen: str) -> Any:
+        self.calls.append("ownership")
+        return super().fetch_ownership_parties(uen)
+
+    def fetch_relationships(self, uen: str) -> Any:
+        self.calls.append("relationships")
+        return super().fetch_relationships(uen)
 
 
 class MalformedShellGoldTier(RecordingMockGoldTier):
@@ -198,6 +221,42 @@ def test_straight_through_reaches_mock_target_with_zero_human_interventions() ->
     case_id = UUID(result["case"]["case_id"])
     document = documents.list_documents(case_id=case_id)[0]
     assert document.completion_method == "AUTO_CONFIRMED"
+
+
+def test_cache_hit_journey_preserves_target_order_and_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = RecordingMockAcra()
+    target = RecordingMockGoldTier()
+    monkeypatch.setattr(composition, "MockAcraConnector", lambda: registry)
+    monkeypatch.setattr(composition, "MockGoldTierConnector", lambda **_: target)
+    client = TestClient(
+        create_app(
+            Settings(
+                _env_file=None,
+                app_env="test",
+                demo_controls_enabled=True,
+                registry_cache_mode="mock",
+                registry_cache_freshness_seconds=7_776_000,
+            )
+        )
+    )
+
+    first = start_demo(client, "STRAIGHT_THROUGH")
+    second = start_demo(client, "STRAIGHT_THROUGH")
+
+    assert first["status"] == second["status"] == "COMPLETED"
+    assert registry.calls == ["entity", "officers", "ownership", "relationships"]
+    assert target.calls == [
+        "search",
+        "shell",
+        "policy",
+        "amend",
+        "search",
+        "shell",
+        "policy",
+        "amend",
+    ]
 
 
 @pytest.mark.parametrize(

@@ -62,6 +62,10 @@ from app.mappers.goldtier import (
 )
 from app.services.canonical_validation import validate_entity
 from app.services.errors import OnboardingInfrastructureError
+from app.services.registry_acquisition import (
+    RegistryAcquisitionCoordinator,
+    RegistryCacheError,
+)
 from app.services.repository import OnboardingCaseRepository
 from app.services.target_execution_repository import (
     InMemoryTargetExecutionRepository,
@@ -151,6 +155,7 @@ class OnboardingService:
         goldtier: GoldTierConnector,
         repository: OnboardingCaseRepository,
         registry_router: RegistryProviderRouter | None = None,
+        registry_acquisition_coordinator: RegistryAcquisitionCoordinator | None = None,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
         target_finalization_fault: Callable[[UUID], bool] | None = None,
@@ -162,6 +167,7 @@ class OnboardingService:
                 raise ValueError("Onboarding service requires a registry provider router")
             registry_router = RegistryProviderRouter(AcraRegistryProviderAdapter(acra))
         self._registry_router = registry_router
+        self._registry_acquisition_coordinator = registry_acquisition_coordinator
         self._jurisdiction_resolver = JurisdictionResolver()
         self._goldtier = goldtier
         self._repository = repository
@@ -357,12 +363,27 @@ class OnboardingService:
                 "The identifier is not eligible for Singapore ACRA retrieval.",
             )
 
-        acquisition = self._run_required_stage(
-            case,
-            code="ACRA_RETRIEVAL_UNEXPECTED_FAILURE",
-            message="Corporate registry retrieval could not be completed.",
-            operation=lambda: registry_provider.retrieve_acquisition(normalised_uen),
-        )
+        binding = None
+        registry_coordinator = self._registry_acquisition_coordinator
+        if registry_coordinator is None:
+            acquisition = self._run_required_stage(
+                case,
+                code="ACRA_RETRIEVAL_UNEXPECTED_FAILURE",
+                message="Corporate registry retrieval could not be completed.",
+                operation=lambda: registry_provider.retrieve_acquisition(normalised_uen),
+            )
+        else:
+            coordinated = self._run_required_stage(
+                case,
+                code="REGISTRY_CACHE_FAILURE",
+                message="Registry evidence could not be prepared safely.",
+                operation=lambda: registry_coordinator.acquire(
+                    registry_provider,
+                    normalised_uen,
+                ),
+            )
+            acquisition = coordinated.acquisition
+            binding = coordinated.binding
         if acquisition is None:
             return self._terminate(
                 case,
@@ -375,6 +396,7 @@ class OnboardingService:
         case.registry_acquisition = acquisition
         entity = acquisition.entity_profile
         case.entity = entity
+        case.registry_evidence_binding = binding
         self._record(
             case,
             WorkflowState.REGISTRY_FETCHED,
@@ -1371,6 +1393,14 @@ class OnboardingService:
     ) -> T:
         try:
             return operation()
+        except RegistryCacheError as exc:
+            if on_failure is not None:
+                on_failure(exc.code, exc.public_message)
+            self._raise_terminal_infrastructure(
+                case,
+                code=exc.code,
+                message=exc.public_message,
+            )
         except ConnectorError as exc:
             public_error = public_connector_error(exc)
             if on_failure is not None:

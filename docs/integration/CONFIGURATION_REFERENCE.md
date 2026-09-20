@@ -15,6 +15,7 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `MONGO_URI` | required secret in Mongo mode | empty | Backend-only Mongo connection string; never returned or logged |
 | `MONGO_DATABASE` | persistence | `clm_poc` | Bounded database namespace |
 | `MONGO_CASE_COLLECTION` | persistence | `clm_case_snapshots` | Bounded one-envelope-per-case collection |
+| `MONGO_REGISTRY_CACHE_COLLECTION` | persistence | `clm_registry_snapshots` | Separate complete synthetic Mock registry-snapshot collection; must differ from every case/admin collection |
 | `MONGO_ADMIN_TEAMS_COLLECTION` | persistence | `clm_admin_teams` | Canonical team and bounded audit records |
 | `MONGO_ADMIN_PROFILES_COLLECTION` | persistence | `clm_admin_profiles` | Account authority, security version, and backend-only password hash records |
 | `MONGO_ADMIN_POLICIES_COLLECTION` | persistence | `clm_admin_policies` | Singleton typed policy catalogue and bounded audit record |
@@ -28,6 +29,8 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `PHASE13_COOKIE_SECURE` | security | environment-derived | Defaults `true` in production and `false` in local development/test; explicit production `false` fails startup |
 | `PHASE13_BROWSER_ORIGIN` | security | `http://127.0.0.1:8000` locally | Canonical browser origin. Production requires an explicit exact HTTPS origin and fails before persistence initialization when absent or malformed. |
 | `ACRA_CONNECTOR_MODE` | integration | `mock` | `mock` or sandbox-shaped `sandbox` |
+| `REGISTRY_CACHE_MODE` | provisional Mock POC | `disabled` | `disabled` preserves retrieve-for-each-case behavior; `mock` enables only exact-key synthetic Mock ACRA reuse |
+| `REGISTRY_CACHE_FRESHNESS_SECONDS` | provisional Mock POC | unset | Required as exactly `7776000` when `REGISTRY_CACHE_MODE=mock`; 90 elapsed 24-hour periods, not calendar months or ACRA policy |
 | `ACRA_BASE_URL` | integration | empty | HTTPS subscriber base; required only for sandbox mode |
 | `ACRA_COMPANY_PATH_TEMPLATE` | integration | empty | Authorized path with exactly one `{uen}` placeholder |
 | `ACRA_TIMEOUT_SECONDS` | integration | `10` | Bounded sandbox HTTP timeout |
@@ -77,6 +80,14 @@ stores authoritative structured case envelopes. Missing/unreachable Mongo or inv
 stored data fails closed and never falls back to memory. `scripts/check_mongodb.py`
 remains a separate connectivity/read-only diagnostic.
 
+The registry cache is disabled by default and adds no cache lookup, write, or startup
+dependency in that mode. Enabled `mock` mode requires Mock ACRA plus the exact fixed
+freshness setting above. It stores only complete normalized synthetic Mock acquisition
+bundles under provider/environment/contract/dataset/identifier keys. Memory snapshots
+are process-local; Mongo snapshots use the separate configured collection. Expiry makes
+an entry ineligible but does not delete it. There is no TTL, scheduler, purge API,
+forced refresh, sandbox/live caching, or case-deletion cascade.
+
 The URI, credentials, database internals, and raw PyMongo error are never included in
 health, execution-profile, case responses, or normal logs. No TTL/purge is configured.
 
@@ -92,6 +103,8 @@ real readiness. D-018 still prohibits the quarantined authentication material.
 
 - Unsupported connector modes fail settings validation.
 - ACRA sandbox mode without valid HTTPS/path/auth configuration fails before use.
+- Registry caching outside Mock ACRA, without the exact freshness value, or with a
+  colliding Mongo collection name fails settings validation.
 - Demo UI visibility does not bypass the backend demo gate.
 - Mongo mode never degrades to memory when configuration, startup, read, or write fails.
 - All six bootstrap credential hashes must be present and valid or startup fails with

@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.domain.ownership import OwnershipPercent
@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     ownership_max_paths_per_candidate: int = Field(default=64, gt=0, le=1000)
     ownership_max_total_paths: int = Field(default=256, gt=0, le=5000)
     clm_persistence_mode: Literal["memory", "mongo"] = "memory"
+    registry_cache_mode: Literal["disabled", "mock"] = "disabled"
+    registry_cache_freshness_seconds: int | None = None
     acra_base_url: str = ""
     acra_company_path_template: str = ""
     acra_timeout_seconds: float = 10.0
@@ -70,6 +72,12 @@ class Settings(BaseSettings):
         max_length=64,
         pattern=r"^[A-Za-z0-9_-]+$",
     )
+    mongo_registry_cache_collection: str = Field(
+        default="clm_registry_snapshots",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
     phase13_maya_lim_password_hash: SecretStr | None = None
     phase13_ethan_tan_password_hash: SecretStr | None = None
     phase13_sophia_ng_password_hash: SecretStr | None = None
@@ -85,6 +93,26 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_registry_cache(self) -> "Settings":
+        if self.registry_cache_mode == "mock":
+            if self.acra_connector_mode != "mock":
+                raise ValueError("registry cache is supported only for Mock ACRA")
+            if self.registry_cache_freshness_seconds != 7_776_000:
+                raise ValueError(
+                    "enabled Mock registry cache requires 7,776,000 freshness seconds"
+                )
+            collections = {
+                self.mongo_case_collection,
+                self.mongo_admin_teams_collection,
+                self.mongo_admin_profiles_collection,
+                self.mongo_admin_policies_collection,
+                self.mongo_registry_cache_collection,
+            }
+            if len(collections) != 5:
+                raise ValueError("registry cache collection must be distinct")
+        return self
 
     @property
     def phase13_trusted_browser_origins(self) -> frozenset[str]:

@@ -177,6 +177,15 @@ fails closed at startup and during writes; it never silently falls back to memor
 Database names, URIs, credentials, raw uploads, complete extracted text, and raw
 Registry payloads are not exposed through the execution profile or case APIs.
 
+Synthetic Mock ACRA snapshot reuse is separately opt-in with
+`REGISTRY_CACHE_MODE=mock` and the exact provisional POC setting
+`REGISTRY_CACHE_FRESHNESS_SECONDS=7776000`. Disabled mode retains one acquisition per
+case and has no cache startup dependency. Enabled mode shares complete normalized Mock
+bundles only, using a separate memory/Mongo repository and exact provider, environment,
+contract, dataset, and identifier identity. It adds no API or frontend control and does
+not cache documents, reconciliation, ownership, case state, or target outcomes. See the
+[registry cache freshness profile](docs/contracts/REGISTRY_CACHE_FRESHNESS_PROFILE.md).
+
 Mongo storage requires the document `_id` to be the canonical UUID string for the same
 envelope `case_id`; missing, malformed, noncanonical, or cross-case identities stop
 startup/reads as corrupt persistence. If restart finds a current document interrupted
