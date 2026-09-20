@@ -218,6 +218,16 @@ export interface RegistryAcquisition {
   retrieved_at: string;
 }
 
+export interface RegistryEvidenceBinding {
+  disposition: "PROVIDER_FETCH" | "CACHE_HIT";
+  bound_to_case_at: string;
+  expires_at: string;
+  freshness_policy_id: "MOCK_ACRA_FIXED_90D";
+  freshness_policy_version: 1;
+  freshness_duration_seconds: 7776000;
+  freshness_comparator: "EVALUATION_NOW_LT_EXPIRES_AT";
+}
+
 export interface WorkflowEvent {
   sequence: number;
   stage: WorkflowState;
@@ -271,6 +281,7 @@ export interface OnboardingCase {
   state: WorkflowState;
   entity: CanonicalEntity | null;
   registry_acquisition?: RegistryAcquisition | null;
+  registry_evidence_binding?: RegistryEvidenceBinding | null;
   goldtier_result: {
     party_id: string;
     shell_status: string;

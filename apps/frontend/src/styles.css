@@ -2701,3 +2701,110 @@ dd {
     flex-direction: column;
   }
 }
+
+/* Case Evidence & Explainability Workbench */
+
+.evidence-focus-target {
+  min-width: 0;
+  scroll-margin-top: 1rem;
+}
+
+.detail-layout .state-grid > * {
+  min-width: 0;
+}
+
+.evidence-focus-target:focus-visible {
+  border-radius: 12px;
+  box-shadow: 0 0 0 3px rgb(58 91 192 / 24%);
+  outline: 2px solid #3656a5;
+  outline-offset: 3px;
+}
+
+.evidence-section-block {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--border, #d9dee7);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  overflow-wrap: anywhere;
+}
+
+.evidence-section-block > :first-child {
+  margin-top: 0;
+}
+
+.evidence-section-block button {
+  margin: 0 6px 6px 0;
+}
+
+.evidence-section-block dl > div {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.7fr) minmax(0, 1.3fr);
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border, #d9dee7);
+}
+
+.evidence-section-block dt {
+  color: var(--muted, #5d6675);
+  font-weight: 700;
+}
+
+.evidence-section-block dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.evidence-section-block table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+}
+
+.evidence-section-block caption {
+  padding: 10px 0;
+  color: var(--muted, #5d6675);
+  text-align: left;
+}
+
+.evidence-section-block th,
+.evidence-section-block td {
+  padding: 9px;
+  border-bottom: 1px solid var(--border, #d9dee7);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.evidence-workbench-column {
+  flex: 1 1 0;
+  width: 50%;
+}
+
+.evidence-workbench-column > * + * {
+  margin-top: 16px;
+}
+
+.evidence-run-record {
+  width: auto;
+  padding: 16px;
+  border: 1px solid var(--border, #d9dee7);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+}
+
+@media (max-width: 720px) {
+  .evidence-section-block {
+    padding: 14px;
+  }
+
+  .evidence-section-block dl > div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .evidence-workbench-column {
+    width: 100%;
+  }
+}

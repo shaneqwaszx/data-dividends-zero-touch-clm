@@ -40,6 +40,7 @@ from app.domain.models import (
     RegisteredAddress,
     RegistryAcquisitionIssue,
     RegistryAcquisitionStatus,
+    RegistryEvidenceDisposition,
     RegistryOperation,
     RegistryOperationStatus,
     RegistryPartyType,
@@ -206,6 +207,20 @@ class BrowserRegistryAcquisition(BaseModel):
     retrieved_at: datetime
 
 
+class BrowserRegistryEvidenceBinding(BaseModel):
+    """Minimized case-use evidence for the provisional Mock registry cache."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    disposition: RegistryEvidenceDisposition
+    bound_to_case_at: datetime
+    expires_at: datetime
+    freshness_policy_id: Literal["MOCK_ACRA_FIXED_90D"]
+    freshness_policy_version: Literal[1]
+    freshness_duration_seconds: Literal[7_776_000]
+    freshness_comparator: Literal["EVALUATION_NOW_LT_EXPIRES_AT"]
+
+
 class OnboardingCaseResponse(BaseModel):
     """Application case response with internal proof metadata minimized."""
 
@@ -224,6 +239,7 @@ class OnboardingCaseResponse(BaseModel):
     state: WorkflowState
     entity: BrowserCanonicalLegalEntity | None = None
     registry_acquisition: BrowserRegistryAcquisition | None = None
+    registry_evidence_binding: BrowserRegistryEvidenceBinding | None = None
     goldtier_result: GoldTierResult | None = None
     events: list[WorkflowEvent]
     error: SafeError | None = None
@@ -236,9 +252,38 @@ class OnboardingCaseResponse(BaseModel):
     ) -> "OnboardingCaseResponse":
         """Project a domain case without serializing its registry source link."""
 
-        projected = cls.model_validate(case)
-        return projected.model_copy(
-            update={"client_scope_label": team.client_scope_label if team is not None else None}
+        binding = case.registry_evidence_binding
+        if (
+            binding is not None
+            and binding.cache_key.provider_identity.environment != SourceEnvironment.MOCK
+        ):
+            raise ValueError("browser registry evidence binding requires Mock provenance")
+        browser_binding = (
+            BrowserRegistryEvidenceBinding(
+                disposition=binding.disposition,
+                bound_to_case_at=binding.bound_to_case_at,
+                expires_at=binding.expires_at,
+                freshness_policy_id=binding.freshness_policy.policy_id,
+                freshness_policy_version=binding.freshness_policy.version,
+                freshness_duration_seconds=binding.freshness_policy.duration_seconds,
+                freshness_comparator=binding.freshness_policy.comparator,
+            )
+            if binding is not None
+            else None
+        )
+        projected_values = {
+            name: getattr(case, name)
+            for name in cls.model_fields
+            if name not in {"client_scope_label", "registry_evidence_binding"}
+        }
+        return cls.model_validate(
+            {
+                **projected_values,
+                "client_scope_label": (
+                    team.client_scope_label if team is not None else None
+                ),
+                "registry_evidence_binding": browser_binding,
+            }
         )
 
 

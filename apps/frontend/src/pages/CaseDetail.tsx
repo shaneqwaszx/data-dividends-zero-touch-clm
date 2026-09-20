@@ -35,9 +35,12 @@ import type {
   ZeroTouchException,
 } from "../types";
 import { CompletedOverview, ConfirmDetailsPanel, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
+import CaseStateExplanationPanel, { type EvidenceFocusTarget } from "./CaseStateExplanationPanel";
 import PriorityControl, { PriorityBadge } from "./PriorityControl";
 import DeleteCaseDialog from "./DeleteCaseDialog";
 import DocumentEvidencePanel, { type DocumentReviewRequest } from "./DocumentEvidencePanel";
+import OwnershipPathExplorer from "./OwnershipPathExplorer";
+import RegistryProvenancePanel from "./RegistryProvenancePanel";
 
 const ACTION_LABELS: Record<ExceptionResolutionAction, string> = {
   KEEP_REGISTRY_VALUE: "Keep registry values",
@@ -45,10 +48,23 @@ const ACTION_LABELS: Record<ExceptionResolutionAction, string> = {
   REQUEST_ADDITIONAL_INFORMATION: "Request additional information",
 };
 
+const EVIDENCE_TARGET_IDS: Record<EvidenceFocusTarget, string> = {
+  registry: "case-evidence-registry",
+  documents: "case-evidence-documents",
+  reconciliation: "case-evidence-reconciliation",
+  ownership: "case-evidence-ownership",
+  recovery: "case-evidence-recovery",
+};
+
 interface CaseActionIdentity {
   readonly generation: number;
   readonly caseId: string;
   readonly actorUserId: string;
+}
+
+interface EvidenceFocusNotice {
+  readonly identity: string;
+  readonly message: string;
 }
 
 export function shouldRefreshAfterMutationError(error: unknown): boolean {
@@ -69,6 +85,7 @@ export default function CaseDetail({
   onViewAudit: (caseId: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const evidenceIdentity = `${actor.user_id}:${caseId}`;
   const detailQuery = useQuery(caseDetailQueryOptions(actor.user_id, caseId));
   const documentQuery = useQuery(documentQueryOptions(actor.user_id, caseId));
   const ownershipQuery = useQuery(ownershipQueryOptions(actor.user_id, caseId));
@@ -80,6 +97,7 @@ export default function CaseDetail({
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [mutationBlocked, setMutationBlocked] = useState(false);
   const [caseUnavailable, setCaseUnavailable] = useState(false);
+  const [evidenceFocusNotice, setEvidenceFocusNotice] = useState<EvidenceFocusNotice | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<CaseActionIdentity | null>(null);
   const generation = useRef(0);
   const mounted = useRef(false);
@@ -338,6 +356,20 @@ export default function CaseDetail({
     }
   }
 
+  function focusEvidence(target: EvidenceFocusTarget): void {
+    const section = document.getElementById(EVIDENCE_TARGET_IDS[target]);
+    if (!section) {
+      setEvidenceFocusNotice({
+        identity: evidenceIdentity,
+        message: `${target.replaceAll("_", " ")} evidence is not available for this case.`,
+      });
+      return;
+    }
+    setEvidenceFocusNotice(null);
+    section.focus({ preventScroll: true });
+    section.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }
+
   async function deleteCase(action: CaseActionIdentity): Promise<void> {
     if (!isCurrentCaseAction(action) || mutationPending.current || mutationBlocked) {
       throw new Error("Another case action is still pending.");
@@ -400,7 +432,14 @@ export default function CaseDetail({
         {summary.status === "RECOVERY_PENDING" && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
         {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
         <RegistryStatePanel summary={summary} />
-        <ConfirmDetailsPanel summary={summary} isBusy={isBusy || mutationBlocked} onResolve={(discrepancy, action) => void runMutation(() => resolveReconciliationDiscrepancy(summary, discrepancy.discrepancy_id, action, summary.reconciliation!.version, discrepancy.evidence_fingerprint))} />
+        <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>
+          <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} />
+        </div>
+        {summary.reconciliation && summary.current_stage === "DOCUMENT" && (
+          <div key={`${evidenceIdentity}:reconciliation`} id={EVIDENCE_TARGET_IDS.reconciliation} className="evidence-focus-target" tabIndex={-1}>
+            <ConfirmDetailsPanel summary={summary} isBusy={isBusy || mutationBlocked} onResolve={(discrepancy, action) => void runMutation(() => resolveReconciliationDiscrepancy(summary, discrepancy.discrepancy_id, action, summary.reconciliation!.version, discrepancy.evidence_fingerprint))} />
+          </div>
+        )}
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
 
         <div className="ds-two-col"><div style={{ flex: 1 }}><h4>Corporate particulars</h4><div>
@@ -417,60 +456,29 @@ export default function CaseDetail({
           </details>
         )}
 
-        <DocumentEvidencePanel key={`${actor.user_id}:${caseId}`} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />
+        <div key={`${evidenceIdentity}:documents`} id={EVIDENCE_TARGET_IDS.documents} className="evidence-focus-target" tabIndex={-1}>
+          <DocumentEvidencePanel key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />
+        </div>
 
         <div className="ds-two-col evidence-columns">
-          <section style={{ flex: 1 }} aria-labelledby="ownership-heading">
-            <h4 id="ownership-heading">Ownership / provisional UBO</h4>
-            <p className="control-help">
-              {ownership ? `${ownership.provider_name ?? "—"} ${ownership.provider_environment ?? "—"} · threshold ${ownership.threshold_comparator.replaceAll("_", " ").toLowerCase()} ${ownership.threshold_percent}%` : "Ownership evidence is not yet available."}
-            </p>
-            <div className="table-card table-scroll" tabIndex={0}>
-              <table className="table">
-                <thead><tr><th>Party</th><th>Direct</th><th>Indirect</th><th>Effective</th><th>Classification</th></tr></thead>
-                <tbody>
-                  {!ownership && <tr><td colSpan={5}>Not available in current POC state.</td></tr>}
-                  {ownership?.candidates.map((candidate) => (
-                    <tr key={candidate.party.party_id}>
-                      <td>{candidate.party.display_name}<span className="cell-note">{candidate.party.party_type} · {candidate.party.country ?? "country —"}</span></td>
-                      <td>{candidate.direct_ownership_percent}%</td>
-                      <td>{candidate.indirect_ownership_percent}%</td>
-                      <td>{candidate.aggregated_ownership_percent}%</td>
-                      <td>{candidate.classification}<span className="cell-note">{candidate.paths.map((path) => path.calculation).join("; ") || "No completed path"}</span></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {ownership && (
-              <details className="evidence-details">
-                <summary>{ownership.parties.length} parties · {ownership.relationships.length} relationships · calculation paths</summary>
-                {ownership.relationships.map((relationship) => (
-                  <p key={relationship.relationship_id}>{relationship.parent_party_id} → {relationship.child_party_id} · {relationship.ownership_percent}% · {relationship.provenance.provider} {relationship.provenance.environment} · {formatTimestamp(relationship.provenance.sourced_at)}</p>
-                ))}
-              </details>
-            )}
-            {ownership?.issues.map((issue) => <p className="ds-banner ds-banner-warn" key={issue.code}>{issue.code}: {issue.message}</p>)}
-          </section>
-          <aside className="readiness-panel">
-            <h4>Readiness</h4>
-            {Object.entries(summary.clm.readiness).filter(([key]) => ["registry", "document", "ownership", "goldtier"].includes(key)).map(([key, value]) => <div className="kv-row" key={key}><span className="kv-label">{key}</span><span className="kv-value">{typeof value === "object" && value && "status" in value ? String(value.status) : "—"}</span></div>)}
-            <div className="readiness-notes">
-              <strong>Blockers</strong><span>{summary.clm.readiness.blockers.length ? summary.clm.readiness.blockers.join(" · ") : "None"}</span>
-              <strong>Warnings</strong><span>{summary.clm.readiness.warnings.length ? summary.clm.readiness.warnings.join(" · ") : "None"}</span>
-            </div>
+          <div key={`${evidenceIdentity}:ownership`} id={EVIDENCE_TARGET_IDS.ownership} className="evidence-focus-target evidence-workbench-column" tabIndex={-1}>
+            <OwnershipPathExplorer key={`${evidenceIdentity}:${ownership?.analysis_id ?? "none"}`} record={ownership} />
+          </div>
+          <div key={`${evidenceIdentity}:recovery`} id={EVIDENCE_TARGET_IDS.recovery} className="evidence-focus-target evidence-workbench-column" tabIndex={-1}>
+            <CaseStateExplanationPanel summary={summary} onNavigate={focusEvidence} />
+            {evidenceFocusNotice?.identity === evidenceIdentity && <p className="ds-banner ds-banner-warn" role="status">{evidenceFocusNotice.message}</p>}
+            <aside className="readiness-panel evidence-run-record" aria-label="Retained execution record">
             <h4>Submission plan</h4>
             <p className="control-help">{summary.clm.submission_plan.environment} · {summary.clm.submission_plan.base_operations.join(" → ")}</p>
             <p className="control-help">Ready-for-Approval: {summary.clm.submission_plan.real_ready_for_approval.replaceAll("_", " ")}</p>
-            <h4>Target execution</h4>
-            {summary.target_operations.map((operation) => <div className="kv-row" key={operation.operation}><span className="kv-label">{operation.operation}</span><span className="kv-value">{operation.status}</span></div>)}
             <div className="kv-row"><span className="kv-label">Mock GoldTier party ID</span><span className="kv-value">{summary.case.goldtier_result?.party_id ?? "—"}</span></div>
             <h4>Run metrics</h4>
             <div className="kv-row"><span className="kv-label">Automated stages</span><span className="kv-value">{summary.metrics.automated_stages_completed}</span></div>
             <div className="kv-row"><span className="kv-label">Human interventions</span><span className="kv-value">{summary.metrics.human_interventions}</span></div>
             <div className="kv-row"><span className="kv-label">Exceptions</span><span className="kv-value">{summary.metrics.exceptions_resolved}/{summary.metrics.exceptions_raised} resolved</span></div>
             <div className="kv-row"><span className="kv-label">Final outcome</span><span className="kv-value">{summary.metrics.final_outcome ?? "—"}</span></div>
-          </aside>
+            </aside>
+          </div>
         </div>
 
         <h4 style={{ marginTop: 24 }}>Automation timeline</h4><div className="table-card"><table className="table"><thead><tr><th>Timestamp</th><th>Stage</th><th>Event</th><th>Outcome</th></tr></thead><tbody>{summary.timeline.map((event) => <tr key={event.sequence}><td>{formatTimestamp(event.timestamp)}</td><td>{event.stage}</td><td>{event.message}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>
