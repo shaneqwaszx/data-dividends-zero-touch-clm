@@ -1,4 +1,4 @@
-"""Run the four explicit physical Mongo suites with contained output."""
+"""Run the explicit physical Mongo suites with contained output."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ PHYSICAL_SUITES = (
     BACKEND_ROOT / "tests" / "test_phase13_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_phase14_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_phase14_5_real_mongo.py",
+    BACKEND_ROOT / "tests" / "test_phase16_registry_cache_real_mongo.py",
 )
 _SUMMARY_PATTERN = re.compile(
     r"(?P<count>\d+)\s+(?P<kind>passed|failed|skipped|errors?)\b",
@@ -180,7 +181,7 @@ def run(*, timeout_seconds: float) -> int:
     if counts["passed"] == 0:
         print(f"PHYSICAL_MONGO_RESULT=BLOCKED; REASON=ALL_SKIPPED; {summary}")
         return 2
-    print(f"PHYSICAL_MONGO_RESULT=PASSED; SUITES=4; {summary}")
+    print(f"PHYSICAL_MONGO_RESULT=PASSED; SUITES={len(PHYSICAL_SUITES)}; {summary}")
     return 0
 
 

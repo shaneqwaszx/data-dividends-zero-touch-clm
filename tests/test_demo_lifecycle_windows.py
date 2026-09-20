@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -113,8 +114,7 @@ def _same_process_identity(
             int(observed["pid"]) == int(expected["pid"])
             and expected_ticks is not None
             and observed_ticks is not None
-            and abs(observed_ticks - expected_ticks)
-            <= _CREATION_TIME_TOLERANCE_TICKS
+            and abs(observed_ticks - expected_ticks) <= _CREATION_TIME_TOLERANCE_TICKS
             and os.path.normcase(str(observed["executable_path"]))
             == os.path.normcase(str(expected["executable_path"]))
         )
@@ -300,6 +300,7 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
         self.test_processes: list[subprocess.Popen[str]] = []
         self.fake_state_written = False
         self.demo_cleanup_state: dict[str, Any] | None = None
+        self.request_diagnostics: list[dict[str, Any]] = []
         if STATE.exists():
             result = self.run_lifecycle("stop_demo_windows.bat")
             self.assertEqual(
@@ -364,6 +365,273 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
         self.assertEqual(environment["CLM_PERSISTENCE_MODE"], "memory")
         self.assertEqual(environment["MONGO_DATABASE"], "clm_ordinary_tests")
         self.assertNotEqual(environment["MONGO_URI"], ambient["MONGO_URI"])
+
+    def test_authenticated_request_records_success_then_expected_404(self) -> None:
+        class FakeResponse:
+            def __init__(self, body: bytes, *, status: int = 200) -> None:
+                self.status = status
+                self.body = body
+
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return self.body
+
+        target_error = urllib.error.HTTPError(
+            "http://must-not-appear.invalid/case-id",
+            404,
+            "raw-message-must-not-appear",
+            {},
+            io.BytesIO(b"ignored-target-body"),
+        )
+
+        class FakeOpener:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def open(
+                self, _request: urllib.request.Request, *, timeout: float
+            ) -> FakeResponse:
+                self.calls += 1
+                self.timeout = timeout
+                if self.calls == 1:
+                    return FakeResponse(b'{"csrf_token":"must-not-appear"}')
+                raise target_error
+
+        opener = FakeOpener()
+        with patch("urllib.request.build_opener", return_value=opener):
+            status, body = self.request(
+                "http://127.0.0.1:8000/api/clm/zero-touch/cases/case-id",
+                request_context="after_reset",
+            )
+
+        self.assertEqual((status, body), (404, b"ignored-target-body"))
+        self.assertEqual(opener.calls, 2)
+        self.assertEqual(
+            [item["operation_role"] for item in self.request_diagnostics],
+            ["login", "target_request"],
+        )
+        self.assertEqual(self.request_diagnostics[0]["stage"], "parse_complete")
+        self.assertEqual(self.request_diagnostics[1]["stage"], "body_complete")
+        self.assertTrue(self.request_diagnostics[1]["target_dispatched"])
+        rendered = json.dumps(self.request_diagnostics)
+        for prohibited in (
+            "must-not-appear",
+            "case-id",
+            "csrf_token",
+            "cookie",
+            "http://",
+        ):
+            self.assertNotIn(prohibited, rendered.casefold())
+
+    def test_authenticated_request_classifies_login_failures_without_target_dispatch(
+        self,
+    ) -> None:
+        class FakeResponse:
+            status = 200
+
+            def __init__(
+                self,
+                body: bytes = b'{"csrf_token":"safe-placeholder"}',
+                *,
+                failure: BaseException | None = None,
+            ) -> None:
+                self.body = body
+                self.failure = failure
+
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                if self.failure is not None:
+                    raise self.failure
+                return self.body
+
+        denied = urllib.error.HTTPError(
+            "http://must-not-appear.invalid/login",
+            401,
+            "raw-message-must-not-appear",
+            {},
+            io.BytesIO(b"ignored"),
+        )
+        cases: tuple[
+            tuple[
+                str,
+                FakeResponse | BaseException,
+                type[BaseException],
+                str,
+                str,
+                bool,
+                bool,
+                int | None,
+            ],
+            ...,
+        ] = (
+            (
+                "before_headers",
+                TimeoutError("raw-message-must-not-appear"),
+                TimeoutError,
+                "response_acquisition",
+                "timeout",
+                False,
+                False,
+                None,
+            ),
+            (
+                "body_read",
+                FakeResponse(failure=TimeoutError("raw-message-must-not-appear")),
+                TimeoutError,
+                "body_read",
+                "timeout",
+                True,
+                False,
+                200,
+            ),
+            (
+                "malformed",
+                FakeResponse(b"not-json"),
+                json.JSONDecodeError,
+                "response_parsing",
+                "malformed_response",
+                True,
+                True,
+                200,
+            ),
+            (
+                "denied",
+                denied,
+                urllib.error.HTTPError,
+                "response_acquisition",
+                "http_denied",
+                True,
+                False,
+                401,
+            ),
+        )
+        for (
+            name,
+            effect,
+            exception_type,
+            stage,
+            category,
+            headers_received,
+            body_complete,
+            status,
+        ) in cases:
+            with self.subTest(name=name):
+                calls = 0
+
+                class FakeOpener:
+                    def __init__(
+                        self, open_effect: FakeResponse | BaseException
+                    ) -> None:
+                        self.open_effect = open_effect
+
+                    def open(
+                        self, _request: urllib.request.Request, *, timeout: float
+                    ) -> FakeResponse:
+                        nonlocal calls
+                        calls += 1
+                        if isinstance(self.open_effect, BaseException):
+                            raise self.open_effect
+                        return self.open_effect
+
+                with (
+                    patch(
+                        "urllib.request.build_opener", return_value=FakeOpener(effect)
+                    ),
+                    self.assertRaises(exception_type) as raised,
+                ):
+                    self.request(
+                        "http://127.0.0.1:8000/api/clm/zero-touch/cases/case-id",
+                        request_context="after_reset",
+                    )
+
+                self.assertEqual(calls, 1)
+                self.assertEqual(len(self.request_diagnostics), 1)
+                diagnostic = self.request_diagnostics[0]
+                self.assertEqual(diagnostic["operation_role"], "login")
+                self.assertEqual(diagnostic["stage"], stage)
+                self.assertEqual(diagnostic["failure_category"], category)
+                self.assertEqual(diagnostic["headers_received"], headers_received)
+                self.assertEqual(diagnostic["body_complete"], body_complete)
+                self.assertEqual(diagnostic["http_status"], status)
+                self.assertFalse(diagnostic["parse_complete"])
+                self.assertFalse(diagnostic["target_dispatched"])
+                self.assertEqual(diagnostic["request_context"], "after_reset")
+                rendered = json.dumps(diagnostic).casefold()
+                for prohibited in (
+                    "raw-message-must-not-appear",
+                    "case-id",
+                    "safe-placeholder",
+                    "cookie",
+                    "http://",
+                ):
+                    self.assertNotIn(prohibited, rendered)
+                    self.assertNotIn(
+                        prohibited,
+                        json.dumps(
+                            getattr(raised.exception, "__notes__", [])
+                        ).casefold(),
+                    )
+                self.assertIn(
+                    "authenticated_request_diagnostic=",
+                    json.dumps(getattr(raised.exception, "__notes__", [])),
+                )
+
+    def test_authenticated_request_preserves_target_failure_without_retry(self) -> None:
+        class LoginResponse:
+            status = 200
+
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return b'{"csrf_token":"must-not-appear"}'
+
+        calls = 0
+
+        class FakeOpener:
+            def open(
+                self, _request: urllib.request.Request, *, timeout: float
+            ) -> LoginResponse:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return LoginResponse()
+                raise TimeoutError("raw-message-must-not-appear")
+
+        with (
+            patch("urllib.request.build_opener", return_value=FakeOpener()),
+            self.assertRaises(TimeoutError) as raised,
+        ):
+            self.request(
+                "http://127.0.0.1:8000/api/clm/zero-touch/cases/case-id",
+                request_context="before_reset",
+            )
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(len(self.request_diagnostics), 2)
+        target = self.request_diagnostics[1]
+        self.assertEqual(target["operation_role"], "target_request")
+        self.assertEqual(target["stage"], "response_acquisition")
+        self.assertEqual(target["failure_category"], "timeout")
+        self.assertTrue(target["target_dispatched"])
+        self.assertEqual(target["request_context"], "before_reset")
+        note = json.dumps(getattr(raised.exception, "__notes__", [])).casefold()
+        self.assertIn("authenticated_request_diagnostic=", note)
+        self.assertNotIn("raw-message-must-not-appear", note)
+        self.assertNotIn("case-id", note)
 
     def test_endpoint_probe_classifies_sanitized_failure_stages(self) -> None:
         class FakeResponse:
@@ -714,36 +982,302 @@ $roles = @(
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return json.loads(result.stdout)
 
+    @staticmethod
+    def _request_failure_category(exc: BaseException, *, operation_role: str) -> str:
+        reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+        if isinstance(exc, urllib.error.HTTPError):
+            if operation_role == "login" and exc.code in {401, 403}:
+                return "http_denied"
+            return "http_non_2xx"
+        if (
+            isinstance(reason, (TimeoutError, socket.timeout))
+            or getattr(reason, "winerror", None) == 10060
+        ):
+            return "timeout"
+        if (
+            isinstance(reason, ConnectionRefusedError)
+            or getattr(reason, "winerror", None) == 10061
+        ):
+            return "connection_refused"
+        if isinstance(
+            reason, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)
+        ) or getattr(reason, "winerror", None) in {10053, 10054}:
+            return "connection_reset"
+        if isinstance(exc, (json.JSONDecodeError, KeyError, TypeError)):
+            return "malformed_response"
+        if isinstance(reason, (OSError, urllib.error.URLError)):
+            return "transport_failure"
+        return "request_failure"
+
+    def _record_request_diagnostic(
+        self,
+        *,
+        operation_role: str,
+        stage: str,
+        request_context: str,
+        headers_received: bool,
+        body_complete: bool,
+        parse_complete: bool,
+        http_status: int | None,
+        failure_category: str | None,
+        started_at: float,
+        target_dispatched: bool,
+    ) -> None:
+        self.request_diagnostics.append(
+            {
+                "operation_role": operation_role,
+                "stage": stage,
+                "request_context": request_context,
+                "headers_received": headers_received,
+                "body_complete": body_complete,
+                "parse_complete": parse_complete,
+                "http_status": http_status,
+                "failure_category": failure_category,
+                "elapsed_ms": round(max(0.0, time.monotonic() - started_at) * 1000),
+                "target_dispatched": target_dispatched,
+            }
+        )
+
+    def _annotate_request_failure(self, exc: BaseException) -> None:
+        exc.add_note(
+            "authenticated_request_diagnostic="
+            + json.dumps(self.request_diagnostics[-1], sort_keys=True)
+        )
+
     def request(
-        self, url: str, *, data: bytes | None = None, timeout: float = 3
+        self,
+        url: str,
+        *,
+        data: bytes | None = None,
+        timeout: float = 3,
+        request_context: str = "unspecified",
     ) -> tuple[int, bytes]:
+        self.request_diagnostics = []
+        safe_context = (
+            request_context
+            if request_context in {"before_reset", "after_reset", "unspecified"}
+            else "unspecified"
+        )
         opener: urllib.request.OpenerDirector | None = None
         csrf_token: str | None = None
         if "/api/" in url:
-            opener = urllib.request.build_opener(
-                urllib.request.HTTPCookieProcessor(CookieJar())
+            login_started_at = time.monotonic()
+            try:
+                opener = urllib.request.build_opener(
+                    urllib.request.HTTPCookieProcessor(CookieJar())
+                )
+                login_request = urllib.request.Request(
+                    "http://127.0.0.1:8000/api/auth/login",
+                    data=json.dumps(
+                        {"user_id": "olivia-koh", "password": _LIFECYCLE_CREDENTIAL}
+                    ).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+            except Exception as exc:
+                self._record_request_diagnostic(
+                    operation_role="login",
+                    stage="request_preparation",
+                    request_context=safe_context,
+                    headers_received=False,
+                    body_complete=False,
+                    parse_complete=False,
+                    http_status=None,
+                    failure_category=self._request_failure_category(
+                        exc, operation_role="login"
+                    ),
+                    started_at=login_started_at,
+                    target_dispatched=False,
+                )
+                self._annotate_request_failure(exc)
+                raise
+            try:
+                response = opener.open(login_request, timeout=timeout)
+            except Exception as exc:
+                self._record_request_diagnostic(
+                    operation_role="login",
+                    stage="response_acquisition",
+                    request_context=safe_context,
+                    headers_received=isinstance(exc, urllib.error.HTTPError),
+                    body_complete=False,
+                    parse_complete=False,
+                    http_status=(
+                        int(exc.code)
+                        if isinstance(exc, urllib.error.HTTPError)
+                        else None
+                    ),
+                    failure_category=self._request_failure_category(
+                        exc, operation_role="login"
+                    ),
+                    started_at=login_started_at,
+                    target_dispatched=False,
+                )
+                self._annotate_request_failure(exc)
+                raise
+            login_status = int(response.status)
+            try:
+                with response:
+                    login_body = response.read()
+            except Exception as exc:
+                self._record_request_diagnostic(
+                    operation_role="login",
+                    stage="body_read",
+                    request_context=safe_context,
+                    headers_received=True,
+                    body_complete=False,
+                    parse_complete=False,
+                    http_status=login_status,
+                    failure_category=self._request_failure_category(
+                        exc, operation_role="login"
+                    ),
+                    started_at=login_started_at,
+                    target_dispatched=False,
+                )
+                self._annotate_request_failure(exc)
+                raise
+            try:
+                csrf_token = json.loads(login_body)["csrf_token"]
+            except Exception as exc:
+                self._record_request_diagnostic(
+                    operation_role="login",
+                    stage="response_parsing",
+                    request_context=safe_context,
+                    headers_received=True,
+                    body_complete=True,
+                    parse_complete=False,
+                    http_status=login_status,
+                    failure_category=self._request_failure_category(
+                        exc, operation_role="login"
+                    ),
+                    started_at=login_started_at,
+                    target_dispatched=False,
+                )
+                self._annotate_request_failure(exc)
+                raise
+            self._record_request_diagnostic(
+                operation_role="login",
+                stage="parse_complete",
+                request_context=safe_context,
+                headers_received=True,
+                body_complete=True,
+                parse_complete=True,
+                http_status=login_status,
+                failure_category=None,
+                started_at=login_started_at,
+                target_dispatched=False,
             )
-            login_request = urllib.request.Request(
-                "http://127.0.0.1:8000/api/auth/login",
-                data=json.dumps(
-                    {"user_id": "olivia-koh", "password": _LIFECYCLE_CREDENTIAL}
-                ).encode(),
-                headers={"Content-Type": "application/json"},
-            )
-            with opener.open(login_request, timeout=timeout) as response:
-                csrf_token = json.loads(response.read())["csrf_token"]
 
-        request = urllib.request.Request(url, data=data)
-        if data is not None:
-            request.add_header("Content-Type", "application/json")
-            request.add_header("X-CSRF-Token", csrf_token or "")
-            request.add_header("Origin", "http://127.0.0.1:8000")
+        target_started_at = time.monotonic()
+        try:
+            request = urllib.request.Request(url, data=data)
+            if data is not None:
+                request.add_header("Content-Type", "application/json")
+                request.add_header("X-CSRF-Token", csrf_token or "")
+                request.add_header("Origin", "http://127.0.0.1:8000")
+        except Exception as exc:
+            self._record_request_diagnostic(
+                operation_role="target_request",
+                stage="request_preparation",
+                request_context=safe_context,
+                headers_received=False,
+                body_complete=False,
+                parse_complete=False,
+                http_status=None,
+                failure_category=self._request_failure_category(
+                    exc, operation_role="target_request"
+                ),
+                started_at=target_started_at,
+                target_dispatched=False,
+            )
+            self._annotate_request_failure(exc)
+            raise
         try:
             open_request = opener.open if opener is not None else urllib.request.urlopen
-            with open_request(request, timeout=timeout) as response:
-                return response.status, response.read()
+            response = open_request(request, timeout=timeout)
         except urllib.error.HTTPError as exc:
-            return exc.code, exc.read()
+            target_status = int(exc.code)
+            try:
+                target_body = exc.read()
+            except Exception as body_exc:
+                self._record_request_diagnostic(
+                    operation_role="target_request",
+                    stage="body_read",
+                    request_context=safe_context,
+                    headers_received=True,
+                    body_complete=False,
+                    parse_complete=False,
+                    http_status=target_status,
+                    failure_category=self._request_failure_category(
+                        body_exc, operation_role="target_request"
+                    ),
+                    started_at=target_started_at,
+                    target_dispatched=True,
+                )
+                self._annotate_request_failure(body_exc)
+                raise
+            self._record_request_diagnostic(
+                operation_role="target_request",
+                stage="body_complete",
+                request_context=safe_context,
+                headers_received=True,
+                body_complete=True,
+                parse_complete=False,
+                http_status=target_status,
+                failure_category="http_non_2xx",
+                started_at=target_started_at,
+                target_dispatched=True,
+            )
+            return target_status, target_body
+        except Exception as exc:
+            self._record_request_diagnostic(
+                operation_role="target_request",
+                stage="response_acquisition",
+                request_context=safe_context,
+                headers_received=False,
+                body_complete=False,
+                parse_complete=False,
+                http_status=None,
+                failure_category=self._request_failure_category(
+                    exc, operation_role="target_request"
+                ),
+                started_at=target_started_at,
+                target_dispatched=True,
+            )
+            self._annotate_request_failure(exc)
+            raise
+        target_status = int(response.status)
+        try:
+            with response:
+                target_body = response.read()
+        except Exception as exc:
+            self._record_request_diagnostic(
+                operation_role="target_request",
+                stage="body_read",
+                request_context=safe_context,
+                headers_received=True,
+                body_complete=False,
+                parse_complete=False,
+                http_status=target_status,
+                failure_category=self._request_failure_category(
+                    exc, operation_role="target_request"
+                ),
+                started_at=target_started_at,
+                target_dispatched=True,
+            )
+            self._annotate_request_failure(exc)
+            raise
+        self._record_request_diagnostic(
+            operation_role="target_request",
+            stage="body_complete",
+            request_context=safe_context,
+            headers_received=True,
+            body_complete=True,
+            parse_complete=False,
+            http_status=target_status,
+            failure_category=None,
+            started_at=target_started_at,
+            target_dispatched=True,
+        )
+        return target_status, target_body
 
     def login_through_frontend_proxy(self) -> tuple[int, dict[str, Any]]:
         request = urllib.request.Request(
@@ -809,17 +1343,19 @@ $roles = @(
             failure_category = "http_non_200"
         except Exception as exc:  # noqa: BLE001 - sanitize the verifier boundary
             reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
-            if isinstance(reason, ConnectionRefusedError) or getattr(
-                reason, "winerror", None
-            ) == 10061:
+            if (
+                isinstance(reason, ConnectionRefusedError)
+                or getattr(reason, "winerror", None) == 10061
+            ):
                 failure_category = "connection_refused"
             elif isinstance(
                 reason, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)
             ) or getattr(reason, "winerror", None) in {10053, 10054}:
                 failure_category = "connection_reset"
-            elif isinstance(reason, (TimeoutError, socket.timeout)) or getattr(
-                reason, "winerror", None
-            ) == 10060:
+            elif (
+                isinstance(reason, (TimeoutError, socket.timeout))
+                or getattr(reason, "winerror", None) == 10060
+            ):
                 failure_category = "timeout"
             elif isinstance(reason, (OSError, urllib.error.URLError)):
                 failure_category = "transport_failure"
@@ -871,9 +1407,7 @@ $roles = @(
                         "role": str(record["role"]),
                         "kind": "listener",
                         "pid": int(record["listener_pid"]),
-                        "creation_time_utc": str(
-                            record["listener_creation_time_utc"]
-                        ),
+                        "creation_time_utc": str(record["listener_creation_time_utc"]),
                         "executable_path": str(record["listener_executable_path"]),
                     }
                 )
@@ -1011,7 +1545,9 @@ $roles = @(
                         f"probes={json.dumps(endpoint_observations, sort_keys=True)}"
                     )
             observe_owned_identities(f"attempt_{attempts}", deadline)
-            if any(completed_at > deadline for completed_at in probe_completed_at.values()):
+            if any(
+                completed_at > deadline for completed_at in probe_completed_at.values()
+            ):
                 self.fail(
                     "Post-rejection endpoints did not recover before the "
                     f"monotonic deadline: attempts={attempts}, "
@@ -1120,9 +1656,7 @@ $roles = @(
         RUNTIME.mkdir(parents=True, exist_ok=True)
         STATE.write_text(json.dumps(state), encoding="utf-8")
 
-    def probe_process_identity(
-        self, process_id: int
-    ) -> dict[str, str | int] | None:
+    def probe_process_identity(self, process_id: int) -> dict[str, str | int] | None:
         return self.probe_process_identities([process_id]).get(process_id)
 
     def probe_process_identities(
@@ -1410,6 +1944,7 @@ $roles = @(
             )
 
         with self.subTest(post_rejection_probe="frontend_replaced_during_probe"):
+
             def replace_frontend_during_backend_probe(
                 name: str,
                 _now: list[float],
@@ -1428,6 +1963,7 @@ $roles = @(
             )
 
         with self.subTest(post_rejection_probe="health_after_deadline"):
+
             def advance_past_deadline(
                 name: str,
                 now: list[float],
@@ -1505,14 +2041,17 @@ $roles = @(
             }
         ).encode()
         status, body = self.request(
-            "http://127.0.0.1:8000/api/demo/clm/zero-touch/cases", data=payload
+            "http://127.0.0.1:8000/api/demo/clm/zero-touch/cases",
+            data=payload,
+            request_context="before_reset",
         )
         self.assertEqual(status, 201)
         case_id = json.loads(body)["case"]["case_id"]
         self.assertEqual(
-            self.request(f"http://127.0.0.1:8000/api/clm/zero-touch/cases/{case_id}")[
-                0
-            ],
+            self.request(
+                f"http://127.0.0.1:8000/api/clm/zero-touch/cases/{case_id}",
+                request_context="before_reset",
+            )[0],
             200,
         )
 
@@ -1522,9 +2061,10 @@ $roles = @(
         self.assertNotEqual(before_state["session_id"], after_state["session_id"])
         self.assert_owned_endpoints_healthy_within(after_state)
         self.assertEqual(
-            self.request(f"http://127.0.0.1:8000/api/clm/zero-touch/cases/{case_id}")[
-                0
-            ],
+            self.request(
+                f"http://127.0.0.1:8000/api/clm/zero-touch/cases/{case_id}",
+                request_context="after_reset",
+            )[0],
             404,
         )
 

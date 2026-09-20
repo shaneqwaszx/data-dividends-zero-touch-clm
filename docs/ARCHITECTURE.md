@@ -60,6 +60,7 @@ shapes, and runtime calls dispatch through ports rather than reversing static ow
 | Policy | `domain/policy.py`, `services/policy_management.py` | typed catalogue and immutable case snapshots | policy repository | retroactive reinterpretation of cases |
 | Jurisdiction | `domain/jurisdiction.py` | observations, resolution, closed routing decision | source-neutral values | source precedence or provider HTTP |
 | Registry/ACRA | `connectors/registry.py`, `connectors/acra.py`, `mock_acra.py`, `acra_sandbox.py`, `mappers/acra.py` | strict provider acquisition, normalization, canonical mapping | connector DTOs/domain canonical model | target mapping or UBO calculation |
+| Registry snapshot cache | `services/registry_acquisition.py`, `services/registry_cache_repository.py`, `persistence/mongo_registry_cache_store.py` | opt-in synthetic Mock exact-key freshness, single-flight acquisition, complete-snapshot persistence and case evidence binding | registry provider port and normalized domain bundles | routing/auth decisions, case state, raw payloads, ownership/reconciliation/target results, sandbox/live reuse |
 | Canonical entity/evidence | `domain/models.py`, `services/canonical_validation.py` | source-neutral entity, provenance and evidence integrity | domain only | raw payload retention |
 | Documents/IDP | `domain/documents.py`, `services/document_media.py`, `document_processing.py`, `connectors/idp.py`, `local_pdf_idp.py` | intake validation, extraction, provenance, confidence/review records | case port, IDP port | source precedence or canonical overwrite |
 | Reconciliation | `domain/reconciliation.py`, `services/reconciliation.py`, reconciliation repository/UoW | compare observations, discrepancies, bounded decisions, resume binding | canonical/document evidence | implicit source winner |
@@ -105,6 +106,23 @@ mode/config design, and truthful evidence. No active ACRA path is Live.
 ACRA source DTOs are freshly reconstructed and validated, request-identifier bound,
 normalized, and mapped through `mappers/acra.py`. Direct ACRA-to-GoldTier mapping is
 prohibited.
+
+The optional registry snapshot cache is disabled by default and is valid only for the
+synthetic Mock ACRA identity. Authorization, jurisdiction, router, and identifier gates
+run before its single `RegistryAcquisitionCoordinator`. Exact keys include provider,
+environment, acquisition-contract version, synthetic dataset namespace, and normalized
+identifier. Only complete normalized bundles are stored. Freshness is evaluated after
+the per-key process-local lock at the actual use point, against every relevant UTC
+timestamp, using the project-owner-approved fixed 7,776,000-second rule. The original
+provider provenance is retained; a separate binding records provider-fetch versus
+cache-hit use and is defensively copied into each case.
+
+The lock table counts holders and waiters and retires an exact-key lock only after the
+last user exits, including failure paths. Case establishment acquires its case lock
+before cache acquisition; cache code never acquires a case lock. This provides
+single-process same-key suppression only, not a distributed lock or exactly-once
+guarantee. The synthetic dataset and bounded identifier syntax constrain inputs, but
+there is no globally bounded key count, eviction, TTL, purge, or retention policy.
 
 ## 6. Document/IDP architecture
 
@@ -176,6 +194,15 @@ Memory and Mongo implement service repository protocols. They are separate expli
 modes and never silently fall back to one another. Mongo owns one strict case envelope
 with schema version and revision. `_id`, envelope case ID and nested identities must
 agree.
+
+Case-envelope schema v4 adds an optional immutable registry evidence binding and reads
+strict v1/v2/v3 envelopes with an absent binding as unknown historical metadata. Reads
+do not infer cache disposition or rewrite legacy envelopes. The separate registry-cache
+schema v1 uses canonical lossless UTC ISO-8601 strings in memory and Mongo, an exact-key
+digest identity, insert-only creation, and expected-revision replacement. Cache and case
+repositories remain separate; no cross-collection transaction is claimed. A successful
+cache write can survive a later case-persistence failure, while an incomplete/failed
+refresh can never replace a complete entry.
 
 Create is insert-only, updates are update-only, and mutations use expected revision/CAS.
 Case deletion re-authorizes inside the canonical case lock, physically deletes the
@@ -285,9 +312,11 @@ global source-precedence rule.
 
 For Singapore, UEN is the current routing and returned-registry identity evidence;
 legal name remains reconciliation evidence. Fuzzy name matching is not authoritative
-identity. ACRA cache-first reuse is future architecture only, and a 90-day freshness
-period is an example configurable policy rather than a current rule. The POC has no
-ageing, SLA, refresh, OCDD, or perpetual-KYC engine.
+identity. Synthetic Mock ACRA cache-first reuse is now an optional project-approved POC
+path with a fixed 7,776,000-second freshness interval. It is disabled by default and is
+not an ACRA rule, production sharing/retention decision, calendar-month interpretation,
+or sponsor-confirmed policy. The POC has no general ageing/SLA, OCDD, periodic refresh,
+forced refresh, or perpetual-KYC engine.
 
 The current external Zero-Touch -> Mock GoldTier arrangement is prototype architecture,
 not a confirmed production deployment or handoff boundary. Production placement,

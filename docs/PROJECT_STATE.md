@@ -8,9 +8,9 @@ It is not a sponsor contract, phase report, or substitute for current source and
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 3,
+  "case_envelope_schema_version": 4,
   "verified_date": "2026-09-20",
-  "verified_main_sha": "614e9ffc36bc8f0d1a9a4674d04639ad6b2bc638",
+  "verified_main_sha": "cab05d7dc98d4c50c8fc096835fe49802d5896e2",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -73,6 +73,10 @@ Major implemented phases are:
   development infrastructure, not business or product functionality.
 - Phase 15C: React Router URL navigation, deep-link/history-safe case identity, stale
   callback isolation, and truthful Vite development history fallback behavior.
+- Phase 16 feature-branch implementation: opt-in complete synthetic Mock ACRA snapshot
+  reuse with exact-key isolation, fixed elapsed-time freshness, per-case evidence
+  bindings, and separate memory/Mongo cache persistence. Disabled mode remains the
+  default; merge remains a repository-owner action.
 
 ## Current runtime pipeline
 
@@ -83,7 +87,8 @@ authenticated browser/API request
   -> immutable case policy snapshot
   -> jurisdiction observations and resolver
   -> closed registry router (resolved SG only)
-  -> ACRA Mock or configured generic sandbox-shaped acquisition
+  -> optional exact-key synthetic Mock snapshot cache (disabled by default)
+  -> ACRA Mock or configured generic sandbox-shaped acquisition on cache bypass/miss/stale
   -> canonical legal entity and normalized registry evidence
   -> bounded document intake and local deterministic extraction
   -> source-neutral reconciliation and review/resume where required
@@ -103,6 +108,7 @@ boundaries.
 | Boundary | Active/default | Other implemented seam | Classification | What is proved |
 |---|---|---|---|---|
 | ACRA | `mock` | generic `sandbox` connector | Mock active; sandbox partial | Synthetic ACRA-shaped behavior and adapter isolation |
+| Registry cache | disabled | opt-in synthetic Mock only | Project-defined POC | Complete normalized Mock snapshots under exact identity and fixed elapsed-time freshness |
 | ACRA BizFile | none | module exists but is not composed | Dormant | Focused adapter code/tests only, not runtime availability |
 | IDP/OCR | `local_pdf_text` | Mock fault/demo provider | Local POC / Mock | Deterministic extraction from supported synthetic documents |
 | Ownership | registry evidence into local engine | Mock fault/demo provider | Local / Mock support | Deterministic Decimal graph analysis, not an external service |
@@ -138,19 +144,23 @@ unknown or blocked.
   clears them.
 - `mongo` is explicit. Missing/invalid configuration, startup validation, reads, or
   writes fail closed and never fall back to memory.
-- One schema-versioned case envelope (current schema v3) owns durable case state.
+- One schema-versioned case envelope (current schema v4) owns durable case state. Strict
+  v1/v2/v3 reads represent absent cache binding as unrecorded metadata and do not rewrite.
   Repository adapters preserve revision compare-and-set, insert-only creation,
   update-only mutation, strict identity binding, and replay-aware recovery.
+- The optional Mock registry cache has a separate schema-v1 repository/collection and
+  persists complete normalized synthetic bundles only. It has no cross-collection
+  transaction, TTL, deletion cascade, or distributed exactly-once guarantee.
 - Global team/profile/policy records use separate bounded repository owners.
 - Raw uploads, full extracted text, raw external payloads, credentials, sessions, and
   connection strings are excluded from case envelopes.
 - Physical tests use generated allowlisted `clm_p12_*`, `clm_p13_*`, or newer explicitly
   approved disposable names. `clm_poc` is never a physical test/cleanup database. The
-  guarded runner owns four explicit suites and reports their dynamic collection and
+  guarded runner owns five explicit suites and reports their dynamic collection and
   execution counts. Project acceptance requires every currently collected owned test
-  to execute and pass with zero failures, errors, or skips. On this verified baseline
-  that was 17 collected, 17 executed, and 17 passed; 17 is evidence for this baseline,
-  not a permanent future test-count contract.
+  to execute and pass with zero failures, errors, or skips. On the tested Phase 16
+  working tree that was 22 collected, 22 executed, and 22 passed; 22 is
+  revision-specific evidence, not a permanent future test-count contract.
 
 ## Authentication, authorization and administration
 
@@ -172,6 +182,8 @@ unknown or blocked.
 - Controlled Singapore/ACRA routing with no implicit source precedence.
 - Four-operation Mock registry acquisition with truthful complete/partial/failure
   evidence and downstream call stopping.
+- Optional backend-global reuse of fresh complete synthetic Mock registry snapshots,
+  with exact identity isolation and immutable per-case source/cache-use evidence.
 - PDF, DOCX and UTF-8 TXT technical intake with strict size/structure handling.
 - Deterministic local extraction and field provenance.
 - Source-neutral reconciliation with explicit bounded actions and resume.
@@ -186,6 +198,8 @@ unknown or blocked.
 
 - No proven live ACRA, PingFed, GoldTier, external ownership, vendor OCR, production
   SSO/IdP, or Camunda connection.
+- No sandbox/live registry caching, production sharing/retention policy, forced refresh,
+  existing-case reassessment, background refresh, TTL, or cache administration API.
 - No ASIC/Malaysia/Hong Kong registry adapter in active runtime.
 - No `createRelationship` or multi-level hierarchy creation through GoldTier.
 - No sponsor-approved final UBO, document, source-authority, RBAC, retention, deletion,
@@ -206,8 +220,10 @@ ACRA, Live GoldTier, or Live PingFed connection is proved.
 **Project/sponsor direction, not current runtime:** LOW/MEDIUM/HIGH is a supplied-risk
 direction; the POC has no risk field, risk engine, score, or calculated risk. The
 current P1–P10 ordering implementation conflicts with an emerging 1–3 direction and
-remains unchanged pending Q-016. There is no ACRA cache: 90 days is only an example of
-a future configurable freshness policy, not a runtime/configured rule.
+remains unchanged pending Q-016. Synthetic Mock ACRA caching is now optional POC
+behavior under owner-approved O-16-01 through O-16-04: the exact fixed interval is
+7,776,000 seconds (90 elapsed 24-hour periods). It is not calendar months, an ACRA
+validity rule, production policy, or sponsor-confirmed authority.
 
 **Future/KIV and open authority:** there is no ageing/SLA, OCDD, periodic refresh, or
 perpetual-KYC runtime. The implemented external Zero-Touch -> Mock GoldTier sequence
@@ -234,7 +250,7 @@ final approval.
 ## Repository and development tooling
 
 The repository includes an exact-pinned Playwright Chromium E2E harness with guarded
-browser network policy, a guarded runner for the four owned physical Mongo suites,
+browser network policy, a guarded runner for the five owned physical Mongo suites,
 read-only GitHub PR/CI inspection tooling, and hardened Windows demo lifecycle
 verification. These capabilities support local development, CI, and verification;
 they do not add a product workflow, business capability, Live provider integration, or

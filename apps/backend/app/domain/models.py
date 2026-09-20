@@ -1,9 +1,11 @@
 """Canonical onboarding and normalized registry-acquisition models."""
 
-from datetime import UTC, date, datetime
+import json
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated
+from hashlib import sha256
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -417,6 +419,184 @@ class RegistryAcquisitionBundle(BaseModel):
         return self
 
 
+class RegistryEvidenceDisposition(StrEnum):
+    """Truthful reason a complete shared snapshot was bound to one case."""
+
+    PROVIDER_FETCH = "PROVIDER_FETCH"
+    CACHE_HIT = "CACHE_HIT"
+
+
+class RegistryProviderIdentity(BaseModel):
+    """Exact internal identity required before a provider may use the cache."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: SourceSystem
+    environment: SourceEnvironment
+    acquisition_contract_version: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Z0-9][A-Z0-9_.-]{0,63}$",
+    )
+    dataset_namespace: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Z0-9][A-Z0-9_.-]{0,63}$",
+    )
+
+
+class RegistryCacheKey(BaseModel):
+    """Immutable cache identity isolated by provider, contract, and data set."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider_identity: RegistryProviderIdentity
+    normalized_identifier: str = Field(min_length=1, max_length=32)
+
+    @property
+    def digest(self) -> str:
+        encoded = json.dumps(
+            self.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return sha256(encoded).hexdigest()
+
+
+class RegistryFreshnessPolicy(BaseModel):
+    """Fixed owner-approved Mock freshness rule; never provider policy."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy_id: Literal["MOCK_ACRA_FIXED_90D"] = "MOCK_ACRA_FIXED_90D"
+    version: Literal[1] = 1
+    duration_seconds: Literal[7_776_000] = 7_776_000
+    comparator: Literal["EVALUATION_NOW_LT_EXPIRES_AT"] = (
+        "EVALUATION_NOW_LT_EXPIRES_AT"
+    )
+
+    @property
+    def fingerprint(self) -> str:
+        encoded = json.dumps(
+            self.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return sha256(encoded).hexdigest()
+
+    def expires_at(self, freshness_anchor: datetime) -> datetime:
+        return _require_utc(freshness_anchor) + timedelta(seconds=self.duration_seconds)
+
+
+class RegistrySnapshotEntry(BaseModel):
+    """One complete normalized shared registry snapshot."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    cache_schema_version: Literal[1] = 1
+    cache_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    key: RegistryCacheKey
+    revision: int = Field(ge=0)
+    acquisition: RegistryAcquisitionBundle
+    freshness_anchor: datetime
+    provider_effective_at: datetime | None = None
+    written_at: datetime
+
+    @field_validator("freshness_anchor", "provider_effective_at", "written_at")
+    @classmethod
+    def timestamps_must_be_utc(cls, value: datetime | None) -> datetime | None:
+        return _require_utc(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def validate_entry(self) -> "RegistrySnapshotEntry":
+        if self.cache_id != self.key.digest:
+            raise ValueError("registry cache identity does not match its key")
+        if self.acquisition.status != RegistryAcquisitionStatus.COMPLETE:
+            raise ValueError("registry cache entries require complete acquisition evidence")
+        if self.acquisition.requested_identifier != self.key.normalized_identifier:
+            raise ValueError("registry cache key does not match the acquisition identifier")
+        provenances = tuple(
+            result.provenance for result in self.acquisition.operation_results
+        )
+        if any(provenance is None for provenance in provenances):
+            raise ValueError("complete registry cache evidence requires all provenances")
+        complete_provenances = tuple(
+            provenance for provenance in provenances if provenance is not None
+        )
+        identity = self.key.provider_identity
+        if any(
+            provenance.provider != identity.provider
+            or provenance.environment != identity.environment
+            for provenance in complete_provenances
+        ):
+            raise ValueError("registry cache identity does not match acquisition provenance")
+        if self.freshness_anchor != min(
+            provenance.retrieved_at for provenance in complete_provenances
+        ):
+            raise ValueError("registry freshness anchor must be the earliest operation time")
+        if self.written_at < self.acquisition.retrieved_at:
+            raise ValueError("registry cache write cannot precede provider retrieval")
+        if (
+            identity.environment == SourceEnvironment.MOCK
+            and self.provider_effective_at is not None
+        ):
+            raise ValueError("Mock registry evidence has no provider-effective time")
+        return self
+
+
+class RegistryEvidenceBinding(BaseModel):
+    """Immutable record of one successfully committed complete cache use."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    disposition: RegistryEvidenceDisposition
+    cache_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cache_key: RegistryCacheKey
+    cache_revision: int = Field(ge=0)
+    freshness_anchor: datetime
+    bundle_retrieved_at: datetime
+    cache_written_at: datetime
+    bound_to_case_at: datetime
+    expires_at: datetime
+    freshness_policy: RegistryFreshnessPolicy
+    freshness_policy_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator(
+        "freshness_anchor",
+        "bundle_retrieved_at",
+        "cache_written_at",
+        "bound_to_case_at",
+        "expires_at",
+    )
+    @classmethod
+    def binding_timestamps_must_be_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+    @model_validator(mode="after")
+    def validate_binding(self) -> "RegistryEvidenceBinding":
+        if self.cache_id != self.cache_key.digest:
+            raise ValueError("registry binding identity does not match its key")
+        if self.freshness_policy_fingerprint != self.freshness_policy.fingerprint:
+            raise ValueError("registry binding policy fingerprint is inconsistent")
+        if self.expires_at != self.freshness_policy.expires_at(self.freshness_anchor):
+            raise ValueError("registry binding expiry is inconsistent")
+        if self.bundle_retrieved_at < self.freshness_anchor:
+            raise ValueError("registry bundle time cannot precede its freshness anchor")
+        if self.cache_written_at < self.bundle_retrieved_at:
+            raise ValueError("registry cache write cannot precede provider retrieval")
+        if self.bound_to_case_at < self.cache_written_at:
+            raise ValueError("registry case binding cannot precede the cache write")
+        if self.bound_to_case_at >= self.expires_at:
+            raise ValueError("registry evidence cannot be bound at or after expiry")
+        return self
+
+
+def _require_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+        raise ValueError("registry cache timestamp must be timezone-aware UTC")
+    return value.astimezone(UTC)
+
+
 class WorkflowEvent(BaseModel):
     """Audit-safe workflow event; raw corporate payloads are deliberately excluded."""
 
@@ -462,8 +642,44 @@ class OnboardingCase(BaseModel):
     state: WorkflowState
     entity: CanonicalLegalEntity | None = None
     registry_acquisition: RegistryAcquisitionBundle | None = None
+    registry_evidence_binding: RegistryEvidenceBinding | None = None
     goldtier_result: GoldTierResult | None = None
     events: list[WorkflowEvent] = Field(default_factory=list)
     error: SafeError | None = None
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_registry_binding(self) -> "OnboardingCase":
+        binding = self.registry_evidence_binding
+        acquisition = self.registry_acquisition
+        if binding is None:
+            return self
+        if acquisition is None or acquisition.status != RegistryAcquisitionStatus.COMPLETE:
+            raise ValueError("registry evidence binding requires a complete acquisition")
+        if self.entity != acquisition.entity_profile:
+            raise ValueError("registry evidence binding requires the acquired entity")
+        if binding.cache_key.normalized_identifier != self.requested_uen:
+            raise ValueError("registry evidence binding does not match the case identifier")
+        if binding.bundle_retrieved_at != acquisition.retrieved_at:
+            raise ValueError("registry evidence binding does not match the bundle timestamp")
+        provenances = tuple(
+            result.provenance for result in acquisition.operation_results
+        )
+        if any(provenance is None for provenance in provenances):
+            raise ValueError("bound registry evidence requires every operation provenance")
+        complete_provenances = tuple(
+            provenance for provenance in provenances if provenance is not None
+        )
+        identity = binding.cache_key.provider_identity
+        if any(
+            provenance.provider != identity.provider
+            or provenance.environment != identity.environment
+            for provenance in complete_provenances
+        ):
+            raise ValueError("registry evidence binding has inconsistent provider identity")
+        if binding.freshness_anchor != min(
+            provenance.retrieved_at for provenance in complete_provenances
+        ):
+            raise ValueError("registry evidence binding has an inconsistent freshness anchor")
+        return self

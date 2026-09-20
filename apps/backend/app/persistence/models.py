@@ -20,12 +20,12 @@ from app.domain.models import (
     WorkflowState,
 )
 from app.domain.ownership import OwnershipAnalysisRecord
-from app.domain.policy import legacy_phase13_policy_snapshot
+from app.domain.policy import CasePolicySnapshot, legacy_phase13_policy_snapshot
 from app.domain.reconciliation import ReconciliationCaseRecord
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[3] = 3
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[4] = 4
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -55,6 +55,7 @@ class LegacyOnboardingCaseV1(BaseModel):
                 "team_id": None,
                 "priority": None,
                 "policy_snapshot": legacy_phase13_policy_snapshot(self.created_at),
+                "registry_evidence_binding": None,
             }
         )
 
@@ -85,7 +86,7 @@ class DurableCaseSnapshotV1(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=3,
+            schema_version=4,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -112,6 +113,7 @@ class LegacyOnboardingCaseV2(LegacyOnboardingCaseV1):
             {
                 **self.model_dump(),
                 "policy_snapshot": legacy_phase13_policy_snapshot(self.created_at),
+                "registry_evidence_binding": None,
             }
         )
 
@@ -142,7 +144,63 @@ class DurableCaseSnapshotV2(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=3,
+            schema_version=4,
+            case_id=self.case_id,
+            revision=self.revision,
+            onboarding=self.onboarding.to_current(),
+            documents=self.documents,
+            ownership=self.ownership,
+            reconciliation=self.reconciliation,
+            clm=self.clm,
+            automation=self.automation,
+            target_executions=self.target_executions,
+            demo_scenario=self.demo_scenario,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
+
+
+class LegacyOnboardingCaseV3(LegacyOnboardingCaseV2):
+    """Exact Phase 14.5 onboarding shape used only for strict schema-v3 reads."""
+
+    policy_snapshot: CasePolicySnapshot
+
+    def to_current(self) -> OnboardingCase:
+        return OnboardingCase.model_validate(
+            {
+                **self.model_dump(),
+                "registry_evidence_binding": None,
+            }
+        )
+
+
+class DurableCaseSnapshotV3(BaseModel):
+    """Strict pre-Phase-16 envelope accepted without version-only rewrite."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[3] = 3
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: LegacyOnboardingCaseV3
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV3":
+        _validate_case_bindings(self)
+        return self
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot(
+            schema_version=4,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -163,7 +221,7 @@ class DurableCaseSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[3] = 3
+    schema_version: Literal[4] = 4
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase

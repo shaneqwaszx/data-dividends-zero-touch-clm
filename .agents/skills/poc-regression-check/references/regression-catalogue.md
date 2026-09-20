@@ -187,6 +187,27 @@ as do IDP, ownership, and GoldTier counts. Browser summaries expose only normali
 records, opaque evidence references, provider/environment, UTC times, statuses, counts,
 and fixed safe issues. They label the surface as a project-owned synthetic Mock contract.
 
+## Phase 16 synthetic Mock registry snapshot scenarios
+
+These scenarios apply only when the backend explicitly enables the synthetic Mock cache
+with the exact project-defined `7_776_000`-second duration. Disabled mode preserves the
+Phase 09/10 retrieve-for-each-case behavior and adds no cache startup dependency.
+
+| Scenario | Expected result | Required evidence/calls | Prohibited behavior/claims |
+|---|---|---|---|
+| Exact-key miss then fresh hit | Both cases retain the same complete original acquisition; first binding is `PROVIDER_FETCH`, second is `CACHE_HIT` | First case makes the four ordered Registry calls once; hit makes zero Registry calls; each case owns a defensive copy | No re-retrieval/re-verification claim, raw payload cache, or changed target order/count |
+| One microsecond before/exact expiry | Before expiry is a hit; exact expiry is stale and refreshes | Lossless UTC microseconds in memory/Mongo; fixed elapsed-second arithmetic under the per-key lock | No calendar-month arithmetic, tolerance, rounding, or stale serving |
+| Partial/failed refresh | Current case retains the existing sanitized partial/failed behavior with no binding; prior complete entry and old cases remain unchanged | Provider prefix stops at the failing operation; zero cache replacement and no downstream progression | No stale fallback, failed overwrite, or mutation/reassessment of an existing case |
+| Invalid/corrupt cache or read/write/CAS failure | Safe cache-specific technical failure | Invalid/read stops before provider; failed write retains no acquisition/entity/binding on the new case; CAS has no retry loop | No corrupt-as-miss behavior, uncommitted binding, raw storage error, or silent memory fallback |
+| Concurrent same/different keys | Same-key requests single-flight within one process; different keys proceed independently | Exact-key holder/waiter accounting and lock retirement after success/failure | No distributed exactly-once claim or permanent identifier lock growth |
+| Memory/Mongo restart and deletion | Memory restarts miss; Mongo restarts hit; case deletion leaves the shared complete snapshot | Separate schema-v1 cache owner, strict CAS/key/schema validation, generated disposable physical database | No case-delete cascade, TTL, purge/history API, or production retention claim |
+
+Exact cache identity includes provider, environment, acquisition-contract version,
+synthetic dataset namespace, and normalized identifier. Adjacent identity is a miss;
+a value returned for the requested digest with different decoded identity is corruption.
+The cache remains backend-only and does not add a public API, frontend control, forced
+refresh, sandbox/live caching, or production cross-team sharing authority.
+
 ## Phase 11 reconciliation/review/resume scenarios
 
 | Scenario | Expected state | Required evidence/calls | Prohibited behavior/claims |

@@ -41,6 +41,7 @@ from app.domain.models import (
     RegistryOperationStatus,
     RegistryOwnershipParty,
     RegistryPartyType,
+    RegistryProviderIdentity,
     RegistryRelationship,
     RegistryRelationshipType,
     SourceEnvironment,
@@ -64,6 +65,7 @@ class RegistryProvider(Protocol):
     """Return normalized registry evidence without leaking provider DTOs."""
 
     provider_code: RegistryProviderCode
+    cache_identity: RegistryProviderIdentity | None
 
     def retrieve_acquisition(self, identifier: str) -> RegistryAcquisitionBundle | None:
         """Run the bounded acquisition sequence for one registration identifier."""
@@ -80,15 +82,18 @@ class AcraRegistryProviderAdapter:
     """Strictly normalize project-owned ACRA Mock operations into one bundle."""
 
     provider_code = RegistryProviderCode.ACRA
+    ACQUISITION_CONTRACT_VERSION = "PHASE10_ACQUISITION_V1"
 
     def __init__(
         self,
         connector: AcraConnector,
         *,
         clock: Callable[[], datetime] | None = None,
+        cache_identity: RegistryProviderIdentity | None = None,
     ) -> None:
         self._connector = connector
         self._clock = clock or (lambda: datetime.now(UTC))
+        self.cache_identity = cache_identity
 
     def retrieve_company(self, identifier: str) -> CanonicalLegalEntity | None:
         """Compatibility seam retaining Phase 09 entity-profile behavior."""

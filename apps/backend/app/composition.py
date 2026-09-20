@@ -17,7 +17,7 @@ from app.connectors.acra_sandbox import (
 )
 from app.connectors.errors import AcraConfigurationError
 from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
-from app.connectors.mock_acra import MockAcraConnector
+from app.connectors.mock_acra import MOCK_ACRA_DATASET_NAMESPACE, MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.mock_idp import MockIdpProvider
 from app.connectors.ownership import OwnershipProvider
@@ -30,6 +30,12 @@ from app.demo.scenarios import (
     Phase01MockScenarioCatalogue,
 )
 from app.demo.zero_touch_control import DemoScenarioRepository, ZeroTouchDemoControl
+from app.domain.models import (
+    RegistryFreshnessPolicy,
+    RegistryProviderIdentity,
+    SourceEnvironment,
+    SourceSystem,
+)
 from app.domain.policy import CasePolicySnapshot
 from app.services.admin_repository import ProfileRepository, TeamRepository
 from app.services.authentication import AuthenticationService
@@ -55,6 +61,11 @@ from app.services.reconciliation_repository import (
     ReconciliationRepository,
     ReconciliationUnitOfWork,
 )
+from app.services.registry_acquisition import RegistryAcquisitionCoordinator
+from app.services.registry_cache_repository import (
+    InMemoryRegistrySnapshotRepository,
+    RegistrySnapshotRepository,
+)
 from app.services.repository import InMemoryOnboardingCaseRepository, OnboardingCaseRepository
 from app.services.target_execution_repository import TargetExecutionRepository
 from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
@@ -79,6 +90,7 @@ def build_onboarding_service(
     repository: OnboardingCaseRepository | None = None,
     target_execution_repository: TargetExecutionRepository | None = None,
     policy_snapshot_provider: Callable[[], CasePolicySnapshot] | None = None,
+    registry_snapshot_repository: RegistrySnapshotRepository | None = None,
 ) -> OnboardingService:
     """Compose configured ACRA and credential-free Mock GoldTier connectors."""
 
@@ -90,9 +102,42 @@ def build_onboarding_service(
         authorizer=acra_authorizer,
         decoder=acra_decoder,
     )
+    cache_identity = (
+        RegistryProviderIdentity(
+            provider=SourceSystem.ACRA,
+            environment=SourceEnvironment.MOCK,
+            acquisition_contract_version=(
+                AcraRegistryProviderAdapter.ACQUISITION_CONTRACT_VERSION
+            ),
+            dataset_namespace=MOCK_ACRA_DATASET_NAMESPACE,
+        )
+        if active_settings.registry_cache_mode == "mock"
+        else None
+    )
+    registry_provider = AcraRegistryProviderAdapter(
+        active_acra,
+        cache_identity=cache_identity,
+    )
+    registry_coordinator = None
+    if active_settings.registry_cache_mode == "mock":
+        freshness_seconds = active_settings.registry_cache_freshness_seconds
+        if freshness_seconds is None:
+            raise ValueError("enabled registry cache requires an explicit freshness value")
+        if (
+            active_settings.clm_persistence_mode == "mongo"
+            and registry_snapshot_repository is None
+        ):
+            raise ValueError("enabled Mongo registry cache requires its repository")
+        registry_coordinator = RegistryAcquisitionCoordinator(
+            registry_snapshot_repository or InMemoryRegistrySnapshotRepository(),
+            RegistryFreshnessPolicy.model_validate(
+                {"duration_seconds": freshness_seconds}
+            ),
+        )
     return OnboardingService(
         acra=None,
-        registry_router=RegistryProviderRouter(AcraRegistryProviderAdapter(active_acra)),
+        registry_router=RegistryProviderRouter(registry_provider),
+        registry_acquisition_coordinator=registry_coordinator,
         goldtier=MockGoldTierConnector(
             policy_validation_failure_keys=catalogue.policy_validation_failure_uens(),
             partial_amend_external_keys=catalogue.partial_amend_uens(),

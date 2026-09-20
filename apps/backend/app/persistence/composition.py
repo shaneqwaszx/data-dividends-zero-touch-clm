@@ -19,6 +19,7 @@ from app.persistence.mongo_admin_store import (
     MongoTeamRepository,
 )
 from app.persistence.mongo_case_store import MongoCaseStore
+from app.persistence.mongo_registry_cache_store import MongoRegistryCacheStore
 from app.persistence.repositories import (
     MongoCaseDeletionRepository,
     MongoCasePortfolioRepository,
@@ -66,6 +67,10 @@ from app.services.reconciliation_repository import (
     ReconciliationRepository,
     ReconciliationUnitOfWork,
 )
+from app.services.registry_cache_repository import (
+    InMemoryRegistrySnapshotRepository,
+    RegistrySnapshotRepository,
+)
 from app.services.repository import (
     InMemoryOnboardingCaseRepository,
     OnboardingCaseRepository,
@@ -96,6 +101,7 @@ class PersistenceBundle:
     policies: PolicyRepository
     portfolio: CasePortfolioRepository
     deletion: CaseDeletionRepository
+    registry_snapshots: RegistrySnapshotRepository | None
     reconciliation_unit_of_work: ReconciliationUnitOfWork | None = None
     mongo_store: MongoCaseStore | None = None
     mongo_admin_store: MongoAdminStore | None = None
@@ -147,6 +153,11 @@ def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
                 target_executions=target_executions,
                 demo_scenarios=demo_scenarios,
             ),
+            registry_snapshots=(
+                InMemoryRegistrySnapshotRepository()
+                if settings.registry_cache_mode == "mock"
+                else None
+            ),
         )
 
     if settings.mongo_uri is None:
@@ -166,6 +177,15 @@ def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
         policies_collection=settings.mongo_admin_policies_collection,
     )
     admin_store.initialize()
+    registry_snapshots: RegistrySnapshotRepository | None = None
+    if settings.registry_cache_mode == "mock":
+        mongo_registry_store = MongoRegistryCacheStore(
+            client,
+            database=settings.mongo_database,
+            collection=settings.mongo_registry_cache_collection,
+        )
+        mongo_registry_store.initialize()
+        registry_snapshots = mongo_registry_store
     mongo_teams = MongoTeamRepository(admin_store)
     mongo_profiles = MongoProfileRepository(admin_store)
     mongo_policies = MongoPolicyRepository(admin_store)
@@ -188,6 +208,7 @@ def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
         reconciliation_unit_of_work=MongoReconciliationUnitOfWork(store),
         mongo_store=store,
         mongo_admin_store=admin_store,
+        registry_snapshots=registry_snapshots,
     )
 
 
