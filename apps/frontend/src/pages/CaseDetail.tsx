@@ -46,6 +46,12 @@ const ACTION_LABELS: Record<ExceptionResolutionAction, string> = {
   REQUEST_ADDITIONAL_INFORMATION: "Request additional information",
 };
 
+interface CaseActionIdentity {
+  readonly generation: number;
+  readonly caseId: string;
+  readonly actorUserId: string;
+}
+
 export function shouldRefreshAfterMutationError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409;
 }
@@ -76,16 +82,35 @@ export default function CaseDetail({
   const ownership = ownershipQuery.data ?? null;
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [dialogException, setDialogException] = useState<{ exception: ZeroTouchException; kind: "assign" | "rework" } | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState<CaseActionIdentity | null>(null);
+  const [dialogException, setDialogException] = useState<{
+    exception: ZeroTouchException;
+    kind: "assign" | "rework";
+    action: CaseActionIdentity;
+  } | null>(null);
   const generation = useRef(0);
+  const mounted = useRef(false);
+  const activeIdentity = useRef({ caseId, actorUserId: actor.user_id });
+  activeIdentity.current = { caseId, actorUserId: actor.user_id };
 
-  const refreshEvidence = useCallback(async () => {
+  function captureCaseAction(): CaseActionIdentity {
+    return { generation: generation.current, caseId, actorUserId: actor.user_id };
+  }
+
+  function isCurrentCaseAction(action: CaseActionIdentity): boolean {
+    return mounted.current
+      && generation.current === action.generation
+      && activeIdentity.current.caseId === action.caseId
+      && activeIdentity.current.actorUserId === action.actorUserId;
+  }
+
+  const refreshEvidence = useCallback(async (action: CaseActionIdentity = captureCaseAction()) => {
     const [latest, latestDocuments, latestOwnership] = await Promise.all([
       fetchZeroTouchCase(caseId),
       fetchDocuments(caseId),
       fetchOwnership(caseId),
     ]);
+    if (!isCurrentCaseAction(action)) return latest;
     queryClient.setQueryData(caseDetailQueryOptions(actor.user_id, caseId).queryKey, latest);
     queryClient.setQueryData(documentQueryOptions(actor.user_id, caseId).queryKey, latestDocuments);
     queryClient.setQueryData(ownershipQueryOptions(actor.user_id, caseId).queryKey, latestOwnership);
@@ -93,11 +118,22 @@ export default function CaseDetail({
   }, [actor.user_id, caseId, queryClient]);
 
   useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      generation.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
     generation.current += 1;
     const current = generation.current;
     setError(null);
+    setIsBusy(false);
+    setDeleteDialogOpen(null);
+    setDialogException(null);
     return () => { generation.current = current + 1; };
-  }, [caseId]);
+  }, [actor.user_id, caseId]);
 
   useEffect(() => {
     if (!summary || !shouldPollAutomation(summary.status)) return;
@@ -122,25 +158,36 @@ export default function CaseDetail({
   }, [actor.user_id, caseId, queryClient, summary?.status, summary?.version]);
 
   async function runMutation(operation: () => Promise<ZeroTouchCaseSummary>) {
+    const action = captureCaseAction();
     setIsBusy(true);
     setError(null);
     try {
-      await caseSupportingMutationEffect(queryClient, actor.user_id, await operation());
+      const updated = await operation();
+      if (!isCurrentCaseAction(action)) return;
+      await caseSupportingMutationEffect(queryClient, action.actorUserId, updated);
     } catch (mutationError) {
+      if (!isCurrentCaseAction(action)) return;
       if (shouldRefreshAfterMutationError(mutationError)) {
-        await refreshEvidence().catch(() => undefined);
+        await refreshEvidence(action).catch(() => undefined);
       }
+      if (!isCurrentCaseAction(action)) return;
       setError(mutationError instanceof Error ? mutationError.message : "The case action failed.");
     } finally {
-      setIsBusy(false);
+      if (isCurrentCaseAction(action)) setIsBusy(false);
     }
   }
 
-  async function deleteCase(): Promise<void> {
-    await deleteZeroTouchCase(caseId);
-    await caseDeletedEffect(queryClient, actor.user_id, caseId);
-    setDeleteDialogOpen(false);
-    onBack();
+  async function deleteCase(action: CaseActionIdentity): Promise<void> {
+    try {
+      await deleteZeroTouchCase(action.caseId);
+      if (!isCurrentCaseAction(action)) return;
+      await caseDeletedEffect(queryClient, action.actorUserId, action.caseId);
+      if (!isCurrentCaseAction(action)) return;
+      setDeleteDialogOpen(null);
+      onBack();
+    } catch (deleteError) {
+      if (isCurrentCaseAction(action)) throw deleteError;
+    }
   }
 
   const loadError = detailQuery.error ?? documentQuery.error ?? ownershipQuery.error;
@@ -163,7 +210,7 @@ export default function CaseDetail({
       </div>
 
       <div className="ds-page" style={{ flex: 1 }}>
-        <div className="ds-page-header"><div><p className="card-kicker">{summary.case.requested_uen} · {summary.case.jurisdiction_resolution?.resolved_jurisdiction ?? "—"} · {summary.case.client_scope_label ?? "Legacy unassigned"}</p><h1>{entity?.legal_name ?? summary.case.requested_uen}</h1></div><div className="case-header-actions"><PriorityBadge priority={summary.case.priority} /><PriorityControl caseId={caseId} priority={summary.case.priority} onUpdated={async () => { await refreshEvidence(); await priorityMutationEffect(queryClient, actor.user_id); }} />{(actor.role === "DIRECTOR" || actor.role === "RELATIONSHIP_MANAGER") && <button type="button" className="btn btn-danger" onClick={() => setDeleteDialogOpen(true)}>Delete case</button>}<span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span></div></div>
+        <div className="ds-page-header"><div><p className="card-kicker">{summary.case.requested_uen} · {summary.case.jurisdiction_resolution?.resolved_jurisdiction ?? "—"} · {summary.case.client_scope_label ?? "Legacy unassigned"}</p><h1>{entity?.legal_name ?? summary.case.requested_uen}</h1></div><div className="case-header-actions"><PriorityBadge priority={summary.case.priority} /><PriorityControl caseId={caseId} priority={summary.case.priority} onUpdated={async () => { const action = captureCaseAction(); await refreshEvidence(action); if (isCurrentCaseAction(action)) await priorityMutationEffect(queryClient, action.actorUserId); }} />{(actor.role === "DIRECTOR" || actor.role === "RELATIONSHIP_MANAGER") && <button type="button" className="btn btn-danger" onClick={() => setDeleteDialogOpen(captureCaseAction())}>Delete case</button>}<span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span></div></div>
         {error && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{error}</div>}
 
         {summary.active_exceptions.filter((exception) => exception.stage !== "REGISTRY").map((exception) => (
@@ -172,8 +219,8 @@ export default function CaseDetail({
             <p style={{ marginTop: 8, fontSize: 12.5 }}>{exception.explanation}</p>
             <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
               {exception.available_actions.map((action) => <button key={action} type="button" className="btn btn-primary" disabled={isBusy} onClick={() => void runMutation(() => resolveZeroTouchException(summary, exception.exception_id, action, exception.evidence_version))}>{ACTION_LABELS[action]}</button>)}
-              <button type="button" className="btn btn-secondary disclosure-action" aria-description="Disclosure only; assignment is unavailable" onClick={() => setDialogException({ exception, kind: "assign" })}>Assign reviewer</button>
-              <button type="button" className="btn btn-secondary disclosure-action" aria-description="Disclosure only; return for rework is unavailable" onClick={() => setDialogException({ exception, kind: "rework" })}>Return for rework</button>
+              <button type="button" className="btn btn-secondary disclosure-action" aria-description="Disclosure only; assignment is unavailable" onClick={() => setDialogException({ exception, kind: "assign", action: captureCaseAction() })}>Assign reviewer</button>
+              <button type="button" className="btn btn-secondary disclosure-action" aria-description="Disclosure only; return for rework is unavailable" onClick={() => setDialogException({ exception, kind: "rework", action: captureCaseAction() })}>Return for rework</button>
             </div>
           </div>
         ))}
@@ -236,11 +283,18 @@ export default function CaseDetail({
                             event.target.value = "";
                             if (!file) return;
                             if (document.state === "FAILED") {
+                              const action = captureCaseAction();
                               setIsBusy(true);
                               void retryZeroTouchIntakeDocument(caseId, document.document_id, file, false)
-                                .then(() => refreshEvidence())
-                                .catch((retryError) => setError(retryError instanceof Error ? retryError.message : "Retry failed."))
-                                .finally(() => setIsBusy(false));
+                                .then(() => isCurrentCaseAction(action) ? refreshEvidence(action) : undefined)
+                                .catch((retryError) => {
+                                  if (isCurrentCaseAction(action)) {
+                                    setError(retryError instanceof Error ? retryError.message : "Retry failed.");
+                                  }
+                                })
+                                .finally(() => {
+                                  if (isCurrentCaseAction(action)) setIsBusy(false);
+                                });
                             } else {
                               void runMutation(() => replaceZeroTouchDocument(caseId, document.document_id, document.events.length, file));
                             }
@@ -312,9 +366,9 @@ export default function CaseDetail({
         <h4 style={{ marginTop: 24 }}>Automation timeline</h4><div className="table-card"><table className="table"><thead><tr><th>Timestamp</th><th>Stage</th><th>Event</th><th>Outcome</th></tr></thead><tbody>{summary.timeline.map((event) => <tr key={event.sequence}><td>{formatTimestamp(event.timestamp)}</td><td>{event.stage}</td><td>{event.message}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>
       </div>
 
-      {dialogException?.kind === "assign" && <AssignReviewerDialog summary={summary} exception={dialogException.exception} onClose={() => setDialogException(null)} onAssigned={(updated) => { caseSummaryMutationEffect(queryClient, actor.user_id, updated); setDialogException(null); }} />}
-      {dialogException?.kind === "rework" && <ReturnForReworkDialog summary={summary} exception={dialogException.exception} onClose={() => setDialogException(null)} onReturned={(updated) => { caseSummaryMutationEffect(queryClient, actor.user_id, updated); setDialogException(null); }} />}
-      {deleteDialogOpen && <DeleteCaseDialog caseId={caseId} companyName={entity?.legal_name ?? summary.case.requested_uen} requestedUen={summary.case.requested_uen} onCancel={() => setDeleteDialogOpen(false)} onConfirm={deleteCase} />}
+      {dialogException?.kind === "assign" && isCurrentCaseAction(dialogException.action) && <AssignReviewerDialog summary={summary} exception={dialogException.exception} onClose={() => setDialogException(null)} onAssigned={(updated) => { if (!isCurrentCaseAction(dialogException.action)) return; caseSummaryMutationEffect(queryClient, dialogException.action.actorUserId, updated); setDialogException(null); }} />}
+      {dialogException?.kind === "rework" && isCurrentCaseAction(dialogException.action) && <ReturnForReworkDialog summary={summary} exception={dialogException.exception} onClose={() => setDialogException(null)} onReturned={(updated) => { if (!isCurrentCaseAction(dialogException.action)) return; caseSummaryMutationEffect(queryClient, dialogException.action.actorUserId, updated); setDialogException(null); }} />}
+      {deleteDialogOpen && isCurrentCaseAction(deleteDialogOpen) && <DeleteCaseDialog caseId={deleteDialogOpen.caseId} companyName={entity?.legal_name ?? summary.case.requested_uen} requestedUen={summary.case.requested_uen} onCancel={() => setDeleteDialogOpen(null)} onConfirm={() => deleteCase(deleteDialogOpen)} />}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -176,7 +177,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("UI v2 backend integration adapters", () => {
   it("preserves the screenshot navigation and multi-format/folder uploader", () => {
-    const markup = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} initialTab="home" /></QueryClientProvider>);
+    const markup = renderToStaticMarkup(<MemoryRouter initialEntries={["/new-onboarding"]}><QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} /></QueryClientProvider></MemoryRouter>);
     for (const label of ["Autoboard", "New onboarding", "Cases", "Onboarded", "Audit", "Policy", "Signed in as", "Maya Lim"]) {
       expect(markup).toContain(label);
     }
@@ -297,7 +298,7 @@ describe("UI v2 backend integration adapters", () => {
 
   it("renders the authenticated profile separately from the execution profile", () => {
     const account = renderToStaticMarkup(<OperatorAccount profile={actor} onLogout={() => undefined} />);
-    const app = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} /></QueryClientProvider>);
+    const app = renderToStaticMarkup(<MemoryRouter initialEntries={["/dashboard"]}><QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} /></QueryClientProvider></MemoryRouter>);
     expect(account).toContain("Maya Lim");
     expect(account).toContain("DBS Corporate Onboarding");
     expect(account).toContain("Coverage: DBS");
@@ -344,7 +345,7 @@ describe("UI v2 backend integration adapters", () => {
   it("preserves unsupported risk, record export, review, and rework controls as disabled disclosures", () => {
     const onboarded = renderToStaticMarkup(
       <QueryClientProvider client={createSessionQueryClient()}>
-        <OnboardedClients actor={actor} onOpenClient={() => undefined} />
+        <MemoryRouter><OnboardedClients actor={actor} /></MemoryRouter>
       </QueryClientProvider>,
     );
     const clientActions = renderToStaticMarkup(<ClientRecordActions />);

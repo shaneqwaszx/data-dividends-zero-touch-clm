@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App, {
@@ -26,7 +27,6 @@ import App, {
   DashboardSnapshot,
   ReviewQueue,
   StartProgressPanel,
-  WorkspaceTabs,
   evidenceRevision,
   formatDocumentBytes,
   shouldPollAutomation,
@@ -36,6 +36,7 @@ import App, {
   selectedDocumentTotalBytes,
   validateSelectedDocuments,
 } from "./App";
+import { WorkspaceTabs } from "./navigation";
 import {
   analyzeOwnership,
   attachZeroTouchDocument,
@@ -510,7 +511,7 @@ afterEach(() => {
 
 describe("Phase 04 onboarding, document review, and ownership UI", () => {
   it("renders the purpose-based workspace structure", () => {
-    const tabs = renderToStaticMarkup(<WorkspaceTabs activeTab="home" onChange={() => undefined} actor={actor} />);
+    const tabs = renderToStaticMarkup(<MemoryRouter initialEntries={["/new-onboarding"]}><WorkspaceTabs actor={actor} /></MemoryRouter>);
     const dashboard = renderToStaticMarkup(<DashboardSnapshot summary={null} />);
     const account = renderToStaticMarkup(<AccountPlaceholder />);
     expect(tabs).toContain("New onboarding");
@@ -525,15 +526,16 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
   });
 
   it("defaults to Dashboard and preserves the screenshot-authoritative onboarding view", () => {
-    const markup = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} /></QueryClientProvider>);
+    const markup = renderToStaticMarkup(<MemoryRouter initialEntries={["/dashboard"]}><QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} /></QueryClientProvider></MemoryRouter>);
     expect(markup).toContain("Autoboard");
-    expect(markup).toContain('aria-current="page">Dashboard');
+    expect(markup).toContain('aria-current="page"');
+    expect(markup).toContain('href="/dashboard"');
     expect(markup).toContain("Loading dashboard");
     expect(markup).toContain("Loading backend connector profile");
     expect(markup).not.toContain("Load synthetic ownership");
     expect(markup).not.toContain("Submit to Mock GoldTier");
 
-    const onboarding = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} initialTab="home" /></QueryClientProvider>);
+    const onboarding = renderToStaticMarkup(<MemoryRouter initialEntries={["/new-onboarding"]}><QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} /></QueryClientProvider></MemoryRouter>);
     expect(onboarding).toContain("Start onboarding");
     expect(onboarding).not.toContain("Start an onboarding request");
     expect(onboarding).toContain("multiple=\"\"");
@@ -664,8 +666,8 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
   });
 
   it("keeps deterministic demo controls gated on the Start landing page", () => {
-    const sponsor = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} demoControlsEnabled={false} initialTab="home" /></QueryClientProvider>);
-    const demo = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} demoControlsEnabled initialTab="home" /></QueryClientProvider>);
+    const sponsor = renderToStaticMarkup(<MemoryRouter initialEntries={["/new-onboarding"]}><QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} demoControlsEnabled={false} /></QueryClientProvider></MemoryRouter>);
+    const demo = renderToStaticMarkup(<MemoryRouter initialEntries={["/new-onboarding"]}><QueryClientProvider client={createSessionQueryClient()}><App actor={actor} onLogout={() => undefined} demoControlsEnabled /></QueryClientProvider></MemoryRouter>);
     expect(sponsor).not.toContain("Demo/Test Controls");
     expect(sponsor).not.toContain("Integrated synthetic scenario");
     expect(demo).toContain("Demo/Test Controls");

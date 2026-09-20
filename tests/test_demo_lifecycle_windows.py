@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -14,6 +15,7 @@ import unittest
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
@@ -41,6 +43,83 @@ _LIFECYCLE_AUTH_ENV = {
     for profile in SYNTHETIC_USER_PROFILES
 }
 _LIFECYCLE_AUTH_ENV[credential_setting_key("hr-admin")] = _LIFECYCLE_HASH
+
+_CREATION_TIME_PATTERN = re.compile(
+    r"\A(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})T"
+    r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})"
+    r"(?:\.(?P<fraction>\d{1,7}))?"
+    r"(?P<zone>[zZ]|[+-]\d{2}:\d{2})\Z"
+)
+_TICKS_PER_SECOND = 10_000_000
+_CREATION_TIME_TOLERANCE_TICKS = 10_000
+
+
+def _utc_creation_ticks(value: object) -> int | None:
+    """Parse an offset-bearing ISO creation time into 100 ns UTC ticks."""
+
+    if not isinstance(value, str):
+        return None
+    match = _CREATION_TIME_PATTERN.fullmatch(value)
+    if match is None:
+        return None
+    try:
+        local_time = datetime(
+            int(match["year"]),
+            int(match["month"]),
+            int(match["day"]),
+            int(match["hour"]),
+            int(match["minute"]),
+            int(match["second"]),
+            tzinfo=timezone.utc,
+        )
+        zone = match["zone"]
+        offset_minutes = 0
+        if zone.lower() != "z":
+            offset_hours = int(zone[1:3])
+            offset_remainder = int(zone[4:6])
+            if offset_hours > 14 or offset_remainder > 59:
+                return None
+            if offset_hours == 14 and offset_remainder != 0:
+                return None
+            offset_minutes = offset_hours * 60 + offset_remainder
+            if zone[0] == "-":
+                offset_minutes = -offset_minutes
+        utc_time = local_time - timedelta(minutes=offset_minutes)
+        fraction = match["fraction"] or ""
+        fraction_ticks = int(fraction.ljust(7, "0")) if fraction else 0
+        seconds = (
+            utc_time.toordinal() * 86_400
+            + utc_time.hour * 3_600
+            + utc_time.minute * 60
+            + utc_time.second
+        )
+        return seconds * _TICKS_PER_SECOND + fraction_ticks
+    except (OverflowError, TypeError, ValueError):
+        return None
+
+
+def _same_process_identity(
+    expected: dict[str, str | int],
+    observed: dict[str, str | int] | None,
+) -> bool:
+    """Apply the production PID, executable, and <=1 ms creation-time contract."""
+
+    if observed is None:
+        return False
+    try:
+        expected_ticks = _utc_creation_ticks(expected["creation_time_utc"])
+        observed_ticks = _utc_creation_ticks(observed["creation_time_utc"])
+        return (
+            int(observed["pid"]) == int(expected["pid"])
+            and expected_ticks is not None
+            and observed_ticks is not None
+            and abs(observed_ticks - expected_ticks)
+            <= _CREATION_TIME_TOLERANCE_TICKS
+            and os.path.normcase(str(observed["executable_path"]))
+            == os.path.normcase(str(expected["executable_path"]))
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 @unittest.skipUnless(os.name == "nt", "Windows-only process lifecycle verification")
@@ -86,6 +165,48 @@ class DemoLifecycleCreationTimeTests(unittest.TestCase):
         )
         self.assertTrue(self.run_creation_time_comparison(observed, recorded))
 
+        expected_identity = {
+            "pid": 201,
+            "creation_time_utc": "2026-09-20T00:00:00.1230000Z",
+            "executable_path": "node.exe",
+        }
+        equivalent_creation_times = (
+            "2026-09-20T00:00:00.123000Z",
+            "2026-09-20T08:00:00.1230000+08:00",
+            "2026-09-20T00:00:00.1239999Z",
+            "2026-09-20T00:00:00.1240000Z",
+        )
+        for creation_time in equivalent_creation_times:
+            with self.subTest(creation_time=creation_time):
+                self.assertTrue(
+                    _same_process_identity(
+                        expected_identity,
+                        {
+                            **expected_identity,
+                            "creation_time_utc": creation_time,
+                        },
+                    )
+                )
+
+        same_pid_expected = (
+            expected_identity,
+            {
+                **expected_identity,
+                "creation_time_utc": "2026-09-20T00:00:00.123000Z",
+            },
+        )
+        same_pid_observed = {
+            **expected_identity,
+            "creation_time_utc": "2026-09-20T08:00:00.1230000+08:00",
+        }
+        self.assertEqual(
+            [
+                _same_process_identity(expected, same_pid_observed)
+                for expected in same_pid_expected
+            ],
+            [True, True],
+        )
+
     def test_genuinely_different_instants_do_not_match(self) -> None:
         observed = (
             "[DateTimeOffset]::Parse('2026-09-02T17:37:03.1234567+08:00', "
@@ -97,6 +218,50 @@ class DemoLifecycleCreationTimeTests(unittest.TestCase):
         )
         self.assertFalse(self.run_creation_time_comparison(observed, recorded))
 
+        expected_identity = {
+            "pid": 201,
+            "creation_time_utc": "2026-09-20T00:00:00.1230000Z",
+            "executable_path": "node.exe",
+        }
+        for observed_identity in (
+            {
+                **expected_identity,
+                "creation_time_utc": "2026-09-20T00:00:00.1240001Z",
+            },
+            {**expected_identity, "pid": 202},
+            {**expected_identity, "executable_path": "other-node.exe"},
+            None,
+        ):
+            with self.subTest(observed_identity=observed_identity):
+                self.assertFalse(
+                    _same_process_identity(expected_identity, observed_identity)
+                )
+
+        same_pid_expected = (
+            expected_identity,
+            {
+                **expected_identity,
+                "creation_time_utc": "2026-09-20T00:00:00.123000Z",
+            },
+        )
+        for observed_identity in (
+            {
+                **expected_identity,
+                "creation_time_utc": "2026-09-20T00:00:00.1240001Z",
+            },
+            {**expected_identity, "executable_path": "other-node.exe"},
+            {**expected_identity, "pid": 202},
+            None,
+        ):
+            with self.subTest(same_pid_observed_identity=observed_identity):
+                self.assertEqual(
+                    [
+                        _same_process_identity(expected, observed_identity)
+                        for expected in same_pid_expected
+                    ],
+                    [False, False],
+                )
+
     def test_invalid_and_zone_less_creation_times_fail_closed(self) -> None:
         observed = (
             "[DateTimeOffset]::Parse('2026-09-02T17:37:01.1234567+08:00', "
@@ -105,6 +270,26 @@ class DemoLifecycleCreationTimeTests(unittest.TestCase):
         for recorded in ("'not-a-timestamp'", "'2026-09-02T09:37:01.1234567'"):
             with self.subTest(recorded=recorded):
                 self.assertFalse(self.run_creation_time_comparison(observed, recorded))
+
+        expected_identity = {
+            "pid": 201,
+            "creation_time_utc": "2026-09-20T00:00:00.1230000Z",
+            "executable_path": "node.exe",
+        }
+        for creation_time in (
+            "2026-09-20T00:00:00.1230000",
+            "not-a-timestamp",
+        ):
+            with self.subTest(creation_time=creation_time):
+                self.assertFalse(
+                    _same_process_identity(
+                        expected_identity,
+                        {
+                            **expected_identity,
+                            "creation_time_utc": creation_time,
+                        },
+                    )
+                )
 
 
 @unittest.skipUnless(os.name == "nt", "Windows-only process lifecycle verification")
@@ -486,14 +671,7 @@ $roles = @(
                 }
             for expected in expected_identities:
                 observed = observed_by_pid.get(int(expected["pid"]))
-                same_identity = (
-                    observed is not None
-                    and int(observed["pid"]) == int(expected["pid"])
-                    and str(observed["creation_time_utc"])
-                    == str(expected["creation_time_utc"])
-                    and os.path.normcase(str(observed["executable_path"]))
-                    == os.path.normcase(str(expected["executable_path"]))
-                )
+                same_identity = _same_process_identity(expected, observed)
                 identity_changed = identity_changed or not same_identity
                 identity_diagnostics.append(
                     {
@@ -521,17 +699,18 @@ $roles = @(
                     f"identities={json.dumps(identity_diagnostics, sort_keys=True)}"
                 )
             attempts += 1
+            probe_completed_at: dict[str, float] = {}
             for name, url in endpoints.items():
                 last_endpoint_status[name] = endpoint_probe(name, url)
-                probe_completed_at = monotonic()
-                identity_diagnostics = observe_owned_identities()
-                if probe_completed_at > deadline:
-                    self.fail(
-                        "Post-rejection endpoints did not recover before the "
-                        f"monotonic deadline: attempts={attempts}, "
-                        f"endpoints={last_endpoint_status}, identities="
-                        f"{json.dumps(identity_diagnostics, sort_keys=True)}"
-                    )
+                probe_completed_at[name] = monotonic()
+            identity_diagnostics = observe_owned_identities()
+            if any(completed_at > deadline for completed_at in probe_completed_at.values()):
+                self.fail(
+                    "Post-rejection endpoints did not recover before the "
+                    f"monotonic deadline: attempts={attempts}, "
+                    f"endpoints={last_endpoint_status}, identities="
+                    f"{json.dumps(identity_diagnostics, sort_keys=True)}"
+                )
             if all(last_endpoint_status.values()):
                 return
 
@@ -802,10 +981,10 @@ $roles = @(
                 {
                     "role": "frontend",
                     "launcher_pid": 201,
-                    "creation_time_utc": "2026-09-19T00:00:02.0000000Z",
+                    "creation_time_utc": "2026-09-19T00:00:02.1230000Z",
                     "executable_path": "node.exe",
                     "listener_pid": 201,
-                    "listener_creation_time_utc": "2026-09-19T00:00:02.0000000Z",
+                    "listener_creation_time_utc": "2026-09-19T00:00:02.123000Z",
                     "listener_executable_path": "node.exe",
                 },
             ]
@@ -823,7 +1002,7 @@ $roles = @(
             },
             201: {
                 "pid": 201,
-                "creation_time_utc": "2026-09-19T00:00:02.0000000Z",
+                "creation_time_utc": "2026-09-19T08:00:02.1230000+08:00",
                 "executable_path": "node.exe",
             },
         }
@@ -837,9 +1016,11 @@ $roles = @(
             ]
             | None = None,
             expect_failure: str | None = None,
+            expect_one_identity_batch_per_attempt: bool = False,
         ) -> dict[str, int]:
             now = [0.0]
             calls = {name: 0 for name in responses}
+            identity_probe_calls = [0]
             active_identities = (
                 identities if identities is not None else dict(stable_identities)
             )
@@ -853,6 +1034,7 @@ $roles = @(
                 return values[min(index, len(values) - 1)]
 
             def identity_probe(process_id: int) -> dict[str, str | int] | None:
+                identity_probe_calls[0] += 1
                 return active_identities.get(process_id)
 
             def wait(seconds: float) -> None:
@@ -872,11 +1054,18 @@ $roles = @(
             else:
                 with self.assertRaisesRegex(AssertionError, expect_failure):
                     self.assert_owned_endpoints_healthy_within(**arguments)
+            if expect_one_identity_batch_per_attempt:
+                expected_batches = 1 + max(calls.values())
+                self.assertEqual(
+                    identity_probe_calls[0],
+                    len(expected_state["processes"]) * 2 * expected_batches,
+                )
             return calls
 
         with self.subTest(post_rejection_probe="transient_frontend"):
             calls = exercise_probe_sequence(
-                {"backend": [True, True], "frontend": [False, True]}
+                {"backend": [True, True], "frontend": [False, True]},
+                expect_one_identity_batch_per_attempt=True,
             )
             self.assertEqual(calls, {"backend": 2, "frontend": 2})
 

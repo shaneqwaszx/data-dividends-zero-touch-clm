@@ -78,14 +78,18 @@ test("protected workspace requires a real login before navigation", async ({ pag
   await expect(page.getByRole("navigation", { name: "Main workspace" })).toHaveCount(0);
 
   await login(page);
-  await page.getByRole("button", { name: "New onboarding" }).click();
+  const newOnboardingLink = page.getByRole("link", { name: "New onboarding" });
+  await expect(newOnboardingLink).toHaveAttribute("href", "/new-onboarding");
+  await newOnboardingLink.click();
   await expect(page.getByRole("heading", { name: "Start onboarding" })).toBeVisible();
 });
 
 test("Singapore clean fixture completes the truthful Mock target path", async ({ page }) => {
   await page.goto("/");
   await login(page);
-  await page.getByRole("button", { name: "New onboarding" }).click();
+  const newOnboardingLink = page.getByRole("link", { name: "New onboarding" });
+  await expect(newOnboardingLink).toHaveAttribute("href", "/new-onboarding");
+  await newOnboardingLink.click();
 
   await page.getByLabel("Jurisdiction").selectOption("SG");
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
@@ -95,7 +99,9 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(page.getByText("Completed Mock workflow")).toBeVisible({ timeout: 120_000 });
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
   await expect(page.getByText(/not production approval or Ready-for-Approval/i)).toBeVisible();
-  await page.getByRole("button", { name: "Cases" }).click();
+  const casesLink = page.getByRole("link", { name: "Cases" });
+  await expect(casesLink).toHaveAttribute("href", "/cases");
+  await casesLink.click();
   await expect(page.getByRole("heading", { name: "Cases" })).toBeVisible();
   await expect(page.getByText("MOCK_GOLDTIER_SUBMITTED", { exact: true })).toBeVisible();
 });
