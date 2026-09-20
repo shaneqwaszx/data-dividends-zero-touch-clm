@@ -9,8 +9,8 @@ It is not a sponsor contract, phase report, or substitute for current source and
 {
   "schema_version": 1,
   "case_envelope_schema_version": 4,
-  "verified_date": "2026-09-20",
-  "verified_main_sha": "cab05d7dc98d4c50c8fc096835fe49802d5896e2",
+  "verified_date": "2026-09-21",
+  "verified_main_sha": "6625835e6ca8b7e531c25b3078c3ff58ee4df843",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -73,10 +73,16 @@ Major implemented phases are:
   development infrastructure, not business or product functionality.
 - Phase 15C: React Router URL navigation, deep-link/history-safe case identity, stale
   callback isolation, and truthful Vite development history fallback behavior.
-- Phase 16 feature-branch implementation: opt-in complete synthetic Mock ACRA snapshot
-  reuse with exact-key isolation, fixed elapsed-time freshness, per-case evidence
-  bindings, and separate memory/Mongo cache persistence. Disabled mode remains the
-  default; merge remains a repository-owner action.
+- Phase 16 accepted on main: opt-in complete synthetic Mock ACRA snapshot reuse with
+  exact-key isolation, fixed elapsed-time freshness, per-case evidence bindings, and
+  separate memory/Mongo cache persistence. Disabled mode remains the default.
+
+The current `feature/evidence-explainability-workbench` working branch adds a candidate
+read-only presentation of the already-retained registry binding, backend-authored
+Decimal ownership paths, and current workflow/readiness/exception/target state. It does
+not change cache policy, case schema, ownership calculation, authorization, target
+execution, provider status, or any sponsor decision. This branch scope is not an
+accepted-main capability until repository-owner review and merge.
 
 ## Current runtime pipeline
 

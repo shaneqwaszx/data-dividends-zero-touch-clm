@@ -11,8 +11,13 @@ caching are prohibited.
 
 Phase 16 may reuse only a complete normalized `RegistryAcquisitionBundle` created by the
 existing four-operation Mock ACRA adapter. The cache is backend-global and has no public
-route or browser projection. Cache use occurs only after authorization/team creation,
-jurisdiction resolution, provider routing, and identifier eligibility succeed.
+cache route or administration surface. The existing authorized case response may expose
+only a minimized case-bound use projection: disposition, binding time, computed expiry,
+and the fixed policy ID/version/duration/comparator. That projection is available only
+for a retained Mock binding and excludes cache identity, key, revision, write/anchor
+times, fingerprints, repository details, endpoints, source references, and raw payloads.
+Cache use occurs only after authorization/team creation, jurisdiction resolution,
+provider routing, and identifier eligibility succeed.
 
 The cache never stores raw provider responses, URLs, credentials, documents, human
 corrections, case state, reconciliation, ownership, readiness, target payloads, or target
@@ -106,6 +111,12 @@ a legacy case, disabled mode, an explicit provider-identity bypass, a partial/fa
 bundle, or an early/cache failure; callers must not infer which. A later shared refresh
 cannot mutate an existing case or any of its evidence, decisions, ownership, readiness,
 or target state.
+
+The browser renders `None` as unrecorded/unknown and does not infer a miss, disabled
+cache, provider fetch, freshness, or current validity. Original provider/environment and
+operation retrieval times remain sourced from the separately minimized registry
+acquisition projection. The binding projection never turns the provisional fixed Mock
+expiry into an ACRA validity, compliance, retention, or present-freshness claim.
 
 Schema-v4 validation enforces this matrix:
 

@@ -117,6 +117,13 @@ timestamp, using the project-owner-approved fixed 7,776,000-second rule. The ori
 provider provenance is retained; a separate binding records provider-fetch versus
 cache-hit use and is defensively copied into each case.
 
+The authorized case DTO exposes only a nullable seven-field Mock binding projection:
+disposition, case binding time, computed expiry, and the fixed freshness policy
+ID/version/duration/comparator. Projection fails closed for a non-Mock binding. Cache
+IDs, keys, revisions, write/anchor times, fingerprints, repository details, endpoints,
+references, and raw payloads remain server-internal. `None` is unknown/unrecorded and
+does not prove a miss, disabled cache, provider fetch, freshness, or current validity.
+
 The lock table counts holders and waiters and retires an exact-key lock only after the
 last user exits, including failure paths. Case establishment acquires its case lock
 before cache acquisition; cache code never acquires a case lock. This provides
@@ -246,6 +253,17 @@ Existing GET/poll behavior remains with its page/query owner. A live intake keep
 case and selected `File` objects only in the current tab; after an ordinary refresh the
 retained intake route reads backend case/document state and does not reconstruct or
 replay the package.
+
+The case evidence workbench is a presentation layer over those same authorized query
+owners. It renders the minimized registry projection, selects only retained
+backend-authored ownership candidates/paths, and explains typed workflow/readiness/
+exception/target state. Ownership selection is local and remounts across actor, case,
+or analysis identity; it performs no arithmetic, graph reconstruction, provider/cache
+read, API lookup, target replay, mutation, or browser persistence. Evidence-focus
+controls use fixed stage/code-to-section mappings rather than matching names,
+timestamps, or timeline prose. Unknown typed values and missing evidence remain visibly
+uncertain. The path visual is deliberately bounded and never claims a complete
+hierarchy or legal UBO determination.
 
 `BrowserRouter` requires an operational history fallback. Deployment must route
 `/api/**` before any SPA rule, serve existing static assets normally, return a real 404

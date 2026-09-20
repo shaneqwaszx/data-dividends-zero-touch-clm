@@ -107,10 +107,62 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
     if (!response.ok()) return null;
     return (await response.json() as { status: string }).status;
   }, { timeout: 120_000 }).toBe("COMPLETED");
+  const caseRequests: Array<{ method: string; url: string }> = [];
+  page.on("request", (request) => {
+    if (request.url().includes(caseId)) caseRequests.push({ method: request.method(), url: request.url() });
+  });
   await page.goto(`/cases/${caseId}`);
   await expect(page.getByText("Completed Mock workflow")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
   await expect(page.getByText(/not production approval or Ready-for-Approval/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Registry provenance" })).toBeVisible();
+  await expect(page.getByText("Case evidence binding not recorded.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Why this case is in its current state" })).toBeVisible();
+
+  const interactionRequestBaseline = caseRequests.length;
+  const storageBefore = await page.evaluate(() => JSON.stringify({
+    local: { ...localStorage },
+    session: { ...sessionStorage },
+  }));
+  const candidate = page.locator('[aria-label="Ownership candidates"] button').first();
+  await expect(candidate).toBeVisible();
+  await candidate.click();
+  const retainedPath = page.getByRole("button", { name: /^Inspect / }).first();
+  await expect(retainedPath).toBeVisible();
+  await retainedPath.click();
+  await expect(retainedPath).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Focus registry evidence" }).click();
+  await expect(page.locator("#case-evidence-registry")).toBeFocused();
+  await page.waitForTimeout(250);
+  expect(caseRequests.slice(interactionRequestBaseline)).toEqual([]);
+  expect(await page.evaluate(() => JSON.stringify({
+    local: { ...localStorage },
+    session: { ...sessionStorage },
+  }))).toBe(storageBefore);
+
+  await page.setViewportSize({ width: 480, height: 900 });
+  await expect(page.getByRole("heading", { name: "Registry provenance" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Why this case is in its current state" })).toBeVisible();
+  const horizontalLayout = await page.evaluate(() => ({
+    rootClientWidth: document.documentElement.clientWidth,
+    rootScrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(horizontalLayout.rootScrollWidth).toBeLessThanOrEqual(horizontalLayout.rootClientWidth + 1);
+  const ownershipTableScroller = page.locator("#case-evidence-ownership .table-scroll").first();
+  const tableLayout = await ownershipTableScroller.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      left: Math.round(bounds.left),
+      right: Math.round(bounds.right),
+    };
+  });
+  expect(tableLayout.scrollWidth).toBeGreaterThan(tableLayout.clientWidth);
+  expect(tableLayout.left).toBeGreaterThanOrEqual(-1);
+  expect(tableLayout.right).toBeLessThanOrEqual(horizontalLayout.rootClientWidth + 1);
   const casesLink = page.getByRole("link", { name: "Cases" });
   await expect(casesLink).toHaveAttribute("href", "/cases");
   await casesLink.click();
@@ -143,6 +195,10 @@ test("current document review progresses authoritatively and keeps superseded hi
 
   await page.goto(`/cases/${caseId}`);
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({ timeout: 30_000 });
+  const focusRequestBaseline = reviewRequests.length + resumeRequests.length;
+  await page.getByRole("button", { name: "Focus documents evidence" }).click();
+  await expect(page.locator("#case-evidence-documents")).toBeFocused();
+  expect(reviewRequests.length + resumeRequests.length).toBe(focusRequestBaseline);
   await expect(page.getByText("0 final / 4 fields")).toBeVisible();
   await expect(page.getByText(/4 fields remain for review/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Assign reviewer" })).toHaveCount(0);
