@@ -12,7 +12,15 @@ This is a project-owned POC contract pending sponsor confirmation under Q-015.
 `MISSING_IN_SOURCE`, `UNVERIFIABLE`, and `INVALID` advertise no value-selection action;
 replacement evidence is required. `POSSIBLY_STALE`, fuzzy matching, geocoding,
 confidence-wins, newest-wins, Registry-wins, Document-wins, arbitrary canonical patch,
-and corrected-value entry are not supported.
+and corrected-value entry as a reconciliation-resolution action are not supported.
+
+Document observations apply the current bounded field-review state. Accepted fields use
+the immutable original extraction and provider provenance. A safe correction uses the
+separate reviewed value with `HUMAN_REVIEW` / `DOCUMENT_REVIEW_CORRECTION` provenance
+and no inherited provider confidence. Rejected evidence is missing; missing or
+low-confidence original evidence remains unusable even after a recorded correction.
+Once any field review begins, remaining pending fields are `UNVERIFIABLE` until every
+required field is final, so partial review cannot resume automation.
 
 Field results and discrepancies derive their outcome from the retained observation
 validity and normalized values. `CONFLICT` therefore requires distinct usable values;
@@ -36,6 +44,13 @@ provider URL, credential, exception detail, private authority digest, or reviewe
 identity. The resolution fingerprint is an opaque safe binding value, not an authority
 or live-integration claim.
 
-All data is process-local and synthetic/Mock or Local POC evidence. Restart is the only
-reset and loses reconciliation state, canonical/decision transaction context, and replay
-protection. Q-015 remains open; no source or reviewer authority is implied.
+Evidence remains synthetic/Mock or Local POC evidence. Memory mode is process-local;
+explicit Mongo mode durably retains the reconciliation aggregate and its evidence
+fingerprint. Q-015 remains open; no final source or reviewer authority is implied.
+
+When field review asks reconciliation to refresh current observations, a repository/CAS
+request rejection or infrastructure failure is a failed prerequisite. The orchestration
+boundary surfaces the typed safe failure, preserves its current blockers, and performs
+no ownership or target progression. It does not substitute an empty discrepancy set or
+retry reconciliation invisibly in the same request; a later exact review repeat or
+explicit `/resume` may reconcile the already durable document decision.

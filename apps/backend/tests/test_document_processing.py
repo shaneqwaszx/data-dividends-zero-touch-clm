@@ -396,6 +396,35 @@ def test_identical_review_retry_is_idempotent_and_conflict_is_rejected() -> None
     assert exc_info.value.code == "DOCUMENT_FIELD_REVIEW_CONFLICT"
 
 
+def test_superseded_document_rejects_review_without_appending_event() -> None:
+    service, _ = make_service()
+    prior = create(service)
+    service.replace_document(
+        case_id=CASE_ID,
+        document_id=prior.document_id,
+        expected_event_count=len(prior.events),
+        display_name="replacement.pdf",
+        content_type="application/pdf",
+        content=PDF,
+    )
+    superseded = service.get_document(case_id=CASE_ID, document_id=prior.document_id)
+    assert superseded is not None
+    event_count = len(superseded.events)
+
+    with pytest.raises(DocumentRequestError) as exc_info:
+        service.review_field(
+            case_id=CASE_ID,
+            document_id=prior.document_id,
+            field_key=DocumentFieldKey.LEGAL_NAME,
+            decision=ReviewDecision.ACCEPTED,
+        )
+
+    assert exc_info.value.code == "DOCUMENT_ALREADY_SUPERSEDED"
+    unchanged = service.get_document(case_id=CASE_ID, document_id=prior.document_id)
+    assert unchanged is not None
+    assert len(unchanged.events) == event_count
+
+
 @pytest.mark.parametrize(
     ("scenario", "decision", "correction", "code"),
     [

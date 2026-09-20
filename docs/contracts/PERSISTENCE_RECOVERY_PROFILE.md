@@ -39,3 +39,26 @@ becomes `FAILED / DOCUMENT_REUPLOAD_REQUIRED`; automation returns to
 `PENDING_INPUTS / DOCUMENT`. Ordinary intake remains closed while this condition exists.
 Targeted same-case retry supersedes only the affected record, preserves completed
 evidence/history, and must finish for every affected document before intake completion.
+
+Field review, reconciliation refresh, and automation checkpoint updates use the same
+durable case envelope and revision CAS but are currently saved through their existing
+section repositories in sequence. They are not a cross-section Mongo transaction.
+Each durable checkpoint is monotonic: current document lineage is written first,
+reconciliation is fingerprinted from that evidence, then stale automation exceptions
+are cancelled before progression. An exact repeated review or explicit `/resume`
+repairs an interrupted later checkpoint. Multi-instance simultaneous field-review
+exactly-once behavior is not claimed without physical Mongo race evidence.
+
+A rejected reconciliation request/CAS save, reconciliation infrastructure failure,
+authorization failure, or automation checkpoint CAS save stops that request. Previously
+durable evidence may remain, but blockers and the automation checkpoint remain intact;
+ownership and target work are not invoked, and the failed prerequisite is not retried
+within the same request. Progression begins only after reconciliation and automation
+checkpoint saves are both accepted. This monotonic sequential recovery rule is
+owner-authorized project behavior, not a cross-section transaction or sponsor-confirmed
+policy.
+
+`PENDING_INPUTS / DOCUMENT_REUPLOAD_REQUIRED` is reserved for a replacement whose
+current failed record was durably accepted with `IDP_PROCESSING_FAILED`. Repository/CAS
+or other infrastructure rejection does not enter that recovery state and leaves the
+existing automation checkpoint and blockers unchanged.

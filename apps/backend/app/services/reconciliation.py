@@ -8,7 +8,12 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import UUID, uuid4
 
-from app.domain.documents import DocumentFieldKey, DocumentProcessingRecord
+from app.domain.documents import (
+    DocumentEventType,
+    DocumentFieldKey,
+    DocumentProcessingRecord,
+    FieldReviewStatus,
+)
 from app.domain.models import CanonicalLegalEntity, OnboardingCase
 from app.domain.reconciliation import (
     DiscrepancyStatus,
@@ -445,30 +450,79 @@ class ReconciliationService:
                 validity=registry_validity,
             )
         )
+        human_review_started = any(
+            event.event_type
+            in {
+                DocumentEventType.DOCUMENT_FIELD_ACCEPTED,
+                DocumentEventType.DOCUMENT_FIELD_REJECTED,
+                DocumentEventType.DOCUMENT_FIELD_CORRECTED,
+            }
+            for document in documents
+            for event in document.events
+        ) and any(
+            field.review_status == FieldReviewStatus.PENDING
+            for document in documents
+            for field in document.fields
+        )
         for document in documents:
             field = next(item for item in document.fields if item.field_key == document_key)
             unavailable = field.provenance.source_reference == "DOCUMENT_TEXT_UNAVAILABLE"
-            normalized, validity = self._normalize(
+            original_normalized, original_validity = self._normalize(
                 field_name,
                 field.original_extracted_value,
                 confidence=field.confidence,
                 unavailable=unavailable,
                 confidence_threshold=confidence_threshold,
             )
+            raw_value = field.original_extracted_value
+            normalized = original_normalized
+            validity = original_validity
+            source_system = field.provenance.provider
+            environment: str | None = field.provenance.environment.value
+            observed_at = document.processed_at or document.updated_at
+            evidence_reference = field.provenance.source_reference
+            confidence: float | None = field.confidence
+            if field.review_status == FieldReviewStatus.REJECTED:
+                raw_value = normalized = None
+                validity = ObservationValidity.MISSING
+                source_system = "HUMAN_REVIEW"
+                environment = None
+                observed_at = field.reviewed_at or document.updated_at
+                evidence_reference = "DOCUMENT_REVIEW_REJECTED"
+                confidence = None
+            elif field.review_status == FieldReviewStatus.CORRECTED:
+                if original_validity == ObservationValidity.VALID:
+                    raw_value = field.reviewed_value
+                    normalized, validity = self._normalize(
+                        field_name,
+                        raw_value,
+                        confidence=None,
+                        unavailable=False,
+                        confidence_threshold=confidence_threshold,
+                    )
+                    source_system = "HUMAN_REVIEW"
+                    environment = None
+                    observed_at = field.reviewed_at or document.updated_at
+                    evidence_reference = "DOCUMENT_REVIEW_CORRECTION"
+                    confidence = None
+            elif field.review_status == FieldReviewStatus.PENDING and human_review_started:
+                if original_validity == ObservationValidity.VALID:
+                    validity = ObservationValidity.UNVERIFIABLE
+                    evidence_reference = "DOCUMENT_REVIEW_PENDING"
             observations.append(
                 ReconciliationObservation(
                     observation_id=self._uuid_factory(),
                     field_name=field_name,
-                    raw_value=field.original_extracted_value,
+                    raw_value=raw_value,
                     normalized_value=normalized,
                     source_kind=ReconciliationSourceKind.DOCUMENT_IDP,
-                    source_system=field.provenance.provider,
-                    environment=field.provenance.environment.value,
-                    observed_at=document.processed_at or document.updated_at,
-                    evidence_reference=field.provenance.source_reference,
+                    source_system=source_system,
+                    environment=environment,
+                    observed_at=observed_at,
+                    evidence_reference=evidence_reference,
                     source_record_id=document.document_id,
                     source_display_name=document.display_name,
-                    confidence=field.confidence,
+                    confidence=confidence,
                     validity=validity,
                 )
             )
@@ -518,7 +572,7 @@ class ReconciliationService:
         case: OnboardingCase, documents: list[DocumentProcessingRecord]
     ) -> str:
         payload = {
-            "domain": "phase-11-reconciliation-evidence-v1",
+            "domain": "phase-15b-reconciliation-evidence-v2",
             "case_id": str(case.case_id),
             "requested_identifier": case.requested_uen,
             "current_canonical": (

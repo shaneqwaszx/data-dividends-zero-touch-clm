@@ -44,6 +44,7 @@ jobs:
           cache-dependency-path: apps/frontend/package-lock.json
       - run: npm ci
       - run: npm ls --all
+      - run: npm run e2e:list
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
@@ -74,7 +75,28 @@ jobs:
           cache: pip
           cache-dependency-path: apps/backend/pyproject.toml
       - run: python -m pip install -e ".[dev]"
-      - run: python -m pytest tests/test_phase12_real_mongo.py tests/test_phase13_real_mongo.py tests/test_phase14_real_mongo.py tests/test_phase14_5_real_mongo.py
+      - run: python ../../scripts/run_physical_mongo_tests.py
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/backend/pyproject.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - run: python -m pip install -e "apps/backend[dev]"
+      - run: npm ci
+        working-directory: apps/frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/frontend
+      - run: python scripts/run_e2e.py
 
   demo-lifecycle-windows:
     runs-on: windows-latest
@@ -108,6 +130,7 @@ jobs:
       - run: python -m unittest tests.test_dev_context tests.test_check_project_state tests.test_check_architecture -v
       - run: python scripts/check_project_state.py
       - run: python scripts/check_architecture.py
+      - run: python scripts/check_tooling_config.py
       - run: python scripts/check_secrets.py
       - run: python -m pip install -r scripts/requirements-contract-validation.txt
       - run: python -m unittest discover -s tests -p "test_validate_goldtier_examples.py"

@@ -53,7 +53,21 @@ are forbidden. Corrected value (512 characters maximum) is required only for
 correction; note is optional and limited to 240 characters. The response is the
 complete updated document record. A missing suggestion
 cannot be accepted; repeated identical decisions are idempotent; a different second
-decision conflicts.
+decision conflicts. Only the current evidence record is reviewable. A superseded
+document returns `DOCUMENT_ALREADY_SUPERSEDED` before any review event or field change.
+
+For a case already at document review, the document decision is the first durable
+section of a monotonic sequence. A later reconciliation or automation checkpoint
+rejection returns its typed safe error even though that accepted document event remains
+durable. The request then stops with existing automation blockers intact and no
+ownership/target work; an exact repeated decision is the idempotent repair entry point.
+
+Original extracted values and provider provenance remain immutable. `ACCEPTED` retains
+the original suggestion, `REJECTED` makes that field unusable, and `CORRECTED` records a
+separate reviewed value. Under the current provisional rule, a correction can become
+effective reconciliation evidence only when the original suggestion was present and met
+the case-bound confidence threshold. Missing and low-confidence originals remain
+replacement-required even when a correction is recorded.
 
 ## State and event contract
 
@@ -80,5 +94,5 @@ Stable codes cover unknown case/document, unsupported media, unsafe name, invali
 length, empty/oversized/malformed PDF, invalid scenario, provider processing failure,
 malformed output, unexpected processing failure, invalid field/decision/correction,
 invalid canonical comparison input, missing suggestion acceptance, non-reviewable
-document, and decision conflict. Public
+document, superseded evidence, and decision conflict. Public
 messages never append user input, PDF text, field values, notes, or private exceptions.

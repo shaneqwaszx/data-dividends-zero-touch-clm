@@ -51,6 +51,11 @@ Authority-changing updates increment profile `security_version`; authentication 
 revokes the user's current process-local session and rejects any racing stale session
 on its next version check.
 
+Case review/rework endpoints perform that next version/profile check again inside the
+case mutation lock. Therefore a profile role/team/security-version change committed
+after request-entry authorization but before mutation invalidates the action without
+creating a reviewer/assignee identity or persisting actor attribution.
+
 The last-HR check is part of the repository-owned profile authority mutation. Target
 load/version validation, self-demotion validation, HR population evaluation, and the
 version/security-version/audit commit share one repository-wide lock in memory and one

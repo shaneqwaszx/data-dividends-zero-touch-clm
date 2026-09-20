@@ -19,7 +19,6 @@ $dirs = @(
     "mocks\goldtier",
     "tests\contract",
     "tests\integration",
-    "tests\e2e",
     "private\sponsor-artifacts"
 )
 
@@ -33,8 +32,7 @@ $keepDirs = @(
     "mocks\acra",
     "mocks\goldtier",
     "tests\contract",
-    "tests\integration",
-    "tests\e2e"
+    "tests\integration"
 )
 
 foreach ($dir in $keepDirs) {

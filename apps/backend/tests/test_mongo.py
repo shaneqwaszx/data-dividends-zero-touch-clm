@@ -60,10 +60,12 @@ def test_count_users_pings_reads_and_closes_client(monkeypatch: pytest.MonkeyPat
 def test_check_script_reports_only_safe_failure_class(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def unavailable() -> int:
+    def unavailable(settings: Settings) -> None:
+        del settings
         raise ServerSelectionTimeoutError("mongodb://secret-host.example")
 
-    monkeypatch.setattr(check_mongodb, "count_users", unavailable)
+    monkeypatch.setenv("MONGO_URI", "mongodb://secret-host.example")
+    monkeypatch.setattr(check_mongodb, "ping_mongodb", unavailable)
 
     assert check_mongodb.main() == 1
     assert capsys.readouterr().out == "MongoDB check failed: ServerSelectionTimeoutError\n"
@@ -72,9 +74,46 @@ def test_check_script_reports_only_safe_failure_class(
 def test_check_script_reports_connectivity_result(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(check_mongodb, "count_users", lambda: 3)
+    observed: list[Settings] = []
+    monkeypatch.setenv("MONGO_URI", "mongodb://configured-but-not-printed.example")
+    monkeypatch.setattr(check_mongodb, "ping_mongodb", observed.append)
 
     assert check_mongodb.main() == 0
-    assert capsys.readouterr().out == (
-        "MongoDB connection successful. FYP.users contains 3 document(s).\n"
+    assert capsys.readouterr().out == "MongoDB connectivity check successful.\n"
+    assert len(observed) == 1
+    assert observed[0].mongo_uri is not None
+
+
+def test_check_script_does_not_load_dotenv_or_read_database_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[object] = []
+
+    class ExplicitSettings:
+        def __init__(self, **kwargs: object) -> None:
+            calls.append(kwargs)
+
+    monkeypatch.setenv("MONGO_URI", "mongodb://explicit.example")
+    monkeypatch.setattr(check_mongodb, "Settings", ExplicitSettings)
+    monkeypatch.setattr(check_mongodb, "ping_mongodb", calls.append)
+
+    assert check_mongodb.main() == 0
+    assert calls[0] == {
+        "_env_file": None,
+        "mongo_uri": "mongodb://explicit.example",
+    }
+
+
+def test_check_script_requires_explicit_process_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("MONGO_URI", raising=False)
+    monkeypatch.setattr(
+        check_mongodb,
+        "ping_mongodb",
+        lambda settings: pytest.fail(f"unexpected ping: {settings!r}"),
     )
+
+    assert check_mongodb.main() == 1
+    assert capsys.readouterr().out == "MongoDB check failed: MONGO_URI_UNAVAILABLE\n"
