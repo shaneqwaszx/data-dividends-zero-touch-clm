@@ -9,7 +9,7 @@ provision_contract_hash_environment()
 
 from app.config import Settings
 from app.demo.uat_evidence import UatEvidenceExport
-from app.main import create_app  # noqa: E402
+from app.main import create_app
 
 ROOT = Path(__file__).resolve().parents[2]
 
