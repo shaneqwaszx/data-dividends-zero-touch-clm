@@ -244,7 +244,7 @@ deployment.
 
 ## Remediation after independent QG FAIL
 
-**Date:** 2026-09-19  
+**Date:** 2026-09-19<br>
 **Status:** `REMEDIATION IMPLEMENTED — LIFECYCLE INFRASTRUCTURE BLOCKER REMAINS`
 
 This appended section preserves the historical evidence above and the independent QG
@@ -406,7 +406,7 @@ authorizes no stage, commit, push, PR, merge, or deployment.
 
 ## Manual Windows lifecycle verification after remediation
 
-**Date:** 2026-09-20  
+**Date:** 2026-09-20<br>
 **Current implementation status:** `REMEDIATION VERIFIED — READY FOR INDEPENDENT RE-QG`
 
 The repository owner subsequently executed the complete Windows lifecycle suite
@@ -436,7 +436,7 @@ create a PR, merge, rebase, reset, stash, clean, or deploy.
 
 ## Non-assets static resource fallback remediation
 
-**Date:** 2026-09-20  
+**Date:** 2026-09-20<br>
 **Current implementation status:**
 `REMEDIATION VERIFIED — READY FOR ADVERSARIAL PRE-QG FALSIFICATION`
 
@@ -552,7 +552,7 @@ integration, or deployment is authorized or performed.
 
 ## HTTP classifier bypass remediation
 
-**Date:** 2026-09-20  
+**Date:** 2026-09-20<br>
 **Current implementation status:**
 `REMEDIATION VERIFIED — READY FOR SECOND ADVERSARIAL FALSIFICATION`
 
@@ -647,7 +647,7 @@ evidence only; a second independent adversarial falsification is still required.
 
 ## Vite-first HTTP fallback architecture remediation
 
-**Date:** 2026-09-20  
+**Date:** 2026-09-20<br>
 **Current implementation status:**
 `ARCHITECTURE REMEDIATION IMPLEMENTED — READY FOR FOCUSED FALSIFICATION #3`
 
