@@ -119,6 +119,11 @@ select {
   font: inherit;
 }
 
+.document-upload-control:focus-within {
+  outline: 3px solid #6cb8b5;
+  outline-offset: 2px;
+}
+
 .page-shell {
   min-height: 100vh;
   padding: clamp(1.25rem, 4vw, 4rem);
@@ -2573,4 +2578,126 @@ dd {
 
 .director-team-scope {
   padding-bottom: 0;
+}
+.document-evidence-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.document-evidence-panel__title,
+.document-card__header,
+.document-field__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.document-evidence-panel__title h4,
+.document-card__header h5,
+.document-field__heading h6 {
+  margin: 0;
+}
+
+.document-card {
+  border: 1px solid var(--border, #d9dee7);
+  border-left: 4px solid var(--accent, #635bff);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  padding: 16px;
+}
+
+.document-card--history {
+  border-left-color: #9aa3b2;
+  background: #f8f9fb;
+}
+
+.document-fields {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.document-field {
+  border-top: 1px solid var(--border, #d9dee7);
+  padding-top: 14px;
+}
+
+.document-field__evidence {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+  margin: 10px 0;
+}
+
+.document-field__evidence div {
+  min-width: 0;
+}
+
+.document-field__evidence dt {
+  color: var(--muted, #5d6675);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.document-field__evidence dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.document-field__actions,
+.document-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.document-correction {
+  border: 1px solid var(--border, #d9dee7);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.document-correction label {
+  display: grid;
+  gap: 5px;
+}
+
+.document-checkpoint-repair {
+  border-left: 3px solid #c58a00;
+  margin-top: 12px;
+  padding-left: 10px;
+}
+
+.evidence-history > summary {
+  cursor: pointer;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.evidence-history[open] {
+  display: grid;
+  gap: 12px;
+}
+
+.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 720px) {
+  .document-field__evidence {
+    grid-template-columns: 1fr;
+  }
+
+  .document-evidence-panel__title,
+  .document-card__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }

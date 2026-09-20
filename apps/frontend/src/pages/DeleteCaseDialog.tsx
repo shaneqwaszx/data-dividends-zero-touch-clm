@@ -13,12 +13,14 @@ export default function DeleteCaseDialog({
   caseId,
   companyName,
   requestedUen,
+  mutationDisabled = false,
   onCancel,
   onConfirm,
 }: {
   caseId: string;
   companyName: string;
   requestedUen: string;
+  mutationDisabled?: boolean;
   onCancel: () => void;
   onConfirm: () => Promise<void>;
 }) {
@@ -93,7 +95,7 @@ export default function DeleteCaseDialog({
           <button ref={cancelRef} type="button" className="btn btn-secondary" disabled={pending} onClick={onCancel}>
             Cancel
           </button>
-          <button type="button" className="btn btn-danger" disabled={pending} onClick={() => void confirmOnce()}>
+          <button type="button" className="btn btn-danger" disabled={pending || mutationDisabled} onClick={() => void confirmOnce()}>
             {pending ? "Deleting…" : "Delete case"}
           </button>
         </div>

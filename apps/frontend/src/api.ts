@@ -30,16 +30,19 @@ import type {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 let activeCsrfToken: string | null = null;
 let unauthorizedHandler: (() => void) | null = null;
+let authenticatedTransportGeneration = 0;
 
 export function configureAuthenticatedTransport(options: {
   csrfToken: string | null;
   onUnauthorized: (() => void) | null;
 }): void {
+  authenticatedTransportGeneration += 1;
   activeCsrfToken = options.csrfToken;
   unauthorizedHandler = options.onUnauthorized;
 }
 
 async function fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const requestTransportGeneration = authenticatedTransportGeneration;
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   if (!["GET", "HEAD", "OPTIONS"].includes(method) && activeCsrfToken) {
@@ -50,7 +53,12 @@ async function fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<
     headers,
     credentials: "include",
   });
-  if (response.status === 401) unauthorizedHandler?.();
+  if (
+    response.status === 401
+    && requestTransportGeneration === authenticatedTransportGeneration
+  ) {
+    unauthorizedHandler?.();
+  }
   return response;
 }
 

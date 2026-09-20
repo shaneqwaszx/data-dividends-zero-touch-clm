@@ -18,7 +18,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from http.cookiejar import CookieJar
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -365,6 +365,165 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
         self.assertEqual(environment["MONGO_DATABASE"], "clm_ordinary_tests")
         self.assertNotEqual(environment["MONGO_URI"], ambient["MONGO_URI"])
 
+    def test_endpoint_probe_classifies_sanitized_failure_stages(self) -> None:
+        class FakeResponse:
+            def __init__(
+                self,
+                *,
+                status: int = 200,
+                body_failure: BaseException | None = None,
+            ) -> None:
+                self.status = status
+                self.body_failure = body_failure
+                self.closed = False
+
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                self.closed = True
+
+            def read(self) -> bytes:
+                if self.body_failure is not None:
+                    raise self.body_failure
+                return b"ignored"
+
+        def classify(
+            effect: FakeResponse | BaseException,
+        ) -> tuple[dict[str, Any], FakeResponse | None]:
+            response = effect if isinstance(effect, FakeResponse) else None
+            patcher = (
+                patch("urllib.request.urlopen", return_value=effect)
+                if response is not None
+                else patch("urllib.request.urlopen", side_effect=effect)
+            )
+            ticks = iter((10.0, 10.125))
+            with patcher:
+                observation = self.probe_endpoint_health(
+                    "frontend",
+                    "http://127.0.0.1:5173/",
+                    timeout=0.5,
+                    monotonic=lambda: next(ticks),
+                )
+            return observation, response
+
+        cases: tuple[
+            tuple[str, FakeResponse | BaseException, bool, bool, int | None], ...
+        ] = (
+            ("healthy", FakeResponse(), True, True, 200),
+            ("http_non_200", FakeResponse(status=503), True, True, 503),
+            ("connection_refused", ConnectionRefusedError(), False, False, None),
+            ("connection_reset", ConnectionResetError(), False, False, None),
+            ("timeout", TimeoutError(), False, False, None),
+            (
+                "response_body_failure",
+                FakeResponse(body_failure=TimeoutError()),
+                True,
+                False,
+                200,
+            ),
+            ("verifier_exception", RuntimeError("must-not-leak"), False, False, None),
+        )
+        for category, effect, headers_completed, body_completed, status in cases:
+            with self.subTest(category=category):
+                observation, response = classify(effect)
+                self.assertEqual(observation["role"], "frontend")
+                self.assertEqual(observation["failure_category"], category)
+                self.assertEqual(observation["headers_completed"], headers_completed)
+                self.assertEqual(observation["body_completed"], body_completed)
+                self.assertEqual(observation["http_status"], status)
+                self.assertEqual(observation["elapsed_ms"], 125)
+                self.assertNotIn("url", observation)
+                self.assertNotIn("must-not-leak", json.dumps(observation))
+                if response is not None:
+                    self.assertTrue(response.closed)
+
+    def test_endpoint_recovery_reports_bounded_structural_diagnostics(self) -> None:
+        expected_state = {
+            "processes": [
+                {
+                    "role": "backend",
+                    "launcher_pid": 101,
+                    "creation_time_utc": "2026-09-19T00:00:00.0000000Z",
+                    "executable_path": "backend-python.exe",
+                },
+                {
+                    "role": "frontend",
+                    "launcher_pid": 201,
+                    "creation_time_utc": "2026-09-19T00:00:02.0000000Z",
+                    "executable_path": "node.exe",
+                },
+            ]
+        }
+        identities = {
+            101: {
+                "pid": 101,
+                "creation_time_utc": "2026-09-19T00:00:00.0000000Z",
+                "executable_path": "backend-python.exe",
+            },
+            201: {
+                "pid": 201,
+                "creation_time_utc": "2026-09-19T00:00:02.0000000Z",
+                "executable_path": "node.exe",
+            },
+        }
+        now = [0.0]
+
+        def endpoint_probe(name: str, _url: str) -> dict[str, Any]:
+            if name == "backend":
+                return {
+                    "role": name,
+                    "http_status": 503,
+                    "failure_category": "http_non_200",
+                    "headers_completed": True,
+                    "body_completed": True,
+                    "elapsed_ms": 12,
+                }
+            return {
+                "role": name,
+                "http_status": 200,
+                "failure_category": "response_body_failure",
+                "headers_completed": True,
+                "body_completed": False,
+                "elapsed_ms": 34,
+            }
+
+        with self.assertRaises(AssertionError) as raised:
+            self.assert_owned_endpoints_healthy_within(
+                expected_state,
+                timeout=0.1,
+                poll_interval=0.1,
+                endpoint_probe=endpoint_probe,
+                identity_probe=identities.get,
+                monotonic=lambda: now[0],
+                wait=lambda seconds: now.__setitem__(0, now[0] + seconds),
+            )
+
+        diagnostic = str(raised.exception)
+        self.assertIn('"failure_category": "http_non_200"', diagnostic)
+        self.assertIn('"failure_category": "response_body_failure"', diagnostic)
+        self.assertIn('"remaining_budget_ms"', diagnostic)
+        self.assertIn('"phase": "pre_deadline"', diagnostic)
+        self.assertIn('"same_identity": true', diagnostic)
+        self.assertNotIn("127.0.0.1", diagnostic)
+
+        now[0] = 0.0
+
+        def late_success(name: str, _url: str) -> bool:
+            if name == "frontend":
+                now[0] = 1.0
+            return True
+
+        with self.assertRaisesRegex(AssertionError, '"deadline_overrun"'):
+            self.assert_owned_endpoints_healthy_within(
+                expected_state,
+                timeout=0.1,
+                endpoint_probe=late_success,
+                identity_probe=identities.get,
+                monotonic=lambda: now[0],
+                wait=lambda seconds: now.__setitem__(0, now[0] + seconds),
+            )
+
     def run_lifecycle_captured(self, script: str, timeout: int = 90) -> tuple[int, str]:
         with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as output:
             result = subprocess.run(
@@ -609,13 +768,81 @@ $roles = @(
         except (OSError, urllib.error.URLError):
             return False
 
+    def probe_endpoint_health(
+        self,
+        role: str,
+        url: str,
+        *,
+        timeout: float,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> dict[str, Any]:
+        """Probe one allowlisted endpoint without exposing response or error content."""
+
+        started_at = monotonic()
+        http_status: int | None = None
+        headers_completed = False
+        body_completed = False
+        failure_category = "verifier_exception"
+        try:
+            request = urllib.request.Request(url)
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                headers_completed = True
+                http_status = int(response.status)
+                try:
+                    response.read()
+                    body_completed = True
+                except Exception:  # noqa: BLE001 - classify the response stage only
+                    failure_category = "response_body_failure"
+                else:
+                    failure_category = (
+                        "healthy" if http_status == 200 else "http_non_200"
+                    )
+        except urllib.error.HTTPError as exc:
+            headers_completed = True
+            http_status = int(exc.code)
+            try:
+                with exc:
+                    exc.read()
+                body_completed = True
+            except Exception:  # noqa: BLE001 - non-200 remains the safe category
+                body_completed = False
+            failure_category = "http_non_200"
+        except Exception as exc:  # noqa: BLE001 - sanitize the verifier boundary
+            reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+            if isinstance(reason, ConnectionRefusedError) or getattr(
+                reason, "winerror", None
+            ) == 10061:
+                failure_category = "connection_refused"
+            elif isinstance(
+                reason, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)
+            ) or getattr(reason, "winerror", None) in {10053, 10054}:
+                failure_category = "connection_reset"
+            elif isinstance(reason, (TimeoutError, socket.timeout)) or getattr(
+                reason, "winerror", None
+            ) == 10060:
+                failure_category = "timeout"
+            elif isinstance(reason, (OSError, urllib.error.URLError)):
+                failure_category = "transport_failure"
+            else:
+                failure_category = "verifier_exception"
+
+        elapsed_ms = round(max(0.0, monotonic() - started_at) * 1000)
+        return {
+            "role": role,
+            "http_status": http_status,
+            "failure_category": failure_category,
+            "headers_completed": headers_completed,
+            "body_completed": body_completed,
+            "elapsed_ms": elapsed_ms,
+        }
+
     def assert_owned_endpoints_healthy_within(
         self,
         expected_state: dict[str, Any],
         *,
         timeout: float = 5.0,
         poll_interval: float = 0.1,
-        endpoint_probe: Callable[[str, str], bool] | None = None,
+        endpoint_probe: Callable[[str, str], bool | dict[str, Any]] | None = None,
         identity_probe: Callable[[int], dict[str, str | int] | None] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         wait: Callable[[float], None] = time.sleep,
@@ -626,10 +853,7 @@ $roles = @(
             "backend": "http://127.0.0.1:8000/health",
             "frontend": "http://127.0.0.1:5173/",
         }
-        if endpoint_probe is None:
-            endpoint_probe = lambda _name, url: self.endpoint_available(
-                url, timeout=min(timeout, 0.5)
-            )
+        use_structured_probe = endpoint_probe is None
         expected_identities: list[dict[str, str | int]] = []
         for record in expected_state["processes"]:
             expected_identities.append(
@@ -656,8 +880,13 @@ $roles = @(
 
         attempts = 0
         last_endpoint_status = {name: False for name in endpoints}
+        endpoint_observations: list[dict[str, Any]] = []
+        identity_observations: list[dict[str, Any]] = []
 
-        def observe_owned_identities() -> list[dict[str, str | int | bool | None]]:
+        def observe_owned_identities(
+            phase: str, deadline: float | None
+        ) -> list[dict[str, str | int | bool | None]]:
+            observation_started_at = monotonic()
             identity_diagnostics: list[dict[str, str | int | bool | None]] = []
             identity_changed = False
             if identity_probe is None:
@@ -682,34 +911,114 @@ $roles = @(
                         "same_identity": same_identity,
                     }
                 )
+            observation_completed_at = monotonic()
+            identity_observations.append(
+                {
+                    "phase": phase,
+                    "elapsed_ms": round(
+                        max(0.0, observation_completed_at - observation_started_at)
+                        * 1000
+                    ),
+                    "remaining_budget_ms": (
+                        None
+                        if deadline is None
+                        else round((deadline - observation_completed_at) * 1000)
+                    ),
+                    "identities": identity_diagnostics,
+                }
+            )
             if identity_changed:
                 self.fail(
                     "Post-rejection owned process identity changed before endpoint "
-                    f"recovery: {json.dumps(identity_diagnostics, sort_keys=True)}"
+                    "recovery: "
+                    f"identities={json.dumps(identity_diagnostics, sort_keys=True)}, "
+                    "identity_observations="
+                    f"{json.dumps(identity_observations, sort_keys=True)}"
                 )
             return identity_diagnostics
 
-        identity_diagnostics = observe_owned_identities()
+        observe_owned_identities("pre_deadline", None)
         deadline = monotonic() + timeout
         while True:
             if monotonic() > deadline:
                 self.fail(
                     "Post-rejection endpoints did not recover before the monotonic "
                     f"deadline: attempts={attempts}, endpoints={last_endpoint_status}, "
-                    f"identities={json.dumps(identity_diagnostics, sort_keys=True)}"
+                    f"probes={json.dumps(endpoint_observations, sort_keys=True)}, "
+                    "identity_observations="
+                    f"{json.dumps(identity_observations, sort_keys=True)}"
                 )
             attempts += 1
             probe_completed_at: dict[str, float] = {}
             for name, url in endpoints.items():
-                last_endpoint_status[name] = endpoint_probe(name, url)
-                probe_completed_at[name] = monotonic()
-            identity_diagnostics = observe_owned_identities()
+                probe_started_at = monotonic()
+                try:
+                    if use_structured_probe:
+                        observation = self.probe_endpoint_health(
+                            name,
+                            url,
+                            timeout=min(timeout, 0.5),
+                            monotonic=monotonic,
+                        )
+                    else:
+                        assert endpoint_probe is not None
+                        probe_result = endpoint_probe(name, url)
+                        if isinstance(probe_result, dict):
+                            observation = dict(probe_result)
+                        else:
+                            observation = {
+                                "role": name,
+                                "http_status": None,
+                                "failure_category": (
+                                    "healthy" if probe_result else "transport_failure"
+                                ),
+                                "headers_completed": None,
+                                "body_completed": None,
+                                "elapsed_ms": round(
+                                    max(0.0, monotonic() - probe_started_at) * 1000
+                                ),
+                            }
+                except Exception:  # noqa: BLE001 - sanitize injected verifier errors
+                    observation = {
+                        "role": name,
+                        "http_status": None,
+                        "failure_category": "verifier_exception",
+                        "headers_completed": False,
+                        "body_completed": False,
+                        "elapsed_ms": round(
+                            max(0.0, monotonic() - probe_started_at) * 1000
+                        ),
+                    }
+                completed_at = monotonic()
+                probe_completed_at[name] = completed_at
+                observation["remaining_budget_ms"] = round(
+                    (deadline - completed_at) * 1000
+                )
+                observation["attempt"] = attempts
+                if completed_at > deadline:
+                    observation["underlying_failure_category"] = observation[
+                        "failure_category"
+                    ]
+                    observation["failure_category"] = "deadline_overrun"
+                endpoint_observations.append(observation)
+                last_endpoint_status[name] = (
+                    observation["failure_category"] == "healthy"
+                )
+                if observation["failure_category"] == "verifier_exception":
+                    self.fail(
+                        "Endpoint verifier raised an unexpected exception: "
+                        f"attempts={attempts}, "
+                        f"probes={json.dumps(endpoint_observations, sort_keys=True)}"
+                    )
+            observe_owned_identities(f"attempt_{attempts}", deadline)
             if any(completed_at > deadline for completed_at in probe_completed_at.values()):
                 self.fail(
                     "Post-rejection endpoints did not recover before the "
                     f"monotonic deadline: attempts={attempts}, "
-                    f"endpoints={last_endpoint_status}, identities="
-                    f"{json.dumps(identity_diagnostics, sort_keys=True)}"
+                    f"endpoints={last_endpoint_status}, "
+                    f"probes={json.dumps(endpoint_observations, sort_keys=True)}, "
+                    "identity_observations="
+                    f"{json.dumps(identity_observations, sort_keys=True)}"
                 )
             if all(last_endpoint_status.values()):
                 return
@@ -720,7 +1029,9 @@ $roles = @(
                     "Post-rejection endpoints did not recover while the original "
                     "owned process identities remained alive: "
                     f"attempts={attempts}, endpoints={last_endpoint_status}, "
-                    f"identities={json.dumps(identity_diagnostics, sort_keys=True)}"
+                    f"probes={json.dumps(endpoint_observations, sort_keys=True)}, "
+                    "identity_observations="
+                    f"{json.dumps(identity_observations, sort_keys=True)}"
                 )
             wait(min(poll_interval, remaining))
 

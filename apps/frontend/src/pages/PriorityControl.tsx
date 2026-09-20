@@ -63,10 +63,14 @@ export default function PriorityControl({
   caseId,
   priority,
   onUpdated,
+  disabled = false,
+  onSave,
 }: {
-  caseId: string;
+  caseId?: string;
   priority: number | null;
-  onUpdated: () => void | Promise<void>;
+  onUpdated?: () => void | Promise<void>;
+  disabled?: boolean;
+  onSave?: (priority: number | null) => Promise<void>;
 }) {
   const [selected, setSelected] = useState(priority === null ? "" : String(priority));
   const [busy, setBusy] = useState(false);
@@ -76,11 +80,10 @@ export default function PriorityControl({
     setBusy(true);
     setError(null);
     try {
-      await updatePriorityAndRefresh(
-        caseId,
-        selected === "" ? null : Number(selected),
-        onUpdated,
-      );
+      const nextPriority = selected === "" ? null : Number(selected);
+      if (onSave) await onSave(nextPriority);
+      else if (caseId && onUpdated) await updatePriorityAndRefresh(caseId, nextPriority, onUpdated);
+      else throw new Error("Priority control is not configured.");
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
@@ -99,7 +102,7 @@ export default function PriorityControl({
         <select
           className="input priority-select"
           value={selected}
-          disabled={busy}
+          disabled={busy || disabled}
           onChange={(event) => setSelected(event.target.value)}
         >
           <option value="">Unset</option>
@@ -108,7 +111,7 @@ export default function PriorityControl({
           ))}
         </select>
       </label>
-      <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => void save()}>
+      <button className="btn btn-secondary" type="button" disabled={busy || disabled} onClick={() => void save()}>
         {busy ? "Saving…" : "Set"}
       </button>
       {error && <span className="cell-note cell-note--attention">{error}</span>}

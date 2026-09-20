@@ -19,8 +19,7 @@ import {
   replaceZeroTouchDocument,
   retryZeroTouchIntakeDocument,
 } from "./api";
-import AssignReviewerDialog from "./pages/AssignReviewerDialog";
-import { isDocumentReuploadRequired, shouldRefreshAfterMutationError } from "./pages/CaseDetail";
+import { shouldRefreshAfterMutationError } from "./pages/CaseDetail";
 import { ClientRecordActions } from "./pages/ClientDetail";
 import {
   CompletedOverview,
@@ -32,9 +31,9 @@ import {
 } from "./pages/CaseStatePanels";
 import OnboardedClients, { OnboardedActionColumnHeader } from "./pages/OnboardedClients";
 import { PolicyClassificationBadge } from "./pages/PolicyRules";
-import ReturnForReworkDialog from "./pages/ReturnForReworkDialog";
+import { isDocumentReuploadRequired } from "./pages/DocumentEvidencePanel";
 import { createSessionQueryClient } from "./queryClient";
-import type { AuthenticatedProfile, DocumentProcessingRecord, ReconciliationSummary, SimulationProfile, ZeroTouchCaseListItem, ZeroTouchCaseSummary, ZeroTouchException } from "./types";
+import type { AuthenticatedProfile, DocumentProcessingRecord, ReconciliationSummary, SimulationProfile, ZeroTouchCaseListItem, ZeroTouchCaseSummary } from "./types";
 import {
   mapCaseTimelineToAuditEntries,
   mapCompletedCaseToOnboardedRow,
@@ -87,13 +86,6 @@ const summary = {
     message: "The backend created the case.",
   }],
 } as unknown as ZeroTouchCaseSummary;
-
-const exception = {
-  exception_id: "00000000-0000-4000-8000-000000000002",
-  stage: "DOCUMENT",
-  explanation: "Replacement evidence is required.",
-  evidence: [],
-} as unknown as ZeroTouchException;
 
 function makePanelSummary(
   reconciliationOutcome: ReconciliationSummary["fields"][number]["outcome"] = "MATCH",
@@ -237,15 +229,9 @@ describe("UI v2 backend integration adapters", () => {
     expect(policy.scheduler.next_review_months_low.value).toBe("Not available in current POC");
   });
 
-  it("retains reviewer and rework dialogs while disabling unsupported mutations", () => {
-    const assign = renderToStaticMarkup(<AssignReviewerDialog summary={summary} exception={exception} onClose={() => undefined} onAssigned={() => undefined} />);
-    const rework = renderToStaticMarkup(<ReturnForReworkDialog summary={summary} exception={exception} onClose={() => undefined} onReturned={() => undefined} />);
-    expect(assign).toContain("Assign reviewer");
-    expect(assign).toContain("not available in current POC");
-    expect(assign).toContain("disabled");
-    expect(rework).toContain("Return for rework");
-    expect(rework).toContain("not available in current POC");
-    expect(rework).toContain("disabled");
+  it("does not preserve unsupported assignment or generic rework actions in the bounded case-detail slice", () => {
+    expect(renderToStaticMarkup(<ConfirmDetailsPanel summary={makePanelSummary()} />)).not.toMatch(/Assign reviewer|Return for rework/);
+    expect(JSON.stringify(summary)).not.toMatch(/assign-reviewer|return-for-rework/);
   });
 
   it("uses the real case-list route with the accepted status filter", async () => {
@@ -293,7 +279,8 @@ describe("UI v2 backend integration adapters", () => {
   it("refreshes authoritative evidence after a stale 409 and not after unrelated failures", () => {
     expect(shouldRefreshAfterMutationError(new ApiError("stale", 409, "STALE_DECISION"))).toBe(true);
     expect(shouldRefreshAfterMutationError(new ApiError("invalid", 422, "INVALID"))).toBe(false);
-    expect(shouldRefreshAfterMutationError(new TypeError("network"))).toBe(false);
+    expect(shouldRefreshAfterMutationError(new ApiError("unavailable", 503, "UNAVAILABLE"))).toBe(true);
+    expect(shouldRefreshAfterMutationError(new TypeError("network"))).toBe(true);
   });
 
   it("renders the authenticated profile separately from the execution profile", () => {
