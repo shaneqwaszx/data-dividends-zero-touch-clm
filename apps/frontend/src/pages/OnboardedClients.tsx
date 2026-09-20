@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 
 import { fetchZeroTouchCases } from "../api";
 import type { PriorityFilter, PrioritySort } from "../api";
 import { caseListQueryOptions, priorityMutationEffect } from "../caseQueries";
+import { paths } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
 import type { OnboardedRowView } from "../viewModels";
 import { mapCompletedCaseToOnboardedRow } from "../viewModels";
@@ -25,10 +27,8 @@ export async function loadOnboardedRows(
 
 export default function OnboardedClients({
   actor,
-  onOpenClient,
 }: {
   actor: AuthenticatedProfile;
-  onOpenClient: (clientId: string) => void;
 }) {
   const [jurisdiction, setJurisdiction] = useState("");
   const [priority, setPriority] = useState<PriorityFilter>("all");
@@ -140,7 +140,7 @@ export default function OnboardedClients({
             </thead>
             <tbody>
               {filteredClients.map((client) => (
-                <tr key={client.case_id} className="clickable" tabIndex={0} onClick={() => onOpenClient(client.case_id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpenClient(client.case_id); } }}>
+                <tr key={client.case_id}>
                   <td>{client.mock_goldtier_party_id ?? "—"}</td>
                   <td>{client.case_id}</td>
                   <td>{client.registration_id}</td>
@@ -158,7 +158,7 @@ export default function OnboardedClients({
                   <td>{client.risk_rating ?? "—"}</td>
                   <td>{new Date(client.onboarded_at).toLocaleDateString()}</td>
                   <td>{client.next_review_date ? new Date(client.next_review_date).toLocaleDateString() : "—"}</td>
-                  <td><button type="button" className="btn btn-secondary" onClick={(event) => { event.stopPropagation(); onOpenClient(client.case_id); }}>Open</button></td>
+                  <td><Link className="btn btn-secondary" to={paths.onboardedDetail(client.case_id)}>Open</Link></td>
                 </tr>
               ))}
             </tbody>

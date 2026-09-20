@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 
 import { deleteZeroTouchCase, fetchZeroTouchCases } from "../api";
 import type { PriorityFilter, PrioritySort } from "../api";
 import { caseDeletedEffect, caseListQueryOptions, priorityMutationEffect } from "../caseQueries";
 import { formatDateNoSeconds, stageProgressLabel } from "../shared";
+import { paths } from "../navigation";
 import type { CaseRowView } from "../viewModels";
 import { mapZeroTouchCaseToCaseRow } from "../viewModels";
 import DeleteCaseDialog from "./DeleteCaseDialog";
@@ -49,12 +51,10 @@ export default function CaseQueue({
   actor,
   presentation,
   onPresentationChange,
-  onOpenCase,
 }: {
   actor: AuthenticatedProfile;
   presentation: CaseQueuePresentationState;
   onPresentationChange: (value: CaseQueuePresentationState) => void;
-  onOpenCase: (caseId: string) => void;
 }) {
   const { status, priority, prioritySort, jurisdiction, search } = presentation;
   const [teamFilter, setTeamFilter] = useState("all");
@@ -173,23 +173,12 @@ export default function CaseQueue({
                 <th>Assigned to</th>
                 <th>Created</th>
                 <th>Updated</th>
-                {canDelete && <th aria-label="Case actions" />}
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {filteredCases.map((item) => (
-                <tr
-                  key={item.case_id}
-                  className="clickable"
-                  tabIndex={0}
-                  onClick={() => onOpenCase(item.case_id)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      onOpenCase(item.case_id);
-                    }
-                  }}
-                >
+                <tr key={item.case_id}>
                   <td>{item.company_name ?? item.requested_uen}</td>
                   <td>{item.requested_uen}</td>
                   <td>{item.jurisdiction ?? "—"}</td>
@@ -217,21 +206,19 @@ export default function CaseQueue({
                   <td>{item.assigned_to ?? "—"}</td>
                   <td>{item.created_at ? formatDateNoSeconds(item.created_at) : "—"}</td>
                   <td>{formatDateNoSeconds(item.updated_at)}</td>
-                  {canDelete && (
-                    <td>
+                  <td>
+                    <Link className="btn btn-secondary" to={paths.caseDetail(item.case_id)}>Open</Link>
+                    {canDelete && (
                       <button
                         type="button"
                         className="btn btn-ghost delete-case-action"
                         aria-label={`Delete ${item.company_name ?? item.requested_uen}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setDeleteTarget(item);
-                        }}
+                        onClick={() => setDeleteTarget(item)}
                       >
                         Delete
                       </button>
-                    </td>
-                  )}
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

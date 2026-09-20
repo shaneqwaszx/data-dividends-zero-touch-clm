@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 
 import { ApiError, fetchZeroTouchCase, fetchZeroTouchCases } from "../api";
+import { paths } from "../navigation";
 import { formatTimestamp } from "../shared";
 import type { AuditEntryView } from "../viewModels";
 import { mapCaseTimelineToAuditEntries } from "../viewModels";
@@ -19,33 +21,45 @@ function matchesAction(entry: AuditEntryView, action: string): boolean {
   return false;
 }
 
-export default function AuditTrail({ initialCaseId }: { initialCaseId?: string | null }) {
+export default function AuditTrail({ caseId }: { caseId?: string | null }) {
   const [entries, setEntries] = useState<AuditEntryView[]>([]);
   const [action, setAction] = useState("");
-  const [caseId, setCaseId] = useState(initialCaseId ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    const controller = new AbortController();
+    let current = true;
     setIsLoading(true);
     const load = async () => {
       const summaries = caseId
-        ? [await fetchZeroTouchCase(caseId)]
-        : await Promise.all((await fetchZeroTouchCases()).map((item) => fetchZeroTouchCase(item.case_id)));
+        ? [await fetchZeroTouchCase(caseId, controller.signal)]
+        : await Promise.all(
+            (await fetchZeroTouchCases(undefined, "all", "highest_first", undefined, controller.signal))
+              .map((item) => fetchZeroTouchCase(item.case_id, controller.signal)),
+          );
       const allEntries = summaries.flatMap(mapCaseTimelineToAuditEntries);
       return allEntries.filter((entry) => matchesAction(entry, action));
     };
     void load()
       .then((items) => {
+        if (!current) return;
         setEntries(items);
         setError(null);
       })
       .catch((requestError) => {
+        if (!current || controller.signal.aborted) return;
         setError(
           requestError instanceof ApiError ? requestError.message : "The audit trail is unavailable.",
         );
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        if (current) setIsLoading(false);
+      });
+    return () => {
+      current = false;
+      controller.abort();
+    };
   }, [action, caseId]);
 
   return (
@@ -59,9 +73,9 @@ export default function AuditTrail({ initialCaseId }: { initialCaseId?: string |
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {caseId && (
-            <button type="button" className="btn btn-ghost" onClick={() => setCaseId("")}>
+            <Link className="btn btn-ghost" to={paths.audit}>
               Clear case filter
-            </button>
+            </Link>
           )}
           <button className="btn btn-secondary" type="button" disabled title="Not available in current POC">
             Export CSV

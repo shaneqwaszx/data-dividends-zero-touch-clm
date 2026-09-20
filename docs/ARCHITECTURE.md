@@ -70,6 +70,7 @@ shapes, and runtime calls dispatch through ports rather than reversing static ow
 | Case persistence | `persistence/models.py`, `mongo_case_store.py`, `persistence/repositories.py`, service repository protocols | complete envelope, strict decode, CAS, insert/update/delete semantics | domain/service ports | API/UI behavior or provider calls |
 | Portfolio/dashboard | `domain/case_management.py`, `domain/dashboard.py`, `services/case_query.py`, `services/dashboard.py` | authorized projections, filtering, ordering and factual metrics | access policy, portfolio repository | analytics/risk/SLA inference |
 | Frontend auth/cache | `frontend/src/auth.tsx`, `queryClient.tsx`, `caseQueries.ts` | session lifecycle, scoped query keys, cancellation/invalidation | backend APIs and server-authored profile | authorization or persistent sensitive cache |
+| Frontend navigation | `frontend/src/navigation.tsx`, browser location, router mount in `frontend/src/main.tsx` | route patterns, safe path construction, route matching, active links and generic unavailable presentation | existing auth, view and cache owners | server data, authorization, workflow actions or a second page/case identity |
 | Frontend views | `frontend/src/pages/*`, `App.tsx`, `api.ts`, `types.ts` | presentation, input, safe actions | authenticated API/cache owners | business authority or provider selection |
 
 ## 4. Canonical data and evidence model
@@ -204,6 +205,28 @@ deletion cancels in-flight list/dashboard/detail/supporting requests before remo
 the deleted case, preventing stale response resurrection. No case data is persisted to
 localStorage, sessionStorage, IndexedDB or a service worker.
 
+Browser location is the sole page and case-navigation identity. Declarative
+`BrowserRouter` routing is mounted once outside `AuthProvider`; route elements reuse the
+existing App, page, authenticated transport and QueryClient owners. Transient tab,
+selected-case, selected-client and audit-case navigation state is retired rather than
+synchronized with the URL. Routes contain only opaque validated case IDs, never
+credentials, auth material, UENs, names, filenames, evidence or document content.
+
+Mounting, refreshing, or traversing a route does not create a case, upload/retry a
+document, complete intake, resume a workflow, resolve review, refresh a registry,
+submit to a target, update priority, delete, or perform an admin/policy mutation.
+Existing GET/poll behavior remains with its page/query owner. A live intake keeps its
+case and selected `File` objects only in the current tab; after an ordinary refresh the
+retained intake route reads backend case/document state and does not reconstruct or
+replay the package.
+
+`BrowserRouter` requires an operational history fallback. Deployment must route
+`/api/**` before any SPA rule, serve existing static assets normally, return a real 404
+for missing `/assets/**` and file requests, and fall back to `index.html` only for
+same-origin application `GET`/`HEAD` requests accepting HTML. Unsafe methods must never
+be rewritten. Local Vite behavior is development evidence only; no production hosting
+surface is currently verified by this repository.
+
 ## 15. Security boundaries
 
 - Never track or expose credentials, tokens, hashes, private keys/certificates, sponsor
@@ -246,7 +269,11 @@ localStorage, sessionStorage, IndexedDB or a service worker.
 14. Case deletion cannot be followed by stale resurrection.
 15. React Query keys are user/session scoped; Director team scope participates in identity.
 16. Logout/session change/401 clear incompatible cached data.
-17. `clm_poc` is never a physical test database or cleanup target.
+17. Browser location is the sole frontend page and case-navigation identity.
+18. Route entry, refresh and history traversal do not initiate business mutations.
+19. URLs contain opaque case IDs only and never sensitive/auth/evidence values.
+20. SPA history fallback never absorbs API, static/file, or unsafe-method requests.
+21. `clm_poc` is never a physical test database or cleanup target.
 
 ## Phase 15A evidence and future-boundary constraints (provisional)
 

@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { WorkspaceTabs } from "./App";
+import { WorkspaceTabs } from "./navigation";
 import {
   ApiError,
   configureAuthenticatedTransport,
@@ -87,7 +88,7 @@ afterEach(() => {
 describe("Phase 14.5 administration and team filtering", () => {
   it("renders capability-driven HR navigation without case surfaces", () => {
     const markup = renderToStaticMarkup(
-      <WorkspaceTabs actor={hr} activeTab="users" onChange={() => undefined} />,
+      <MemoryRouter initialEntries={["/admin/users"]}><WorkspaceTabs actor={hr} /></MemoryRouter>,
     );
     expect(markup).toContain("Users");
     expect(markup).toContain("Teams");

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router";
 
 import {
   analyzeOwnership,
@@ -45,6 +46,8 @@ import OnboardedClients from "./pages/OnboardedClients";
 import PolicyRules from "./pages/PolicyRules";
 import AdminTeams from "./pages/AdminTeams";
 import AdminUsers from "./pages/AdminUsers";
+import RetainedIntakeRecovery from "./pages/RetainedIntakeRecovery";
+import { paths, requiredCapabilityForPath, WorkspaceRoutes, WorkspaceTabs } from "./navigation";
 import { formatTimestamp, shouldPollAutomation } from "./shared";
 import type {
   ClmCaseSummary,
@@ -1286,50 +1289,6 @@ export function LocalReviewerWorkbench({ summary }: { summary: ZeroTouchCaseSumm
   );
 }
 
-type AppTab = "dashboard" | "home" | "queue" | "onboarded" | "audit" | "policy" | "users" | "teams";
-
-export function WorkspaceTabs({
-  activeTab,
-  onChange,
-  trailing,
-  actor,
-}: {
-  activeTab: AppTab;
-  onChange: (tab: AppTab) => void;
-  trailing?: ReactNode;
-  actor: AuthenticatedProfile;
-}) {
-  const tabs: Array<[AppTab, string]> = [
-    ...(actor.capabilities.includes("CASE_ACCESS") ? [
-      ["dashboard", "Dashboard"], ["home", "New onboarding"], ["queue", "Cases"],
-      ["onboarded", "Onboarded"], ["audit", "Audit"],
-    ] as Array<[AppTab, string]> : []),
-    ...(actor.capabilities.includes("POLICY_VIEW") ? [["policy", "Policy"]] as Array<[AppTab, string]> : []),
-    ...(actor.capabilities.includes("IDENTITY_ADMIN") ? [["users", "Users"]] as Array<[AppTab, string]> : []),
-    ...(actor.capabilities.includes("TEAM_ADMIN") ? [["teams", "Teams"]] as Array<[AppTab, string]> : []),
-  ];
-  return (
-    <nav className="ds-root nav" aria-label="Main workspace">
-      <span className="nav-brand">Autoboard</span>
-      <span className="nav-sep" />
-      <div className="nav-tabs">
-        {tabs.map(([tab, label]) => (
-          <button
-            key={tab}
-            className={activeTab === tab ? "nav-tab nav-tab--active" : "nav-tab"}
-            type="button"
-            aria-current={activeTab === tab ? "page" : undefined}
-            onClick={() => onChange(tab)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {trailing && <div className="nav-meta">{trailing}</div>}
-    </nav>
-  );
-}
-
 export function OperatorAccount({
   profile,
   onLogout,
@@ -1779,59 +1738,111 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
 
 export interface AppProps {
   demoControlsEnabled?: boolean;
-  initialTab?: AppTab;
   actor: AuthenticatedProfile;
   onLogout: () => void;
 }
 
+interface LiveIntakeOperation {
+  readonly generation: number;
+  readonly actorUserId: string;
+  readonly caseId: string | null;
+  readonly demo: boolean;
+  readonly files: readonly File[];
+}
+
 export default function App({
   demoControlsEnabled = import.meta.env.VITE_DEMO_CONTROLS_ENABLED === "true",
-  initialTab = "dashboard",
   actor,
   onLogout,
 }: AppProps) {
-  const [activeTab, setActiveTab] = useState<AppTab>(
-    actor.capabilities.includes("CASE_ACCESS") ? initialTab : "users",
-  );
-  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [caseQueuePresentation, setCaseQueuePresentation] =
     useState<CaseQueuePresentationState>(DEFAULT_CASE_QUEUE_PRESENTATION);
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [auditCaseId, setAuditCaseId] = useState<string | null>(null);
   const [uen, setUen] = useState(DEFAULT_UEN);
   const [countryOfIncorporation, setCountryOfIncorporation] =
     useState<JurisdictionSelection>("");
   const [documentFiles, setDocumentFiles] = useState<File[]>([]);
-  const [caseId, setCaseId] = useState("");
   const [demoScenario, setDemoScenario] = useState<ZeroTouchDemoScenario>("STRAIGHT_THROUGH");
   const [directorTeamId, setDirectorTeamId] = useState<TeamId | "">("");
   const [teamOptions, setTeamOptions] = useState<AuthenticatedTeam[]>([]);
   const [casePriority, setCasePriority] = useState<number | "">("");
   const queryClient = useQueryClient();
-  const profileQuery = useQuery(executionProfileQueryOptions(actor.user_id));
+  const navigate = useNavigate();
+  const location = useLocation();
+  const routeCapability = requiredCapabilityForPath(location.pathname);
+  const routeCanLoadWorkspace = routeCapability !== null
+    && actor.capabilities.includes(routeCapability);
+  const profileQuery = useQuery({
+    ...executionProfileQueryOptions(actor.user_id),
+    enabled: routeCanLoadWorkspace,
+  });
   const simulationProfile = profileQuery.data ?? null;
   const [summary, setSummary] = useState<ZeroTouchCaseSummary | null>(null);
-  const [, setRetainedCreatedSummary] = useState<ZeroTouchCaseSummary | null>(null);
+  const [retainedCreatedSummary, setRetainedCreatedSummary] = useState<ZeroTouchCaseSummary | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResolving, setIsResolving] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [intakeProgress, setIntakeProgress] = useState<string | null>(null);
   const [pollingWarning, setPollingWarning] = useState<string | null>(null);
   const journeyGeneration = useRef(0);
+  const mounted = useRef(true);
+  const actorUserId = useRef(actor.user_id);
+  const locationPathname = useRef(location.pathname);
+  locationPathname.current = location.pathname;
   const resolutionActive = useRef(false);
-  const intakeCaseRef = useRef<{ caseId: string; demo: boolean } | null>(null);
+  const intakeCaseRef = useRef<LiveIntakeOperation | null>(null);
   const successfulIntakeFilesRef = useRef(new Set<string>());
   const failedIntakeDocumentsRef = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      journeyGeneration.current += 1;
+      resolutionActive.current = false;
+      intakeCaseRef.current = null;
+      successfulIntakeFilesRef.current.clear();
+      failedIntakeDocumentsRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (actorUserId.current === actor.user_id) return;
+    actorUserId.current = actor.user_id;
+    journeyGeneration.current += 1;
+    resolutionActive.current = false;
+    intakeCaseRef.current = null;
+    successfulIntakeFilesRef.current.clear();
+    failedIntakeDocumentsRef.current.clear();
+    setSummary(null);
+    setRetainedCreatedSummary(null);
+    setDocumentFiles([]);
+    setRequestError(null);
+    setPollingWarning(null);
+    setIntakeProgress(null);
+    setIsSubmitting(false);
+    setIsResolving(false);
+  }, [actor.user_id]);
+
+  function isCurrentIntakeOperation(operation: LiveIntakeOperation): boolean {
+    return mounted.current
+      && actorUserId.current === operation.actorUserId
+      && journeyGeneration.current === operation.generation
+      && intakeCaseRef.current?.generation === operation.generation;
+  }
 
   useEffect(() => {
     if (profileQuery.isError) setRequestError("Connector profile discovery is unavailable.");
   }, [profileQuery.isError]);
 
   useEffect(() => {
-    if (actor.role === "DIRECTOR") {
+    if (
+      actor.role === "DIRECTOR"
+      && routeCanLoadWorkspace
+      && location.pathname.startsWith(paths.newOnboarding)
+    ) {
       void fetchTeamOptions().then(setTeamOptions).catch(() => setTeamOptions([]));
     }
-  }, [actor.role]);
+  }, [actor.role, location.pathname, routeCanLoadWorkspace]);
 
   useEffect(() => {
     if (!summary || !shouldPollAutomation(summary.status)) return;
@@ -1859,16 +1870,28 @@ export default function App({
     }
     const validationError = validateIntakeFiles(documentFiles);
     if (validationError) { setRequestError(validationError); return; }
+    const generation = ++journeyGeneration.current;
+    const previousOperation = intakeCaseRef.current;
+    const operation: LiveIntakeOperation = {
+      generation,
+      actorUserId: actor.user_id,
+      caseId: previousOperation?.caseId ?? null,
+      demo: previousOperation?.demo ?? demoScenario !== undefined,
+      files: [...documentFiles],
+    };
+    intakeCaseRef.current = operation;
     setIsSubmitting(true);
-    journeyGeneration.current += 1;
     setRequestError(null);
-    setIntakeProgress("Creating case…");
-    setSummary(null);
+    setIntakeProgress(operation.caseId ? "Retrying retained intake…" : "Creating case…");
+    if (!operation.caseId) setSummary(null);
 
-    const processDocumentIntake = async (intakeCase: { caseId: string; demo: boolean }) => {
+    const processDocumentIntake = async (
+      intakeCase: LiveIntakeOperation & { caseId: string },
+    ) => {
       const failures: string[] = [];
-      for (const [index, file] of documentFiles.entries()) {
-        setIntakeProgress(`Uploading document ${index + 1} of ${documentFiles.length}…`);
+      for (const [index, file] of intakeCase.files.entries()) {
+        if (!isCurrentIntakeOperation(intakeCase)) return;
+        setIntakeProgress(`Uploading document ${index + 1} of ${intakeCase.files.length}…`);
         const key = intakeFileKey(file);
         if (successfulIntakeFilesRef.current.has(key)) continue;
         try {
@@ -1876,6 +1899,7 @@ export default function App({
           const record = failedDocumentId
             ? await retryZeroTouchIntakeDocument(intakeCase.caseId, failedDocumentId, file, intakeCase.demo)
             : await intakeZeroTouchDocument(intakeCase.caseId, file, intakeCase.demo);
+          if (!isCurrentIntakeOperation(intakeCase)) return;
           if (record.state === "FAILED") {
             failedIntakeDocumentsRef.current.set(key, record.document_id);
             failures.push(`${file.name}: ${record.error?.message ?? "processing failed"}`);
@@ -1884,12 +1908,14 @@ export default function App({
             successfulIntakeFilesRef.current.add(key);
           }
         } catch (uploadError) {
+          if (!isCurrentIntakeOperation(intakeCase)) return;
           if (uploadError instanceof ApiError && uploadError.detail?.document_id) {
             failedIntakeDocumentsRef.current.set(key, uploadError.detail.document_id);
           }
           failures.push(`${file.name}: ${uploadError instanceof Error ? uploadError.message : "upload failed"}`);
         }
       }
+      if (!isCurrentIntakeOperation(intakeCase)) return;
       if (failures.length > 0) {
         const failurePresentation = targetedIntakeFailurePresentation(intakeCase.caseId, failures);
         setIntakeProgress(failurePresentation.progress);
@@ -1899,16 +1925,19 @@ export default function App({
       setIntakeProgress("Completing intake…");
       const completed = await completeZeroTouchIntake(
         intakeCase.caseId,
-        documentFiles.length,
+        intakeCase.files.length,
         intakeCase.demo,
       );
+      if (!isCurrentIntakeOperation(intakeCase)) return;
       setSummary(completed);
       await caseSupportingMutationEffect(queryClient, actor.user_id, completed);
+      if (!isCurrentIntakeOperation(intakeCase)) return;
       setIntakeProgress(completed.status === "COMPLETED" ? "Completed" : "Processing case…");
     };
 
     try {
-      if (!intakeCaseRef.current) {
+      if (!operation.caseId) {
+        let retainedOperation: (LiveIntakeOperation & { caseId: string }) | null = null;
         await createRetainedCaseBeforeDocumentIntake({
           createCase: () => createZeroTouchCase(
             uen,
@@ -1918,56 +1947,50 @@ export default function App({
             casePriority === "" ? undefined : casePriority,
           ),
           onCreated: (created) => {
+            if (!isCurrentIntakeOperation(operation)) return;
+            retainedOperation = {
+              ...operation,
+              caseId: created.case.case_id,
+            };
+            intakeCaseRef.current = retainedOperation;
             caseCreatedEffect(queryClient, actor.user_id, created);
             setRetainedCreatedSummary(created);
-            intakeCaseRef.current = {
-              caseId: created.case.case_id,
-              demo: demoScenario !== undefined,
-            };
+            if (locationPathname.current === paths.newOnboarding) {
+              navigate(paths.retainedIntake(created.case.case_id), { replace: true });
+            }
           },
           onRegistryStop: (created) => {
+            if (!retainedOperation || !isCurrentIntakeOperation(retainedOperation)) return;
             setSummary(created);
             caseSummaryMutationEffect(queryClient, actor.user_id, created);
             setIntakeProgress(null);
           },
           onDocumentIntake: async () => {
-            if (intakeCaseRef.current) await processDocumentIntake(intakeCaseRef.current);
+            if (retainedOperation && isCurrentIntakeOperation(retainedOperation)) {
+              await processDocumentIntake(retainedOperation);
+            }
           },
         });
         return;
       }
-      await processDocumentIntake(intakeCaseRef.current);
+      await processDocumentIntake({ ...operation, caseId: operation.caseId });
     } catch (error) {
+      if (!isCurrentIntakeOperation(operation)) return;
       const retainedCase = intakeCaseRef.current?.caseId;
       setRequestError(`${retainedCase ? `Case ${retainedCase} was retained. ` : ""}${error instanceof Error ? error.message : "Unable to start onboarding."}`);
       setIntakeProgress("Onboarding paused");
+      if (!retainedCase) {
+        setIsSubmitting(false);
+        intakeCaseRef.current = null;
+      }
     } finally {
-      setIsSubmitting(false);
+      if (isCurrentIntakeOperation(operation)) setIsSubmitting(false);
     }
   }
 
   function handleStart(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void beginJourney();
-  }
-
-  async function handleOpenCase(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (resolutionActive.current) return;
-    const generation = ++journeyGeneration.current;
-    setIsSubmitting(true);
-    setRequestError(null);
-    setIntakeProgress(null);
-    setPollingWarning(null);
-    setSummary(null);
-    try {
-      const opened = await fetchZeroTouchCase(caseId.trim());
-      if (generation === journeyGeneration.current) setSummary(opened);
-    } catch (error) {
-      setRequestError(error instanceof Error ? error.message : "Unable to open the case.");
-    } finally {
-      setIsSubmitting(false);
-    }
   }
 
   async function handleResolution(
@@ -2097,7 +2120,7 @@ export default function App({
       clearSummary: () => setSummary(null),
       clearRetainedSummary: () => setRetainedCreatedSummary(null),
       clearDocuments: () => setDocumentFiles([]),
-      clearOpenedCaseId: () => setCaseId(""),
+      clearOpenedCaseId: () => undefined,
       resetUen: () => setUen(DEFAULT_UEN),
       resetJurisdiction: () => setCountryOfIncorporation(""),
       clearRequestError: () => setRequestError(null),
@@ -2110,28 +2133,7 @@ export default function App({
     intakeCaseRef.current = null;
     successfulIntakeFilesRef.current.clear();
     failedIntakeDocumentsRef.current.clear();
-  }
-
-  function handleWorkspaceTabChange(tab: AppTab) {
-    setActiveTab(tab);
-    if (tab === "queue") setSelectedCaseId(null);
-    if (tab === "onboarded") setSelectedClientId(null);
-    if (tab === "audit") setAuditCaseId(null);
-  }
-
-  function openCompletedCase(caseId: string) {
-    setSelectedClientId(caseId);
-    setActiveTab("onboarded");
-  }
-
-  function openDashboardCase(caseId: string) {
-    setSelectedCaseId(caseId);
-    setActiveTab("queue");
-  }
-
-  function openCaseAudit(caseId: string) {
-    setAuditCaseId(caseId);
-    setActiveTab("audit");
+    navigate(paths.newOnboarding, { replace: true });
   }
 
   function handleDocumentFilesChange(files: File[]) {
@@ -2161,12 +2163,88 @@ export default function App({
     }
   }
 
+  const retainedIntakeCaseId = retainedCreatedSummary?.case.case_id ?? null;
+  const liveOnboarding = (
+    <>
+      {actor.role === "DIRECTOR" && !summary && (
+        <section className="ds-root ds-page director-team-scope" aria-label="New case team scope">
+          <label htmlFor="director-team-id">Create case for team</label>
+          <select
+            id="director-team-id"
+            className="input"
+            value={directorTeamId}
+            required
+            onChange={(event) => setDirectorTeamId(event.target.value as TeamId | "")}
+          >
+            <option value="">Select a team</option>
+            {teamOptions.map((team) => (
+              <option key={team.team_id} value={team.team_id}>
+                {team.display_name} · {team.client_scope_label}
+              </option>
+            ))}
+          </select>
+          <p className="control-help">Director-created cases require an explicit team.</p>
+        </section>
+      )}
+      <HomeOnboarding
+        summary={summary}
+        uen={uen}
+        onUenChange={setUen}
+        countryOfIncorporation={countryOfIncorporation}
+        onCountryChange={setCountryOfIncorporation}
+        documentFiles={documentFiles}
+        onDocumentFilesChange={handleDocumentFilesChange}
+        caseTeamDisplayName={
+          actor.role === "DIRECTOR"
+            ? teamOptions.find((team) => team.team_id === directorTeamId)?.display_name
+              ?? "Select a team above"
+            : actor.team_display_name ?? "Team unavailable"
+        }
+        priority={casePriority}
+        onPriorityChange={setCasePriority}
+        isSubmitting={isSubmitting}
+        isResolving={isResolving}
+        requestError={requestError}
+        pollingWarning={pollingWarning}
+        intakeProgress={intakeProgress}
+        onStart={handleStart}
+        onResolve={(exception, action) => void handleResolution(exception, action)}
+        onReconcile={(discrepancy, action) => void handleReconciliation(discrepancy, action)}
+        onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
+        onRecovery={() => void handleRecovery()}
+        onStartNewCase={handleStartNewCase}
+        onSummaryUpdate={(updated) => {
+          setSummary(updated);
+          caseSummaryMutationEffect(queryClient, actor.user_id, updated);
+        }}
+        onViewOnboarded={(caseId) => navigate(paths.onboardedDetail(caseId))}
+        onViewAudit={(caseId) => navigate(paths.auditCase(caseId))}
+      />
+      {demoControlsEnabled && !summary && (
+        <section className="ds-root ds-page" aria-label="Demo/Test Controls">
+          <div className="card">
+            <p className="card-kicker">Demo/Test Controls</p>
+            <label htmlFor="demo-scenario">Integrated synthetic scenario</label>
+            <select id="demo-scenario" className="input" value={demoScenario} onChange={(event) => setDemoScenario(event.target.value as ZeroTouchDemoScenario)}>
+              <option value="STRAIGHT_THROUGH">Straight through</option>
+              <option value="DOCUMENT_DISCREPANCY">Document discrepancy</option>
+              <option value="LOW_CONFIDENCE_DOCUMENT">Low confidence</option>
+              <option value="OWNERSHIP_CYCLE">Ownership cycle</option>
+              <option value="RECOVERY">Recovery</option>
+              <option value="TECHNICAL_FAILURE">Technical failure</option>
+            </select>
+            <button type="button" className="btn btn-secondary" disabled={isSubmitting} onClick={() => void beginJourney(demoScenario)}>Run selected demo</button>
+          </div>
+        </section>
+      )}
+    </>
+  );
+
   return (
     <main className="ds-root ds-shell">
       <WorkspaceTabs
-        activeTab={activeTab}
-        onChange={handleWorkspaceTabChange}
         actor={actor}
+        retainedIntakeCaseId={retainedIntakeCaseId}
         trailing={
           <>
             <SimulationBanner profile={simulationProfile} />
@@ -2175,120 +2253,38 @@ export default function App({
         }
       />
       <div className="ds-content">
-          {activeTab === "dashboard" && (
-            <Dashboard actor={actor} onOpenCase={openDashboardCase} />
+        <WorkspaceRoutes
+          actor={actor}
+          retainedIntakeCaseId={retainedIntakeCaseId}
+          dashboard={<Dashboard actor={actor} />}
+          newOnboarding={(routeCaseId) => (
+            routeCaseId && routeCaseId !== retainedIntakeCaseId
+              ? <RetainedIntakeRecovery actor={actor} caseId={routeCaseId} onStartFresh={handleStartNewCase} />
+              : liveOnboarding
           )}
-          {activeTab === "home" && (
-            <>
-            {actor.role === "DIRECTOR" && !summary && (
-              <section className="ds-root ds-page director-team-scope" aria-label="New case team scope">
-                <label htmlFor="director-team-id">Create case for team</label>
-                <select
-                  id="director-team-id"
-                  className="input"
-                  value={directorTeamId}
-                  required
-                  onChange={(event) => setDirectorTeamId(event.target.value as TeamId | "")}
-                >
-                  <option value="">Select a team</option>
-                  {teamOptions.map((team) => (
-                    <option key={team.team_id} value={team.team_id}>
-                      {team.display_name} · {team.client_scope_label}
-                    </option>
-                  ))}
-                </select>
-                <p className="control-help">Director-created cases require an explicit team.</p>
-              </section>
-            )}
-            <HomeOnboarding
-              summary={summary}
-              uen={uen}
-              onUenChange={setUen}
-              countryOfIncorporation={countryOfIncorporation}
-              onCountryChange={setCountryOfIncorporation}
-              documentFiles={documentFiles}
-              onDocumentFilesChange={handleDocumentFilesChange}
-              caseTeamDisplayName={
-                actor.role === "DIRECTOR"
-                  ? teamOptions.find((team) => team.team_id === directorTeamId)?.display_name
-                    ?? "Select a team above"
-                  : actor.team_display_name ?? "Team unavailable"
-              }
-              priority={casePriority}
-              onPriorityChange={setCasePriority}
-              isSubmitting={isSubmitting}
-              isResolving={isResolving}
-              requestError={requestError}
-              pollingWarning={pollingWarning}
-              intakeProgress={intakeProgress}
-              onStart={handleStart}
-              onResolve={(exception, action) => void handleResolution(exception, action)}
-              onReconcile={(discrepancy, action) => void handleReconciliation(discrepancy, action)}
-              onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
-              onRecovery={() => void handleRecovery()}
-              onStartNewCase={handleStartNewCase}
-              onSummaryUpdate={(updated) => {
-                setSummary(updated);
-                caseSummaryMutationEffect(queryClient, actor.user_id, updated);
-              }}
-              onViewOnboarded={openCompletedCase}
-              onViewAudit={openCaseAudit}
-            />
-            {demoControlsEnabled && !summary && (
-              <section className="ds-root ds-page" aria-label="Demo/Test Controls">
-                <div className="card">
-                  <p className="card-kicker">Demo/Test Controls</p>
-                  <label htmlFor="demo-scenario">Integrated synthetic scenario</label>
-                  <select id="demo-scenario" className="input" value={demoScenario} onChange={(event) => setDemoScenario(event.target.value as ZeroTouchDemoScenario)}>
-                    <option value="STRAIGHT_THROUGH">Straight through</option>
-                    <option value="DOCUMENT_DISCREPANCY">Document discrepancy</option>
-                    <option value="LOW_CONFIDENCE_DOCUMENT">Low confidence</option>
-                    <option value="OWNERSHIP_CYCLE">Ownership cycle</option>
-                    <option value="RECOVERY">Recovery</option>
-                    <option value="TECHNICAL_FAILURE">Technical failure</option>
-                  </select>
-                  <button type="button" className="btn btn-secondary" disabled={isSubmitting} onClick={() => void beginJourney(demoScenario)}>Run selected demo</button>
-                </div>
-              </section>
-            )}
-            </>
-          )}
-
-          {activeTab === "queue" && !selectedCaseId && (
+          cases={(
             <CaseQueue
               actor={actor}
               presentation={caseQueuePresentation}
               onPresentationChange={setCaseQueuePresentation}
-              onOpenCase={setSelectedCaseId}
             />
           )}
-          {activeTab === "queue" && selectedCaseId && (
+          caseDetail={(caseId) => (
             <CaseDetail
-              caseId={selectedCaseId}
+              caseId={caseId}
               actor={actor}
-              onBack={() => setSelectedCaseId(null)}
-              onViewOnboarded={openCompletedCase}
-              onViewAudit={openCaseAudit}
+              onBack={() => navigate(paths.cases)}
+              onViewOnboarded={(completedCaseId) => navigate(paths.onboardedDetail(completedCaseId))}
+              onViewAudit={(auditCaseId) => navigate(paths.auditCase(auditCaseId))}
             />
           )}
-
-          {activeTab === "onboarded" && !selectedClientId && (
-            <OnboardedClients actor={actor} onOpenClient={setSelectedClientId} />
-          )}
-          {activeTab === "onboarded" && selectedClientId && (
-            <ClientDetail
-              clientId={selectedClientId}
-              actor={actor}
-              onBack={() => setSelectedClientId(null)}
-              onOpenAudit={openCaseAudit}
-            />
-          )}
-
-          {activeTab === "audit" && <AuditTrail initialCaseId={auditCaseId} />}
-
-          {activeTab === "policy" && <PolicyRules actor={actor} />}
-          {activeTab === "users" && <AdminUsers />}
-          {activeTab === "teams" && <AdminTeams />}
+          onboarded={<OnboardedClients actor={actor} />}
+          onboardedDetail={(caseId) => <ClientDetail clientId={caseId} actor={actor} />}
+          audit={(caseId) => <AuditTrail caseId={caseId} />}
+          policy={<PolicyRules actor={actor} />}
+          adminUsers={<AdminUsers />}
+          adminTeams={<AdminTeams />}
+        />
       </div>
     </main>
   );

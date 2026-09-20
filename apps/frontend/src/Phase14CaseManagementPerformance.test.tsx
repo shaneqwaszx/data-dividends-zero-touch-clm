@@ -3,6 +3,7 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { Link, MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -291,14 +292,13 @@ describe("Phase 14 queue and delete UX", () => {
 
     await act(async () => {
       root?.render(
-        <QueryClientProvider client={queryClient}>
+        <MemoryRouter><QueryClientProvider client={queryClient}>
           <CaseQueue
             actor={actor}
             presentation={DEFAULT_CASE_QUEUE_PRESENTATION}
             onPresentationChange={() => undefined}
-            onOpenCase={() => undefined}
           />
-        </QueryClientProvider>,
+        </QueryClientProvider></MemoryRouter>,
       );
     });
     expect(container?.textContent).toContain("MERLION PTE. LTD.");
@@ -321,9 +321,9 @@ describe("Phase 14 queue and delete UX", () => {
       caseListQueryOptions(actor.user_id, "COMPLETED", "all", "highest_first"),
     );
     await act(async () => root?.render(
-      <QueryClientProvider client={queryClient}>
-        <OnboardedClients actor={actor} onOpenClient={() => undefined} />
-      </QueryClientProvider>,
+      <MemoryRouter><QueryClientProvider client={queryClient}>
+        <OnboardedClients actor={actor} />
+      </QueryClientProvider></MemoryRouter>,
     ));
 
     expect(container?.textContent).toContain("MERLION PTE. LTD.");
@@ -339,11 +339,11 @@ describe("Phase 14 queue and delete UX", () => {
         search: "Merlion",
         jurisdiction: "SG",
       });
-      const [detail, setDetail] = useState(false);
-      return detail ? (
-        <button type="button" onClick={() => setDetail(false)}>Back</button>
-      ) : (
-        <CaseQueue actor={actor} presentation={presentation} onPresentationChange={setPresentation} onOpenCase={() => setDetail(true)} />
+      return (
+        <Routes>
+          <Route path="/cases" element={<CaseQueue actor={actor} presentation={presentation} onPresentationChange={setPresentation} />} />
+          <Route path="/cases/:caseId" element={<Link to="/cases">Back</Link>} />
+        </Routes>
       );
     }
     const queryClient = createSessionQueryClient();
@@ -351,10 +351,13 @@ describe("Phase 14 queue and delete UX", () => {
       caseQueryKeys.caseList(actor.user_id, undefined, "all", "highest_first"),
       [listItem],
     );
-    await act(async () => root?.render(<QueryClientProvider client={queryClient}><Harness /></QueryClientProvider>));
-    const row = container?.querySelector<HTMLTableRowElement>("tbody tr");
-    await act(async () => row?.click());
-    await act(async () => container?.querySelector<HTMLButtonElement>("button")?.click());
+    await act(async () => root?.render(<MemoryRouter initialEntries={["/cases"]}><QueryClientProvider client={queryClient}><Harness /></QueryClientProvider></MemoryRouter>));
+    const open = Array.from(container?.querySelectorAll<HTMLAnchorElement>("a") ?? [])
+      .find((link) => link.textContent === "Open");
+    await act(async () => open?.click());
+    const back = Array.from(container?.querySelectorAll<HTMLAnchorElement>("a") ?? [])
+      .find((link) => link.textContent === "Back");
+    await act(async () => back?.click());
 
     expect(container?.querySelector<HTMLInputElement>("input")?.value).toBe("Merlion");
     expect(container?.querySelectorAll<HTMLSelectElement>("select")[3]?.value).toBe("SG");

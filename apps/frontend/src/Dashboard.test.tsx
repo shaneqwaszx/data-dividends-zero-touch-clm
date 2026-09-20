@@ -1,8 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import App, { WorkspaceTabs } from "./App";
+import App from "./App";
+import { WorkspaceTabs } from "./navigation";
 import { configureAuthenticatedTransport, fetchDashboard } from "./api";
 import { DashboardView } from "./pages/Dashboard";
 import { createSessionQueryClient } from "./queryClient";
@@ -104,15 +106,16 @@ afterEach(() => {
 
 describe("historical RBAC dashboard", () => {
   it("is the first authenticated landing view and preserves existing navigation", () => {
-    const markup = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><App actor={maya} onLogout={() => undefined} /></QueryClientProvider>);
-    expect(markup).toContain('aria-current="page">Dashboard');
+    const markup = renderToStaticMarkup(<MemoryRouter initialEntries={["/dashboard"]}><QueryClientProvider client={createSessionQueryClient()}><App actor={maya} onLogout={() => undefined} /></QueryClientProvider></MemoryRouter>);
+    expect(markup).toContain('aria-current="page"');
+    expect(markup).toContain('href="/dashboard"');
     expect(markup).toContain("Loading dashboard");
     expect(markup).toContain("New onboarding");
-    expect(renderToStaticMarkup(<WorkspaceTabs activeTab="home" onChange={() => undefined} actor={maya} />)).toContain("Cases");
+    expect(renderToStaticMarkup(<MemoryRouter initialEntries={["/new-onboarding"]}><WorkspaceTabs actor={maya} /></MemoryRouter>)).toContain("Cases");
   });
 
   it("renders exact backend totals, status, priority, recent, active, and trend data", () => {
-    const markup = renderToStaticMarkup(<DashboardView actor={maya} dashboard={snapshot(maya)} onOpenCase={() => undefined} onRefresh={() => undefined} />);
+    const markup = renderToStaticMarkup(<MemoryRouter><DashboardView actor={maya} dashboard={snapshot(maya)} onRefresh={() => undefined} /></MemoryRouter>);
     expect(markup).toContain("DBS Corporate Onboarding");
     expect(markup).toContain("Total cases");
     expect(markup).toContain("Completion rate");
@@ -125,7 +128,7 @@ describe("historical RBAC dashboard", () => {
   });
 
   it("renders both backend-returned teams only for the Director", () => {
-    const markup = renderToStaticMarkup(<DashboardView actor={olivia} dashboard={snapshot(olivia)} onOpenCase={() => undefined} onRefresh={() => undefined} />);
+    const markup = renderToStaticMarkup(<MemoryRouter><DashboardView actor={olivia} dashboard={snapshot(olivia)} onRefresh={() => undefined} /></MemoryRouter>);
     expect(markup).toContain("Global / cross-team");
     expect(markup).toContain("DBS Corporate Onboarding");
     expect(markup).toContain("OCBC Corporate Onboarding");
@@ -133,7 +136,7 @@ describe("historical RBAC dashboard", () => {
   });
 
   it("renders a safe empty state without NaN or undefined", () => {
-    const markup = renderToStaticMarkup(<DashboardView actor={maya} dashboard={snapshot(maya, 0)} onOpenCase={() => undefined} onRefresh={() => undefined} />);
+    const markup = renderToStaticMarkup(<MemoryRouter><DashboardView actor={maya} dashboard={snapshot(maya, 0)} onRefresh={() => undefined} /></MemoryRouter>);
     expect(markup).toContain("No onboarding cases are available for your current scope.");
     expect(markup).toContain("0%");
     expect(markup).not.toContain("NaN");

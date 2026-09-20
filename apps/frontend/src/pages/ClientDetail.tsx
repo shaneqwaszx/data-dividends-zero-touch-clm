@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 
 import { caseDetailQueryOptions, documentQueryOptions, ownershipQueryOptions } from "../caseQueries";
+import { paths } from "../navigation";
 import type { AuthenticatedProfile } from "../types";
 import { mapZeroTouchCaseToClientDetail } from "../viewModels";
 
@@ -27,13 +29,9 @@ export function ClientRecordActions() {
 export default function ClientDetail({
   clientId,
   actor,
-  onBack,
-  onOpenAudit,
 }: {
   clientId: string;
   actor: AuthenticatedProfile;
-  onBack: () => void;
-  onOpenAudit: (caseId: string) => void;
 }) {
   const summary = useQuery(caseDetailQueryOptions(actor.user_id, clientId));
   const documents = useQuery(documentQueryOptions(actor.user_id, clientId));
@@ -43,10 +41,19 @@ export default function ClientDetail({
     : null;
   const requestError = summary.error ?? documents.error ?? ownership.error;
 
-  if (requestError && !client) {
-    return <div className="ds-root ds-page"><button type="button" className="btn btn-ghost" style={{ paddingLeft: 0 }} onClick={onBack}>← Back to Onboarded</button><div className="ds-banner ds-banner-warn">{requestError instanceof Error ? requestError.message : "The client detail is unavailable."}</div></div>;
+  if (summary.data && summary.data.status !== "COMPLETED") {
+    return (
+      <section className="ds-root ds-page">
+        <h1>Client record unavailable</h1>
+        <p className="text-muted">This case has not completed the Mock onboarding workflow.</p>
+        <Link className="btn btn-secondary" to={paths.caseDetail(clientId)}>Open case details</Link>
+      </section>
+    );
   }
-  if (!client) return <div className="ds-root ds-page"><button type="button" className="btn btn-ghost" style={{ paddingLeft: 0 }} onClick={onBack}>← Back to Onboarded</button><p className="text-muted">Loading client…</p></div>;
+  if (requestError && !client) {
+    return <div className="ds-root ds-page"><Link className="btn btn-ghost" style={{ paddingLeft: 0 }} to={paths.onboarded}>← Back to Onboarded</Link><div className="ds-banner ds-banner-warn">{requestError instanceof Error ? requestError.message : "The client detail is unavailable."}</div></div>;
+  }
+  if (!client) return <div className="ds-root ds-page"><Link className="btn btn-ghost" style={{ paddingLeft: 0 }} to={paths.onboarded}>← Back to Onboarded</Link><p className="text-muted">Loading client…</p></div>;
 
   return (
     <div className="ds-root detail-layout">
@@ -81,8 +88,8 @@ export default function ClientDetail({
         </div>
         <hr className="hr" />
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-          <button type="button" className="btn btn-ghost" style={{ justifyContent: "flex-start", paddingLeft: 0 }} onClick={() => onOpenAudit(client.case_id)}>Audit trail</button>
-          <button type="button" className="btn btn-ghost" style={{ justifyContent: "flex-start", paddingLeft: 0 }} onClick={onBack}>Back to Onboarded</button>
+          <Link className="btn btn-ghost" style={{ justifyContent: "flex-start", paddingLeft: 0 }} to={paths.auditCase(client.case_id)}>Audit trail</Link>
+          <Link className="btn btn-ghost" style={{ justifyContent: "flex-start", paddingLeft: 0 }} to={paths.onboarded}>Back to Onboarded</Link>
         </div>
       </div>
 
