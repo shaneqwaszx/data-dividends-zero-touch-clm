@@ -60,6 +60,15 @@ EXPECTED_IDENTITY = {
 }
 
 
+def _is_camunda_runtime_path(path: str) -> bool:
+    # Backend test-tree contracts are governance evidence, not application runtime.
+    return (
+        path.startswith("apps/")
+        and not path.startswith("apps/backend/tests/")
+        and "camunda" in path.lower()
+    )
+
+
 def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -318,11 +327,7 @@ def validate(root: Path) -> list[str]:
             "Camunda must remain documented not_implemented without a runtime adapter"
         )
     tracked = _git(root, "ls-files").stdout.splitlines()
-    runtime_camunda = [
-        path
-        for path in tracked
-        if path.startswith("apps/") and "camunda" in path.lower()
-    ]
+    runtime_camunda = [path for path in tracked if _is_camunda_runtime_path(path)]
     if runtime_camunda:
         failures.append(
             "Camunda runtime files exist but PROJECT_STATE says not_implemented"
