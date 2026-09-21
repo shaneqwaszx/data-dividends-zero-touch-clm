@@ -619,6 +619,37 @@ export type AutomationStage =
   | "MOCK_GOLDTIER"
   | "COMPLETE";
 
+export type EventOutcome = "SUCCEEDED" | "PARTIAL" | "REVIEW_REQUIRED" | "FAILED";
+
+export type CaseActivityAction =
+  | "CREATED"
+  | "DOCUMENT"
+  | "RECONCILIATION"
+  | "OWNERSHIP"
+  | "TARGET"
+  | "COMPLETED";
+
+export interface CaseActivityItem {
+  case_id: string;
+  sequence: number;
+  timestamp: string;
+  event_type: string;
+  status: AutomationStatus;
+  stage: AutomationStage;
+  outcome: EventOutcome;
+  code: string | null;
+  message: string;
+  current_priority: number | null;
+  current_client_scope_label: string | null;
+}
+
+export interface CaseActivityPage {
+  items: CaseActivityItem[];
+  offset: number;
+  limit: number;
+  has_more: boolean;
+}
+
 export const BUSINESS_EXCEPTION_TYPES = [
   "REGISTRY_REVIEW_REQUIRED",
   "JURISDICTION_UNRESOLVED",

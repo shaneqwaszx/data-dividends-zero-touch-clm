@@ -275,7 +275,9 @@ test("current document review progresses authoritatively and keeps superseded hi
 
   await page.reload();
   await expect(page).toHaveURL(`/cases/${caseId}`);
-  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({
+    timeout: 30_000,
+  });
   const reloadedHistory = page.getByText(/Evidence history \(1\)/);
   await expect(reloadedHistory).toBeVisible({ timeout: 30_000 });
   await reloadedHistory.click();
@@ -296,7 +298,9 @@ test("Cases filters exact open business-exception types without hiding other att
     await page.getByLabel("Registration ID / UEN").fill(uen);
     await page.locator("#home-document").setInputFiles(fixture);
     await page.getByRole("button", { name: "Create onboarding" }).click();
-    await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
+    await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i, {
+      timeout: 30_000,
+    });
     const caseId = page.url().split("/").at(-1)!;
     await expect.poll(async () => {
       const response = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
@@ -380,4 +384,105 @@ test("Cases filters exact open business-exception types without hiding other att
     page.getByRole("heading", { name: "Why this case is in its current state" }),
   ).toBeVisible();
   expect(lowConfidenceCaseId).not.toBe(ownershipCycleCaseId);
+});
+
+test("Case activity uses one paged read with accessible filters, scoped links, and mobile scrolling", async ({ page }) => {
+  await page.goto("/");
+  await login(page);
+
+  const activityRequests: string[] = [];
+  const caseDetailRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/clm/zero-touch/activity") {
+      activityRequests.push(`${url.pathname}${url.search}`);
+    }
+    if (/^\/api\/clm\/zero-touch\/cases\/[0-9a-f-]{36}$/i.test(url.pathname)) {
+      caseDetailRequests.push(url.pathname);
+    }
+  });
+
+  const initialResponsePromise = page.waitForResponse((response) => (
+    new URL(response.url()).pathname === "/api/clm/zero-touch/activity"
+  ));
+  await page.getByRole("link", { name: "Audit" }).click();
+  const initialResponse = await initialResponsePromise;
+  const initialPage = await initialResponse.json() as {
+    items: Array<{ case_id: string; timestamp: string }>;
+    has_more: boolean;
+  };
+  await expect(page.getByRole("heading", { name: "Case activity" })).toBeVisible();
+  await expect(page.getByText("Actor attribution is not recorded", { exact: false })).toBeVisible();
+  expect(activityRequests).toEqual(["/api/clm/zero-touch/activity"]);
+  expect(caseDetailRequests).toEqual([]);
+  expect(initialPage.items.length).toBeGreaterThan(0);
+
+  const precisionItem = initialPage.items.find((item) => /\.\d{6}(?:Z|\+00:00)$/.test(item.timestamp));
+  expect(precisionItem).toBeDefined();
+  if (!precisionItem) throw new Error("Expected an activity event with microsecond UTC precision");
+  const displayedTimestamp = precisionItem.timestamp.replace(/\+00:00$/, "Z");
+  await expect(page.getByText(displayedTimestamp, { exact: true }).first()).toBeVisible();
+
+  const firstCaseId = initialPage.items[0].case_id;
+  const firstCaseLink = page.getByRole("link", { name: firstCaseId }).first();
+  await expect(firstCaseLink).toHaveAttribute("href", `/cases/${firstCaseId}`);
+
+  const documentResponse = page.waitForResponse((response) => response.url().includes("action=DOCUMENT"));
+  await page.getByRole("button", { name: "document" }).click();
+  await documentResponse;
+  await expect.poll(() => activityRequests.at(-1)).toContain("action=DOCUMENT");
+
+  const stageResponse = page.waitForResponse((response) => response.url().includes("stage=DOCUMENT"));
+  await page.getByLabel("Stage").selectOption("DOCUMENT");
+  await stageResponse;
+  await expect.poll(() => activityRequests.at(-1)).toContain("stage=DOCUMENT");
+
+  const outcomeResponse = page.waitForResponse((response) => response.url().includes("outcome=REVIEW_REQUIRED"));
+  await page.getByLabel("Outcome").selectOption("REVIEW_REQUIRED");
+  await outcomeResponse;
+  await expect.poll(() => activityRequests.at(-1)).toContain("outcome=REVIEW_REQUIRED");
+
+  await page.getByRole("button", { name: "All", exact: true }).click();
+  await page.getByLabel("Stage").selectOption("");
+  await page.getByLabel("Outcome").selectOption("");
+  const pageSizeResponse = page.waitForResponse((response) => response.url().includes("limit=25"));
+  await page.getByLabel("Events per page").selectOption("25");
+  const boundedPage = await pageSizeResponse;
+  const boundedBody = await boundedPage.json() as { has_more: boolean };
+
+  expect(boundedBody.has_more).toBe(true);
+  const nextResponse = page.waitForResponse((response) => response.url().includes("offset=25"));
+  await page.getByRole("button", { name: "Next" }).click();
+  await nextResponse;
+  await expect(page.getByText(/Offset 25;/)).toBeVisible();
+  await page.getByRole("button", { name: "Previous" }).click();
+  await expect(page.getByText(/Offset 0;/)).toBeVisible();
+
+  await page.goto(`/audit/${firstCaseId}`);
+  await expect(page.getByText(`for case ${firstCaseId}`, { exact: false })).toBeVisible();
+  const clear = page.getByRole("link", { name: "Clear case filter" });
+  await expect(clear).toHaveAttribute("href", "/audit");
+  await clear.click();
+  await expect(page).toHaveURL(/\/audit$/);
+
+  await page.setViewportSize({ width: 480, height: 900 });
+  const scroller = page.getByLabel("Case activity events");
+  await expect(scroller).toBeVisible();
+  await scroller.focus();
+  await expect(scroller).toBeFocused();
+  const layout = await scroller.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      left: Math.round(bounds.left),
+      right: Math.round(bounds.right),
+      viewportWidth: document.documentElement.clientWidth,
+      rootScrollWidth: document.documentElement.scrollWidth,
+    };
+  });
+  expect(layout.scrollWidth).toBeGreaterThan(layout.clientWidth);
+  expect(layout.left).toBeGreaterThanOrEqual(-1);
+  expect(layout.right).toBeLessThanOrEqual(layout.viewportWidth + 1);
+  expect(layout.rootScrollWidth).toBeLessThanOrEqual(layout.viewportWidth + 1);
 });

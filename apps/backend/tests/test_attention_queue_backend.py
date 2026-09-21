@@ -75,7 +75,13 @@ class _PortfolioProbe:
         return [
             record
             for record in self.records
-            if scope.team_id is None or record.team_id == scope.team_id
+            if (
+                scope.kind == PortfolioScopeKind.GLOBAL
+                or scope.kind == PortfolioScopeKind.UNASSIGNED
+                and record.team_id is None
+                or scope.kind == PortfolioScopeKind.TEAM
+                and record.team_id == scope.team_id
+            )
         ]
 
 

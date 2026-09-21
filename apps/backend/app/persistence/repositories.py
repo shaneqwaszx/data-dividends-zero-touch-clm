@@ -9,7 +9,12 @@ from hashlib import sha256
 from threading import RLock
 from uuid import UUID
 
-from app.domain.case_management import CasePortfolioRecord, CasePortfolioScope
+from app.domain.case_management import (
+    CaseActivityQuery,
+    CaseActivityRepositoryPage,
+    CasePortfolioRecord,
+    CasePortfolioScope,
+)
 from app.domain.clm import ClmOrchestrationRecord
 from app.domain.documents import DocumentProcessingRecord
 from app.domain.models import OnboardingCase
@@ -109,6 +114,9 @@ class MongoCasePortfolioRepository:
         status: AutomationStatus | None = None,
     ) -> list[CasePortfolioRecord]:
         return self._store.list_portfolio(scope, status=status)
+
+    def list_activity(self, query: CaseActivityQuery) -> CaseActivityRepositoryPage:
+        return self._store.list_activity(query)
 
 
 class MongoCaseDeletionRepository:

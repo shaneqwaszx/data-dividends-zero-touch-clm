@@ -52,6 +52,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("GET", "/api/system/execution-profile", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/onboarding/mock-scenarios", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/clm/zero-touch/cases", RouteAccess.CASE_PORTFOLIO),
+    RoutePolicy("GET", "/api/clm/zero-touch/activity", RouteAccess.CASE_PORTFOLIO),
     RoutePolicy("GET", "/api/clm/zero-touch/dashboard", RouteAccess.CASE_PORTFOLIO),
     RoutePolicy("POST", "/api/onboarding/cases", RouteAccess.CASE_CREATION),
     RoutePolicy("POST", "/api/clm/cases", RouteAccess.CASE_CREATION),

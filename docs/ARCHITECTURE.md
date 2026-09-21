@@ -69,7 +69,7 @@ shapes, and runtime calls dispatch through ports rather than reversing static ow
 | Target execution | `domain/target_submission.py`, `domain/target_safety.py`, `services/target_response_validation.py`, `services/target_execution_repository.py`, `connectors/goldtier*.py`, `mappers/goldtier.py` | ordered search/shell/policy/amend, strict responses, durable intent/outcome/finalization | target port and ledger | replay after uncertain attempt, sponsor approval claim |
 | Zero-touch workflow | `domain/zero_touch.py`, `services/zero_touch_orchestration.py`, provider bindings | stage ordering, typed exceptions, call stopping, resume | application services through ports | provider-specific payload logic |
 | Case persistence | `persistence/models.py`, `mongo_case_store.py`, `persistence/repositories.py`, service repository protocols | complete envelope, strict decode, CAS, insert/update/delete semantics | domain/service ports | API/UI behavior or provider calls |
-| Portfolio/dashboard | `domain/case_management.py`, `domain/dashboard.py`, `services/case_query.py`, `services/dashboard.py` | authorized projections, filtering, ordering and factual metrics | access policy, portfolio repository | analytics/risk/SLA inference |
+| Portfolio/dashboard/activity | `domain/case_management.py`, `domain/dashboard.py`, `services/case_query.py`, `services/dashboard.py` | authorized projections, filtering, ordering, retained automation-event activity and factual metrics | access policy, portfolio repository | analytics/risk/SLA inference, event production, regulatory audit ownership |
 | Frontend auth/cache | `frontend/src/auth.tsx`, `queryClient.tsx`, `caseQueries.ts` | session lifecycle, scoped query keys, cancellation/invalidation | backend APIs and server-authored profile | authorization or persistent sensitive cache |
 | Frontend navigation | `frontend/src/navigation.tsx`, browser location, router mount in `frontend/src/main.tsx` | route patterns, safe path construction, route matching, active links and generic unavailable presentation | existing auth, view and cache owners | server data, authorization, workflow actions or a second page/case identity |
 | Frontend views | `frontend/src/pages/*`, `App.tsx`, `api.ts`, `types.ts` | presentation, input, safe actions | authenticated API/cache owners | business authority or provider selection |
@@ -226,6 +226,19 @@ aggregation. A lightweight repository projection avoids complete-envelope N+1 re
 Dashboard metrics are factual POC counts/trends, not risk, SLA, compliance, or staff
 performance metrics. `team_filter` is part of backend scope and frontend cache identity.
 
+The Case Activity Explorer reads only retained `ZeroTouchAutomationRecord.events` through
+the same authorized case-query and portfolio-repository boundary. Memory and Mongo apply
+visibility before event inspection and share the ordering `(timestamp descending,
+canonical case UUID ascending, source-local sequence descending)`. Mongo uses one bounded
+read-only aggregation per page with a scoped invalid-data signal and `limit + 1`
+lookahead; it does not decode full envelopes, repair data, add an event store, or fall
+back to memory. Selected-case access remains a safe 404. Current priority and client
+scope are contextual projections, not event-time facts.
+
+This activity view is a live, offset-paged view of currently retained automation events.
+It is not a complete compliance audit, actor ledger, immutable archive, cross-page
+snapshot, or causal order across cases. Case deletion removes the available activity.
+
 ## 14. Frontend and React Query architecture
 
 The frontend is a typed React/Vite client. `AuthProvider` owns the authenticated session
@@ -238,6 +251,12 @@ cached data. Mutations use explicit effects; global mutation retry is disabled. 
 deletion cancels in-flight list/dashboard/detail/supporting requests before removing
 the deleted case, preventing stale response resurrection. No case data is persisted to
 localStorage, sessionStorage, IndexedDB or a service worker.
+
+Activity query keys additionally include case, team, action, stage, outcome, UTC window,
+offset and limit. Filter changes do not reuse a previous key as current data. Activity
+reads preserve `AbortSignal`; relevant mutations invalidate the user-scoped activity
+family, while deletion cancels and removes it before a late response can republish a
+deleted row.
 
 Browser location is the sole page and case-navigation identity. Declarative
 `BrowserRouter` routing is mounted once outside `AuthProvider`; route elements reuse the

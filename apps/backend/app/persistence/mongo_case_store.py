@@ -19,8 +19,13 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.domain.access import TeamId
 from app.domain.case_management import (
+    CaseActivityAction,
+    CaseActivityQuery,
+    CaseActivityRepositoryPage,
+    CaseActivityRepositoryRecord,
     CasePortfolioRecord,
     CasePortfolioScope,
+    PortfolioScopeKind,
     ordered_active_exception_types,
 )
 from app.domain.documents import (
@@ -149,8 +154,10 @@ class MongoCaseStore:
         """Read one bounded projection without decoding complete case envelopes."""
 
         query: dict[str, Any] = {"automation": {"$ne": None}}
-        if scope.team_id is not None:
+        if scope.kind == PortfolioScopeKind.TEAM:
             query["onboarding.team_id"] = str(scope.team_id)
+        elif scope.kind == PortfolioScopeKind.UNASSIGNED:
+            query["onboarding.team_id"] = None
         if status is not None:
             query["automation.status"] = status.value
         projection = {
@@ -181,6 +188,107 @@ class MongoCaseStore:
         except PyMongoError:
             raise PersistenceUnavailableError from None
         return [self._decode_portfolio(item) for item in raw_records]
+
+    def list_activity(self, query: CaseActivityQuery) -> CaseActivityRepositoryPage:
+        """Read one strict retained-event page with one bounded aggregation."""
+
+        candidate_match: dict[str, Any] = {"automation": {"$ne": None}}
+        if query.scope.kind == PortfolioScopeKind.TEAM:
+            candidate_match["onboarding.team_id"] = str(query.scope.team_id)
+        elif query.scope.kind == PortfolioScopeKind.UNASSIGNED:
+            candidate_match["onboarding.team_id"] = None
+        if query.case_id is not None:
+            candidate_match["_id"] = str(query.case_id)
+
+        valid_candidate = _activity_candidate_valid_expression()
+        row_match = _activity_row_match(query)
+        pipeline: list[dict[str, Any]] = [
+            {"$match": candidate_match},
+            {
+                "$project": {
+                    "_id": 1,
+                    "schema_version": 1,
+                    "case_id": 1,
+                    "revision": 1,
+                    "onboarding.case_id": 1,
+                    "onboarding.team_id": 1,
+                    "onboarding.priority": 1,
+                    "automation.case_id": 1,
+                    "automation.events": 1,
+                }
+            },
+            {
+                "$facet": {
+                    "invalid": [
+                        {"$match": {"$expr": {"$not": [valid_candidate]}}},
+                        {"$limit": 1},
+                        {"$project": {"_id": 0, "invalid": {"$literal": True}}},
+                    ],
+                    "rows": [
+                        {"$match": {"$expr": valid_candidate}},
+                        {"$unwind": "$automation.events"},
+                        {"$match": row_match},
+                        {
+                            "$set": {
+                                "_sort_timestamp": _normalized_activity_timestamp_expression(
+                                    "$automation.events.timestamp"
+                                )
+                            }
+                        },
+                        {
+                            "$sort": {
+                                "_sort_timestamp": DESCENDING,
+                                "case_id": ASCENDING,
+                                "automation.events.sequence": DESCENDING,
+                            }
+                        },
+                        {"$skip": query.offset},
+                        {"$limit": query.limit + 1},
+                        {
+                            "$project": {
+                                "_id": 0,
+                                "case_id": 1,
+                                "sequence": "$automation.events.sequence",
+                                "timestamp": "$automation.events.timestamp",
+                                "event_type": "$automation.events.event_type",
+                                "status": "$automation.events.status",
+                                "stage": "$automation.events.stage",
+                                "outcome": "$automation.events.outcome",
+                                "code": "$automation.events.code",
+                                "message": "$automation.events.message",
+                                "team_id": "$onboarding.team_id",
+                                "current_priority": "$onboarding.priority",
+                            }
+                        },
+                    ],
+                }
+            },
+        ]
+        try:
+            result = list(
+                self._collection.aggregate(
+                    pipeline,
+                    allowDiskUse=False,
+                    maxTimeMS=5_000,
+                )
+            )
+        except PyMongoError:
+            raise PersistenceUnavailableError from None
+        if len(result) != 1 or set(result[0]) != {"invalid", "rows"}:
+            raise PersistenceDataInvalidError
+        invalid = result[0]["invalid"]
+        rows = result[0]["rows"]
+        if not isinstance(invalid, list) or not isinstance(rows, list) or invalid:
+            raise PersistenceDataInvalidError
+        if len(rows) > query.limit + 1:
+            raise PersistenceDataInvalidError
+        decoded = [self._decode_activity_record(row) for row in rows]
+        return CaseActivityRepositoryPage(
+            items=tuple(decoded[: query.limit]),
+            offset=query.offset,
+            limit=query.limit,
+            has_more=len(decoded) > query.limit,
+        )
 
     def delete(self, case_id: UUID, *, expected_revision: int) -> None:
         try:
@@ -397,6 +505,44 @@ class MongoCaseStore:
             )
         except PersistenceSchemaUnsupportedError:
             raise
+        except PersistenceDataInvalidError:
+            raise
+        except (KeyError, TypeError, ValueError, ValidationError):
+            raise PersistenceDataInvalidError from None
+
+    def _decode_activity_record(self, raw: dict[str, Any]) -> CaseActivityRepositoryRecord:
+        expected = {
+            "case_id",
+            "sequence",
+            "timestamp",
+            "event_type",
+            "status",
+            "stage",
+            "outcome",
+            "code",
+            "message",
+        }
+        optional = {"team_id", "current_priority"}
+        try:
+            if (
+                not isinstance(raw, dict)
+                or set(raw) - (expected | optional)
+                or not expected <= set(raw)
+            ):
+                raise PersistenceDataInvalidError
+            return CaseActivityRepositoryRecord(
+                case_id=_canonical_uuid(raw["case_id"]),
+                sequence=raw["sequence"],
+                timestamp=_utc_datetime(raw["timestamp"]),
+                event_type=AutomationEventType(raw["event_type"]),
+                status=AutomationStatus(raw["status"]),
+                stage=AutomationStage(raw["stage"]),
+                outcome=EventOutcome(raw["outcome"]),
+                code=raw["code"],
+                message=raw["message"],
+                team_id=TeamId(raw["team_id"]) if raw.get("team_id") is not None else None,
+                current_priority=raw.get("current_priority"),
+            )
         except PersistenceDataInvalidError:
             raise
         except (KeyError, TypeError, ValueError, ValidationError):
@@ -648,6 +794,272 @@ def _nested_optional_enum(
     if set(value) != {field}:
         raise PersistenceDataInvalidError
     return enum_type(value[field]) if value[field] is not None else None
+
+
+def _mongo_bounded_string(value: str, minimum: int, maximum: int) -> dict[str, Any]:
+    value_type = {"$type": value}
+    safe_value = {"$cond": [{"$eq": [value_type, "string"]}, value, ""]}
+    return {
+        "$and": [
+            {"$eq": [value_type, "string"]},
+            {"$gte": [{"$strLenCP": safe_value}, minimum]},
+            {"$lte": [{"$strLenCP": safe_value}, maximum]},
+        ]
+    }
+
+
+def _mongo_canonical_uuid(value: str) -> dict[str, Any]:
+    value_type = {"$type": value}
+    safe_value = {"$cond": [{"$eq": [value_type, "string"]}, value, ""]}
+    return {
+        "$and": [
+            {"$eq": [value_type, "string"]},
+            {
+                "$regexMatch": {
+                    "input": safe_value,
+                    "regex": (
+                        "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                        "[0-9a-f]{4}-[0-9a-f]{12}$"
+                    ),
+                }
+            },
+        ]
+    }
+
+
+def _mongo_activity_timestamp(value: str) -> dict[str, Any]:
+    value_type = {"$type": value}
+    safe_value = {"$cond": [{"$eq": [value_type, "string"]}, value, ""]}
+    return {
+        "$and": [
+            {"$eq": [value_type, "string"]},
+            {
+                "$regexMatch": {
+                    "input": safe_value,
+                    "regex": (
+                        "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:"
+                        "[0-9]{2}:[0-9]{2}(\\.[0-9]{6})?Z$"
+                    ),
+                }
+            },
+            {
+                "$ne": [
+                    {
+                        "$dateFromString": {
+                            "dateString": safe_value,
+                            "onError": None,
+                            "onNull": None,
+                        }
+                    },
+                    None,
+                ]
+            },
+        ]
+    }
+
+
+def _activity_event_valid_expression() -> dict[str, Any]:
+    event_type = {"$type": "$$event"}
+    safe_event = {"$cond": [{"$eq": [event_type, "object"]}, "$$event", {}]}
+    keys = {
+        "$map": {
+            "input": {"$objectToArray": safe_event},
+            "as": "pair",
+            "in": "$$pair.k",
+        }
+    }
+    code_type = {"$type": "$$event.code"}
+    return {
+        "$and": [
+            {"$eq": [event_type, "object"]},
+            {
+                "$setEquals": [
+                    keys,
+                    [
+                        "sequence",
+                        "event_type",
+                        "status",
+                        "stage",
+                        "outcome",
+                        "timestamp",
+                        "case_id",
+                        "code",
+                        "message",
+                    ],
+                ]
+            },
+            {"$in": [{"$type": "$$event.sequence"}, ["int", "long"]]},
+            {"$gte": ["$$event.sequence", 1]},
+            {"$in": ["$$event.event_type", [item.value for item in AutomationEventType]]},
+            {"$in": ["$$event.status", [item.value for item in AutomationStatus]]},
+            {"$in": ["$$event.stage", [item.value for item in AutomationStage]]},
+            {"$in": ["$$event.outcome", [item.value for item in EventOutcome]]},
+            _mongo_activity_timestamp("$$event.timestamp"),
+            _mongo_canonical_uuid("$$event.case_id"),
+            {"$eq": ["$$event.case_id", "$case_id"]},
+            {
+                "$or": [
+                    {"$eq": [code_type, "null"]},
+                    _mongo_bounded_string("$$event.code", 0, 64),
+                ]
+            },
+            _mongo_bounded_string("$$event.message", 1, 200),
+        ]
+    }
+
+
+def _activity_candidate_valid_expression() -> dict[str, Any]:
+    events_type = {"$type": "$automation.events"}
+    safe_events = {
+        "$cond": [{"$eq": [events_type, "array"]}, "$automation.events", []]
+    }
+    schema_type = {"$type": "$schema_version"}
+    revision_type = {"$type": "$revision"}
+    team_type = {"$type": "$onboarding.team_id"}
+    priority_type = {"$type": "$onboarding.priority"}
+    return {
+        "$and": [
+            {"$in": [schema_type, ["int", "long"]]},
+            {"$in": ["$schema_version", [1, 2, 3, CASE_SNAPSHOT_SCHEMA_VERSION]]},
+            {"$in": [revision_type, ["int", "long"]]},
+            {"$gte": ["$revision", 0]},
+            _mongo_canonical_uuid("$_id"),
+            _mongo_canonical_uuid("$case_id"),
+            {"$eq": ["$_id", "$case_id"]},
+            _mongo_canonical_uuid("$onboarding.case_id"),
+            {"$eq": ["$onboarding.case_id", "$case_id"]},
+            _mongo_canonical_uuid("$automation.case_id"),
+            {"$eq": ["$automation.case_id", "$case_id"]},
+            {
+                "$cond": [
+                    {"$eq": ["$schema_version", 1]},
+                    {"$eq": [team_type, "missing"]},
+                    {
+                        "$or": [
+                            {"$eq": [team_type, "null"]},
+                            {
+                                "$and": [
+                                    {"$eq": [team_type, "string"]},
+                                    {
+                                        "$regexMatch": {
+                                            "input": {
+                                                "$cond": [
+                                                    {"$eq": [team_type, "string"]},
+                                                    "$onboarding.team_id",
+                                                    "",
+                                                ]
+                                            },
+                                            "regex": "^(TEAM_A|TEAM_B|TEAM_[0-9A-F]{24})$",
+                                        }
+                                    },
+                                ]
+                            },
+                        ]
+                    },
+                ]
+            },
+            {
+                "$cond": [
+                    {"$eq": ["$schema_version", 1]},
+                    {"$eq": [priority_type, "missing"]},
+                    {
+                        "$or": [
+                            {"$eq": [priority_type, "null"]},
+                            {
+                                "$and": [
+                                    {"$in": [priority_type, ["int", "long"]]},
+                                    {"$gte": ["$onboarding.priority", 1]},
+                                    {"$lte": ["$onboarding.priority", 10]},
+                                ]
+                            },
+                        ]
+                    },
+                ]
+            },
+            {"$eq": [events_type, "array"]},
+            {
+                "$allElementsTrue": {
+                    "$map": {
+                        "input": safe_events,
+                        "as": "event",
+                        "in": _activity_event_valid_expression(),
+                    }
+                }
+            },
+            {
+                "$eq": [
+                    {
+                        "$map": {
+                            "input": safe_events,
+                            "as": "event",
+                            "in": "$$event.sequence",
+                        }
+                    },
+                    {"$range": [1, {"$add": [{"$size": safe_events}, 1]}]},
+                ]
+            },
+        ]
+    }
+
+
+def _normalized_activity_timestamp_expression(value: str) -> dict[str, Any]:
+    return {
+        "$cond": [
+            {"$eq": [{"$strLenCP": value}, 20]},
+            {"$concat": [{"$substrCP": [value, 0, 19]}, ".000000Z"]},
+            value,
+        ]
+    }
+
+
+def _activity_timestamp_string(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _activity_row_match(query: CaseActivityQuery) -> dict[str, Any]:
+    conditions: list[dict[str, Any]] = []
+    if query.action == CaseActivityAction.CREATED:
+        conditions.append({"automation.events.event_type": {"$regex": "CREATED"}})
+    elif query.action == CaseActivityAction.DOCUMENT:
+        conditions.append({"automation.events.stage": AutomationStage.DOCUMENT.value})
+    elif query.action == CaseActivityAction.RECONCILIATION:
+        conditions.append({"automation.events.event_type": {"$regex": "RECONCILIATION"}})
+    elif query.action == CaseActivityAction.OWNERSHIP:
+        conditions.append({"automation.events.stage": AutomationStage.OWNERSHIP.value})
+    elif query.action == CaseActivityAction.TARGET:
+        conditions.append(
+            {
+                "$or": [
+                    {"automation.events.stage": AutomationStage.MOCK_GOLDTIER.value},
+                    {"automation.events.event_type": {"$regex": "MOCK_SUBMISSION"}},
+                ]
+            }
+        )
+    elif query.action == CaseActivityAction.COMPLETED:
+        conditions.append(
+            {
+                "$or": [
+                    {"automation.events.event_type": {"$regex": "COMPLETED"}},
+                    {"automation.events.stage": AutomationStage.COMPLETE.value},
+                ]
+            }
+        )
+    if query.stage is not None:
+        conditions.append({"automation.events.stage": query.stage.value})
+    if query.outcome is not None:
+        conditions.append({"automation.events.outcome": query.outcome.value})
+    normalized_timestamp = _normalized_activity_timestamp_expression(
+        "$automation.events.timestamp"
+    )
+    if query.from_at is not None:
+        conditions.append(
+            {"$expr": {"$gte": [normalized_timestamp, _activity_timestamp_string(query.from_at)]}}
+        )
+    if query.to_at is not None:
+        conditions.append(
+            {"$expr": {"$lt": [normalized_timestamp, _activity_timestamp_string(query.to_at)]}}
+        )
+    return {"$and": conditions} if conditions else {}
 
 
 def _utc_datetime(value: object) -> datetime:

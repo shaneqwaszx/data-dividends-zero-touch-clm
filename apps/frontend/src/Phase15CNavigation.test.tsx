@@ -1406,11 +1406,11 @@ describe("Phase 15C intake and mutation safety", () => {
   it("P15C-NAV-14 makes the audit URL the only case-filter identity and Clear changes the URL", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) {
-        const result = summaryFixture(CASE_A);
-        result.timeline = [{
+      if (url.includes("/api/clm/zero-touch/activity")) {
+        return json({
+          items: [{
           sequence: 1,
-          event_type: "ZERO_TOUCH_CASE_CREATED",
+          event_type: "ONBOARDING_CREATED",
           status: "PENDING_INPUTS",
           stage: "DOCUMENT",
           outcome: "SUCCEEDED",
@@ -1418,28 +1418,34 @@ describe("Phase 15C intake and mutation safety", () => {
           case_id: CASE_A,
           code: null,
           message: "Synthetic case created.",
-        }];
-        return json(result);
+          current_priority: null,
+          current_client_scope_label: "Alpha",
+          }],
+          offset: 0,
+          limit: 50,
+          has_more: false,
+        });
       }
-      if (url.includes("/api/clm/zero-touch/cases")) return json([]);
       return unavailable();
     });
     function AuditCaseRoute() {
-      return <AuditTrail caseId={useParams().caseId} />;
+      return <AuditTrail actor={relationshipActor} caseId={useParams().caseId} />;
     }
     function AuditRoutes() {
-      return <><Routes><Route path={routePatterns.audit} element={<AuditTrail caseId={null} />} /><Route path={routePatterns.auditCase} element={<AuditCaseRoute />} /></Routes><LocationProbe /></>;
+      return <><Routes><Route path={routePatterns.audit} element={<AuditTrail actor={relationshipActor} caseId={null} />} /><Route path={routePatterns.auditCase} element={<AuditCaseRoute />} /></Routes><LocationProbe /></>;
     }
     await act(async () => root?.render(
-      <MemoryRouter initialEntries={[paths.auditCase(CASE_A)]}><AuditRoutes /></MemoryRouter>,
+      <MemoryRouter initialEntries={[paths.auditCase(CASE_A)]}>
+        <QueryClientProvider client={testClient()}><AuditRoutes /></QueryClientProvider>
+      </MemoryRouter>,
     ));
-    await vi.waitFor(() => expect(container?.textContent).toContain(`for ${CASE_A}`));
+    await vi.waitFor(() => expect(container?.textContent).toContain(`for case ${CASE_A}`));
     const clear = Array.from(container?.querySelectorAll<HTMLAnchorElement>("a") ?? [])
       .find((link) => link.textContent?.includes("Clear case filter"));
     expect(clear?.getAttribute("href")).toBe(paths.audit);
     await act(async () => clear?.click());
     expect(container?.querySelector("[data-testid='location']")?.textContent).toBe(paths.audit);
-    await vi.waitFor(() => expect(request.mock.calls.some(([url]) => String(url) === "/api/clm/zero-touch/cases")).toBe(true));
+    await vi.waitFor(() => expect(request.mock.calls.some(([url]) => String(url) === "/api/clm/zero-touch/activity")).toBe(true));
   });
 
   it("P15C-NAV-15 preserves user/team/filter query identity and nested-route API paths", async () => {

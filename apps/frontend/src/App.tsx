@@ -2280,7 +2280,7 @@ export default function App({
           )}
           onboarded={<OnboardedClients actor={actor} />}
           onboardedDetail={(caseId) => <ClientDetail clientId={caseId} actor={actor} />}
-          audit={(caseId) => <AuditTrail caseId={caseId} />}
+          audit={(caseId) => <AuditTrail actor={actor} caseId={caseId} />}
           policy={<PolicyRules actor={actor} />}
           adminUsers={<AdminUsers />}
           adminTeams={<AdminTeams />}

@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import {
   fetchDashboard,
+  fetchCaseActivity,
   fetchDocuments,
   fetchExecutionProfile,
   fetchOwnership,
@@ -9,6 +10,7 @@ import {
   fetchZeroTouchCases,
   type PriorityFilter,
   type PrioritySort,
+  type CaseActivityFilters,
 } from "./api";
 import type {
   AuthenticatedProfile,
@@ -55,6 +57,21 @@ export const caseQueryKeys = {
     ["auth", userId, "cases", "documents", caseId] as const,
   ownership: (userId: string, caseId: string) =>
     ["auth", userId, "cases", "ownership", caseId] as const,
+  activities: (userId: string) => ["auth", userId, "activity"] as const,
+  activity: (userId: string, filters: CaseActivityFilters) => [
+    ...caseQueryKeys.activities(userId),
+    {
+      caseId: filters.caseId ?? absent,
+      teamFilter: filters.teamFilter ?? absent,
+      action: filters.action ?? absent,
+      stage: filters.stage ?? absent,
+      outcome: filters.outcome ?? absent,
+      from: filters.from ?? absent,
+      to: filters.to ?? absent,
+      offset: filters.offset ?? 0,
+      limit: filters.limit ?? 50,
+    },
+  ] as const,
   executionProfile: (userId: string) =>
     ["auth", userId, "system", "execution-profile"] as const,
 };
@@ -110,6 +127,13 @@ export function ownershipQueryOptions(userId: string, caseId: string) {
   };
 }
 
+export function activityQueryOptions(userId: string, filters: CaseActivityFilters) {
+  return {
+    queryKey: caseQueryKeys.activity(userId, filters),
+    queryFn: ({ signal }: { signal: AbortSignal }) => fetchCaseActivity(filters, signal),
+  };
+}
+
 export function executionProfileQueryOptions(userId: string) {
   return {
     queryKey: caseQueryKeys.executionProfile(userId),
@@ -146,6 +170,7 @@ export function caseCreatedEffect(
   publishCaseDetail(queryClient, userId, summary);
   void queryClient.invalidateQueries({ queryKey: caseQueryKeys.caseLists(userId) });
   queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
+  void queryClient.invalidateQueries({ queryKey: caseQueryKeys.activities(userId) });
 }
 
 export function caseSummaryMutationEffect(
@@ -156,6 +181,7 @@ export function caseSummaryMutationEffect(
   publishCaseDetail(queryClient, userId, summary);
   void queryClient.invalidateQueries({ queryKey: caseQueryKeys.caseLists(userId) });
   queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
+  void queryClient.invalidateQueries({ queryKey: caseQueryKeys.activities(userId) });
 }
 
 export async function caseSupportingMutationEffect(
@@ -190,6 +216,7 @@ export async function priorityMutationEffect(
     type: "active",
   });
   queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
+  await queryClient.invalidateQueries({ queryKey: caseQueryKeys.activities(userId) });
 }
 
 export async function caseDeletedEffect(
@@ -214,6 +241,7 @@ export async function caseDeletedEffect(
       queryKey: caseQueryKeys.ownership(userId, caseId),
       exact: true,
     }),
+    queryClient.cancelQueries({ queryKey: caseQueryKeys.activities(userId) }),
   ]);
   queryClient.setQueriesData<ZeroTouchCaseListItem[]>(
     { queryKey: caseQueryKeys.caseLists(userId) },
@@ -223,6 +251,7 @@ export async function caseDeletedEffect(
   queryClient.removeQueries({ queryKey: caseQueryKeys.documents(userId, caseId), exact: true });
   queryClient.removeQueries({ queryKey: caseQueryKeys.ownership(userId, caseId), exact: true });
   queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
+  queryClient.removeQueries({ queryKey: caseQueryKeys.activities(userId) });
 }
 
 export function cachedDashboard(
