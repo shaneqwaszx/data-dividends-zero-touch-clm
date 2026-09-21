@@ -147,6 +147,13 @@ function summaryFixture(caseId: string, label = "SYNTHETIC CASE"): ZeroTouchCase
     reconciliation: null,
     target_operations: [],
     timeline: [],
+    timing: {
+      observed_at: NOW,
+      case_elapsed_ms: 0,
+      time_since_last_update_ms: 0,
+      automation_elapsed_ms: null,
+      recorded_total_duration_ms: null,
+    },
     created_at: NOW,
     updated_at: NOW,
   } as unknown as ZeroTouchCaseSummary;
@@ -262,6 +269,13 @@ function caseDetailFixture(caseId: string, label: string): ZeroTouchCaseSummary 
     },
     target_operations: [],
     timeline: [],
+    timing: {
+      observed_at: NOW,
+      case_elapsed_ms: 0,
+      time_since_last_update_ms: 0,
+      automation_elapsed_ms: null,
+      recorded_total_duration_ms: null,
+    },
     created_at: NOW,
     updated_at: NOW,
   } as unknown as ZeroTouchCaseSummary;

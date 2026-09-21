@@ -14,12 +14,14 @@ from app.domain.case_management import (
     CaseActivityItem,
     CaseActivityPage,
     CaseActivityQuery,
-    CasePortfolioPage,
     CasePortfolioQuery,
     CasePortfolioRecord,
     CasePortfolioScope,
+    ObservedCasePortfolioPage,
+    ObservedCasePortfolioRecord,
     PortfolioScopeKind,
     order_case_portfolio_records,
+    project_case_timing,
 )
 from app.domain.case_management import PriorityFilter as PriorityFilter
 from app.domain.case_management import PrioritySort as PrioritySort
@@ -110,7 +112,7 @@ class CaseQueryService:
         search: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> CasePortfolioPage:
+    ) -> ObservedCasePortfolioPage:
         scope = self._resolve_scope(actor, team_filter)
         try:
             query = CasePortfolioQuery(
@@ -126,7 +128,28 @@ class CaseQueryService:
             )
         except ValidationError:
             raise CasePortfolioQueryInvalidError from None
-        return self._portfolio_repository.list_page(query)
+        page = self._portfolio_repository.list_page(query)
+        observed_at = self._clock()
+        return ObservedCasePortfolioPage(
+            observed_at=observed_at,
+            items=tuple(
+                ObservedCasePortfolioRecord(
+                    **item.model_dump(),
+                    timing=project_case_timing(
+                        created_at=item.created_at,
+                        updated_at=item.updated_at,
+                        started_at=item.started_at,
+                        completed_at=item.completed_at,
+                        recorded_total_duration_ms=item.recorded_total_duration_ms,
+                        observed_at=observed_at,
+                    ),
+                )
+                for item in page.items
+            ),
+            offset=page.offset,
+            limit=page.limit,
+            has_more=page.has_more,
+        )
 
     def list_activity(
         self,

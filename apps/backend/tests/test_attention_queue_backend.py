@@ -49,6 +49,7 @@ def _portfolio_record(
         current_stage=AutomationStage.DOCUMENT,
         created_at=NOW,
         updated_at=NOW,
+        started_at=None,
         completed_at=None,
         active_exception_count=len(exception_types),
         active_exception_types=exception_types,
@@ -135,12 +136,17 @@ def test_memory_projection_deduplicates_open_types_in_enum_order_and_keeps_count
         current_stage=AutomationStage.DOCUMENT,
         created_at=NOW,
         updated_at=NOW,
+        started_at=None,
         completed_at=None,
         exceptions=exceptions,
         active_exceptions=[
             item for item in exceptions if item.status == BusinessExceptionStatus.OPEN
         ],
-        metrics=SimpleNamespace(human_interventions=0, final_outcome=None),
+        metrics=SimpleNamespace(
+            human_interventions=0,
+            final_outcome=None,
+            total_duration_ms=None,
+        ),
     )
     repository = InMemoryCasePortfolioRepository(
         SimpleNamespace(get=lambda _: case),  # type: ignore[arg-type]

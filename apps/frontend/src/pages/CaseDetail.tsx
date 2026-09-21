@@ -34,7 +34,13 @@ import type {
   ZeroTouchCaseSummary,
   ZeroTouchException,
 } from "../types";
-import { CompletedOverview, ConfirmDetailsPanel, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
+import {
+  CompletedOverview,
+  ConfirmDetailsPanel,
+  OperationalTiming,
+  PipelineRail,
+  RegistryStatePanel,
+} from "./CaseStatePanels";
 import CaseStateExplanationPanel, { type EvidenceFocusTarget } from "./CaseStateExplanationPanel";
 import PriorityControl, { PriorityBadge } from "./PriorityControl";
 import DeleteCaseDialog from "./DeleteCaseDialog";
@@ -441,6 +447,7 @@ export default function CaseDetail({
           </div>
         )}
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
+        <OperationalTiming summary={summary} />
 
         <div className="ds-two-col"><div style={{ flex: 1 }}><h4>Corporate particulars</h4><div>
           <div className="kv-row"><span className="kv-label">Company name</span><span className="kv-value">{entity?.legal_name ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration ID</span><span className="kv-value">{entity?.registration_number ?? summary.case.requested_uen}</span></div><div className="kv-row"><span className="kv-label">Entity type</span><span className="kv-value">{entity?.party_type ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registry status</span><span className="kv-value">{entity?.entity_status ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration date</span><span className="kv-value">{entity?.registration_date ?? "—"}</span></div>

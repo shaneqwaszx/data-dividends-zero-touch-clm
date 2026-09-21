@@ -842,6 +842,18 @@ export interface ZeroTouchCaseSummary {
   }>;
   created_at: string;
   updated_at: string;
+  timing: CaseDetailTiming;
+}
+
+export interface CaseTiming {
+  case_elapsed_ms: number;
+  time_since_last_update_ms: number;
+  automation_elapsed_ms: number | null;
+  recorded_total_duration_ms: number | null;
+}
+
+export interface CaseDetailTiming extends CaseTiming {
+  observed_at: string;
 }
 
 export interface ZeroTouchCaseListItem {
@@ -864,8 +876,13 @@ export interface ZeroTouchCaseListItem {
   mock_goldtier_party_id: string | null;
 }
 
+export interface CasePortfolioItem extends ZeroTouchCaseListItem {
+  timing: CaseTiming;
+}
+
 export interface CasePortfolioPage {
-  items: ZeroTouchCaseListItem[];
+  observed_at: string;
+  items: CasePortfolioItem[];
   offset: number;
   limit: number;
   has_more: boolean;

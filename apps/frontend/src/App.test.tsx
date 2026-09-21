@@ -1061,6 +1061,13 @@ function makeZeroTouch(
       total_duration_ms: status === "COMPLETED" ? 42 : null,
       stage_durations_ms: { DOCUMENT: 2 },
     },
+    timing: {
+      observed_at: timestamp,
+      case_elapsed_ms: 0,
+      time_since_last_update_ms: 0,
+      automation_elapsed_ms: status === "COMPLETED" ? 42 : null,
+      recorded_total_duration_ms: status === "COMPLETED" ? 42 : null,
+    },
     target_operations: [],
     timeline: [
       {

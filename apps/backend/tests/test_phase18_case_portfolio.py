@@ -181,10 +181,15 @@ def test_memory_page_scopes_before_content_and_correlates_open_attention() -> No
         current_stage=AutomationStage.DOCUMENT,
         created_at=NOW,
         updated_at=NOW,
+        started_at=None,
         completed_at=None,
         exceptions=[exception_a, resolved_b],
         active_exceptions=[exception_a],
-        metrics=SimpleNamespace(human_interventions=0, final_outcome=None),
+        metrics=SimpleNamespace(
+            human_interventions=0,
+            final_outcome=None,
+            total_duration_ms=None,
+        ),
     )
     corrupt_other_team = SimpleNamespace(case_id=CASE_B)
     cases = {CASE_A: case_a, CASE_B: case_b}
@@ -244,6 +249,7 @@ def _mongo_portfolio_row(case_id: UUID = CASE_A) -> dict[str, object]:
             "current_stage": "DOCUMENT",
             "created_at": "2026-09-21T11:00:00.123456Z",
             "updated_at": "2026-09-21T12:00:00.123456Z",
+            "started_at": None,
             "completed_at": None,
             "exceptions": [
                 {
@@ -251,9 +257,34 @@ def _mongo_portfolio_row(case_id: UUID = CASE_A) -> dict[str, object]:
                     "exception_type": "DOCUMENT_LOW_CONFIDENCE",
                 }
             ],
-            "metrics": {"human_interventions": 0, "final_outcome": None},
+            "metrics": {
+                "human_interventions": 0,
+                "final_outcome": None,
+                "total_duration_ms": None,
+            },
         },
     }
+
+
+def test_mongo_page_preserves_legacy_rows_without_new_timing_scalars() -> None:
+    legacy = _mongo_portfolio_row()
+    automation = legacy["automation"]
+    assert isinstance(automation, dict)
+    automation.pop("started_at")
+    metrics = automation["metrics"]
+    assert isinstance(metrics, dict)
+    metrics.pop("total_duration_ms")
+    store = object.__new__(MongoCaseStore)
+    store._collection = _AggregateCollection(  # type: ignore[attr-defined]  # noqa: SLF001
+        [{"invalid": [], "rows": [legacy]}]
+    )
+
+    page = store.list_portfolio_page(
+        CasePortfolioQuery(scope=CasePortfolioScope(kind=PortfolioScopeKind.GLOBAL))
+    )
+
+    assert page.items[0].started_at is None
+    assert page.items[0].recorded_total_duration_ms is None
 
 
 def test_mongo_page_is_one_scoped_bounded_escaped_aggregation() -> None:
@@ -359,7 +390,13 @@ def test_api_preserves_old_array_and_adds_safe_authorized_page() -> None:
     page = client.get("/api/clm/zero-touch/case-portfolio")
     assert old.status_code == 200 and isinstance(old.json(), list)
     assert page.status_code == 200
-    assert page.json() == {"items": [], "offset": 0, "limit": 50, "has_more": False}
+    assert page.json() == {
+        "observed_at": page.json()["observed_at"],
+        "items": [],
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
     policy, parameters = classify_route("GET", "/api/clm/zero-touch/case-portfolio")
     assert policy is not None and policy.access == RouteAccess.CASE_PORTFOLIO
     assert parameters == {}

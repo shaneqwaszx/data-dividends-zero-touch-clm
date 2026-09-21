@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-09-21-phase-19-factual-case-timing",
+  "lastCheckpointRef": "docs/aegis/work/2026-09-21-phase-19-factual-case-timing/todo-checkpoint-draft.json",
+  "resumeInstruction": "Use the frozen path/hash manifest and current uncommitted worktree; do not infer acceptance from implementer evidence.",
+  "knownPartialWork": [
+    "Plan; milestones A-H; focused and broad verification; Mongo 7; guarded browser; self-review and bounded remediation."
+  ],
+  "mustReadBeforeContinuing": [
+    "docs/aegis/work/2026-09-21-phase-19-factual-case-timing/10-intent.md",
+    "docs/aegis/work/2026-09-21-phase-19-factual-case-timing/20-checkpoint.md",
+    "docs/aegis/work/2026-09-21-phase-19-factual-case-timing/todo-checkpoint-draft.json"
+  ],
+  "unsafeToAssume": [
+    "No independent PASS, publication authority, commit SHA, or merged Phase 19 behavior exists yet."
+  ]
+}

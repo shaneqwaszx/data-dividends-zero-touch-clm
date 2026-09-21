@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "guarded-browser",
+  "type": "e2e",
+  "source": "guarded Playwright on ports 8799/4199",
+  "summary": "6/6 authenticated browser scenarios pass, including active/completed/detail/stage wording, no-action request stability, and newer observed_at after manual reload; ports free afterward.",
+  "verifier": "Phase 19 implementer",
+  "sliceId": "browser",
+  "evidenceStatus": "evidence-finalized",
+  "updatedAt": "2026-09-21"
+}

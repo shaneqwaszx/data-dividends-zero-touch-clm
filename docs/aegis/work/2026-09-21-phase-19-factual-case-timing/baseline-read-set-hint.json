@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "candidateDocs": [
+    "AGENTS.md; docs/PROJECT_STATE.md; docs/ARCHITECTURE.md; docs/DEVELOPMENT_WORKFLOW.md; docs/contracts/CASE_PORTFOLIO_QUERY_PROFILE.md; Phase 19 brief; accepted Phase 18 evidence."
+  ],
+  "whyRelevant": "Defines owners, compatibility, fail-closed persistence, accepted query/cache/deletion semantics, and timing acceptance.",
+  "missingAuthority": []
+}

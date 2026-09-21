@@ -128,6 +128,17 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect((await ownershipResponse.json() as { candidates: unknown[] }).candidates.length)
     .toBeGreaterThan(0);
   await expect(page.getByText("Completed Mock workflow")).toBeVisible({ timeout: 30_000 });
+  const operationalTiming = page.getByRole("region", { name: "Operational timing" });
+  await expect(operationalTiming).toBeVisible();
+  await expect(operationalTiming.getByText(/^Timing observed at /)).toHaveCount(1);
+  await expect(operationalTiming.getByText("Case duration", { exact: true })).toBeVisible();
+  await expect(
+    operationalTiming.getByText("Recorded total automation duration", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    operationalTiming.getByText(/completed automated processing attempts only/i),
+  ).toBeVisible();
+  await expect(operationalTiming.getByText(/do not represent human waiting time/i)).toBeVisible();
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
   await expect(page.getByText(/not production approval or Ready-for-Approval/i)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Registry provenance" })).toBeVisible();
@@ -180,9 +191,56 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect(tableLayout.right).toBeLessThanOrEqual(horizontalLayout.rootClientWidth + 1);
   const casesLink = page.getByRole("link", { name: "Cases" });
   await expect(casesLink).toHaveAttribute("href", "/cases");
+  const portfolioRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/clm/zero-touch/case-portfolio") {
+      portfolioRequests.push(`${url.pathname}${url.search}`);
+    }
+  });
   await casesLink.click();
   await expect(page.getByRole("heading", { name: "Cases" })).toBeVisible();
   await expect(page.getByText("MOCK_GOLDTIER_SUBMITTED", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Timing observed at /)).toHaveCount(1);
+  const completedTimingRow = page.getByRole("row").filter({
+    has: page.locator(`a[href="/cases/${caseId}"]`),
+  });
+  await expect(completedTimingRow).toContainText("Case duration:");
+  await expect(completedTimingRow).toContainText("Last updated:");
+
+  const initialPortfolioResponsePromise = page.waitForResponse((response) => (
+    new URL(response.url()).pathname === "/api/clm/zero-touch/case-portfolio"
+  ));
+  await page.reload();
+  const initialPortfolioResponse = await initialPortfolioResponsePromise;
+  const initialPortfolio = await initialPortfolioResponse.json() as { observed_at: string };
+  const noActionRequestCount = portfolioRequests.length;
+  expect(noActionRequestCount).toBeGreaterThanOrEqual(1);
+  await page.waitForTimeout(750);
+  expect(portfolioRequests).toHaveLength(noActionRequestCount);
+  const refreshedPortfolioResponsePromise = page.waitForResponse((response) => (
+    new URL(response.url()).pathname === "/api/clm/zero-touch/case-portfolio"
+  ));
+  await page.reload();
+  const refreshedPortfolioResponse = await refreshedPortfolioResponsePromise;
+  const refreshedPortfolio = await refreshedPortfolioResponse.json() as { observed_at: string };
+  expect(Date.parse(refreshedPortfolio.observed_at)).toBeGreaterThan(
+    Date.parse(initialPortfolio.observed_at),
+  );
+  expect(portfolioRequests.length).toBeGreaterThan(noActionRequestCount);
+  expect(portfolioRequests.length).toBeLessThanOrEqual(noActionRequestCount + 2);
+  await expect(page.getByText(/^Timing observed at /)).toHaveCount(1);
+
+  const timingSearchResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/clm/zero-touch/case-portfolio"
+      && url.searchParams.get("search") === "209900104A";
+  });
+  await page.getByLabel("Search cases").fill("209900104A");
+  expect((await timingSearchResponse).status()).toBe(200);
+  const activeTimingRow = page.getByRole("row").filter({ hasText: "209900104A" });
+  await expect(activeTimingRow).toContainText("Case age:");
+  await expect(activeTimingRow).toContainText("Last updated:");
 });
 
 test("current document review progresses authoritatively and keeps superseded history read-only", async ({ page }) => {

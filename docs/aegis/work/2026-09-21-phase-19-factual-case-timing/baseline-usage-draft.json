@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-09-21-phase-19-factual-case-timing",
+  "requiredBaselineRefs": [
+    "AGENTS.md",
+    "docs/PROJECT_STATE.md",
+    "docs/ARCHITECTURE.md",
+    "docs/DEVELOPMENT_WORKFLOW.md",
+    "docs/contracts/CASE_PORTFOLIO_QUERY_PROFILE.md",
+    "Phase 19 brief",
+    ".ai-pipeline/reports/PHASE_18_QUALITY_GATE.md"
+  ],
+  "deliveredContextRefs": [],
+  "acknowledgedBeforePlanRefs": [
+    "AGENTS.md",
+    "docs/PROJECT_STATE.md",
+    "docs/ARCHITECTURE.md",
+    "docs/DEVELOPMENT_WORKFLOW.md",
+    "docs/contracts/CASE_PORTFOLIO_QUERY_PROFILE.md",
+    "Phase 19 brief",
+    ".ai-pipeline/reports/PHASE_18_QUALITY_GATE.md"
+  ],
+  "citedInPlanRefs": [
+    ".ai-pipeline/001_planner/PHASE_19_PLAN.md"
+  ],
+  "missingRefs": [],
+  "decision": "continue"
+}

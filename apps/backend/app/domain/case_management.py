@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 from app.domain.access import CasePriority, TeamId
 from app.domain.jurisdiction import JurisdictionCode
@@ -179,7 +179,9 @@ class CasePortfolioRecord(BaseModel):
     current_stage: AutomationStage
     created_at: datetime
     updated_at: datetime
+    started_at: datetime | None = None
     completed_at: datetime | None = None
+    recorded_total_duration_ms: StrictInt | None = Field(default=None, ge=0)
     active_exception_count: int = Field(ge=0)
     active_exception_types: tuple[BusinessExceptionType, ...] = Field(
         max_length=len(BusinessExceptionType)
@@ -190,7 +192,7 @@ class CasePortfolioRecord(BaseModel):
 
     @model_validator(mode="after")
     def validate_timestamps(self) -> "CasePortfolioRecord":
-        for value in (self.created_at, self.updated_at, self.completed_at):
+        for value in (self.created_at, self.updated_at, self.started_at, self.completed_at):
             if value is not None and (value.tzinfo is None or value.utcoffset() != timedelta(0)):
                 raise ValueError("portfolio timestamps must be timezone-aware UTC")
         canonical_types = tuple(
@@ -201,6 +203,74 @@ class CasePortfolioRecord(BaseModel):
         if self.active_exception_types != canonical_types:
             raise ValueError("active exception types must be unique and in canonical order")
         return self
+
+
+class CaseTimingProjection(BaseModel):
+    """Factual durations calculated from one server-authored UTC observation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_elapsed_ms: StrictInt = Field(ge=0)
+    time_since_last_update_ms: StrictInt = Field(ge=0)
+    automation_elapsed_ms: StrictInt | None = Field(default=None, ge=0)
+    recorded_total_duration_ms: StrictInt | None = Field(default=None, ge=0)
+
+
+class CaseTimingDataInvalidError(ValueError):
+    """Retained timing facts cannot produce a truthful non-negative projection."""
+
+
+def project_case_timing(
+    *,
+    created_at: datetime,
+    updated_at: datetime,
+    started_at: datetime | None,
+    completed_at: datetime | None,
+    recorded_total_duration_ms: int | None,
+    observed_at: datetime,
+) -> CaseTimingProjection:
+    """Project factual elapsed milliseconds without inference or clamping."""
+
+    timestamps = (created_at, updated_at, started_at, completed_at, observed_at)
+    if any(
+        value is not None
+        and (value.tzinfo is None or value.utcoffset() != timedelta(0))
+        for value in timestamps
+    ):
+        raise CaseTimingDataInvalidError("case timing timestamps must be timezone-aware UTC")
+    if recorded_total_duration_ms is not None and (
+        type(recorded_total_duration_ms) is not int or recorded_total_duration_ms < 0
+    ):
+        raise CaseTimingDataInvalidError("recorded total duration is invalid")
+    if updated_at < created_at:
+        raise CaseTimingDataInvalidError("case update cannot precede case creation")
+    if started_at is not None and started_at < created_at:
+        raise CaseTimingDataInvalidError("automation start cannot precede case creation")
+    if completed_at is not None and completed_at > observed_at:
+        raise CaseTimingDataInvalidError("case completion cannot follow the observation")
+
+    case_end = completed_at or observed_at
+    automation_end = completed_at or observed_at
+    deltas = (
+        case_end - created_at,
+        observed_at - updated_at,
+        automation_end - started_at if started_at is not None else None,
+    )
+    if any(delta is not None and delta < timedelta(0) for delta in deltas):
+        raise CaseTimingDataInvalidError("retained case timing chronology is invalid")
+
+    return CaseTimingProjection(
+        case_elapsed_ms=_timedelta_milliseconds(deltas[0]),
+        time_since_last_update_ms=_timedelta_milliseconds(deltas[1]),
+        automation_elapsed_ms=(
+            _timedelta_milliseconds(deltas[2]) if deltas[2] is not None else None
+        ),
+        recorded_total_duration_ms=recorded_total_duration_ms,
+    )
+
+
+def _timedelta_milliseconds(value: timedelta) -> int:
+    return value.days * 86_400_000 + value.seconds * 1_000 + value.microseconds // 1_000
 
 
 class CasePortfolioQuery(BaseModel):
@@ -234,6 +304,31 @@ class CasePortfolioPage(BaseModel):
     offset: int = Field(ge=0, le=10_000)
     limit: int = Field(ge=1, le=100)
     has_more: bool
+
+
+class ObservedCasePortfolioRecord(CasePortfolioRecord):
+    """Portfolio record enriched by the query service at response observation time."""
+
+    timing: CaseTimingProjection
+
+
+class ObservedCasePortfolioPage(BaseModel):
+    """One response observation shared by every timing projection in the page."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    observed_at: datetime
+    items: tuple[ObservedCasePortfolioRecord, ...]
+    offset: int = Field(ge=0, le=10_000)
+    limit: int = Field(ge=1, le=100)
+    has_more: bool
+
+    @field_validator("observed_at")
+    @classmethod
+    def require_observed_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("portfolio observation must be timezone-aware UTC")
+        return value
 
 
 def case_portfolio_matches(record: CasePortfolioRecord, query: CasePortfolioQuery) -> bool:

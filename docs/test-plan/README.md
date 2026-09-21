@@ -41,7 +41,7 @@ Recording artefacts and non-loopback browser traffic are disabled. This coverage
 not prove Live ACRA, Live GoldTier/PingFed, Camunda runtime integration, production SSO,
 or production browser compatibility.
 
-Physical Mongo evidence remains separate and opt-in. The repository runner selects the
-four current real-Mongo modules, while each module owns its generated allowlisted
-database and verified cleanup. Missing infrastructure and all-skipped execution are
-blocked evidence, never a pass.
+Physical Mongo evidence remains separate and opt-in. The repository runner selects its
+explicit current real-Mongo suite inventory and reports the derived suite/test counts;
+each suite owns a generated allowlisted database and verified cleanup. Missing
+infrastructure and all-skipped execution are blocked evidence, never a pass.

@@ -182,11 +182,13 @@ class MongoCaseStore:
             "automation.current_stage": 1,
             "automation.created_at": 1,
             "automation.updated_at": 1,
+            "automation.started_at": 1,
             "automation.completed_at": 1,
             "automation.exceptions.status": 1,
             "automation.exceptions.exception_type": 1,
             "automation.metrics.human_interventions": 1,
             "automation.metrics.final_outcome": 1,
+            "automation.metrics.total_duration_ms": 1,
         }
         try:
             raw_records = list(self._collection.find(query, projection))
@@ -570,11 +572,15 @@ class MongoCaseStore:
                 "current_stage",
                 "created_at",
                 "updated_at",
+                "started_at",
                 "completed_at",
                 "exceptions",
                 "metrics",
             }
-            if set(automation) != expected_automation:
+            optional_timing = {"started_at"}
+            if not expected_automation - optional_timing <= set(automation) or set(
+                automation
+            ) - expected_automation:
                 raise PersistenceDataInvalidError
             exceptions = automation["exceptions"]
             if not isinstance(exceptions, list):
@@ -590,10 +596,19 @@ class MongoCaseStore:
                 exception_pairs.append((status_value, exception_type))
                 active_count += status_value == BusinessExceptionStatus.OPEN
             metrics = _strict_dict(automation["metrics"])
-            if set(metrics) != {"human_interventions", "final_outcome"}:
+            required_metrics = {"human_interventions", "final_outcome"}
+            optional_timing_metrics = {"total_duration_ms"}
+            if not required_metrics <= set(metrics) or set(metrics) - (
+                required_metrics | optional_timing_metrics
+            ):
                 raise PersistenceDataInvalidError
             interventions = metrics["human_interventions"]
             if type(interventions) is not int or interventions < 0:
+                raise PersistenceDataInvalidError
+            total_duration_ms = metrics.get("total_duration_ms")
+            if total_duration_ms is not None and (
+                type(total_duration_ms) is not int or total_duration_ms < 0
+            ):
                 raise PersistenceDataInvalidError
 
             return CasePortfolioRecord(
@@ -611,6 +626,11 @@ class MongoCaseStore:
                 current_stage=AutomationStage(automation["current_stage"]),
                 created_at=_utc_datetime(automation["created_at"]),
                 updated_at=_utc_datetime(automation["updated_at"]),
+                started_at=(
+                    _utc_datetime(automation["started_at"])
+                    if automation.get("started_at") is not None
+                    else None
+                ),
                 completed_at=(
                     _utc_datetime(automation["completed_at"])
                     if automation["completed_at"] is not None
@@ -620,6 +640,7 @@ class MongoCaseStore:
                 active_exception_types=ordered_active_exception_types(exception_pairs),
                 human_interventions=interventions,
                 final_outcome=_optional_bounded_string(metrics["final_outcome"], 64),
+                recorded_total_duration_ms=total_duration_ms,
                 mock_goldtier_party_id=_nested_optional_string(
                     onboarding.get("goldtier_result"), "party_id", 96
                 ),
@@ -997,11 +1018,13 @@ def _portfolio_projection() -> dict[str, int]:
         "automation.current_stage": 1,
         "automation.created_at": 1,
         "automation.updated_at": 1,
+        "automation.started_at": 1,
         "automation.completed_at": 1,
         "automation.exceptions.status": 1,
         "automation.exceptions.exception_type": 1,
         "automation.metrics.human_interventions": 1,
         "automation.metrics.final_outcome": 1,
+        "automation.metrics.total_duration_ms": 1,
     }
 
 
@@ -1096,7 +1119,9 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
         ]
     }
     completed_type = {"$type": "$automation.completed_at"}
+    started_type = {"$type": "$automation.started_at"}
     final_outcome_type = {"$type": "$automation.metrics.final_outcome"}
+    total_duration_type = {"$type": "$automation.metrics.total_duration_ms"}
     jurisdiction_type = {
         "$type": "$onboarding.jurisdiction_resolution.resolved_jurisdiction"
     }
@@ -1209,6 +1234,13 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
             _mongo_activity_timestamp("$automation.updated_at"),
             {
                 "$or": [
+                    {"$eq": [started_type, "missing"]},
+                    {"$eq": [started_type, "null"]},
+                    _mongo_activity_timestamp("$automation.started_at"),
+                ]
+            },
+            {
+                "$or": [
                     {"$eq": [completed_type, "null"]},
                     _mongo_activity_timestamp("$automation.completed_at"),
                 ]
@@ -1223,9 +1255,18 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
                     }
                 }
             },
-            _mongo_exact_object_keys(
-                "$automation.metrics", ["human_interventions", "final_outcome"]
-            ),
+            {
+                "$or": [
+                    _mongo_exact_object_keys(
+                        "$automation.metrics",
+                        ["human_interventions", "final_outcome"],
+                    ),
+                    _mongo_exact_object_keys(
+                        "$automation.metrics",
+                        ["human_interventions", "final_outcome", "total_duration_ms"],
+                    ),
+                ]
+            },
             {
                 "$in": [
                     {"$type": "$automation.metrics.human_interventions"},
@@ -1239,6 +1280,18 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
                     _mongo_bounded_string(
                         "$automation.metrics.final_outcome", 1, 64
                     ),
+                ]
+            },
+            {
+                "$or": [
+                    {"$eq": [total_duration_type, "missing"]},
+                    {"$eq": [total_duration_type, "null"]},
+                    {
+                        "$and": [
+                            {"$in": [total_duration_type, ["int", "long"]]},
+                            {"$gte": ["$automation.metrics.total_duration_ms", 0]},
+                        ]
+                    },
                 ]
             },
         ]
