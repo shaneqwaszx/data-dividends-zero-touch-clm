@@ -762,6 +762,14 @@ class PrePrCheckTests(unittest.TestCase):
             [call.args for call in governance.call_args_list],
         )
 
+    def test_audit_routes_policy_authority_through_governance_owner(self) -> None:
+        with patch.object(PRE_PR_CHECK, "_run_governance_check") as governance:
+            PRE_PR_CHECK.audit_repository(self.repo)
+        self.assertIn(
+            (self.repo, ANY, "check_policy_authority.py"),
+            [call.args for call in governance.call_args_list],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

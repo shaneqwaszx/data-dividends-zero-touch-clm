@@ -128,9 +128,11 @@ jobs:
       - run: python -m unittest discover -s tests -p "test_check_secrets.py"
       - run: python -m unittest discover -s tests -p "test_pre_pr_check.py"
       - run: python -m unittest tests.test_dev_context tests.test_check_project_state tests.test_check_architecture -v
+      - run: python -m unittest discover -s tests -p "test_check_policy_authority.py" -v
       - run: python scripts/check_project_state.py
       - run: python scripts/check_architecture.py
       - run: python scripts/check_tooling_config.py
+      - run: python scripts/check_policy_authority.py
       - run: python scripts/check_secrets.py
       - run: python -m pip install -r scripts/requirements-contract-validation.txt
       - run: python -m unittest discover -s tests -p "test_validate_goldtier_examples.py"

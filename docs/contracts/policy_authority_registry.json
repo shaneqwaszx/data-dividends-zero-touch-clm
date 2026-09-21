@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "activation_scope": "SPONSOR_POLICY_PRODUCTION",
+  "authority_status_values": [
+    "OBSERVED",
+    "PROJECT_DEFINED_PROVISIONAL",
+    "SPONSOR_CONFIRMED",
+    "UNKNOWN_BLOCKED"
+  ],
+  "policies": [
+    {
+      "policy_id": "HUMAN_EXCEPTION_REVIEW_ALLOWED",
+      "authority_status": "SPONSOR_CONFIRMED",
+      "source_reference": "docs/decisions/DECISION_LOG.md#D-009",
+      "blocking_sponsor_question": null,
+      "runtime_enabled": true
+    },
+    {
+      "policy_id": "SUPPLIED_RISK_INPUT_AND_WORKFLOW",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-017",
+      "blocking_sponsor_question": "Q-017",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "REVIEW_AUTHORITY",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-014",
+      "blocking_sponsor_question": "Q-014",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "REVIEWER_SEPARATION_OF_DUTIES",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-014",
+      "blocking_sponsor_question": "Q-014",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "ASSIGNMENT_AND_REASSIGNMENT",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-016",
+      "blocking_sponsor_question": "Q-016",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "PRODUCTION_IDENTITY_AND_RBAC",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-016",
+      "blocking_sponsor_question": "Q-016",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "PRIORITY_VOCABULARY_AND_ORDER",
+      "authority_status": "PROJECT_DEFINED_PROVISIONAL",
+      "source_reference": "docs/decisions/DECISION_LOG.md#D-034",
+      "blocking_sponsor_question": "Q-016",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "PRIORITY_WORKFLOW_EFFECT",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-016",
+      "blocking_sponsor_question": "Q-016",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "SOURCE_PRECEDENCE",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-015",
+      "blocking_sponsor_question": "Q-015",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "CONFLICT_DISPOSITION_AUTHORITY",
+      "authority_status": "PROJECT_DEFINED_PROVISIONAL",
+      "source_reference": "docs/decisions/DECISION_LOG.md#D-030",
+      "blocking_sponsor_question": "Q-015",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "VALIDATION_RESPONSIBILITY_SPLIT",
+      "authority_status": "PROJECT_DEFINED_PROVISIONAL",
+      "source_reference": "docs/decisions/DECISION_LOG.md#D-023",
+      "blocking_sponsor_question": "Q-005",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "READY_FOR_APPROVAL_TRANSITION",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-001",
+      "blocking_sponsor_question": "Q-001",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "FINAL_APPROVAL_OWNER",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-001",
+      "blocking_sponsor_question": "Q-001",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "DOCUMENT_SCOPE",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-003",
+      "blocking_sponsor_question": "Q-003",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "FINAL_LEGAL_UBO_RULE",
+      "authority_status": "PROJECT_DEFINED_PROVISIONAL",
+      "source_reference": "docs/decisions/DECISION_LOG.md#D-021",
+      "blocking_sponsor_question": "Q-004",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "RETENTION_DEPENDENT_REVIEW_AND_AUDIT",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-013",
+      "blocking_sponsor_question": "Q-013",
+      "runtime_enabled": false
+    },
+    {
+      "policy_id": "PRODUCTION_HANDOFF_OWNERSHIP",
+      "authority_status": "UNKNOWN_BLOCKED",
+      "source_reference": "docs/sponsor-questions/OPEN_QUESTIONS.md#Q-018",
+      "blocking_sponsor_question": "Q-018",
+      "runtime_enabled": false
+    }
+  ]
+}
