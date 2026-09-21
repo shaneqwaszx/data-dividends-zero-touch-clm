@@ -345,6 +345,7 @@ def create_app(
         repository=persistence.automation,
         establishment_discard=persistence.deletion.discard,
         durable_provider_bindings=persistence.mode == "mongo",
+        clock=active_clock,
     )
     if e2e_portfolio_seed_count:
         if active_settings.app_env != "test" or not 1 <= e2e_portfolio_seed_count <= 250:
