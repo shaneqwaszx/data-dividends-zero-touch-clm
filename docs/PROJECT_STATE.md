@@ -10,7 +10,7 @@ It is not a sponsor contract, phase report, or substitute for current source and
   "schema_version": 1,
   "case_envelope_schema_version": 4,
   "verified_date": "2026-09-21",
-  "verified_main_sha": "6625835e6ca8b7e531c25b3078c3ff58ee4df843",
+  "verified_main_sha": "99dd8eeea1c79bb4b9a9a592e6b47b4c038fdd4c",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -35,7 +35,8 @@ It is not a sponsor contract, phase report, or substitute for current source and
 `verified_main_sha` identifies the main baseline inspected for this snapshot. Feature
 branch HEADs are not expected to equal it. The snapshot becomes stale when accepted
 main behavior changes without a closeout refresh, not merely when a feature commit is
-created. `schema_version` versions this metadata format;
+created. A later documentation-only closeout commit does not replace the inspected
+behavioral baseline. `schema_version` versions this metadata format;
 `case_envelope_schema_version` is independently checked against the canonical
 persistence constant.
 
@@ -77,12 +78,21 @@ Major implemented phases are:
   exact-key isolation, fixed elapsed-time freshness, per-case evidence bindings, and
   separate memory/Mongo cache persistence. Disabled mode remains the default.
 
-The current `feature/evidence-explainability-workbench` working branch adds a candidate
-read-only presentation of the already-retained registry binding, backend-authored
-Decimal ownership paths, and current workflow/readiness/exception/target state. It does
-not change cache policy, case schema, ownership calculation, authorization, target
-execution, provider status, or any sponsor decision. This branch scope is not an
-accepted-main capability until repository-owner review and merge.
+The Case Evidence & Explainability Workbench accepted through PR #43 adds a read-only
+presentation of the minimized nullable Mock-only registry-binding projection,
+backend-authored Decimal ownership paths, and typed workflow, blocker, readiness, and
+target-ledger state. Original registry operation provenance remains distinct from
+case-use metadata, and a missing binding remains unknown/unrecorded rather than proving
+a miss, disabled cache, provider fetch, freshness, or current validity. Exploration
+does not rerun a provider, ownership analysis, workflow operation, or target operation.
+
+Existing authorization, review/recovery, query, navigation, ownership-calculation, and
+target-ledger owners remain authoritative. Cache remains disabled by default, and the
+workbench changes neither cache policy nor persistence schema. It adds no approval,
+compliance/risk, legal UBO, production, Live-provider, or sponsor-policy claim. Guarded
+browser acceptance ran with cache disabled; provider-fetch and cache-hit projections
+were covered through backend/API and frontend contract evidence. The manual demo
+instructions are not executed acceptance evidence.
 
 ## Current runtime pipeline
 
