@@ -225,6 +225,7 @@ def run(
     frontend_port: int,
     timeout_seconds: float,
     headed: bool = False,
+    grep: str | None = None,
 ) -> int:
     _assert_ports_available(backend_port, frontend_port)
     node = _find_node()
@@ -296,6 +297,8 @@ def run(
         ]
         if headed:
             playwright_command.append("--headed")
+        if grep:
+            playwright_command.extend(("--grep", grep))
         tests = OwnedProcess(
             "playwright",
             playwright_command,
@@ -310,7 +313,7 @@ def run(
         if return_code != 0:
             print("E2E FAILED: Playwright returned a non-zero status.", file=sys.stderr)
             return return_code
-        print("E2E PASS: 2 authenticated local Mock smoke tests completed.")
+        print("E2E PASS: guarded authenticated local Mock browser suite completed.")
         return 0
     except KeyboardInterrupt:
         print("E2E INTERRUPTED: stopping task-owned process groups.", file=sys.stderr)
@@ -343,6 +346,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=lambda value: _parse_port(value, "frontend port"),
     )
     parser.add_argument("--headed", action="store_true")
+    parser.add_argument(
+        "--grep",
+        help="Run only Playwright tests whose title matches this regular expression.",
+    )
     parser.add_argument("--timeout-seconds", type=float, default=240.0)
     args = parser.parse_args(argv)
     if not 30 <= args.timeout_seconds <= 900:
@@ -352,6 +359,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         frontend_port=args.frontend_port,
         timeout_seconds=args.timeout_seconds,
         headed=args.headed,
+        grep=args.grep,
     )
 
 

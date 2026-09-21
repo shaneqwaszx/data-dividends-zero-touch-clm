@@ -56,9 +56,9 @@ async function guardLocalNetwork(
   };
 }
 
-async function login(page: Page) {
+async function login(page: Page, userId = "maya-lim") {
   const ephemeralCredential = requiredEnvironment("CLM_E2E_PASSWORD");
-  await page.getByLabel("User ID").fill("maya-lim");
+  await page.getByLabel("User ID").fill(userId);
   await page.getByLabel("Password").fill(ephemeralCredential);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("navigation", { name: "Main workspace" })).toBeVisible({ timeout: 30_000 });
@@ -119,7 +119,14 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   page.on("request", (request) => {
     if (request.url().includes(caseId)) caseRequests.push({ method: request.method(), url: request.url() });
   });
+  const ownershipResponsePromise = page.waitForResponse((response) => (
+    new URL(response.url()).pathname === `/api/onboarding/cases/${caseId}/ownership`
+  ));
   await page.goto(`/cases/${caseId}`);
+  const ownershipResponse = await ownershipResponsePromise;
+  expect(ownershipResponse.status()).toBe(200);
+  expect((await ownershipResponse.json() as { candidates: unknown[] }).candidates.length)
+    .toBeGreaterThan(0);
   await expect(page.getByText("Completed Mock workflow")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
   await expect(page.getByText(/not production approval or Ready-for-Approval/i)).toBeVisible();
@@ -229,8 +236,11 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(page.getByText(/3 fields remain for review/)).toBeVisible();
 
   for (const [index, field] of ["legal name", "registered address", "country of incorporation"].entries()) {
+    await page.goto(`/cases/${caseId}`);
+    await expect(page.getByText(`${index + 1} final / 4 fields`)).toBeVisible({
+      timeout: 30_000,
+    });
     const action = page.getByRole("button", { name: `Accept ${field} suggestion` });
-    if (await action.count() === 0) await page.goto(`/cases/${caseId}`);
     await expect(action).toBeVisible({ timeout: 30_000 });
     await action.click();
     await expect.poll(async () => {
@@ -240,7 +250,6 @@ test("current document review progresses authoritatively and keeps superseded hi
       return documents.find((document) => document.superseded_by_document_id === null)
         ?.fields.filter((item) => item.review_status !== "PENDING").length ?? 0;
     }, { timeout: 120_000 }).toBe(index + 2);
-    if (index < 2) await page.goto(`/cases/${caseId}`);
   }
   await expect.poll(async () => {
     const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
@@ -321,19 +330,40 @@ test("Cases filters exact open business-exception types without hiding other att
   const filterRequests: Array<{ method: string; path: string }> = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.pathname === "/api/clm/zero-touch/cases") {
+    if (url.pathname === "/api/clm/zero-touch/case-portfolio") {
       filterRequests.push({ method: request.method(), path: `${url.pathname}${url.search}` });
     }
   });
 
+  const lowConfidenceResponse = page.waitForResponse((response) => (
+    new URL(response.url()).pathname === "/api/clm/zero-touch/case-portfolio"
+      && new URL(response.url()).searchParams.get("attention_type")
+        === "DOCUMENT_LOW_CONFIDENCE"
+  ));
   await attentionFilter.selectOption("DOCUMENT_LOW_CONFIDENCE");
+  const lowConfidencePage = await lowConfidenceResponse;
+  expect(lowConfidencePage.status()).toBe(200);
+  expect((await lowConfidencePage.json() as { items: Array<{ case_id: string }> }).items)
+    .toEqual(expect.arrayContaining([
+      expect.objectContaining({ case_id: lowConfidenceCaseId }),
+    ]));
   await expect(page.getByText("202400001A", { exact: true })).toBeVisible();
   await expect(page.getByText("202400006F", { exact: true })).toHaveCount(0);
   await expect(
     page.getByLabel("Cases table").getByText("Document low confidence", { exact: true }),
   ).toBeVisible();
 
+  const ownershipResponse = page.waitForResponse((response) => (
+    new URL(response.url()).pathname === "/api/clm/zero-touch/case-portfolio"
+      && new URL(response.url()).searchParams.get("attention_type") === "OWNERSHIP_CYCLE"
+  ));
   await attentionFilter.selectOption("OWNERSHIP_CYCLE");
+  const ownershipPage = await ownershipResponse;
+  expect(ownershipPage.status()).toBe(200);
+  expect((await ownershipPage.json() as { items: Array<{ case_id: string }> }).items)
+    .toEqual(expect.arrayContaining([
+      expect.objectContaining({ case_id: ownershipCycleCaseId }),
+    ]));
   await expect(page.getByText("202400006F", { exact: true })).toBeVisible();
   await expect(page.getByText("202400001A", { exact: true })).toHaveCount(0);
   await expect(
@@ -347,11 +377,11 @@ test("Cases filters exact open business-exception types without hiding other att
   expect(filterRequests).toEqual(expect.arrayContaining([
     {
       method: "GET",
-      path: "/api/clm/zero-touch/cases?attention_type=DOCUMENT_LOW_CONFIDENCE",
+      path: "/api/clm/zero-touch/case-portfolio?attention_type=DOCUMENT_LOW_CONFIDENCE",
     },
     {
       method: "GET",
-      path: "/api/clm/zero-touch/cases?attention_type=OWNERSHIP_CYCLE",
+      path: "/api/clm/zero-touch/case-portfolio?attention_type=OWNERSHIP_CYCLE",
     },
   ]));
   expect(filterRequests.every((request) => request.method === "GET")).toBe(true);
@@ -384,6 +414,118 @@ test("Cases filters exact open business-exception types without hiding other att
     page.getByRole("heading", { name: "Why this case is in its current state" }),
   ).toBeVisible();
   expect(lowConfidenceCaseId).not.toBe(ownershipCycleCaseId);
+});
+
+test("Cases uses one bounded backend page for search, filters, paging, mutation refresh, and deletion", async ({ page }) => {
+  const portfolioRequests: string[] = [];
+  const detailRequests: string[] = [];
+  const legacyListRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/clm/zero-touch/case-portfolio") {
+      portfolioRequests.push(`${url.pathname}${url.search}`);
+    }
+    if (/^\/api\/clm\/zero-touch\/cases\/[0-9a-f-]{36}$/i.test(url.pathname)) {
+      detailRequests.push(url.pathname);
+    }
+    if (request.method() === "GET" && url.pathname === "/api/clm/zero-touch/cases") {
+      legacyListRequests.push(url.pathname);
+    }
+  });
+  await page.goto("/");
+  await login(page);
+  const targetUen = "209900104A";
+
+  await page.goto("/cases");
+  await expect(page.getByText(/Showing 1–50 on page 1/)).toBeVisible();
+  // React StrictMode may cancel and replay the initial development-mode fetch. Both
+  // observations must still be the same single bounded page shape, never row fan-out.
+  expect(new Set(portfolioRequests)).toEqual(new Set([
+    "/api/clm/zero-touch/case-portfolio",
+  ]));
+  expect(detailRequests).toEqual([]);
+  expect(legacyListRequests).toEqual([]);
+
+  const search = page.getByLabel("Search cases");
+  await search.fill(targetUen);
+  const searchedRow = page.getByRole("row").filter({ hasText: targetUen });
+  await expect(searchedRow).toBeVisible();
+  const searchedHref = await searchedRow.getByRole("link", { name: "Open" }).getAttribute("href");
+  const targetCaseId = searchedHref?.split("/").at(-1);
+  if (!targetCaseId) throw new Error("Seeded portfolio row did not expose its case identifier");
+  expect(targetCaseId).toMatch(/^[0-9a-f-]{36}$/i);
+  await expect.poll(() => portfolioRequests.at(-1)).toContain(`search=${targetUen}`);
+  await page.getByLabel("Jurisdiction filter").selectOption("SG");
+  await expect.poll(() => portfolioRequests.at(-1)).toContain("jurisdiction=SG");
+  await expect.poll(() => portfolioRequests.at(-1)).toContain(`search=${targetUen}`);
+  await search.fill("");
+  await page.getByLabel("Jurisdiction filter").selectOption("");
+  await page.getByLabel("Priority filter").selectOption("unset");
+  await page.getByLabel("Priority sort").selectOption("lowest_first");
+  await expect.poll(() => portfolioRequests.at(-1)).toContain("priority_filter=unset");
+  await expect.poll(() => portfolioRequests.at(-1)).toContain("priority_sort=lowest_first");
+  await page.getByLabel("Priority filter").selectOption("all");
+  await page.getByLabel("Priority sort").selectOption("highest_first");
+  await expect(page.getByText(/Showing 1–50 on page 1/)).toBeVisible();
+
+  const nextResponse = page.waitForResponse((response) => (
+    new URL(response.url()).pathname === "/api/clm/zero-touch/case-portfolio"
+      && new URL(response.url()).searchParams.get("offset") === "50"
+  ));
+  await page.getByRole("button", { name: "Next" }).click();
+  await nextResponse;
+  await expect(page.getByText(/Showing 51–/)).toBeVisible();
+  await page.getByRole("button", { name: "Previous" }).click();
+  await expect(page.getByText(/Showing 1–50 on page 1/)).toBeVisible();
+
+  await search.fill(targetUen);
+  const targetRow = page.getByRole("row").filter({ hasText: targetUen });
+  await expect(targetRow).toBeVisible();
+  const open = targetRow.getByRole("link", { name: "Open" });
+  await expect(open).toHaveAttribute("href", `/cases/${targetCaseId}`);
+  await open.click();
+  await expect(page).toHaveURL(`/cases/${targetCaseId}`);
+  await page.goto("/cases");
+
+  await page.locator(".operator-account__button").click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await login(page, "ethan-tan");
+  await page.goto("/cases");
+  await page.getByLabel("Search cases").fill(targetUen);
+  const mutableRow = page.getByRole("row").filter({ hasText: targetUen });
+  await expect(mutableRow).toBeVisible();
+  const priorityResponse = page.waitForResponse((response) => (
+    response.request().method() === "PATCH"
+      && new URL(response.url()).pathname === `/api/clm/zero-touch/cases/${targetCaseId}/priority`
+  ));
+  await mutableRow.locator("select.priority-select").selectOption("7");
+  await mutableRow.getByRole("button", { name: "Set" }).click();
+  expect((await priorityResponse).status()).toBe(200);
+  await expect(mutableRow.getByText("P7", { exact: true })).toBeVisible();
+
+  const deleteResponse = page.waitForResponse((response) => (
+    response.request().method() === "DELETE"
+      && new URL(response.url()).pathname === `/api/clm/zero-touch/cases/${targetCaseId}`
+  ));
+  await mutableRow.getByRole("button", { name: `Delete ${targetUen}` }).click();
+  await page.getByRole("button", { name: "Delete case" }).click();
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(page.getByText(targetUen, { exact: true })).toHaveCount(0);
+  await page.waitForTimeout(400);
+  await expect(page.getByText(targetUen, { exact: true })).toHaveCount(0);
+
+  await page.getByLabel("Search cases").fill("");
+  await expect(page.getByText(/Showing 1–50 on page 1/)).toBeVisible();
+  await page.setViewportSize({ width: 480, height: 900 });
+  const scroller = page.getByLabel("Cases table");
+  await scroller.focus();
+  await expect(scroller).toBeFocused();
+  const layout = await scroller.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(layout.scrollWidth).toBeGreaterThan(layout.clientWidth);
 });
 
 test("Case activity uses one paged read with accessible filters, scoped links, and mobile scrolling", async ({ page }) => {
@@ -468,8 +610,10 @@ test("Case activity uses one paged read with accessible filters, scoped links, a
   await page.setViewportSize({ width: 480, height: 900 });
   const scroller = page.getByLabel("Case activity events");
   await expect(scroller).toBeVisible();
-  await scroller.focus();
-  await expect(scroller).toBeFocused();
+  await expect.poll(async () => {
+    await scroller.focus();
+    return scroller.evaluate((element) => document.activeElement === element);
+  }).toBe(true);
   const layout = await scroller.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     return {

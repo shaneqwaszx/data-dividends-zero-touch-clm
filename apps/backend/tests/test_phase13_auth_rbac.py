@@ -1086,12 +1086,12 @@ def test_every_current_application_route_is_deliberately_classified(
     counts = Counter(policy.access for policy in ROUTE_POLICIES)
 
     assert actual == expected
-    assert len(expected) == len(ROUTE_POLICIES) == 58
+    assert len(expected) == len(ROUTE_POLICIES) == 59
     assert counts == {
         RouteAccess.PUBLIC: 2,
         RouteAccess.ACTOR_ONLY: 17,
         RouteAccess.CASE_CREATION: 4,
-        RouteAccess.CASE_PORTFOLIO: 3,
+        RouteAccess.CASE_PORTFOLIO: 4,
         RouteAccess.CASE_SCOPED: 32,
     }
 

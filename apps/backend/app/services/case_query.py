@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
-from enum import StrEnum
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -15,10 +14,16 @@ from app.domain.case_management import (
     CaseActivityItem,
     CaseActivityPage,
     CaseActivityQuery,
+    CasePortfolioPage,
+    CasePortfolioQuery,
     CasePortfolioRecord,
     CasePortfolioScope,
     PortfolioScopeKind,
+    order_case_portfolio_records,
 )
+from app.domain.case_management import PriorityFilter as PriorityFilter
+from app.domain.case_management import PrioritySort as PrioritySort
+from app.domain.jurisdiction import JurisdictionCode
 from app.domain.models import EventOutcome, OnboardingCase, WorkflowEvent
 from app.domain.zero_touch import AutomationStage, AutomationStatus, BusinessExceptionType
 from app.services.admin_repository import TeamRepository
@@ -32,27 +37,6 @@ from app.services.repository import OnboardingCaseRepository
 from app.services.zero_touch_repository import ZeroTouchAutomationRepository
 
 
-class PriorityFilter(StrEnum):
-    ALL = "all"
-    PRIORITISED = "prioritised"
-    UNSET = "unset"
-    P10 = "10"
-    P9 = "9"
-    P8 = "8"
-    P7 = "7"
-    P6 = "6"
-    P5 = "5"
-    P4 = "4"
-    P3 = "3"
-    P2 = "2"
-    P1 = "1"
-
-
-class PrioritySort(StrEnum):
-    HIGHEST_FIRST = "highest_first"
-    LOWEST_FIRST = "lowest_first"
-
-
 class CaseTeamFilterForbiddenError(Exception):
     pass
 
@@ -62,6 +46,10 @@ class CaseTeamFilterInvalidError(Exception):
 
 
 class CaseActivityQueryInvalidError(Exception):
+    pass
+
+
+class CasePortfolioQueryInvalidError(Exception):
     pass
 
 
@@ -105,19 +93,40 @@ class CaseQueryService:
             item
             for item in authorized
             if _matches_priority(item.priority, priority_filter)
-            and (
-                attention_type is None
-                or attention_type in item.active_exception_types
-            )
+            and (attention_type is None or attention_type in item.active_exception_types)
         ]
-        tie_ordered = sorted(filtered, key=_portfolio_tie_key, reverse=True)
-        prioritised = [item for item in tie_ordered if item.priority is not None]
-        unset = [item for item in tie_ordered if item.priority is None]
-        prioritised.sort(
-            key=lambda item: int(item.priority or 0),
-            reverse=priority_sort == PrioritySort.HIGHEST_FIRST,
-        )
-        return prioritised + unset
+        return order_case_portfolio_records(filtered, priority_sort)
+
+    def list_portfolio(
+        self,
+        actor: AuthenticatedActor,
+        *,
+        status: AutomationStatus | None = None,
+        priority_filter: PriorityFilter = PriorityFilter.ALL,
+        priority_sort: PrioritySort = PrioritySort.HIGHEST_FIRST,
+        team_filter: str | None = None,
+        attention_type: BusinessExceptionType | None = None,
+        jurisdiction: JurisdictionCode | None = None,
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> CasePortfolioPage:
+        scope = self._resolve_scope(actor, team_filter)
+        try:
+            query = CasePortfolioQuery(
+                scope=scope,
+                status=status,
+                priority_filter=priority_filter,
+                priority_sort=priority_sort,
+                attention_type=attention_type,
+                jurisdiction=jurisdiction,
+                search=search,
+                limit=limit,
+                offset=offset,
+            )
+        except ValidationError:
+            raise CasePortfolioQueryInvalidError from None
+        return self._portfolio_repository.list_page(query)
 
     def list_activity(
         self,
@@ -233,7 +242,3 @@ def _matches_priority(priority: CasePriority | None, expected: PriorityFilter) -
     if expected == PriorityFilter.UNSET:
         return priority is None
     return priority == int(expected)
-
-
-def _portfolio_tie_key(item: CasePortfolioRecord) -> tuple[datetime, str]:
-    return item.updated_at, str(item.case_id)

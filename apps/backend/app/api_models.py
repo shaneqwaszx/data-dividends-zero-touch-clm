@@ -9,7 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.access import CasePriority, TeamId
 from app.domain.administration import TeamRecord
-from app.domain.case_management import CaseActivityItem, CaseActivityPage, CasePortfolioRecord
+from app.domain.case_management import (
+    CaseActivityItem,
+    CaseActivityPage,
+    CasePortfolioPage,
+    CasePortfolioRecord,
+)
 from app.domain.clm import (
     ClmOrchestrationRecord,
     ClmReadinessAssessment,
@@ -729,6 +734,34 @@ class ZeroTouchCaseListItemResponse(BaseModel):
             completed_at=record.completed_at,
             mock_goldtier_party_id=record.mock_goldtier_party_id,
             active_exception_types=record.active_exception_types,
+        )
+
+
+class CasePortfolioPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    items: tuple[ZeroTouchCaseListItemResponse, ...]
+    offset: int
+    limit: int
+    has_more: bool
+
+    @classmethod
+    def from_domain(
+        cls,
+        page: CasePortfolioPage,
+        teams: dict[TeamId, TeamRecord],
+    ) -> "CasePortfolioPageResponse":
+        return cls(
+            items=tuple(
+                ZeroTouchCaseListItemResponse.from_domain(
+                    item,
+                    teams.get(item.team_id) if item.team_id is not None else None,
+                )
+                for item in page.items
+            ),
+            offset=page.offset,
+            limit=page.limit,
+            has_more=page.has_more,
         )
 
 

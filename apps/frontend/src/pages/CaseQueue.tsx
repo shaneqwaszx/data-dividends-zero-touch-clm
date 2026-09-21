@@ -1,10 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 
 import { deleteZeroTouchCase, fetchZeroTouchCases } from "../api";
 import type { PriorityFilter, PrioritySort } from "../api";
-import { caseDeletedEffect, caseListQueryOptions, priorityMutationEffect } from "../caseQueries";
+import {
+  caseDeletedEffect,
+  casePortfolioQueryOptions,
+  priorityMutationEffect,
+} from "../caseQueries";
 import { formatDateNoSeconds, stageProgressLabel } from "../shared";
 import { paths } from "../navigation";
 import type { CaseRowView } from "../viewModels";
@@ -74,20 +78,39 @@ export default function CaseQueue({
   const { status, priority, prioritySort, jurisdiction, search } = presentation;
   const attentionType = presentation.attentionType ?? "";
   const [teamFilter, setTeamFilter] = useState("all");
-  const updatePresentation = (change: Partial<CaseQueuePresentationState>) =>
+  const [offset, setOffset] = useState(0);
+  const normalizedSearch = search.trim();
+  const [debouncedSearch, setDebouncedSearch] = useState(normalizedSearch);
+  const limit = 50;
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearch(normalizedSearch), 300);
+    return () => window.clearTimeout(timeout);
+  }, [normalizedSearch]);
+  const searchIsDebouncing = normalizedSearch !== debouncedSearch;
+  const updatePresentation = (change: Partial<CaseQueuePresentationState>) => {
+    setOffset(0);
     onPresentationChange({ ...presentation, ...change });
+  };
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<CaseRowView | null>(null);
-  const query = useQuery(caseListQueryOptions(
-    actor.user_id,
-    status ? status as CaseRowView["status"] : undefined,
-    priority,
-    prioritySort,
-    teamFilter,
-    attentionType || undefined,
-  ));
+  const query = useQuery({
+    ...casePortfolioQueryOptions(actor.user_id, {
+      status: status ? status as CaseRowView["status"] : undefined,
+      priority,
+      prioritySort,
+      teamFilter,
+      attentionType: attentionType || undefined,
+      jurisdiction: jurisdiction
+        ? jurisdiction as "SG" | "AU" | "MY" | "HK"
+        : undefined,
+      search: debouncedSearch || undefined,
+      offset,
+      limit,
+    }),
+    enabled: !searchIsDebouncing,
+  });
   const cases = useMemo(
-    () => (query.data ?? []).map(mapZeroTouchCaseToCaseRow),
+    () => (query.data?.items ?? []).map(mapZeroTouchCaseToCaseRow),
     [query.data],
   );
 
@@ -95,15 +118,6 @@ export default function CaseQueue({
     await priorityMutationEffect(queryClient, actor.user_id);
   }
 
-  const filteredCases = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return cases.filter((item) =>
-      (!jurisdiction || item.jurisdiction === jurisdiction)
-      && (!query || [item.company_name, item.requested_uen, item.case_id]
-          .filter((value): value is string => Boolean(value))
-          .some((value) => value.toLowerCase().includes(query))),
-    );
-  }, [cases, jurisdiction, search]);
   const canDelete = actor.role === "DIRECTOR" || actor.role === "RELATIONSHIP_MANAGER";
 
   async function deleteSelectedCase(): Promise<void> {
@@ -125,9 +139,17 @@ export default function CaseQueue({
         </div>
       </div>
       <div className="ds-toolbar">
-        <DirectorTeamFilter actor={actor} value={teamFilter} onChange={setTeamFilter} />
+        <DirectorTeamFilter
+          actor={actor}
+          value={teamFilter}
+          onChange={(value) => {
+            setOffset(0);
+            setTeamFilter(value);
+          }}
+        />
         <select
           className="input"
+          aria-label="Status filter"
           style={{ width: 200 }}
           value={status}
           onChange={(event) => updatePresentation({ status: event.target.value })}
@@ -164,6 +186,7 @@ export default function CaseQueue({
         </label>
         <select
           className="input"
+          aria-label="Jurisdiction filter"
           style={{ width: 190 }}
           value={jurisdiction}
           onChange={(event) => updatePresentation({ jurisdiction: event.target.value })}
@@ -176,6 +199,7 @@ export default function CaseQueue({
         </select>
         <input
           className="input"
+          aria-label="Search cases"
           style={{ flex: 1, minWidth: 220 }}
           value={search}
           onChange={(event) => updatePresentation({ search: event.target.value })}
@@ -183,14 +207,21 @@ export default function CaseQueue({
         />
       </div>
 
-      {query.isError && !query.data && <div className="ds-banner ds-banner-warn">{query.error instanceof Error ? query.error.message : "The case queue is unavailable."}</div>}
-      {query.isError && query.data && <div className="ds-banner ds-banner-warn">Refresh failed; cached cases remain visible.</div>}
-      {query.isPending && <p className="text-muted">Loading cases…</p>}
-      {query.isFetching && !query.isPending && <p className="refreshing-indicator">Refreshing…</p>}
-      {!query.isError && !query.isPending && filteredCases.length === 0 && (
+      {searchIsDebouncing && <p className="text-muted" aria-live="polite">Updating search…</p>}
+      {query.isError && !query.data && !searchIsDebouncing && <div className="ds-banner ds-banner-warn">{query.error instanceof Error ? query.error.message : "The case queue is unavailable."}</div>}
+      {!searchIsDebouncing && query.isError && query.data && <div className="ds-banner ds-banner-warn">Refresh failed; cached cases remain visible.</div>}
+      {query.isPending && !searchIsDebouncing && <p className="text-muted">Loading cases…</p>}
+      {!searchIsDebouncing && query.isFetching && !query.isPending && <p className="refreshing-indicator">Refreshing…</p>}
+      {!searchIsDebouncing && !query.isError && !query.isPending && cases.length === 0 && (
         <p className="text-muted">No cases match these filters.</p>
       )}
-      {filteredCases.length > 0 && (
+      {!searchIsDebouncing && cases.length > 0 && (
+        <p className="text-muted" aria-live="polite">
+          Showing {offset + 1}–{offset + cases.length} on page {Math.floor(offset / limit) + 1}.
+          Total results are not calculated.
+        </p>
+      )}
+      {!searchIsDebouncing && cases.length > 0 && (
         <div className="table-card table-scroll" tabIndex={0} aria-label="Cases table">
           <table className="table case-table">
             <thead>
@@ -209,7 +240,7 @@ export default function CaseQueue({
               </tr>
             </thead>
             <tbody>
-              {filteredCases.map((item) => (
+              {cases.map((item) => (
                 <tr key={item.case_id}>
                   <td>{item.company_name ?? item.requested_uen}</td>
                   <td>{item.requested_uen}</td>
@@ -268,6 +299,32 @@ export default function CaseQueue({
             </tbody>
           </table>
         </div>
+      )}
+      {!searchIsDebouncing && query.data && (
+        <nav className="activity-pagination" aria-label="Cases pagination">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={offset === 0}
+            onClick={() => setOffset((current) => Math.max(0, current - limit))}
+          >
+            Previous
+          </button>
+          <span>Page {Math.floor(offset / limit) + 1}</span>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={!query.data.has_more || offset >= 10_000}
+            onClick={() => setOffset((current) => Math.min(10_000, current + limit))}
+          >
+            Next
+          </button>
+        </nav>
+      )}
+      {!searchIsDebouncing && query.data?.has_more && offset >= 10_000 && (
+        <p className="ds-banner ds-banner-warn">
+          More cases may exist beyond the paging limit. Narrow the filters or search.
+        </p>
       )}
       {deleteTarget && (
         <DeleteCaseDialog

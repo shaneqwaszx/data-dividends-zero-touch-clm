@@ -7,7 +7,11 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchZeroTouchCases } from "./api";
-import { caseDeletedEffect, caseListQueryOptions, caseQueryKeys } from "./caseQueries";
+import {
+  caseDeletedEffect,
+  caseListQueryOptions,
+  caseQueryKeys,
+} from "./caseQueries";
 import CaseQueue, {
   DEFAULT_CASE_QUEUE_PRESENTATION,
   type CaseQueuePresentationState,
@@ -212,21 +216,21 @@ describe("blocker-aware attention queue contract", () => {
 
   it("retires assignment and renders truthful chips, empty state, count, and native Open links", async () => {
     const queryClient = createSessionQueryClient();
-    queryClient.setQueryData(
-      caseQueryKeys.caseList(actor.user_id, undefined, "all", "highest_first", "all"),
-      [blocked, recovery],
-    );
-    queryClient.setQueryData(
-      caseQueryKeys.caseList(
-        actor.user_id,
-        undefined,
-        "all",
-        "highest_first",
-        "all",
-        "DOCUMENT_LOW_CONFIDENCE",
-      ),
-      [blocked],
-    );
+    queryClient.setQueryData(caseQueryKeys.casePortfolio(actor.user_id, {
+      priority: "all",
+      prioritySort: "highest_first",
+      teamFilter: "all",
+      offset: 0,
+      limit: 50,
+    }), { items: [blocked, recovery], offset: 0, limit: 50, has_more: false });
+    queryClient.setQueryData(caseQueryKeys.casePortfolio(actor.user_id, {
+      priority: "all",
+      prioritySort: "highest_first",
+      teamFilter: "all",
+      attentionType: "DOCUMENT_LOW_CONFIDENCE",
+      offset: 0,
+      limit: 50,
+    }), { items: [blocked], offset: 0, limit: 50, has_more: false });
 
     function Harness() {
       const [presentation, setPresentation] = useState<CaseQueuePresentationState>(

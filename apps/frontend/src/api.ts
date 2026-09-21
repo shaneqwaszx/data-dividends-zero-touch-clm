@@ -29,6 +29,7 @@ import type {
   AutomationStage,
   CaseActivityAction,
   CaseActivityPage,
+  CasePortfolioPage,
   EventOutcome,
 } from "./types";
 
@@ -252,6 +253,49 @@ export async function completeZeroTouchIntake(
 
 export type PriorityFilter = "all" | "prioritised" | "unset" | `${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10}`;
 export type PrioritySort = "highest_first" | "lowest_first";
+
+export interface CasePortfolioFilters {
+  status?: ZeroTouchCaseListItem["status"];
+  priority: PriorityFilter;
+  prioritySort: PrioritySort;
+  teamFilter?: string;
+  attentionType?: BusinessExceptionType;
+  jurisdiction?: "SG" | "AU" | "MY" | "HK";
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchCasePortfolio(
+  filters: CasePortfolioFilters,
+  signal?: AbortSignal,
+): Promise<CasePortfolioPage> {
+  const query = new URLSearchParams();
+  if (filters.status) query.set("status", filters.status);
+  if (filters.priority !== "all") query.set("priority_filter", filters.priority);
+  if (filters.prioritySort !== "highest_first") {
+    query.set("priority_sort", filters.prioritySort);
+  }
+  if (filters.teamFilter && filters.teamFilter !== "all") {
+    query.set("team_filter", filters.teamFilter);
+  }
+  if (filters.attentionType) query.set("attention_type", filters.attentionType);
+  if (filters.jurisdiction) query.set("jurisdiction", filters.jurisdiction);
+  const normalizedSearch = filters.search?.trim();
+  if (normalizedSearch) query.set("search", normalizedSearch);
+  if (filters.limit !== undefined && filters.limit !== 50) {
+    query.set("limit", String(filters.limit));
+  }
+  if (filters.offset !== undefined && filters.offset !== 0) {
+    query.set("offset", String(filters.offset));
+  }
+  const suffix = query.size ? `?${query.toString()}` : "";
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/case-portfolio${suffix}`,
+    { signal },
+  );
+  return parseResponse<CasePortfolioPage>(response);
+}
 
 export interface CaseActivityFilters {
   caseId?: string;

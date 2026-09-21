@@ -10,7 +10,7 @@ It is not a sponsor contract, phase report, or substitute for current source and
   "schema_version": 1,
   "case_envelope_schema_version": 4,
   "verified_date": "2026-09-21",
-  "verified_main_sha": "1657a88a43e2fa8606e4f3d26f3bd05d16313d9e",
+  "verified_main_sha": "94af55ab03391dd6e4a24f6b8db6096d9c56f69b",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -80,6 +80,13 @@ Major implemented phases are:
 - The Case Evidence & Explainability Workbench and blocker-aware Attention Queue are
   accepted on main through PR #45. The queue is an authorized current-state portfolio
   projection; it is not a risk score, SLA, assignment engine, or workflow owner.
+- Phase 17 Case Activity & Audit Explorer is accepted on main at the inspected
+  `94af55ab03391dd6e4a24f6b8db6096d9c56f69b` baseline. It is a bounded live offset
+  view of retained automation events only: it has no actor attribution, CSV export,
+  retention/archive policy, production compliance-audit claim, or snapshot isolation,
+  and case deletion removes the available history.
+- Phase 18 Case Portfolio Search & Pagination is the current feature-branch candidate,
+  pending independent acceptance. It is not yet accepted main behavior.
 
 The Case Evidence & Explainability Workbench accepted through PR #43 adds a read-only
 presentation of the minimized nullable Mock-only registry-binding projection,
@@ -114,7 +121,7 @@ authenticated browser/API request
   -> registry-fed deterministic Decimal ownership graph analysis
   -> readiness and immutable target snapshot
   -> ordered Mock GoldTier search/shell/policy/amend with retained recovery ledger
-  -> authorized case portfolio/dashboard and detailed evidence views
+  -> authorized bounded case portfolio/dashboard/activity and detailed evidence views
 ```
 
 Technical composition is centered in `apps/backend/app/main.py`,
@@ -175,11 +182,12 @@ unknown or blocked.
   connection strings are excluded from case envelopes.
 - Physical tests use generated allowlisted `clm_p12_*`, `clm_p13_*`, or newer explicitly
   approved disposable names. `clm_poc` is never a physical test/cleanup database. The
-  guarded runner owns five explicit suites and reports their dynamic collection and
-  execution counts. Project acceptance requires every currently collected owned test
-  to execute and pass with zero failures, errors, or skips. On the tested Phase 16
-  working tree that was 22 collected, 22 executed, and 22 passed; 22 is
-  revision-specific evidence, not a permanent future test-count contract.
+  accepted Phase 17 guarded runner owns six explicit suites and reports their dynamic
+  collection and execution counts. Phase 17 acceptance executed 24 collected, 24 passed,
+  with zero failures, errors, or skips. The Phase 18 candidate registers a seventh suite;
+  its remediated candidate evidence executed 27 collected and 27 passed with zero failures,
+  errors, or skips, pending independent acceptance. Counts are revision-specific
+  evidence, not permanent future contracts.
 
 ## Authentication, authorization and administration
 
@@ -210,7 +218,7 @@ unknown or blocked.
 - Immutable per-case IDP/UBO policy snapshot.
 - Ordered Mock target execution with no-replay recovery states.
 - Memory/Mongo repository parity, case deletion, portfolio projection, dashboard, team
-  filtering, priority, and session-scoped query caching.
+  filtering, priority, retained-event activity, and session-scoped query caching.
 - Safe synthetic UAT evidence and Windows demo lifecycle tooling.
 
 ## Current explicit non-capabilities
@@ -269,7 +277,7 @@ final approval.
 ## Repository and development tooling
 
 The repository includes an exact-pinned Playwright Chromium E2E harness with guarded
-browser network policy, a guarded runner for the five owned physical Mongo suites,
+browser network policy, an accepted guarded runner for six owned physical Mongo suites,
 read-only GitHub PR/CI inspection tooling, and hardened Windows demo lifecycle
 verification. These capabilities support local development, CI, and verification;
 they do not add a product workflow, business capability, Live provider integration, or
@@ -325,8 +333,8 @@ Consult `docs/sponsor-questions/OPEN_QUESTIONS.md` for exact wording and current
   intentionally dormant.
 - Mongo and administration atomicity are single-process POC guarantees, not distributed
   guarantees.
-- Audit all-cases pagination/retention and broader performance work remain intentionally
-  deferred.
+- Production-scale portfolio/activity indexing, snapshot traversal, retention/archive,
+  and broader performance work remain intentionally deferred.
 
 ## Next candidate work packages
 
@@ -337,7 +345,7 @@ These are candidates, not authorization to implement:
 3. Sponsor-confirmed Ready-for-Approval/reviewer/retention policy design.
 4. Authoritative external-provider work only after contract, security and credential
    prerequisites are satisfied.
-5. Measured hotspot or portfolio/audit pagination work if evidence shows need.
+5. Measured hotspot or production-scale portfolio/activity work if evidence shows need.
 
 Every new package requires a bounded planner handoff, change classification, relevant
 skill, proportional verification, and independent quality gate.

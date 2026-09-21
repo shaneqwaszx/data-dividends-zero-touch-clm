@@ -12,6 +12,8 @@ from uuid import UUID
 from app.domain.case_management import (
     CaseActivityQuery,
     CaseActivityRepositoryPage,
+    CasePortfolioPage,
+    CasePortfolioQuery,
     CasePortfolioRecord,
     CasePortfolioScope,
 )
@@ -117,6 +119,9 @@ class MongoCasePortfolioRepository:
 
     def list_activity(self, query: CaseActivityQuery) -> CaseActivityRepositoryPage:
         return self._store.list_activity(query)
+
+    def list_page(self, query: CasePortfolioQuery) -> CasePortfolioPage:
+        return self._store.list_portfolio_page(query)
 
 
 class MongoCaseDeletionRepository:

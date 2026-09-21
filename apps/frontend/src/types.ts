@@ -864,6 +864,13 @@ export interface ZeroTouchCaseListItem {
   mock_goldtier_party_id: string | null;
 }
 
+export interface CasePortfolioPage {
+  items: ZeroTouchCaseListItem[];
+  offset: number;
+  limit: number;
+  has_more: boolean;
+}
+
 export interface DashboardScope {
   actor_role: AuthenticatedProfile["role"];
   access: "TEAM" | "GLOBAL";

@@ -20,6 +20,7 @@ from app.api_auth import (
 from app.api_models import (
     BrowserTargetOperationEvidence,
     CaseActivityPageResponse,
+    CasePortfolioPageResponse,
     CasePriorityResponse,
     ClmCaseSummaryResponse,
     DocumentProcessingResponse,
@@ -95,6 +96,7 @@ from app.services.case_deletion import (
 )
 from app.services.case_query import (
     CaseActivityQueryInvalidError,
+    CasePortfolioQueryInvalidError,
     CaseQueryService,
     CaseTeamFilterForbiddenError,
     CaseTeamFilterInvalidError,
@@ -269,6 +271,7 @@ def create_app(
     zero_touch_demo_control: ZeroTouchDemoControl | None = None,
     scenario_catalogue: MockScenarioCatalogue | None = None,
     authentication_service: AuthenticationService | None = None,
+    e2e_portfolio_seed_count: int = 0,
 ) -> FastAPI:
     """Build the application with injectable settings for deterministic tests."""
 
@@ -335,6 +338,14 @@ def create_app(
         establishment_discard=persistence.deletion.discard,
         durable_provider_bindings=persistence.mode == "mongo",
     )
+    if e2e_portfolio_seed_count:
+        if active_settings.app_env != "test" or not 1 <= e2e_portfolio_seed_count <= 250:
+            raise ValueError("E2E portfolio seeds require test mode and a count from 1 to 250")
+        for index in range(e2e_portfolio_seed_count):
+            zero_touch.create_case(
+                f"2099{index:05d}A",
+                team_id=TeamId.TEAM_A,
+            )
     cookie_secure = (
         active_settings.app_env == "production"
         if active_settings.phase13_cookie_secure is None
@@ -1195,6 +1206,83 @@ def create_app(
             )
             for item in records
         ]
+
+    @application.get(
+        "/api/clm/zero-touch/case-portfolio",
+        response_model=CasePortfolioPageResponse,
+        tags=["zero-touch"],
+    )
+    def list_case_portfolio(
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+        status_filter: Annotated[AutomationStatus | None, Query(alias="status")] = None,
+        priority_filter: Annotated[
+            PriorityFilter, Query(alias="priority_filter")
+        ] = PriorityFilter.ALL,
+        priority_sort: Annotated[
+            PrioritySort, Query(alias="priority_sort")
+        ] = PrioritySort.HIGHEST_FIRST,
+        team_filter: Annotated[str | None, Query(alias="team_filter", max_length=64)] = None,
+        attention_type: Annotated[
+            BusinessExceptionType | None, Query(alias="attention_type")
+        ] = None,
+        jurisdiction: Annotated[
+            JurisdictionCode | None, Query(alias="jurisdiction")
+        ] = None,
+        search: Annotated[str | None, Query(alias="search")] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
+    ) -> CasePortfolioPageResponse:
+        try:
+            page = case_query.list_portfolio(
+                actor,
+                status=status_filter,
+                priority_filter=priority_filter,
+                priority_sort=priority_sort,
+                team_filter=team_filter,
+                attention_type=attention_type,
+                jurisdiction=jurisdiction,
+                search=search,
+                limit=limit,
+                offset=offset,
+            )
+            teams = {item.team_id: item for item in administration.teams.list()}
+            return CasePortfolioPageResponse.from_domain(page, teams)
+        except CaseTeamFilterForbiddenError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "TEAM_FILTER_FORBIDDEN",
+                    "message": "Team filtering is not permitted.",
+                },
+            ) from None
+        except CaseTeamFilterInvalidError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "TEAM_FILTER_INVALID",
+                    "message": "The selected team filter is invalid.",
+                },
+            ) from None
+        except CasePortfolioQueryInvalidError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "CASE_PORTFOLIO_QUERY_INVALID",
+                    "message": "The case portfolio query is invalid.",
+                },
+            ) from None
+        except (
+            PersistenceDataInvalidError,
+            PersistenceSchemaUnsupportedError,
+            PersistenceUnavailableError,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "CASE_PORTFOLIO_UNAVAILABLE",
+                    "message": "The case portfolio is temporarily unavailable.",
+                },
+            ) from None
 
     @application.get(
         "/api/clm/zero-touch/activity",

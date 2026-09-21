@@ -226,6 +226,20 @@ aggregation. A lightweight repository projection avoids complete-envelope N+1 re
 Dashboard metrics are factual POC counts/trends, not risk, SLA, compliance, or staff
 performance metrics. `team_filter` is part of backend scope and frontend cache identity.
 
+The Cases portfolio page composes current status, priority filter/order, team, correlated
+OPEN exception type, exact jurisdiction, and trimmed literal search over registration
+ID, legal name, and canonical UUID. Memory and Mongo share one engine-independent
+pattern: ASCII letters become explicit paired classes and every other code point remains
+literal. This supplies deterministic ASCII case-insensitivity without locale or Unicode
+folding divergence. It orders prioritised rows before unset rows, applies
+the selected numeric direction, and breaks equal-priority/unset ties by `updated_at`
+descending then canonical UUID string descending. Memory and Mongo apply all predicates
+before live offset paging and `limit + 1` lookahead. Mongo performs one scoped,
+strictly-validated, read-only aggregation. It captures optional source-container type
+validity before projection and projects only portfolio fields; it does
+not decode whole envelopes or fan out into detail reads. The page has no total and no
+constant-scan-cost or snapshot-isolation claim. The compatible array endpoint remains.
+
 The Case Activity Explorer reads only retained `ZeroTouchAutomationRecord.events` through
 the same authorized case-query and portfolio-repository boundary. Memory and Mongo apply
 visibility before event inspection and share the ordering `(timestamp descending,
@@ -257,6 +271,13 @@ offset and limit. Filter changes do not reuse a previous key as current data. Ac
 reads preserve `AbortSignal`; relevant mutations invalidate the user-scoped activity
 family, while deletion cancels and removes it before a late response can republish a
 deleted row.
+
+Portfolio page keys share the canonical authenticated case-list family and add status,
+priority filter/order, team, attention type, jurisdiction, normalized search, offset,
+and limit. Search uses a 300 ms debounce without displaying a previous key under a new
+label. Relevant mutations invalidate all page/filter variants. Deletion cancels before
+removing the row from every cached page envelope and invalidating active pages, so a late
+response cannot resurrect the deleted case and a short page can refill.
 
 Browser location is the sole page and case-navigation identity. Declarative
 `BrowserRouter` routing is mounted once outside `AuthProvider`; route elements reuse the
