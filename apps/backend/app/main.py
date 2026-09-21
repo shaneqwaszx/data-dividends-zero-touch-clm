@@ -66,6 +66,7 @@ from app.domain.reconciliation import ReconciliationDecisionAction
 from app.domain.target_submission import GoldTierOperationMarker, GoldTierTargetOutcome
 from app.domain.zero_touch import (
     AutomationStatus,
+    BusinessExceptionType,
     ExceptionResolutionAction,
     ZeroTouchAutomationRecord,
 )
@@ -1146,6 +1147,9 @@ def create_app(
             PrioritySort, Query(alias="priority_sort")
         ] = PrioritySort.HIGHEST_FIRST,
         team_filter: Annotated[str | None, Query(alias="team_filter", max_length=64)] = None,
+        attention_type: Annotated[
+            BusinessExceptionType | None, Query(alias="attention_type")
+        ] = None,
     ) -> list[ZeroTouchCaseListItemResponse]:
         """Project the process-local portfolio without running any workflow stage."""
 
@@ -1157,6 +1161,7 @@ def create_app(
                 priority_filter=priority_filter,
                 priority_sort=priority_sort,
                 team_filter=team_filter,
+                attention_type=attention_type,
             )
         except CaseTeamFilterForbiddenError:
             raise HTTPException(

@@ -50,6 +50,21 @@
   border-radius: 0.5rem;
 }
 
+.attention-filter {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.attention-type-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 12rem;
+}
+
 .review-queue__items {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));

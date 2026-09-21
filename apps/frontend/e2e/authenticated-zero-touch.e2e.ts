@@ -17,6 +17,14 @@ const mismatchFixture = path.resolve(
   currentDirectory,
   "../../backend/tests/fixtures/uat/legal-name-mismatch.pdf",
 );
+const lowConfidenceFixture = path.resolve(
+  currentDirectory,
+  "../../backend/tests/fixtures/uat/low-confidence.pdf",
+);
+const ownershipCycleFixture = path.resolve(
+  currentDirectory,
+  "../../backend/tests/fixtures/uat/cycle-uen-clean.pdf",
+);
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -275,4 +283,101 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
   await expect(page.getByText(/Ready-for-Approval: NOT AVAILABLE/i)).toBeVisible();
   expect(resumeRequests).toHaveLength(0);
+});
+
+test("Cases filters exact open business-exception types without hiding other attention states", async ({ page }) => {
+  await page.goto("/");
+  await login(page);
+
+  async function createPausedCase(uen: string, fixture: string): Promise<string> {
+    await page.goto("/new-onboarding");
+    await expect(page.getByRole("heading", { name: "Start onboarding" })).toBeVisible();
+    await page.getByLabel("Jurisdiction").selectOption("SG");
+    await page.getByLabel("Registration ID / UEN").fill(uen);
+    await page.locator("#home-document").setInputFiles(fixture);
+    await page.getByRole("button", { name: "Create onboarding" }).click();
+    await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
+    const caseId = page.url().split("/").at(-1)!;
+    await expect.poll(async () => {
+      const response = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
+      if (!response.ok()) return null;
+      return (await response.json() as { status: string }).status;
+    }, { timeout: 120_000 }).toBe("WAITING_FOR_REVIEW");
+    return caseId;
+  }
+
+  const lowConfidenceCaseId = await createPausedCase("202400001A", lowConfidenceFixture);
+  const ownershipCycleCaseId = await createPausedCase("202400006F", ownershipCycleFixture);
+
+  await page.goto("/cases");
+  await expect(page.getByRole("heading", { name: "Cases" })).toBeVisible();
+  const attentionFilter = page.getByLabel("Open business exception type");
+  await expect(attentionFilter).toBeVisible();
+
+  const filterRequests: Array<{ method: string; path: string }> = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/clm/zero-touch/cases") {
+      filterRequests.push({ method: request.method(), path: `${url.pathname}${url.search}` });
+    }
+  });
+
+  await attentionFilter.selectOption("DOCUMENT_LOW_CONFIDENCE");
+  await expect(page.getByText("202400001A", { exact: true })).toBeVisible();
+  await expect(page.getByText("202400006F", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByLabel("Cases table").getByText("Document low confidence", { exact: true }),
+  ).toBeVisible();
+
+  await attentionFilter.selectOption("OWNERSHIP_CYCLE");
+  await expect(page.getByText("202400006F", { exact: true })).toBeVisible();
+  await expect(page.getByText("202400001A", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByLabel("Cases table").getByText("Ownership cycle", { exact: true }),
+  ).toBeVisible();
+
+  await attentionFilter.selectOption("");
+  await expect(page.getByText("202400001A", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("202400006F", { exact: true })).toBeVisible();
+
+  expect(filterRequests).toEqual(expect.arrayContaining([
+    {
+      method: "GET",
+      path: "/api/clm/zero-touch/cases?attention_type=DOCUMENT_LOW_CONFIDENCE",
+    },
+    {
+      method: "GET",
+      path: "/api/clm/zero-touch/cases?attention_type=OWNERSHIP_CYCLE",
+    },
+  ]));
+  expect(filterRequests.every((request) => request.method === "GET")).toBe(true);
+
+  await page.setViewportSize({ width: 480, height: 900 });
+  await attentionFilter.focus();
+  await expect(attentionFilter).toBeFocused();
+  await expect(attentionFilter).toBeVisible();
+  const queueScroller = page.getByLabel("Cases table");
+  const scrollerLayout = await queueScroller.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      left: Math.round(bounds.left),
+      right: Math.round(bounds.right),
+      viewportWidth: document.documentElement.clientWidth,
+    };
+  });
+  expect(scrollerLayout.scrollWidth).toBeGreaterThan(scrollerLayout.clientWidth);
+  expect(scrollerLayout.left).toBeGreaterThanOrEqual(-1);
+  expect(scrollerLayout.right).toBeLessThanOrEqual(scrollerLayout.viewportWidth + 1);
+
+  const ownershipRow = page.getByRole("row").filter({ hasText: "202400006F" });
+  const openLink = ownershipRow.getByRole("link", { name: "Open" });
+  await expect(openLink).toHaveAttribute("href", `/cases/${ownershipCycleCaseId}`);
+  await openLink.click();
+  await expect(page).toHaveURL(`/cases/${ownershipCycleCaseId}`);
+  await expect(
+    page.getByRole("heading", { name: "Why this case is in its current state" }),
+  ).toBeVisible();
+  expect(lowConfidenceCaseId).not.toBe(ownershipCycleCaseId);
 });

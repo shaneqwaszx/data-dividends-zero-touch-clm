@@ -2,7 +2,11 @@
 
 from typing import Protocol
 
-from app.domain.case_management import CasePortfolioRecord, CasePortfolioScope
+from app.domain.case_management import (
+    CasePortfolioRecord,
+    CasePortfolioScope,
+    ordered_active_exception_types,
+)
 from app.domain.zero_touch import AutomationStatus
 from app.services.repository import OnboardingCaseRepository
 from app.services.zero_touch_repository import ZeroTouchAutomationRepository
@@ -59,6 +63,12 @@ class InMemoryCasePortfolioRepository:
                     updated_at=automation.updated_at,
                     completed_at=automation.completed_at,
                     active_exception_count=len(automation.active_exceptions),
+                    active_exception_types=ordered_active_exception_types(
+                        [
+                            (item.status, item.exception_type)
+                            for item in automation.exceptions
+                        ]
+                    ),
                     human_interventions=automation.metrics.human_interventions,
                     final_outcome=automation.metrics.final_outcome,
                     mock_goldtier_party_id=(

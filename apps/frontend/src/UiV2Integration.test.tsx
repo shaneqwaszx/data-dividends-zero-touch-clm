@@ -52,6 +52,7 @@ const listItem: ZeroTouchCaseListItem = {
   current_stage: "COMPLETE",
   updated_at: "2026-09-01T01:00:00Z",
   active_exception_count: 0,
+  active_exception_types: [],
   human_interventions: 0,
   final_outcome: "MOCK_GOLDTIER_SUBMITTED",
   resolved_jurisdiction: "SG",
@@ -195,7 +196,9 @@ describe("UI v2 backend integration adapters", () => {
   });
 
   it("maps backend list items without inventing assignment, client IDs, or risk", () => {
-    expect(mapZeroTouchCaseToCaseRow(listItem)).toMatchObject({ assigned_to: null, jurisdiction: "SG", status: "COMPLETED" });
+    const row = mapZeroTouchCaseToCaseRow(listItem);
+    expect(row).toMatchObject({ active_exception_types: [], jurisdiction: "SG", status: "COMPLETED" });
+    expect(row).not.toHaveProperty("assigned_to");
     expect(mapCompletedCaseToOnboardedRow(listItem)).toMatchObject({ mock_goldtier_party_id: "GT-MOCK-1", risk_rating: null, next_review_date: null });
   });
 

@@ -12,10 +12,14 @@ reconciliation and CLM bodies, automation timelines, and target execution ledger
 The additive list response contains only the scalars needed by those views: case/team/
 priority identifiers, UEN, legal name, resolved jurisdiction, automation state/stage,
 created/updated/completed timestamps, open-exception and human-intervention counts,
-final outcome, and Mock GoldTier party ID. Strict envelope ID, embedded case IDs, schema
-discriminator, types, enums, and bounds still fail closed. Mongo initializes the
-`onboarding_team_lookup` index. Pagination and a separate Dashboard aggregation remain
-deferred and must be introduced only from measured need.
+deduplicated enum-ordered types from retained `OPEN` business exceptions, final outcome,
+and Mock GoldTier party ID. Exception count remains the number of open records rather
+than the number of unique types. The Mongo projection selects only each exception's
+status and type, and the strict decoder validates every projected entry before deriving
+the list. Strict envelope ID, embedded case IDs, schema discriminator, types, enums, and
+bounds still fail closed. Mongo initializes the `onboarding_team_lookup` index.
+Pagination and a separate Dashboard aggregation remain deferred and must be introduced
+only from measured need.
 
 ## Session cache
 
@@ -28,10 +32,13 @@ and clear the complete QueryClient. GET query functions consume AbortSignal.
 Dashboard and the default queue are prefetched without delaying authenticated state.
 Dashboard, Cases, Onboarded, Case Detail, Client Detail, documents, ownership, and the
 execution profile share stable keys. Fresh navigation reuses data; stale data remains
-visible during background refresh. Queue status, priority, sorting, jurisdiction, and
-search presentation state is retained by the authenticated workspace while a detail is
-opened. Creation, priority, supporting-evidence mutations, reconciliation, resume,
-exception resolution, polling, and deletion use centralized cache effects.
+visible during background refresh. Queue status, priority, sorting, jurisdiction,
+business-exception type, and search presentation state is retained by the authenticated
+workspace while a detail is opened. The optional exact `attention_type` is part of the
+same user-scoped case-list query identity and filters the already-authorized projection;
+it creates no second queue, persistence owner, or cache policy. Creation, priority,
+supporting-evidence mutations, reconciliation, resume, exception resolution, polling,
+and deletion use centralized cache effects across all list variants.
 
 After a successful server deletion, the deletion cache effect first awaits cancellation
 of that authenticated user's complete case-list family, Dashboard query, and exact

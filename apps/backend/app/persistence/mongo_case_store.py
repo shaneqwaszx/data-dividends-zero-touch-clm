@@ -18,7 +18,11 @@ from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.domain.access import TeamId
-from app.domain.case_management import CasePortfolioRecord, CasePortfolioScope
+from app.domain.case_management import (
+    CasePortfolioRecord,
+    CasePortfolioScope,
+    ordered_active_exception_types,
+)
 from app.domain.documents import (
     DocumentEventType,
     DocumentProcessingState,
@@ -33,6 +37,7 @@ from app.domain.zero_touch import (
     AutomationStage,
     AutomationStatus,
     BusinessExceptionStatus,
+    BusinessExceptionType,
     validate_automation_record,
 )
 from app.persistence.errors import (
@@ -167,6 +172,7 @@ class MongoCaseStore:
             "automation.updated_at": 1,
             "automation.completed_at": 1,
             "automation.exceptions.status": 1,
+            "automation.exceptions.exception_type": 1,
             "automation.metrics.human_interventions": 1,
             "automation.metrics.final_outcome": 1,
         }
@@ -345,11 +351,14 @@ class MongoCaseStore:
             if not isinstance(exceptions, list):
                 raise PersistenceDataInvalidError
             active_count = 0
+            exception_pairs: list[tuple[BusinessExceptionStatus, BusinessExceptionType]] = []
             for item in exceptions:
                 value = _strict_dict(item)
-                if set(value) != {"status"}:
+                if set(value) != {"status", "exception_type"}:
                     raise PersistenceDataInvalidError
                 status_value = BusinessExceptionStatus(value["status"])
+                exception_type = BusinessExceptionType(value["exception_type"])
+                exception_pairs.append((status_value, exception_type))
                 active_count += status_value == BusinessExceptionStatus.OPEN
             metrics = _strict_dict(automation["metrics"])
             if set(metrics) != {"human_interventions", "final_outcome"}:
@@ -379,6 +388,7 @@ class MongoCaseStore:
                     else None
                 ),
                 active_exception_count=active_count,
+                active_exception_types=ordered_active_exception_types(exception_pairs),
                 human_interventions=interventions,
                 final_outcome=_optional_bounded_string(metrics["final_outcome"], 64),
                 mock_goldtier_party_id=_nested_optional_string(

@@ -82,6 +82,26 @@ def _create_completed_case(client: RawTestClient, *, csrf_token: str) -> str:
     return case_id
 
 
+def _create_attention_case(client: RawTestClient, *, csrf_token: str) -> str:
+    created = client.post(
+        "/api/demo/clm/zero-touch/cases",
+        json={"uen": "202400001A", "scenario": "LOW_CONFIDENCE"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert created.status_code == 201
+    case_id = created.json()["case"]["case_id"]
+    uploaded = _post_document_upload(client, case_id=case_id, csrf_token=csrf_token)
+    assert uploaded.status_code == 201
+    paused = client.post(
+        f"/api/demo/clm/zero-touch/cases/{case_id}/intake/complete",
+        json={"expected_document_count": 1},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert paused.status_code == 200
+    assert paused.json()["status"] == "WAITING_FOR_REVIEW"
+    return case_id
+
+
 def _read_raw_envelope(collection: Any, case_id: str) -> dict[str, Any] | None:
     raw = collection.find_one({"_id": case_id})
     return deepcopy(raw) if raw is not None else None
@@ -208,6 +228,47 @@ def test_real_mongo_projected_reads_and_completed_case_deletion_survive_restart(
             restarted_dashboard = restarted.get("/api/clm/zero-touch/dashboard").json()
             assert restarted_dashboard["totals"]["total_cases"] == 1
             assert counters == before_restart_reads
+    finally:
+        try:
+            cleanup_ephemeral_mongo_database(cleanup, database)
+        finally:
+            cleanup.close()
+
+
+def test_real_mongo_attention_projection_and_exact_filter_survive_restart() -> None:
+    assert MONGO_URI is not None
+    database = generate_ephemeral_mongo_database("p14")
+    settings = Settings(
+        _env_file=None,
+        app_env="test",
+        clm_persistence_mode="mongo",
+        mongo_uri=MONGO_URI,
+        mongo_database=database,
+        mongo_case_collection="clm_case_snapshots",
+        demo_controls_enabled=True,
+    )
+    cleanup: MongoClient[dict[str, Any]] = MongoClient(MONGO_URI)
+    try:
+        with RawTestClient(create_app(settings)) as creator:
+            csrf = _login(creator, "maya-lim")
+            attention_case_id = _create_attention_case(creator, csrf_token=csrf)
+            completed_case_id = _create_completed_case(creator, csrf_token=csrf)
+
+        with RawTestClient(create_app(settings)) as restarted:
+            _login(restarted, "ethan-tan")
+            listed = restarted.get("/api/clm/zero-touch/cases")
+            filtered = restarted.get(
+                "/api/clm/zero-touch/cases?attention_type=DOCUMENT_LOW_CONFIDENCE"
+            )
+
+            assert listed.status_code == filtered.status_code == 200
+            by_id = {item["case_id"]: item for item in listed.json()}
+            assert by_id[attention_case_id]["active_exception_count"] == 1
+            assert by_id[attention_case_id]["active_exception_types"] == [
+                "DOCUMENT_LOW_CONFIDENCE"
+            ]
+            assert by_id[completed_case_id]["active_exception_types"] == []
+            assert [item["case_id"] for item in filtered.json()] == [attention_case_id]
     finally:
         try:
             cleanup_ephemeral_mongo_database(cleanup, database)

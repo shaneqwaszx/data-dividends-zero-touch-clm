@@ -14,6 +14,7 @@ import type {
   ReconciliationDecisionAction,
   ExceptionResolutionAction,
   ZeroTouchCaseSummary,
+  BusinessExceptionType,
   ZeroTouchCaseListItem,
   ZeroTouchDemoScenario,
   SimulationProfile,
@@ -254,12 +255,14 @@ export async function fetchZeroTouchCases(
   prioritySort: PrioritySort = "highest_first",
   teamFilter?: string,
   signal?: AbortSignal,
+  attentionType?: BusinessExceptionType,
 ): Promise<ZeroTouchCaseListItem[]> {
   const query = new URLSearchParams();
   if (status) query.set("status", status);
   if (priority !== "all") query.set("priority_filter", priority);
   if (prioritySort !== "highest_first") query.set("priority_sort", prioritySort);
   if (teamFilter && teamFilter !== "all") query.set("team_filter", teamFilter);
+  if (attentionType) query.set("attention_type", attentionType);
   const suffix = query.size ? `?${query.toString()}` : "";
   const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases${suffix}`, { signal });
   return parseResponse<ZeroTouchCaseListItem[]>(response);

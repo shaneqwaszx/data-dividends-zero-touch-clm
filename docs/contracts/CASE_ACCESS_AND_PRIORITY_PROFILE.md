@@ -39,6 +39,16 @@ authority; case access always uses exact canonical stored team-ID equality.
 cannot use the filter. Filtering is performed by backend query services before
 projection or aggregation; frontend filtering is not an authority boundary.
 
+The case-list route also accepts an optional exact `attention_type` from the existing
+`BusinessExceptionType` enum. It is applied only after role/team authorization to the
+bounded portfolio projection and composes by intersection with the existing filters.
+Omission preserves the existing result set and order. Each row reports unique retained
+`OPEN` business-exception types in canonical enum-declaration order; resolved/cancelled
+history is excluded, while the existing exception count continues to count actual open
+records. An empty list means only that no open business exception is recorded. It does
+not assert health, completion, approval, risk, urgency, or absence of technical/recovery
+attention. No assignment, SLA, escalation, notification, or approval authority is added.
+
 ## Priority contract
 
 Case create accepts optional strict integer `priority` in `[1, 10]` or null. Priority
