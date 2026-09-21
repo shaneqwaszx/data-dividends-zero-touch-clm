@@ -10,7 +10,7 @@ It is not a sponsor contract, phase report, or substitute for current source and
   "schema_version": 1,
   "case_envelope_schema_version": 4,
   "verified_date": "2026-09-21",
-  "verified_main_sha": "94af55ab03391dd6e4a24f6b8db6096d9c56f69b",
+  "verified_main_sha": "b69fee6f475bfa32160a6d4acb9784edf3f4ff69",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -85,8 +85,11 @@ Major implemented phases are:
   view of retained automation events only: it has no actor attribution, CSV export,
   retention/archive policy, production compliance-audit claim, or snapshot isolation,
   and case deletion removes the available history.
-- Phase 18 Case Portfolio Search & Pagination is the current feature-branch candidate,
-  pending independent acceptance. It is not yet accepted main behavior.
+- Phase 18 Case Portfolio Search & Pagination is accepted on main at the inspected
+  `b69fee6f475bfa32160a6d4acb9784edf3f4ff69` baseline. It preserves the legacy array
+  endpoint while adding one authorized, bounded, live offset-paged search surface.
+- Phase 19 Factual Case Timing is the current feature-branch candidate, pending
+  independent acceptance. It is not yet accepted main behavior.
 
 The Case Evidence & Explainability Workbench accepted through PR #43 adds a read-only
 presentation of the minimized nullable Mock-only registry-binding projection,
@@ -182,12 +185,13 @@ unknown or blocked.
   connection strings are excluded from case envelopes.
 - Physical tests use generated allowlisted `clm_p12_*`, `clm_p13_*`, or newer explicitly
   approved disposable names. `clm_poc` is never a physical test/cleanup database. The
-  accepted Phase 17 guarded runner owns six explicit suites and reports their dynamic
-  collection and execution counts. Phase 17 acceptance executed 24 collected, 24 passed,
-  with zero failures, errors, or skips. The Phase 18 candidate registers a seventh suite;
-  its remediated candidate evidence executed 27 collected and 27 passed with zero failures,
-  errors, or skips, pending independent acceptance. Counts are revision-specific
-  evidence, not permanent future contracts.
+  guarded runner owns an explicit suite inventory and reports dynamic collection and
+  execution counts. Phase 18 acceptance registered seven suites and its remediated
+  candidate evidence executed 27 collected, 27 passed with zero failures, errors, or
+  skips. The Phase 19 candidate registers an eighth suite for bounded timing projection;
+  its execution result belongs in the Phase 19 implementation report rather than as a
+  permanent acceptance constant here. Counts are revision-specific evidence, not future
+  contracts.
 
 ## Authentication, authorization and administration
 
@@ -219,6 +223,9 @@ unknown or blocked.
 - Ordered Mock target execution with no-replay recovery states.
 - Memory/Mongo repository parity, case deletion, portfolio projection, dashboard, team
   filtering, priority, retained-event activity, and session-scoped query caching.
+- Backend-authored factual case timing is present only on the Phase 19 candidate: one
+  UTC observation per response, deterministic non-negative durations, fail-closed
+  chronology, neutral UI labels, and no browser-clock authority or SLA inference.
 - Safe synthetic UAT evidence and Windows demo lifecycle tooling.
 
 ## Current explicit non-capabilities
@@ -277,7 +284,8 @@ final approval.
 ## Repository and development tooling
 
 The repository includes an exact-pinned Playwright Chromium E2E harness with guarded
-browser network policy, an accepted guarded runner for six owned physical Mongo suites,
+browser network policy, an explicit guarded physical-Mongo suite inventory with dynamic
+counts,
 read-only GitHub PR/CI inspection tooling, and hardened Windows demo lifecycle
 verification. These capabilities support local development, CI, and verification;
 they do not add a product workflow, business capability, Live provider integration, or

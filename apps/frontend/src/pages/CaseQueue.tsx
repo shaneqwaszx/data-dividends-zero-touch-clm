@@ -9,7 +9,7 @@ import {
   casePortfolioQueryOptions,
   priorityMutationEffect,
 } from "../caseQueries";
-import { formatDateNoSeconds, stageProgressLabel } from "../shared";
+import { formatDateNoSeconds, formatDuration, formatTimestamp, stageProgressLabel } from "../shared";
 import { paths } from "../navigation";
 import type { CaseRowView } from "../viewModels";
 import { mapZeroTouchCaseToCaseRow } from "../viewModels";
@@ -221,6 +221,11 @@ export default function CaseQueue({
           Total results are not calculated.
         </p>
       )}
+      {!searchIsDebouncing && query.data?.observed_at && (
+        <p className="text-muted timing-observation">
+          Timing observed at {formatTimestamp(query.data.observed_at)}. Refresh to obtain a new observation.
+        </p>
+      )}
       {!searchIsDebouncing && cases.length > 0 && (
         <div className="table-card table-scroll" tabIndex={0} aria-label="Cases table">
           <table className="table case-table">
@@ -236,6 +241,7 @@ export default function CaseQueue({
                 <th>Open business exceptions</th>
                 <th>Created</th>
                 <th>Updated</th>
+                <th>Operational timing</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -281,6 +287,18 @@ export default function CaseQueue({
                   </td>
                   <td>{item.created_at ? formatDateNoSeconds(item.created_at) : "—"}</td>
                   <td>{formatDateNoSeconds(item.updated_at)}</td>
+                  <td>
+                    {item.timing ? (
+                      <div className="case-timing-cell">
+                        <span>
+                          {item.completed_at ? "Case duration" : "Case age"}: {formatDuration(item.timing.case_elapsed_ms)}
+                        </span>
+                        <span className="cell-note">
+                          Last updated: {formatDuration(item.timing.time_since_last_update_ms)} ago
+                        </span>
+                      </div>
+                    ) : "—"}
+                  </td>
                   <td>
                     <Link className="btn btn-secondary" to={paths.caseDetail(item.case_id)}>Open</Link>
                     {canDelete && (

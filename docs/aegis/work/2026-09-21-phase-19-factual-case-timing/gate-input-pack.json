@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "baselineRefs": [
+    "b69fee6f475bfa32160a6d4acb9784edf3f4ff69"
+  ],
+  "impactStatement": "docs/aegis/work/2026-09-21-phase-19-factual-case-timing/impact-statement-draft.json",
+  "compatPlan": "Phase 18 query/filter/order/cache/deletion/session behavior and v1-v4 projected reads remain.",
+  "retirementPlan": "Projection is computed read-only and additive; removal needs no persisted-data migration or background cleanup.",
+  "evidenceBundle": [
+    "docs/aegis/work/2026-09-21-phase-19-factual-case-timing/evidence-bundle-draft-browser.json",
+    "docs/aegis/work/2026-09-21-phase-19-factual-case-timing/evidence-bundle-draft-physical.json",
+    "docs/aegis/work/2026-09-21-phase-19-factual-case-timing/evidence-bundle-draft-verification.json"
+  ]
+}

@@ -62,3 +62,10 @@ fixed elapsed freshness rule, exact-key isolation, immutable case binding, and
 memory/Mongo failure semantics are recorded in `REGISTRY_CACHE_FRESHNESS_PROFILE.md`.
 They are provisional project-owner-approved POC behavior, not an ACRA validity,
 licensing, production-sharing, or retention policy.
+
+Phase 18's authorized bounded search/pagination behavior is recorded in
+`CASE_PORTFOLIO_QUERY_PROFILE.md`. Phase 19's backend-authored observation instant,
+deterministic duration formulas, fail-closed chronology rules, response compatibility,
+and neutral presentation semantics are recorded in `CASE_TIMING_PROFILE.md`. These are
+factual POC projections, not sponsor-approved SLA, risk, compliance, productivity, or
+deadline policy.

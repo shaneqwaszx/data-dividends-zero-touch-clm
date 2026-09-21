@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-09-21-phase-19-factual-case-timing",
+  "taskIntentRef": "docs/aegis/work/2026-09-21-phase-19-factual-case-timing/task-intent-draft.json",
+  "baselineRefs": [
+    "b69fee6f475bfa32160a6d4acb9784edf3f4ff69"
+  ],
+  "scopeStatus": "Implemented only factual timing projection, additive API/UI presentation, bounded Mongo scalars, tests, and affected context.",
+  "compatStatus": "Legacy array DTO unchanged; Phase 18 query, authorization, cache, deletion, session, paging and one-Mongo-operation semantics preserved by focused and broad tests.",
+  "retirementStatus": "Projection is computed read-only and additive; removal needs no persisted-data migration or background cleanup.",
+  "newRiskSignals": [
+    "Fresh independent whole-phase review remains required before any publication."
+  ],
+  "decision": "needs-verification"
+}

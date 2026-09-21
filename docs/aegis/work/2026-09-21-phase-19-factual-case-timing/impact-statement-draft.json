@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "affectedLayers": [
+    "backend domain/API, read-only persistence projection, frontend presentation, contracts/docs/tooling tests"
+  ],
+  "owners": [
+    "domain/case_management.py and CaseQueryService; existing Mongo and frontend view owners"
+  ],
+  "invariants": [
+    "One response-level UTC observed_at; non-negative deterministic facts; one Mongo operation; no SLA/polling/write/N+1; legacy DTO unchanged."
+  ],
+  "compatBoundary": "Phase 18 query/filter/order/cache/deletion/session behavior and v1-v4 projected reads remain.",
+  "nonGoals": [
+    "SLA, due date, risk, escalation, thresholds, current-stage age, scheduler, TTL, provider/workflow action."
+  ]
+}

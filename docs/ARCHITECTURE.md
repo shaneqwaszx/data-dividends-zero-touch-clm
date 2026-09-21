@@ -240,6 +240,18 @@ validity before projection and projects only portfolio fields; it does
 not decode whole envelopes or fan out into detail reads. The page has no total and no
 constant-scan-cost or snapshot-isolation claim. The compatible array endpoint remains.
 
+The Phase 19 candidate keeps factual timing in the existing case-management/query owner.
+One server clock read is taken after each portfolio repository page read and used for all
+rows; `observed_at` appears once at page level. The existing Mongo aggregation projects
+only retained `started_at` and total-duration scalars in addition to Phase 18 fields, so
+the one-operation-per-page boundary and no-detail-fan-out guarantee remain. Case Detail
+uses the same deterministic projection helper and its own single backend observation.
+The legacy case-array DTO remains unchanged. Invalid UTC/chronology/duration facts fail
+closed rather than being clamped or repaired. The browser only formats returned integer
+milliseconds and never owns time, polling, status age, SLA, deadline, health, risk, or
+escalation semantics. Recorded stage durations mean completed automated processing
+attempts, not full stage residence or human wait.
+
 The Case Activity Explorer reads only retained `ZeroTouchAutomationRecord.events` through
 the same authorized case-query and portfolio-repository boundary. Memory and Mongo apply
 visibility before event inspection and share the ordering `(timestamp descending,

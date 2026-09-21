@@ -75,7 +75,9 @@ class InMemoryCasePortfolioRepository:
                     current_stage=automation.current_stage,
                     created_at=automation.created_at,
                     updated_at=automation.updated_at,
+                    started_at=automation.started_at,
                     completed_at=automation.completed_at,
+                    recorded_total_duration_ms=automation.metrics.total_duration_ms,
                     active_exception_count=len(automation.active_exceptions),
                     active_exception_types=ordered_active_exception_types(
                         [
@@ -149,7 +151,9 @@ class InMemoryCasePortfolioRepository:
                 current_stage=automation.current_stage,
                 created_at=automation.created_at,
                 updated_at=automation.updated_at,
+                started_at=automation.started_at,
                 completed_at=automation.completed_at,
+                recorded_total_duration_ms=automation.metrics.total_duration_ms,
                 active_exception_count=len(automation.active_exceptions),
                 active_exception_types=ordered_active_exception_types(
                     [(item.status, item.exception_type) for item in automation.exceptions]

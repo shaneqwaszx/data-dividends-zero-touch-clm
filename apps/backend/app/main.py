@@ -1,5 +1,6 @@
 """FastAPI application and Phase 07 application-facing endpoints."""
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -20,6 +21,7 @@ from app.api_auth import (
 from app.api_models import (
     BrowserTargetOperationEvidence,
     CaseActivityPageResponse,
+    CaseDetailTimingResponse,
     CasePortfolioPageResponse,
     CasePriorityResponse,
     ClmCaseSummaryResponse,
@@ -59,7 +61,11 @@ from app.demo.scenarios import (
 from app.demo.uat_evidence import UatEvidenceExport, build_uat_evidence
 from app.demo.zero_touch_control import ZeroTouchDemoControl, ZeroTouchDemoScenario
 from app.domain.access import AuthenticatedActor, CasePriority, TeamId
-from app.domain.case_management import CaseActivityAction
+from app.domain.case_management import (
+    CaseActivityAction,
+    CaseTimingDataInvalidError,
+    project_case_timing,
+)
 from app.domain.clm import GoldTierSubmissionPlan
 from app.domain.dashboard import DashboardSnapshot
 from app.domain.documents import DocumentFieldKey, ReviewDecision
@@ -272,10 +278,12 @@ def create_app(
     scenario_catalogue: MockScenarioCatalogue | None = None,
     authentication_service: AuthenticationService | None = None,
     e2e_portfolio_seed_count: int = 0,
+    clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     """Build the application with injectable settings for deterministic tests."""
 
     active_settings = settings or get_settings()
+    active_clock = clock or (lambda: datetime.now(UTC))
     browser_origin_policy = BrowserOriginPolicy.from_origins(
         active_settings.phase13_trusted_browser_origins,
         require_https=active_settings.app_env == "production",
@@ -369,6 +377,7 @@ def create_app(
             if onboarding_service is None and zero_touch_orchestrator is None
             else None
         ),
+        clock=active_clock,
     )
     dashboard = DashboardService(case_query, administration.directory)
     case_deletion = CaseDeletionService(
@@ -615,10 +624,32 @@ def create_app(
             if clm_record.submission_snapshot is not None
             else None
         )
+        observed_at = active_clock()
+        try:
+            timing = project_case_timing(
+                created_at=automation.created_at,
+                updated_at=automation.updated_at,
+                started_at=automation.started_at,
+                completed_at=automation.completed_at,
+                recorded_total_duration_ms=automation.metrics.total_duration_ms,
+                observed_at=observed_at,
+            )
+        except CaseTimingDataInvalidError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "CASE_TIMING_UNAVAILABLE",
+                    "message": "Case timing is temporarily unavailable.",
+                },
+            ) from None
         return ZeroTouchCaseSummaryResponse.from_domain(
             automation,
             clm_record,
             case,
+            timing=CaseDetailTimingResponse(
+                **timing.model_dump(),
+                observed_at=observed_at,
+            ),
             reconciliation=reconciliation.get(case_id=automation.case_id),
             target_operations=target_operation_evidence(target_outcome),
             team=administration.directory.get(case.team_id),
@@ -1272,6 +1303,7 @@ def create_app(
                 },
             ) from None
         except (
+            CaseTimingDataInvalidError,
             PersistenceDataInvalidError,
             PersistenceSchemaUnsupportedError,
             PersistenceUnavailableError,

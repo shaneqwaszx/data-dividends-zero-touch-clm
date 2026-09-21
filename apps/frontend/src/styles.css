@@ -50,6 +50,27 @@
   border-radius: 0.5rem;
 }
 
+.case-timing-cell {
+  display: flex;
+  min-width: 10.5rem;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.timing-observation {
+  margin-block: 0.5rem;
+}
+
+.operational-timing {
+  margin-block: 1rem;
+}
+
+.operational-timing__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0 1.5rem;
+}
+
 .activity-header-actions,
 .activity-pagination {
   display: flex;

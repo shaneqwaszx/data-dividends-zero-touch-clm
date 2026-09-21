@@ -15,6 +15,21 @@ export function formatDateNoSeconds(value: string): string {
   }).format(new Date(value));
 }
 
+/** Format a backend-authored bounded duration without consulting browser wall time. */
+export function formatDuration(milliseconds: number): string {
+  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) return "—";
+  if (milliseconds < 1_000) return "< 1s";
+  const seconds = Math.floor(milliseconds / 1_000);
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  const remainingSeconds = seconds % 60;
+  if (days > 0) return `${days}d${hours > 0 ? ` ${hours}h` : ""}`;
+  if (hours > 0) return `${hours}h${minutes > 0 ? ` ${minutes}m` : ""}`;
+  if (minutes > 0) return `${minutes}m${remainingSeconds > 0 ? ` ${remainingSeconds}s` : ""}`;
+  return `${remainingSeconds}s`;
+}
+
 export function shouldPollAutomation(status: ZeroTouchCaseSummary["status"]): boolean {
   return status === "RUNNING" || status === "RESUMING";
 }

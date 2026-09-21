@@ -30,7 +30,7 @@ class FakeCleanupClient:
 
 
 def test_generated_physical_database_names_are_narrowly_allowlisted() -> None:
-    for phase in ("p12", "p13", "p14", "p145", "p16", "p17", "p18"):
+    for phase in ("p12", "p13", "p14", "p145", "p16", "p17", "p18", "p19"):
         database = generate_ephemeral_mongo_database(phase)
         assert require_ephemeral_mongo_database(database) == database
 
@@ -44,6 +44,7 @@ def test_generated_physical_database_names_are_narrowly_allowlisted() -> None:
         "clm_p16_short",
         "clm_p17_short",
         "clm_p18_short",
+        "clm_p19_short",
         "",
         "clm_p13_../x",
     ],

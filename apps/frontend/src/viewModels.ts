@@ -2,6 +2,7 @@ import type {
   AutomationStage,
   DocumentProcessingRecord,
   OwnershipAnalysisRecord,
+  CasePortfolioItem,
   SimulationProfile,
   ZeroTouchCaseListItem,
   ZeroTouchCaseSummary,
@@ -16,6 +17,8 @@ export interface CaseRowView {
   current_stage: ZeroTouchCaseListItem["current_stage"];
   created_at: string | null;
   updated_at: string;
+  completed_at: string | null;
+  timing: CasePortfolioItem["timing"] | null;
   active_exception_count: number;
   active_exception_types: ZeroTouchCaseListItem["active_exception_types"];
   human_interventions: number;
@@ -25,7 +28,7 @@ export interface CaseRowView {
 }
 
 export function mapZeroTouchCaseToCaseRow(
-  item: ZeroTouchCaseListItem,
+  item: ZeroTouchCaseListItem | CasePortfolioItem,
 ): CaseRowView {
   return {
     case_id: item.case_id,
@@ -36,6 +39,8 @@ export function mapZeroTouchCaseToCaseRow(
     current_stage: item.current_stage,
     created_at: item.created_at,
     updated_at: item.updated_at,
+    completed_at: item.completed_at,
+    timing: "timing" in item ? item.timing : null,
     active_exception_count: item.active_exception_count,
     active_exception_types: item.active_exception_types,
     human_interventions: item.human_interventions,

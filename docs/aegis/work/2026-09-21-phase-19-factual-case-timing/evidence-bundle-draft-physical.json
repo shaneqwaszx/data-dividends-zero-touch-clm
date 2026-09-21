@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "physical-mongo",
+  "type": "physical-test",
+  "source": "disposable MongoDB 7 container on port 27029",
+  "summary": "Eight suites, 28 collected/28 passed, zero failed/errors/skips; generated databases and owned container/volume absent after cleanup.",
+  "verifier": "Phase 19 implementer",
+  "sliceId": "physical",
+  "evidenceStatus": "evidence-finalized",
+  "updatedAt": "2026-09-21"
+}

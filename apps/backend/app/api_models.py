@@ -12,8 +12,10 @@ from app.domain.administration import TeamRecord
 from app.domain.case_management import (
     CaseActivityItem,
     CaseActivityPage,
-    CasePortfolioPage,
     CasePortfolioRecord,
+    CaseTimingProjection,
+    ObservedCasePortfolioPage,
+    ObservedCasePortfolioRecord,
 )
 from app.domain.clm import (
     ClmOrchestrationRecord,
@@ -653,6 +655,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     timeline: list[AutomationEvent]
     created_at: datetime
     updated_at: datetime
+    timing: "CaseDetailTimingResponse"
 
     @classmethod
     def from_domain(
@@ -660,6 +663,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         record: ZeroTouchAutomationRecord,
         clm_record: ClmOrchestrationRecord,
         case: OnboardingCase,
+        timing: "CaseDetailTimingResponse",
         reconciliation: ReconciliationCaseRecord | None = None,
         target_operations: tuple["BrowserTargetOperationEvidence", ...] = (),
         team: TeamRecord | None = None,
@@ -686,7 +690,25 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
             timeline=record.events,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            timing=timing,
         )
+
+
+class CaseTimingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_elapsed_ms: int = Field(ge=0)
+    time_since_last_update_ms: int = Field(ge=0)
+    automation_elapsed_ms: int | None = Field(default=None, ge=0)
+    recorded_total_duration_ms: int | None = Field(default=None, ge=0)
+
+    @classmethod
+    def from_domain(cls, timing: CaseTimingProjection) -> "CaseTimingResponse":
+        return cls.model_validate(timing.model_dump())
+
+
+class CaseDetailTimingResponse(CaseTimingResponse):
+    observed_at: datetime
 
 
 class ZeroTouchCaseListItemResponse(BaseModel):
@@ -737,10 +759,24 @@ class ZeroTouchCaseListItemResponse(BaseModel):
         )
 
 
+class CasePortfolioItemResponse(ZeroTouchCaseListItemResponse):
+    timing: CaseTimingResponse
+
+    @classmethod
+    def from_observed_domain(
+        cls, record: ObservedCasePortfolioRecord, team: TeamRecord | None = None
+    ) -> "CasePortfolioItemResponse":
+        return cls(
+            **ZeroTouchCaseListItemResponse.from_domain(record, team).model_dump(),
+            timing=CaseTimingResponse.from_domain(record.timing),
+        )
+
+
 class CasePortfolioPageResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    items: tuple[ZeroTouchCaseListItemResponse, ...]
+    observed_at: datetime
+    items: tuple[CasePortfolioItemResponse, ...]
     offset: int
     limit: int
     has_more: bool
@@ -748,12 +784,13 @@ class CasePortfolioPageResponse(BaseModel):
     @classmethod
     def from_domain(
         cls,
-        page: CasePortfolioPage,
+        page: ObservedCasePortfolioPage,
         teams: dict[TeamId, TeamRecord],
     ) -> "CasePortfolioPageResponse":
         return cls(
+            observed_at=page.observed_at,
             items=tuple(
-                ZeroTouchCaseListItemResponse.from_domain(
+                CasePortfolioItemResponse.from_observed_domain(
                     item,
                     teams.get(item.team_id) if item.team_id is not None else None,
                 )

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "requestedOutcome": "Implement Phase 19 factual backend-authored case and automation timing through bounded portfolio/detail projections, UI, verification, and implementation reporting.",
+  "goal": "Expose factual non-judgmental timing with one UTC portfolio observation while preserving Phase 18 compatibility.",
+  "successEvidence": [
+    "Focused and broad backend/frontend checks, guarded browser, physical Mongo 7 with zero skips, POC/governance/security evidence, frozen candidate hashes."
+  ],
+  "stopCondition": "Done after milestones A-H and frozen candidate evidence; blocked on ambiguous timing authority, unsafe persistence, or unavailable mandatory evidence; never self-approve or publish.",
+  "nonGoals": [
+    "SLA, due date, risk, escalation, thresholds, current-stage age, scheduler, TTL, provider/workflow action."
+  ],
+  "scope": "Single-writer Phase 19 implementation and remediation only.",
+  "changeKinds": [
+    "feature"
+  ],
+  "riskHints": [
+    "Cross-layer API/read-model projection with strict Mongo validation and time chronology."
+  ]
+}

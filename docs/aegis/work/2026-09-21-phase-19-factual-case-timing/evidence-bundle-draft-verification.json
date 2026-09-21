@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "focused-and-broad",
+  "type": "test",
+  "source": "local current uncommitted candidate",
+  "summary": "Backend 1106 passed/28 env skips; frontend 262 passed; focused timing/portfolio passes; Ruff, mypy, typecheck, build, contracts, governance and security checks pass.",
+  "verifier": "Phase 19 implementer",
+  "sliceId": "verification",
+  "evidenceStatus": "evidence-finalized",
+  "updatedAt": "2026-09-21"
+}

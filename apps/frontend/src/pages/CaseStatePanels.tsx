@@ -1,4 +1,4 @@
-import { formatTimestamp, STAGE_BANDS } from "../shared";
+import { formatDuration, formatTimestamp, STAGE_BANDS } from "../shared";
 import type {
   AutomationStage,
   ReconciliationDecisionAction,
@@ -88,6 +88,63 @@ export function PipelineRail({ summary }: { summary: ZeroTouchCaseSummary }) {
         );
       })}
     </div>
+  );
+}
+
+export function OperationalTiming({ summary }: { summary: ZeroTouchCaseSummary }) {
+  const stages = Object.entries(summary.metrics.stage_durations_ms);
+  return (
+    <section className="card operational-timing" aria-labelledby="operational-timing-heading">
+      <p className="card-kicker">Factual observation</p>
+      <h2 id="operational-timing-heading">Operational timing</h2>
+      <p className="text-muted">
+        Timing observed at {formatTimestamp(summary.timing.observed_at)}. Values remain fixed until the case is refreshed.
+      </p>
+      <div className="operational-timing__facts">
+        <div className="kv-row">
+          <span className="kv-label">{summary.status === "COMPLETED" ? "Case duration" : "Case age"}</span>
+          <span className="kv-value">{formatDuration(summary.timing.case_elapsed_ms)}</span>
+        </div>
+        <div className="kv-row">
+          <span className="kv-label">Last updated</span>
+          <span className="kv-value">{formatDuration(summary.timing.time_since_last_update_ms)} ago</span>
+        </div>
+        <div className="kv-row">
+          <span className="kv-label">Automation elapsed</span>
+          <span className="kv-value">
+            {summary.timing.automation_elapsed_ms === null
+              ? "Not started"
+              : formatDuration(summary.timing.automation_elapsed_ms)}
+          </span>
+        </div>
+        <div className="kv-row">
+          <span className="kv-label">Recorded total automation duration</span>
+          <span className="kv-value">
+            {summary.timing.recorded_total_duration_ms === null
+              ? "Not recorded"
+              : formatDuration(summary.timing.recorded_total_duration_ms)}
+          </span>
+        </div>
+      </div>
+      {stages.length > 0 && (
+        <div className="table-scroll" tabIndex={0} aria-label="Recorded automated-stage processing durations">
+          <table className="table">
+            <thead><tr><th>Automated stage</th><th>Recorded automated-stage processing duration</th></tr></thead>
+            <tbody>
+              {stages.map(([stage, duration]) => (
+                <tr key={stage}>
+                  <td>{stage.replaceAll("_", " ")}</td>
+                  <td>{formatDuration(duration)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="control-help">
+        Stage values cover completed automated processing attempts only. They do not represent human waiting time or complete time in a stage.
+      </p>
+    </section>
   );
 }
 
@@ -298,7 +355,7 @@ export function CompletedOverview({
           <div className="kv-row"><span className="kv-label">Risk rating</span><span className="kv-value">—</span></div>
           <div className="kv-row"><span className="kv-label">Next review</span><span className="kv-value">—</span></div>
           <div className="kv-row"><span className="kv-label">Human touches</span><span className="kv-value">{summary.metrics.human_interventions}</span></div>
-          <div className="kv-row"><span className="kv-label">Elapsed</span><span className="kv-value">{summary.metrics.total_duration_ms === null ? "—" : `${summary.metrics.total_duration_ms} ms`}</span></div>
+          <div className="kv-row"><span className="kv-label">Recorded total automation duration</span><span className="kv-value">{summary.metrics.total_duration_ms === null ? "—" : formatDuration(summary.metrics.total_duration_ms)}</span></div>
           {onViewOnboarded && <button className="btn btn-secondary btn-block" type="button" onClick={() => onViewOnboarded(summary.case.case_id)}>View in Onboarded</button>}
           {onViewAudit && <button className="btn btn-secondary btn-block" type="button" onClick={() => onViewAudit(summary.case.case_id)}>View audit trail</button>}
           <button className="btn btn-secondary btn-block" type="button" disabled title="Audit export is not available in current POC">Download audit trail</button>
