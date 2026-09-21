@@ -21,3 +21,15 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-19-factual-case-timing/evidence-bundle-draft-browser.json | 2026-09-21-phase-19-factual-case-timing evidence browser |
 | 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-19-factual-case-timing/gate-input-pack.json | 2026-09-21-phase-19-factual-case-timing gate input pack |
 | 2026-09-21 | work | docs/aegis/work/2026-09-21-phase-19-factual-case-timing/proof-bundle.md | 2026-09-21-phase-19-factual-case-timing proof bundle |
+| 2026-09-21 | work | docs/aegis/work/2026-09-21-phase-21-provider-readiness/10-intent.md | Phase 21 external integration activation readiness intent |
+| 2026-09-21 | work | docs/aegis/work/2026-09-21-phase-21-provider-readiness/20-checkpoint.md | Phase 21 external integration activation readiness checkpoint |
+| 2026-09-21 | work | docs/aegis/work/2026-09-21-phase-21-provider-readiness/90-evidence.md | Phase 21 external integration activation readiness evidence |
+| 2026-09-21 | work | docs/aegis/work/2026-09-21-phase-21-provider-readiness/99-reflection.md | Phase 21 external integration activation readiness reflection |
+| 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-21-provider-readiness/task-intent-draft.json | Phase 21 external integration activation readiness task intent draft |
+| 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-21-provider-readiness/baseline-read-set-hint.json | Phase 21 external integration activation readiness baseline read-set hint |
+| 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-21-provider-readiness/baseline-usage-draft.json | Phase 21 external integration activation readiness baseline usage draft |
+| 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-21-provider-readiness/impact-statement-draft.json | Phase 21 external integration activation readiness impact statement draft |
+| 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-21-provider-readiness/todo-checkpoint-draft.json | Phase 21 external integration activation readiness todo checkpoint draft |
+| 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-21-provider-readiness/drift-check-draft.json | Phase 21 external integration activation readiness drift check draft |
+| 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-21-provider-readiness/resume-state-hint.json | 2026-09-21-phase-21-provider-readiness resume state hint |
+| 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-21-provider-readiness/evidence-bundle-draft-S2-verification-and-self-review.json | 2026-09-21-phase-21-provider-readiness evidence S2-verification-and-self-review |

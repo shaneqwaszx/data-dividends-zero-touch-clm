@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "phase-21-external-integration-readiness",
+  "taskIntentRef": "docs/aegis/work/2026-09-21-phase-21-provider-readiness/task-intent-draft.json",
+  "baselineRefs": [
+    "5039c7e548dfae1eeb8ad600f128ef374e3a6f2a"
+  ],
+  "scopeStatus": "Remediation stays within Phase 21 governance and evidence boundary.",
+  "compatStatus": "No runtime owner, provider port, ledger, mode, or fallback changed.",
+  "retirementStatus": "Dormant/future provider paths remain unconsumed and explicitly blocked.",
+  "newRiskSignals": [
+    "Fresh QG must falsify proof-state, mode/authorization and credential-shaped value paths."
+  ],
+  "decision": "continue"
+}

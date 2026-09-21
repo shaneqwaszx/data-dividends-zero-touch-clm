@@ -104,6 +104,20 @@ class ToolingConfigTests(unittest.TestCase):
         ):
             self.assertIn(command, workflow)
 
+    def test_ci_installs_evidence_schema_dependency_before_validator_test(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        install = "python -m pip install -r scripts/requirements-contract-validation.txt"
+        evidence_test = (
+            'python -m unittest discover -s tests '
+            '-p "test_validate_external_provider_evidence.py" -v'
+        )
+        goldtier_test = (
+            'python -m unittest discover -s tests -p "test_validate_goldtier_examples.py"'
+        )
+
+        self.assertLess(workflow.index(install), workflow.index(evidence_test))
+        self.assertLess(workflow.index(install), workflow.index(goldtier_test))
+
     def test_pre_pr_checker_owns_project_tooling_validation(self) -> None:
         checker = (ROOT / "scripts" / "pre_pr_check.py").read_text(encoding="utf-8")
         self.assertIn('_run_governance_check(root, report, "check_tooling_config.py")', checker)

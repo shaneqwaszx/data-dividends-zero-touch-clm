@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "phase-21-external-integration-readiness",
+  "currentTodo": "Fresh independent Phase 21 QG after delimiter-complete credential rejection remediation; exact PASS required.",
+  "completedTodos": [
+    "Remediated F1-F3 fail-closed checker/evidence defects and independent P21-FQG-001/P21-FQG-002 delimiter cases; added hostile tests; refreshed lifecycle baseline/evidence records."
+  ],
+  "activeSlice": "S3-independent-requality",
+  "evidenceRefs": [
+    "phase21-remediated-verification: 21 focused tests and 105 affected governance tests pass"
+  ],
+  "blockedOn": "Publication remains blocked until fresh independent QG returns exact PASS.",
+  "nextStep": "Dispatch a fresh independent reviewer against the new frozen candidate.",
+  "updatedAt": "2026-09-21"
+}

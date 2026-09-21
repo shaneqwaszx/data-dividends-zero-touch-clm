@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "phase-21-external-integration-readiness",
+  "lastCheckpointRef": "docs/aegis/work/2026-09-21-phase-21-provider-readiness/todo-checkpoint-draft.json",
+  "resumeInstruction": "Re-read PHASE_21_PLAN.md, latest checkpoint, implementation diff and QG FAIL; verify no implementation changes during review.",
+  "knownPartialWork": [
+    "Remediated F1-F3 fail-closed checker/evidence defects; added hostile tests; refreshed lifecycle baseline/evidence records."
+  ],
+  "mustReadBeforeContinuing": [
+    "docs/aegis/work/2026-09-21-phase-21-provider-readiness/10-intent.md",
+    "docs/aegis/work/2026-09-21-phase-21-provider-readiness/20-checkpoint.md",
+    "docs/aegis/work/2026-09-21-phase-21-provider-readiness/todo-checkpoint-draft.json"
+  ],
+  "unsafeToAssume": [
+    "Do not treat remediation tests or prior QG as independent PASS; do not claim provider activation."
+  ]
+}
