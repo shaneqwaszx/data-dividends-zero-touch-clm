@@ -8,6 +8,7 @@ from phase13_test_clients import RawTestClient
 from phase13_test_credentials import TEST_PASSWORD
 from phase13_test_settings import ordinary_test_settings
 
+import app.services.zero_touch_orchestration as zero_touch_orchestration_module
 from app.domain.access import SYNTHETIC_PROFILE_BY_ID, AuthenticatedActor, TeamId
 from app.domain.case_management import (
     CasePortfolioPage,
@@ -215,7 +216,16 @@ def test_service_uses_one_observation_for_every_row_and_stabilizes_completed_cas
     assert page.items[1].timing.recorded_total_duration_ms == 3_600_000
 
 
-def test_api_adds_timing_only_to_paged_and_detail_contracts() -> None:
+def test_api_adds_timing_only_to_paged_and_detail_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class WallClockAfterObservation(datetime):
+        @classmethod
+        def now(cls, tz: timezone | None = None) -> datetime:
+            assert tz is UTC
+            return OBSERVED_AT + timedelta(days=365)
+
+    monkeypatch.setattr(zero_touch_orchestration_module, "datetime", WallClockAfterObservation)
     client = RawTestClient(
         create_app(
             ordinary_test_settings(),
@@ -242,6 +252,12 @@ def test_api_adds_timing_only_to_paged_and_detail_contracts() -> None:
         "time_since_last_update_ms",
         "automation_elapsed_ms",
         "recorded_total_duration_ms",
+    }
+    assert page_body["items"][0]["timing"] == {
+        "case_elapsed_ms": 0,
+        "time_since_last_update_ms": 0,
+        "automation_elapsed_ms": None,
+        "recorded_total_duration_ms": None,
     }
 
     detail = client.get(

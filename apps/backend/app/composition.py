@@ -1,6 +1,7 @@
 """Side-effect-free connector and service composition through Phase 07."""
 
 from collections.abc import Callable
+from datetime import datetime
 from uuid import UUID
 
 from app.config import Settings, get_settings
@@ -294,6 +295,7 @@ def build_zero_touch_orchestrator(
     repository: ZeroTouchAutomationRepository | None = None,
     establishment_discard: Callable[[UUID], str | None] | None = None,
     durable_provider_bindings: bool = False,
+    clock: Callable[[], datetime] | None = None,
 ) -> ZeroTouchOrchestrator:
     """Compose the provider-neutral Phase 06 automation owner."""
 
@@ -315,6 +317,7 @@ def build_zero_touch_orchestrator(
         ownership_provider_bindings=provider_bindings,
         establishment_discard=establishment_discard,
         max_transitions_per_run=settings.zero_touch_max_transitions_per_run,
+        clock=clock,
     )
 
 
