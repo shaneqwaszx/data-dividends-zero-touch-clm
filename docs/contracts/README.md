@@ -69,3 +69,11 @@ deterministic duration formulas, fail-closed chronology rules, response compatib
 and neutral presentation semantics are recorded in `CASE_TIMING_PROFILE.md`. These are
 factual POC projections, not sponsor-approved SLA, risk, compliance, productivity, or
 deadline policy.
+
+Phase 20's sponsor-policy authority boundary is recorded in
+`POLICY_AUTHORITY_MATRIX.md`, `POLICY_ACTIVATION_CONTRACT.md`,
+`POLICY_FUTURE_ACCEPTANCE_SCENARIOS.md`, `POLICY_DECISION_TRACEABILITY.md`, and the
+strict machine-readable `policy_authority_registry.json`. These artefacts classify
+authority and define future decision prerequisites; they do not answer open sponsor
+questions or activate runtime policy. The sponsor-readable response packet is
+`../sponsor-questions/PHASE_20_POLICY_DECISION_PACKET.md`.

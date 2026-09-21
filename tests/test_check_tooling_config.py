@@ -100,12 +100,14 @@ class ToolingConfigTests(unittest.TestCase):
             "python ../../scripts/run_physical_mongo_tests.py",
             "python scripts/run_e2e.py",
             "python scripts/check_tooling_config.py",
+            "python scripts/check_policy_authority.py",
         ):
             self.assertIn(command, workflow)
 
     def test_pre_pr_checker_owns_project_tooling_validation(self) -> None:
         checker = (ROOT / "scripts" / "pre_pr_check.py").read_text(encoding="utf-8")
         self.assertIn('_run_governance_check(root, report, "check_tooling_config.py")', checker)
+        self.assertIn('_run_governance_check(root, report, "check_policy_authority.py")', checker)
 
 
 if __name__ == "__main__":

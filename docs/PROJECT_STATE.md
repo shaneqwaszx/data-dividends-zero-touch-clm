@@ -10,7 +10,7 @@ It is not a sponsor contract, phase report, or substitute for current source and
   "schema_version": 1,
   "case_envelope_schema_version": 4,
   "verified_date": "2026-09-21",
-  "verified_main_sha": "b69fee6f475bfa32160a6d4acb9784edf3f4ff69",
+  "verified_main_sha": "c2929043968ab540f873ccffa69142380c2da056",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -88,8 +88,13 @@ Major implemented phases are:
 - Phase 18 Case Portfolio Search & Pagination is accepted on main at the inspected
   `b69fee6f475bfa32160a6d4acb9784edf3f4ff69` baseline. It preserves the legacy array
   endpoint while adding one authorized, bounded, live offset-paged search surface.
-- Phase 19 Factual Case Timing is the current feature-branch candidate, pending
-  independent acceptance. It is not yet accepted main behavior.
+- Phase 19 Factual Case Timing is accepted on main at the corrected post-PR49 baseline
+  `c2929043968ab540f873ccffa69142380c2da056`. Backend-authored age/duration remains
+  factual only. The deterministic injected clock propagates through the canonical
+  `ZeroTouchOrchestrator` clock seam, while true chronology violations still fail
+  closed. No timing-policy, SLA, escalation, approval, or risk behavior was added.
+
+Phase 20 is a governance candidate only and is not accepted main behavior.
 
 The Case Evidence & Explainability Workbench accepted through PR #43 adds a read-only
 presentation of the minimized nullable Mock-only registry-binding projection,
@@ -188,10 +193,9 @@ unknown or blocked.
   guarded runner owns an explicit suite inventory and reports dynamic collection and
   execution counts. Phase 18 acceptance registered seven suites and its remediated
   candidate evidence executed 27 collected, 27 passed with zero failures, errors, or
-  skips. The Phase 19 candidate registers an eighth suite for bounded timing projection;
-  its execution result belongs in the Phase 19 implementation report rather than as a
-  permanent acceptance constant here. Counts are revision-specific evidence, not future
-  contracts.
+  skips. Phase 19 registered an eighth suite for bounded timing projection. Its
+  execution counts remain revision-specific evidence in the Phase 19 reports, not a
+  future contract.
 
 ## Authentication, authorization and administration
 
@@ -223,7 +227,7 @@ unknown or blocked.
 - Ordered Mock target execution with no-replay recovery states.
 - Memory/Mongo repository parity, case deletion, portfolio projection, dashboard, team
   filtering, priority, retained-event activity, and session-scoped query caching.
-- Backend-authored factual case timing is present only on the Phase 19 candidate: one
+- Backend-authored factual case timing is accepted on main: one
   UTC observation per response, deterministic non-negative durations, fail-closed
   chronology, neutral UI labels, and no browser-clock authority or SLA inference.
 - Safe synthetic UAT evidence and Windows demo lifecycle tooling.
