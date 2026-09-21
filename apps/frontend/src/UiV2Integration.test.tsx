@@ -35,7 +35,6 @@ import { isDocumentReuploadRequired } from "./pages/DocumentEvidencePanel";
 import { createSessionQueryClient } from "./queryClient";
 import type { AuthenticatedProfile, DocumentProcessingRecord, ReconciliationSummary, SimulationProfile, ZeroTouchCaseListItem, ZeroTouchCaseSummary } from "./types";
 import {
-  mapCaseTimelineToAuditEntries,
   mapCompletedCaseToOnboardedRow,
   mapExecutionProfileToPolicy,
   mapZeroTouchCaseToCaseRow,
@@ -200,14 +199,6 @@ describe("UI v2 backend integration adapters", () => {
     expect(row).toMatchObject({ active_exception_types: [], jurisdiction: "SG", status: "COMPLETED" });
     expect(row).not.toHaveProperty("assigned_to");
     expect(mapCompletedCaseToOnboardedRow(listItem)).toMatchObject({ mock_goldtier_party_id: "GT-MOCK-1", risk_rating: null, next_review_date: null });
-  });
-
-  it("maps only backend-authored timeline fields and does not invent an actor", () => {
-    expect(mapCaseTimelineToAuditEntries(summary)).toEqual([expect.objectContaining({
-      action: "ZERO_TOUCH_CASE_CREATED",
-      actor: null,
-      description: "The backend created the case.",
-    })]);
   });
 
   it("maps execution-profile truth and marks unsupported policy fields unavailable", () => {

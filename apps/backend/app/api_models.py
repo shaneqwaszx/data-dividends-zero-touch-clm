@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.access import CasePriority, TeamId
 from app.domain.administration import TeamRecord
-from app.domain.case_management import CasePortfolioRecord
+from app.domain.case_management import CaseActivityItem, CaseActivityPage, CasePortfolioRecord
 from app.domain.clm import (
     ClmOrchestrationRecord,
     ClmReadinessAssessment,
@@ -35,6 +35,7 @@ from app.domain.jurisdiction import (
     RegistryRoutingDecision,
 )
 from app.domain.models import (
+    EventOutcome,
     GoldTierResult,
     OnboardingCase,
     RegisteredAddress,
@@ -76,6 +77,7 @@ from app.domain.reconciliation import (
 )
 from app.domain.zero_touch import (
     AutomationEvent,
+    AutomationEventType,
     AutomationMetrics,
     AutomationStage,
     AutomationStatus,
@@ -727,6 +729,46 @@ class ZeroTouchCaseListItemResponse(BaseModel):
             completed_at=record.completed_at,
             mock_goldtier_party_id=record.mock_goldtier_party_id,
             active_exception_types=record.active_exception_types,
+        )
+
+
+class CaseActivityItemResponse(BaseModel):
+    """Minimized retained automation event with current case context."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: UUID
+    sequence: int
+    timestamp: datetime
+    event_type: AutomationEventType
+    status: AutomationStatus
+    stage: AutomationStage
+    outcome: EventOutcome
+    code: str | None
+    message: str
+    current_priority: CasePriority | None
+    current_client_scope_label: str | None
+
+    @classmethod
+    def from_domain(cls, item: CaseActivityItem) -> "CaseActivityItemResponse":
+        return cls.model_validate(item.model_dump())
+
+
+class CaseActivityPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    items: tuple[CaseActivityItemResponse, ...]
+    offset: int
+    limit: int
+    has_more: bool
+
+    @classmethod
+    def from_domain(cls, page: CaseActivityPage) -> "CaseActivityPageResponse":
+        return cls(
+            items=tuple(CaseActivityItemResponse.from_domain(item) for item in page.items),
+            offset=page.offset,
+            limit=page.limit,
+            has_more=page.has_more,
         )
 
 

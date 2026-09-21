@@ -75,36 +75,6 @@ export function mapCompletedCaseToOnboardedRow(
   };
 }
 
-export interface AuditEntryView {
-  entry_id: string;
-  case_id: string;
-  timestamp: string;
-  action: string;
-  stage: AutomationStage;
-  actor: null;
-  description: string;
-  loop_number: null;
-  client_scope_label: string | null;
-  priority: number | null;
-}
-
-export function mapCaseTimelineToAuditEntries(
-  summary: ZeroTouchCaseSummary,
-): AuditEntryView[] {
-  return summary.timeline.map((event) => ({
-    entry_id: `${event.case_id}-${event.sequence}`,
-    case_id: event.case_id,
-    timestamp: event.timestamp,
-    action: event.event_type,
-    stage: event.stage,
-    actor: null,
-    description: event.message,
-    loop_number: null,
-    client_scope_label: summary.case.client_scope_label,
-    priority: summary.case.priority,
-  }));
-}
-
 function formatAddress(summary: ZeroTouchCaseSummary): string | null {
   const address = summary.case.entity?.registered_address;
   if (!address) return null;

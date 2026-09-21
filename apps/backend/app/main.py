@@ -19,6 +19,7 @@ from app.api_auth import (
 )
 from app.api_models import (
     BrowserTargetOperationEvidence,
+    CaseActivityPageResponse,
     CasePriorityResponse,
     ClmCaseSummaryResponse,
     DocumentProcessingResponse,
@@ -57,20 +58,28 @@ from app.demo.scenarios import (
 from app.demo.uat_evidence import UatEvidenceExport, build_uat_evidence
 from app.demo.zero_touch_control import ZeroTouchDemoControl, ZeroTouchDemoScenario
 from app.domain.access import AuthenticatedActor, CasePriority, TeamId
+from app.domain.case_management import CaseActivityAction
 from app.domain.clm import GoldTierSubmissionPlan
 from app.domain.dashboard import DashboardSnapshot
 from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.jurisdiction import JurisdictionCode
+from app.domain.models import EventOutcome
 from app.domain.ownership import OwnershipCandidate
 from app.domain.reconciliation import ReconciliationDecisionAction
 from app.domain.target_submission import GoldTierOperationMarker, GoldTierTargetOutcome
 from app.domain.zero_touch import (
+    AutomationStage,
     AutomationStatus,
     BusinessExceptionType,
     ExceptionResolutionAction,
     ZeroTouchAutomationRecord,
 )
 from app.persistence.composition import build_persistence_bundle
+from app.persistence.errors import (
+    PersistenceDataInvalidError,
+    PersistenceSchemaUnsupportedError,
+    PersistenceUnavailableError,
+)
 from app.services.administration import AdministrationService, AdministrationValidationError
 from app.services.authentication import AuthenticationConfigurationError, AuthenticationService
 from app.services.authorization import (
@@ -85,6 +94,7 @@ from app.services.case_deletion import (
     CaseDeletionService,
 )
 from app.services.case_query import (
+    CaseActivityQueryInvalidError,
     CaseQueryService,
     CaseTeamFilterForbiddenError,
     CaseTeamFilterInvalidError,
@@ -1185,6 +1195,84 @@ def create_app(
             )
             for item in records
         ]
+
+    @application.get(
+        "/api/clm/zero-touch/activity",
+        response_model=CaseActivityPageResponse,
+        tags=["zero-touch"],
+    )
+    def list_zero_touch_activity(
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+        case_id: Annotated[UUID | None, Query(alias="case_id")] = None,
+        team_filter: Annotated[str | None, Query(alias="team_filter", max_length=64)] = None,
+        action: Annotated[CaseActivityAction | None, Query(alias="action")] = None,
+        stage: Annotated[AutomationStage | None, Query(alias="stage")] = None,
+        outcome: Annotated[EventOutcome | None, Query(alias="outcome")] = None,
+        from_at: Annotated[datetime | None, Query(alias="from")] = None,
+        to_at: Annotated[datetime | None, Query(alias="to")] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
+    ) -> CaseActivityPageResponse:
+        try:
+            return CaseActivityPageResponse.from_domain(
+                case_query.list_activity(
+                    actor,
+                    case_id=case_id,
+                    team_filter=team_filter,
+                    action=action,
+                    stage=stage,
+                    outcome=outcome,
+                    from_at=from_at,
+                    to_at=to_at,
+                    limit=limit,
+                    offset=offset,
+                )
+            )
+        except CaseTeamFilterForbiddenError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "TEAM_FILTER_FORBIDDEN",
+                    "message": "Team filtering is not permitted.",
+                },
+            ) from None
+        except CaseTeamFilterInvalidError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "TEAM_FILTER_INVALID",
+                    "message": "The selected team filter is invalid.",
+                },
+            ) from None
+        except CaseActivityQueryInvalidError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "CASE_ACTIVITY_QUERY_INVALID",
+                    "message": "The case activity query is invalid.",
+                },
+            ) from None
+        except CaseNotAvailableError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "CASE_NOT_FOUND",
+                    "message": "The requested case was not found.",
+                },
+            ) from None
+        except (
+            PersistenceDataInvalidError,
+            PersistenceSchemaUnsupportedError,
+            PersistenceUnavailableError,
+            ValueError,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "CASE_ACTIVITY_UNAVAILABLE",
+                    "message": "Case activity is temporarily unavailable.",
+                },
+            ) from None
 
     @application.delete(
         "/api/clm/zero-touch/cases/{case_id}",

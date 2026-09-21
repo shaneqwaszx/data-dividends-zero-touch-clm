@@ -50,6 +50,77 @@
   border-radius: 0.5rem;
 }
 
+.activity-header-actions,
+.activity-pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.activity-filters {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.activity-filters label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.activity-filters input,
+.activity-filters select {
+  min-width: 0;
+}
+
+.activity-boundary-note {
+  margin: 16px 0;
+}
+
+.activity-table {
+  min-width: 1120px;
+}
+
+.activity-detail-row td {
+  white-space: normal;
+  background: var(--color-neutral-100);
+}
+
+.activity-detail-row p {
+  margin: 6px 0;
+}
+
+.activity-pagination {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+@media (max-width: 900px) {
+  .activity-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .activity-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .activity-header-actions,
+  .activity-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .activity-table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+
 .attention-filter {
   display: grid;
   gap: 0.25rem;

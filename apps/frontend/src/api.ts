@@ -26,6 +26,10 @@ import type {
   PolicyCatalogue,
   PolicyValue,
   Role,
+  AutomationStage,
+  CaseActivityAction,
+  CaseActivityPage,
+  EventOutcome,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -248,6 +252,45 @@ export async function completeZeroTouchIntake(
 
 export type PriorityFilter = "all" | "prioritised" | "unset" | `${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10}`;
 export type PrioritySort = "highest_first" | "lowest_first";
+
+export interface CaseActivityFilters {
+  caseId?: string;
+  teamFilter?: string;
+  action?: CaseActivityAction;
+  stage?: AutomationStage;
+  outcome?: EventOutcome;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchCaseActivity(
+  filters: CaseActivityFilters,
+  signal?: AbortSignal,
+): Promise<CaseActivityPage> {
+  const query = new URLSearchParams();
+  if (filters.caseId) query.set("case_id", filters.caseId);
+  if (filters.teamFilter && filters.teamFilter !== "all") {
+    query.set("team_filter", filters.teamFilter);
+  }
+  if (filters.action) query.set("action", filters.action);
+  if (filters.stage) query.set("stage", filters.stage);
+  if (filters.outcome) query.set("outcome", filters.outcome);
+  if (filters.from) query.set("from", filters.from);
+  if (filters.to) query.set("to", filters.to);
+  if (filters.limit !== undefined && filters.limit !== 50) {
+    query.set("limit", String(filters.limit));
+  }
+  if (filters.offset !== undefined && filters.offset !== 0) {
+    query.set("offset", String(filters.offset));
+  }
+  const suffix = query.size ? `?${query.toString()}` : "";
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/activity${suffix}`, {
+    signal,
+  });
+  return parseResponse<CaseActivityPage>(response);
+}
 
 export async function fetchZeroTouchCases(
   status?: ZeroTouchCaseListItem["status"],

@@ -10,7 +10,7 @@ It is not a sponsor contract, phase report, or substitute for current source and
   "schema_version": 1,
   "case_envelope_schema_version": 4,
   "verified_date": "2026-09-21",
-  "verified_main_sha": "99dd8eeea1c79bb4b9a9a592e6b47b4c038fdd4c",
+  "verified_main_sha": "1657a88a43e2fa8606e4f3d26f3bd05d16313d9e",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -77,6 +77,9 @@ Major implemented phases are:
 - Phase 16 accepted on main: opt-in complete synthetic Mock ACRA snapshot reuse with
   exact-key isolation, fixed elapsed-time freshness, per-case evidence bindings, and
   separate memory/Mongo cache persistence. Disabled mode remains the default.
+- The Case Evidence & Explainability Workbench and blocker-aware Attention Queue are
+  accepted on main through PR #45. The queue is an authorized current-state portfolio
+  projection; it is not a risk score, SLA, assignment engine, or workflow owner.
 
 The Case Evidence & Explainability Workbench accepted through PR #43 adds a read-only
 presentation of the minimized nullable Mock-only registry-binding projection,

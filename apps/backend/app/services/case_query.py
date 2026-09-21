@@ -7,10 +7,20 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
 
+from pydantic import ValidationError
+
 from app.domain.access import AuthenticatedActor, CasePriority, Role, TeamId
-from app.domain.case_management import CasePortfolioRecord, CasePortfolioScope, PortfolioScopeKind
+from app.domain.case_management import (
+    CaseActivityAction,
+    CaseActivityItem,
+    CaseActivityPage,
+    CaseActivityQuery,
+    CasePortfolioRecord,
+    CasePortfolioScope,
+    PortfolioScopeKind,
+)
 from app.domain.models import EventOutcome, OnboardingCase, WorkflowEvent
-from app.domain.zero_touch import AutomationStatus, BusinessExceptionType
+from app.domain.zero_touch import AutomationStage, AutomationStatus, BusinessExceptionType
 from app.services.admin_repository import TeamRepository
 from app.services.authorization import CaseAccessPolicy
 from app.services.case_portfolio_repository import (
@@ -51,6 +61,10 @@ class CaseTeamFilterInvalidError(Exception):
     pass
 
 
+class CaseActivityQueryInvalidError(Exception):
+    pass
+
+
 class CaseQueryService:
     """Join canonical cases to automation, filter access, and own final ordering."""
 
@@ -85,32 +99,12 @@ class CaseQueryService:
         team_filter: str | None = None,
         attention_type: BusinessExceptionType | None = None,
     ) -> list[CasePortfolioRecord]:
-        if actor.profile.role != Role.DIRECTOR and team_filter is not None:
-            raise CaseTeamFilterForbiddenError
-        selected_team: TeamId | None = None
-        unassigned = False
-        if actor.profile.role == Role.DIRECTOR and team_filter not in {None, "all"}:
-            if team_filter == "unassigned":
-                unassigned = True
-            else:
-                try:
-                    selected_team = TeamId(str(team_filter))
-                except ValueError:
-                    raise CaseTeamFilterInvalidError from None
-                if self._teams.get(selected_team) is None:
-                    raise CaseTeamFilterInvalidError
-
-        scope = (
-            CasePortfolioScope(kind=PortfolioScopeKind.TEAM, team_id=selected_team)
-            if selected_team is not None
-            else self._access_policy.portfolio_scope(actor)
-        )
+        scope = self._resolve_scope(actor, team_filter)
         authorized = self._portfolio_repository.list_authorized(scope, status=status)
         filtered = [
             item
             for item in authorized
             if _matches_priority(item.priority, priority_filter)
-            and (not unassigned or item.team_id is None)
             and (
                 attention_type is None
                 or attention_type in item.active_exception_types
@@ -124,6 +118,80 @@ class CaseQueryService:
             reverse=priority_sort == PrioritySort.HIGHEST_FIRST,
         )
         return prioritised + unset
+
+    def list_activity(
+        self,
+        actor: AuthenticatedActor,
+        *,
+        case_id: UUID | None = None,
+        team_filter: str | None = None,
+        action: CaseActivityAction | None = None,
+        stage: AutomationStage | None = None,
+        outcome: EventOutcome | None = None,
+        from_at: datetime | None = None,
+        to_at: datetime | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> CaseActivityPage:
+        scope = self._resolve_scope(actor, team_filter)
+        if case_id is not None:
+            self._access_policy.require_case_access(actor, case_id, self._cases)
+        try:
+            query = CaseActivityQuery(
+                scope=scope,
+                case_id=case_id,
+                action=action,
+                stage=stage,
+                outcome=outcome,
+                from_at=from_at,
+                to_at=to_at,
+                limit=limit,
+                offset=offset,
+            )
+        except ValidationError:
+            raise CaseActivityQueryInvalidError from None
+        repository_page = self._portfolio_repository.list_activity(query)
+        team_labels = {item.team_id: item.client_scope_label for item in self._teams.list()}
+        return CaseActivityPage(
+            items=tuple(
+                CaseActivityItem(
+                    case_id=item.case_id,
+                    sequence=item.sequence,
+                    timestamp=item.timestamp,
+                    event_type=item.event_type,
+                    status=item.status,
+                    stage=item.stage,
+                    outcome=item.outcome,
+                    code=item.code,
+                    message=item.message,
+                    current_priority=item.current_priority,
+                    current_client_scope_label=(
+                        team_labels.get(item.team_id) if item.team_id is not None else None
+                    ),
+                )
+                for item in repository_page.items
+            ),
+            offset=repository_page.offset,
+            limit=repository_page.limit,
+            has_more=repository_page.has_more,
+        )
+
+    def _resolve_scope(
+        self, actor: AuthenticatedActor, team_filter: str | None
+    ) -> CasePortfolioScope:
+        if actor.profile.role != Role.DIRECTOR and team_filter is not None:
+            raise CaseTeamFilterForbiddenError
+        if actor.profile.role != Role.DIRECTOR or team_filter in {None, "all"}:
+            return self._access_policy.portfolio_scope(actor)
+        if team_filter == "unassigned":
+            return CasePortfolioScope(kind=PortfolioScopeKind.UNASSIGNED)
+        try:
+            selected_team = TeamId(str(team_filter))
+        except ValueError:
+            raise CaseTeamFilterInvalidError from None
+        if self._teams.get(selected_team) is None:
+            raise CaseTeamFilterInvalidError
+        return CasePortfolioScope(kind=PortfolioScopeKind.TEAM, team_id=selected_team)
 
     def update_priority(
         self,
