@@ -25,7 +25,11 @@ from app.domain.case_management import CasePortfolioScope, PortfolioScopeKind
 from app.domain.models import OnboardingCase, WorkflowState
 from app.main import create_app
 from app.persistence.composition import build_persistence_bundle
-from app.persistence.errors import PersistenceConflictError, PersistenceUnavailableError
+from app.persistence.errors import (
+    PersistenceConflictError,
+    PersistenceDataInvalidError,
+    PersistenceUnavailableError,
+)
 from app.persistence.mongo_case_store import MongoCaseStore
 from app.services.authorization import CaseAccessPolicy, CaseNotAvailableError
 from app.services.case_deletion import (
@@ -659,6 +663,22 @@ class _ProjectionCollection:
         return [self.raw]
 
 
+class _ScopeProjectionCollection:
+    def __init__(self, raw_records: list[dict[str, object]]) -> None:
+        self.raw_records = raw_records
+
+    def find(self, query: dict[str, object], projection: dict[str, object]):
+        del projection
+        team_id = query.get("onboarding.team_id")
+        return [
+            item
+            for item in self.raw_records
+            if team_id is None
+            or isinstance(item.get("onboarding"), dict)
+            and item["onboarding"].get("team_id") == team_id  # type: ignore[union-attr]
+        ]
+
+
 def test_mongo_portfolio_is_one_projected_query_with_repository_team_scope() -> None:
     case_id = UUID("00000000-0000-4000-8000-000000000014")
     raw: dict[str, object] = {
@@ -682,7 +702,11 @@ def test_mongo_portfolio_is_one_projected_query_with_repository_team_scope() -> 
             "created_at": datetime(2026, 9, 8, tzinfo=UTC),
             "updated_at": datetime(2026, 9, 8, 1, tzinfo=UTC),
             "completed_at": None,
-            "exceptions": [{"status": "OPEN"}],
+            "exceptions": [
+                {"status": "OPEN", "exception_type": "DOCUMENT_LOW_CONFIDENCE"},
+                {"status": "OPEN", "exception_type": "DOCUMENT_LOW_CONFIDENCE"},
+                {"status": "RESOLVED", "exception_type": "OWNERSHIP_CYCLE"},
+            ],
             "metrics": {"human_interventions": 1, "final_outcome": None},
         },
     }
@@ -697,5 +721,140 @@ def test_mongo_portfolio_is_one_projected_query_with_repository_team_scope() -> 
     assert len(collection.calls) == 1
     assert collection.calls[0][0]["onboarding.team_id"] == "TEAM_A"
     assert "documents" not in collection.calls[0][1]
-    assert records[0].active_exception_count == 1
+    assert collection.calls[0][1]["automation.exceptions.status"] == 1
+    assert collection.calls[0][1]["automation.exceptions.exception_type"] == 1
+    assert "automation.exceptions.explanation" not in collection.calls[0][1]
+    assert records[0].active_exception_count == 2
+    assert records[0].active_exception_types == ("DOCUMENT_LOW_CONFIDENCE",)
     assert records[0].mock_goldtier_party_id == "GT-MOCK-14"
+
+
+@pytest.mark.parametrize(
+    "exceptions",
+    [
+        [{"status": "OPEN"}],
+        [{"exception_type": "DOCUMENT_LOW_CONFIDENCE"}],
+        [{"status": "UNKNOWN", "exception_type": "DOCUMENT_LOW_CONFIDENCE"}],
+        [{"status": "OPEN", "exception_type": "UNKNOWN"}],
+        [{"status": "RESOLVED", "exception_type": "UNKNOWN"}],
+        [
+            {
+                "status": "OPEN",
+                "exception_type": "DOCUMENT_LOW_CONFIDENCE",
+                "explanation": "must not be projected",
+            }
+        ],
+    ],
+)
+def test_mongo_portfolio_rejects_malformed_projected_exception_pairs(
+    exceptions: list[dict[str, str]],
+) -> None:
+    case_id = UUID("00000000-0000-4000-8000-000000000014")
+    raw: dict[str, object] = {
+        "_id": str(case_id),
+        "schema_version": 1,
+        "case_id": str(case_id),
+        "revision": 0,
+        "onboarding": {"case_id": str(case_id), "requested_uen": "202400001A"},
+        "automation": {
+            "case_id": str(case_id),
+            "status": "WAITING_FOR_REVIEW",
+            "current_stage": "DOCUMENT",
+            "created_at": datetime(2026, 9, 8, tzinfo=UTC),
+            "updated_at": datetime(2026, 9, 8, 1, tzinfo=UTC),
+            "completed_at": None,
+            "exceptions": exceptions,
+            "metrics": {"human_interventions": 0, "final_outcome": None},
+        },
+    }
+    collection = _ProjectionCollection(raw)
+    store = object.__new__(MongoCaseStore)
+    store._collection = collection  # type: ignore[attr-defined]  # noqa: SLF001
+
+    with pytest.raises(PersistenceDataInvalidError):
+        store.list_portfolio(CasePortfolioScope(kind=PortfolioScopeKind.GLOBAL))
+
+
+@pytest.mark.parametrize("schema_version", [1, 2, 3, 4])
+def test_mongo_portfolio_attention_projection_supports_every_readable_schema(
+    schema_version: int,
+) -> None:
+    case_id = UUID("00000000-0000-4000-8000-000000000014")
+    onboarding: dict[str, object] = {
+        "case_id": str(case_id),
+        "requested_uen": "202400001A",
+    }
+    if schema_version >= 2:
+        onboarding.update({"team_id": "TEAM_A", "priority": 7})
+    raw: dict[str, object] = {
+        "_id": str(case_id),
+        "schema_version": schema_version,
+        "case_id": str(case_id),
+        "revision": 1,
+        "onboarding": onboarding,
+        "automation": {
+            "case_id": str(case_id),
+            "status": "WAITING_FOR_REVIEW",
+            "current_stage": "OWNERSHIP",
+            "created_at": datetime(2026, 9, 8, tzinfo=UTC),
+            "updated_at": datetime(2026, 9, 8, 1, tzinfo=UTC),
+            "completed_at": None,
+            "exceptions": [
+                {"status": "CANCELLED", "exception_type": "JURISDICTION_CONFLICT"},
+                {"status": "OPEN", "exception_type": "OWNERSHIP_CYCLE"},
+            ],
+            "metrics": {"human_interventions": 1, "final_outcome": None},
+        },
+    }
+    store = object.__new__(MongoCaseStore)
+    store._collection = _ProjectionCollection(raw)  # type: ignore[attr-defined]  # noqa: SLF001
+
+    record = store.list_portfolio(
+        CasePortfolioScope(kind=PortfolioScopeKind.GLOBAL)
+    )[0]
+
+    assert record.active_exception_count == 1
+    assert record.active_exception_types == ("OWNERSHIP_CYCLE",)
+
+
+def test_mongo_team_scope_excludes_inaccessible_malformed_attention_data_before_decode() -> None:
+    valid_id = UUID("00000000-0000-4000-8000-000000000014")
+    invalid_id = UUID("00000000-0000-4000-8000-000000000015")
+
+    def raw(case_id: UUID, team_id: str, exception_type: str) -> dict[str, object]:
+        return {
+            "_id": str(case_id),
+            "schema_version": 4,
+            "case_id": str(case_id),
+            "revision": 1,
+            "onboarding": {
+                "case_id": str(case_id),
+                "team_id": team_id,
+                "priority": None,
+                "requested_uen": "202400001A",
+            },
+            "automation": {
+                "case_id": str(case_id),
+                "status": "WAITING_FOR_REVIEW",
+                "current_stage": "DOCUMENT",
+                "created_at": datetime(2026, 9, 8, tzinfo=UTC),
+                "updated_at": datetime(2026, 9, 8, 1, tzinfo=UTC),
+                "completed_at": None,
+                "exceptions": [{"status": "OPEN", "exception_type": exception_type}],
+                "metrics": {"human_interventions": 0, "final_outcome": None},
+            },
+        }
+
+    store = object.__new__(MongoCaseStore)
+    store._collection = _ScopeProjectionCollection(  # type: ignore[attr-defined]  # noqa: SLF001
+        [
+            raw(valid_id, "TEAM_A", "DOCUMENT_LOW_CONFIDENCE"),
+            raw(invalid_id, "TEAM_B", "UNKNOWN"),
+        ]
+    )
+
+    records = store.list_portfolio(
+        CasePortfolioScope(kind=PortfolioScopeKind.TEAM, team_id=TeamId.TEAM_A)
+    )
+
+    assert [record.case_id for record in records] == [valid_id]

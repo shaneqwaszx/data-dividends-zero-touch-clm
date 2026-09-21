@@ -613,6 +613,7 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
       current_stage: "DOCUMENT" as const,
       updated_at: timestamp,
       active_exception_count: index + 1,
+      active_exception_types: ["DOCUMENT_REVIEW_REQUIRED" as const],
       human_interventions: 0,
       final_outcome: null,
       resolved_jurisdiction: "SG" as const,
@@ -1560,6 +1561,7 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
       current_stage: completed.current_stage,
       updated_at: completed.updated_at,
       active_exception_count: 0,
+      active_exception_types: [],
       human_interventions: 0,
       final_outcome: completed.metrics.final_outcome,
     }];

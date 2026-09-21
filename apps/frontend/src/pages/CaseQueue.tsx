@@ -12,7 +12,12 @@ import { mapZeroTouchCaseToCaseRow } from "../viewModels";
 import DeleteCaseDialog from "./DeleteCaseDialog";
 import PriorityControl, { PriorityBadge, PriorityListControls } from "./PriorityControl";
 import DirectorTeamFilter from "./DirectorTeamFilter";
-import type { AuthenticatedProfile } from "../types";
+import {
+  BUSINESS_EXCEPTION_TYPE_LABELS,
+  BUSINESS_EXCEPTION_TYPES,
+  type AuthenticatedProfile,
+  type BusinessExceptionType,
+} from "../types";
 
 function statusTagClass(status: CaseRowView["status"]): string {
   if (status === "COMPLETED") return "tag tag-accent";
@@ -26,8 +31,16 @@ export async function loadCaseQueueRows(
   priority: PriorityFilter = "all",
   prioritySort: PrioritySort = "highest_first",
   teamFilter?: string,
+  attentionType?: BusinessExceptionType,
 ): Promise<CaseRowView[]> {
-  const items = await fetchZeroTouchCases(status, priority, prioritySort, teamFilter);
+  const items = await fetchZeroTouchCases(
+    status,
+    priority,
+    prioritySort,
+    teamFilter,
+    undefined,
+    attentionType,
+  );
   return items.map(mapZeroTouchCaseToCaseRow);
 }
 
@@ -37,6 +50,7 @@ export interface CaseQueuePresentationState {
   prioritySort: PrioritySort;
   jurisdiction: string;
   search: string;
+  attentionType?: BusinessExceptionType | "";
 }
 
 export const DEFAULT_CASE_QUEUE_PRESENTATION: CaseQueuePresentationState = {
@@ -45,6 +59,7 @@ export const DEFAULT_CASE_QUEUE_PRESENTATION: CaseQueuePresentationState = {
   prioritySort: "highest_first",
   jurisdiction: "",
   search: "",
+  attentionType: "",
 };
 
 export default function CaseQueue({
@@ -57,6 +72,7 @@ export default function CaseQueue({
   onPresentationChange: (value: CaseQueuePresentationState) => void;
 }) {
   const { status, priority, prioritySort, jurisdiction, search } = presentation;
+  const attentionType = presentation.attentionType ?? "";
   const [teamFilter, setTeamFilter] = useState("all");
   const updatePresentation = (change: Partial<CaseQueuePresentationState>) =>
     onPresentationChange({ ...presentation, ...change });
@@ -68,6 +84,7 @@ export default function CaseQueue({
     priority,
     prioritySort,
     teamFilter,
+    attentionType || undefined,
   ));
   const cases = useMemo(
     () => (query.data ?? []).map(mapZeroTouchCaseToCaseRow),
@@ -130,6 +147,21 @@ export default function CaseQueue({
           onFilterChange={(value) => updatePresentation({ priority: value })}
           onSortChange={(value) => updatePresentation({ prioritySort: value })}
         />
+        <label className="attention-filter">
+          <span>Open business exception type</span>
+          <select
+            className="input"
+            value={attentionType}
+            onChange={(event) => updatePresentation({
+              attentionType: event.target.value as BusinessExceptionType | "",
+            })}
+          >
+            <option value="">All types (no type filter)</option>
+            {BUSINESS_EXCEPTION_TYPES.map((type) => (
+              <option key={type} value={type}>{BUSINESS_EXCEPTION_TYPE_LABELS[type]}</option>
+            ))}
+          </select>
+        </label>
         <select
           className="input"
           style={{ width: 190 }}
@@ -170,7 +202,7 @@ export default function CaseQueue({
                 <th>Priority</th>
                 <th>Client scope</th>
                 <th>Stage</th>
-                <th>Assigned to</th>
+                <th>Open business exceptions</th>
                 <th>Created</th>
                 <th>Updated</th>
                 <th>Action</th>
@@ -203,7 +235,19 @@ export default function CaseQueue({
                     {stageProgressLabel(item.current_stage)}
                     <span className="cell-note">{item.final_outcome ?? item.current_stage.replaceAll("_", " ")}</span>
                   </td>
-                  <td>{item.assigned_to ?? "—"}</td>
+                  <td>
+                    {item.active_exception_types.length > 0 ? (
+                      <div className="attention-type-list">
+                        {item.active_exception_types.map((type) => (
+                          <span className="tag tag-neutral" key={type}>
+                            {BUSINESS_EXCEPTION_TYPE_LABELS[type]}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="cell-note">No open business exceptions recorded</span>
+                    )}
+                  </td>
                   <td>{item.created_at ? formatDateNoSeconds(item.created_at) : "—"}</td>
                   <td>{formatDateNoSeconds(item.updated_at)}</td>
                   <td>

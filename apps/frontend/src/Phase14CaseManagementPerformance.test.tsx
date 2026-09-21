@@ -50,6 +50,7 @@ const listItem: ZeroTouchCaseListItem = {
   current_stage: "DOCUMENT",
   updated_at: "2026-09-08T01:00:00Z",
   active_exception_count: 1,
+  active_exception_types: ["DOCUMENT_LOW_CONFIDENCE"],
   human_interventions: 1,
   final_outcome: null,
   resolved_jurisdiction: "SG",
@@ -360,7 +361,8 @@ describe("Phase 14 queue and delete UX", () => {
     await act(async () => back?.click());
 
     expect(container?.querySelector<HTMLInputElement>("input")?.value).toBe("Merlion");
-    expect(container?.querySelectorAll<HTMLSelectElement>("select")[3]?.value).toBe("SG");
+    expect(Array.from(container?.querySelectorAll<HTMLSelectElement>("select") ?? [])
+      .some((select) => select.value === "SG")).toBe(true);
   });
 
   it("focuses Cancel, traps Tab, restores focus, handles Escape, and submits once", async () => {

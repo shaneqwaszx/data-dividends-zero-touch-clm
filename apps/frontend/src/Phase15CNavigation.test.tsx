@@ -122,6 +122,7 @@ const listItem: ZeroTouchCaseListItem = {
   current_stage: "DOCUMENT",
   updated_at: NOW,
   active_exception_count: 0,
+  active_exception_types: [],
   human_interventions: 0,
   final_outcome: null,
   resolved_jurisdiction: "SG",

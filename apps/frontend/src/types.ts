@@ -619,6 +619,44 @@ export type AutomationStage =
   | "MOCK_GOLDTIER"
   | "COMPLETE";
 
+export const BUSINESS_EXCEPTION_TYPES = [
+  "REGISTRY_REVIEW_REQUIRED",
+  "JURISDICTION_UNRESOLVED",
+  "JURISDICTION_CONFLICT",
+  "REGISTRY_PROVIDER_NOT_IMPLEMENTED",
+  "REGISTRY_IDENTIFIER_NOT_ELIGIBLE",
+  "DOCUMENT_SOURCE_CONFLICT",
+  "DOCUMENT_LOW_CONFIDENCE",
+  "DOCUMENT_REQUIRED_FIELD_MISSING",
+  "DOCUMENT_REVIEW_REQUIRED",
+  "RECONCILIATION_INVALID",
+  "OWNERSHIP_CYCLE",
+  "OWNERSHIP_INCOMPLETE",
+  "OWNERSHIP_REVIEW_REQUIRED",
+  "EXISTING_PARTY_REVIEW_REQUIRED",
+  "TARGET_PARTIAL_REVIEW_REQUIRED",
+] as const;
+
+export type BusinessExceptionType = (typeof BUSINESS_EXCEPTION_TYPES)[number];
+
+export const BUSINESS_EXCEPTION_TYPE_LABELS: Record<BusinessExceptionType, string> = {
+  REGISTRY_REVIEW_REQUIRED: "Registry review required",
+  JURISDICTION_UNRESOLVED: "Jurisdiction unresolved",
+  JURISDICTION_CONFLICT: "Jurisdiction conflict",
+  REGISTRY_PROVIDER_NOT_IMPLEMENTED: "Registry provider not implemented",
+  REGISTRY_IDENTIFIER_NOT_ELIGIBLE: "Registry identifier not eligible",
+  DOCUMENT_SOURCE_CONFLICT: "Document source conflict",
+  DOCUMENT_LOW_CONFIDENCE: "Document low confidence",
+  DOCUMENT_REQUIRED_FIELD_MISSING: "Document required field missing",
+  DOCUMENT_REVIEW_REQUIRED: "Document review required",
+  RECONCILIATION_INVALID: "Reconciliation invalid",
+  OWNERSHIP_CYCLE: "Ownership cycle",
+  OWNERSHIP_INCOMPLETE: "Ownership incomplete",
+  OWNERSHIP_REVIEW_REQUIRED: "Ownership review required",
+  EXISTING_PARTY_REVIEW_REQUIRED: "Existing party review required",
+  TARGET_PARTIAL_REVIEW_REQUIRED: "Target partial review required",
+};
+
 export type ZeroTouchDemoScenario =
   | "STRAIGHT_THROUGH"
   | "DOCUMENT_DISCREPANCY"
@@ -703,7 +741,7 @@ export interface ReconciliationSummary {
 export interface ZeroTouchException {
   exception_id: string;
   case_id: string;
-  exception_type: string;
+  exception_type: BusinessExceptionType;
   stage: AutomationStage;
   status: "OPEN" | "RESOLVED" | "CANCELLED";
   blocker_code: string;
@@ -786,6 +824,7 @@ export interface ZeroTouchCaseListItem {
   current_stage: AutomationStage;
   updated_at: string;
   active_exception_count: number;
+  active_exception_types: BusinessExceptionType[];
   human_interventions: number;
   final_outcome: string | null;
   resolved_jurisdiction: "SG" | "AU" | "MY" | "HK" | null;

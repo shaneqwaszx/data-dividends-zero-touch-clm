@@ -10,7 +10,7 @@ from uuid import UUID
 from app.domain.access import AuthenticatedActor, CasePriority, Role, TeamId
 from app.domain.case_management import CasePortfolioRecord, CasePortfolioScope, PortfolioScopeKind
 from app.domain.models import EventOutcome, OnboardingCase, WorkflowEvent
-from app.domain.zero_touch import AutomationStatus
+from app.domain.zero_touch import AutomationStatus, BusinessExceptionType
 from app.services.admin_repository import TeamRepository
 from app.services.authorization import CaseAccessPolicy
 from app.services.case_portfolio_repository import (
@@ -83,6 +83,7 @@ class CaseQueryService:
         priority_filter: PriorityFilter = PriorityFilter.ALL,
         priority_sort: PrioritySort = PrioritySort.HIGHEST_FIRST,
         team_filter: str | None = None,
+        attention_type: BusinessExceptionType | None = None,
     ) -> list[CasePortfolioRecord]:
         if actor.profile.role != Role.DIRECTOR and team_filter is not None:
             raise CaseTeamFilterForbiddenError
@@ -110,6 +111,10 @@ class CaseQueryService:
             for item in authorized
             if _matches_priority(item.priority, priority_filter)
             and (not unassigned or item.team_id is None)
+            and (
+                attention_type is None
+                or attention_type in item.active_exception_types
+            )
         ]
         tie_ordered = sorted(filtered, key=_portfolio_tie_key, reverse=True)
         prioritised = [item for item in tie_ordered if item.priority is not None]

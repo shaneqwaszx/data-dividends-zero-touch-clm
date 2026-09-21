@@ -703,6 +703,7 @@ class ZeroTouchCaseListItemResponse(BaseModel):
     created_at: datetime
     completed_at: datetime | None
     mock_goldtier_party_id: str | None
+    active_exception_types: tuple[BusinessExceptionType, ...]
 
     @classmethod
     def from_domain(
@@ -725,6 +726,7 @@ class ZeroTouchCaseListItemResponse(BaseModel):
             created_at=record.created_at,
             completed_at=record.completed_at,
             mock_goldtier_party_id=record.mock_goldtier_party_id,
+            active_exception_types=record.active_exception_types,
         )
 
 

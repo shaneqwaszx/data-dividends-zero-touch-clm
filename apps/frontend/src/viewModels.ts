@@ -14,10 +14,10 @@ export interface CaseRowView {
   jurisdiction: string | null;
   status: ZeroTouchCaseListItem["status"];
   current_stage: ZeroTouchCaseListItem["current_stage"];
-  assigned_to: null;
   created_at: string | null;
   updated_at: string;
   active_exception_count: number;
+  active_exception_types: ZeroTouchCaseListItem["active_exception_types"];
   human_interventions: number;
   final_outcome: string | null;
   priority: number | null;
@@ -34,10 +34,10 @@ export function mapZeroTouchCaseToCaseRow(
     jurisdiction: item.resolved_jurisdiction,
     status: item.status,
     current_stage: item.current_stage,
-    assigned_to: null,
     created_at: item.created_at,
     updated_at: item.updated_at,
     active_exception_count: item.active_exception_count,
+    active_exception_types: item.active_exception_types,
     human_interventions: item.human_interventions,
     final_outcome: item.final_outcome,
     priority: item.priority,

@@ -13,6 +13,7 @@ import {
 import type {
   AuthenticatedProfile,
   AutomationStatus,
+  BusinessExceptionType,
   DashboardSnapshot,
   ZeroTouchCaseListItem,
   ZeroTouchCaseSummary,
@@ -38,11 +39,13 @@ export const caseQueryKeys = {
     priority: PriorityFilter,
     prioritySort: PrioritySort,
     teamFilter?: string,
+    attentionType?: BusinessExceptionType,
   ) => ["auth", userId, "cases", "list", {
     status: status ?? absent,
     priorityFilter: priority,
     prioritySort,
     teamFilter: teamFilter ?? absent,
+    attentionType: attentionType ?? absent,
   }] as const,
   caseResources: (userId: string, caseId: string) =>
     ["auth", userId, "cases", "resources", caseId] as const,
@@ -70,11 +73,19 @@ export function caseListQueryOptions(
   priority: PriorityFilter,
   prioritySort: PrioritySort,
   teamFilter?: string,
+  attentionType?: BusinessExceptionType,
 ) {
   return {
-    queryKey: caseQueryKeys.caseList(userId, status, priority, prioritySort, teamFilter),
+    queryKey: caseQueryKeys.caseList(
+      userId,
+      status,
+      priority,
+      prioritySort,
+      teamFilter,
+      attentionType,
+    ),
     queryFn: ({ signal }: { signal: AbortSignal }) =>
-      fetchZeroTouchCases(status, priority, prioritySort, teamFilter, signal),
+      fetchZeroTouchCases(status, priority, prioritySort, teamFilter, signal, attentionType),
   };
 }
 
