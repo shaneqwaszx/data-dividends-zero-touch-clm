@@ -23,9 +23,14 @@ from app.domain.case_management import (
     CaseActivityQuery,
     CaseActivityRepositoryPage,
     CaseActivityRepositoryRecord,
+    CasePortfolioPage,
+    CasePortfolioQuery,
     CasePortfolioRecord,
     CasePortfolioScope,
     PortfolioScopeKind,
+    PriorityFilter,
+    PrioritySort,
+    case_portfolio_search_pattern,
     ordered_active_exception_types,
 )
 from app.domain.documents import (
@@ -188,6 +193,122 @@ class MongoCaseStore:
         except PyMongoError:
             raise PersistenceUnavailableError from None
         return [self._decode_portfolio(item) for item in raw_records]
+
+    def list_portfolio_page(self, query: CasePortfolioQuery) -> CasePortfolioPage:
+        """Read one strict filtered portfolio page with one bounded aggregation."""
+
+        candidate_match: dict[str, Any] = {"automation": {"$ne": None}}
+        if query.scope.kind == PortfolioScopeKind.TEAM:
+            candidate_match["onboarding.team_id"] = str(query.scope.team_id)
+        elif query.scope.kind == PortfolioScopeKind.UNASSIGNED:
+            candidate_match["onboarding.team_id"] = None
+        projection = _portfolio_projection()
+        valid_candidate = _portfolio_candidate_valid_expression()
+        source_valid = _portfolio_source_container_valid_expression()
+        pipeline: list[dict[str, Any]] = [
+            {"$match": candidate_match},
+            {"$set": {"_portfolio_source_valid": source_valid}},
+            {"$project": {**projection, "_portfolio_source_valid": 1}},
+            {
+                "$facet": {
+                    "invalid": [
+                        {
+                            "$match": {
+                                "$expr": {
+                                    "$not": [
+                                        {
+                                            "$and": [
+                                                "$_portfolio_source_valid",
+                                                valid_candidate,
+                                            ]
+                                        }
+                                    ]
+                                }
+                            }
+                        },
+                        {"$limit": 1},
+                        {"$project": {"_id": 0, "invalid": {"$literal": True}}},
+                    ],
+                    "rows": [
+                        {
+                            "$match": {
+                                "$expr": {
+                                    "$and": [
+                                        "$_portfolio_source_valid",
+                                        valid_candidate,
+                                    ]
+                                }
+                            }
+                        },
+                        {"$match": _portfolio_row_match(query)},
+                        {
+                            "$set": {
+                                "_priority_unset": {
+                                    "$cond": [
+                                        {
+                                            "$in": [
+                                                {"$type": "$onboarding.priority"},
+                                                ["missing", "null"],
+                                            ]
+                                        },
+                                        1,
+                                        0,
+                                    ]
+                                },
+                                "_priority_value": {
+                                    "$ifNull": ["$onboarding.priority", 0]
+                                },
+                                "_sort_updated_at": (
+                                    _normalized_activity_timestamp_expression(
+                                        "$automation.updated_at"
+                                    )
+                                ),
+                            }
+                        },
+                        {
+                            "$sort": {
+                                "_priority_unset": ASCENDING,
+                                "_priority_value": (
+                                    DESCENDING
+                                    if query.priority_sort == PrioritySort.HIGHEST_FIRST
+                                    else ASCENDING
+                                ),
+                                "_sort_updated_at": DESCENDING,
+                                "case_id": DESCENDING,
+                            }
+                        },
+                        {"$skip": query.offset},
+                        {"$limit": query.limit + 1},
+                        {"$project": projection},
+                    ],
+                }
+            },
+        ]
+        try:
+            result = list(
+                self._collection.aggregate(
+                    pipeline,
+                    allowDiskUse=False,
+                    maxTimeMS=5_000,
+                )
+            )
+        except PyMongoError:
+            raise PersistenceUnavailableError from None
+        if len(result) != 1 or set(result[0]) != {"invalid", "rows"}:
+            raise PersistenceDataInvalidError
+        invalid = result[0]["invalid"]
+        rows = result[0]["rows"]
+        if not isinstance(invalid, list) or not isinstance(rows, list) or invalid:
+            raise PersistenceDataInvalidError
+        if len(rows) > query.limit + 1:
+            raise PersistenceDataInvalidError
+        decoded = [self._decode_portfolio(row) for row in rows]
+        return CasePortfolioPage(
+            items=tuple(decoded[: query.limit]),
+            offset=query.offset,
+            limit=query.limit,
+            has_more=len(decoded) > query.limit,
+        )
 
     def list_activity(self, query: CaseActivityQuery) -> CaseActivityRepositoryPage:
         """Read one strict retained-event page with one bounded aggregation."""
@@ -856,6 +977,335 @@ def _mongo_activity_timestamp(value: str) -> dict[str, Any]:
             },
         ]
     }
+
+
+def _portfolio_projection() -> dict[str, int]:
+    return {
+        "_id": 1,
+        "schema_version": 1,
+        "case_id": 1,
+        "revision": 1,
+        "onboarding.case_id": 1,
+        "onboarding.team_id": 1,
+        "onboarding.priority": 1,
+        "onboarding.requested_uen": 1,
+        "onboarding.entity.legal_name": 1,
+        "onboarding.jurisdiction_resolution.resolved_jurisdiction": 1,
+        "onboarding.goldtier_result.party_id": 1,
+        "automation.case_id": 1,
+        "automation.status": 1,
+        "automation.current_stage": 1,
+        "automation.created_at": 1,
+        "automation.updated_at": 1,
+        "automation.completed_at": 1,
+        "automation.exceptions.status": 1,
+        "automation.exceptions.exception_type": 1,
+        "automation.metrics.human_interventions": 1,
+        "automation.metrics.final_outcome": 1,
+    }
+
+
+def _mongo_exact_object_keys(value: str, expected: list[str]) -> dict[str, Any]:
+    value_type = {"$type": value}
+    safe_value = {"$cond": [{"$eq": [value_type, "object"]}, value, {}]}
+    keys = {
+        "$map": {
+            "input": {"$objectToArray": safe_value},
+            "as": "pair",
+            "in": "$$pair.k",
+        }
+    }
+    return {
+        "$and": [
+            {"$eq": [value_type, "object"]},
+            {"$setEquals": [keys, expected]},
+        ]
+    }
+
+
+def _mongo_optional_projected_string(
+    container: str,
+    field: str,
+    *,
+    maximum: int,
+) -> dict[str, Any]:
+    container_type = {"$type": container}
+    value = f"{container}.{field}"
+    value_type = {"$type": value}
+    return {
+        "$or": [
+            {"$in": [container_type, ["missing", "null"]]},
+            {
+                "$and": [
+                    _mongo_exact_object_keys(container, [field]),
+                    {
+                        "$or": [
+                            {"$eq": [value_type, "null"]},
+                            _mongo_bounded_string(value, 1, maximum),
+                        ]
+                    },
+                ]
+            },
+        ]
+    }
+
+
+def _portfolio_exception_valid_expression() -> dict[str, Any]:
+    item_type = {"$type": "$$exception"}
+    safe_item = {
+        "$cond": [{"$eq": [item_type, "object"]}, "$$exception", {}]
+    }
+    keys = {
+        "$map": {
+            "input": {"$objectToArray": safe_item},
+            "as": "pair",
+            "in": "$$pair.k",
+        }
+    }
+    return {
+        "$and": [
+            {"$eq": [item_type, "object"]},
+            {"$setEquals": [keys, ["status", "exception_type"]]},
+            {
+                "$in": [
+                    "$$exception.status",
+                    [item.value for item in BusinessExceptionStatus],
+                ]
+            },
+            {
+                "$in": [
+                    "$$exception.exception_type",
+                    [item.value for item in BusinessExceptionType],
+                ]
+            },
+        ]
+    }
+
+
+def _portfolio_candidate_valid_expression() -> dict[str, Any]:
+    schema_type = {"$type": "$schema_version"}
+    revision_type = {"$type": "$revision"}
+    team_type = {"$type": "$onboarding.team_id"}
+    priority_type = {"$type": "$onboarding.priority"}
+    exceptions_type = {"$type": "$automation.exceptions"}
+    safe_exceptions = {
+        "$cond": [
+            {"$eq": [exceptions_type, "array"]},
+            "$automation.exceptions",
+            [],
+        ]
+    }
+    completed_type = {"$type": "$automation.completed_at"}
+    final_outcome_type = {"$type": "$automation.metrics.final_outcome"}
+    jurisdiction_type = {
+        "$type": "$onboarding.jurisdiction_resolution.resolved_jurisdiction"
+    }
+    return {
+        "$and": [
+            {"$in": [schema_type, ["int", "long"]]},
+            {"$in": ["$schema_version", [1, 2, 3, CASE_SNAPSHOT_SCHEMA_VERSION]]},
+            {"$in": [revision_type, ["int", "long"]]},
+            {"$gte": ["$revision", 0]},
+            _mongo_canonical_uuid("$_id"),
+            _mongo_canonical_uuid("$case_id"),
+            {"$eq": ["$_id", "$case_id"]},
+            _mongo_canonical_uuid("$onboarding.case_id"),
+            {"$eq": ["$onboarding.case_id", "$case_id"]},
+            _mongo_canonical_uuid("$automation.case_id"),
+            {"$eq": ["$automation.case_id", "$case_id"]},
+            _mongo_bounded_string("$onboarding.requested_uen", 1, 32),
+            {
+                "$cond": [
+                    {"$eq": ["$schema_version", 1]},
+                    {"$eq": [team_type, "missing"]},
+                    {
+                        "$or": [
+                            {"$eq": [team_type, "null"]},
+                            {
+                                "$and": [
+                                    {"$eq": [team_type, "string"]},
+                                    {
+                                        "$regexMatch": {
+                                            "input": {
+                                                "$cond": [
+                                                    {"$eq": [team_type, "string"]},
+                                                    "$onboarding.team_id",
+                                                    "",
+                                                ]
+                                            },
+                                            "regex": "^(TEAM_A|TEAM_B|TEAM_[0-9A-F]{24})$",
+                                        }
+                                    },
+                                ]
+                            },
+                        ]
+                    },
+                ]
+            },
+            {
+                "$cond": [
+                    {"$eq": ["$schema_version", 1]},
+                    {"$eq": [priority_type, "missing"]},
+                    {
+                        "$or": [
+                            {"$eq": [priority_type, "null"]},
+                            {
+                                "$and": [
+                                    {"$in": [priority_type, ["int", "long"]]},
+                                    {"$gte": ["$onboarding.priority", 1]},
+                                    {"$lte": ["$onboarding.priority", 10]},
+                                ]
+                            },
+                        ]
+                    },
+                ]
+            },
+            _mongo_optional_projected_string(
+                "$onboarding.entity", "legal_name", maximum=512
+            ),
+            {
+                "$or": [
+                    {
+                        "$in": [
+                            {"$type": "$onboarding.jurisdiction_resolution"},
+                            ["missing", "null"],
+                        ]
+                    },
+                    {
+                        "$and": [
+                            _mongo_exact_object_keys(
+                                "$onboarding.jurisdiction_resolution",
+                                ["resolved_jurisdiction"],
+                            ),
+                            {
+                                "$or": [
+                                    {"$eq": [jurisdiction_type, "null"]},
+                                    {
+                                        "$in": [
+                                            (
+                                                "$onboarding.jurisdiction_resolution."
+                                                "resolved_jurisdiction"
+                                            ),
+                                            [item.value for item in JurisdictionCode],
+                                        ]
+                                    },
+                                ]
+                            },
+                        ]
+                    },
+                ]
+            },
+            _mongo_optional_projected_string(
+                "$onboarding.goldtier_result", "party_id", maximum=96
+            ),
+            {"$in": ["$automation.status", [item.value for item in AutomationStatus]]},
+            {
+                "$in": [
+                    "$automation.current_stage",
+                    [item.value for item in AutomationStage],
+                ]
+            },
+            _mongo_activity_timestamp("$automation.created_at"),
+            _mongo_activity_timestamp("$automation.updated_at"),
+            {
+                "$or": [
+                    {"$eq": [completed_type, "null"]},
+                    _mongo_activity_timestamp("$automation.completed_at"),
+                ]
+            },
+            {"$eq": [exceptions_type, "array"]},
+            {
+                "$allElementsTrue": {
+                    "$map": {
+                        "input": safe_exceptions,
+                        "as": "exception",
+                        "in": _portfolio_exception_valid_expression(),
+                    }
+                }
+            },
+            _mongo_exact_object_keys(
+                "$automation.metrics", ["human_interventions", "final_outcome"]
+            ),
+            {
+                "$in": [
+                    {"$type": "$automation.metrics.human_interventions"},
+                    ["int", "long"],
+                ]
+            },
+            {"$gte": ["$automation.metrics.human_interventions", 0]},
+            {
+                "$or": [
+                    {"$eq": [final_outcome_type, "null"]},
+                    _mongo_bounded_string(
+                        "$automation.metrics.final_outcome", 1, 64
+                    ),
+                ]
+            },
+        ]
+    }
+
+
+def _portfolio_source_container_valid_expression() -> dict[str, Any]:
+    """Validate optional source container types before projection can erase them."""
+
+    return {
+        "$and": [
+            {
+                "$in": [
+                    {"$type": path},
+                    ["missing", "null", "object"],
+                ]
+            }
+            for path in (
+                "$onboarding.entity",
+                "$onboarding.jurisdiction_resolution",
+                "$onboarding.goldtier_result",
+            )
+        ]
+    }
+
+
+def _portfolio_row_match(query: CasePortfolioQuery) -> dict[str, Any]:
+    conditions: list[dict[str, Any]] = []
+    if query.status is not None:
+        conditions.append({"automation.status": query.status.value})
+    if query.priority_filter == PriorityFilter.PRIORITISED:
+        conditions.append({"onboarding.priority": {"$ne": None}})
+    elif query.priority_filter == PriorityFilter.UNSET:
+        conditions.append({"onboarding.priority": None})
+    elif query.priority_filter != PriorityFilter.ALL:
+        conditions.append({"onboarding.priority": int(query.priority_filter)})
+    if query.attention_type is not None:
+        conditions.append(
+            {
+                "automation.exceptions": {
+                    "$elemMatch": {
+                        "status": BusinessExceptionStatus.OPEN.value,
+                        "exception_type": query.attention_type.value,
+                    }
+                }
+            }
+        )
+    if query.jurisdiction is not None:
+        conditions.append(
+            {
+                "onboarding.jurisdiction_resolution.resolved_jurisdiction": (
+                    query.jurisdiction.value
+                )
+            }
+        )
+    if query.search is not None:
+        literal = case_portfolio_search_pattern(query.search)
+        conditions.append(
+            {
+                "$or": [
+                    {"onboarding.requested_uen": {"$regex": literal}},
+                    {"onboarding.entity.legal_name": {"$regex": literal}},
+                    {"case_id": {"$regex": literal}},
+                ]
+            }
+        )
+    return {"$and": conditions} if conditions else {}
 
 
 def _activity_event_valid_expression() -> dict[str, Any]:

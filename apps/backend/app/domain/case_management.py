@@ -1,5 +1,6 @@
 """Strict lightweight case-management portfolio contracts."""
 
+import re
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from uuid import UUID
@@ -22,6 +23,27 @@ class PortfolioScopeKind(StrEnum):
     GLOBAL = "GLOBAL"
     TEAM = "TEAM"
     UNASSIGNED = "UNASSIGNED"
+
+
+class PriorityFilter(StrEnum):
+    ALL = "all"
+    PRIORITISED = "prioritised"
+    UNSET = "unset"
+    P10 = "10"
+    P9 = "9"
+    P8 = "8"
+    P7 = "7"
+    P6 = "6"
+    P5 = "5"
+    P4 = "4"
+    P3 = "3"
+    P2 = "2"
+    P1 = "1"
+
+
+class PrioritySort(StrEnum):
+    HIGHEST_FIRST = "highest_first"
+    LOWEST_FIRST = "lowest_first"
 
 
 class CasePortfolioScope(BaseModel):
@@ -179,6 +201,111 @@ class CasePortfolioRecord(BaseModel):
         if self.active_exception_types != canonical_types:
             raise ValueError("active exception types must be unique and in canonical order")
         return self
+
+
+class CasePortfolioQuery(BaseModel):
+    """Typed server-owned bounded portfolio page query."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scope: CasePortfolioScope
+    status: AutomationStatus | None = None
+    priority_filter: PriorityFilter = PriorityFilter.ALL
+    priority_sort: PrioritySort = PrioritySort.HIGHEST_FIRST
+    attention_type: BusinessExceptionType | None = None
+    jurisdiction: JurisdictionCode | None = None
+    search: str | None = Field(default=None, max_length=128)
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0, le=10_000)
+
+    @field_validator("search", mode="before")
+    @classmethod
+    def normalize_search(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        return normalized or None
+
+
+class CasePortfolioPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    items: tuple[CasePortfolioRecord, ...]
+    offset: int = Field(ge=0, le=10_000)
+    limit: int = Field(ge=1, le=100)
+    has_more: bool
+
+
+def case_portfolio_matches(record: CasePortfolioRecord, query: CasePortfolioQuery) -> bool:
+    """Apply the composed non-scope portfolio predicates."""
+
+    if query.status is not None and record.status != query.status:
+        return False
+    if query.priority_filter == PriorityFilter.PRIORITISED and record.priority is None:
+        return False
+    if query.priority_filter == PriorityFilter.UNSET and record.priority is not None:
+        return False
+    if query.priority_filter not in {
+        PriorityFilter.ALL,
+        PriorityFilter.PRIORITISED,
+        PriorityFilter.UNSET,
+    } and record.priority != int(query.priority_filter):
+        return False
+    if (
+        query.attention_type is not None
+        and query.attention_type not in record.active_exception_types
+    ):
+        return False
+    if query.jurisdiction is not None and record.resolved_jurisdiction != query.jurisdiction:
+        return False
+    if query.search is not None:
+        pattern = case_portfolio_search_pattern(query.search)
+        searchable = (record.requested_uen, record.legal_name, str(record.case_id))
+        if not any(
+            value is not None and re.search(pattern, value) is not None
+            for value in searchable
+        ):
+            return False
+    return True
+
+
+def case_portfolio_search_pattern(search: str) -> str:
+    """Return one engine-independent ASCII-case-insensitive literal pattern.
+
+    ASCII letters become explicit two-code-point character classes. Every other
+    code point is escaped literally, so Python and Mongo do not delegate semantics to
+    different Unicode case-folding implementations.
+    """
+
+    parts: list[str] = []
+    for character in search:
+        if "a" <= character <= "z":
+            parts.append(f"[{character}{character.upper()}]")
+        elif "A" <= character <= "Z":
+            parts.append(f"[{character.lower()}{character}]")
+        else:
+            parts.append(re.escape(character))
+    return "".join(parts)
+
+
+def order_case_portfolio_records(
+    records: list[CasePortfolioRecord],
+    priority_sort: PrioritySort,
+) -> list[CasePortfolioRecord]:
+    """Preserve priority-first ordering with deterministic recency/UUID ties."""
+
+    tie_ordered = sorted(
+        records,
+        key=lambda item: (item.updated_at, str(item.case_id)),
+        reverse=True,
+    )
+    prioritised = [item for item in tie_ordered if item.priority is not None]
+    unset = [item for item in tie_ordered if item.priority is None]
+    prioritised.sort(
+        key=lambda item: int(item.priority or 0),
+        reverse=priority_sort == PrioritySort.HIGHEST_FIRST,
+    )
+    return prioritised + unset
 
 
 def ordered_active_exception_types(

@@ -497,8 +497,14 @@ describe("Phase 15C canonical route ownership", () => {
   it("P15C-NAV-04 exposes a real same-origin case href without row-wide navigation", async () => {
     const queryClient = testClient();
     queryClient.setQueryData(
-      caseQueryKeys.caseList(actor.user_id, undefined, "all", "highest_first"),
-      [listItem],
+      caseQueryKeys.casePortfolio(actor.user_id, {
+        priority: "all",
+        prioritySort: "highest_first",
+        teamFilter: "all",
+        offset: 0,
+        limit: 50,
+      }),
+      { items: [listItem], offset: 0, limit: 50, has_more: false },
     );
     await act(async () => root?.render(
       <MemoryRouter initialEntries={[paths.cases]}>

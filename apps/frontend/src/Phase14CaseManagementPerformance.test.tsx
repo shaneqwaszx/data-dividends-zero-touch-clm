@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   caseDeletedEffect,
   caseListQueryOptions,
+  casePortfolioQueryOptions,
   caseQueryKeys,
   dashboardQueryOptions,
   publishCaseDetail,
@@ -281,14 +282,25 @@ describe("Phase 14 session query cache", () => {
 describe("Phase 14 queue and delete UX", () => {
   it("loads the portfolio with one list request and no detail fan-out", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify([listItem]), {
+      new Response(JSON.stringify({
+        items: [listItem],
+        offset: 0,
+        limit: 50,
+        has_more: false,
+      }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
     );
     const queryClient = createSessionQueryClient();
     await queryClient.fetchQuery(
-      caseListQueryOptions(actor.user_id, undefined, "all", "highest_first"),
+      casePortfolioQueryOptions(actor.user_id, {
+        priority: "all",
+        prioritySort: "highest_first",
+        teamFilter: "all",
+        offset: 0,
+        limit: 50,
+      }),
     );
 
     await act(async () => {
@@ -305,7 +317,7 @@ describe("Phase 14 queue and delete UX", () => {
     expect(container?.textContent).toContain("MERLION PTE. LTD.");
 
     expect(request).toHaveBeenCalledTimes(1);
-    expect(String(request.mock.calls[0][0])).toContain("/api/clm/zero-touch/cases");
+    expect(String(request.mock.calls[0][0])).toContain("/api/clm/zero-touch/case-portfolio");
     expect(request.mock.calls.some(([url]) => String(url).endsWith(`/${listItem.case_id}`))).toBe(false);
   });
 

@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import {
   fetchDashboard,
+  fetchCasePortfolio,
   fetchCaseActivity,
   fetchDocuments,
   fetchExecutionProfile,
@@ -11,12 +12,14 @@ import {
   type PriorityFilter,
   type PrioritySort,
   type CaseActivityFilters,
+  type CasePortfolioFilters,
 } from "./api";
 import type {
   AuthenticatedProfile,
   AutomationStatus,
   BusinessExceptionType,
   DashboardSnapshot,
+  CasePortfolioPage,
   ZeroTouchCaseListItem,
   ZeroTouchCaseSummary,
 } from "./types";
@@ -35,6 +38,21 @@ export const caseQueryKeys = {
     { teamFilter: dashboardTeamScope(teamFilter) },
   ] as const,
   caseLists: (userId: string) => ["auth", userId, "cases", "list"] as const,
+  casePortfolio: (userId: string, filters: CasePortfolioFilters) => [
+    ...caseQueryKeys.caseLists(userId),
+    "page",
+    {
+      status: filters.status ?? absent,
+      priorityFilter: filters.priority,
+      prioritySort: filters.prioritySort,
+      teamFilter: filters.teamFilter ?? absent,
+      attentionType: filters.attentionType ?? absent,
+      jurisdiction: filters.jurisdiction ?? absent,
+      search: filters.search?.trim() || absent,
+      offset: filters.offset ?? 0,
+      limit: filters.limit ?? 50,
+    },
+  ] as const,
   caseList: (
     userId: string,
     status: AutomationStatus | undefined,
@@ -106,6 +124,16 @@ export function caseListQueryOptions(
   };
 }
 
+export function casePortfolioQueryOptions(
+  userId: string,
+  filters: CasePortfolioFilters,
+) {
+  return {
+    queryKey: caseQueryKeys.casePortfolio(userId, filters),
+    queryFn: ({ signal }: { signal: AbortSignal }) => fetchCasePortfolio(filters, signal),
+  };
+}
+
 export function caseDetailQueryOptions(userId: string, caseId: string) {
   return {
     queryKey: caseQueryKeys.detail(userId, caseId),
@@ -147,7 +175,13 @@ export function prefetchSessionQueries(
 ): void {
   void queryClient.prefetchQuery(dashboardQueryOptions(profile.user_id, absent));
   void queryClient.prefetchQuery(
-    caseListQueryOptions(profile.user_id, undefined, "all", "highest_first"),
+    casePortfolioQueryOptions(profile.user_id, {
+      priority: "all",
+      prioritySort: "highest_first",
+      teamFilter: "all",
+      offset: 0,
+      limit: 50,
+    }),
   );
 }
 
@@ -243,15 +277,28 @@ export async function caseDeletedEffect(
     }),
     queryClient.cancelQueries({ queryKey: caseQueryKeys.activities(userId) }),
   ]);
-  queryClient.setQueriesData<ZeroTouchCaseListItem[]>(
+  queryClient.setQueriesData<ZeroTouchCaseListItem[] | CasePortfolioPage>(
     { queryKey: caseQueryKeys.caseLists(userId) },
-    (current) => current?.filter((item) => item.case_id !== caseId),
+    (current) => {
+      if (current === undefined) return current;
+      if (Array.isArray(current)) {
+        return current.filter((item) => item.case_id !== caseId);
+      }
+      return {
+        ...current,
+        items: current.items.filter((item) => item.case_id !== caseId),
+      };
+    },
   );
   queryClient.removeQueries({ queryKey: caseQueryKeys.detail(userId, caseId), exact: true });
   queryClient.removeQueries({ queryKey: caseQueryKeys.documents(userId, caseId), exact: true });
   queryClient.removeQueries({ queryKey: caseQueryKeys.ownership(userId, caseId), exact: true });
   queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
   queryClient.removeQueries({ queryKey: caseQueryKeys.activities(userId) });
+  await queryClient.invalidateQueries({
+    queryKey: caseQueryKeys.caseLists(userId),
+    type: "active",
+  });
 }
 
 export function cachedDashboard(

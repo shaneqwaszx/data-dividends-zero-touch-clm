@@ -121,7 +121,10 @@ def main() -> int:
     for user_id in user_ids:
         setting_values[credential_setting_key(user_id).lower()] = encoded
     settings = Settings(_env_file=None, **setting_values)
-    application = application_module.create_app(settings=settings)
+    application = application_module.create_app(
+        settings=settings,
+        e2e_portfolio_seed_count=105,
+    )
 
     import uvicorn
 

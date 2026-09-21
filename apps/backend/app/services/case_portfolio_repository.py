@@ -6,11 +6,15 @@ from app.domain.case_management import (
     CaseActivityQuery,
     CaseActivityRepositoryPage,
     CaseActivityRepositoryRecord,
+    CasePortfolioPage,
+    CasePortfolioQuery,
     CasePortfolioRecord,
     CasePortfolioScope,
     PortfolioScopeKind,
     activity_matches_action,
+    case_portfolio_matches,
     order_case_activity_records,
+    order_case_portfolio_records,
     ordered_active_exception_types,
 )
 from app.domain.zero_touch import AutomationStatus
@@ -27,6 +31,8 @@ class CasePortfolioRepository(Protocol):
     ) -> list[CasePortfolioRecord]: ...
 
     def list_activity(self, query: CaseActivityQuery) -> CaseActivityRepositoryPage: ...
+
+    def list_page(self, query: CasePortfolioQuery) -> CasePortfolioPage: ...
 
 
 class InMemoryCasePortfolioRepository:
@@ -116,6 +122,49 @@ class InMemoryCasePortfolioRepository:
         ordered = order_case_activity_records(records)
         lookahead = ordered[query.offset : query.offset + query.limit + 1]
         return CaseActivityRepositoryPage(
+            items=tuple(lookahead[: query.limit]),
+            offset=query.offset,
+            limit=query.limit,
+            has_more=len(lookahead) > query.limit,
+        )
+
+    def list_page(self, query: CasePortfolioQuery) -> CasePortfolioPage:
+        records: list[CasePortfolioRecord] = []
+        for automation in self._automation.list_records():
+            case = self._cases.get(automation.case_id)
+            if case is None or not _case_in_scope(case.team_id, query.scope):
+                continue
+            record = CasePortfolioRecord(
+                case_id=case.case_id,
+                requested_uen=case.requested_uen,
+                legal_name=(case.entity.legal_name if case.entity is not None else None),
+                resolved_jurisdiction=(
+                    case.jurisdiction_resolution.resolved_jurisdiction
+                    if case.jurisdiction_resolution is not None
+                    else None
+                ),
+                team_id=case.team_id,
+                priority=case.priority,
+                status=automation.status,
+                current_stage=automation.current_stage,
+                created_at=automation.created_at,
+                updated_at=automation.updated_at,
+                completed_at=automation.completed_at,
+                active_exception_count=len(automation.active_exceptions),
+                active_exception_types=ordered_active_exception_types(
+                    [(item.status, item.exception_type) for item in automation.exceptions]
+                ),
+                human_interventions=automation.metrics.human_interventions,
+                final_outcome=automation.metrics.final_outcome,
+                mock_goldtier_party_id=(
+                    case.goldtier_result.party_id if case.goldtier_result is not None else None
+                ),
+            )
+            if case_portfolio_matches(record, query):
+                records.append(record)
+        ordered = order_case_portfolio_records(records, query.priority_sort)
+        lookahead = ordered[query.offset : query.offset + query.limit + 1]
+        return CasePortfolioPage(
             items=tuple(lookahead[: query.limit]),
             offset=query.offset,
             limit=query.limit,

@@ -94,7 +94,7 @@ class PhysicalMongoRunnerTests(unittest.TestCase):
         self.assertNotIn("MONGO_DATABASE", environment)
         self.assertNotIn("clm_poc", " ".join(environment.values()))
 
-    def test_all_six_owned_suites_are_selected_and_success_requires_execution(self) -> None:
+    def test_all_seven_owned_suites_are_selected_and_success_requires_execution(self) -> None:
         execution = completed(0, "....")
         output = io.StringIO()
         with (
@@ -120,7 +120,7 @@ class PhysicalMongoRunnerTests(unittest.TestCase):
         self.assertIn("-o", execution_arguments)
         self.assertIn("addopts=", execution_arguments)
         self.assertFalse(any(item.startswith("--junitxml=") for item in execution_arguments))
-        self.assertIn("SUITES=6", output.getvalue())
+        self.assertIn("SUITES=7", output.getvalue())
         self.assertNotIn(SECRET_URI, output.getvalue())
 
     def test_all_skipped_is_blocked_not_verified(self) -> None:
