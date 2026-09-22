@@ -10,7 +10,7 @@ It is not a sponsor contract, phase report, or substitute for current source and
   "schema_version": 1,
   "case_envelope_schema_version": 4,
   "verified_date": "2026-09-21",
-  "verified_main_sha": "c2929043968ab540f873ccffa69142380c2da056",
+  "verified_main_sha": "5039c7e548dfae1eeb8ad600f128ef374e3a6f2a",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -94,7 +94,13 @@ Major implemented phases are:
   `ZeroTouchOrchestrator` clock seam, while true chronology violations still fail
   closed. No timing-policy, SLA, escalation, approval, or risk behavior was added.
 
-Phase 20 is a governance candidate only and is not accepted main behavior.
+Phase 20 Sponsor Policy Authority Gate is accepted on main at
+`5039c7e548dfae1eeb8ad600f128ef374e3a6f2a`. D-009 confirms only that human exception
+review is allowed/expected; reviewer role, four-eyes/separation, dispositions,
+retention, approval, and other policy details remain unresolved. No runtime business
+policy was activated. The policy-authority registry and checker remain authoritative.
+Q-001 through Q-018 remain open. Phase 21 is a candidate only and is not accepted main
+behavior.
 
 The Case Evidence & Explainability Workbench accepted through PR #43 adds a read-only
 presentation of the minimized nullable Mock-only registry-binding projection,

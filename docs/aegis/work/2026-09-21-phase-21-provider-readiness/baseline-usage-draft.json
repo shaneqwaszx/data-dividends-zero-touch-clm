@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "phase-21-external-integration-readiness",
+  "requiredBaselineRefs": [
+    "origin/main=5039c7e548dfae1eeb8ad600f128ef374e3a6f2a",
+    "push CI 35609501578 completed/success at 5039c7e548dfae1eeb8ad600f128ef374e3a6f2a",
+    "Phase 20 accepted implementation and quality-gate reports",
+    "current provider composition/configuration and external integration contracts"
+  ],
+  "deliveredContextRefs": [],
+  "acknowledgedBeforePlanRefs": [
+    "AGENTS.md and mandatory context read set",
+    "Phase 20 accepted baseline and provider authority documents"
+  ],
+  "citedInPlanRefs": [
+    ".ai-pipeline/001_planner/PHASE_21_PLAN.md",
+    "docs/PROJECT_STATE.md",
+    "docs/contracts/external_provider_readiness_registry.json"
+  ],
+  "missingRefs": [
+    "none"
+  ],
+  "decision": "continue"
+}

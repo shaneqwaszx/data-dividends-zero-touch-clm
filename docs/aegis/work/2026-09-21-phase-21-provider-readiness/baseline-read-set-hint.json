@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "candidateDocs": [
+    "origin/main=5039c7e548dfae1eeb8ad600f128ef374e3a6f2a; required push CI 35609501578 completed/success; Phase 20 reports and current provider composition."
+  ],
+  "whyRelevant": "The requested phase is explicitly based on the accepted Phase 20 main baseline and current provider truth.",
+  "missingAuthority": [
+    "Q-001 through Q-018 remain open; no live provider contract, credentials, or authorized sandbox evidence."
+  ]
+}

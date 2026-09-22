@@ -77,3 +77,19 @@ strict machine-readable `policy_authority_registry.json`. These artefacts classi
 authority and define future decision prerequisites; they do not answer open sponsor
 questions or activate runtime policy. The sponsor-readable response packet is
 `../sponsor-questions/PHASE_20_POLICY_DECISION_PACKET.md`.
+
+Phase 21's external-provider activation boundary is recorded in
+`EXTERNAL_PROVIDER_ACTIVATION_CONTRACT.md`, the strict
+`external_provider_readiness_registry.json`, and the sanitized
+`external_provider_evidence.schema.json`. The provider registry and checker classify
+current Mock/Local/Partial/Dormant/Not-Implemented truth; they do not activate a real
+provider or replace the policy-authority registry. The sponsor/integration packet is
+`../integration/PHASE_21_PROVIDER_ACTIVATION_PACKET.md`.
+Evidence profile v2 is intentionally incompatible with the earlier candidate profile:
+it replaces permissive reference strings plus blacklist inspection with finite
+vocabularies, canonical UUIDs, and control-free, calendar-valid UTC instants enforced
+consistently by JSON Schema and Python. Duplicate keys fail with constant non-echoing
+diagnostics at both direct and imported loader boundaries. Adding a new operation,
+contract, or mapping reference requires an explicit schema/validator change and review.
+The same v2 contract binds complete records to four current credential-free provider
+profiles; blocked/sandbox/future/real providers cannot produce schema-valid evidence.

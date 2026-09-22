@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "affectedLayers": [
+    "governance docs and network-free validation tooling only"
+  ],
+  "owners": [
+    "single implementation coordinator; independent reviewer owns only Phase 21 quality-gate report"
+  ],
+  "invariants": [
+    "No provider row may imply Live from configuration, credentials, tools or Mock/sandbox-shaped behavior."
+  ],
+  "compatBoundary": "No runtime connector, adapter, composition, API, persistence, frontend, target ledger or provider behavior changes.",
+  "nonGoals": [
+    "Do not start Phase 22, implement real adapters, consume future env placeholders, request secret values, or merge."
+  ]
+}

@@ -649,6 +649,7 @@ def audit_repository(root: Path) -> Report:
     _run_governance_check(root, report, "check_architecture.py")
     _run_governance_check(root, report, "check_tooling_config.py")
     _run_governance_check(root, report, "check_policy_authority.py")
+    _run_governance_check(root, report, "check_external_provider_readiness.py")
     return report
 
 

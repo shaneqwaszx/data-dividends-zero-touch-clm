@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "requestedOutcome": "Create a strict provider readiness boundary, sanitized evidence contract and sponsor activation packet without activating any real external provider.",
+  "goal": "Prepare authoritative external-provider activation safely while preserving current Mock, Local, Partial, Dormant and Not Implemented truth.",
+  "successEvidence": [
+    "Strict registry/checker/evidence validator pass; activation contract and packet are actionable; PROJECT_STATE records Phase 20 accepted at 5039c7e; independent whole-phase exact PASS."
+  ],
+  "stopCondition": "Stop for missing or contradictory authority, changed baseline/CI, unowned work, runtime activation need, failed required check, or non-exact independent QG.",
+  "nonGoals": [
+    "Do not start Phase 22, implement real adapters, consume future env placeholders, request secret values, or merge."
+  ],
+  "scope": "DOCS_ONLY plus bounded CI_TOOLING/GOVERNANCE and integration-security documentation; registry, checker, evidence schema/validator, packet, runbook, plan, implementation report, QG.",
+  "changeKinds": [
+    "DOCS_ONLY, CI_TOOLING/GOVERNANCE, INTEGRATION_SECURITY documentation"
+  ],
+  "riskHints": [
+    "False Live/sandbox readiness, secret leakage, placeholder activation, and provider/policy gate conflation."
+  ]
+}

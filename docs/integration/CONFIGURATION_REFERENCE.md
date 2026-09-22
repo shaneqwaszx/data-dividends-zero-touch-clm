@@ -97,7 +97,8 @@ health, execution-profile, case responses, or normal logs. No TTL/purge is confi
 `GOLDTIER_CLIENT_SECRET`, and `GOLDTIER_SCOPE` are present in `.env.example` only as
 future inventory. Current `Settings` and composition do not read them and no real
 GoldTier adapter exists. Populating them does nothing and must not be represented as
-real readiness. D-018 still prohibits the quarantined authentication material.
+real readiness. The Phase 21 provider registry keeps `GOLDTIER_REAL` and `PINGFED_AUTH`
+blocked. D-018 still prohibits the quarantined authentication material.
 
 ## Fail-closed rules
 
