@@ -26,6 +26,8 @@ BACKEND_SERVER = ROOT / "scripts" / "e2e_backend_server.py"
 DEFAULT_BACKEND_PORT = 8765
 DEFAULT_FRONTEND_PORT = 4173
 MAX_CAPTURE_CHARS = 64_000
+PORT_RELEASE_POLL_SECONDS = 0.05
+PORT_RELEASE_TIMEOUT_SECONDS = 10.0
 _URI_PATTERN = re.compile(r"(?i)(?:mongodb(?:\+srv)?|https?)://[^\s\]\[<>{}\"']+")
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)\b(password|secret|token|authorization|cookie)\s*[:=]\s*[^\s,;]+"
@@ -163,6 +165,31 @@ def _assert_ports_available(backend_port: int, frontend_port: int) -> None:
     finally:
         for candidate in sockets:
             candidate.close()
+
+
+def _wait_for_ports_available(
+    backend_port: int,
+    frontend_port: int,
+    *,
+    deadline: float,
+) -> None:
+    """Wait until both task-owned lifecycle ports pass the strict bind proof."""
+
+    last_error: RuntimeError | None = None
+    while True:
+        try:
+            _assert_ports_available(backend_port, frontend_port)
+            return
+        except RuntimeError as exc:
+            last_error = exc
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                "Task-owned E2E ports did not become bindable after shutdown "
+                f"(backend={backend_port}, frontend={frontend_port})"
+            ) from last_error
+        time.sleep(min(PORT_RELEASE_POLL_SECONDS, remaining))
 
 
 def _base_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -345,6 +372,7 @@ def run(
     }
 
     processes: list[OwnedProcess] = []
+    result = 1
     deadline = time.monotonic() + timeout_seconds
     try:
         backend = OwnedProcess(
@@ -399,12 +427,13 @@ def run(
             print(sanitized)
         if return_code != 0:
             print("E2E FAILED: Playwright returned a non-zero status.", file=sys.stderr)
-            return return_code
-        print("E2E PASS: guarded authenticated local Mock browser suite completed.")
-        return 0
+            result = return_code
+        else:
+            print("E2E PASS: guarded authenticated local Mock browser suite completed.")
+            result = 0
     except KeyboardInterrupt:
         print("E2E INTERRUPTED: stopping task-owned process groups.", file=sys.stderr)
-        return 130
+        result = 130
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         print(
             f"E2E FAILED: {_sanitize(str(exc), (ephemeral_credential,))}",
@@ -414,10 +443,25 @@ def run(
             output = _sanitize(process.capture.text(), (ephemeral_credential,))
             if output:
                 print(f"[{process.name} sanitized output]\n{output}", file=sys.stderr)
-        return 1
+        result = 1
     finally:
         for process in reversed(processes):
             process.stop()
+
+    cleanup_deadline = min(
+        deadline,
+        time.monotonic() + PORT_RELEASE_TIMEOUT_SECONDS,
+    )
+    try:
+        _wait_for_ports_available(
+            backend_port,
+            frontend_port,
+            deadline=cleanup_deadline,
+        )
+    except (RuntimeError, TimeoutError, ValueError) as exc:
+        print(f"E2E FAILED: {_sanitize(str(exc))}", file=sys.stderr)
+        return 1
+    return result
 
 
 def run_isolated_suite(

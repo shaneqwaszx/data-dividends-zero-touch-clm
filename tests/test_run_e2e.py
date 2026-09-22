@@ -6,6 +6,7 @@ import json
 import socket
 import subprocess
 import sys
+import threading
 import unittest
 from collections.abc import Sequence
 from contextlib import redirect_stderr, redirect_stdout
@@ -40,6 +41,7 @@ class _FakeCapture:
 
 class _FakeOwnedProcess:
     instances: ClassVar[list[_FakeOwnedProcess]] = []
+    events: ClassVar[list[str]] = []
     output = ""
 
     def __init__(self, name: str, command: Sequence[str], *, cwd: Path, env: object) -> None:
@@ -54,11 +56,13 @@ class _FakeOwnedProcess:
 
     def stop(self) -> None:
         self.stopped = True
+        self.events.append(f"stop:{self.name}")
 
 
 class RunE2ETests(unittest.TestCase):
     def setUp(self) -> None:
         _FakeOwnedProcess.instances = []
+        _FakeOwnedProcess.events = []
         _FakeOwnedProcess.output = ""
 
     def test_base_environment_is_an_allowlist(self) -> None:
@@ -253,6 +257,108 @@ console.log(JSON.stringify({
         finally:
             occupied.close()
 
+    def test_immediately_available_ports_pass_release_wait(self) -> None:
+        backend = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        frontend = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        backend.bind(("127.0.0.1", 0))
+        frontend.bind(("127.0.0.1", 0))
+        backend_port = backend.getsockname()[1]
+        frontend_port = frontend.getsockname()[1]
+        backend.close()
+        frontend.close()
+
+        RUN_E2E._wait_for_ports_available(
+            backend_port,
+            frontend_port,
+            deadline=RUN_E2E.time.monotonic() + 1,
+        )
+
+    def test_delayed_port_release_eventually_passes(self) -> None:
+        occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        occupied.bind(("127.0.0.1", 0))
+        backend_port = occupied.getsockname()[1]
+        frontend = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        frontend.bind(("127.0.0.1", 0))
+        frontend_port = frontend.getsockname()[1]
+        frontend.close()
+        observed_occupied = threading.Event()
+        completed = threading.Event()
+        errors: list[BaseException] = []
+        original_assert = RUN_E2E._assert_ports_available
+
+        def observed_assert(first_port: int, second_port: int) -> None:
+            try:
+                original_assert(first_port, second_port)
+            except RuntimeError:
+                observed_occupied.set()
+                raise
+
+        def wait_for_release() -> None:
+            try:
+                RUN_E2E._wait_for_ports_available(
+                    backend_port,
+                    frontend_port,
+                    deadline=RUN_E2E.time.monotonic() + 2,
+                )
+            except (RuntimeError, TimeoutError, ValueError) as exc:
+                errors.append(exc)
+            finally:
+                completed.set()
+
+        with patch.object(RUN_E2E, "_assert_ports_available", observed_assert):
+            waiter = threading.Thread(target=wait_for_release)
+            waiter.start()
+            self.assertTrue(observed_occupied.wait(timeout=1))
+            occupied.close()
+            self.assertTrue(completed.wait(timeout=1))
+            waiter.join(timeout=1)
+
+        self.assertFalse(waiter.is_alive())
+        self.assertEqual(errors, [])
+
+    def test_never_released_ports_fail_at_bounded_deadline(self) -> None:
+        occupied_error = RuntimeError("occupied")
+        with (
+            patch.object(
+                RUN_E2E,
+                "_assert_ports_available",
+                side_effect=occupied_error,
+            ) as probe,
+            patch.object(RUN_E2E.time, "monotonic", side_effect=[10.1, 11.0]),
+            patch.object(RUN_E2E.time, "sleep") as sleep,
+            self.assertRaisesRegex(TimeoutError, "backend=8765.*frontend=4173"),
+        ):
+            RUN_E2E._wait_for_ports_available(8765, 4173, deadline=11.0)
+
+        self.assertEqual(probe.call_count, 2)
+        sleep.assert_called_once()
+
+    def test_port_probe_closes_every_temporary_socket(self) -> None:
+        created = []
+
+        class ProbeSocket:
+            def setsockopt(self, *args: object) -> None:
+                del args
+
+            def bind(self, address: object) -> None:
+                del address
+
+            def close(self) -> None:
+                self.closed = True
+
+        def create_socket(*args: object) -> ProbeSocket:
+            del args
+            candidate = ProbeSocket()
+            candidate.closed = False
+            created.append(candidate)
+            return candidate
+
+        with patch.object(RUN_E2E.socket, "socket", side_effect=create_socket):
+            RUN_E2E._assert_ports_available(8765, 4173)
+
+        self.assertEqual(len(created), 2)
+        self.assertTrue(all(candidate.closed for candidate in created))
+
     def test_invalid_ports_are_rejected(self) -> None:
         for value in ("-1", "0", "65536", "1e3", " 8000"):
             with self.subTest(value=value), self.assertRaises(
@@ -332,6 +438,13 @@ console.log(JSON.stringify({
         self.assertTrue(all(process.stopped for process in _FakeOwnedProcess.instances))
 
     def test_success_stops_every_process_and_supports_headed_mode(self) -> None:
+        cleanup_events: list[str] = []
+
+        def record_release(*args: object, **kwargs: object) -> None:
+            del args, kwargs
+            cleanup_events.extend(_FakeOwnedProcess.events)
+            cleanup_events.append("ports-released")
+
         with (
             patch.object(RUN_E2E.Path, "is_file", return_value=True),
             patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
@@ -339,6 +452,11 @@ console.log(JSON.stringify({
             patch.object(RUN_E2E, "_assert_ports_available"),
             patch.object(RUN_E2E, "_wait_for_http"),
             patch.object(RUN_E2E, "_wait_for_test", return_value=0),
+            patch.object(
+                RUN_E2E,
+                "_wait_for_ports_available",
+                side_effect=record_release,
+            ),
             redirect_stdout(io.StringIO()),
         ):
             result = RUN_E2E.run(
@@ -353,6 +471,40 @@ console.log(JSON.stringify({
             _FakeOwnedProcess.instances[-1].env["PLAYWRIGHT_NO_COPY_PROMPT"], "1"
         )
         self.assertTrue(all(process.stopped for process in _FakeOwnedProcess.instances))
+        self.assertEqual(
+            cleanup_events,
+            ["stop:playwright", "stop:frontend", "stop:backend", "ports-released"],
+        )
+
+    def test_cleanup_release_timeout_fails_the_lifecycle(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.object(RUN_E2E.Path, "is_file", return_value=True),
+            patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
+            patch.object(RUN_E2E, "_find_node", return_value="node"),
+            patch.object(RUN_E2E, "_assert_ports_available"),
+            patch.object(RUN_E2E, "_wait_for_http"),
+            patch.object(RUN_E2E, "_wait_for_test", return_value=0),
+            patch.object(
+                RUN_E2E,
+                "_wait_for_ports_available",
+                side_effect=TimeoutError(
+                    "Task-owned E2E ports did not become bindable after shutdown "
+                    "(backend=8765, frontend=4173)"
+                ),
+            ),
+            redirect_stdout(output),
+            redirect_stderr(output),
+        ):
+            result = RUN_E2E.run(
+                backend_port=8765,
+                frontend_port=4173,
+                timeout_seconds=60,
+            )
+
+        self.assertEqual(result, 1)
+        self.assertTrue(all(process.stopped for process in _FakeOwnedProcess.instances))
+        self.assertIn("backend=8765, frontend=4173", output.getvalue())
 
     def test_unfiltered_suite_runs_each_discovered_test_in_a_fresh_lifecycle(self) -> None:
         selectors = [
