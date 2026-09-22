@@ -176,13 +176,11 @@ export default function HomeOnboarding({
                   }}
                 >
                   <option value="">Unset</option>
-                  <option value={10}>10 — Highest</option>
-                  {[9, 8, 7, 6, 5, 4, 3, 2].map((value) => (
-                    <option key={value} value={value}>{value}</option>
-                  ))}
-                  <option value={1}>1 — Lowest</option>
+                  <option value={1}>Low</option>
+                  <option value={5}>Medium</option>
+                  <option value={10}>High</option>
                 </select>
-                <p className="control-help">Optional. 10 = highest, 1 = lowest.</p>
+                <p className="control-help">Optional ordering label only; it does not imply risk, SLA, or approval treatment.</p>
               </div>
             </div>
 

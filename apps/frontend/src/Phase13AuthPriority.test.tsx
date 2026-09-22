@@ -16,6 +16,7 @@ import LoginPage from "./pages/LoginPage";
 import HomeOnboarding from "./pages/HomeOnboarding";
 import {
   PriorityBadge,
+  default as PriorityControl,
   PriorityListControls,
   updatePriorityAndRefresh,
 } from "./pages/PriorityControl";
@@ -126,11 +127,12 @@ describe("Phase 13 authenticated frontend boundary", () => {
     );
 
     expect(markup).toContain("Case priority");
-    expect(markup).toContain("Optional. 10 = highest, 1 = lowest.");
+    expect(markup).toContain("Optional ordering label only");
     expect(markup).toContain('value="" selected=""');
-    expect(markup).toContain("10 — Highest");
-    expect(markup).toContain(">5</option>");
-    expect(markup).toContain("1 — Lowest");
+    expect(markup).toContain(">Low</option>");
+    expect(markup).toContain(">Medium</option>");
+    expect(markup).toContain(">High</option>");
+    expect(markup).not.toContain("10 — Highest");
     expect(markup).toContain("DBS Corporate Onboarding");
     expect(markup).not.toContain("Create case for team");
   });
@@ -193,7 +195,7 @@ describe("Phase 13 authenticated frontend boundary", () => {
       />,
     );
 
-    expect(markup).toContain("P7");
+    expect(markup).toContain("Medium");
   });
 
   it("keeps unsupported assignment and generic rework out of operational exception actions", () => {
@@ -285,10 +287,20 @@ describe("Phase 13 authenticated frontend boundary", () => {
     expect(markup).toContain("Priority: All");
     expect(markup).toContain("Prioritised only");
     expect(markup).toContain("Unprioritised only");
-    expect(markup).toContain("Priority 10");
-    expect(markup).toContain("Priority 1");
+    expect(markup).not.toContain("Priority 10");
+    expect(markup).not.toContain("Priority 1");
     expect(markup).toContain("Highest priority first");
     expect(markup).toContain("Lowest priority first");
+  });
+
+  it("offers only tier write values while safely presenting legacy stored priorities", () => {
+    const markup = renderToStaticMarkup(
+      <PriorityControl priority={7} onSave={async () => undefined} />,
+    );
+    expect(markup).toContain('<option value="1">Low</option>');
+    expect(markup).toContain('<option value="5" selected="">Medium</option>');
+    expect(markup).toContain('<option value="10">High</option>');
+    expect(markup).not.toMatch(/>2<|>3<|>4<|>6<|>7<|>8<|>9</);
   });
   it("models restore/login, expiry, and logout as explicit auth transitions", () => {
     const authenticated = transitionAuthState(anonymous, { type: "AUTHENTICATED", session });
@@ -357,7 +369,7 @@ describe("Phase 13 authenticated frontend boundary", () => {
     expect(account).toContain("Coverage: DBS");
     expect(account).toContain("Signed in as");
     expect(account).not.toContain("Demo operator");
-    expect(renderToStaticMarkup(<PriorityBadge priority={10} />)).toContain("P10");
+    expect(renderToStaticMarkup(<PriorityBadge priority={10} />)).toContain("High");
     expect(renderToStaticMarkup(<PriorityBadge priority={null} />)).toContain("Unprioritised");
   });
 

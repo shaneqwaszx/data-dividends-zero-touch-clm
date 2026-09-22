@@ -566,10 +566,10 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
     response.request().method() === "PATCH"
       && new URL(response.url()).pathname === `/api/clm/zero-touch/cases/${targetCaseId}/priority`
   ));
-  await mutableRow.locator("select.priority-select").selectOption("7");
+  await mutableRow.locator("select.priority-select").selectOption("5");
   await mutableRow.getByRole("button", { name: "Set" }).click();
   expect((await priorityResponse).status()).toBe(200);
-  await expect(mutableRow.getByText("P7", { exact: true })).toBeVisible();
+  await expect(mutableRow.locator(".priority-badge")).toHaveText("Medium");
 
   const deleteResponse = page.waitForResponse((response) => (
     response.request().method() === "DELETE"

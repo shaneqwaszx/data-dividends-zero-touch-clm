@@ -384,8 +384,20 @@ button.tag {
 .cell-note--attention { color: #8c3a2e; }
 .table-card, .table-scroll { width: 100%; min-width: 0; max-width: 100%; contain: inline-size paint; overflow-x: auto; }
 .table-scroll > .table, .table-card.table-scroll > .table { min-width: 720px; }
-.case-table { min-width: 980px !important; }
-.case-table th:first-child, .case-table td:first-child { min-width: 190px; }
+.case-table { min-width: 1720px !important; table-layout: fixed; }
+.case-table col:nth-child(1) { width: 190px; }
+.case-table col:nth-child(2) { width: 140px; }
+.case-table col:nth-child(3) { width: 105px; }
+.case-table col:nth-child(4) { width: 165px; }
+.case-table col:nth-child(5) { width: 170px; }
+.case-table col:nth-child(6) { width: 150px; }
+.case-table col:nth-child(7) { width: 170px; }
+.case-table col:nth-child(8) { width: 210px; }
+.case-table col:nth-child(9), .case-table col:nth-child(10) { width: 125px; }
+.case-table col:nth-child(11) { width: 175px; }
+.case-table col:nth-child(12) { width: 125px; }
+.case-table th, .case-table td { overflow-wrap: anywhere; vertical-align: top; }
+.case-table td:last-child .btn { width: 100%; margin-bottom: 6px; }
 .onboarded-table { min-width: 1100px !important; }
 .onboarded-table th:nth-child(4), .onboarded-table td:nth-child(4) { min-width: 190px; }
 .client-record-actions { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -126,6 +126,29 @@ async function expectLocalHorizontalScroller(page: Page, locator: Locator) {
   if (layout.scrollWidth > layout.clientWidth + 1) expect(layout.moved).toBeGreaterThan(0);
 }
 
+async function expectCaseTableColumnsAligned(page: Page) {
+  const columns = await page.locator("table.case-table").evaluate((table) => {
+    const headers = Array.from(table.querySelectorAll<HTMLTableCellElement>("thead th"));
+    const cells = Array.from(table.querySelectorAll<HTMLTableCellElement>("tbody tr:first-child td"));
+    return headers.map((header, index) => {
+      const headerBox = header.getBoundingClientRect();
+      const cellBox = cells[index]?.getBoundingClientRect();
+      return {
+        headerLeft: headerBox.left,
+        headerWidth: headerBox.width,
+        cellLeft: cellBox?.left,
+        cellWidth: cellBox?.width,
+      };
+    });
+  });
+  expect(columns).toHaveLength(12);
+  for (const column of columns) {
+    expect(column.cellLeft).toBeDefined();
+    expect(Math.abs(column.headerLeft - column.cellLeft!)).toBeLessThanOrEqual(1);
+    expect(Math.abs(column.headerWidth - column.cellWidth!)).toBeLessThanOrEqual(1);
+  }
+}
+
 async function expectShellContained(page: Page) {
   await expectDocumentContained(page);
   await expectBoxContained(page, page.getByRole("navigation", { name: "Main workspace" }));
@@ -235,6 +258,10 @@ test("responsive shell contains primary screens, account hover, forms, tables, a
     for (const [target, route, heading] of representativeRoutes) {
       await test.step(`${width}px ${route}`, async () => {
         if (target.startsWith("/")) {
+          if (target.startsWith("/cases/") && await page.locator(`a[href="${target}"]`).count() === 0) {
+            await page.getByLabel("Search cases").fill(target.split("/").at(-1)!);
+            await expect(page.locator(`a[href="${target}"]`).first()).toBeVisible();
+          }
           await page.locator(`a[href="${target}"]`).first().click();
         } else {
           await openWorkspaceTab(page, target);
@@ -249,6 +276,16 @@ test("responsive shell contains primary screens, account hover, forms, tables, a
           const scroller = page.locator(".table-scroll").first();
           if (await scroller.isVisible()) await expectLocalHorizontalScroller(page, scroller);
         }
+        if (route === "/cases" && width >= 768) {
+          await expectCaseTableColumnsAligned(page);
+          const options = await page.locator(".priority-select").first().locator("option").allTextContents();
+          expect(options).toEqual(["Unset", "Low", "Medium", "High"]);
+        }
+        if (route === "/policy") {
+          await expect(page.getByText("Add display-only rule", { exact: true })).toHaveCount(0);
+          await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+          await expect(page.getByRole("button", { name: "Reset to default" })).toHaveCount(0);
+        }
       });
     }
   }
@@ -256,6 +293,10 @@ test("responsive shell contains primary screens, account hover, forms, tables, a
   await page.setViewportSize({ width: 360, height: 900 });
   await logout(page);
   await login(page, "ethan-tan");
+  await openWorkspaceTab(page, "Policy");
+  await expect(page.getByText("Add display-only rule", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reset to default" }).first()).toBeVisible();
   await page.goto(`/cases/${completedCaseId}`);
   const deleteButton = page.getByRole("button", { name: "Delete case" });
   await expect(deleteButton).toBeVisible();
@@ -272,6 +313,13 @@ test("responsive shell contains primary screens, account hover, forms, tables, a
   await expectDocumentContained(page);
 
   await logout(page);
+  await login(page, "olivia-koh");
+  await openWorkspaceTab(page, "Policy");
+  await expect(page.getByText("Add display-only rule", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reset to default" }).first()).toBeVisible();
+
+  await logout(page);
   await login(page, "hr-admin");
   for (const width of REPRESENTATIVE_VIEWPORTS) {
     await page.setViewportSize({ width, height: 900 });
@@ -279,6 +327,11 @@ test("responsive shell contains primary screens, account hover, forms, tables, a
       await openWorkspaceTab(page, tab);
       await expect(page.getByRole("heading", { name: heading })).toBeVisible();
       await expectShellContained(page);
+      if (tab === "Policy") {
+        await expect(page.getByText("Add display-only rule", { exact: true })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Reset to default" })).toHaveCount(0);
+      }
     }
   }
 });

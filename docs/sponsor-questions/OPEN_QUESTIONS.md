@@ -24,6 +24,12 @@ surface; there is no reassignment or sharing; priority affects ordering only; an
 scrypt credentials plus process-local sessions are demo-only. These rules do not resolve
 the production policy requested here.
 
+For current manual UAT, the UI uses project-defined provisional Low/Medium/High/Unset
+labels. It preserves the nullable 1–10 API/Mongo field: Low writes 1, Medium writes 5,
+High writes 10, and legacy reads map 1–3/4–7/8–10 to Low/Medium/High. This presentation
+has no risk, SLA, routing, escalation, approval, or regulatory meaning and does not
+resolve Q-016.
+
 Phase 14.5 adds a synthetic HR administrator, persistent team/profile records,
 capability-driven navigation, immediate local-session revocation after authority
 changes, and Director-only server-side team filters. Relationship Manager and Director

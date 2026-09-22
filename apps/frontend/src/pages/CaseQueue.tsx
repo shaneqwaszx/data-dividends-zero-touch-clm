@@ -229,6 +229,10 @@ export default function CaseQueue({
       {!searchIsDebouncing && cases.length > 0 && (
         <div className="table-card table-scroll" tabIndex={0} aria-label="Cases table">
           <table className="table case-table">
+            <colgroup>
+              <col /><col /><col /><col /><col /><col />
+              <col /><col /><col /><col /><col /><col />
+            </colgroup>
             <thead>
               <tr>
                 <th>Company</th>

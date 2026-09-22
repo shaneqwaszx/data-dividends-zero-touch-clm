@@ -267,10 +267,13 @@ or collection. ACRA is Mock by default, its generic sandbox-shaped seam is parti
 BizFile is dormant, IDP is local deterministic, and GoldTier is Mock only. No Live
 ACRA, Live GoldTier, or Live PingFed connection is proved.
 
-**Project/sponsor direction, not current runtime:** LOW/MEDIUM/HIGH is a supplied-risk
-direction; the POC has no risk field, risk engine, score, or calculated risk. The
-current P1–P10 ordering implementation conflicts with an emerging 1–3 direction and
-remains unchanged pending Q-016. Synthetic Mock ACRA caching is now optional POC
+**Project/sponsor direction and provisional UAT presentation:** LOW/MEDIUM/HIGH as a
+supplied-risk direction remains unimplemented; the POC has no risk field, risk engine,
+score, or calculated risk. Separately, current manual UAT presents ordering-only case
+priority as Low/Medium/High/Unset. The nullable 1–10 API/Mongo field remains compatible:
+canonical writes are 1/5/10 and legacy reads map 1–3/4–7/8–10 to the three tiers. This
+project-defined presentation has no risk, SLA, routing, escalation, approval, or
+regulatory meaning and Q-016 remains open. Synthetic Mock ACRA caching is now optional POC
 behavior under owner-approved O-16-01 through O-16-04: the exact fixed interval is
 7,776,000 seconds (90 elapsed 24-hour periods). It is not calendar months, an ACRA
 validity rule, production policy, or sponsor-confirmed authority.
