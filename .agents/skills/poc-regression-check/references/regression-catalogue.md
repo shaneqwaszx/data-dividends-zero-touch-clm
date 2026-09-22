@@ -181,6 +181,7 @@ eligible resolved Singapore case. They do not assert official ACRA endpoint beha
 | `REGISTRY_LATER_PROVIDER_FAILURE` (`202400013M`) | `FAILED / REGISTRY_OPERATION_UNAVAILABLE` | Valid first three operations; safe relationship failure | No raw exception, downstream call, or review substitution |
 | `REGISTRY_OWNERSHIP_ANALYSIS` | Existing `ANALYZED`; 60%/40% direct candidates | Registry bundle adapted through `OwnershipProvider` into existing Decimal service | No second threshold, aggregation, cycle, or UBO implementation |
 | `REGISTRY_OWNERSHIP_CYCLE` (`202400006F`) | Existing ownership `REVIEW_REQUIRED / CYCLE_DETECTED` | Registry-fed cycle reaches existing graph detector | No definitive candidate or target call |
+| `REGISTRY_GARDEN_SYNTHETIC` (`11111999A`) | Complete acquisition and ordinary Mock path; matching synthetic document reaches `COMPLETED / MOCK_GOLDTIER_SUBMITTED` | Empty officers; Garden direct `62.500000% / 37.500000%`; SIM LIM recursive `81.818182% / 9.090909% / 9.090909%`; existing Decimal engine derives the effective paths; target order remains search/shell/policy/amend | No network ACRA call, generic `shareAllotted` inference, legal/controller/Live claim, or target call before readiness |
 
 For every Phase 09 Registry blocker, all four acquisition-operation counts remain zero,
 as do IDP, ownership, and GoldTier counts. Browser summaries expose only normalized
@@ -435,6 +436,7 @@ refresh, sandbox/live caching, or production cross-team sharing authority.
 
 | Established by | Change |
 |---|---|
+| Pre-Phase 22 ACRA teammate reconciliation | Preserved Phase 09/10 routing, acquisition, ownership, and target call stopping; added the bounded `11111999A` Garden synthetic fixture at the Mock provider boundary, expanded the project UEN syntax predicate to the three assigned ACRA-style forms, and kept BizFile Dormant with OAuth/raw-debug/runtime activation absent |
 | Phase 13 implementation | Preserved all Registry→Document→Reconciliation→Ownership→Readiness→Mock GoldTier scenarios and call stopping; added authenticated session/CSRF enforcement, exhaustive non-enumerating team access, immutable team creation, strict nullable priority/backend ordering, schema-v1 compatibility, schema-v2 adapter parity, and a genuine-Mongo restart scenario in CI |
 | Phase 12 quality-gate remediation | Preserved the accepted architecture and prior phases; added canonical Mongo key/envelope identity validation, coordinated interrupted-document input recovery, bounded targeted same-case retry, and genuine-Mongo adverse restart/CAS/atomicity coverage |
 | Phase 12 implementation | Preserved Phase 09–11 and Pre-Phase 12 behavior; added explicit memory/Mongo durability, schema/CAS validation, restart reconstruction, read-only no-provider-replay, and uncertain-target recovery scenarios |

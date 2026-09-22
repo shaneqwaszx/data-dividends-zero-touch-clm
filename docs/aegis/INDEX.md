@@ -37,3 +37,7 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-09-22 | work | docs/aegis/work/2026-09-22-pre-phase22-manual-uat-stabilization/20-checkpoint.md | Pre-Phase 22 manual-UAT stabilization checkpoint |
 | 2026-09-22 | work | docs/aegis/work/2026-09-22-pre-phase22-manual-uat-stabilization/90-evidence.md | Pre-Phase 22 manual-UAT stabilization evidence |
 | 2026-09-22 | work | docs/aegis/work/2026-09-22-pre-phase22-manual-uat-stabilization/99-reflection.md | Pre-Phase 22 manual-UAT stabilization reflection |
+| 2026-09-22 | work | docs/aegis/work/2026-09-22-pre-phase22-acra-teammate-reconciliation/10-intent.md | Pre-Phase 22 ACRA teammate reconciliation intent |
+| 2026-09-22 | work | docs/aegis/work/2026-09-22-pre-phase22-acra-teammate-reconciliation/20-checkpoint.md | Pre-Phase 22 ACRA teammate reconciliation checkpoint |
+| 2026-09-22 | work | docs/aegis/work/2026-09-22-pre-phase22-acra-teammate-reconciliation/90-evidence.md | Pre-Phase 22 ACRA teammate reconciliation evidence |
+| 2026-09-22 | work | docs/aegis/work/2026-09-22-pre-phase22-acra-teammate-reconciliation/99-reflection.md | Pre-Phase 22 ACRA teammate reconciliation reflection |

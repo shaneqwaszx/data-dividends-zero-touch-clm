@@ -6,11 +6,13 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-_SINGAPORE_UEN_PATTERN = re.compile(r"^[0-9]{9}[A-Z]$")
+_SINGAPORE_UEN_PATTERN = re.compile(
+    r"^(?:[0-9]{8}[A-Z]|[0-9]{9}[A-Z]|[TSR][0-9]{2}[A-Z]{2}[0-9]{4}[A-Z])$"
+)
 
 
 def is_eligible_singapore_uen(identifier: str) -> bool:
-    """Apply the existing POC Singapore UEN eligibility rule at provider boundaries."""
+    """Apply the bounded project Singapore UEN syntax at provider boundaries."""
 
     return _SINGAPORE_UEN_PATTERN.fullmatch(identifier) is not None
 

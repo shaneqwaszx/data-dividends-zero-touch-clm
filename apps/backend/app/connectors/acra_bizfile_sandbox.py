@@ -1,29 +1,19 @@
-"""Real Bizfile Sandbox ACRA connector adapter, mapping actual entityQuery
-API responses onto the source-boundary contract defined in `acra.py`.
+"""Dormant BizFile-shaped ACRA adapter for bounded sample-response decoding.
 
-Base URL confirmed: https://api-sandbox.bizfile.gov.sg/api/acra
-This is still "SANDBOX" tier per the existing `SourceEnvironmentText`
-Literal in acra.py -- no change needed there. This module is meant to
-replace the placeholder decoder/connection in acra_sandbox.py (which was
-built against a fictional `{"company": {...}}` fixture shape and a
-path-param URL style neither of which match the real API -- see the
-code-walkthrough in chat for details), not add a new tier alongside it.
+The default URL and decoder shapes came from teammate sample evidence. Q-012 remains
+open, so this module is uncomposed and proves neither an authoritative contract nor
+sandbox/Live interoperability. It maps only the two currently retained sample shapes:
 
-Built from two sample Postman responses:
   - GET {base}/entityQuery/entityBasicInformation?uen=...
   - GET {base}/entityQuery/coShareholdersDetails?uen=...
 
 IMPORTANT -- read before wiring this in:
-  1. Auth: the currently tested entityQuery endpoints need no
-     Authorization header. This dormant adapter therefore exposes only
-     `NoAuthAcraAuthorizer`. Any future authentication mechanism remains
-     deferred pending the authoritative contract requested by Q-012.
-  2. `source_environment` is tagged "MOCK" (matching the existing
-     Literal in acra.py) based on the "APIMarketplace-Mock" Postman
-     environment name and the lack of auth -- confirm this against your
-     API Marketplace dashboard, since "MOCK" and "SANDBOX" mean
-     different things elsewhere in this codebase (see mock_acra.py vs.
-     acra_sandbox.py).
+  1. Auth: the retained sample seam uses no Authorization header. This dormant adapter
+     therefore exposes only `NoAuthAcraAuthorizer`; any authoritative authentication
+     behavior remains deferred pending Q-012.
+  2. `source_environment` is tagged "MOCK" only because the retained sample evidence
+     was labelled "APIMarketplace-Mock". This is not a Sandbox or Live claim and must
+     be reconciled under Q-012 before any runtime use.
   3. Every field marked NOTE below is a best-effort mapping made from a
      single sample response and needs confirming against full API docs
      or a second sample before this goes near real filings:
@@ -36,14 +26,15 @@ IMPORTANT -- read before wiring this in:
          share figure -- left unset rather than guessed.
        - "grouping" array in shareholders response is unmapped (always
          empty in the sample; shape unconfirmed).
-  4. No sample was provided for a relationships/ownership-graph endpoint,
-     so `fetch_relationships` fails closed, same as the sandbox adapter.
+   4. No sample was provided for a relationships/ownership-graph endpoint,
+      so `fetch_relationships` makes no network call and returns an explicitly
+      empty typed result; this is not evidence of an authoritative endpoint.
 """
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -78,11 +69,12 @@ from app.connectors.errors import (
 
 @dataclass(frozen=True)
 class AcraBizfileConnection:
-    """Non-secret transport settings for the real entityQuery endpoints."""
+    """Non-secret URL construction for the dormant sample-shaped endpoints."""
 
     base_url: str = "https://api-sandbox.bizfile.gov.sg/api/acra"
     company_query_path: str = "/entityQuery/entityBasicInformation"
     shareholders_query_path: str = "/entityQuery/coShareholdersDetails"
+    business_profile_query_path: str = "/entityQuery/businessProfile"
     timeout_seconds: float = 10.0
 
     def __post_init__(self) -> None:
@@ -100,7 +92,11 @@ class AcraBizfileConnection:
             and not path.startswith("//")
             and "?" not in path
             and "#" not in path
-            for path in (self.company_query_path, self.shareholders_query_path)
+            for path in (
+                self.company_query_path,
+                self.shareholders_query_path,
+                self.business_profile_query_path,
+            )
         )
         if not valid_base or not valid_paths or not 0 < self.timeout_seconds <= 60:
             raise AcraConfigurationError
@@ -115,9 +111,14 @@ class AcraBizfileConnection:
     def shareholders_endpoint(self, uen: str) -> str:
         return self._endpoint(self.shareholders_query_path, uen)
 
+    def business_profile_endpoint(self, uen: str) -> str:
+        """Construct the dormant URL only; no connector operation calls it."""
+
+        return self._endpoint(self.business_profile_query_path, uen)
+
 
 class NoAuthAcraAuthorizer:
-    """No-op authorizer for the currently supported no-auth Mock endpoints.
+    """No-op authorizer retained for the dormant sample-shaped Mock seam.
 
     Authentication for any other operation remains deferred pending the
     authoritative ACRA contract requested by Q-012.
@@ -125,6 +126,20 @@ class NoAuthAcraAuthorizer:
 
     def authorization_headers(self) -> Mapping[str, str]:
         return {}
+
+
+def _provenance_endpoint(url: str) -> str:
+    parsed = urlsplit(url)
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
+def _has_explicit_empty_entities(body: object) -> bool:
+    return (
+        isinstance(body, Mapping)
+        and "entities" in body
+        and isinstance(body["entities"], (list, tuple))
+        and not body["entities"]
+    )
 
 
 def _combine_unit(level_no: str | None, unit_no: str | None) -> str | None:
@@ -236,7 +251,7 @@ class BizfileMockCompanyDecoder:
             envelope = _RealEntityEnvelope.model_validate(body)
         except ValidationError:
             raise AcraMalformedResponseError from None
-        if not envelope.entities:
+        if len(envelope.entities) != 1:
             raise AcraMalformedResponseError
         entity = envelope.entities[0]
         if entity.uen.upper() != requested_uen:
@@ -300,7 +315,7 @@ class BizfileMockOfficersDecoder:
             envelope = _RealEntityEnvelope.model_validate(body)
         except ValidationError:
             raise AcraMalformedResponseError from None
-        if not envelope.entities:
+        if len(envelope.entities) != 1:
             raise AcraMalformedResponseError
         entity = envelope.entities[0]
         if entity.uen.upper() != requested_uen:
@@ -385,7 +400,7 @@ class BizfileMockOwnershipPartiesDecoder:
             envelope = _RealShareholderEnvelope.model_validate(body)
         except ValidationError:
             raise AcraMalformedResponseError from None
-        if not envelope.entities:
+        if len(envelope.entities) != 1:
             raise AcraMalformedResponseError
         entity = envelope.entities[0]
         if entity.uen.upper() != requested_uen:
@@ -430,10 +445,9 @@ class BizfileMockAcraConnector:
     """Retrieve company/officer/shareholder data via the Bizfile API
     Marketplace Mock-tier entityQuery endpoints.
 
-    The currently supported endpoints use no authentication. The
-    `authorizer` parameter defaults to `NoAuthAcraAuthorizer`; authoritative
-    authentication requirements for any future operation remain blocked by
-    Q-012 and are not implemented here.
+    The retained sample seam uses no authentication, so `authorizer` defaults to
+    `NoAuthAcraAuthorizer`. Authoritative authentication requirements for every
+    operation remain blocked by Q-012 and are not implemented here.
     """
 
     def __init__(
@@ -489,11 +503,13 @@ class BizfileMockAcraConnector:
         if response.status_code == 404:
             return None
         self._raise_for_status(response)
+        if _has_explicit_empty_entities(response.body):
+            return None
         try:
             return self._company_decoder.decode(
                 response.body,
                 requested_uen=normalised_uen,
-                source_endpoint=endpoint,
+                source_endpoint=_provenance_endpoint(endpoint),
                 retrieved_at=self._clock(),
             )
         except AcraMalformedResponseError:
@@ -506,11 +522,19 @@ class BizfileMockAcraConnector:
         endpoint = self._connection.company_endpoint(normalised_uen)
         response = self._get(endpoint)
         self._raise_for_status(response)
+        if _has_explicit_empty_entities(response.body):
+            return AcraOfficersPayload(
+                uen=normalised_uen,
+                officers=(),
+                source_environment="MOCK",
+                source_endpoint=_provenance_endpoint(endpoint),
+                retrieved_at=self._clock(),
+            )
         try:
             return self._officers_decoder.decode(
                 response.body,
                 requested_uen=normalised_uen,
-                source_endpoint=endpoint,
+                source_endpoint=_provenance_endpoint(endpoint),
                 retrieved_at=self._clock(),
             )
         except AcraMalformedResponseError:
@@ -523,11 +547,19 @@ class BizfileMockAcraConnector:
         endpoint = self._connection.shareholders_endpoint(normalised_uen)
         response = self._get(endpoint)
         self._raise_for_status(response)
+        if _has_explicit_empty_entities(response.body):
+            return AcraOwnershipPartiesPayload(
+                uen=normalised_uen,
+                ownership_parties=(),
+                source_environment="MOCK",
+                source_endpoint=_provenance_endpoint(endpoint),
+                retrieved_at=self._clock(),
+            )
         try:
             return self._ownership_decoder.decode(
                 response.body,
                 requested_uen=normalised_uen,
-                source_endpoint=endpoint,
+                source_endpoint=_provenance_endpoint(endpoint),
                 retrieved_at=self._clock(),
             )
         except AcraMalformedResponseError:
@@ -536,7 +568,15 @@ class BizfileMockAcraConnector:
             raise AcraMalformedResponseError from None
 
     def fetch_relationships(self, uen: str) -> AcraRelationshipsPayload:
-        """No confirmed real relationships endpoint -- fail closed."""
+        """Return valid absence; no relationship transport contract is claimed."""
 
-        del uen
-        raise AcraServiceUnavailableError
+        normalised_uen = uen.strip().upper()
+        return AcraRelationshipsPayload(
+            uen=normalised_uen,
+            relationships=(),
+            source_environment="MOCK",
+            source_endpoint=_provenance_endpoint(
+                self._connection.shareholders_endpoint(normalised_uen)
+            ),
+            retrieved_at=self._clock(),
+        )

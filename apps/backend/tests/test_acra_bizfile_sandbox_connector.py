@@ -13,7 +13,7 @@ from app.connectors.acra_bizfile_sandbox import (
     NoAuthAcraAuthorizer,
 )
 from app.connectors.acra_sandbox import AcraHttpResponse
-from app.connectors.errors import AcraConfigurationError, AcraServiceUnavailableError
+from app.connectors.errors import AcraConfigurationError, AcraMalformedResponseError
 
 FIXED_TIME = datetime(2026, 9, 1, 4, 0, tzinfo=UTC)
 SAFE_COMPANY_ENDPOINT = (
@@ -128,6 +128,16 @@ def test_connection_remains_https_only() -> None:
         AcraBizfileConnection(base_url="http://api-sandbox.bizfile.gov.sg/api/acra")
 
 
+def test_business_profile_helper_is_bounded_and_does_not_make_a_request() -> None:
+    transport = RecordingTransport(AcraHttpResponse(status_code=500))
+    connection = AcraBizfileConnection()
+
+    endpoint = connection.business_profile_endpoint("11111999A")
+
+    assert endpoint.endswith("/entityQuery/businessProfile?uen=11111999A")
+    assert transport.calls == []
+
+
 def test_existing_company_and_officer_decoding_is_preserved() -> None:
     company = BizfileMockCompanyDecoder().decode(
         COMPANY_RESPONSE,
@@ -157,7 +167,7 @@ def test_existing_company_and_officer_decoding_is_preserved() -> None:
     assert officers.officers[0].role == "DIRECTOR"
 
 
-def test_existing_ownership_decoding_and_relationship_fail_closed_behavior_are_preserved() -> None:
+def test_existing_ownership_decoding_and_empty_relationship_behavior_are_preserved() -> None:
     ownership = BizfileMockOwnershipPartiesDecoder().decode(
         SHAREHOLDERS_RESPONSE,
         requested_uen="202400001A",
@@ -174,5 +184,50 @@ def test_existing_ownership_decoding_and_relationship_fail_closed_behavior_are_p
     assert ownership.ownership_parties[0].party_id == "OWNER-1"
     assert ownership.ownership_parties[0].party_type == "LEGAL_ENTITY"
     assert ownership.ownership_parties[0].ownership_percentage is None
-    with pytest.raises(AcraServiceUnavailableError):
-        connector.fetch_relationships("202400001A")
+    relationships = connector.fetch_relationships("202400001A")
+    assert relationships.relationships == ()
+    assert relationships.source_endpoint == SAFE_SHAREHOLDERS_ENDPOINT
+
+
+def test_connector_uses_query_free_provenance_and_strict_requested_identity() -> None:
+    connector = BizfileMockAcraConnector(
+        connection=AcraBizfileConnection(),
+        transport=RecordingTransport(AcraHttpResponse(status_code=200, body=COMPANY_RESPONSE)),
+        clock=lambda: FIXED_TIME,
+    )
+
+    company = connector.fetch_company("202400001A")
+
+    assert company is not None
+    assert company.source_endpoint == SAFE_COMPANY_ENDPOINT
+    wrong_identity = {"entities": [{**COMPANY_RESPONSE["entities"][0], "uen": "202400002B"}]}  # type: ignore[index]
+    wrong_connector = BizfileMockAcraConnector(
+        connection=AcraBizfileConnection(),
+        transport=RecordingTransport(AcraHttpResponse(status_code=200, body=wrong_identity)),
+        clock=lambda: FIXED_TIME,
+    )
+    with pytest.raises(AcraMalformedResponseError):
+        wrong_connector.fetch_company("202400001A")
+
+
+def test_explicit_empty_entities_have_operation_specific_semantics() -> None:
+    connector = BizfileMockAcraConnector(
+        connection=AcraBizfileConnection(),
+        transport=RecordingTransport(AcraHttpResponse(status_code=200, body={"entities": []})),
+        clock=lambda: FIXED_TIME,
+    )
+
+    assert connector.fetch_company("11111999A") is None
+    assert connector.fetch_officers("11111999A").officers == ()
+    assert connector.fetch_ownership_parties("11111999A").ownership_parties == ()
+
+
+def test_missing_or_multiple_entity_envelopes_remain_malformed() -> None:
+    for body in ({}, {"entities": [COMPANY_RESPONSE["entities"][0]] * 2}):  # type: ignore[index]
+        connector = BizfileMockAcraConnector(
+            connection=AcraBizfileConnection(),
+            transport=RecordingTransport(AcraHttpResponse(status_code=200, body=body)),
+            clock=lambda: FIXED_TIME,
+        )
+        with pytest.raises(AcraMalformedResponseError):
+            connector.fetch_company("202400001A")

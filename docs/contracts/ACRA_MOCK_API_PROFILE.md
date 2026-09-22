@@ -33,8 +33,10 @@ and UTC provenance, and normalized before business use.
 ## Common request and provenance
 
 All four Mock operations take one required `uen` string. For the implemented Singapore
-path it is normalized uppercase and must satisfy the current narrow POC eligibility
-rule: nine digits followed by one letter. This is not a complete official UEN validator.
+path it is normalized uppercase and must satisfy one of three bounded project syntax
+forms: eight digits plus a letter, nine digits plus a letter, or `T`/`S`/`R` plus two
+year digits, two letters, four digits, and a final letter. This remains a routing safety
+predicate, not a complete official UEN validator or evidence of Live ACRA support.
 
 Each response envelope requires:
 
@@ -306,9 +308,26 @@ test fault scenarios.
 | `202400011K` | Missing expected ownership evidence | Partial/review required |
 | `202400012L` | Malformed later relationship response | Failed safely |
 | `202400013M` | Later relationship provider failure | Failed safely |
+| `11111999A` | Garden Business bounded recursive synthetic ownership demo | Complete |
 
 All names, identifiers, dates, addresses, officers, owners, and relationships are
 fictional. They are not sponsor-approved golden cases.
+
+### Garden Business bounded synthetic profile
+
+`11111999A` is a project-defined Mock fixture only. Its entity profile is `GARDEN
+BUSINESS`, its officer operation is validly empty, and its ownership operations contain
+the following exact synthetic graph:
+
+- `SIM LIM PTE. LTD.` (`111111111M`), Corporate, 5,000 active units → `62.500000%`;
+- `LIM CHOON HUAT` (`S9988776F`), Individual, 3,000 active units → `37.500000%`;
+- beneath SIM LIM, active counts `900 / 100 / 100` derive `81.818182% / 9.090909% /
+  9.090909%`; the explicitly withdrawn holder is excluded.
+
+The exact `shareAllotted / active total` derivation exists only inside this fixture. It
+does not define legal ownership, voting rights, controller status, or generic ACRA
+mapping. The resulting relationships enter the ordinary registry acquisition and sole
+Decimal ownership engine. Q-004 and Q-012 remain open.
 
 ## Safe errors and call stopping
 
