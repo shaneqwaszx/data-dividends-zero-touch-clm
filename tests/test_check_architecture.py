@@ -24,6 +24,32 @@ SPEC.loader.exec_module(CHECK)
 
 
 class ArchitectureCheckerTests(unittest.TestCase):
+    def test_tracked_preserves_parent_path_for_git_resolution(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=["git", "ls-files"], returncode=0, stdout="", stderr=""
+        )
+        with (
+            patch.dict(os.environ, {"PATH": "C:/git-bin"}, clear=True),
+            patch.object(CHECK.subprocess, "run", return_value=completed) as run,
+        ):
+            self.assertEqual(CHECK._tracked(ROOT), [])
+
+        child_env = run.call_args.kwargs["env"]
+        self.assertEqual(child_env["PATH"], "C:/git-bin")
+        self.assertEqual(child_env["GIT_OPTIONAL_LOCKS"], "0")
+
+    def test_tracked_uses_the_candidate_worktree_after_a_tracked_deletion(self) -> None:
+        temporary, root = self._fixture()
+        try:
+            removed = root / "apps" / "frontend" / "src" / "main.tsx"
+            removed.unlink()
+            self.assertNotIn(
+                "apps/frontend/src/main.tsx",
+                CHECK._tracked(root),
+            )
+        finally:
+            temporary.cleanup()
+
     def _git(self, root: Path, *args: str) -> None:
         subprocess.run(
             ["git", *args],

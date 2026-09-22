@@ -33,3 +33,7 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-21-provider-readiness/drift-check-draft.json | Phase 21 external integration activation readiness drift check draft |
 | 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-21-provider-readiness/resume-state-hint.json | 2026-09-21-phase-21-provider-readiness resume state hint |
 | 2026-09-21 | artifact | docs/aegis/work/2026-09-21-phase-21-provider-readiness/evidence-bundle-draft-S2-verification-and-self-review.json | 2026-09-21-phase-21-provider-readiness evidence S2-verification-and-self-review |
+| 2026-09-22 | work | docs/aegis/work/2026-09-22-pre-phase22-manual-uat-stabilization/10-intent.md | Pre-Phase 22 manual-UAT stabilization intent |
+| 2026-09-22 | work | docs/aegis/work/2026-09-22-pre-phase22-manual-uat-stabilization/20-checkpoint.md | Pre-Phase 22 manual-UAT stabilization checkpoint |
+| 2026-09-22 | work | docs/aegis/work/2026-09-22-pre-phase22-manual-uat-stabilization/90-evidence.md | Pre-Phase 22 manual-UAT stabilization evidence |
+| 2026-09-22 | work | docs/aegis/work/2026-09-22-pre-phase22-manual-uat-stabilization/99-reflection.md | Pre-Phase 22 manual-UAT stabilization reflection |

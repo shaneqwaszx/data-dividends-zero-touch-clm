@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -33,11 +34,12 @@ def _tracked(root: Path) -> list[str]:
         encoding="utf-8",
         errors="replace",
         shell=False,
-        env={"GIT_OPTIONAL_LOCKS": "0"},
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
     )
     if result.returncode != 0:
         raise RuntimeError("git ls-files failed")
-    return sorted(path.replace("\\", "/") for path in result.stdout.splitlines())
+    normalized = (path.replace("\\", "/") for path in result.stdout.splitlines())
+    return sorted(path for path in normalized if (root / path).is_file())
 
 
 def _imports(text: str) -> set[str]:

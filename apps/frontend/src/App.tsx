@@ -2213,10 +2213,6 @@ export default function App({
         onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
         onRecovery={() => void handleRecovery()}
         onStartNewCase={handleStartNewCase}
-        onSummaryUpdate={(updated) => {
-          setSummary(updated);
-          caseSummaryMutationEffect(queryClient, actor.user_id, updated);
-        }}
         onViewOnboarded={(caseId) => navigate(paths.onboardedDetail(caseId))}
         onViewAudit={(caseId) => navigate(paths.auditCase(caseId))}
       />

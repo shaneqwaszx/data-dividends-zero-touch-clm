@@ -64,6 +64,19 @@ async function login(page: Page, userId = "maya-lim") {
   await expect(page.getByRole("navigation", { name: "Main workspace" })).toBeVisible({ timeout: 30_000 });
 }
 
+async function openWorkspaceTab(page: Page, name: string) {
+  await page.getByRole("link", { name, exact: true }).click();
+}
+
+async function openFreshOnboarding(page: Page) {
+  await openWorkspaceTab(page, "New onboarding");
+  const landing = page.getByRole("heading", { name: "Start onboarding" });
+  const startFresh = page.getByRole("button", { name: "Start a new case" });
+  await expect(landing.or(startFresh)).toBeVisible();
+  if (await startFresh.isVisible()) await startFresh.click();
+  await expect(landing).toBeVisible();
+}
+
 test.describe.configure({ mode: "serial" });
 
 let networkGuard: NetworkGuard | undefined;
@@ -289,12 +302,10 @@ test("current document review progresses authoritatively and keeps superseded hi
   expect(reviewRequests).toHaveLength(1);
   expect(JSON.parse(reviewRequests[0])).toEqual({ field_key: "registration_number", decision: "ACCEPTED" });
   expect(resumeRequests).toHaveLength(0);
-  await page.goto(`/cases/${caseId}`);
   await expect(page.getByText("1 final / 4 fields")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/3 fields remain for review/)).toBeVisible();
 
   for (const [index, field] of ["legal name", "registered address", "country of incorporation"].entries()) {
-    await page.goto(`/cases/${caseId}`);
     await expect(page.getByText(`${index + 1} final / 4 fields`)).toBeVisible({
       timeout: 30_000,
     });
@@ -315,7 +326,6 @@ test("current document review progresses authoritatively and keeps superseded hi
     const documents = await response.json() as Array<{ state: string; superseded_by_document_id: string | null }>;
     return documents.find((document) => document.superseded_by_document_id === null)?.state ?? null;
   }, { timeout: 120_000 }).toBe("REVIEWED");
-  await page.goto(`/cases/${caseId}`);
   await expect(page.getByText("REVIEWED", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
   expect(reviewRequests).toHaveLength(4);
   expect(resumeRequests).toHaveLength(0);
@@ -359,8 +369,7 @@ test("Cases filters exact open business-exception types without hiding other att
   await login(page);
 
   async function createPausedCase(uen: string, fixture: string): Promise<string> {
-    await page.goto("/new-onboarding");
-    await expect(page.getByRole("heading", { name: "Start onboarding" })).toBeVisible();
+    await openFreshOnboarding(page);
     await page.getByLabel("Jurisdiction").selectOption("SG");
     await page.getByLabel("Registration ID / UEN").fill(uen);
     await page.locator("#home-document").setInputFiles(fixture);
@@ -380,7 +389,7 @@ test("Cases filters exact open business-exception types without hiding other att
   const lowConfidenceCaseId = await createPausedCase("202400001A", lowConfidenceFixture);
   const ownershipCycleCaseId = await createPausedCase("202400006F", ownershipCycleFixture);
 
-  await page.goto("/cases");
+  await openWorkspaceTab(page, "Cases");
   await expect(page.getByRole("heading", { name: "Cases" })).toBeVisible();
   const attentionFilter = page.getByLabel("Open business exception type");
   await expect(attentionFilter).toBeVisible();
@@ -494,7 +503,7 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   await login(page);
   const targetUen = "209900104A";
 
-  await page.goto("/cases");
+  await openWorkspaceTab(page, "Cases");
   await expect(page.getByText(/Showing 1–50 on page 1/)).toBeVisible();
   // React StrictMode may cancel and replay the initial development-mode fetch. Both
   // observations must still be the same single bounded page shape, never row fan-out.
@@ -543,13 +552,13 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   await expect(open).toHaveAttribute("href", `/cases/${targetCaseId}`);
   await open.click();
   await expect(page).toHaveURL(`/cases/${targetCaseId}`);
-  await page.goto("/cases");
+  await openWorkspaceTab(page, "Cases");
 
   await page.locator(".operator-account__button").click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await login(page, "ethan-tan");
-  await page.goto("/cases");
+  await openWorkspaceTab(page, "Cases");
   await page.getByLabel("Search cases").fill(targetUen);
   const mutableRow = page.getByRole("row").filter({ hasText: targetUen });
   await expect(mutableRow).toBeVisible();

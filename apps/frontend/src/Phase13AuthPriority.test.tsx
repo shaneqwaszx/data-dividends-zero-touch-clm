@@ -120,7 +120,6 @@ describe("Phase 13 authenticated frontend boundary", () => {
         onReplace={() => undefined}
         onRecovery={() => undefined}
         onStartNewCase={() => undefined}
-        onSummaryUpdate={() => undefined}
         onViewOnboarded={() => undefined}
         onViewAudit={() => undefined}
       />,
@@ -189,13 +188,65 @@ describe("Phase 13 authenticated frontend boundary", () => {
         onReplace={() => undefined}
         onRecovery={() => undefined}
         onStartNewCase={() => undefined}
-        onSummaryUpdate={() => undefined}
         onViewOnboarded={() => undefined}
         onViewAudit={() => undefined}
       />,
     );
 
     expect(markup).toContain("P7");
+  });
+
+  it("keeps unsupported assignment and generic rework out of operational exception actions", () => {
+    const created = makeDetail("00000000-0000-4000-8000-000000000001", "2026-09-07T01:00:00Z");
+    created.status = "WAITING_FOR_REVIEW";
+    created.active_exceptions = [{
+      exception_id: "00000000-0000-4000-8000-000000000099",
+      case_id: created.case.case_id,
+      exception_type: "DOCUMENT_SOURCE_CONFLICT",
+      stage: "DOCUMENT",
+      status: "OPEN",
+      blocker_code: "DOCUMENT_SOURCE_CONFLICT",
+      blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"],
+      explanation: "Document evidence needs a bounded decision.",
+      evidence: [],
+      available_actions: ["KEEP_REGISTRY_VALUE"],
+      evidence_version: "evidence-v1",
+      automation_version: 1,
+      created_at: "2026-09-07T01:00:00Z",
+      resolved_at: null,
+      resolution: null,
+    }] as ZeroTouchCaseSummary["active_exceptions"];
+
+    const markup = renderToStaticMarkup(
+      <HomeOnboarding
+        summary={created}
+        uen="202400001A"
+        onUenChange={() => undefined}
+        countryOfIncorporation="SG"
+        onCountryChange={() => undefined}
+        documentFiles={[]}
+        onDocumentFilesChange={() => undefined}
+        caseTeamDisplayName="DBS Corporate Onboarding"
+        priority=""
+        onPriorityChange={() => undefined}
+        isSubmitting={false}
+        isResolving={false}
+        requestError={null}
+        pollingWarning={null}
+        intakeProgress={null}
+        onStart={() => undefined}
+        onResolve={() => undefined}
+        onReconcile={() => undefined}
+        onReplace={() => undefined}
+        onRecovery={() => undefined}
+        onStartNewCase={() => undefined}
+        onViewOnboarded={() => undefined}
+        onViewAudit={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain("Keep registry values");
+    expect(markup).not.toMatch(/Assign reviewer|Return for rework/);
   });
 
   it("does not consult browser storage as an authorization owner", async () => {

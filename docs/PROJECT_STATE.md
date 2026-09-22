@@ -9,8 +9,8 @@ It is not a sponsor contract, phase report, or substitute for current source and
 {
   "schema_version": 1,
   "case_envelope_schema_version": 4,
-  "verified_date": "2026-09-21",
-  "verified_main_sha": "5039c7e548dfae1eeb8ad600f128ef374e3a6f2a",
+  "verified_date": "2026-09-22",
+  "verified_main_sha": "ef338c9b7926a298e8987acb975fd93c96ed2bfb",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -99,8 +99,14 @@ Phase 20 Sponsor Policy Authority Gate is accepted on main at
 review is allowed/expected; reviewer role, four-eyes/separation, dispositions,
 retention, approval, and other policy details remain unresolved. No runtime business
 policy was activated. The policy-authority registry and checker remain authoritative.
-Q-001 through Q-018 remain open. Phase 21 is a candidate only and is not accepted main
-behavior.
+Q-001 through Q-018 remain open. Phase 21 External Integration Activation Readiness is
+accepted on main at `ef338c9b7926a298e8987acb975fd93c96ed2bfb`. It adds strict provider-
+readiness and sanitized-evidence governance, CI/tooling checks, an activation packet,
+and a secret-security runbook. It activates no provider and changes no connector,
+composition, API, persistence, frontend, target-ledger, RBAC, mapping, auth, or runtime
+business-policy behavior. Generic ACRA remains Partial, BizFile remains Dormant, real
+GoldTier and PingFed remain Not Implemented, and the accepted credential-free evidence
+profiles remain limited to the current Mock/Local providers.
 
 The Case Evidence & Explainability Workbench accepted through PR #43 adds a read-only
 presentation of the minimized nullable Mock-only registry-binding projection,

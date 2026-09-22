@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import secrets
@@ -17,7 +18,7 @@ import urllib.error
 import urllib.request
 from collections import deque
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_ROOT = ROOT / "apps" / "frontend"
@@ -219,6 +220,87 @@ def _find_node() -> str:
     return node
 
 
+def _selectors_from_listing(payload: object) -> list[str]:
+    if not isinstance(payload, dict):
+        raise TypeError("Playwright test discovery returned an invalid document")
+    if payload.get("errors"):
+        raise RuntimeError("Playwright test discovery reported configuration errors")
+
+    selectors: list[str] = []
+
+    def visit(suites: object) -> None:
+        if not isinstance(suites, list):
+            raise TypeError("Playwright test discovery returned invalid suites")
+        for suite in suites:
+            if not isinstance(suite, dict):
+                raise TypeError("Playwright test discovery returned an invalid suite")
+            specs = suite.get("specs", [])
+            if not isinstance(specs, list):
+                raise TypeError("Playwright test discovery returned invalid specs")
+            for spec in specs:
+                if not isinstance(spec, dict):
+                    raise TypeError("Playwright test discovery returned an invalid test")
+                if spec.get("ok") is not True:
+                    raise RuntimeError("Playwright test discovery returned an invalid test")
+                file_name = spec.get("file")
+                line = spec.get("line")
+                if not isinstance(file_name, str) or not isinstance(line, int) or line < 1:
+                    raise RuntimeError("Playwright test discovery omitted a test location")
+                relative = PurePosixPath(file_name.replace("\\", "/"))
+                if relative.is_absolute() or ".." in relative.parts or relative.suffix != ".ts":
+                    raise RuntimeError("Playwright test discovery returned an unsafe path")
+                selector = f"{(PurePosixPath('e2e') / relative).as_posix()}:{line}"
+                if selector not in selectors:
+                    selectors.append(selector)
+            visit(suite.get("suites", []))
+
+    visit(payload.get("suites", []))
+    if not selectors:
+        raise RuntimeError("Playwright test discovery found no configured tests")
+    return selectors
+
+
+def _list_test_selectors(frontend_port: int) -> list[str]:
+    node = _find_node()
+    playwright_cli = FRONTEND_ROOT / "node_modules" / "@playwright" / "test" / "cli.js"
+    if not playwright_cli.is_file():
+        raise RuntimeError(
+            f"Required local dependency is missing: {playwright_cli.relative_to(ROOT)}"
+        )
+    environment = {
+        **_base_environment(),
+        "PLAYWRIGHT_BASE_URL": f"http://127.0.0.1:{frontend_port}",
+    }
+    completed = subprocess.run(
+        [
+            node,
+            str(playwright_cli),
+            "test",
+            "--config",
+            "playwright.config.ts",
+            "--list",
+            "--reporter=json",
+        ],
+        cwd=FRONTEND_ROOT,
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        detail = _sanitize(completed.stdout + completed.stderr)
+        raise RuntimeError(f"Playwright test discovery failed: {detail}")
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Playwright test discovery returned invalid JSON") from exc
+    return _selectors_from_listing(payload)
+
+
 def run(
     *,
     backend_port: int,
@@ -226,7 +308,10 @@ def run(
     timeout_seconds: float,
     headed: bool = False,
     grep: str | None = None,
+    selection: str | None = None,
 ) -> int:
+    if grep is not None and selection is not None:
+        raise ValueError("grep and exact test selection are mutually exclusive")
     _assert_ports_available(backend_port, frontend_port)
     node = _find_node()
     vite_cli = FRONTEND_ROOT / "node_modules" / "vite" / "bin" / "vite.js"
@@ -299,6 +384,8 @@ def run(
             playwright_command.append("--headed")
         if grep:
             playwright_command.extend(("--grep", grep))
+        if selection:
+            playwright_command.append(selection)
         tests = OwnedProcess(
             "playwright",
             playwright_command,
@@ -333,6 +420,45 @@ def run(
             process.stop()
 
 
+def run_isolated_suite(
+    *,
+    backend_port: int,
+    frontend_port: int,
+    timeout_seconds: float,
+    headed: bool,
+) -> int:
+    started = time.monotonic()
+    try:
+        selectors = _list_test_selectors(frontend_port)
+    except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
+        print(f"E2E FAILED: {_sanitize(str(exc))}", file=sys.stderr)
+        return 1
+
+    for index, selection in enumerate(selectors, start=1):
+        remaining = timeout_seconds - (time.monotonic() - started)
+        if remaining < 30:
+            print("E2E FAILED: isolated suite exceeded its overall deadline.", file=sys.stderr)
+            return 1
+        print(f"E2E isolated lifecycle {index}/{len(selectors)}: {selection}")
+        result = run(
+            backend_port=backend_port,
+            frontend_port=frontend_port,
+            timeout_seconds=remaining,
+            headed=headed,
+            grep=None,
+            selection=selection,
+        )
+        if result != 0:
+            print(
+                f"E2E SUITE FAILED: isolated selection {index}/{len(selectors)} failed.",
+                file=sys.stderr,
+            )
+            return result
+
+    print(f"E2E SUITE PASS: {len(selectors)} configured tests passed in isolated lifecycles.")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -354,12 +480,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not 30 <= args.timeout_seconds <= 900:
         parser.error("--timeout-seconds must be between 30 and 900")
-    return run(
+    if args.grep:
+        return run(
+            backend_port=args.backend_port,
+            frontend_port=args.frontend_port,
+            timeout_seconds=args.timeout_seconds,
+            headed=args.headed,
+            grep=args.grep,
+        )
+    return run_isolated_suite(
         backend_port=args.backend_port,
         frontend_port=args.frontend_port,
         timeout_seconds=args.timeout_seconds,
         headed=args.headed,
-        grep=args.grep,
     )
 
 

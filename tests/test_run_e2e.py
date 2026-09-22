@@ -354,6 +354,47 @@ console.log(JSON.stringify({
         )
         self.assertTrue(all(process.stopped for process in _FakeOwnedProcess.instances))
 
+    def test_unfiltered_suite_runs_each_discovered_test_in_a_fresh_lifecycle(self) -> None:
+        selectors = [
+            "e2e/authenticated-zero-touch.e2e.ts:87",
+            "e2e/responsive-layout.e2e.ts:177",
+        ]
+        with (
+            patch.object(RUN_E2E, "_list_test_selectors", return_value=selectors),
+            patch.object(RUN_E2E, "run", return_value=0) as run,
+            redirect_stdout(io.StringIO()),
+        ):
+            result = RUN_E2E.run_isolated_suite(
+                backend_port=8765,
+                frontend_port=4173,
+                timeout_seconds=240,
+                headed=False,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            [call.kwargs["selection"] for call in run.call_args_list],
+            selectors,
+        )
+        self.assertTrue(all(call.kwargs["grep"] is None for call in run.call_args_list))
+
+    def test_unfiltered_suite_stops_after_the_first_failed_isolated_test(self) -> None:
+        selectors = ["e2e/one.e2e.ts:10", "e2e/two.e2e.ts:20"]
+        with (
+            patch.object(RUN_E2E, "_list_test_selectors", return_value=selectors),
+            patch.object(RUN_E2E, "run", side_effect=[1, 0]) as run,
+            redirect_stdout(io.StringIO()),
+        ):
+            result = RUN_E2E.run_isolated_suite(
+                backend_port=8765,
+                frontend_port=4173,
+                timeout_seconds=240,
+                headed=False,
+            )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(run.call_count, 1)
+
     def test_test_timeout_stops_every_process(self) -> None:
         with (
             patch.object(RUN_E2E.Path, "is_file", return_value=True),
