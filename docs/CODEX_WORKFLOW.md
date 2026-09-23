@@ -60,29 +60,16 @@ Publication waits for implementation content to be frozen and independently give
 
 ## Model routing
 
-Choose the least expensive capable model within the user's ceiling. A cheaper capable
-model may handle bounded exploration, status and evidence collection. Medium is the
-ordinary implementation/remediation default. Use High for difficult architecture,
-security or persistence decisions and reviews that genuinely need it. A focused Medium
-review is appropriate for a small, well-bounded delta when it can independently verify
-the acceptance criteria. Evidence obligations do not change with model choice.
+Use the canonical model/reasoning policy in
+`docs/DEVELOPMENT_WORKFLOW.md#coordination-and-model-routing`. Model choice never lowers
+the evidence or independence obligation.
 
 ## Context and handoff
 
-Load current canonical sources first and retrieve historical reports only for a specific
-question they can answer. Do not copy whole histories into every worker. Each handoff is
-compact and identifies:
-
-- task, approved scope and non-goals;
-- worktree, branch and `BASE_SHA`;
-- canonical owners, write boundaries, dependencies and shared surfaces;
-- acceptance criteria and adverse cases;
-- tool/environment prerequisites and shared resources;
-- current source, tested-behavior and reviewed-content identities;
-- evidence commands/results, unresolved authority and next authorized action.
-
-Never place secrets, credentials, raw confidential sponsor artefacts, KYC/provider data
-or private exception details in a handoff.
+Use the tiered selector and compact handoff/report contract in
+`docs/DEVELOPMENT_WORKFLOW.md`. Handoffs remain delta-only and identify current source,
+tested behavior, and reviewed content separately. Never include secrets, credentials,
+raw confidential sponsor artefacts, KYC/provider data, or private exception details.
 
 ## Branching and publication
 

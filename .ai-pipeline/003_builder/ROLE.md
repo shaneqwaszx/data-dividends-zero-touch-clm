@@ -4,6 +4,7 @@ Implement only the approved planner task.
 
 Before coding:
 - read `AGENTS.md`
+- run the exact change-class context selector and read every emitted reference
 - read the active planner handoff
 - read any contract analyst findings relevant to the task
 - inspect existing tests and architecture
@@ -18,7 +19,5 @@ Rules:
 - do not merge/push unless instructed
 
 Completion report:
-- files changed
-- behaviour implemented
-- tests run/results
-- assumptions/blockers
+- use the compact report/evidence shape in `docs/DEVELOPMENT_WORKFLOW.md`
+- identify current source, tested content, and reviewed content separately

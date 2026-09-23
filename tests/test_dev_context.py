@@ -174,5 +174,169 @@ class DevContextTests(unittest.TestCase):
         )
 
 
+class ContextSelectionTests(unittest.TestCase):
+    def test_known_change_classes_have_valid_deterministic_sections(self) -> None:
+        self.assertEqual(DEV_CONTEXT.validate_context_manifest(ROOT), [])
+        first = DEV_CONTEXT.select_context(ROOT, ["CI_TOOLING"])
+        second = DEV_CONTEXT.select_context(ROOT, ["CI_TOOLING"])
+        self.assertEqual(first, second)
+        self.assertEqual(
+            [reference.path for reference in first],
+            sorted(reference.path for reference in first),
+        )
+
+    def test_unknown_change_class_fails_closed(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unknown change class; use --full"):
+            DEV_CONTEXT.select_context(ROOT, ["NOT_A_CHANGE_CLASS"])
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = DEV_CONTEXT.main(
+                ["--root", str(ROOT), "--change-class", "NOT_A_CHANGE_CLASS"]
+            )
+        self.assertEqual(result, 1)
+        self.assertEqual(
+            output.getvalue().strip(),
+            "DEVELOPMENT CONTEXT ERROR: unknown change class; use --full",
+        )
+
+    def test_empty_change_class_fails_closed_for_api_and_cli(self) -> None:
+        for value in ("", "   "):
+            with (
+                self.subTest(value=repr(value), surface="api"),
+                self.assertRaisesRegex(ValueError, "empty change class; use --full"),
+            ):
+                DEV_CONTEXT.select_context(ROOT, [value])
+
+            with self.subTest(value=repr(value), surface="cli"):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = DEV_CONTEXT.main(
+                        ["--root", str(ROOT), "--change-class", value]
+                    )
+                self.assertEqual(result, 1)
+                self.assertEqual(
+                    output.getvalue().strip(),
+                    "DEVELOPMENT CONTEXT ERROR: empty change class; use --full",
+                )
+                self.assertNotIn("Change classes: FULL", output.getvalue())
+
+    def test_missing_declared_heading_fails_closed(self) -> None:
+        errors = DEV_CONTEXT.validate_context_references(
+            ROOT,
+            [
+                DEV_CONTEXT.ContextReference(
+                    path="docs/ARCHITECTURE.md",
+                    sections=("missing heading",),
+                    tier=1,
+                    reason="negative fixture",
+                )
+            ],
+        )
+        self.assertEqual(
+            errors, ["missing section: docs/ARCHITECTURE.md#missing heading"]
+        )
+
+    def test_high_risk_classes_expand_to_full_canonical_context(self) -> None:
+        for change_class in (
+            "AUTH_RBAC_SECURITY",
+            "PERSISTENCE",
+            "EXTERNAL_PROVIDER",
+        ):
+            with self.subTest(change_class=change_class):
+                references = DEV_CONTEXT.select_context(ROOT, [change_class])
+                by_path = {reference.path: reference for reference in references}
+                for path in DEV_CONTEXT.CANONICAL_CONTEXT_PATHS:
+                    self.assertIn(path, by_path)
+                    self.assertIsNone(by_path[path].sections)
+                self.assertIn("docs/sponsor-questions/OPEN_QUESTIONS.md", by_path)
+                self.assertIsNone(
+                    by_path["docs/sponsor-questions/OPEN_QUESTIONS.md"].sections
+                )
+
+    def test_routine_benchmark_reduces_mean_utf8_footprint_by_thirty_percent(
+        self,
+    ) -> None:
+        benchmark = DEV_CONTEXT.build_context_benchmark(ROOT)
+        routine = [
+            benchmark[change_class]
+            for change_class in ("DOCS_ONLY", "FRONTEND_UI", "CI_TOOLING")
+        ]
+        mean_reduction = sum(row.reduction_percent for row in routine) / len(routine)
+        self.assertGreaterEqual(mean_reduction, 30.0)
+        for row in routine:
+            self.assertLess(row.selected.bytes, row.baseline.bytes)
+        for change_class in (
+            "AUTH_RBAC_SECURITY",
+            "PERSISTENCE",
+            "EXTERNAL_PROVIDER",
+        ):
+            self.assertGreaterEqual(
+                benchmark[change_class].selected.bytes,
+                benchmark[change_class].baseline.bytes,
+            )
+
+    def test_context_selector_output_is_bounded_ordered_and_summary_first(self) -> None:
+        output = DEV_CONTEXT.render_context(ROOT, change_classes=["CI_TOOLING"])
+        self.assertIn("CONTEXT SELECTION", output)
+        self.assertIn("Tier 0", output)
+        self.assertIn("Tier 1", output)
+        self.assertIn("Tier 2: on demand", output)
+        self.assertNotIn("# Current Project State", output)
+        self.assertLessEqual(len(output.splitlines()), 60)
+        paths = [
+            line.split(": ", maxsplit=1)[1].split(" # ", maxsplit=1)[0]
+            for line in output.splitlines()
+            if line.startswith("Reference: ")
+        ]
+        self.assertEqual(paths, sorted(paths))
+
+    def test_main_supports_change_class_full_and_benchmark_modes(self) -> None:
+        selected = io.StringIO()
+        with redirect_stdout(selected):
+            result = DEV_CONTEXT.main(
+                ["--root", str(ROOT), "--change-class", "DOCS_ONLY"]
+            )
+        self.assertEqual(result, 0)
+        self.assertIn("Change classes: DOCS_ONLY", selected.getvalue())
+
+        full = io.StringIO()
+        with redirect_stdout(full):
+            result = DEV_CONTEXT.main(["--root", str(ROOT), "--full"])
+        self.assertEqual(result, 0)
+        self.assertIn("Selection mode: full diagnostic", full.getvalue())
+
+        benchmark = io.StringIO()
+        with redirect_stdout(benchmark):
+            result = DEV_CONTEXT.main(["--root", str(ROOT), "--benchmark"])
+        self.assertEqual(result, 0)
+        self.assertIn("CONTEXT FOOTPRINT BENCHMARK", benchmark.getvalue())
+        self.assertIn("Routine mean reduction:", benchmark.getvalue())
+
+    def test_governance_surfaces_reference_the_canonical_context_policy(self) -> None:
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        workflow = (ROOT / "docs" / "DEVELOPMENT_WORKFLOW.md").read_text(
+            encoding="utf-8"
+        )
+        codex = (ROOT / "docs" / "CODEX_WORKFLOW.md").read_text(encoding="utf-8")
+        pipeline = (ROOT / ".ai-pipeline" / "README.md").read_text(encoding="utf-8")
+        phase_skill = (
+            ROOT / ".agents" / "skills" / "fyp-phase-execution" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        reviewer = (ROOT / ".ai-pipeline" / "005_reviewer" / "ROLE.md").read_text(
+            encoding="utf-8"
+        )
+
+        for text in (agents, workflow, pipeline, phase_skill):
+            self.assertIn("--change-class", text)
+            self.assertIn("--full", text)
+        self.assertIn("## Context tiers and deterministic retrieval", workflow)
+        self.assertIn("Passing-command evidence is summary-first", workflow)
+        self.assertIn(
+            "docs/DEVELOPMENT_WORKFLOW.md#coordination-and-model-routing", codex
+        )
+        self.assertIn("inspect the actual\nchanged content", reviewer)
+
+
 if __name__ == "__main__":
     unittest.main()
