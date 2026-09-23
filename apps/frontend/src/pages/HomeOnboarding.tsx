@@ -8,10 +8,8 @@ import type {
   ZeroTouchCaseSummary,
   ZeroTouchException,
 } from "../types";
-import AssignReviewerDialog from "./AssignReviewerDialog";
 import { CompletedOverview, ConfirmDetailsPanel, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
 import { PriorityBadge } from "./PriorityControl";
-import ReturnForReworkDialog from "./ReturnForReworkDialog";
 
 export type JurisdictionSelection = "" | "SG" | "AU" | "MY" | "HK";
 
@@ -70,7 +68,6 @@ export default function HomeOnboarding({
   onReplace,
   onRecovery,
   onStartNewCase,
-  onSummaryUpdate,
   onViewOnboarded,
   onViewAudit,
 }: {
@@ -95,18 +92,12 @@ export default function HomeOnboarding({
   onReplace: (documentId: string, eventCount: number, file: File) => void;
   onRecovery: () => void;
   onStartNewCase: () => void;
-  onSummaryUpdate: (summary: ZeroTouchCaseSummary) => void;
   onViewOnboarded: (caseId: string) => void;
   onViewAudit: (caseId: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [dialogException, setDialogException] = useState<{
-    exception: ZeroTouchException;
-    kind: "assign" | "rework";
-  } | null>(null);
-
   function addFiles(incoming: FileList | null) {
     if (!incoming || incoming.length === 0) return;
     onDocumentFilesChange(mergeSelectedFiles(documentFiles, Array.from(incoming)));
@@ -185,13 +176,11 @@ export default function HomeOnboarding({
                   }}
                 >
                   <option value="">Unset</option>
-                  <option value={10}>10 — Highest</option>
-                  {[9, 8, 7, 6, 5, 4, 3, 2].map((value) => (
-                    <option key={value} value={value}>{value}</option>
-                  ))}
-                  <option value={1}>1 — Lowest</option>
+                  <option value={1}>Low</option>
+                  <option value={5}>Medium</option>
+                  <option value={10}>High</option>
                 </select>
-                <p className="control-help">Optional. 10 = highest, 1 = lowest.</p>
+                <p className="control-help">Optional ordering label only; it does not imply risk, SLA, or approval treatment.</p>
               </div>
             </div>
 
@@ -344,12 +333,6 @@ export default function HomeOnboarding({
                 {ACTION_LABELS[action] ?? action.replaceAll("_", " ")}
               </button>
             ))}
-            <button type="button" className="btn btn-secondary disclosure-action" onClick={() => setDialogException({ exception, kind: "assign" })} aria-description="Disclosure only; assignment is unavailable">
-              Assign reviewer
-            </button>
-            <button type="button" className="btn btn-secondary disclosure-action" onClick={() => setDialogException({ exception, kind: "rework" })} aria-description="Disclosure only; return for rework is unavailable">
-              Return for rework
-            </button>
             {exception.available_actions.length === 0 && (
               <span className="text-muted" style={{ fontSize: 12 }}>
                 No backend-authorized action is currently available. Replacement evidence may be required.
@@ -413,28 +396,6 @@ export default function HomeOnboarding({
         </p>
       </div>
 
-      {dialogException?.kind === "assign" && (
-        <AssignReviewerDialog
-          summary={summary}
-          exception={dialogException.exception}
-          onClose={() => setDialogException(null)}
-          onAssigned={(updated) => {
-            onSummaryUpdate(updated);
-            setDialogException(null);
-          }}
-        />
-      )}
-      {dialogException?.kind === "rework" && (
-        <ReturnForReworkDialog
-          summary={summary}
-          exception={dialogException.exception}
-          onClose={() => setDialogException(null)}
-          onReturned={(updated) => {
-            onSummaryUpdate(updated);
-            setDialogException(null);
-          }}
-        />
-      )}
     </div>
   );
 }

@@ -27,6 +27,23 @@ A `NATURAL_PERSON` cannot be an owned parent or intermediate in this orientation
 shape is graph-semantic invalidity rather than a source-decoding rule: analysis
 terminalizes safely with no definitive candidate, including when another branch is valid.
 
+### Garden Business synthetic recursive demo exception
+
+Decision D-046 permits one bounded project fixture for `GARDEN BUSINESS` (`11111999A`)
+and its corporate owner `SIM LIM PTE. LTD.` (`111111111M`). Within that fixture only,
+strict positive Decimal `shareAllotted` counts are treated as equal synthetic economic
+units, withdrawn holders are excluded, and relationship percentages are quantized to
+six decimal places. Missing, binary-float, zero, negative, duplicate-identity, or
+malformed fixture data fails closed.
+
+The graph then follows the ordinary ownership contract. In particular, the path
+`11111999A -> 111111111M (62.500000%) -> S123AC1234E (81.818182%)` produces
+`51.13636375%`, approximately `51.136364%` at six-decimal presentation. LIM CHOON HUAT
+retains direct `37.500000%`; the two `9.090909%` SIM LIM holders each have effective
+`5.681818125%`. The existing provisional inclusive 25% candidate rule remains the sole
+classification rule. This fixture is not legal ownership, voting-rights, control, Live
+ACRA, or production UBO authority; Q-004 and Q-012 remain open.
+
 ## Calculation and aggregation
 
 For edges `p1 ... pn`, effective ownership percent is

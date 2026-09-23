@@ -180,9 +180,29 @@ def test_all_authenticated_roles_can_read_policy_catalogue(user_id: str) -> None
     assert len(response.json()["rules"]) == 8
 
 
-def test_rm_can_edit_and_reset_runtime_policy_with_cas() -> None:
-    client, csrf = _client_for("ethan-tan")
+@pytest.mark.parametrize("user_id", ["ethan-tan", "olivia-koh"])
+def test_policy_mutators_can_create_update_and_reset_allowed_rules(user_id: str) -> None:
+    client, csrf = _client_for(user_id)
     catalogue = client.get("/api/policies").json()
+    created = client.post(
+        "/api/policies",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "expected_catalogue_version": catalogue["version"],
+            "policy_id": "SHOWCASE_RULE",
+            "category": "Demo",
+            "name": "Showcase rule",
+            "description": "Display-only demonstration rule.",
+            "value": {"type": "STRING", "value": "visible"},
+        },
+    )
+    assert created.status_code == 201
+    showcase = next(
+        item for item in created.json()["rules"] if item["policy_id"] == "SHOWCASE_RULE"
+    )
+    assert showcase["enforcement"] == "DISPLAY_SHOWCASE_ONLY"
+
+    catalogue = created.json()
     rule = next(
         item
         for item in catalogue["rules"]
@@ -230,6 +250,19 @@ def test_rm_can_edit_and_reset_runtime_policy_with_cas() -> None:
     )
     assert reset_rule["value"] == reset_rule["default_value"]
 
+    reset_all = client.post(
+        "/api/policies/reset",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "expected_catalogue_version": reset.json()["version"],
+            "confirmation": "RESET_ALL_POLICY_DEFAULTS",
+        },
+    )
+    assert reset_all.status_code == 200
+    assert next(
+        item for item in reset_all.json()["rules"] if item["policy_id"] == rule["policy_id"]
+    )["value"] == rule["default_value"]
+
 
 def test_policy_edit_binds_only_to_cases_created_after_successful_cas() -> None:
     client, csrf = _client_for("ethan-tan")
@@ -272,20 +305,43 @@ def test_policy_edit_binds_only_to_cases_created_after_successful_cas() -> None:
 
 
 @pytest.mark.parametrize("user_id", ["maya-lim", "hr-admin"])
-def test_read_only_roles_cannot_mutate_policy(user_id: str) -> None:
+def test_read_only_roles_cannot_use_any_policy_mutation(user_id: str) -> None:
     client, csrf = _client_for(user_id)
     catalogue = client.get("/api/policies").json()
-    response = client.post(
-        "/api/policies",
-        headers={"X-CSRF-Token": csrf},
-        json={
+    rule = next(
+        item
+        for item in catalogue["rules"]
+        if item["policy_id"] == "DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD"
+    )
+    attempts = [
+        ("post", "/api/policies", {
             "expected_catalogue_version": catalogue["version"],
             "policy_id": "SHOWCASE_RULE",
             "category": "Demo",
             "name": "Showcase rule",
             "description": "Display-only demonstration rule.",
             "value": {"type": "STRING", "value": "visible"},
-        },
-    )
-    assert response.status_code == 403
-    assert response.json()["detail"]["code"] == "POLICY_MUTATION_FORBIDDEN"
+        }),
+        ("patch", f"/api/policies/{rule['policy_id']}", {
+            "expected_catalogue_version": catalogue["version"],
+            "expected_rule_version": rule["version"],
+            "value": {"type": "DECIMAL", "value": "0.90"},
+        }),
+        ("post", f"/api/policies/{rule['policy_id']}/reset", {
+            "expected_catalogue_version": catalogue["version"],
+            "expected_rule_version": rule["version"],
+            "confirmation": "RESET_POLICY_DEFAULT",
+        }),
+        ("post", "/api/policies/reset", {
+            "expected_catalogue_version": catalogue["version"],
+            "confirmation": "RESET_ALL_POLICY_DEFAULTS",
+        }),
+    ]
+    for method, path, body in attempts:
+        response = getattr(client, method)(
+            path,
+            headers={"X-CSRF-Token": csrf},
+            json=body,
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "POLICY_MUTATION_FORBIDDEN"

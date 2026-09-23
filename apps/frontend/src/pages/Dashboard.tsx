@@ -7,6 +7,8 @@ import { dashboardQueryOptions } from "../caseQueries";
 import { paths } from "../navigation";
 import { formatDateNoSeconds } from "../shared";
 import type { AuthenticatedProfile, DashboardCaseItem, DashboardSnapshot } from "../types";
+import { aggregatePriorityDistribution } from "../priority";
+import { PriorityBadge } from "./PriorityControl";
 
 export function CaseTable({
   cases,
@@ -27,7 +29,7 @@ export function CaseTable({
             <tr key={item.case_id}>
               <td><strong>{item.legal_name ?? item.requested_uen}</strong><span className="cell-note">{item.requested_uen}</span></td>
               {actor.role === "DIRECTOR" && <td>{item.team_display_name ?? "Unassigned legacy case"}</td>}
-              <td>{item.priority ?? "Unset"}</td>
+              <td><PriorityBadge priority={item.priority} /></td>
               <td>{item.status.replaceAll("_", " ")}</td>
               <td>{formatDateNoSeconds(item.completed_at ?? item.updated_at)}</td>
               <td><Link className="btn btn-ghost" to={paths.caseDetail(item.case_id)}>Open</Link></td>
@@ -74,12 +76,12 @@ export function DashboardView({
 
       <div className="dashboard-grid dashboard-grid--distributions">
         <article className="card"><p className="section-label">Exact workflow states</p><h2>Status overview</h2><div className="dashboard-bars">{dashboard.status_breakdown.map((item) => <div className="dashboard-bar" key={item.status}><span>{item.status.replaceAll("_", " ")}</span><div><i style={{ width: `${totals.total_cases ? (item.count / totals.total_cases) * 100 : 0}%` }} /></div><strong>{item.count}</strong></div>)}</div></article>
-        <article className="card"><p className="section-label">Canonical priority</p><h2>Priority distribution</h2><div className="priority-distribution">{dashboard.priority_breakdown.map((item) => <div key={item.priority ?? "unset"}><span>{item.priority ?? "Unset"}</span><strong>{item.count}</strong></div>)}</div></article>
+        <article className="card"><p className="section-label">Priority ordering</p><h2>Priority distribution</h2><div className="priority-distribution">{aggregatePriorityDistribution(dashboard.priority_breakdown).map((item) => <div key={item.tier ?? "unset"}><span>{item.label}</span><strong>{item.count}</strong></div>)}</div></article>
       </div>
 
       <article className="card"><p className="section-label">Authorized portfolio</p><h2>Team portfolio</h2><div className="team-portfolio">{dashboard.team_breakdown.map((item) => <div key={item.team_id}><span>{item.team_display_name}</span><small>{item.client_scope_label}</small><strong>{item.count}</strong></div>)}</div></article>
 
-      <article className="card"><p className="section-label">Canonical priority order</p><h2>Highest-priority active cases</h2><CaseTable cases={dashboard.top_active_cases} actor={actor} empty="No active cases are available for your current scope." /></article>
+      <article className="card"><p className="section-label">Priority order</p><h2>Highest-priority active cases</h2><CaseTable cases={dashboard.top_active_cases} actor={actor} empty="No active cases are available for your current scope." /></article>
 
       <article className="card"><p className="section-label">Latest authorized history</p><h2>Recent cases</h2><CaseTable cases={dashboard.recent_cases} actor={actor} empty="No recent cases are available for your current scope." /></article>
 

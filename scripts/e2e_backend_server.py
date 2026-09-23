@@ -67,6 +67,7 @@ def main() -> int:
     ephemeral_credential = _required("CLM_E2E_PASSWORD")
     port = _port(_required("CLM_E2E_BACKEND_PORT"))
     frontend_origin = _loopback_origin(_required("CLM_E2E_FRONTEND_ORIGIN"))
+    diagnostics_enabled = os.environ.get("CLM_E2E_DIAGNOSTICS") == "1"
 
     system_environment = {
         key: os.environ[key] for key in _SYSTEM_ENV_KEYS if key in os.environ
@@ -85,6 +86,14 @@ def main() -> int:
             "PHASE13_COOKIE_SECURE": "false",
             "PHASE13_BROWSER_ORIGIN": frontend_origin,
             "PYTHONIOENCODING": "utf-8",
+            **(
+                {
+                    "CLM_E2E_DIAGNOSTICS": "1",
+                    "CLM_E2E_BACKEND_PORT": str(port),
+                }
+                if diagnostics_enabled
+                else {}
+            ),
         }
     )
     sys.path.insert(0, str(BACKEND_ROOT))

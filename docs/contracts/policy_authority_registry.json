@@ -53,7 +53,7 @@
     {
       "policy_id": "PRIORITY_VOCABULARY_AND_ORDER",
       "authority_status": "PROJECT_DEFINED_PROVISIONAL",
-      "source_reference": "docs/decisions/DECISION_LOG.md#D-034",
+      "source_reference": "docs/decisions/DECISION_LOG.md#D-045",
       "blocking_sponsor_question": "Q-016",
       "runtime_enabled": false
     },

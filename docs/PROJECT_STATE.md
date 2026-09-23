@@ -9,8 +9,8 @@ It is not a sponsor contract, phase report, or substitute for current source and
 {
   "schema_version": 1,
   "case_envelope_schema_version": 4,
-  "verified_date": "2026-09-21",
-  "verified_main_sha": "5039c7e548dfae1eeb8ad600f128ef374e3a6f2a",
+  "verified_date": "2026-09-22",
+  "verified_main_sha": "ef338c9b7926a298e8987acb975fd93c96ed2bfb",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -99,8 +99,14 @@ Phase 20 Sponsor Policy Authority Gate is accepted on main at
 review is allowed/expected; reviewer role, four-eyes/separation, dispositions,
 retention, approval, and other policy details remain unresolved. No runtime business
 policy was activated. The policy-authority registry and checker remain authoritative.
-Q-001 through Q-018 remain open. Phase 21 is a candidate only and is not accepted main
-behavior.
+Q-001 through Q-018 remain open. Phase 21 External Integration Activation Readiness is
+accepted on main at `ef338c9b7926a298e8987acb975fd93c96ed2bfb`. It adds strict provider-
+readiness and sanitized-evidence governance, CI/tooling checks, an activation packet,
+and a secret-security runbook. It activates no provider and changes no connector,
+composition, API, persistence, frontend, target-ledger, RBAC, mapping, auth, or runtime
+business-policy behavior. Generic ACRA remains Partial, BizFile remains Dormant, real
+GoldTier and PingFed remain Not Implemented, and the accepted credential-free evidence
+profiles remain limited to the current Mock/Local providers.
 
 The Case Evidence & Explainability Workbench accepted through PR #43 adds a read-only
 presentation of the minimized nullable Mock-only registry-binding projection,
@@ -261,10 +267,13 @@ or collection. ACRA is Mock by default, its generic sandbox-shaped seam is parti
 BizFile is dormant, IDP is local deterministic, and GoldTier is Mock only. No Live
 ACRA, Live GoldTier, or Live PingFed connection is proved.
 
-**Project/sponsor direction, not current runtime:** LOW/MEDIUM/HIGH is a supplied-risk
-direction; the POC has no risk field, risk engine, score, or calculated risk. The
-current P1–P10 ordering implementation conflicts with an emerging 1–3 direction and
-remains unchanged pending Q-016. Synthetic Mock ACRA caching is now optional POC
+**Project/sponsor direction and provisional UAT presentation:** LOW/MEDIUM/HIGH as a
+supplied-risk direction remains unimplemented; the POC has no risk field, risk engine,
+score, or calculated risk. Separately, current manual UAT presents ordering-only case
+priority as Low/Medium/High/Unset. The nullable 1–10 API/Mongo field remains compatible:
+canonical writes are 1/5/10 and legacy reads map 1–3/4–7/8–10 to the three tiers. This
+project-defined presentation has no risk, SLA, routing, escalation, approval, or
+regulatory meaning and Q-016 remains open. Synthetic Mock ACRA caching is now optional POC
 behavior under owner-approved O-16-01 through O-16-04: the exact fixed interval is
 7,776,000 seconds (90 elapsed 24-hour periods). It is not calendar months, an ACRA
 validity rule, production policy, or sponsor-confirmed authority.

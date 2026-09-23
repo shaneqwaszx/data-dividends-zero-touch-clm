@@ -123,15 +123,62 @@ export default function CaseDetail({
   }
 
   const refreshEvidence = useCallback(async (action: CaseActionIdentity) => {
-    const [latest, latestDocuments, latestOwnership] = await Promise.all([
-      fetchZeroTouchCase(action.caseId),
-      fetchDocuments(action.caseId),
-      fetchOwnership(action.caseId),
+    await Promise.all([
+      queryClient.cancelQueries({
+        queryKey: caseDetailQueryOptions(action.actorUserId, action.caseId).queryKey,
+        exact: true,
+      }),
+      queryClient.cancelQueries({
+        queryKey: documentQueryOptions(action.actorUserId, action.caseId).queryKey,
+        exact: true,
+      }),
+      queryClient.cancelQueries({
+        queryKey: ownershipQueryOptions(action.actorUserId, action.caseId).queryKey,
+        exact: true,
+      }),
     ]);
-    if (!isCurrentCaseAction(action)) return latest;
-    queryClient.setQueryData(caseDetailQueryOptions(action.actorUserId, action.caseId).queryKey, latest);
-    queryClient.setQueryData(documentQueryOptions(action.actorUserId, action.caseId).queryKey, latestDocuments);
-    queryClient.setQueryData(ownershipQueryOptions(action.actorUserId, action.caseId).queryKey, latestOwnership);
+    if (!isCurrentCaseAction(action)) {
+      throw new Error("Case evidence refresh is no longer current.");
+    }
+    const latestCase = fetchZeroTouchCase(action.caseId).then((latest) => {
+      if (isCurrentCaseAction(action)) {
+        queryClient.setQueryData(
+          caseDetailQueryOptions(action.actorUserId, action.caseId).queryKey,
+          latest,
+        );
+      }
+      return latest;
+    });
+    const latestDocuments = fetchDocuments(action.caseId).then((documents) => {
+      if (isCurrentCaseAction(action)) {
+        queryClient.setQueryData(
+          documentQueryOptions(action.actorUserId, action.caseId).queryKey,
+          documents,
+        );
+        if (import.meta.env.VITE_E2E_DIAGNOSTICS === "1") {
+          const reviewedFieldCount = documents
+            .find((document) => document.superseded_by_document_id === null)
+            ?.fields.filter((field) => field.review_status !== "PENDING").length ?? 0;
+          console.info("E2E_DIAG", JSON.stringify({
+            milestone: "REVIEW_QUERY_DATA_PUBLISHED",
+            case_id: action.caseId,
+            reviewed_field_count: reviewedFieldCount,
+            monotonic_ms: Math.round(performance.now()),
+          }));
+        }
+      }
+      return documents;
+    });
+    const latestOwnership = fetchOwnership(action.caseId).then((ownership) => {
+      if (isCurrentCaseAction(action)) {
+        queryClient.setQueryData(
+          ownershipQueryOptions(action.actorUserId, action.caseId).queryKey,
+          ownership,
+        );
+      }
+      return ownership;
+    });
+    const [latest] = await Promise.all([latestCase, latestDocuments, latestOwnership]);
     return latest;
   }, [queryClient]);
 

@@ -121,6 +121,9 @@ describe("historical RBAC dashboard", () => {
     expect(markup).toContain("Completion rate");
     expect(markup).toContain("RUNNING");
     expect(markup).toContain("Unset");
+    expect(markup).toContain("High");
+    expect(markup).toContain("Medium");
+    expect(markup).toContain("Low");
     expect(markup).toContain("Highest-priority active cases");
     expect(markup).toContain("DBS SYNTHETIC CLIENT");
     expect(markup).toContain("30-day UTC history");

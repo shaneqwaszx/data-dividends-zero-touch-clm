@@ -24,6 +24,58 @@ const HTTP_PARAMETER_VALUE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z:/]+$/;
 const HTTP_QUALITY = /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/;
 const ENCODED_PATH_AMBIGUITY = /%(?:2f|3f|23|5c)/i;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
+const E2E_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const E2E_INTAKE_PATH = /^\/api(?:\/demo)?\/clm\/zero-touch\/cases\/([0-9a-f-]{36})\/intake\/documents(?:\?|$)/i;
+const nodeRuntime = globalThis as unknown as {
+  console: { info: (...values: unknown[]) => void };
+  process: {
+    env: Record<string, string | undefined>;
+    hrtime: { bigint: () => bigint };
+    pid: number;
+  };
+};
+
+interface DiagnosticProxyRequest {
+  once(event: "finish", listener: () => void): void;
+}
+
+interface DiagnosticProxyResponse {
+  readonly statusCode?: number;
+  once(event: "end", listener: () => void): void;
+}
+
+interface DiagnosticProxy {
+  on(
+    event: "proxyReq",
+    listener: (proxyRequest: DiagnosticProxyRequest, request: DevelopmentHttpRequest) => void,
+  ): void;
+  on(
+    event: "proxyRes",
+    listener: (proxyResponse: DiagnosticProxyResponse, request: DevelopmentHttpRequest) => void,
+  ): void;
+}
+
+function e2eProxyMilestone(
+  request: DevelopmentHttpRequest,
+  milestone: string,
+  status?: number,
+): void {
+  if (nodeRuntime.process.env.CLM_E2E_DIAGNOSTICS !== "1") return;
+  const requestId = requestHeader(request, "x-e2e-request-id");
+  const match = E2E_INTAKE_PATH.exec(request.url ?? "");
+  if (!E2E_REQUEST_ID.test(requestId) || !match) return;
+  nodeRuntime.console.info("E2E_DIAG", JSON.stringify({
+    milestone,
+    request_id: requestId,
+    method: request.method ?? "UNKNOWN",
+    route_family: "/api[/demo]/clm/zero-touch/cases/{case_id}/intake/documents",
+    case_id: match[1],
+    monotonic_ms: Number(nodeRuntime.process.hrtime.bigint() / 1_000_000n),
+    pid: nodeRuntime.process.pid,
+    frontend_port: Number(nodeRuntime.process.env.CLM_E2E_FRONTEND_PORT),
+    ...(status === undefined ? {} : { status }),
+  }));
+}
 
 function requestHeader(request: DevelopmentHttpRequest, name: string): string {
   const value = request.headers?.[name];
@@ -239,7 +291,25 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), developmentNavigationFallback()],
     server: {
       proxy: {
-        "/api": backendProxyTarget,
+        "/api": {
+          target: backendProxyTarget,
+          configure(proxy) {
+            const diagnosticProxy = proxy as unknown as DiagnosticProxy;
+            diagnosticProxy.on("proxyReq", (proxyRequest, request) => {
+              e2eProxyMilestone(request, "VITE_PROXY_REQUEST_ACCEPTED");
+              e2eProxyMilestone(request, "VITE_PROXY_UPSTREAM_STARTED");
+              proxyRequest.once("finish", () => {
+                e2eProxyMilestone(request, "VITE_PROXY_UPSTREAM_COMPLETE");
+              });
+            });
+            diagnosticProxy.on("proxyRes", (proxyResponse, request) => {
+              e2eProxyMilestone(request, "VITE_PROXY_UPSTREAM_RESPONSE", proxyResponse.statusCode);
+              proxyResponse.once("end", () => {
+                e2eProxyMilestone(request, "VITE_PROXY_RESPONSE_COMPLETE", proxyResponse.statusCode);
+              });
+            });
+          },
+        },
       },
     },
     test: {

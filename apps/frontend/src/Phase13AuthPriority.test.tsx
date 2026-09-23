@@ -16,6 +16,7 @@ import LoginPage from "./pages/LoginPage";
 import HomeOnboarding from "./pages/HomeOnboarding";
 import {
   PriorityBadge,
+  default as PriorityControl,
   PriorityListControls,
   updatePriorityAndRefresh,
 } from "./pages/PriorityControl";
@@ -120,18 +121,18 @@ describe("Phase 13 authenticated frontend boundary", () => {
         onReplace={() => undefined}
         onRecovery={() => undefined}
         onStartNewCase={() => undefined}
-        onSummaryUpdate={() => undefined}
         onViewOnboarded={() => undefined}
         onViewAudit={() => undefined}
       />,
     );
 
     expect(markup).toContain("Case priority");
-    expect(markup).toContain("Optional. 10 = highest, 1 = lowest.");
+    expect(markup).toContain("Optional ordering label only");
     expect(markup).toContain('value="" selected=""');
-    expect(markup).toContain("10 — Highest");
-    expect(markup).toContain(">5</option>");
-    expect(markup).toContain("1 — Lowest");
+    expect(markup).toContain(">Low</option>");
+    expect(markup).toContain(">Medium</option>");
+    expect(markup).toContain(">High</option>");
+    expect(markup).not.toContain("10 — Highest");
     expect(markup).toContain("DBS Corporate Onboarding");
     expect(markup).not.toContain("Create case for team");
   });
@@ -189,13 +190,65 @@ describe("Phase 13 authenticated frontend boundary", () => {
         onReplace={() => undefined}
         onRecovery={() => undefined}
         onStartNewCase={() => undefined}
-        onSummaryUpdate={() => undefined}
         onViewOnboarded={() => undefined}
         onViewAudit={() => undefined}
       />,
     );
 
-    expect(markup).toContain("P7");
+    expect(markup).toContain("Medium");
+  });
+
+  it("keeps unsupported assignment and generic rework out of operational exception actions", () => {
+    const created = makeDetail("00000000-0000-4000-8000-000000000001", "2026-09-07T01:00:00Z");
+    created.status = "WAITING_FOR_REVIEW";
+    created.active_exceptions = [{
+      exception_id: "00000000-0000-4000-8000-000000000099",
+      case_id: created.case.case_id,
+      exception_type: "DOCUMENT_SOURCE_CONFLICT",
+      stage: "DOCUMENT",
+      status: "OPEN",
+      blocker_code: "DOCUMENT_SOURCE_CONFLICT",
+      blocker_codes: ["DOCUMENT_SOURCE_CONFLICT"],
+      explanation: "Document evidence needs a bounded decision.",
+      evidence: [],
+      available_actions: ["KEEP_REGISTRY_VALUE"],
+      evidence_version: "evidence-v1",
+      automation_version: 1,
+      created_at: "2026-09-07T01:00:00Z",
+      resolved_at: null,
+      resolution: null,
+    }] as ZeroTouchCaseSummary["active_exceptions"];
+
+    const markup = renderToStaticMarkup(
+      <HomeOnboarding
+        summary={created}
+        uen="202400001A"
+        onUenChange={() => undefined}
+        countryOfIncorporation="SG"
+        onCountryChange={() => undefined}
+        documentFiles={[]}
+        onDocumentFilesChange={() => undefined}
+        caseTeamDisplayName="DBS Corporate Onboarding"
+        priority=""
+        onPriorityChange={() => undefined}
+        isSubmitting={false}
+        isResolving={false}
+        requestError={null}
+        pollingWarning={null}
+        intakeProgress={null}
+        onStart={() => undefined}
+        onResolve={() => undefined}
+        onReconcile={() => undefined}
+        onReplace={() => undefined}
+        onRecovery={() => undefined}
+        onStartNewCase={() => undefined}
+        onViewOnboarded={() => undefined}
+        onViewAudit={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain("Keep registry values");
+    expect(markup).not.toMatch(/Assign reviewer|Return for rework/);
   });
 
   it("does not consult browser storage as an authorization owner", async () => {
@@ -234,10 +287,20 @@ describe("Phase 13 authenticated frontend boundary", () => {
     expect(markup).toContain("Priority: All");
     expect(markup).toContain("Prioritised only");
     expect(markup).toContain("Unprioritised only");
-    expect(markup).toContain("Priority 10");
-    expect(markup).toContain("Priority 1");
+    expect(markup).not.toContain("Priority 10");
+    expect(markup).not.toContain("Priority 1");
     expect(markup).toContain("Highest priority first");
     expect(markup).toContain("Lowest priority first");
+  });
+
+  it("offers only tier write values while safely presenting legacy stored priorities", () => {
+    const markup = renderToStaticMarkup(
+      <PriorityControl priority={7} onSave={async () => undefined} />,
+    );
+    expect(markup).toContain('<option value="1">Low</option>');
+    expect(markup).toContain('<option value="5" selected="">Medium</option>');
+    expect(markup).toContain('<option value="10">High</option>');
+    expect(markup).not.toMatch(/>2<|>3<|>4<|>6<|>7<|>8<|>9</);
   });
   it("models restore/login, expiry, and logout as explicit auth transitions", () => {
     const authenticated = transitionAuthState(anonymous, { type: "AUTHENTICATED", session });
@@ -306,7 +369,7 @@ describe("Phase 13 authenticated frontend boundary", () => {
     expect(account).toContain("Coverage: DBS");
     expect(account).toContain("Signed in as");
     expect(account).not.toContain("Demo operator");
-    expect(renderToStaticMarkup(<PriorityBadge priority={10} />)).toContain("P10");
+    expect(renderToStaticMarkup(<PriorityBadge priority={10} />)).toContain("High");
     expect(renderToStaticMarkup(<PriorityBadge priority={null} />)).toContain("Unprioritised");
   });
 

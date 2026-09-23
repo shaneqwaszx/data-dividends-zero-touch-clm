@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ApiError, updateCasePriority } from "../api";
 import type { PriorityFilter, PrioritySort } from "../api";
+import { priorityTierControlValue, priorityTierLabel } from "../priority";
 
 export function PriorityListControls({
   filter,
@@ -25,9 +26,6 @@ export function PriorityListControls({
         <option value="all">Priority: All</option>
         <option value="prioritised">Prioritised only</option>
         <option value="unset">Unprioritised only</option>
-        {Array.from({ length: 10 }, (_, index) => 10 - index).map((priority) => (
-          <option key={priority} value={priority}>Priority {priority}</option>
-        ))}
       </select>
       <select
         className="input"
@@ -45,7 +43,7 @@ export function PriorityListControls({
 export function PriorityBadge({ priority }: { priority: number | null }) {
   return (
     <span className={priority === null ? "priority-badge priority-badge--unset" : "priority-badge"}>
-      {priority === null ? "Unprioritised" : `P${priority}`}
+      {priorityTierLabel(priority)}
     </span>
   );
 }
@@ -72,9 +70,13 @@ export default function PriorityControl({
   disabled?: boolean;
   onSave?: (priority: number | null) => Promise<void>;
 }) {
-  const [selected, setSelected] = useState(priority === null ? "" : String(priority));
+  const [selected, setSelected] = useState(priorityTierControlValue(priority));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelected(priorityTierControlValue(priority));
+  }, [priority]);
 
   async function save() {
     setBusy(true);
@@ -103,12 +105,12 @@ export default function PriorityControl({
           className="input priority-select"
           value={selected}
           disabled={busy || disabled}
-          onChange={(event) => setSelected(event.target.value)}
+          onChange={(event) => setSelected(event.target.value as "" | "1" | "5" | "10")}
         >
           <option value="">Unset</option>
-          {[10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map((value) => (
-            <option key={value} value={value}>{value}</option>
-          ))}
+          <option value="1">Low</option>
+          <option value="5">Medium</option>
+          <option value="10">High</option>
         </select>
       </label>
       <button className="btn btn-secondary" type="button" disabled={busy || disabled} onClick={() => void save()}>

@@ -64,11 +64,31 @@ async function login(page: Page, userId = "maya-lim") {
   await expect(page.getByRole("navigation", { name: "Main workspace" })).toBeVisible({ timeout: 30_000 });
 }
 
+async function openWorkspaceTab(page: Page, name: string) {
+  await page.getByRole("link", { name, exact: true }).click();
+}
+
+async function openFreshOnboarding(page: Page) {
+  await openWorkspaceTab(page, "New onboarding");
+  const landing = page.getByRole("heading", { name: "Start onboarding" });
+  const startFresh = page.getByRole("button", { name: "Start a new case" });
+  await expect(landing.or(startFresh)).toBeVisible();
+  if (await startFresh.isVisible()) await startFresh.click();
+  await expect(landing).toBeVisible();
+}
+
 test.describe.configure({ mode: "serial" });
 
 let networkGuard: NetworkGuard | undefined;
 
 test.beforeEach(async ({ page }) => {
+  if (process.env.CLM_E2E_DIAGNOSTICS === "1") {
+    page.on("console", (message) => {
+      if (message.type() === "info" && message.text().startsWith("E2E_DIAG ")) {
+        console.log(message.text());
+      }
+    });
+  }
   const frontendOrigin = requiredEnvironment("PLAYWRIGHT_BASE_URL");
   const policy = createBrowserNetworkPolicy({
     frontendOrigin,
@@ -243,6 +263,42 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(activeTimingRow).toContainText("Last updated:");
 });
 
+test("review-ready actions render after authoritative current document evidence loads", async ({ page }) => {
+  await page.goto("/");
+  await login(page);
+  await page.getByRole("link", { name: "New onboarding" }).click();
+  await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Registration ID / UEN").fill("202400001A");
+  await page.locator("#home-document").setInputFiles(lowConfidenceFixture);
+  await page.getByRole("button", { name: "Create onboarding" }).click();
+  await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
+  const caseId = page.url().split("/").at(-1)!;
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
+    if (!response.ok()) return null;
+    return (await response.json() as { status: string }).status;
+  }, { timeout: 120_000 }).toBe("WAITING_FOR_REVIEW");
+
+  const documentsResponse = page.waitForResponse((response) => (
+    response.request().method() === "GET"
+      && new URL(response.url()).pathname === `/api/onboarding/cases/${caseId}/documents`
+  ));
+  await page.goto(`/cases/${caseId}`);
+  const response = await documentsResponse;
+  expect(response.status()).toBe(200);
+  const currentDocument = (await response.json() as Array<{
+    state: string;
+    superseded_by_document_id: string | null;
+    fields: Array<{ review_status: string; original_extracted_value: string | null }>;
+  }>).find((document) => document.superseded_by_document_id === null);
+  expect(currentDocument).toBeDefined();
+  expect(currentDocument?.state).toBe("REVIEW_REQUIRED");
+  expect(currentDocument?.fields.every((field) => field.review_status === "PENDING")).toBe(true);
+  expect(currentDocument?.fields.every((field) => field.original_extracted_value !== null)).toBe(true);
+  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Accept .* suggestion/ }).first()).toBeVisible();
+});
+
 test("current document review progresses authoritatively and keeps superseded history read-only", async ({ page }) => {
   const reviewRequests: string[] = [];
   const resumeRequests: string[] = [];
@@ -277,37 +333,65 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(page.getByRole("button", { name: "Assign reviewer" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Return for rework" })).toHaveCount(0);
 
-  const acceptRegistration = page.getByRole("button", { name: "Accept registration number suggestion" });
-  await acceptRegistration.dblclick();
-  await expect.poll(async () => {
-    const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
-    if (!response.ok()) return 0;
-    const documents = await response.json() as Array<{ fields: Array<{ review_status: string }>; superseded_by_document_id: string | null }>;
+  const reviewMilestone = (milestone: string, reviewedFieldCount: number) => {
+    if (process.env.CLM_E2E_DIAGNOSTICS !== "1") return;
+    console.log("E2E_DIAG", JSON.stringify({
+      milestone,
+      case_id: caseId,
+      reviewed_field_count: reviewedFieldCount,
+    }));
+  };
+  const reviewedCount = async (response: import("@playwright/test").Response) => {
+    const documents = await response.json() as Array<{
+      fields: Array<{ review_status: string }>;
+      superseded_by_document_id: string | null;
+    }>;
     return documents.find((document) => document.superseded_by_document_id === null)
       ?.fields.filter((item) => item.review_status !== "PENDING").length ?? 0;
-  }, { timeout: 120_000 }).toBe(1);
+  };
+
+  const acceptRegistration = page.getByRole("button", { name: "Accept registration number suggestion" });
+  const firstMutationResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" && response.url().endsWith("/reviews"));
+  const firstDocumentsResponse = page.waitForResponse((response) =>
+    response.request().method() === "GET"
+      && response.url().endsWith(`/api/onboarding/cases/${caseId}/documents`));
+  reviewMilestone("REVIEW_MUTATION_DISPATCHED", 0);
+  await acceptRegistration.dblclick();
+  expect((await firstMutationResponse).status()).toBe(200);
+  reviewMilestone("REVIEW_MUTATION_RESPONSE_COMPLETE", 1);
+  const firstBackendCount = await reviewedCount(await firstDocumentsResponse);
+  expect(firstBackendCount).toBe(1);
+  reviewMilestone("REVIEW_DOCUMENTS_GET_COMPLETE", firstBackendCount);
   expect(reviewRequests).toHaveLength(1);
   expect(JSON.parse(reviewRequests[0])).toEqual({ field_key: "registration_number", decision: "ACCEPTED" });
   expect(resumeRequests).toHaveLength(0);
-  await page.goto(`/cases/${caseId}`);
   await expect(page.getByText("1 final / 4 fields")).toBeVisible({ timeout: 30_000 });
+  reviewMilestone("REVIEW_RENDERED_COUNT", 1);
   await expect(page.getByText(/3 fields remain for review/)).toBeVisible();
 
   for (const [index, field] of ["legal name", "registered address", "country of incorporation"].entries()) {
-    await page.goto(`/cases/${caseId}`);
     await expect(page.getByText(`${index + 1} final / 4 fields`)).toBeVisible({
       timeout: 30_000,
     });
     const action = page.getByRole("button", { name: `Accept ${field} suggestion` });
     await expect(action).toBeVisible({ timeout: 30_000 });
+    const mutationResponse = page.waitForResponse((response) =>
+      response.request().method() === "POST" && response.url().endsWith("/reviews"));
+    const documentsResponse = page.waitForResponse((response) =>
+      response.request().method() === "GET"
+        && response.url().endsWith(`/api/onboarding/cases/${caseId}/documents`));
+    reviewMilestone("REVIEW_MUTATION_DISPATCHED", index + 1);
     await action.click();
-    await expect.poll(async () => {
-      const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
-      if (!response.ok()) return 0;
-      const documents = await response.json() as Array<{ fields: Array<{ review_status: string }>; superseded_by_document_id: string | null }>;
-      return documents.find((document) => document.superseded_by_document_id === null)
-        ?.fields.filter((item) => item.review_status !== "PENDING").length ?? 0;
-    }, { timeout: 120_000 }).toBe(index + 2);
+    expect((await mutationResponse).status()).toBe(200);
+    reviewMilestone("REVIEW_MUTATION_RESPONSE_COMPLETE", index + 2);
+    const backendCount = await reviewedCount(await documentsResponse);
+    expect(backendCount).toBe(index + 2);
+    reviewMilestone("REVIEW_DOCUMENTS_GET_COMPLETE", backendCount);
+    await expect(page.getByText(`${index + 2} final / 4 fields`)).toBeVisible({
+      timeout: 30_000,
+    });
+    reviewMilestone("REVIEW_RENDERED_COUNT", index + 2);
   }
   await expect.poll(async () => {
     const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
@@ -315,7 +399,6 @@ test("current document review progresses authoritatively and keeps superseded hi
     const documents = await response.json() as Array<{ state: string; superseded_by_document_id: string | null }>;
     return documents.find((document) => document.superseded_by_document_id === null)?.state ?? null;
   }, { timeout: 120_000 }).toBe("REVIEWED");
-  await page.goto(`/cases/${caseId}`);
   await expect(page.getByText("REVIEWED", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
   expect(reviewRequests).toHaveLength(4);
   expect(resumeRequests).toHaveLength(0);
@@ -359,8 +442,7 @@ test("Cases filters exact open business-exception types without hiding other att
   await login(page);
 
   async function createPausedCase(uen: string, fixture: string): Promise<string> {
-    await page.goto("/new-onboarding");
-    await expect(page.getByRole("heading", { name: "Start onboarding" })).toBeVisible();
+    await openFreshOnboarding(page);
     await page.getByLabel("Jurisdiction").selectOption("SG");
     await page.getByLabel("Registration ID / UEN").fill(uen);
     await page.locator("#home-document").setInputFiles(fixture);
@@ -380,7 +462,7 @@ test("Cases filters exact open business-exception types without hiding other att
   const lowConfidenceCaseId = await createPausedCase("202400001A", lowConfidenceFixture);
   const ownershipCycleCaseId = await createPausedCase("202400006F", ownershipCycleFixture);
 
-  await page.goto("/cases");
+  await openWorkspaceTab(page, "Cases");
   await expect(page.getByRole("heading", { name: "Cases" })).toBeVisible();
   const attentionFilter = page.getByLabel("Open business exception type");
   await expect(attentionFilter).toBeVisible();
@@ -494,7 +576,7 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   await login(page);
   const targetUen = "209900104A";
 
-  await page.goto("/cases");
+  await openWorkspaceTab(page, "Cases");
   await expect(page.getByText(/Showing 1–50 on page 1/)).toBeVisible();
   // React StrictMode may cancel and replay the initial development-mode fetch. Both
   // observations must still be the same single bounded page shape, never row fan-out.
@@ -543,13 +625,13 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
   await expect(open).toHaveAttribute("href", `/cases/${targetCaseId}`);
   await open.click();
   await expect(page).toHaveURL(`/cases/${targetCaseId}`);
-  await page.goto("/cases");
+  await openWorkspaceTab(page, "Cases");
 
   await page.locator(".operator-account__button").click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await login(page, "ethan-tan");
-  await page.goto("/cases");
+  await openWorkspaceTab(page, "Cases");
   await page.getByLabel("Search cases").fill(targetUen);
   const mutableRow = page.getByRole("row").filter({ hasText: targetUen });
   await expect(mutableRow).toBeVisible();
@@ -557,10 +639,10 @@ test("Cases uses one bounded backend page for search, filters, paging, mutation 
     response.request().method() === "PATCH"
       && new URL(response.url()).pathname === `/api/clm/zero-touch/cases/${targetCaseId}/priority`
   ));
-  await mutableRow.locator("select.priority-select").selectOption("7");
+  await mutableRow.locator("select.priority-select").selectOption("5");
   await mutableRow.getByRole("button", { name: "Set" }).click();
   expect((await priorityResponse).status()).toBe(200);
-  await expect(mutableRow.getByText("P7", { exact: true })).toBeVisible();
+  await expect(mutableRow.locator(".priority-badge")).toHaveText("Medium");
 
   const deleteResponse = page.waitForResponse((response) => (
     response.request().method() === "DELETE"

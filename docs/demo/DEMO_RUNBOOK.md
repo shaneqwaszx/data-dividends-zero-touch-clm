@@ -167,8 +167,10 @@ Maya Lim and Ethan Tan see only Alpha cases. Sophia Ng and Ryan Lee
 see only Beta cases. Olivia Koh has global/cross-team Director
 scope and must explicitly select a team when creating. The persisted team IDs remain
 `TEAM_A` and `TEAM_B`. Inaccessible case IDs appear unavailable, not forbidden. Priority
-accepts only unset or integer 1–10, orders portfolio rows on the backend, and has no SLA
-or approval meaning.
+is shown as Unset, Low, Medium, or High. Those controls write null, 1, 5, or 10 to the
+compatible integer field; existing values 1–3, 4–7, and 8–10 display as Low, Medium,
+and High. Portfolio ordering remains backend-owned and priority has no risk, SLA,
+routing, escalation, approval, or regulatory meaning.
 
 The sixth bootstrap identity is `hr-admin`. It can administer synthetic users and
 teams, but it cannot view cases, Dashboard, Onboarded, Audit, or mutate policy. Policy

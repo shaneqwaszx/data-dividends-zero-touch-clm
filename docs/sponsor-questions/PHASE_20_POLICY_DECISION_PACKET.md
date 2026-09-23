@@ -86,8 +86,10 @@ answered, there is no implicit Registry-, Document-, confidence-, or newest-wins
 ## 6. Identity, roles, assignment, and priority (Q-016)
 
 **Prototype today:** local bootstrap users/process sessions, backend POC capabilities,
-immutable team ownership, no reassignment/sharing, and nullable P1–P10 priority affecting
-ordering only.
+immutable team ownership, no reassignment/sharing, and ordering-only case priority. The
+manual-UAT UI uses provisional Low/Medium/High/Unset labels while the nullable 1–10
+API/Mongo field remains compatible through canonical writes 1/5/10 and legacy tier
+mapping.
 
 **Not confirmed:** production IdP/session/RBAC, role mutations, assignment/reassignment,
 team cardinality, reason/history, priority values/direction/mutator, and any downstream
@@ -99,8 +101,9 @@ each effect yes/no: ordering, routing, SLA/deadline, escalation, notification, a
 risk.
 
 **Consequence:** a future implementation can plan authorization and compatibility from
-P1–P10. Until answered, local roles are not production RBAC and priority remains
-ordering-only provisional POC behavior.
+the existing nullable integer field and provisional tier presentation. Until answered,
+local roles are not production RBAC and priority remains ordering-only provisional POC
+behavior.
 
 ## 7. Supplied risk and workflow reaction (Q-017)
 

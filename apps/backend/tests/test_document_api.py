@@ -1,8 +1,10 @@
+import time
 from pathlib import Path
 from uuid import UUID
 
 import httpx
 import pytest
+from starlette.requests import Request
 from test_zero_touch_orchestration import build_system, start_demo
 
 from app.composition import build_onboarding_service
@@ -11,12 +13,55 @@ from app.connectors.idp import IdpDocumentInput, IdpProvider
 from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
 from app.demo.scenarios import VALID_SME_UEN
 from app.domain.documents import DocumentFieldKey
-from app.main import create_app
+from app.main import _e2e_upload_milestone, create_app
 from app.services.document_processing import DocumentProcessingService
 from app.services.document_repository import InMemoryDocumentProcessingRepository
 from app.services.onboarding import OnboardingService
 
 PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
+
+
+def test_e2e_upload_milestone_is_gated_and_payload_free(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case_id = UUID("00000000-0000-4000-8000-000000000150")
+    request_id = "00000000-0000-4000-8000-000000000151"
+    request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
+        "headers": [
+            (b"x-e2e-request-id", request_id.encode("ascii")),
+            (b"content-length", b"123"),
+            (b"x-document-name", b"private-document.pdf"),
+        ],
+    })
+    monkeypatch.setenv("CLM_E2E_BACKEND_PORT", "8765")
+    started_at = time.monotonic()
+
+    _e2e_upload_milestone(
+        request,
+        milestone="BACKEND_REQUEST_ENTERED",
+        case_id=case_id,
+        started_at=started_at,
+    )
+    assert capsys.readouterr().out == ""
+
+    monkeypatch.setenv("CLM_E2E_DIAGNOSTICS", "1")
+    _e2e_upload_milestone(
+        request,
+        milestone="BACKEND_REQUEST_ENTERED",
+        case_id=case_id,
+        started_at=started_at,
+    )
+    rendered = capsys.readouterr().out
+    assert "E2E_DIAG" in rendered
+    assert request_id in rendered
+    assert str(case_id) in rendered
+    assert '"content_length": 123' in rendered
+    assert "private-document.pdf" not in rendered
+    assert "x-document-name" not in rendered
 
 
 class RecordingProvider:

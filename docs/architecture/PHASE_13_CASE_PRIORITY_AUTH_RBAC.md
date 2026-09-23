@@ -54,6 +54,12 @@ Historical list priority filters and ascending/descending priority sort are appl
 the backend only after the actor's authorized portfolio has been established. Unset
 priority remains last in either direction; Dashboard top-active ordering is unchanged.
 
+The current manual-UAT frontend adds one presentation compatibility layer without
+changing this canonical field: Low writes 1, Medium writes 5, High writes 10, and legacy
+reads map 1–3/4–7/8–10 to Low/Medium/High. Null is shown as Unset or Unprioritised. The
+ordinary UI no longer exposes exact numeric choices; the existing API/query/persistence
+contract remains compatible for legacy clients and stored cases.
+
 Mongo envelope schema version 2 stores `team_id` and priority. Exact schema-v1 envelopes
 are strictly decoded to an in-memory null/null representation without read-time rewrite.
 Unknown versions, unknown fields, invalid teams, invalid priorities, and storage identity

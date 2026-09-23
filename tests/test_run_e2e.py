@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import ClassVar
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "run_e2e.py"
@@ -40,6 +40,7 @@ class _FakeCapture:
 
 class _FakeOwnedProcess:
     instances: ClassVar[list[_FakeOwnedProcess]] = []
+    events: ClassVar[list[str]] = []
     output = ""
 
     def __init__(self, name: str, command: Sequence[str], *, cwd: Path, env: object) -> None:
@@ -54,11 +55,13 @@ class _FakeOwnedProcess:
 
     def stop(self) -> None:
         self.stopped = True
+        self.events.append(f"stop:{self.name}")
 
 
 class RunE2ETests(unittest.TestCase):
     def setUp(self) -> None:
         _FakeOwnedProcess.instances = []
+        _FakeOwnedProcess.events = []
         _FakeOwnedProcess.output = ""
 
     def test_base_environment_is_an_allowlist(self) -> None:
@@ -253,8 +256,99 @@ console.log(JSON.stringify({
         finally:
             occupied.close()
 
+    def test_lifecycle_port_allocation_starts_with_configured_pair(self) -> None:
+        self.assertEqual(
+            RUN_E2E._allocate_lifecycle_ports(8765, 4173, 3)[0],
+            (8765, 4173),
+        )
+
+    def test_lifecycle_port_allocation_is_unique_and_deterministic(self) -> None:
+        expected = [(8765, 4173), (8766, 4174), (8767, 4175), (8768, 4176)]
+        first = RUN_E2E._allocate_lifecycle_ports(8765, 4173, 4)
+        second = RUN_E2E._allocate_lifecycle_ports(8765, 4173, 4)
+
+        self.assertEqual(first, expected)
+        self.assertEqual(second, expected)
+        backend_ports = [pair[0] for pair in first]
+        frontend_ports = [pair[1] for pair in first]
+        self.assertEqual(len(backend_ports), len(set(backend_ports)))
+        self.assertEqual(len(frontend_ports), len(set(frontend_ports)))
+        self.assertTrue(set(backend_ports).isdisjoint(frontend_ports))
+
+    def test_lifecycle_port_allocation_rejects_cross_pair_collision(self) -> None:
+        with self.assertRaisesRegex(ValueError, "collision"):
+            RUN_E2E._allocate_lifecycle_ports(5000, 5001, 2)
+
+    def test_lifecycle_port_allocation_rejects_bounds_and_overflow(self) -> None:
+        for backend_port, frontend_port, count in (
+            (1023, 4173, 1),
+            (8765, 65536, 1),
+            (65535, 4173, 2),
+            (8765, 65535, 2),
+        ):
+            with self.subTest(
+                backend_port=backend_port,
+                frontend_port=frontend_port,
+                count=count,
+            ), self.assertRaisesRegex(ValueError, "1024.*65535"):
+                RUN_E2E._allocate_lifecycle_ports(
+                    backend_port,
+                    frontend_port,
+                    count,
+                )
+
+    def test_lifecycle_port_allocation_rejects_malformed_base_values(self) -> None:
+        for backend_port, frontend_port in (
+            ("8765", 4173),
+            (8765, "4173"),
+            (8765.0, 4173),
+            (8765, True),
+        ):
+            with self.subTest(
+                backend_port=backend_port,
+                frontend_port=frontend_port,
+            ), self.assertRaisesRegex(ValueError, "1024.*65535"):
+                RUN_E2E._allocate_lifecycle_ports(
+                    backend_port,
+                    frontend_port,
+                    1,
+                )
+
+    def test_lifecycle_port_allocation_rejects_invalid_selection_count(self) -> None:
+        for count in (0, -1, True, 1.5):
+            with self.subTest(count=count), self.assertRaisesRegex(
+                ValueError, "selection count"
+            ):
+                RUN_E2E._allocate_lifecycle_ports(8765, 4173, count)
+
+    def test_port_probe_closes_every_temporary_socket(self) -> None:
+        created = []
+
+        class ProbeSocket:
+            def setsockopt(self, *args: object) -> None:
+                del args
+
+            def bind(self, address: object) -> None:
+                del address
+
+            def close(self) -> None:
+                self.closed = True
+
+        def create_socket(*args: object) -> ProbeSocket:
+            del args
+            candidate = ProbeSocket()
+            candidate.closed = False
+            created.append(candidate)
+            return candidate
+
+        with patch.object(RUN_E2E.socket, "socket", side_effect=create_socket):
+            RUN_E2E._assert_ports_available(8765, 4173)
+
+        self.assertEqual(len(created), 2)
+        self.assertTrue(all(candidate.closed for candidate in created))
+
     def test_invalid_ports_are_rejected(self) -> None:
-        for value in ("-1", "0", "65536", "1e3", " 8000"):
+        for value in ("-1", "0", "1023", "65536", "1e3", " 8000", "port"):
             with self.subTest(value=value), self.assertRaises(
                 RUN_E2E.argparse.ArgumentTypeError
             ):
@@ -352,7 +446,264 @@ console.log(JSON.stringify({
         self.assertEqual(
             _FakeOwnedProcess.instances[-1].env["PLAYWRIGHT_NO_COPY_PROMPT"], "1"
         )
+        backend, frontend, playwright = _FakeOwnedProcess.instances
+        self.assertEqual(backend.env["CLM_E2E_BACKEND_PORT"], "8765")
+        self.assertEqual(
+            backend.env["CLM_E2E_FRONTEND_ORIGIN"],
+            "http://127.0.0.1:4173",
+        )
+        self.assertEqual(
+            frontend.env["VITE_BACKEND_PROXY_TARGET"],
+            "http://127.0.0.1:8765",
+        )
+        self.assertEqual(
+            playwright.env["CLM_E2E_BACKEND_ORIGIN"],
+            "http://127.0.0.1:8765",
+        )
+        self.assertEqual(
+            playwright.env["PLAYWRIGHT_BASE_URL"],
+            "http://127.0.0.1:4173",
+        )
+        self.assertNotIn("CLM_E2E_DIAGNOSTICS", backend.env)
+        self.assertNotIn("CLM_E2E_DIAGNOSTICS", frontend.env)
+        self.assertNotIn("VITE_E2E_DIAGNOSTICS", frontend.env)
+        self.assertNotIn("CLM_E2E_DIAGNOSTICS", playwright.env)
         self.assertTrue(all(process.stopped for process in _FakeOwnedProcess.instances))
+        self.assertEqual(
+            _FakeOwnedProcess.events,
+            ["stop:playwright", "stop:frontend", "stop:backend"],
+        )
+
+    def test_diagnostics_are_explicit_and_emit_only_safe_milestone_lines(self) -> None:
+        _FakeOwnedProcess.output = (
+            'E2E_DIAG {"milestone":"SAFE","case_id":"opaque"}\n'
+        )
+        output = io.StringIO()
+        with (
+            patch.object(RUN_E2E.Path, "is_file", return_value=True),
+            patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
+            patch.object(RUN_E2E, "_find_node", return_value="node"),
+            patch.object(RUN_E2E, "_assert_ports_available"),
+            patch.object(RUN_E2E, "_wait_for_http"),
+            patch.object(RUN_E2E, "_wait_for_test", return_value=0),
+            redirect_stdout(output),
+        ):
+            result = RUN_E2E.run(
+                backend_port=8765,
+                frontend_port=4173,
+                timeout_seconds=60,
+                diagnostics=True,
+            )
+
+        self.assertEqual(result, 0)
+        backend, frontend, playwright = _FakeOwnedProcess.instances
+        self.assertEqual(backend.env["CLM_E2E_DIAGNOSTICS"], "1")
+        self.assertEqual(frontend.env["CLM_E2E_DIAGNOSTICS"], "1")
+        self.assertEqual(frontend.env["VITE_E2E_DIAGNOSTICS"], "1")
+        self.assertEqual(playwright.env["CLM_E2E_DIAGNOSTICS"], "1")
+        rendered = output.getvalue()
+        self.assertIn('E2E_DIAG {"milestone":"SAFE","case_id":"opaque"}', rendered)
+
+    def test_old_port_non_bindability_after_cleanup_does_not_fail_lifecycle(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.object(RUN_E2E.Path, "is_file", return_value=True),
+            patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
+            patch.object(RUN_E2E, "_find_node", return_value="node"),
+            patch.object(
+                RUN_E2E,
+                "_assert_ports_available",
+                side_effect=[None, RuntimeError("old tuple remains non-bindable")],
+            ) as port_probe,
+            patch.object(RUN_E2E, "_wait_for_http"),
+            patch.object(RUN_E2E, "_wait_for_test", return_value=0),
+            redirect_stdout(output),
+            redirect_stderr(output),
+        ):
+            result = RUN_E2E.run(
+                backend_port=8765,
+                frontend_port=4173,
+                timeout_seconds=60,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertTrue(all(process.stopped for process in _FakeOwnedProcess.instances))
+        self.assertEqual(port_probe.call_count, 1)
+
+    def test_process_stop_failure_is_reported_and_fails_closed(self) -> None:
+        class StopFailingProcess(_FakeOwnedProcess):
+            def stop(self) -> None:
+                super().stop()
+                if self.name == "frontend":
+                    raise RuntimeError("task-owned frontend process still running")
+
+        output = io.StringIO()
+        with (
+            patch.object(RUN_E2E.Path, "is_file", return_value=True),
+            patch.object(RUN_E2E, "OwnedProcess", StopFailingProcess),
+            patch.object(RUN_E2E, "_find_node", return_value="node"),
+            patch.object(RUN_E2E, "_assert_ports_available"),
+            patch.object(RUN_E2E, "_wait_for_http"),
+            patch.object(RUN_E2E, "_wait_for_test", return_value=0),
+            redirect_stdout(output),
+            redirect_stderr(output),
+        ):
+            result = RUN_E2E.run(
+                backend_port=8765,
+                frontend_port=4173,
+                timeout_seconds=60,
+            )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(
+            StopFailingProcess.events,
+            ["stop:playwright", "stop:frontend", "stop:backend"],
+        )
+        self.assertIn("task-owned frontend process still running", output.getvalue())
+
+    def test_occupied_later_lifecycle_port_fails_before_startup(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.object(
+                RUN_E2E,
+                "_assert_ports_available",
+                side_effect=RuntimeError("occupied"),
+            ),
+            patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
+            redirect_stderr(output),
+        ):
+            result = RUN_E2E.run(
+                backend_port=8766,
+                frontend_port=4174,
+                timeout_seconds=60,
+            )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(_FakeOwnedProcess.instances, [])
+        self.assertIn("occupied", output.getvalue())
+
+    def test_unfiltered_suite_runs_each_discovered_test_in_a_fresh_lifecycle(self) -> None:
+        selectors = [
+            "e2e/authenticated-zero-touch.e2e.ts:87",
+            "e2e/responsive-layout.e2e.ts:177",
+        ]
+        with (
+            patch.object(RUN_E2E, "_list_test_selectors", return_value=selectors),
+            patch.object(RUN_E2E, "run", return_value=0) as run,
+            redirect_stdout(io.StringIO()),
+        ):
+            result = RUN_E2E.run_isolated_suite(
+                backend_port=8765,
+                frontend_port=4173,
+                timeout_seconds=240,
+                headed=False,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            [call.kwargs["selection"] for call in run.call_args_list],
+            selectors,
+        )
+        self.assertEqual(
+            [
+                (call.kwargs["backend_port"], call.kwargs["frontend_port"])
+                for call in run.call_args_list
+            ],
+            [(8765, 4173), (8766, 4174)],
+        )
+        self.assertTrue(all(call.kwargs["grep"] is None for call in run.call_args_list))
+
+    def test_posix_stop_signals_only_owned_group_and_proves_exit(self) -> None:
+        owned = RUN_E2E.OwnedProcess.__new__(RUN_E2E.OwnedProcess)
+        owned.name = "backend"
+        owned.process_group_id = 54321
+        owned.process = MagicMock()
+        owned.process.poll.return_value = 0
+        owned.process.wait.return_value = 0
+
+        with (
+            patch.object(RUN_E2E.os, "name", "posix"),
+            patch.object(RUN_E2E.os, "killpg", create=True) as kill_group,
+            patch.object(RUN_E2E.signal, "SIGKILL", 9, create=True),
+            patch.object(
+                RUN_E2E,
+                "_wait_for_posix_process_group_exit",
+                return_value=None,
+            ) as wait_group,
+        ):
+            owned.stop()
+
+        kill_group.assert_called_once_with(54321, RUN_E2E.signal.SIGTERM)
+        wait_group.assert_called_once()
+        self.assertEqual(wait_group.call_args.args[0], 54321)
+        self.assertNotIn(call(54321, 9), kill_group.call_args_list)
+
+    def test_posix_surviving_owned_group_fails_cleanup_after_term_and_kill(self) -> None:
+        owned = RUN_E2E.OwnedProcess.__new__(RUN_E2E.OwnedProcess)
+        owned.name = "backend"
+        owned.process_group_id = 54321
+        owned.process = MagicMock()
+        owned.process.poll.return_value = None
+        owned.process.wait.side_effect = subprocess.TimeoutExpired("backend", 5)
+
+        with (
+            patch.object(RUN_E2E.os, "name", "posix"),
+            patch.object(RUN_E2E.os, "killpg", create=True) as kill_group,
+            patch.object(RUN_E2E.signal, "SIGKILL", 9, create=True),
+            patch.object(
+                RUN_E2E,
+                "_wait_for_posix_process_group_exit",
+                side_effect=[TimeoutError("still alive"), TimeoutError("still alive")],
+            ),
+            self.assertRaisesRegex(RuntimeError, "process group did not terminate"),
+        ):
+            owned.stop()
+
+        self.assertEqual(
+            kill_group.call_args_list,
+            [
+                call(54321, RUN_E2E.signal.SIGTERM),
+                call(54321, 9),
+            ],
+        )
+
+    def test_windows_stop_targets_only_owned_process_tree(self) -> None:
+        owned = RUN_E2E.OwnedProcess.__new__(RUN_E2E.OwnedProcess)
+        owned.name = "frontend"
+        owned.process_group_id = None
+        owned.process = MagicMock()
+        owned.process.pid = 54321
+        owned.process.poll.side_effect = [None, None, 0]
+        owned.process.wait.side_effect = [subprocess.TimeoutExpired("frontend", 5), 0]
+
+        with (
+            patch.object(RUN_E2E.os, "name", "nt"),
+            patch.object(RUN_E2E.subprocess, "run") as run_command,
+        ):
+            owned.stop()
+
+        run_command.assert_called_once()
+        self.assertEqual(
+            run_command.call_args.args[0],
+            ["taskkill", "/PID", "54321", "/T", "/F"],
+        )
+
+    def test_unfiltered_suite_stops_after_the_first_failed_isolated_test(self) -> None:
+        selectors = ["e2e/one.e2e.ts:10", "e2e/two.e2e.ts:20"]
+        with (
+            patch.object(RUN_E2E, "_list_test_selectors", return_value=selectors),
+            patch.object(RUN_E2E, "run", side_effect=[1, 0]) as run,
+            redirect_stdout(io.StringIO()),
+        ):
+            result = RUN_E2E.run_isolated_suite(
+                backend_port=8765,
+                frontend_port=4173,
+                timeout_seconds=240,
+                headed=False,
+            )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(run.call_count, 1)
 
     def test_test_timeout_stops_every_process(self) -> None:
         with (

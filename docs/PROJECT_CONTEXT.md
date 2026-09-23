@@ -352,6 +352,9 @@ first by descending priority and then retain the accepted automation timestamp/c
 tie-break by default. Historical lists support backend-owned exact/unset/prioritised
 filters and either priority direction, always after RBAC and with unset last. Priority
 has no workflow, SLA, escalation, notification, or approval meaning.
+The current manual-UAT frontend presents Low/Medium/High/Unset, writes canonical values
+1/5/10, and maps legacy 1–3/4–7/8–10 values to those tiers without changing storage or
+the API contract. Q-016 remains open and the vocabulary is project-defined provisional.
 The canonical create request now accepts priority without coercion and persists it on the
 initial case in the same operation; the normal New Onboarding UI sends no follow-up
 priority PATCH. The authenticated synthetic seeder creates or reuses five cases per team

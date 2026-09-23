@@ -16,6 +16,12 @@ from app.connectors.acra import (
     AcraRelationshipsPayload,
 )
 from app.connectors.errors import AcraServiceUnavailableError
+from app.connectors.garden_business import (
+    GARDEN_BUSINESS_ADDRESS,
+    GARDEN_BUSINESS_NAME,
+    GARDEN_BUSINESS_UEN,
+    derive_garden_ownership,
+)
 from app.demo.scenarios import (
     GOLDTIER_FAILURE_UEN,
     GOLDTIER_PARTIAL_UEN,
@@ -101,6 +107,10 @@ class MockAcraConnector:
                 "FAILED RELATIONSHIP STEP DEMO PTE. LTD.",
                 _address("FAILURE CLOSE", "049008", "#08-01"),
             ),
+            GARDEN_BUSINESS_UEN: (
+                GARDEN_BUSINESS_NAME,
+                _address(*GARDEN_BUSINESS_ADDRESS),
+            ),
         }
         fixture = fixtures.get(normalised_uen)
         if fixture is None:
@@ -111,8 +121,16 @@ class MockAcraConnector:
             uen=normalised_uen,
             entity_name=entity_name,
             country_code="SG",
-            entity_type="PRIVATE_COMPANY_LIMITED_BY_SHARES",
-            registration_date=date(2024, 1, 2),
+            entity_type=(
+                "BUSINESS"
+                if normalised_uen == GARDEN_BUSINESS_UEN
+                else "PRIVATE_COMPANY_LIMITED_BY_SHARES"
+            ),
+            registration_date=(
+                date(2018, 3, 10)
+                if normalised_uen == GARDEN_BUSINESS_UEN
+                else date(2024, 1, 2)
+            ),
             entity_status="LIVE",
             registered_address=registered_address,
             source_environment="MOCK",
@@ -123,7 +141,7 @@ class MockAcraConnector:
     def fetch_officers(self, uen: str) -> AcraOfficersPayload:
         normalised_uen = uen.strip().upper()
         officers: tuple[AcraOfficerPayload, ...]
-        if normalised_uen == EMPTY_OFFICERS_UEN:
+        if normalised_uen in {EMPTY_OFFICERS_UEN, GARDEN_BUSINESS_UEN}:
             officers = ()
         else:
             officers = (
@@ -146,7 +164,9 @@ class MockAcraConnector:
     def fetch_ownership_parties(self, uen: str) -> AcraOwnershipPartiesPayload:
         normalised_uen = uen.strip().upper()
         parties: tuple[AcraOwnershipPartyPayload, ...]
-        if normalised_uen == MISSING_OWNERSHIP_UEN:
+        if normalised_uen == GARDEN_BUSINESS_UEN:
+            parties, _ = derive_garden_ownership()
+        elif normalised_uen == MISSING_OWNERSHIP_UEN:
             parties = ()
         elif normalised_uen == "202400006F":
             parties = (
@@ -194,7 +214,9 @@ class MockAcraConnector:
             )
         root = f"ENTITY_{normalised_uen}"
         relationships: tuple[AcraRelationshipPayload, ...]
-        if normalised_uen == MISSING_OWNERSHIP_UEN:
+        if normalised_uen == GARDEN_BUSINESS_UEN:
+            _, relationships = derive_garden_ownership()
+        elif normalised_uen == MISSING_OWNERSHIP_UEN:
             relationships = ()
         elif normalised_uen == "202400006F":
             relationships = (
