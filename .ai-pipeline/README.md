@@ -2,10 +2,10 @@
 
 ## Start here
 
-Before selecting a pipeline role, read `AGENTS.md`, `docs/PROJECT_STATE.md`,
-`docs/ARCHITECTURE.md`, and `docs/DEVELOPMENT_WORKFLOW.md`, then run
-`python scripts/dev_context.py`. Load the assigned planner and relevant specialist
-skill/source/tests; do not read every historical report by default.
+Before selecting a pipeline role, read `AGENTS.md`, classify the change, and run
+`python scripts/dev_context.py --change-class <CLASS>` once per class. Read every
+emitted current section plus the assigned planner and relevant authority, skill,
+source/tests. Unknown/ambiguous work uses `--full`; historical reports stay on demand.
 
 This folder contains role instructions and phase handoffs for Codex.
 

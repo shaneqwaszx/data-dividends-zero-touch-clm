@@ -17,13 +17,13 @@ the current phase scope authority.
    handoff. Include a remediation handoff when the task is remediation. If the assigned
    scope cannot be matched unambiguously, stop the affected work instead of choosing a
    phase by filename recency.
-3. Follow the mandatory `AGENTS.md` loading order: `AGENTS.md`,
-   `docs/PROJECT_STATE.md`, `docs/ARCHITECTURE.md`,
-   `docs/DEVELOPMENT_WORKFLOW.md`, relevant contracts/decisions/open questions,
-   applicable repository skills, then current owning source and tests. After that chain,
-   read the assigned planner handoff and nearest relevant accepted gate/report.
-   `docs/PROJECT_CONTEXT.md`, `docs/CODEX_WORKFLOW.md`, role files and historical reports
-   are additional context only when the current task needs them.
+3. Follow the mandatory `AGENTS.md` loading policy: read the constitution in full,
+   classify the change, run `scripts/dev_context.py --change-class <CLASS>` for every
+   class, and read each emitted Tier 1 reference/section before relevant contracts,
+   decisions, open questions, skills, current owning source/tests, the assigned planner,
+   and the nearest relevant accepted gate/report. Unknown/ambiguous work uses `--full`;
+   additional role files and historical reports remain Tier 2, retrieved only for a
+   named unanswered question.
 4. Extract the goal, acceptance criteria, explicit non-goals, dependencies, unresolved
    sponsor questions, and required checks. Do not convert later-phase readiness into
    authority to start that phase.
