@@ -707,6 +707,109 @@ describe("Phase 15C case-bound action lifetime", () => {
     },
   );
 
+  it("prevents an older documents query from overwriting an authoritative review refresh", async () => {
+    const staleDocuments = deferred<Response>();
+    const reviewedDocument = {
+      ...documentFixture(CASE_A),
+      fields: documentFixture(CASE_A).fields.map((field) => ({
+        ...field,
+        review_status: "ACCEPTED" as const,
+        reviewed_value: field.normalized_value,
+        reviewed_at: NOW,
+      })),
+    };
+    let documentReads = 0;
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (init?.method === "POST" && url.endsWith("/reviews")) return json(reviewedDocument);
+      if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) {
+        return json(caseDetailFixture(CASE_A, "CASE A"));
+      }
+      if (url.endsWith(`/api/onboarding/cases/${CASE_A}/documents`)) {
+        documentReads += 1;
+        return documentReads === 1 ? staleDocuments.promise : json([reviewedDocument]);
+      }
+      if (url.endsWith(`/api/onboarding/cases/${CASE_A}/ownership`)) return unavailable();
+      return unavailable();
+    });
+    const queryClient = testClient();
+    seedCaseDetail(queryClient, CASE_A, "CASE A");
+    await act(async () => root?.render(
+      <QueryClientProvider client={queryClient}>
+        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+      </QueryClientProvider>,
+    ));
+
+    void queryClient.invalidateQueries({
+      queryKey: caseQueryKeys.documents(relationshipActor.user_id, CASE_A),
+      exact: true,
+    });
+    await vi.waitFor(() => expect(documentReads).toBe(1));
+    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    await act(async () => {
+      accept.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(container?.textContent).toContain("1 final / 1 fields"));
+
+    await act(async () => {
+      staleDocuments.resolve(json([documentFixture(CASE_A)]));
+      await staleDocuments.promise;
+      await Promise.resolve();
+    });
+    expect(container?.textContent).toContain("1 final / 1 fields");
+    expect(container?.textContent).not.toContain("0 final / 1 fields");
+  });
+
+  it("publishes reviewed documents without waiting for unrelated ownership refresh completion", async () => {
+    const pendingOwnership = deferred<Response>();
+    const reviewedDocument = {
+      ...documentFixture(CASE_A),
+      fields: documentFixture(CASE_A).fields.map((field) => ({
+        ...field,
+        review_status: "ACCEPTED" as const,
+        reviewed_value: field.normalized_value,
+        reviewed_at: NOW,
+      })),
+    };
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (init?.method === "POST" && url.endsWith("/reviews")) return json(reviewedDocument);
+      if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) {
+        return json(caseDetailFixture(CASE_A, "CASE A"));
+      }
+      if (url.endsWith(`/api/onboarding/cases/${CASE_A}/documents`)) {
+        return json([reviewedDocument]);
+      }
+      if (url.endsWith(`/api/onboarding/cases/${CASE_A}/ownership`)) {
+        return pendingOwnership.promise;
+      }
+      return unavailable();
+    });
+    const queryClient = testClient();
+    seedCaseDetail(queryClient, CASE_A, "CASE A");
+    await act(async () => root?.render(
+      <QueryClientProvider client={queryClient}>
+        <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+      </QueryClientProvider>,
+    ));
+
+    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    await act(async () => {
+      accept.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(container?.textContent).toContain("1 final / 1 fields"));
+    expect(container?.textContent).not.toContain("0 final / 1 fields");
+
+    await act(async () => {
+      pendingOwnership.resolve(unavailable());
+      await pendingOwnership.promise;
+    });
+  });
+
   it("contains a pending review after actor replacement on the same case", async () => {
     const pendingReview = deferred<Response>();
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {

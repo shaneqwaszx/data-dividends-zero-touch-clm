@@ -1,204 +1,258 @@
-# PR #52 E2E Port-Release Remediation — Independent Quality Gate
+# PR #52 E2E Remediation — Fresh Independent Quality Gate
 
-Date: 2026-09-22
+Date: 2026-09-23
 
 ## Executive Result
 
-**PASS**
+**FAIL**
 
-The frozen PR #52 remediation satisfies E2E-01 through E2E-12. It closes the
-isolated-lifecycle release-proof gap at the existing runner owner by requiring both
-exact assigned loopback ports to pass the unchanged strict bindability proof after
-task-owned process shutdown and before `run()` returns. The wait is condition-based,
-bounded, socket-closing, and fail-closed. No product, ACRA/Garden, workflow, dependency,
-configuration, process-ownership, or Phase 22 behavior changed.
+The accumulated PR #52 E2E remediation is not publication-ready. The code, test,
+lifecycle, diagnostic, security, and coverage-preservation review found no source-level
+critical or high-severity defect in the changed implementation. The final
+Cases/Representative Routes workload isolation is coherent: the representative-routes
+selector uses one completed case, the review-specific assertions retain an independent
+owner, and a focused real two-case selector preserves the retained-case-to-new-case
+route identity invariant without retry, reload, skip, timeout increase, or assertion
+weakening.
 
-This fresh re-QG verdict applies only to the corrected frozen identities and fresh
-evidence recorded below.
-It makes the unchanged candidate eligible for the separately authorized publication
-step; it does not authorize a merge or Phase 22 work.
+However, the fresh independent configured E2E run failed selector 2/14 on the exact
+frozen candidate. The unchanged Singapore clean-fixture selector timed out waiting for
+the browser to receive the expected
+`GET /api/clm/zero-touch/case-portfolio` response after `page.reload()`. One
+subsequent isolated diagnostic execution of that exact selector passed, so the current
+evidence establishes an intermittent unresolved full-suite acceptance failure rather
+than a deterministic product defect or missing infrastructure. Under the repository
+quality-gate rule, a failed required browser lane cannot be converted into a pass by
+implementer evidence or one passing focused rerun.
+
+This verdict applies only to the frozen reviewed content below. It states governance
+and publication readiness only; it grants no phase, provider, merge, or product
+authority.
 
 ## Frozen Reviewed-Content Identity
 
 | Identity | Reviewed value |
 |---|---|
-| Repository | `shaneqwaszx/data-dividends-zero-touch-clm` |
 | Branch | `integration/acra-teammate-reconciliation` |
-| Committed HEAD / original PR head | `cff6e2f49d9b84e5ac5d66b3e7424bebf0e21ace` |
-| Base, merge base, and current `origin/main` | `ef338c9b7926a298e8987acb975fd93c96ed2bfb` |
-| Current remote branch ref | `origin/integration/acra-teammate-reconciliation` = `cff6e2f49d9b84e5ac5d66b3e7424bebf0e21ace` |
-| Tracked remediation diff identity | `git diff --binary -- scripts/run_e2e.py tests/test_run_e2e.py \| git hash-object --stdin` = `96feeb925a992a2eebf7d76a7af64472e1e327c1` |
-| `scripts/run_e2e.py` SHA-256 | `ef3221c4acb2ddaf6f2b4155fba24827fd4954812bf99a5b66fa2a998bd4cd44` |
-| `tests/test_run_e2e.py` SHA-256 | `f99e7c2ab26f90e092d83109f7a79af861ca0f4023b293797335c6028912eb87` |
-| Corrected remediation report SHA-256 | `e5b714fee609506f4946836495791fd9626792513c47d6fec4c105e09503caba` |
-| Reviewed paths | `scripts/run_e2e.py`; `tests/test_run_e2e.py`; `.ai-pipeline/reports/PR52_E2E_PORT_RELEASE_REMEDIATION.md` |
+| Committed HEAD / published parent | `5ad738af2a07c6fc28ed379104079abeb2fa91a3` |
+| Current local `origin/main` | `ef338c9b7926a298e8987acb975fd93c96ed2bfb` |
+| Merge base | `ef338c9b7926a298e8987acb975fd93c96ed2bfb` |
+| Ahead / behind | 4 ahead / 0 behind |
+| Frozen tracked candidate state | exactly 12 unstaged modified paths; no staged paths; no untracked path was reported |
+| Binary diff SHA-256, all 12 candidate paths | `57edf559705d0b5f39a624891c3578f2b639b3a7bc3243d3e44cbaaba2437d88` |
+| Binary diff SHA-256, 11 non-report paths | `3a8898f4d5b6eb199e22d8df74717d1c77f466a645a96120e0d935b1c093c6ad` |
+| Remediation report SHA-256 | `b06ee37c367955a03e3713ed3555b050fa286a24af07f315bbdd44b256764da4` |
 
-The four authorized candidate paths were staged for publication when this fresh re-QG
-began. The executable and test working trees exactly matched their staged versions.
-Final revalidation found no other candidate path and reproduced every frozen identity
-above.
+Frozen candidate paths:
 
-## Fresh Re-QG After Report Hygiene Correction
+1. `.ai-pipeline/reports/PR52_E2E_PORT_RELEASE_REMEDIATION.md`
+2. `apps/backend/app/main.py`
+3. `apps/backend/tests/test_document_api.py`
+4. `apps/frontend/e2e/authenticated-zero-touch.e2e.ts`
+5. `apps/frontend/e2e/responsive-layout.e2e.ts`
+6. `apps/frontend/src/Phase15CNavigation.test.tsx`
+7. `apps/frontend/src/api.ts`
+8. `apps/frontend/src/pages/CaseDetail.tsx`
+9. `apps/frontend/vite.config.ts`
+10. `scripts/e2e_backend_server.py`
+11. `scripts/run_e2e.py`
+12. `tests/test_run_e2e.py`
 
-After the initial independent `PASS`, publication hygiene identified one trailing blank
-line at EOF in `.ai-pipeline/reports/PR52_E2E_PORT_RELEASE_REMEDIATION.md`. The parent
-corrected only that implementation-report formatting defect and staged the authorized
-candidate. The report SHA-256 consequently changed from
-`f3494197c0f4d8558f3714396297c13eca8dcfeff9af6624a56c27d4aa043a4c` to
-`e5b714fee609506f4946836495791fd9626792513c47d6fec4c105e09503caba`.
+The hashes were reproduced before execution and again after the fresh runtime checks.
+The only additional tracked modification made by this reviewer is this assigned gate
+report. Git emitted access-denied warnings for pre-existing pytest-cache directories
+while attempting exhaustive untracked traversal; it reported no untracked path, and the
+tracked candidate identity remained exact.
 
-The fresh recheck established:
+## Capability and Resource Preflight
 
-- `scripts/run_e2e.py` remained byte-identical at SHA-256
-  `ef3221c4acb2ddaf6f2b4155fba24827fd4954812bf99a5b66fa2a998bd4cd44`;
-- `tests/test_run_e2e.py` remained byte-identical at SHA-256
-  `f99e7c2ab26f90e092d83109f7a79af861ca0f4023b293797335c6028912eb87`;
-- their staged binary diff identity remained
-  `96feeb925a992a2eebf7d76a7af64472e1e327c1`;
-- `git diff --cached --check` passed with no output; and
-- the corrected report retained the reviewed root cause, design, test evidence, safety
-  invariants, product non-change statement, and no-Phase-22 statement.
+| Resource | Fresh observation | Gate consequence |
+|---|---|---|
+| Python | 3.12.10 | Runner, backend, Ruff, and governance checks available |
+| Node / npm | Node 22.23.2; npm 10.9.8 | Frontend checks available |
+| Browser toolchain | repository-pinned Playwright 1.56.1, Vite 7.1.11, TypeScript 5.9.3 | Configured browser execution available |
+| Frontend cache owner | TanStack Query 5.102.8 | Installed version matched inspected source/tests |
+| Restricted process sandbox | blocked the first Vitest attempt with `esbuild spawn EPERM` | Classified as missing infrastructure for that attempt; the identical permitted rerun passed |
+| Permitted local process execution | Vite, Chromium, backend, and task-owned cleanup ran | Required real browser/process evidence available |
+| Browser ports | configured suite used deterministic pairs from 8765/4173; focused diagnostic used 9401/4801 | No shared pair reuse or cleanup failure was reported |
+| Mongo / external providers | not required by this bounded change | No persistence or provider claim depends on unavailable infrastructure |
 
-Because no executable or test byte changed, the initial gate's fresh runtime evidence
-belongs to this exact source/test candidate and remains valid. The re-QG therefore did
-not rerun the expensive process suites merely for a Markdown EOF correction.
+No external connector, plugin, remote service, database, credential, or protected
+artefact was used.
 
 ## Acceptance Checklist
 
-| Criterion | Result | Independent evidence |
+| Assigned criterion | Result | Independent evidence |
 |---|---|---|
-| E2E-01 — original dual-CI failure correctly explained | **PASS** | The attached authority and remediation report preserve push run `35720468238` and PR run `35725121231` as failures: lifecycle 1/7 passed, then lifecycle 2/7 failed the strict pre-start bind proof with `OSError: [Errno 98] Address already in use`. The report accurately limits the proven cause to the lifecycle-owner release-proof gap and does not invent whether a signalled group member or kernel socket teardown supplied the brief occupation. |
-| E2E-02 — no fixed-sleep-only workaround | **PASS** | `_wait_for_ports_available()` probes immediately. `time.sleep()` occurs only after a failed proof and is capped by the remaining deadline; sleep never establishes success. |
-| E2E-03 — no port-check weakening | **PASS** | `_assert_ports_available()` is byte-for-byte outside the remediation diff and remains both the pre-start gate and the repeated post-shutdown proof. Both exact ports must bind in one successful probe. |
-| E2E-04 — no `SO_REUSEADDR` bypass | **PASS** | No reuse option or occupied-port suppression was added. The existing Windows `SO_EXCLUSIVEADDRUSE` behavior is unchanged. |
-| E2E-05 — no unrelated process killing | **PASS** | `OwnedProcess.stop()` is unchanged. It continues to act only on the process/process group created by the runner; there is no enumeration, `pkill`, broad Node/Python termination, or port-owner killing. |
-| E2E-06 — post-shutdown release positively proved | **PASS** | `run()` records the test result, stops Playwright/frontend/backend in reverse order, then calls `_wait_for_ports_available()` before returning. The focused ordering assertion passed, and three real seven-lifecycle suites reused the same exact ports without recurrence. |
-| E2E-07 — bounded and fail-closed | **PASS** | The release deadline is the earlier of the lifecycle deadline and ten seconds from cleanup. A never-released deterministic test timed out; a cleanup timeout overrides apparent Playwright success and returns failure with safe port numbers. |
-| E2E-08 — focused deterministic regressions | **PASS** | Fresh `python -m unittest tests.test_run_e2e -v`: 23/23 passed. Coverage includes immediate availability, genuine occupation, event-synchronised delayed release, deterministic timeout, distinct ports, socket closure, cleanup-before-proof ordering, failure override, isolated sequencing, ownership, and sanitization. |
-| E2E-09 — full configured isolated suite | **PASS** | Fresh permitted `python scripts/run_e2e.py` passed 7/7 dynamically discovered tests in isolated lifecycles three consecutive times. No test count was hard-coded by the runner and no retry was introduced. |
-| E2E-10 — no ACRA/Garden/product behavior changed | **PASS** | Candidate path and full diff inspection found only the runner, its existing test owner, and report. Three full browser suites exercised the accepted Mock product paths. There is no ACRA, BizFile, Garden, ownership, provider-readiness, priority, Mongo, policy, responsive-UI, or Cases-table delta from `cff6e2f...`. |
-| E2E-11 — secret/sanitization/process ownership intact | **PASS** | Environment allowlisting, generated credential handling, bounded capture, sanitization, loopback/browser-network policy, `OwnedProcess`, and Windows/POSIX stop branches are unchanged. Focused sanitization tests, the secret scan, real E2E, and the adjacent Windows lifecycle suite passed. |
-| E2E-12 — no Phase 22 work | **PASS** | The complete candidate path set contains only this bounded CI-tooling remediation, its tests, and reports. No product phase work or provider activation was added. |
+| Review the entire accumulated 12-path candidate | **PASS** | Full diffs, current owning source/tests, architecture, contracts, decision/open-question context, remediation chronology, and the prior stale gate were inspected. |
+| Representative-routes selector uses one completed case | **PASS** | `responsive cases and representative routes preserve tables, priorities, and policy visibility` creates one clean case, waits for `COMPLETED`, and uses that ID for `/cases/{id}` and `/onboarded/{id}`. |
+| Removed second case does not remove review coverage | **PASS** | `responsive review case exposes only supported authoritative review controls` independently creates a low-confidence case, waits for `WAITING_FOR_REVIEW`, validates the authoritative current document, and retains Accept/unsupported-control/containment assertions. |
+| Real two-case route-transition invariant retained | **PASS** | `starting a fresh onboarding after a retained case binds the new case route` creates case A through the real UI, explicitly enters the fresh route, creates case B through the real UI, proves the new retained route, and proves distinct IDs. |
+| No masking | **PASS** | Diff inspection found no added Playwright retry, reload recovery, arbitrary browser sleep, skip, catch-and-continue, assertion removal, or raised timeout. The existing 240-second test timeout value and runner 240-second suite limit were not increased. POSIX sleep is bounded condition polling for owned-group absence. |
+| Lifecycle/process ownership remains fail-closed | **PASS** | Deterministic unique port allocation, strict pre-start bind checks, reverse cleanup, exact POSIX group signaling/proof, exact Windows PID-tree command, and cleanup-failure override were inspected; fresh runner tests passed 32/32. No broad process enumeration or port-owner kill was added. |
+| Diagnostic boundary remains explicit and payload-minimal | **PASS** | Diagnostic environment is opt-in; request IDs are UUID-v4-shaped; emitted fields are fixed route family, opaque case/request IDs, status/count/timing/PID/port metadata. No document values, filenames, bytes, credentials, cookies, CSRF values, provider payloads, or response bodies are emitted. Focused backend and runner tests passed. |
+| React Query authoritative refresh correction is covered | **PASS** | Exact actor/case queries are cancelled before direct authoritative refresh; results publish independently under the existing case/action generation guard. Fresh focused frontend tests passed 51/51, including stale-query overwrite and unrelated-ownership head-of-line cases. |
+| Product freeze and authority boundaries | **PASS** | No schema, persistence owner, provider/connector mode, mapping, business rule, RBAC authority, target-ledger rule, sponsor policy, or Phase 22 behavior was added. Diagnostic hooks are development-only and default-off. |
+| Causal claims remain bounded | **PASS** | The report classifies `MULTI_CASE_RESPONSIVE_TEST_COUPLING` only at test workload/ownership level and explicitly leaves historical lower browser/runtime mechanisms unknown. The fresh failure does not falsify that narrow claim, but it invalidates publication readiness. |
+| Required full configured E2E evidence on the reviewed candidate | **FAIL** | Fresh `python scripts/run_e2e.py` passed selector 1/14, then selector 2/14 timed out after 120 seconds at `authenticated-zero-touch.e2e.ts:231` waiting for the portfolio response after reload. One isolated reproduction passed; the intermittent full-suite failure remains unresolved. |
 
-## Contract, Integration, and Root-Cause Findings
+## Contract and Integration Findings
 
-No current blocker or required fix was found.
+No contract, mapping, provider, sponsor-authority, persistence, or architecture blocker
+was found in the changed implementation. The candidate preserves the existing
+Mock/Local/Partial/Dormant classifications and does not claim Live ACRA, GoldTier,
+PingFed, production OCR, production SSO, or Ready-for-Approval.
 
-The earliest common historical failure is the lifecycle 2 strict bind check, not the
-workflow invocation and not a Playwright product assertion. POSIX shutdown already
-signals the task-owned process group and waits for its leader, but the prior runner
-returned without proving that both assigned listeners were bindable. The two independent
-CI recurrences establish that owner-level gap. They do not establish which port or which
-lower-level release mechanism was responsible, and neither the implementation nor its
-report overclaims that distinction.
+The browser diagnostic header and milestone chain are active only when the task-owned
+launcher enables diagnostics. Normal product requests do not emit the milestones. The
+document upload remains a bounded raw-body request through the existing backend route
+and document service; the diagnostic seam does not authorize a new API contract.
 
-The correction is at the canonical runner owner. It preserves the final pre-start proof,
-does not reserve a port, does not retry a browser test, and does not change
-`.github/workflows/ci.yml`. Mock/Local/Sandbox/Dormant provider classifications and all
-unresolved sponsor questions remain unchanged.
+Current sponsor questions Q-001 through Q-018 remain later dependencies and do not
+explain or waive the present E2E blocker.
 
-## Tester and Adversarial Evidence
+## Tester and Adversarial Findings
 
-| Command / evidence | Fresh independent result |
+### High-severity current blocker
+
+**PR52-QG-001 — the exact candidate failed the fresh required configured browser suite.**
+
+- Command: `python scripts/run_e2e.py`
+- Result: exit 1; selector 1/14 passed; selector 2/14 failed.
+- Failing selector: `Singapore clean fixture completes the truthful Mock target path`.
+- Exact boundary: `page.waitForResponse` at
+  `apps/frontend/e2e/authenticated-zero-touch.e2e.ts:231` timed out after
+  `page.reload()` while awaiting
+  `GET /api/clm/zero-touch/case-portfolio`.
+- Lifecycle evidence: no allocation, bind, process-cleanup, or old-port-reuse failure
+  was emitted.
+- Bounded classification run:
+  `python scripts/run_e2e.py --backend-port 9401 --frontend-port 4801 --grep
+  "Singapore clean fixture completes the truthful Mock target path"` passed 1/1 in
+  12.4 seconds.
+- Classification: unresolved intermittent browser/query/test synchronization failure,
+  not a deterministic defect yet and not missing infrastructure.
+- Consequence: the required full-browser lane is not independently green; earlier
+  implementer 14/14 passes cannot supply this reviewer's required fresh acceptance.
+
+### Fresh independent checks
+
+| Command | Result |
 |---|---|
-| `python scripts/dev_context.py` | PASS; branch, HEAD, base, provider truth, and dirty candidate paths matched the assignment. |
-| `python -m unittest tests.test_run_e2e -v` | PASS — 23/23 in 2.372 seconds. |
-| `python -m ruff check scripts/run_e2e.py tests/test_run_e2e.py` | PASS. |
-| `python scripts/check_secrets.py` | PASS. |
-| `python scripts/check_project_state.py` | PASS. |
-| `python scripts/check_architecture.py` | PASS. |
-| `python scripts/check_tooling_config.py` | PASS. |
-| `git diff --check -- scripts/run_e2e.py tests/test_run_e2e.py` plus explicit report trailing-whitespace check | PASS. |
-| `python -m unittest tests.test_demo_lifecycle_windows -v` outside the restricted process sandbox | PASS — 23/23 in 383.937 seconds. |
-| `python scripts/run_e2e.py`, permitted run 1 | PASS — 7/7 dynamically discovered isolated lifecycles. |
-| Same exact command, permitted run 2 | PASS — 7/7. |
-| Same exact command, permitted run 3 | PASS — 7/7. |
+| `python scripts/dev_context.py` | PASS; branch, HEAD, base, provider truth, and 12-path candidate matched |
+| `python -m unittest tests.test_run_e2e -v` | PASS — 32/32 |
+| `python -m pytest tests/test_document_api.py -q` from `apps/backend` | PASS — 22/22 |
+| Restricted focused Vitest attempt | unavailable — `esbuild spawn EPERM` before test startup |
+| Permitted `npm.cmd test -- --run src/pages/DocumentEvidencePanel.test.tsx src/Phase15CNavigation.test.tsx` | PASS — 2 files, 51/51 |
+| `npm.cmd run typecheck` | PASS |
+| `npm.cmd run build` | PASS — 112 modules transformed |
+| `python -m ruff check apps/backend scripts tests` | PASS; filesystem access warnings were emitted for pre-existing inaccessible pytest-cache directories |
+| `python scripts/check_project_state.py` | PASS |
+| `python scripts/check_architecture.py` | PASS |
+| `python scripts/check_tooling_config.py` | PASS |
+| `python scripts/check_secrets.py` | PASS |
+| `npm.cmd ls --all` | PASS; only expected optional cross-platform packages were unmet |
+| Candidate-scoped `git diff --check` | PASS; only informational LF-to-CRLF notices |
+| Full `python scripts/run_e2e.py` | **FAIL** — 1/14 passed, selector 2/14 timed out |
+| One isolated exact-selector diagnostic execution | PASS — 1/1 |
 
-The first restricted E2E attempt failed before browser startup because the sandbox denied
-Vite/esbuild child creation with `spawn EPERM`. The first restricted Windows-lifecycle
-attempt likewise failed because sandbox policy denied termination of its test-owned
-process tree with `Access denied`. Those runs are recorded as environment restrictions,
-not candidate evidence. The approved outside-sandbox reruns exercised the required real
-process behavior and passed; the Windows rerun also removed the restricted attempt's
-partial task-owned startup before proceeding.
-
-Adversarial inspection confirmed:
-
-- a genuinely occupied port still fails the unchanged strict proof;
-- delayed release cannot pass until both exact bind operations succeed;
-- temporary sockets close through the original `finally` on success and bind failure;
-- a never-released port cannot loop indefinitely or permit the next selection;
-- cleanup failure cannot preserve an apparent successful return;
-- every configured selection retains a fresh backend/frontend/Playwright lifecycle;
-- no broad process discovery, reuse bypass, fixed unconditional delay, or test retry
-  exists.
-
-The clean-tree `python scripts/pre_pr_check.py` is intentionally not claimed by this
-pre-commit gate: the user-directed sequence places it after the exact PASS, publication
-commit, and clean-tree state. It remains a required publication check and cannot be
-borrowed from this review.
+The implementer-reported 5-consecutive one-case selector passes, focused two-case 5/5,
+responsive 21/21 plus two 7/7 sequences, document-review 3/3, two complete 14/14
+suites, Windows lifecycle 23/23, full frontend 274, and full backend 1129 passed / 28
+skipped were inspected as implementer evidence. They were not relabelled as fresh
+independent evidence. Full backend/frontend and Windows lifecycle were not repeated
+after the decisive fresh browser failure because passing them could not close
+PR52-QG-001.
 
 ## Code and Architecture Review
 
-No architecture or maintainability finding remains. The helper is small and placed next
-to the unchanged strict probe. It accepts an absolute monotonic deadline, polls at 50 ms,
-retains the last proof failure as exception context, and emits a bounded safe timeout.
-`run()` was minimally restructured from early returns to a recorded result so cleanup
-and release proof apply to success, test failure, interruption, and handled startup/test
-exceptions.
+No critical, high, medium, or low source-code finding was identified beyond the
+runtime acceptance blocker.
 
-The remediation neither creates a new lifecycle owner nor changes process-group
-termination. It does not alter APIs, models, types, schemas, connectors, configuration,
-business rules, mappings, authentication/RBAC, persistence, provider status,
-dependencies, CI workflow, or product architecture. No ADR or sponsor decision is
-required.
+- `scripts/run_e2e.py` keeps one lifecycle owner, derives non-overlapping deterministic
+  pairs, validates bounds/collisions, runs the strict bind proof before each lifecycle,
+  and fails closed on cleanup errors.
+- POSIX cleanup acts on the task-created group ID and proves absence before returning;
+  Windows retains exact owned-PID tree termination. No broad host-process discovery was
+  added.
+- Diagnostic hooks are bounded to the existing upload path and do not move document or
+  workflow ownership into the runner, proxy, browser, or route.
+- `CaseDetail` remains the existing mutation/query-cache owner. The change does not
+  introduce a second QueryClient, query key, authorization owner, or persistence
+  surface.
+- Responsive decomposition creates independent selector state and keeps mutable case
+  IDs selector-local. Coverage formerly coupled in one monolithic lifecycle remains
+  represented by the seven selectors.
+- The final one-case workload isolation removes redundant setup rather than a product
+  assertion; review behavior and two-case route identity each retain a narrower owner.
+
+The accumulated delta is large because it preserves a chronological diagnostic report
+and explicit safe instrumentation, but it does not create a new product architecture
+owner or require an ADR.
 
 ## Security Review
 
-No security finding remains. The diff introduces no secret source, environment
-expansion, external network path, artifact capture, credential persistence, raw payload,
-KYC/PII projection, or additional child-process authority. Failure output added by the
-release wait contains only the assigned numeric loopback ports and passes through the
-existing sanitizer. Existing ephemeral credential removal and captured child-output
-sanitization are unchanged and freshly tested.
+No security defect was identified.
 
-## Required Fixes and Deferred Matters
+- Environment propagation remains allowlisted and generated E2E credentials remain
+  ephemeral.
+- Browser network policy remains loopback-only; diagnostics add no external endpoint.
+- Diagnostic output is opt-in and excludes raw document content, filenames, field
+  values, response bodies, credentials, session/cookie/CSRF values, provider payloads,
+  and private exceptions.
+- Backend diagnostic logging requires both the E2E mode and a UUID-v4-shaped request
+  identifier; normal execution is silent.
+- Upload bytes remain transient, bounded, and owned by the existing document-processing
+  path.
+- The runner retains bounded capture and sanitization. No secret-bearing artifact,
+  recording, trace, screenshot, broad process scan, or unrelated kill path was added.
+- Fresh secret scanning passed.
 
-Required fixes: **none**.
+## Required Fixes
 
-Accepted current limitation: the two historical CI logs cannot distinguish a briefly
-surviving signalled group member from delayed kernel socket release and do not identify
-which assigned port was non-bindable. That distinction is not needed for this bounded
-owner-level correction because success now requires direct proof of both exact ports.
+1. Diagnose PR52-QG-001 at the browser reload / auth restore / Cases query boundary
+   without adding a retry, reload recovery, sleep, timeout increase, skip, or weaker
+   assertion. Establish whether the failed reload did not dispatch the portfolio
+   request, dispatched it without completion, lost the response listener, or failed to
+   commit the authenticated Cases view.
+2. Add only the smallest regression evidence supported by that diagnosis, if a code or
+   test defect is proved. Do not make a product change when the evidence identifies
+   only harness or infrastructure ownership.
+3. Rerun the affected focused selector and the unchanged complete configured E2E suite
+   on the remediated frozen candidate. The complete suite must be green without
+   retries/masking, followed by a fresh independent re-quality gate.
 
-Later publication work, outside this gate, must keep the reviewed content unchanged,
-create the authorized single remediation commit, run clean-tree pre-PR verification,
-push normally to the same PR branch, and observe separate fresh push and pull-request CI
-runs. Historical failed runs `35720468238` and `35725121231` must remain failures.
+No other implementation, contract, security, architecture, provider, persistence, or
+product-policy fix is required by this review.
 
 ## Readiness
 
-The frozen remediation is ready for the separately authorized commit/push/CI
-publication workflow. It is not yet evidence that new remote push and pull-request CI
-runs are green, and it does not authorize merge. It adds no product-phase readiness,
-Live ACRA/GoldTier readiness, provider activation, or Phase 22 authority.
+Governance/publication readiness: **NOT READY**.
+
+The frozen candidate must not be committed/pushed as an accepted remediation on the
+basis of this gate. A fresh independent re-QG is required after PR52-QG-001 is
+resolved or conclusively classified with evidence that restores the required full
+configured browser acceptance.
+
+This result does not authorize Phase 22, a provider activation, a PR mutation, push,
+merge, or any product-phase claim.
 
 ## Git Status and Reviewer Boundary
 
-At final evidence freeze:
+At final report write:
 
-- branch: `integration/acra-teammate-reconciliation`;
-- committed HEAD: `cff6e2f49d9b84e5ac5d66b3e7424bebf0e21ace`;
-- `origin/main`: `ef338c9b7926a298e8987acb975fd93c96ed2bfb`;
-- remote branch ref: `cff6e2f49d9b84e5ac5d66b3e7424bebf0e21ace`;
-- staged candidate before this report-only re-QG update: `scripts/run_e2e.py`,
-  `tests/test_run_e2e.py`, the corrected remediation report, and the prior gate report;
-- staged hygiene: `git diff --cached --check` passed;
-- executable/test working tree: identical to the staged candidate;
-- reviewer working-tree delta: only this fresh re-QG update to the assigned gate report,
-  which the publication owner may stage after verifying the reviewer boundary;
-- no implementation, test, configuration, ordinary documentation, Git index, commit,
-  branch, remote, PR, or CI state was modified by the reviewer.
+- branch remained `integration/acra-teammate-reconciliation`;
+- HEAD remained `5ad738af2a07c6fc28ed379104079abeb2fa91a3`;
+- local `origin/main` and merge base remained
+  `ef338c9b7926a298e8987acb975fd93c96ed2bfb`;
+- the frozen 12 candidate paths remained byte/diff-identical to the reviewed hashes;
+- no staged path was introduced;
+- the only tracked path changed beyond the frozen 12 is this assigned quality-gate
+  report;
+- no implementation, test, configuration, remediation report, ordinary documentation,
+  Git index, commit, branch, remote, PR, CI, merge, or Phase 22 state was modified by
+  this reviewer.
 
-The reviewer wrote exactly this authorized quality-gate report. No commit, push, merge,
-force push, reset, rebase, stash, clean, PR mutation, or Phase 22 work occurred.
+## Final Verdict
+
+FAIL

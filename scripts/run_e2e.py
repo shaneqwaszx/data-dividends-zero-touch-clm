@@ -26,8 +26,8 @@ BACKEND_SERVER = ROOT / "scripts" / "e2e_backend_server.py"
 DEFAULT_BACKEND_PORT = 8765
 DEFAULT_FRONTEND_PORT = 4173
 MAX_CAPTURE_CHARS = 64_000
-PORT_RELEASE_POLL_SECONDS = 0.05
-PORT_RELEASE_TIMEOUT_SECONDS = 10.0
+PROCESS_STOP_POLL_SECONDS = 0.05
+PROCESS_STOP_TIMEOUT_SECONDS = 5.0
 _URI_PATTERN = re.compile(r"(?i)(?:mongodb(?:\+srv)?|https?)://[^\s\]\[<>{}\"']+")
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)\b(password|secret|token|authorization|cookie)\s*[:=]\s*[^\s,;]+"
@@ -108,14 +108,15 @@ class OwnedProcess:
         if self.process.stdout is None:
             raise RuntimeError(f"Unable to capture {name} output")
         self.capture = OutputCapture(self.process.stdout)
+        self.process_group_id = None if os.name == "nt" else self.process.pid
 
     def stop(self) -> None:
-        if self.process.poll() is not None:
-            return
         if os.name == "nt":
+            if self.process.poll() is not None:
+                return
             try:
                 self.process.send_signal(signal.CTRL_BREAK_EVENT)
-                self.process.wait(timeout=5)
+                self.process.wait(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
             except (OSError, subprocess.TimeoutExpired):
                 if self.process.poll() is None:
                     subprocess.run(
@@ -126,18 +127,76 @@ class OwnedProcess:
                         check=False,
                         timeout=10,
                     )
-        else:
             try:
-                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
-                self.process.wait(timeout=5)
-            except (OSError, subprocess.TimeoutExpired):
-                if self.process.poll() is None:
-                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                self.process.wait(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
+            if self.process.poll() is None:
+                raise RuntimeError(f"Task-owned {self.name} process did not terminate")
+            return
+
+        process_group_id = self.process_group_id
+        if process_group_id is None:
+            raise RuntimeError(f"Task-owned {self.name} process group is unavailable")
         try:
-            self.process.wait(timeout=5)
+            os.killpg(process_group_id, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            self.process.wait(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            _wait_for_posix_process_group_exit(
+                process_group_id,
+                deadline=time.monotonic() + PROCESS_STOP_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            try:
+                os.killpg(process_group_id, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                self.process.wait(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
+            try:
+                _wait_for_posix_process_group_exit(
+                    process_group_id,
+                    deadline=time.monotonic() + PROCESS_STOP_TIMEOUT_SECONDS,
+                )
+            except TimeoutError as exc:
+                raise RuntimeError(
+                    f"Task-owned {self.name} process group did not terminate"
+                ) from exc
+        try:
+            self.process.wait(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
             self.process.kill()
-            self.process.wait(timeout=5)
+            self.process.wait(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
+        if self.process.poll() is None:
+            raise RuntimeError(f"Task-owned {self.name} process did not terminate")
+
+
+def _wait_for_posix_process_group_exit(
+    process_group_id: int,
+    *,
+    deadline: float,
+) -> None:
+    """Prove the exact task-created POSIX process group no longer exists."""
+
+    while True:
+        try:
+            os.killpg(process_group_id, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            pass
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Task-owned POSIX process group is still present")
+        time.sleep(min(PROCESS_STOP_POLL_SECONDS, remaining))
 
 
 def _parse_port(value: str, name: str) -> int:
@@ -147,6 +206,41 @@ def _parse_port(value: str, name: str) -> int:
     if not 1024 <= port <= 65535:
         raise argparse.ArgumentTypeError(f"{name} must be between 1024 and 65535")
     return port
+
+
+def _allocate_lifecycle_ports(
+    backend_port: int,
+    frontend_port: int,
+    selection_count: int,
+) -> list[tuple[int, int]]:
+    """Derive one deterministic, non-overlapping port pair per selection."""
+
+    if (
+        isinstance(selection_count, bool)
+        or not isinstance(selection_count, int)
+        or selection_count < 1
+    ):
+        raise ValueError("E2E selection count must be a positive integer")
+    if any(
+        isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535
+        for port in (backend_port, frontend_port)
+    ):
+        raise ValueError("Configured E2E ports must be between 1024 and 65535")
+
+    allocated: set[int] = set()
+    pairs: list[tuple[int, int]] = []
+    for index in range(selection_count):
+        pair = (backend_port + index, frontend_port + index)
+        if any(
+            isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535
+            for port in pair
+        ):
+            raise ValueError("Derived E2E ports must be between 1024 and 65535")
+        if pair[0] == pair[1] or pair[0] in allocated or pair[1] in allocated:
+            raise ValueError("Derived E2E lifecycle port collision")
+        allocated.update(pair)
+        pairs.append(pair)
+    return pairs
 
 
 def _assert_ports_available(backend_port: int, frontend_port: int) -> None:
@@ -165,31 +259,6 @@ def _assert_ports_available(backend_port: int, frontend_port: int) -> None:
     finally:
         for candidate in sockets:
             candidate.close()
-
-
-def _wait_for_ports_available(
-    backend_port: int,
-    frontend_port: int,
-    *,
-    deadline: float,
-) -> None:
-    """Wait until both task-owned lifecycle ports pass the strict bind proof."""
-
-    last_error: RuntimeError | None = None
-    while True:
-        try:
-            _assert_ports_available(backend_port, frontend_port)
-            return
-        except RuntimeError as exc:
-            last_error = exc
-
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError(
-                "Task-owned E2E ports did not become bindable after shutdown "
-                f"(backend={backend_port}, frontend={frontend_port})"
-            ) from last_error
-        time.sleep(min(PORT_RELEASE_POLL_SECONDS, remaining))
 
 
 def _base_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -336,10 +405,15 @@ def run(
     headed: bool = False,
     grep: str | None = None,
     selection: str | None = None,
+    diagnostics: bool = False,
 ) -> int:
     if grep is not None and selection is not None:
         raise ValueError("grep and exact test selection are mutually exclusive")
-    _assert_ports_available(backend_port, frontend_port)
+    try:
+        _assert_ports_available(backend_port, frontend_port)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"E2E FAILED: {_sanitize(str(exc))}", file=sys.stderr)
+        return 1
     node = _find_node()
     vite_cli = FRONTEND_ROOT / "node_modules" / "vite" / "bin" / "vite.js"
     playwright_cli = FRONTEND_ROOT / "node_modules" / "@playwright" / "test" / "cli.js"
@@ -356,10 +430,13 @@ def run(
         "CLM_E2E_PASSWORD": ephemeral_credential,
         "CLM_E2E_BACKEND_PORT": str(backend_port),
         "CLM_E2E_FRONTEND_ORIGIN": frontend_origin,
+        **({"CLM_E2E_DIAGNOSTICS": "1"} if diagnostics else {}),
     }
     frontend_environment = {
         **common,
         "VITE_BACKEND_PROXY_TARGET": backend_origin,
+        "CLM_E2E_FRONTEND_PORT": str(frontend_port),
+        **({"CLM_E2E_DIAGNOSTICS": "1", "VITE_E2E_DIAGNOSTICS": "1"} if diagnostics else {}),
     }
     test_environment = {
         **common,
@@ -369,9 +446,11 @@ def run(
         # error-context.md after failures; authenticated pages may contain KYC data.
         "PLAYWRIGHT_NO_COPY_PROMPT": "1",
         "PLAYWRIGHT_BASE_URL": frontend_origin,
+        **({"CLM_E2E_DIAGNOSTICS": "1"} if diagnostics else {}),
     }
 
     processes: list[OwnedProcess] = []
+    cleanup_failures: list[str] = []
     result = 1
     deadline = time.monotonic() + timeout_seconds
     try:
@@ -425,6 +504,17 @@ def run(
         sanitized = _sanitize(tests.capture.text(), (ephemeral_credential,))
         if sanitized:
             print(sanitized)
+        if diagnostics:
+            for process in (backend, frontend):
+                milestones = _sanitize(
+                    "\n".join(
+                        line for line in process.capture.text().splitlines()
+                        if line.startswith("E2E_DIAG ")
+                    ),
+                    (ephemeral_credential,),
+                )
+                if milestones:
+                    print(milestones)
         if return_code != 0:
             print("E2E FAILED: Playwright returned a non-zero status.", file=sys.stderr)
             result = return_code
@@ -446,20 +536,16 @@ def run(
         result = 1
     finally:
         for process in reversed(processes):
-            process.stop()
+            try:
+                process.stop()
+            except (OSError, RuntimeError, subprocess.SubprocessError, TimeoutError) as exc:
+                cleanup_failures.append(_sanitize(str(exc)))
 
-    cleanup_deadline = min(
-        deadline,
-        time.monotonic() + PORT_RELEASE_TIMEOUT_SECONDS,
-    )
-    try:
-        _wait_for_ports_available(
-            backend_port,
-            frontend_port,
-            deadline=cleanup_deadline,
+    if cleanup_failures:
+        print(
+            f"E2E FAILED: task-owned process cleanup failed: {cleanup_failures[0]}",
+            file=sys.stderr,
         )
-    except (RuntimeError, TimeoutError, ValueError) as exc:
-        print(f"E2E FAILED: {_sanitize(str(exc))}", file=sys.stderr)
         return 1
     return result
 
@@ -470,27 +556,37 @@ def run_isolated_suite(
     frontend_port: int,
     timeout_seconds: float,
     headed: bool,
+    diagnostics: bool = False,
 ) -> int:
     started = time.monotonic()
     try:
         selectors = _list_test_selectors(frontend_port)
+        lifecycle_ports = _allocate_lifecycle_ports(
+            backend_port,
+            frontend_port,
+            len(selectors),
+        )
     except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
         print(f"E2E FAILED: {_sanitize(str(exc))}", file=sys.stderr)
         return 1
 
-    for index, selection in enumerate(selectors, start=1):
+    for index, (selection, ports) in enumerate(
+        zip(selectors, lifecycle_ports, strict=True),
+        start=1,
+    ):
         remaining = timeout_seconds - (time.monotonic() - started)
         if remaining < 30:
             print("E2E FAILED: isolated suite exceeded its overall deadline.", file=sys.stderr)
             return 1
         print(f"E2E isolated lifecycle {index}/{len(selectors)}: {selection}")
         result = run(
-            backend_port=backend_port,
-            frontend_port=frontend_port,
+            backend_port=ports[0],
+            frontend_port=ports[1],
             timeout_seconds=remaining,
             headed=headed,
             grep=None,
             selection=selection,
+            diagnostics=diagnostics,
         )
         if result != 0:
             print(
@@ -517,6 +613,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--headed", action="store_true")
     parser.add_argument(
+        "--diagnostics",
+        action="store_true",
+        help="Emit payload-free E2E upload boundary milestones.",
+    )
+    parser.add_argument(
         "--grep",
         help="Run only Playwright tests whose title matches this regular expression.",
     )
@@ -531,12 +632,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout_seconds=args.timeout_seconds,
             headed=args.headed,
             grep=args.grep,
+            diagnostics=args.diagnostics,
         )
     return run_isolated_suite(
         backend_port=args.backend_port,
         frontend_port=args.frontend_port,
         timeout_seconds=args.timeout_seconds,
         headed=args.headed,
+        diagnostics=args.diagnostics,
     )
 
 

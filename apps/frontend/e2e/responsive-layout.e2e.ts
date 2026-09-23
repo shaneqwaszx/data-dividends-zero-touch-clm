@@ -187,6 +187,13 @@ test.describe.configure({ mode: "serial" });
 let assertNoNetworkViolations: (() => void) | undefined;
 
 test.beforeEach(async ({ page }) => {
+  if (process.env.CLM_E2E_DIAGNOSTICS === "1") {
+    page.on("console", (message) => {
+      if (message.type() === "info" && message.text().startsWith("E2E_DIAG ")) {
+        console.log(message.text());
+      }
+    });
+  }
   assertNoNetworkViolations = await guardLocalNetwork(page, createBrowserNetworkPolicy({
     frontendOrigin: requiredEnvironment("PLAYWRIGHT_BASE_URL"),
     backendOrigin: requiredEnvironment("CLM_E2E_BACKEND_ORIGIN"),
@@ -199,7 +206,47 @@ test.afterEach(() => {
   assertNoNetworkViolations = undefined;
 });
 
-test("responsive shell contains primary screens, account hover, forms, tables, and dialogs", async ({ page }) => {
+async function expectPolicyMutationControls(page: Page, visible: boolean) {
+  const displayOnlyRule = page.getByText("Add display-only rule", { exact: true });
+  const edit = page.getByRole("button", { name: "Edit" });
+  const reset = page.getByRole("button", { name: "Reset to default" });
+  if (visible) {
+    await expect(displayOnlyRule).toBeVisible();
+    await expect(edit.first()).toBeVisible();
+    await expect(reset.first()).toBeVisible();
+    return;
+  }
+  await expect(displayOnlyRule).toHaveCount(0);
+  await expect(edit).toHaveCount(0);
+  await expect(reset).toHaveCount(0);
+}
+
+async function expectAuthoritativeReviewReady(page: Page, caseId: string) {
+  const reviewDocumentsResponse = page.waitForResponse((response) => (
+    response.request().method() === "GET"
+      && new URL(response.url()).pathname === `/api/onboarding/cases/${caseId}/documents`
+  ));
+  await page.goto(`/cases/${caseId}`);
+  const authoritativeDocuments = await reviewDocumentsResponse;
+  expect(authoritativeDocuments.status()).toBe(200);
+  const currentDocument = (await authoritativeDocuments.json() as Array<{
+    state: string;
+    superseded_by_document_id: string | null;
+    fields: Array<{ review_status: string; original_extracted_value: string | null }>;
+  }>).find((document) => document.superseded_by_document_id === null);
+  expect(currentDocument).toBeDefined();
+  expect(currentDocument?.state).toBe("REVIEW_REQUIRED");
+  expect(currentDocument?.fields.some((field) => (
+    field.review_status === "PENDING" && field.original_extracted_value !== null
+  ))).toBe(true);
+  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Accept .* suggestion/ }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Assign reviewer" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Return for rework" })).toHaveCount(0);
+  await expectDocumentContained(page);
+}
+
+test("responsive shell contains anonymous auth, navigation, forms, hover, and focus", async ({ page }) => {
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 360, height: 900 });
   await page.goto("/");
@@ -235,13 +282,15 @@ test("responsive shell contains primary screens, account hover, forms, tables, a
   await page.keyboard.press("Tab");
   await expect(account).toBeFocused();
   expect(await account.evaluate((element) => getComputedStyle(element).outlineStyle)).not.toBe("none");
+  await logout(page);
+});
 
+test("responsive cases and representative routes preserve tables, priorities, and policy visibility", async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await login(page);
   const completedCaseId = await openNewCase(page, cleanFixture);
   await waitForCaseStatus(page, completedCaseId, ["COMPLETED"]);
-  const reviewCaseId = await openNewCase(page, lowConfidenceFixture);
-  await waitForCaseStatus(page, reviewCaseId, ["WAITING_FOR_REVIEW"]);
-  await expect(page.getByRole("button", { name: "Assign reviewer" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Return for rework" })).toHaveCount(0);
 
   for (const width of REPRESENTATIVE_VIEWPORTS) {
     await page.setViewportSize({ width, height: 900 });
@@ -249,7 +298,7 @@ test("responsive shell contains primary screens, account hover, forms, tables, a
       ["Dashboard", "/dashboard", "Dashboard"],
       ["New onboarding", "/new-onboarding", ""],
       ["Cases", "/cases", "Cases"],
-      [`/cases/${reviewCaseId}`, `/cases/${reviewCaseId}`, "Document evidence and review"],
+      [`/cases/${completedCaseId}`, `/cases/${completedCaseId}`, "Document evidence and review"],
       ["Onboarded", "/onboarded", "Onboarded"],
       [`/onboarded/${completedCaseId}`, `/onboarded/${completedCaseId}`, ""],
       ["Audit", "/audit", "Case activity"],
@@ -282,21 +331,53 @@ test("responsive shell contains primary screens, account hover, forms, tables, a
           expect(options).toEqual(["Unset", "Low", "Medium", "High"]);
         }
         if (route === "/policy") {
-          await expect(page.getByText("Add display-only rule", { exact: true })).toHaveCount(0);
-          await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
-          await expect(page.getByRole("button", { name: "Reset to default" })).toHaveCount(0);
+          await expectPolicyMutationControls(page, false);
         }
       });
     }
   }
+});
 
+test("starting a fresh onboarding after a retained case binds the new case route", async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await login(page);
+  const firstCaseId = await openNewCase(page, cleanFixture);
+
+  await openWorkspaceTab(page, "New onboarding");
+  const startFresh = page.getByRole("button", { name: "Start a new case" });
+  await expect(startFresh).toBeVisible();
+  await startFresh.click();
+  await expect(page).toHaveURL(/\/new-onboarding$/);
+
+  await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Registration ID / UEN").fill("202400001A");
+  await page.locator("#home-document").setInputFiles(cleanFixture);
+  await page.getByRole("button", { name: "Create onboarding" }).click();
+  await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i, {
+    timeout: 30_000,
+  });
+  const secondCaseId = page.url().split("/").at(-1)!;
+  expect(secondCaseId).not.toBe(firstCaseId);
+});
+
+test("responsive review case exposes only supported authoritative review controls", async ({ page }) => {
+  test.setTimeout(240_000);
   await page.setViewportSize({ width: 360, height: 900 });
-  await logout(page);
+  await login(page);
+  const reviewCaseId = await openNewCase(page, lowConfidenceFixture);
+  await waitForCaseStatus(page, reviewCaseId, ["WAITING_FOR_REVIEW"]);
+  await expectAuthoritativeReviewReady(page, reviewCaseId);
+});
+
+test("responsive Relationship Manager controls contain policy and delete dialog", async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.setViewportSize({ width: 360, height: 900 });
   await login(page, "ethan-tan");
   await openWorkspaceTab(page, "Policy");
-  await expect(page.getByText("Add display-only rule", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Edit" }).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reset to default" }).first()).toBeVisible();
+  await expectPolicyMutationControls(page, true);
+  const completedCaseId = await openNewCase(page, cleanFixture);
+  await waitForCaseStatus(page, completedCaseId, ["COMPLETED"]);
   await page.goto(`/cases/${completedCaseId}`);
   const deleteButton = page.getByRole("button", { name: "Delete case" });
   await expect(deleteButton).toBeVisible();
@@ -304,22 +385,19 @@ test("responsive shell contains primary screens, account hover, forms, tables, a
   await expectBoxContained(page, page.getByRole("alertdialog"));
   await expectBoxContained(page, page.getByRole("button", { name: "Cancel" }));
   await page.getByRole("button", { name: "Cancel" }).click();
+});
 
-  await page.goto(`/cases/${reviewCaseId}`);
-  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Accept .* suggestion/ }).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "Assign reviewer" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Return for rework" })).toHaveCount(0);
-  await expectDocumentContained(page);
-
-  await logout(page);
+test("responsive Director policy exposes mutation controls", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 900 });
   await login(page, "olivia-koh");
   await openWorkspaceTab(page, "Policy");
-  await expect(page.getByText("Add display-only rule", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Edit" }).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reset to default" }).first()).toBeVisible();
+  await expectPolicyMutationControls(page, true);
+  await expectShellContained(page);
+});
 
-  await logout(page);
+test("responsive HR administration contains representative routes without policy mutation", async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.setViewportSize({ width: 360, height: 900 });
   await login(page, "hr-admin");
   for (const width of REPRESENTATIVE_VIEWPORTS) {
     await page.setViewportSize({ width, height: 900 });
@@ -328,9 +406,7 @@ test("responsive shell contains primary screens, account hover, forms, tables, a
       await expect(page.getByRole("heading", { name: heading })).toBeVisible();
       await expectShellContained(page);
       if (tab === "Policy") {
-        await expect(page.getByText("Add display-only rule", { exact: true })).toHaveCount(0);
-        await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
-        await expect(page.getByRole("button", { name: "Reset to default" })).toHaveCount(0);
+        await expectPolicyMutationControls(page, false);
       }
     }
   }

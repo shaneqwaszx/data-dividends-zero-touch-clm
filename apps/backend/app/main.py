@@ -1,5 +1,9 @@
 """FastAPI application and Phase 07 application-facing endpoints."""
 
+import json
+import os
+import re
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -131,6 +135,50 @@ from app.services.zero_touch_errors import (
     ZeroTouchRequestError,
 )
 from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
+
+_E2E_REQUEST_ID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _e2e_upload_milestone(
+    request: Request,
+    *,
+    milestone: str,
+    case_id: UUID,
+    started_at: float,
+    status_code: int | None = None,
+) -> None:
+    """Emit a payload-free upload milestone only in the owned E2E diagnostic process."""
+
+    if os.environ.get("CLM_E2E_DIAGNOSTICS") != "1":
+        return
+    request_id = request.headers.get("x-e2e-request-id", "")
+    if _E2E_REQUEST_ID.fullmatch(request_id) is None:
+        return
+    declared_length = request.headers.get("content-length", "")
+    content_length = (
+        int(declared_length)
+        if declared_length.isascii() and declared_length.isdecimal()
+        else None
+    )
+    payload: dict[str, object] = {
+        "milestone": milestone,
+        "request_id": request_id,
+        "method": request.method,
+        "route_family": "/api[/demo]/clm/zero-touch/cases/{case_id}/intake/documents",
+        "case_id": str(case_id),
+        "monotonic_ms": round(time.monotonic() * 1000),
+        "elapsed_ms": round((time.monotonic() - started_at) * 1000),
+        "pid": os.getpid(),
+        "backend_port": int(os.environ["CLM_E2E_BACKEND_PORT"]),
+    }
+    if content_length is not None:
+        payload["content_length"] = content_length
+    if status_code is not None:
+        payload["status"] = status_code
+    print(f"E2E_DIAG {json.dumps(payload, sort_keys=True)}", flush=True)
 
 
 class HealthResponse(BaseModel):
@@ -914,13 +962,32 @@ def create_app(
     ) -> DocumentProcessingResponse:
         """Accept and analyse one file while keeping later automation paused."""
 
+        diagnostic_started_at = time.monotonic()
+        _e2e_upload_milestone(
+            request,
+            milestone="BACKEND_REQUEST_ENTERED",
+            case_id=case_id,
+            started_at=diagnostic_started_at,
+        )
         try:
             documents.validate_upload_metadata(
                 case_id=case_id,
                 display_name=display_name,
                 content_type=request.headers.get("content-type", ""),
             )
+            _e2e_upload_milestone(
+                request,
+                milestone="BACKEND_BODY_READ_STARTED",
+                case_id=case_id,
+                started_at=diagnostic_started_at,
+            )
             body = await _read_bounded_body(request, documents.max_upload_bytes)
+            _e2e_upload_milestone(
+                request,
+                milestone="BACKEND_BODY_READ_COMPLETE",
+                case_id=case_id,
+                started_at=diagnostic_started_at,
+            )
             provider = None
             if use_demo_provider:
                 case = service.get_case(case_id)
@@ -930,6 +997,12 @@ def create_app(
                         message="The zero-touch onboarding case was not found.",
                     )
                 provider = zero_touch_demo.idp_provider_for(case_id, case.entity)
+            _e2e_upload_milestone(
+                request,
+                milestone="BACKEND_DOCUMENT_SERVICE_STARTED",
+                case_id=case_id,
+                started_at=diagnostic_started_at,
+            )
             record = active_zero_touch.intake_document(
                 case_id=case_id,
                 display_name=display_name,
@@ -937,7 +1010,21 @@ def create_app(
                 content=body,
                 idp_provider=provider,
             )
-            return DocumentProcessingResponse.from_domain(record)
+            _e2e_upload_milestone(
+                request,
+                milestone="BACKEND_DOCUMENT_SERVICE_COMPLETE",
+                case_id=case_id,
+                started_at=diagnostic_started_at,
+            )
+            response = DocumentProcessingResponse.from_domain(record)
+            _e2e_upload_milestone(
+                request,
+                milestone="BACKEND_RESPONSE_RETURNED",
+                case_id=case_id,
+                started_at=diagnostic_started_at,
+                status_code=status.HTTP_201_CREATED,
+            )
+            return response
         except DocumentRequestError as exc:
             raise _document_http_error(exc) from None
         except ZeroTouchRequestError as exc:

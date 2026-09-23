@@ -201,6 +201,22 @@ export async function intakeZeroTouchDocument(
   file: File,
   demo: boolean,
 ): Promise<DocumentProcessingRecord> {
+  const diagnosticRequestId = import.meta.env.VITE_E2E_DIAGNOSTICS === "1"
+    ? crypto.randomUUID()
+    : null;
+  const diagnosticMilestone = (milestone: string, status?: number) => {
+    if (!diagnosticRequestId) return;
+    console.info("E2E_DIAG", JSON.stringify({
+      milestone,
+      request_id: diagnosticRequestId,
+      method: "POST",
+      route_family: "/api[/demo]/clm/zero-touch/cases/{case_id}/intake/documents",
+      case_id: caseId,
+      monotonic_ms: Math.round(performance.now()),
+      ...(status === undefined ? {} : { status }),
+    }));
+  };
+  diagnosticMilestone("BROWSER_UPLOAD_DISPATCHED");
   const response = await fetch(
     `${API_BASE_URL}${demo ? "/api/demo" : "/api"}/clm/zero-touch/cases/${caseId}/intake/documents`,
     {
@@ -208,11 +224,15 @@ export async function intakeZeroTouchDocument(
       headers: {
         "Content-Type": file.type,
         "X-Document-Name": file.name,
+        ...(diagnosticRequestId ? { "X-E2E-Request-ID": diagnosticRequestId } : {}),
       },
       body: file,
     },
   );
-  return parseResponse<DocumentProcessingRecord>(response);
+  diagnosticMilestone("BROWSER_UPLOAD_RESPONSE_HEADERS", response.status);
+  const record = await parseResponse<DocumentProcessingRecord>(response);
+  diagnosticMilestone("BROWSER_UPLOAD_RESPONSE_COMPLETE", response.status);
+  return record;
 }
 
 export async function retryZeroTouchIntakeDocument(
