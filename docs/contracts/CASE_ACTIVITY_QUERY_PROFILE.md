@@ -2,15 +2,17 @@
 
 ## Status and boundary
 
-This project-defined POC contract covers `GET /api/clm/zero-touch/activity`. It exposes
-only retained zero-touch automation timeline events already stored with a case. It is
-not sponsor approval of production audit, retention, actor attribution, immutability,
+This project-defined POC contract covers `GET /api/clm/zero-touch/activity` and its
+bounded CSV representation at `GET /api/clm/zero-touch/activity.csv`. Both expose only
+retained zero-touch automation timeline events already stored with a case. They are not
+sponsor approval of production audit, retention, actor attribution, immutability,
 exactly-once delivery, compliance, or a complete operational event history.
 
 The canonical owner remains the existing zero-touch aggregate. `CaseQueryService` owns
 authorization and bounded metadata resolution; the portfolio repository owns the
 memory/Mongo read. This profile adds no event store, schema version, index, migration,
-provider operation, workflow action, or target operation.
+provider operation, workflow action, or target operation. Schema v5 is owned by the
+case-envelope/intelligence change; this read surface only validates and projects it.
 
 ## Request
 
@@ -46,6 +48,14 @@ placed in URLs, logs, HTML, or analytics. No source payload, document content, e
 body, cache key, endpoint reference, target request/response, token, hash, note, actor,
 or invented identifier is returned.
 
+The CSV endpoint is available only as the same authorized, filtered, bounded page. It
+uses fixed safe columns and a static filename, emits canonical UTC timestamps and
+standard CSV quoting, and returns `Cache-Control: no-store` plus
+`X-Content-Type-Options: nosniff`. Formula-significant content beginning with `=`, `+`,
+`-`, or `@` after any Unicode whitespace/control prefix is neutralized. It does not
+export note text, raw evidence, source/provider payloads, credentials, or an unbounded
+history.
+
 ## Ordering, paging, and validation
 
 Global order is timestamp descending, canonical case UUID ascending, then sequence
@@ -58,7 +68,7 @@ before inspecting events. Mongo first matches the server-authored case/team visi
 then projects only required identity/schema/revision, current metadata, and event fields.
 One bounded aggregation validates scoped candidate metadata and every projected event,
 filters/sorts/pages in Mongo, and transfers at most `limit + 1` rows plus a bounded invalid
-signal. Supported case envelopes v1–v4 remain readable without rewrite. Malformed scoped
+signal. Supported case envelopes v1-v5 remain readable without rewrite. Malformed scoped
 identity, schema, revision, array, sequence, enum, timestamp, bounded string, or source
 identity fails closed as a sanitized availability error; malformed other-team data does
 not affect an ordinary team query.
@@ -73,4 +83,5 @@ Offset pages are a live view, not a frozen snapshot. With unchanged data, traver
 deterministic. Concurrent insertion or deletion can move page boundaries. At offset
 10000 the UI disables further Next navigation and asks the user to narrow filters; it
 does not claim the end of all retained history. Explicit refresh returns to page one.
-Case deletion removes the corresponding available history. Export remains unavailable.
+Case deletion removes the corresponding available history. CSV export retains the same
+live-view and pagination limits and does not claim to be a complete compliance archive.

@@ -4,12 +4,16 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
 from threading import Lock, RLock
-from typing import Never, TypeVar
+from typing import Never, Protocol, TypeVar
 from uuid import UUID, uuid4
 
 from app.connectors.acra import AcraConnector
-from app.connectors.errors import ConnectorError, public_connector_error
-from app.connectors.goldtier import GoldTierConnector
+from app.connectors.errors import (
+    ConnectorError,
+    MutationOutcomeUncertainError,
+    public_connector_error,
+)
+from app.connectors.goldtier import GoldTierConnector, GoldTierRequestMapper
 from app.connectors.goldtier_models import (
     GoldTierOutcome,
     GoldTierRequestMetadata,
@@ -38,8 +42,18 @@ from app.domain.models import (
     WorkflowEvent,
     WorkflowState,
 )
-from app.domain.policy import CasePolicySnapshot, legacy_phase13_policy_snapshot
+from app.domain.onboarding_intelligence import (
+    EntityIdentity,
+    EntityResolutionOutcome,
+    EntityResolutionResult,
+)
+from app.domain.policy import (
+    CasePolicySnapshot,
+    IntelligencePolicySnapshot,
+    legacy_phase13_policy_snapshot,
+)
 from app.domain.reconciliation import ReconciliationField
+from app.domain.target_preparation import GoldTierRequestPreview
 from app.domain.target_submission import (
     GoldTierExecutionClassification,
     GoldTierExecutionError,
@@ -49,19 +63,18 @@ from app.domain.target_submission import (
     GoldTierExecutionResult,
     GoldTierIdempotencyBindings,
     GoldTierOperationMarker,
+    GoldTierProviderMode,
     GoldTierSubmissionInput,
     GoldTierTargetOutcome,
     SubmissionCanonicalEntity,
     SubmissionRegisteredAddress,
 )
-from app.mappers.goldtier import (
-    build_amend_request,
-    build_policy_request,
-    build_search_request,
-    build_shell_request,
-)
+from app.mappers.goldtier import MockGoldTierRequestMapper
 from app.services.canonical_validation import validate_entity
-from app.services.errors import OnboardingInfrastructureError
+from app.services.errors import (
+    OnboardingInfrastructureError,
+    TargetProviderContextMismatchError,
+)
 from app.services.registry_acquisition import (
     RegistryAcquisitionCoordinator,
     RegistryCacheError,
@@ -82,10 +95,20 @@ from app.services.target_response_validation import (
 
 T = TypeVar("T")
 
+
+class EntityResolver(Protocol):
+    def resolve_entity(
+        self,
+        *,
+        source: EntityIdentity,
+        candidates: tuple[EntityIdentity, ...],
+        policy: IntelligencePolicySnapshot | None = None,
+    ) -> EntityResolutionResult: ...
+
 MALFORMED_TARGET_RESPONSE_CODE = "GT_MALFORMED_TARGET_RESPONSE"
-MALFORMED_TARGET_RESPONSE_MESSAGE = "Mock GoldTier returned an invalid response."
+MALFORMED_TARGET_RESPONSE_MESSAGE = "GoldTier target returned an invalid response."
 TARGET_OUTCOME_FALLBACK_CODE = "GT_TARGET_OUTCOME_RECORDING_FAILED"
-TARGET_OUTCOME_FALLBACK_MESSAGE = "Mock GoldTier outcome recording failed safely."
+TARGET_OUTCOME_FALLBACK_MESSAGE = "GoldTier target outcome recording failed safely."
 
 
 class _TargetOutcomeFallbackRecorded(Exception):
@@ -137,7 +160,7 @@ def _controlled_target_failure_message(code: str) -> str:
         ),
         "GT_AMEND_FAILED": "GoldTier amendment returned a controlled failure.",
     }
-    return messages.get(code, "Mock GoldTier operation returned a controlled failure.")
+    return messages.get(code, "GoldTier operation returned a controlled failure.")
 
 
 def _project_target_error_code(code: str | None, *, allowed: frozenset[str], fallback: str) -> str:
@@ -161,6 +184,8 @@ class OnboardingService:
         target_finalization_fault: Callable[[UUID], bool] | None = None,
         target_execution_repository: TargetExecutionRepository | None = None,
         policy_snapshot_provider: Callable[[], CasePolicySnapshot] | None = None,
+        goldtier_mapper: GoldTierRequestMapper | None = None,
+        entity_resolver: EntityResolver | None = None,
     ) -> None:
         if registry_router is None:
             if acra is None:
@@ -170,6 +195,8 @@ class OnboardingService:
         self._registry_acquisition_coordinator = registry_acquisition_coordinator
         self._jurisdiction_resolver = JurisdictionResolver()
         self._goldtier = goldtier
+        self._goldtier_mapper = goldtier_mapper or MockGoldTierRequestMapper()
+        self._entity_resolver = entity_resolver
         self._repository = repository
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
@@ -189,6 +216,10 @@ class OnboardingService:
     @property
     def case_repository(self) -> OnboardingCaseRepository:
         return self._repository
+
+    @property
+    def target_provider_mode(self) -> GoldTierProviderMode:
+        return self._goldtier_mapper.environment
 
     def reserve_case_identity(self) -> tuple[UUID, UUID]:
         """Allocate the identifiers needed before the lifecycle lock is acquired."""
@@ -467,10 +498,11 @@ class OnboardingService:
             if case is None:
                 raise ValueError("Onboarding case was not found")
             if case.state != WorkflowState.VALIDATED or case.entity is None:
-                raise ValueError("Onboarding case is not eligible for Mock GoldTier submission")
+                raise ValueError("Onboarding case is not eligible for GoldTier target submission")
             submission_input = self.build_submission_input(
                 case,
                 correlation_id=case.correlation_id,
+                provider_mode=self.target_provider_mode,
             )
             receipt = self.execute_submission_input(
                 submission_input,
@@ -479,7 +511,7 @@ class OnboardingService:
             if receipt.infrastructure_failure:
                 error = receipt.error or GoldTierExecutionError(
                     code="GT_OPERATION_FAILED",
-                    message="Mock GoldTier submission could not be completed.",
+                    message="GoldTier target submission could not be completed.",
                 )
                 raise OnboardingInfrastructureError(
                     case_id=case_id,
@@ -499,6 +531,8 @@ class OnboardingService:
         submission_id: UUID | None = None,
         correlation_id: UUID | None = None,
         accepted_at: datetime | None = None,
+        idempotency: GoldTierIdempotencyBindings | None = None,
+        provider_mode: GoldTierProviderMode,
     ) -> GoldTierSubmissionInput:
         """Freeze validated canonical business data and stable target identifiers."""
 
@@ -519,6 +553,14 @@ class OnboardingService:
             source_case_id=case.source_case_id,
             correlation_id=correlation_id or self._uuid_factory(),
             accepted_at=accepted_at or self._clock(),
+            provider_mode=provider_mode,
+            policy_catalogue_version=case.policy_snapshot.catalogue_version,
+            target_external_key=(
+                f"FYP-{case.case_id.hex.upper()}"
+                if provider_mode == GoldTierProviderMode.SANDBOX
+                else None
+            ),
+            target_policy=case.policy_snapshot.goldtier_target,
             canonical_entity=SubmissionCanonicalEntity(
                 registration_number=entity.registration_number,
                 legal_name=entity.legal_name,
@@ -528,13 +570,38 @@ class OnboardingService:
                 entity_status=entity.entity_status,
                 registered_address=SubmissionRegisteredAddress.model_validate(address.model_dump()),
             ),
-            idempotency=GoldTierIdempotencyBindings(
+            idempotency=idempotency
+            or GoldTierIdempotencyBindings(
                 search=self._uuid_factory(),
                 shell=self._uuid_factory(),
                 policy=self._uuid_factory(),
                 amend=self._uuid_factory(),
             ),
         )
+
+    def build_request_preview(
+        self,
+        case: OnboardingCase,
+        *,
+        provider_mode: GoldTierProviderMode,
+    ) -> GoldTierRequestPreview:
+        """Build a bounded case-scoped preview without reserving execution identity."""
+
+        preview_bindings = GoldTierIdempotencyBindings(
+            search=case.case_id,
+            shell=case.case_id,
+            policy=case.case_id,
+            amend=case.case_id,
+        )
+        preview_input = self.build_submission_input(
+            case,
+            submission_id=case.case_id,
+            correlation_id=case.correlation_id,
+            accepted_at=case.updated_at,
+            idempotency=preview_bindings,
+            provider_mode=provider_mode,
+        )
+        return self._goldtier_mapper.build_preview(preview_input)
 
     def execute_submission_input(
         self,
@@ -543,6 +610,12 @@ class OnboardingService:
         complete_legacy_flow: bool = False,
     ) -> GoldTierExecutionReceipt:
         """Execute once and retain the target outcome before rich receipt mapping."""
+
+        if (
+            submission_input.provider_mode != self._goldtier_mapper.environment
+            or submission_input.provider_mode != self._goldtier.environment
+        ):
+            raise TargetProviderContextMismatchError
 
         with self.case_lock(submission_input.case_id):
             entry = self._stored_execution_entry(submission_input)
@@ -554,7 +627,7 @@ class OnboardingService:
                         submission_input,
                         entry.target_outcome,
                     )
-                raise RuntimeError("Mock GoldTier submission is already in progress")
+                raise RuntimeError("GoldTier target submission is already in progress")
 
             case = self._repository.get(submission_input.case_id)
             if case is None:
@@ -564,23 +637,44 @@ class OnboardingService:
                 or case.state != WorkflowState.VALIDATED
                 or validate_entity(submission_input.canonical_entity)
             ):
-                raise ValueError("Submission input is not eligible for Mock GoldTier")
+                raise ValueError("Submission input is not eligible for GoldTier target execution")
+
+            if (
+                submission_input.policy_catalogue_version
+                != case.policy_snapshot.catalogue_version
+                or submission_input.target_policy != case.policy_snapshot.goldtier_target
+            ):
+                raise ValueError(
+                    "Submission target policy does not match the owning case policy snapshot"
+                )
+            preview = self._goldtier_mapper.build_preview(submission_input)
+            if not preview.dispatch_ready:
+                raise ValueError("Required GoldTier target enrichment is unavailable.")
+            try:
+                self._goldtier_mapper.validate_pre_dispatch(submission_input)
+            except ValueError:
+                raise ValueError("Required GoldTier target preparation is invalid.") from None
 
             self._start_execution(submission_input)
+            outcome_uncertain = False
             try:
                 self._submit_to_goldtier(
                     case,
                     submission_input,
                     complete_legacy_flow=complete_legacy_flow,
                 )
+            except MutationOutcomeUncertainError:
+                outcome_uncertain = True
+                raise
             except OnboardingInfrastructureError:
                 pass
             finally:
-                self._ensure_execution_owner_exit(submission_input)
+                if not outcome_uncertain:
+                    self._ensure_execution_owner_exit(submission_input)
 
             recorded = self.get_target_outcome(submission_input.submission_id)
             if recorded is None:
-                raise RuntimeError("Mock GoldTier execution outcome was not retained")
+                raise RuntimeError("GoldTier target execution outcome was not retained")
             return self._finalize_execution_receipt(submission_input, recorded)
 
     def get_execution_receipt(self, submission_id: UUID) -> GoldTierExecutionReceipt | None:
@@ -635,7 +729,7 @@ class OnboardingService:
             try:
                 self._target_executions.create(entry)
             except TargetExecutionRepositoryConflictError:
-                raise RuntimeError("Mock GoldTier submission identity already exists") from None
+                raise RuntimeError("GoldTier target submission identity already exists") from None
 
     def _mark_operation_attempted(
         self,
@@ -835,8 +929,7 @@ class OnboardingService:
         *,
         complete_legacy_flow: bool,
     ) -> OnboardingCase:
-        entity = submission_input.canonical_entity
-
+        completed_operations = [GoldTierOperationMarker.SEARCH]
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.SEARCH)
         untrusted_search = self._run_required_stage(
             case,
@@ -852,7 +945,7 @@ class OnboardingService:
                 infrastructure_failure=True,
             ),
             operation=lambda: self._goldtier.search_party(
-                build_search_request(entity),
+                self._goldtier_mapper.build_search_request(submission_input),
                 self._metadata(
                     submission_input,
                     submission_input.idempotency.search,
@@ -867,28 +960,7 @@ class OnboardingService:
                 submission_input,
                 completed_operations=(GoldTierOperationMarker.SEARCH,),
             )
-        if search.outcome == GoldTierSearchOutcome.MATCH_FOUND:
-            self._record_target_outcome(
-                submission_input,
-                classification=GoldTierExecutionClassification.REVIEW_REQUIRED,
-                onboarding_state=WorkflowState.REVIEW_REQUIRED,
-                completed_operations=(GoldTierOperationMarker.SEARCH,),
-                error_code="GT_EXISTING_PARTY_REVIEW_REQUIRED",
-                error_message=("An existing GoldTier party candidate requires human review."),
-            )
-            self._record(
-                case,
-                WorkflowState.GT_SEARCHED,
-                EventOutcome.SUCCEEDED,
-                "Existing GoldTier party candidate found; duplicate shell creation was skipped.",
-            )
-            return self._terminate(
-                case,
-                WorkflowState.REVIEW_REQUIRED,
-                EventOutcome.REVIEW_REQUIRED,
-                "GT_EXISTING_PARTY_REVIEW_REQUIRED",
-                "An existing GoldTier party candidate requires human review.",
-            )
+
         if search.outcome == GoldTierSearchOutcome.FAILURE:
             self._record_target_outcome(
                 submission_input,
@@ -905,7 +977,100 @@ class OnboardingService:
                 "GT_SEARCH_FAILED",
                 "GoldTier party search returned a controlled failure.",
             )
-        if search.outcome != GoldTierSearchOutcome.NO_MATCH:
+
+        party_id: str | None = None
+        shell_status: str | None = None
+        if search.outcome in {
+            GoldTierSearchOutcome.MATCH_FOUND,
+            GoldTierSearchOutcome.MULTIPLE_MATCHES,
+        }:
+            if (
+                search.outcome == GoldTierSearchOutcome.MATCH_FOUND
+                and len(search.candidates) == 1
+                and self._entity_resolver is not None
+            ):
+                entity = submission_input.canonical_entity
+                address = entity.registered_address
+                address_text = " ".join(
+                    item
+                    for item in (
+                        address.address_line_1,
+                        address.address_line_2,
+                        address.postal_code,
+                        address.country_code,
+                    )
+                    if item
+                )
+                source = EntityIdentity(
+                    candidate_id=submission_input.source_case_id,
+                    registration_number=entity.registration_number,
+                    country=entity.country_of_incorporation,
+                    legal_name=entity.legal_name,
+                    legal_form=entity.party_type,
+                    registered_address=address_text,
+                    incorporated_on=entity.registration_date,
+                    source_reference=submission_input.source_case_id,
+                )
+                candidates = tuple(
+                    EntityIdentity(
+                        candidate_id=candidate.party_id,
+                        registration_number=candidate.registration_number,
+                        country=candidate.country,
+                        legal_name=candidate.legal_name,
+                        legal_form=candidate.legal_form,
+                        registered_address=candidate.registered_address,
+                        source_reference="GOLDTIER_XPI_SEARCH",
+                    )
+                    for candidate in search.candidates
+                )
+                resolution = self._entity_resolver.resolve_entity(
+                    source=source,
+                    candidates=candidates,
+                    policy=case.policy_snapshot.intelligence,
+                )
+                if resolution.outcome == EntityResolutionOutcome.EXACT_MATCH:
+                    party_id = resolution.selected_candidate_id
+                    shell_status = "EXISTING_PARTY_REUSED"
+
+            if party_id is None:
+                self._record_target_outcome(
+                    submission_input,
+                    classification=GoldTierExecutionClassification.REVIEW_REQUIRED,
+                    onboarding_state=WorkflowState.REVIEW_REQUIRED,
+                    completed_operations=(GoldTierOperationMarker.SEARCH,),
+                    error_code="GT_EXISTING_PARTY_REVIEW_REQUIRED",
+                    error_message=(
+                        "An existing GoldTier party candidate requires human review."
+                    ),
+                )
+                self._record(
+                    case,
+                    WorkflowState.GT_SEARCHED,
+                    EventOutcome.SUCCEEDED,
+                    "Existing GoldTier candidate evidence was retained without a mutation.",
+                )
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    "GT_EXISTING_PARTY_REVIEW_REQUIRED",
+                    "An existing GoldTier party candidate requires human review.",
+                )
+            self._record(
+                case,
+                WorkflowState.GT_SEARCHED,
+                EventOutcome.SUCCEEDED,
+                "An exact existing GoldTier party was selected; shell creation was skipped.",
+            )
+
+        elif search.outcome == GoldTierSearchOutcome.NO_MATCH:
+            self._record(
+                case,
+                WorkflowState.GT_SEARCHED,
+                EventOutcome.SUCCEEDED,
+                "GoldTier search completed; no existing party was found.",
+            )
+        else:
             self._record_target_outcome(
                 submission_input,
                 classification=GoldTierExecutionClassification.FAILED,
@@ -921,84 +1086,71 @@ class OnboardingService:
                 "GT_SEARCH_RESULT_UNSUPPORTED",
                 "GoldTier party search returned an unsupported result.",
             )
-        self._record(
-            case,
-            WorkflowState.GT_SEARCHED,
-            EventOutcome.SUCCEEDED,
-            "Mock GoldTier search completed; no existing party was found.",
-        )
 
-        self._mark_operation_attempted(submission_input, GoldTierOperationMarker.SHELL)
-        untrusted_shell = self._run_required_stage(
-            case,
-            code="GT_SHELL_UNEXPECTED_FAILURE",
-            message="GoldTier shell customer creation could not be completed.",
-            on_failure=lambda code, message: self._record_target_outcome(
-                submission_input,
-                classification=GoldTierExecutionClassification.FAILED,
-                onboarding_state=WorkflowState.FAILED,
-                completed_operations=(
-                    GoldTierOperationMarker.SEARCH,
-                    GoldTierOperationMarker.SHELL,
-                ),
-                error_code=code,
-                error_message=message,
-                infrastructure_failure=True,
-            ),
-            operation=lambda: self._goldtier.create_shell_customer(
-                build_shell_request(
-                    entity,
-                    submission_input.source_case_id,
-                    submission_input.accepted_at,
-                ),
-                self._metadata(
-                    submission_input,
-                    submission_input.idempotency.shell,
-                ),
-            ),
-        )
-        try:
-            shell = validate_shell_response(untrusted_shell)
-        except InvalidTargetResponseError:
-            return self._malformed_target_response(
+        if party_id is None:
+            completed_operations.append(GoldTierOperationMarker.SHELL)
+            self._mark_operation_attempted(submission_input, GoldTierOperationMarker.SHELL)
+            untrusted_shell = self._run_required_stage(
                 case,
-                submission_input,
-                completed_operations=(
-                    GoldTierOperationMarker.SEARCH,
-                    GoldTierOperationMarker.SHELL,
+                code="GT_SHELL_UNEXPECTED_FAILURE",
+                message="GoldTier shell customer creation could not be completed.",
+                on_failure=lambda code, message: self._record_target_outcome(
+                    submission_input,
+                    classification=GoldTierExecutionClassification.FAILED,
+                    onboarding_state=WorkflowState.FAILED,
+                    completed_operations=tuple(completed_operations),
+                    error_code=code,
+                    error_message=message,
+                    infrastructure_failure=True,
+                ),
+                operation=lambda: self._goldtier.create_shell_customer(
+                    self._goldtier_mapper.build_shell_request(submission_input),
+                    self._metadata(
+                        submission_input,
+                        submission_input.idempotency.shell,
+                    ),
                 ),
             )
-        if shell.outcome != GoldTierOutcome.SUCCESS or shell.party_id is None:
-            code = _project_target_error_code(
-                shell.error_code,
-                allowed=frozenset({"GT_SHELL_FAILED"}),
-                fallback="GT_OPERATION_FAILED",
+            try:
+                shell = validate_shell_response(untrusted_shell)
+            except InvalidTargetResponseError:
+                return self._malformed_target_response(
+                    case,
+                    submission_input,
+                    completed_operations=tuple(completed_operations),
+                )
+            if shell.outcome != GoldTierOutcome.SUCCESS or shell.party_id is None:
+                code = _project_target_error_code(
+                    shell.error_code,
+                    allowed=frozenset({"GT_SHELL_FAILED"}),
+                    fallback="GT_OPERATION_FAILED",
+                )
+                message = _controlled_target_failure_message(code)
+                self._record_target_outcome(
+                    submission_input,
+                    classification=GoldTierExecutionClassification.FAILED,
+                    onboarding_state=WorkflowState.FAILED,
+                    completed_operations=tuple(completed_operations),
+                    error_code=code,
+                    error_message=message,
+                )
+                return self._goldtier_failure(case, code, message)
+            party_id = shell.party_id
+            shell_status = shell.status
+            self._record(
+                case,
+                WorkflowState.GT_SHELL_CREATED,
+                EventOutcome.SUCCEEDED,
+                "GoldTier shell customer created.",
             )
-            message = _controlled_target_failure_message(code)
-            self._record_target_outcome(
-                submission_input,
-                classification=GoldTierExecutionClassification.FAILED,
-                onboarding_state=WorkflowState.FAILED,
-                completed_operations=(
-                    GoldTierOperationMarker.SEARCH,
-                    GoldTierOperationMarker.SHELL,
-                ),
-                error_code=code,
-                error_message=message,
-            )
-            return self._goldtier_failure(case, code, message)
-        party_id = shell.party_id
+        if party_id is None or shell_status is None:
+            raise RuntimeError("GoldTier party identity was not resolved safely")
         case.goldtier_result = GoldTierResult(
             party_id=party_id,
-            shell_status=shell.status,
-        )
-        self._record(
-            case,
-            WorkflowState.GT_SHELL_CREATED,
-            EventOutcome.SUCCEEDED,
-            "Mock GoldTier shell customer created.",
+            shell_status=shell_status,
         )
 
+        completed_operations.append(GoldTierOperationMarker.POLICY)
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.POLICY)
         untrusted_policy = self._run_required_stage(
             case,
@@ -1008,24 +1160,15 @@ class OnboardingService:
                 submission_input,
                 classification=GoldTierExecutionClassification.FAILED,
                 onboarding_state=WorkflowState.FAILED,
-                completed_operations=(
-                    GoldTierOperationMarker.SEARCH,
-                    GoldTierOperationMarker.SHELL,
-                    GoldTierOperationMarker.POLICY,
-                ),
+                completed_operations=tuple(completed_operations),
                 party_id=party_id,
-                shell_status=shell.status,
+                shell_status=shell_status,
                 error_code=code,
                 error_message=message,
                 infrastructure_failure=True,
             ),
             operation=lambda: self._goldtier.create_policy(
-                build_policy_request(
-                    entity,
-                    party_id,
-                    submission_input.source_case_id,
-                    submission_input.accepted_at,
-                ),
+                self._goldtier_mapper.build_policy_request(submission_input, party_id),
                 self._metadata(
                     submission_input,
                     submission_input.idempotency.policy,
@@ -1038,13 +1181,9 @@ class OnboardingService:
             return self._malformed_target_response(
                 case,
                 submission_input,
-                completed_operations=(
-                    GoldTierOperationMarker.SEARCH,
-                    GoldTierOperationMarker.SHELL,
-                    GoldTierOperationMarker.POLICY,
-                ),
+                completed_operations=tuple(completed_operations),
             )
-        if policy.outcome != GoldTierOutcome.SUCCESS or policy.policy_id is None:
+        if policy.outcome != GoldTierOutcome.SUCCESS:
             code = _project_target_error_code(
                 policy.error_code,
                 allowed=frozenset(
@@ -1060,13 +1199,9 @@ class OnboardingService:
                 submission_input,
                 classification=GoldTierExecutionClassification.FAILED,
                 onboarding_state=WorkflowState.FAILED,
-                completed_operations=(
-                    GoldTierOperationMarker.SEARCH,
-                    GoldTierOperationMarker.SHELL,
-                    GoldTierOperationMarker.POLICY,
-                ),
+                completed_operations=tuple(completed_operations),
                 party_id=party_id,
-                shell_status=shell.status,
+                shell_status=shell_status,
                 policy_status=policy.status,
                 error_code=code,
                 error_message=message,
@@ -1079,9 +1214,10 @@ class OnboardingService:
             case,
             WorkflowState.GT_POLICY_CREATED,
             EventOutcome.SUCCEEDED,
-            "Mock Singapore policy created.",
+            "GoldTier customer policy created.",
         )
 
+        completed_operations.append(GoldTierOperationMarker.AMEND)
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.AMEND)
         untrusted_amend = self._run_required_stage(
             case,
@@ -1091,14 +1227,9 @@ class OnboardingService:
                 submission_input,
                 classification=GoldTierExecutionClassification.FAILED,
                 onboarding_state=WorkflowState.FAILED,
-                completed_operations=(
-                    GoldTierOperationMarker.SEARCH,
-                    GoldTierOperationMarker.SHELL,
-                    GoldTierOperationMarker.POLICY,
-                    GoldTierOperationMarker.AMEND,
-                ),
+                completed_operations=tuple(completed_operations),
                 party_id=party_id,
-                shell_status=shell.status,
+                shell_status=shell_status,
                 policy_id=policy.policy_id,
                 policy_status=policy.status,
                 error_code=code,
@@ -1107,11 +1238,7 @@ class OnboardingService:
             ),
             operation=lambda: self._goldtier.amend_party(
                 party_id,
-                build_amend_request(
-                    entity,
-                    submission_input.source_case_id,
-                    submission_input.accepted_at,
-                ),
+                self._goldtier_mapper.build_amend_request(submission_input, party_id),
                 self._metadata(
                     submission_input,
                     submission_input.idempotency.amend,
@@ -1124,12 +1251,7 @@ class OnboardingService:
             return self._malformed_target_response(
                 case,
                 submission_input,
-                completed_operations=(
-                    GoldTierOperationMarker.SEARCH,
-                    GoldTierOperationMarker.SHELL,
-                    GoldTierOperationMarker.POLICY,
-                    GoldTierOperationMarker.AMEND,
-                ),
+                completed_operations=tuple(completed_operations),
             )
         if amend.outcome == GoldTierOutcome.PARTIAL_SUCCESS:
             code = _project_target_error_code(
@@ -1137,19 +1259,14 @@ class OnboardingService:
                 allowed=frozenset({"GT_OPTIONAL_SECTION_REVIEW"}),
                 fallback="GT_PARTIAL_SUCCESS",
             )
-            message = "Human review required for the partial mock GoldTier amendment."
+            message = "Human review required for the partial GoldTier amendment."
             self._record_target_outcome(
                 submission_input,
                 classification=GoldTierExecutionClassification.REVIEW_REQUIRED,
                 onboarding_state=WorkflowState.REVIEW_REQUIRED,
-                completed_operations=(
-                    GoldTierOperationMarker.SEARCH,
-                    GoldTierOperationMarker.SHELL,
-                    GoldTierOperationMarker.POLICY,
-                    GoldTierOperationMarker.AMEND,
-                ),
+                completed_operations=tuple(completed_operations),
                 party_id=party_id,
-                shell_status=shell.status,
+                shell_status=shell_status,
                 policy_id=policy.policy_id,
                 policy_status=policy.status,
                 amend_status=amend.status,
@@ -1161,7 +1278,7 @@ class OnboardingService:
                 case,
                 WorkflowState.GT_ENRICHED,
                 EventOutcome.PARTIAL,
-                "Mock GoldTier amendment completed partially.",
+                "GoldTier amendment completed partially.",
                 code,
             )
             return self._terminate(
@@ -1182,14 +1299,9 @@ class OnboardingService:
                 submission_input,
                 classification=GoldTierExecutionClassification.FAILED,
                 onboarding_state=WorkflowState.FAILED,
-                completed_operations=(
-                    GoldTierOperationMarker.SEARCH,
-                    GoldTierOperationMarker.SHELL,
-                    GoldTierOperationMarker.POLICY,
-                    GoldTierOperationMarker.AMEND,
-                ),
+                completed_operations=tuple(completed_operations),
                 party_id=party_id,
-                shell_status=shell.status,
+                shell_status=shell_status,
                 policy_id=policy.policy_id,
                 policy_status=policy.status,
                 amend_status=amend.status,
@@ -1204,14 +1316,9 @@ class OnboardingService:
             onboarding_state=(
                 WorkflowState.COMPLETED if complete_legacy_flow else WorkflowState.GT_ENRICHED
             ),
-            completed_operations=(
-                GoldTierOperationMarker.SEARCH,
-                GoldTierOperationMarker.SHELL,
-                GoldTierOperationMarker.POLICY,
-                GoldTierOperationMarker.AMEND,
-            ),
+            completed_operations=tuple(completed_operations),
             party_id=party_id,
-            shell_status=shell.status,
+            shell_status=shell_status,
             policy_id=policy.policy_id,
             policy_status=policy.status,
             amend_status=amend.status,
@@ -1221,14 +1328,14 @@ class OnboardingService:
             case,
             WorkflowState.GT_ENRICHED,
             EventOutcome.SUCCEEDED,
-            "Mock GoldTier party enriched.",
+            "GoldTier party enriched.",
         )
         if complete_legacy_flow:
             self._record(
                 case,
                 WorkflowState.COMPLETED,
                 EventOutcome.SUCCEEDED,
-                "Required onboarding stages completed with Mock GoldTier.",
+                "Required onboarding stages completed with GoldTier.",
             )
         return case.model_copy(deep=True)
 
@@ -1401,6 +1508,8 @@ class OnboardingService:
                 code=exc.code,
                 message=exc.public_message,
             )
+        except MutationOutcomeUncertainError:
+            raise
         except ConnectorError as exc:
             public_error = public_connector_error(exc)
             if on_failure is not None:

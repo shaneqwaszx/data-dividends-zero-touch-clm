@@ -54,6 +54,7 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("GET", "/api/clm/zero-touch/cases", RouteAccess.CASE_PORTFOLIO),
     RoutePolicy("GET", "/api/clm/zero-touch/case-portfolio", RouteAccess.CASE_PORTFOLIO),
     RoutePolicy("GET", "/api/clm/zero-touch/activity", RouteAccess.CASE_PORTFOLIO),
+    RoutePolicy("GET", "/api/clm/zero-touch/activity.csv", RouteAccess.CASE_PORTFOLIO),
     RoutePolicy("GET", "/api/clm/zero-touch/dashboard", RouteAccess.CASE_PORTFOLIO),
     RoutePolicy("POST", "/api/onboarding/cases", RouteAccess.CASE_CREATION),
     RoutePolicy("POST", "/api/clm/cases", RouteAccess.CASE_CREATION),
@@ -99,6 +100,11 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         RouteAccess.CASE_SCOPED,
     ),
     RoutePolicy("GET", "/api/clm/zero-touch/cases/{case_id}", RouteAccess.CASE_SCOPED),
+    RoutePolicy(
+        "GET",
+        "/api/clm/zero-touch/cases/{case_id}/intelligence",
+        RouteAccess.CASE_SCOPED,
+    ),
     RoutePolicy("DELETE", "/api/clm/zero-touch/cases/{case_id}", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "GET",

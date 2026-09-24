@@ -31,10 +31,22 @@ def validate_search_response(response: object) -> GoldTierSearchResult:
     if trusted.outcome in {
         GoldTierSearchOutcome.NO_MATCH,
         GoldTierSearchOutcome.MATCH_FOUND,
+        GoldTierSearchOutcome.MULTIPLE_MATCHES,
     }:
         valid = 200 <= trusted.status_code < 300 and (
-            trusted.outcome != GoldTierSearchOutcome.MATCH_FOUND
-            or trusted.matched_party_id is not None
+            (
+                trusted.outcome == GoldTierSearchOutcome.NO_MATCH
+                and not trusted.candidates
+            )
+            or (
+                trusted.outcome == GoldTierSearchOutcome.MATCH_FOUND
+                and trusted.matched_party_id is not None
+                and len(trusted.candidates) <= 1
+            )
+            or (
+                trusted.outcome == GoldTierSearchOutcome.MULTIPLE_MATCHES
+                and len(trusted.candidates) >= 2
+            )
         )
     else:
         valid = trusted.status_code >= 400 and trusted.error_code is not None
@@ -71,7 +83,6 @@ def validate_policy_response(
         valid = (
             200 <= trusted.status_code < 300
             and party_matches
-            and trusted.policy_id is not None
             and trusted.status == "POLICY_CREATED"
         )
     else:

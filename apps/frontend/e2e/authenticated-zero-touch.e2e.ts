@@ -147,7 +147,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect(ownershipResponse.status()).toBe(200);
   expect((await ownershipResponse.json() as { candidates: unknown[] }).candidates.length)
     .toBeGreaterThan(0);
-  await expect(page.getByText("Completed Mock workflow")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 30_000 });
   const operationalTiming = page.getByRole("region", { name: "Operational timing" });
   await expect(operationalTiming).toBeVisible();
   await expect(operationalTiming.getByText(/^Timing observed at /)).toHaveCount(1);
@@ -220,7 +220,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   });
   await casesLink.click();
   await expect(page.getByRole("heading", { name: "Cases" })).toBeVisible();
-  await expect(page.getByText("MOCK_GOLDTIER_SUBMITTED", { exact: true })).toBeVisible();
+  await expect(page.getByText("GoldTier target submitted", { exact: true })).toBeVisible();
   await expect(page.getByText(/^Timing observed at /)).toHaveCount(1);
   const completedTimingRow = page.getByRole("row").filter({
     has: page.locator(`a[href="/cases/${caseId}"]`),
@@ -407,7 +407,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await replacementInput.focus();
   await expect(replacementInput).toBeFocused();
   await replacementInput.setInputFiles(cleanFixture);
-  await expect(page.getByText("Completed Mock workflow")).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
   await expect.poll(async () => {
     const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
     if (!response.ok()) return false;

@@ -120,6 +120,10 @@ class PhysicalMongoRunnerTests(unittest.TestCase):
             "test_phase19_case_timing_real_mongo.py",
             {suite.name for suite in RUNNER.PHYSICAL_SUITES},
         )
+        self.assertIn(
+            "test_provider_identity_real_mongo.py",
+            {suite.name for suite in RUNNER.PHYSICAL_SUITES},
+        )
         execution_arguments = invoke.call_args_list[1].args[0]
         self.assertIn("-o", execution_arguments)
         self.assertIn("addopts=", execution_arguments)

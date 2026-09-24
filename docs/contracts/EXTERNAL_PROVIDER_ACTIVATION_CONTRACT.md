@@ -18,6 +18,10 @@ credential, tool, placeholder, Mock test, or documentation example exists.
 - `BLOCKED`: authority, implementation, access, or security prerequisites are missing.
 - `PARTIAL_SCAFFOLD_ONLY`: authority-independent seam or dormant code exists; it cannot
   be used to infer transport, mapping, auth, retry, or provider success.
+- `SANDBOX_PARTIAL`: an explicitly selected sandbox adapter and bounded sanitized
+  observations exist, but contract, mapping, business-policy, mutation, or production
+  authority remains incomplete. Runtime selection is allowed only for the bounded
+  sandbox path; this state is neither `SANDBOX_VERIFIED` nor Live evidence.
 - `READY_FOR_AUTHORIZED_SANDBOX_PROOF`: all documented prerequisites are approved and
   access is available, but no sandbox execution evidence has yet been accepted.
 - `SANDBOX_VERIFIED`: an authorized execution has passed the contract/security/evidence
@@ -42,16 +46,23 @@ BizFile remains dormant until a separately authorized provider change.
 
 ### GoldTier and PingFed
 
-`BLOCKED` → Q-008/D-018 containment and rotation/revocation proof → sanitized auth
-reference and approved secret delivery → GoldTier environment and PingFed token
-contract/scopes/client authentication → TLS 1.3 and any authoritative mTLS/private-CA
-verification → Singapore mappings and exact operations → strict DTO/error/idempotency/
-recovery tests → authorized sandbox proof → sanitized evidence → security review →
-independent QG → `SANDBOX_VERIFIED`.
+The sponsor-supplied XPI dialect is currently `SANDBOX_PARTIAL`: bounded read-only
+Search observations and an explicit opt-in adapter exist, while Mock remains the
+default. Customer mutation was not executed because the eight target-policy defaults
+remain `TBD_SPONSOR`; related-party mutation remains blocked by child-ID lifecycle and
+relationship-authority gaps. The adapter is not PingFed or production authentication.
 
-Q-001, Q-007, Q-009, Q-010, Q-011, and Q-018 remain dependent gates in addition to
-Q-008/D-018. The existing target ledger remains the sole call-order and no-replay
-owner. This phase does not consume GoldTier/PingFed placeholders or create an adapter.
+Promotion beyond this bounded state remains: unresolved contract and business authority
+→ approved secret delivery → complete Singapore mappings and exact operations →
+authorized mutation proof where permitted → sanitized evidence → security review →
+independent QG → `SANDBOX_VERIFIED`. Production/Live activation separately requires
+Q-008/D-018 containment and rotation/revocation proof, the PingFed token contract,
+scopes/client authentication, and separate Live evidence.
+
+Q-001, Q-007, Q-009, Q-010, Q-011, and Q-018 remain dependent XPI/production gates;
+Q-008/D-018 remain production/PingFed gates. The existing target ledger remains the
+sole call-order and no-replay owner. XPI sandbox selection never consumes the future
+PingFed placeholders and has no Mock fallback.
 
 ### Ownership hierarchy and vendor IDP/OCR
 

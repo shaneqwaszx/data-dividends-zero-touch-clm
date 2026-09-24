@@ -20,6 +20,11 @@ from app.domain.documents import (
     ReviewDecision,
 )
 from app.domain.models import EventOutcome, SafeError, WorkflowState
+from app.domain.onboarding_intelligence import (
+    EntityResolutionOutcome,
+    MockRiskBand,
+    OnboardingIntelligenceRecord,
+)
 from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState
 from app.domain.reconciliation import (
     ReconciliationCaseRecord,
@@ -88,6 +93,8 @@ class ZeroTouchOrchestrator:
         establishment_discard: Callable[[UUID], str | None] | None = None,
         max_transitions_per_run: int = 12,
         clock: Callable[[], datetime] | None = None,
+        intelligence_evaluator: Callable[[UUID], OnboardingIntelligenceRecord | None]
+        | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
     ) -> None:
         if not 1 <= max_transitions_per_run <= 32:
@@ -110,6 +117,7 @@ class ZeroTouchOrchestrator:
         self._establishment_discard = establishment_discard
         self._max_transitions = max_transitions_per_run
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._intelligence_evaluator = intelligence_evaluator
         self._uuid_factory = uuid_factory or uuid4
 
     def release_provider_binding(self, binding_id: str) -> None:
@@ -1172,6 +1180,10 @@ class ZeroTouchOrchestrator:
                         message="Ownership processing could not progress safely.",
                     )
                 if ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED:
+                    if self._intelligence_evaluator is not None:
+                        intelligence = self._intelligence_evaluator(case_id)
+                        if intelligence is not None:
+                            record = self._append_intelligence_event(record, intelligence)
                     return self._raise_ownership_exception(record, ownership)
                 if ownership.state == OwnershipAnalysisState.FAILED:
                     return self._technical_failure(
@@ -1181,6 +1193,13 @@ class ZeroTouchOrchestrator:
                         message="Ownership processing stopped after a technical failure.",
                     )
                 if ownership.state == OwnershipAnalysisState.ANALYZED:
+                    intelligence = (
+                        self._intelligence_evaluator(case_id)
+                        if self._intelligence_evaluator is not None
+                        else None
+                    )
+                    if intelligence is not None:
+                        record = self._append_intelligence_event(record, intelligence)
                     record = self._complete_stage(
                         record,
                         stage=AutomationStage.OWNERSHIP,
@@ -1189,6 +1208,23 @@ class ZeroTouchOrchestrator:
                         message="Deterministic ownership analysis completed automatically.",
                         started_at=started_at,
                     )
+                    if (
+                        intelligence is not None
+                        and intelligence.entity_resolution is not None
+                        and intelligence.entity_resolution.outcome
+                        in {
+                            EntityResolutionOutcome.REVIEW_REQUIRED,
+                            EntityResolutionOutcome.CONFLICT,
+                        }
+                    ):
+                        return self._raise_entity_resolution_exception(record, intelligence)
+                    if (
+                        intelligence is not None
+                        and intelligence.mock_risk is not None
+                        and intelligence.mock_risk.blocks_readiness
+                        and intelligence.mock_risk.band == MockRiskBand.HIGH
+                    ):
+                        return self._raise_mock_risk_exception(record, intelligence)
                     continue
                 return self._technical_failure(
                     record,
@@ -1225,7 +1261,10 @@ class ZeroTouchOrchestrator:
                     stage=AutomationStage.READINESS,
                     event_type=AutomationEventType.READINESS_AUTOMATED,
                     code="READINESS_AUTOMATED",
-                    message="Authoritative Mock submission readiness was evaluated automatically.",
+                    message=(
+                        "Authoritative target-submission readiness was evaluated "
+                        "automatically."
+                    ),
                     started_at=started_at,
                 )
                 continue
@@ -1247,7 +1286,7 @@ class ZeroTouchOrchestrator:
                         event_type=AutomationEventType.MOCK_SUBMISSION_STARTED,
                         outcome=EventOutcome.SUCCEEDED,
                         code="MOCK_SUBMISSION_STARTED",
-                        message="Automatic Mock GoldTier submission started.",
+                        message="Automatic GoldTier target submission started.",
                     )
                     record = self._save(record, candidate)
                 try:
@@ -1268,7 +1307,7 @@ class ZeroTouchOrchestrator:
                             outcome=EventOutcome.PARTIAL,
                             code="CLM_FINALIZATION_RETRY_REQUIRED",
                             message=(
-                                "Mock submission outcome is retained; finalization recovery "
+                                "Target submission outcome is retained; finalization recovery "
                                 "will resume without replaying target operations."
                             ),
                         )
@@ -1277,7 +1316,7 @@ class ZeroTouchOrchestrator:
                         record,
                         stage=AutomationStage.MOCK_GOLDTIER,
                         code=exc.code,
-                        message="Mock GoldTier processing stopped after a technical failure.",
+                        message="GoldTier target processing stopped after a technical failure.",
                     )
                 except ClmRequestError as exc:
                     if (
@@ -1289,7 +1328,7 @@ class ZeroTouchOrchestrator:
                         record,
                         stage=AutomationStage.MOCK_GOLDTIER,
                         code=exc.code,
-                        message="Mock GoldTier processing could not progress safely.",
+                        message="GoldTier target processing could not progress safely.",
                     )
                 if clm_record.status == ClmStatus.MOCK_GOLDTIER_SUBMITTED:
                     record = self._complete_stage(
@@ -1297,7 +1336,7 @@ class ZeroTouchOrchestrator:
                         stage=AutomationStage.MOCK_GOLDTIER,
                         event_type=AutomationEventType.MOCK_SUBMISSION_COMPLETED,
                         code="MOCK_GOLDTIER_SUBMITTED",
-                        message="Mock GoldTier submission completed automatically.",
+                        message="GoldTier target submission completed automatically.",
                         started_at=started_at,
                     )
                     candidate = record.model_copy(deep=True)
@@ -1316,7 +1355,7 @@ class ZeroTouchOrchestrator:
                     record,
                     stage=AutomationStage.MOCK_GOLDTIER,
                     code=(clm_record.error.code if clm_record.error else "CLM_SUBMISSION_FAILED"),
-                    message="Mock GoldTier processing stopped after a technical failure.",
+                    message="GoldTier target processing stopped after a technical failure.",
                 )
 
             if next_stage == AutomationStage.COMPLETE:
@@ -1591,11 +1630,11 @@ class ZeroTouchOrchestrator:
         if code == "GT_EXISTING_PARTY_REVIEW_REQUIRED":
             exception_type = BusinessExceptionType.EXISTING_PARTY_REVIEW_REQUIRED
             explanation = (
-                "An existing Mock GoldTier party was found; duplicate creation was stopped."
+                "An existing GoldTier target party was found; duplicate creation was stopped."
             )
         else:
             exception_type = BusinessExceptionType.TARGET_PARTIAL_REVIEW_REQUIRED
-            explanation = "Mock target processing returned a partial or review outcome."
+            explanation = "GoldTier target processing returned a partial or review outcome."
         clm_record = self._clm.get(case_id=record.case_id)
         version = clm_record.version if clm_record is not None else 0
         return self._add_exception(
@@ -1605,6 +1644,47 @@ class ZeroTouchOrchestrator:
             blocker_code=code,
             explanation=explanation,
             evidence_version=f"target:{record.case_id}:{version}",
+            evidence=(),
+            actions=(),
+        )
+
+    def _raise_mock_risk_exception(
+        self,
+        record: ZeroTouchAutomationRecord,
+        intelligence: OnboardingIntelligenceRecord,
+    ) -> ZeroTouchAutomationRecord:
+        return self._add_exception(
+            record,
+            exception_type=BusinessExceptionType.MOCK_RISK_REVIEW_REQUIRED,
+            stage=AutomationStage.READINESS,
+            blocker_code="MOCK_RISK_REVIEW_REQUIRED",
+            explanation=(
+                "Project-configured mock advisory risk requires human review; "
+                "this is not a compliance decision."
+            ),
+            evidence_version=(
+                f"intelligence:{intelligence.version}:{intelligence.input_fingerprint}"
+            ),
+            evidence=(),
+            actions=(),
+        )
+
+    def _raise_entity_resolution_exception(
+        self,
+        record: ZeroTouchAutomationRecord,
+        intelligence: OnboardingIntelligenceRecord,
+    ) -> ZeroTouchAutomationRecord:
+        return self._add_exception(
+            record,
+            exception_type=BusinessExceptionType.ENTITY_RESOLUTION_REVIEW_REQUIRED,
+            stage=AutomationStage.READINESS,
+            blocker_code="ENTITY_RESOLUTION_REVIEW_REQUIRED",
+            explanation=(
+                "Synthetic entity candidate evidence is ambiguous and requires human review."
+            ),
+            evidence_version=(
+                f"intelligence:{intelligence.version}:{intelligence.input_fingerprint}"
+            ),
             evidence=(),
             actions=(),
         )
@@ -1804,6 +1884,29 @@ class ZeroTouchOrchestrator:
             )
         )
         return candidate
+
+    def _append_intelligence_event(
+        self,
+        record: ZeroTouchAutomationRecord,
+        intelligence: OnboardingIntelligenceRecord,
+    ) -> ZeroTouchAutomationRecord:
+        code = "ONBOARDING_INTELLIGENCE_V1"
+        if any(
+            event.event_type == AutomationEventType.INTELLIGENCE_EVALUATED
+            and event.code == code
+            for event in record.events
+        ):
+            return record
+        return self._append_event(
+            record,
+            event_type=AutomationEventType.INTELLIGENCE_EVALUATED,
+            outcome=EventOutcome.SUCCEEDED,
+            code=code,
+            message=(
+                "Advisory onboarding intelligence was evaluated under "
+                f"policy catalogue v{intelligence.policy_catalogue_version}."
+            ),
+        )
 
     def _create(self, record: ZeroTouchAutomationRecord) -> ZeroTouchAutomationRecord:
         try:

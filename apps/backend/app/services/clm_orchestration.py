@@ -45,6 +45,7 @@ from app.domain.target_submission import (
     GoldTierExecutionClassification,
     GoldTierExecutionLedgerState,
     GoldTierExecutionReceipt,
+    GoldTierProviderMode,
 )
 from app.services.canonical_validation import validate_entity
 from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
@@ -56,7 +57,10 @@ from app.services.document_processing import (
     DocumentProcessingService,
     document_semantic_assessment,
 )
-from app.services.errors import OnboardingInfrastructureError
+from app.services.errors import (
+    OnboardingInfrastructureError,
+    TargetProviderContextMismatchError,
+)
 from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
 
@@ -214,9 +218,9 @@ class ClmOrchestrationService:
                     else candidate.status.value
                 ),
                 message=(
-                    "Current authoritative evidence is ready for Mock GoldTier submission."
+                    "Current authoritative evidence is ready for GoldTier target submission."
                     if candidate.status == ClmStatus.READY_FOR_MOCK_SUBMISSION
-                    else "Current authoritative evidence does not yet permit Mock submission."
+                    else "Current authoritative evidence does not yet permit target submission."
                 ),
             )
 
@@ -235,7 +239,7 @@ class ClmOrchestrationService:
                 raise ClmRequestError(
                     code="CLM_TARGET_OUTCOME_UNCERTAIN",
                     message=(
-                        "A prior Mock GoldTier operation has no definitive retained "
+                        "A prior GoldTier target operation has no definitive retained "
                         "outcome and cannot be replayed automatically."
                     ),
                 ) from None
@@ -264,12 +268,17 @@ class ClmOrchestrationService:
                     raise ClmRequestError(
                         code="CLM_TARGET_OUTCOME_UNCERTAIN",
                         message=(
-                            "A prior Mock GoldTier operation has no definitive retained "
+                            "A prior GoldTier target operation has no definitive retained "
                             "outcome and cannot be replayed automatically."
                         ),
                     ) from None
                 try:
                     receipt = self._cases.execute_submission_input(snapshot.target_input)
+                except TargetProviderContextMismatchError as exc:
+                    raise ClmRequestError(
+                        code="CLM_TARGET_PROVIDER_CONTEXT_MISMATCH",
+                        message=exc.public_message,
+                    ) from None
                 except Exception:
                     receipt = self._cases.get_execution_receipt(snapshot.submission_id)
                     if receipt is None:
@@ -281,7 +290,7 @@ class ClmOrchestrationService:
                                 correlation_id=record.correlation_id,
                                 code="CLM_FINALIZATION_RETRY_REQUIRED",
                                 message=(
-                                    "Mock GoldTier execution was retained but "
+                                    "GoldTier target execution was retained but "
                                     "finalization must be retried."
                                 ),
                             ) from None
@@ -289,7 +298,7 @@ class ClmOrchestrationService:
                             raise ClmRequestError(
                                 code="CLM_TARGET_OUTCOME_UNCERTAIN",
                                 message=(
-                                    "A prior Mock GoldTier operation has no definitive "
+                                    "A prior GoldTier target operation has no definitive "
                                     "retained outcome and cannot be replayed automatically."
                                 ),
                             ) from None
@@ -298,7 +307,7 @@ class ClmOrchestrationService:
                             orchestration_id=record.orchestration_id,
                             correlation_id=record.correlation_id,
                             code="CLM_SUBMISSION_UNEXPECTED_FAILURE",
-                            message="Mock GoldTier submission could not be completed.",
+                            message="GoldTier target submission could not be completed.",
                         ) from None
 
             if record.execution_receipt is None:
@@ -313,7 +322,7 @@ class ClmOrchestrationService:
                     correlation_id=record.correlation_id,
                     code="CLM_FINALIZATION_RETRY_REQUIRED",
                     message=(
-                        "Mock GoldTier execution was retained but finalization must be retried."
+                        "GoldTier target execution was retained but finalization must be retried."
                     ),
                 ) from None
 
@@ -327,7 +336,7 @@ class ClmOrchestrationService:
                     message=(
                         error.message
                         if error is not None
-                        else "Mock GoldTier submission could not be completed."
+                        else "GoldTier target submission could not be completed."
                     ),
                 ) from None
             return completed
@@ -364,17 +373,18 @@ class ClmOrchestrationService:
                 event_type=ClmEventType.READINESS_EVALUATED,
                 outcome=EventOutcome.REVIEW_REQUIRED,
                 code="CLM_NOT_READY",
-                message="Mock submission was blocked by current authoritative evidence.",
+                message="Target submission was blocked by current authoritative evidence.",
             )
             raise ClmRequestError(
                 code="CLM_NOT_READY",
-                message="The case is not ready for Mock GoldTier submission.",
+                message="The case is not ready for GoldTier target submission.",
             ) from None
 
         snapshot, preparation = self._build_snapshot(
             case=case,
             documents=documents,
             ownership=ownership,
+            submission_plan=record.submission_plan,
         )
         submitting = record.model_copy(deep=True)
         submitting.status = ClmStatus.SUBMITTING
@@ -388,7 +398,7 @@ class ClmOrchestrationService:
             event_type=ClmEventType.MOCK_SUBMISSION_STARTED,
             outcome=EventOutcome.SUCCEEDED,
             code="MOCK_SUBMISSION_STARTED",
-            message="Serialized Mock GoldTier base submission started.",
+            message="Serialized GoldTier target base submission started.",
         )
 
     def _persist_execution_receipt(
@@ -407,7 +417,7 @@ class ClmOrchestrationService:
         ):
             raise ClmRequestError(
                 code="CLM_EXECUTION_BINDING_INVALID",
-                message="The retained Mock execution does not match this submission.",
+                message="The retained target execution does not match this submission.",
             )
         candidate = record.model_copy(deep=True)
         candidate.execution_receipt = receipt
@@ -418,7 +428,7 @@ class ClmOrchestrationService:
                 event_type=ClmEventType.MOCK_TARGET_EXECUTION_RECORDED,
                 outcome=EventOutcome.SUCCEEDED,
                 code="MOCK_TARGET_EXECUTION_RECORDED",
-                message="Safe Mock target execution receipt retained for finalization.",
+                message="Safe target execution receipt retained for finalization.",
             )
         except Exception:
             raise ClmInfrastructureError(
@@ -426,7 +436,7 @@ class ClmOrchestrationService:
                 orchestration_id=record.orchestration_id,
                 correlation_id=record.correlation_id,
                 code="CLM_FINALIZATION_RETRY_REQUIRED",
-                message="Mock GoldTier execution was retained but finalization must be retried.",
+                message="GoldTier target execution was retained but finalization must be retried.",
             ) from None
 
     def _finalize_execution(
@@ -444,6 +454,30 @@ class ClmOrchestrationService:
             message=message,
         )
 
+    def _build_submission_plan(self, case: OnboardingCase) -> GoldTierSubmissionPlan:
+        mode = self._cases.target_provider_mode
+        preview = (
+            self._cases.build_request_preview(case, provider_mode=mode)
+            if case.entity is not None and not validate_entity(case.entity)
+            else None
+        )
+        if mode == GoldTierProviderMode.SANDBOX:
+            return GoldTierSubmissionPlan(
+                environment="SANDBOX",
+                provider_classification="SANDBOX_PARTIAL",
+                base_operations=(
+                    "customers/search",
+                    "customers/create if NO_MATCH",
+                    "customers/createPolicy",
+                    "customers/amendCustomer",
+                ),
+                match_found_behavior="EXACT_MATCH_REUSE_ELSE_REVIEW_NO_WRITES",
+                related_party_integration="BLOCKED_CHILD_ID_LIFECYCLE",
+                real_ready_for_approval="NOT_AVAILABLE",
+                request_preview=preview,
+            )
+        return GoldTierSubmissionPlan(request_preview=preview)
+
     def _create_record(self, case: OnboardingCase) -> ClmOrchestrationRecord:
         now = self._clock()
         readiness = self._evaluate_current(case, now=now)
@@ -454,7 +488,7 @@ class ClmOrchestrationService:
             correlation_id=self._uuid_factory(),
             status=status,
             readiness=readiness,
-            submission_plan=GoldTierSubmissionPlan(),
+            submission_plan=self._build_submission_plan(case),
             error=case.error if status == ClmStatus.FAILED else None,
             created_at=now,
             updated_at=now,
@@ -540,6 +574,7 @@ class ClmOrchestrationService:
         case: OnboardingCase,
         documents: list[DocumentProcessingRecord],
         ownership: OwnershipAnalysisRecord | None,
+        submission_plan: GoldTierSubmissionPlan,
     ) -> tuple[ClmSubmissionSnapshot, RelatedPartySubmissionPreparation]:
         entity = case.entity
         if entity is None or ownership is None or validate_entity(entity):
@@ -558,6 +593,7 @@ class ClmOrchestrationService:
             submission_id=self._uuid_factory(),
             correlation_id=self._uuid_factory(),
             accepted_at=self._clock(),
+            provider_mode=submission_plan.environment,
         )
         snapshot = ClmSubmissionSnapshot(
             snapshot_id=self._uuid_factory(),
@@ -820,7 +856,7 @@ def _terminal_from_receipt(
             ClmEventType.MOCK_SUBMISSION_COMPLETED,
             EventOutcome.SUCCEEDED,
             "MOCK_GOLDTIER_SUBMITTED",
-            "Accepted Mock GoldTier base operations completed.",
+            "Accepted GoldTier target base operations completed.",
         )
 
     error = (
@@ -828,7 +864,7 @@ def _terminal_from_receipt(
         if receipt.error is not None
         else SafeError(
             code="CLM_SUBMISSION_FAILED",
-            message="Mock GoldTier submission failed.",
+            message="GoldTier target submission failed.",
         )
     )
     candidate.error = error
@@ -847,7 +883,7 @@ def _terminal_from_receipt(
             ClmEventType.CLM_REVIEW_REQUIRED,
             EventOutcome.REVIEW_REQUIRED,
             error.code,
-            "Mock GoldTier returned an outcome requiring human review.",
+            "GoldTier target returned an outcome requiring human review.",
         )
 
     candidate.status = ClmStatus.FAILED

@@ -66,7 +66,7 @@ the supported single-process POC repository boundary, not distributed IAM atomic
 
 The catalogue is a strict singleton with at most 64 typed rules and catalogue/rule
 optimistic versions. It accepts no executable expressions or arbitrary nested JSON.
-The eight seed rules are:
+The catalogue has 21 seed rules, including 13 intelligence rules:
 
 1. `DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD` — editable, runtime-enforced, default
    `0.85`.
@@ -78,6 +78,22 @@ The eight seed rules are:
 6. `DOCUMENT_SUPPORTED_MEDIA_TYPES` — fixed PDF, DOCX, UTF-8 TXT.
 7. `WORKFLOW_SUPPORTED_STAGES` — fixed current supported stages.
 8. `RECONCILIATION_SOURCE_PRECEDENCE` — fixed `NONE`.
+9. `ENTITY_RESOLUTION_AUTO_MATCH_THRESHOLD` — editable project default `0.85`.
+10. `ENTITY_RESOLUTION_REVIEW_THRESHOLD` — editable project default `0.60`.
+11. `ENTITY_RESOLUTION_AMBIGUITY_MARGIN` — editable project default `0.03`.
+12. `ENTITY_RESOLUTION_IDENTIFIER_WEIGHT` — editable project default `0.55`.
+13. `ENTITY_RESOLUTION_NAME_WEIGHT` — editable project default `0.25`.
+14. `ENTITY_RESOLUTION_ADDRESS_WEIGHT` — editable project default `0.10`.
+15. `ENTITY_RESOLUTION_LEGAL_FORM_WEIGHT` — editable project default `0.05`.
+16. `ENTITY_RESOLUTION_INCORPORATION_DATE_WEIGHT` — editable project default `0.05`.
+17. `UBO_ADVISORY_LIKELY_THRESHOLD` — editable project default `0.65`.
+18. `UBO_ADVISORY_UNLIKELY_THRESHOLD` — editable project default `0.35`.
+19. `MOCK_RISK_MEDIUM_THRESHOLD` — editable project default `30`.
+20. `MOCK_RISK_HIGH_THRESHOLD` — editable project default `60`.
+21. `MOCK_RISK_BLOCKS_READINESS` — editable project default `false`.
+
+The entity weights must total one, review/auto-match and low/high threshold ordering
+must remain valid, and every intelligence value retains its project-defined POC label.
 
 Only RMs and Directors may mutate policy. Custom rules are forced by the backend to
 `DISPLAY_SHOWCASE_ONLY` and cannot affect workflow execution. Stale expected catalogue
@@ -104,11 +120,14 @@ and HR retain read-only catalogue access.
 
 ## Runtime snapshot boundary
 
-Only the IDP confidence and UBO percentage rules affect onboarding runtime. Each new
-case binds those values, the fixed inclusive comparator, catalogue label/version, and
-UTC `bound_at` into an immutable case snapshot before registry processing. Later
-catalogue mutations affect only subsequently created cases. Legacy schema-v1/v2 cases
-use the fixed synthetic legacy snapshot and are never rewritten merely by reading.
+Each new case binds the IDP confidence and UBO percentage rules plus all 13 intelligence
+rules, the fixed inclusive comparator, catalogue label/version, and UTC `bound_at` into
+an immutable case snapshot before registry processing. Entity resolution, UBO advice,
+and mock advisory risk persist their policy-derived weights, thresholds, model versions,
+and readiness flag consistently with that snapshot. Later catalogue mutations affect
+only subsequently created cases. Legacy schema-v1/v2 cases use the fixed synthetic
+legacy snapshot; schema-v3/v4 cases have no intelligence policy or projection. Reads do
+not rewrite a legacy envelope merely to advance its schema.
 
 ## Persistence and audit
 

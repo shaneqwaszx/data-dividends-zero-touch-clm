@@ -36,7 +36,13 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `ACRA_TIMEOUT_SECONDS` | integration | `10` | Bounded sandbox HTTP timeout |
 | `ACRA_AUTH_HEADER_NAME` | security | empty | Backend-only generic seam pending Q-012 |
 | `ACRA_AUTH_HEADER_VALUE` | secret | empty | Local secret only; never commit/log |
-| `GOLDTIER_CONNECTOR_MODE` | Mock | `mock` | Current schema accepts `mock` only |
+| `GOLDTIER_CONNECTOR_MODE` | integration | `mock` | Explicit `mock` or sponsor XPI `sandbox`; there is no automatic fallback |
+| `GOLDTIER_SANDBOX_BASE_URL` | integration | empty | HTTPS origin only; required in sandbox mode and never a production/Live claim |
+| `GOLDTIER_SANDBOX_ENVIRONMENT` | integration | empty | Bounded path segment used by the supplied XPI routes |
+| `GOLDTIER_SANDBOX_USER_ID` | backend-only secret | empty | Supplied `user_id` header value; never returned, logged, or exposed to the browser |
+| `GOLDTIER_SANDBOX_TIMEOUT_SECONDS` | security | `10` | Per-request timeout, bounded to 30 seconds |
+| `GOLDTIER_SANDBOX_MAX_RESPONSE_BYTES` | security | `131072` | Maximum retained response body, bounded to 1 MiB |
+| `GOLDTIER_SANDBOX_ALLOW_WRITES` | safety | `false` | Separate opt-in for customer mutations; false still permits bounded search diagnostics |
 | `IDP_CONNECTOR_MODE` | local POC | `local_pdf_text` | `local_pdf_text` for the normal sponsor PDF path; `mock` only for developer/test fault injection |
 | `OWNERSHIP_CONNECTOR_MODE` | Mock | `mock` | Current schema accepts `mock` only |
 | `IDP_MAX_UPLOAD_BYTES` | security | `5242880` | POC upload bound, max configurable 20 MiB |
@@ -95,15 +101,20 @@ health, execution-profile, case responses, or normal logs. No TTL/purge is confi
 
 `GOLDTIER_BASE_URL`, `PINGFED_TOKEN_URL`, `GOLDTIER_CLIENT_ID`,
 `GOLDTIER_CLIENT_SECRET`, and `GOLDTIER_SCOPE` are present in `.env.example` only as
-future inventory. Current `Settings` and composition do not read them and no real
-GoldTier adapter exists. Populating them does nothing and must not be represented as
-real readiness. The Phase 21 provider registry keeps `GOLDTIER_REAL` and `PINGFED_AUTH`
-blocked. D-018 still prohibits the quarantined authentication material.
+future PingFed/production inventory. Current `Settings` and composition do not read
+them. The separately named `GOLDTIER_SANDBOX_*` settings compose only the sponsor XPI
+sandbox adapter, classified `SANDBOX_PARTIAL`. Populating either family is not evidence
+of Live readiness. The provider registry records `GOLDTIER_XPI` as explicit
+`PARTIAL / SANDBOX_PARTIAL` while keeping `GOLDTIER_REAL` and `PINGFED_AUTH` blocked.
+D-018 still prohibits the quarantined authentication material.
 
 ## Fail-closed rules
 
 - Unsupported connector modes fail settings validation.
 - ACRA sandbox mode without valid HTTPS/path/auth configuration fails before use.
+- GoldTier sandbox mode without a safe HTTPS origin, bounded environment, or backend-
+  only `user_id` fails before use; mutation dispatch also requires the separate write
+  opt-in and a complete authority-labelled case policy snapshot.
 - Registry caching outside Mock ACRA, without the exact freshness value, or with a
   colliding Mongo collection name fails settings validation.
 - Demo UI visibility does not bypass the backend demo gate.

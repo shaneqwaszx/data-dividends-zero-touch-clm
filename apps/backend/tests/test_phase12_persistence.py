@@ -8,6 +8,7 @@ from threading import RLock
 from uuid import UUID, uuid4
 
 import pytest
+from bson import BSON
 from fastapi.testclient import TestClient
 
 import app.composition as composition
@@ -22,15 +23,34 @@ from app.composition import (
 )
 from app.config import Settings
 from app.connectors.mock_goldtier import MockGoldTierConnector
+from app.domain.clm import (
+    ClmSubmissionSnapshot,
+    EvidenceReference,
+    GoldTierSubmissionPlan,
+    ProvisionalUboSummary,
+)
 from app.domain.documents import (
     DocumentProcessingRecord,
     DocumentProcessingState,
     DocumentProfile,
 )
+from app.domain.onboarding_intelligence import (
+    EntityIdentity,
+    MockRiskAssessment,
+    MockRiskBand,
+    OnboardingIntelligenceRecord,
+)
+from app.domain.policy import (
+    CasePolicySnapshot,
+    EntityResolutionWeights,
+    IntelligencePolicySnapshot,
+    legacy_intelligence_policy_snapshot,
+)
 from app.domain.target_submission import (
     GoldTierExecutionLedgerEntry,
     GoldTierExecutionLedgerState,
     GoldTierOperationMarker,
+    GoldTierProviderMode,
 )
 from app.domain.zero_touch import (
     AutomationEventType,
@@ -52,11 +72,18 @@ from app.persistence.repositories import (
     MongoDemoScenarioRepository,
     MongoDocumentProcessingRepository,
     MongoOnboardingCaseRepository,
+    MongoOnboardingIntelligenceRepository,
     MongoOwnershipAnalysisRepository,
     MongoReconciliationRepository,
     MongoReconciliationUnitOfWork,
     MongoTargetExecutionRepository,
     MongoZeroTouchAutomationRepository,
+)
+from app.services.onboarding import OnboardingService
+from app.services.onboarding_intelligence import OnboardingIntelligenceService
+from app.services.onboarding_intelligence_repository import (
+    InMemoryOnboardingIntelligenceRepository,
+    OnboardingIntelligenceRepositoryConflictError,
 )
 from app.services.zero_touch_repository import InMemoryZeroTouchAutomationRepository
 
@@ -65,6 +92,68 @@ UEN: 202400001A
 Registered Address: 18 INNOVATION WAY, #04-01, 018956, SG
 Country: SG
 """
+
+
+def intelligence_record(case_id: UUID, *, version: int = 1) -> OnboardingIntelligenceRecord:
+    return OnboardingIntelligenceRecord(
+        case_id=case_id,
+        version=version,
+        input_fingerprint="sha256:" + "a" * 64,
+        policy_catalogue_version=1,
+        mock_risk=MockRiskAssessment(
+            score=15,
+            band=MockRiskBand.LOW,
+            signal_assessments={
+                "entity_resolution": "0",
+                "document": "15",
+                "ownership": "NOT_ASSESSED",
+            },
+            reason_codes=("DOCUMENT_EXCEPTION_COUNT_AVAILABLE",),
+            not_assessed_signals=frozenset({"ownership"}),
+        ),
+        evaluated_at=datetime(2026, 9, 23, tzinfo=UTC),
+    )
+
+
+def intelligence_case_policy() -> CasePolicySnapshot:
+    return CasePolicySnapshot(
+        snapshot_label="TEST_INTELLIGENCE_POLICY_V1",
+        catalogue_version=1,
+        idp_review_confidence_threshold="0.85",
+        ubo_threshold_percent="25.000000",
+        intelligence=legacy_intelligence_policy_snapshot(),
+        bound_at=datetime(2026, 9, 23, tzinfo=UTC),
+    )
+
+
+def intelligence_onboarding() -> OnboardingService:
+    return build_onboarding_service(
+        settings=Settings(_env_file=None),
+        policy_snapshot_provider=intelligence_case_policy,
+    )
+
+
+def test_intelligence_repositories_enforce_create_update_delete_and_no_resurrection() -> None:
+    case_id = uuid4()
+    memory = InMemoryOnboardingIntelligenceRepository()
+    created = memory.save(intelligence_record(case_id), expected_version=None)
+    assert created.version == 1
+    with pytest.raises(OnboardingIntelligenceRepositoryConflictError):
+        memory.save(intelligence_record(case_id), expected_version=None)
+    updated = memory.save(intelligence_record(case_id, version=2), expected_version=1)
+    assert updated.version == 2
+    memory.delete_for_case(case_id)
+    assert memory.get_for_case(case_id) is None
+
+    store = MemoryEnvelopeStore()
+    onboarding = intelligence_onboarding()
+    case = onboarding.create_staged_case("202400001A")
+    MongoOnboardingCaseRepository(store).create(case)  # type: ignore[arg-type]
+    repository = MongoOnboardingIntelligenceRepository(store)  # type: ignore[arg-type]
+    assert repository.save(intelligence_record(case.case_id), expected_version=None).version == 1
+    store.records.pop(case.case_id)
+    with pytest.raises(OnboardingIntelligenceRepositoryConflictError):
+        repository.save(intelligence_record(case.case_id, version=2), expected_version=1)
 
 
 class MemoryEnvelopeStore:
@@ -350,6 +439,7 @@ def test_memory_mode_never_requires_mongo() -> None:
     )
     assert bundle.mode == "memory"
     assert bundle.public_label == "Process-local"
+    assert isinstance(bundle.intelligence, InMemoryOnboardingIntelligenceRepository)
 
 
 def test_mongo_mode_without_uri_fails_closed() -> None:
@@ -370,14 +460,171 @@ def test_schema_version_is_explicit_and_unknown_version_is_rejected() -> None:
         created_at=now,
         updated_at=now,
     )
-    assert snapshot.schema_version == 4
+    assert snapshot.schema_version == 5
 
     store = object.__new__(MongoCaseStore)
     raw = snapshot.model_dump(mode="json")
     raw["_id"] = str(snapshot.case_id)
-    raw["schema_version"] = 5
+    raw["schema_version"] = 6
     with pytest.raises(PersistenceSchemaUnsupportedError):
         store._decode(raw)  # noqa: SLF001 - direct corruption boundary test
+
+
+def _provider_bound_snapshot(
+    *,
+    plan_mode: GoldTierProviderMode,
+    execution_mode: GoldTierProviderMode,
+) -> DurableCaseSnapshot:
+    settings = Settings(_env_file=None)
+    onboarding = build_onboarding_service(settings=settings)
+    documents = build_document_processing_service(onboarding, settings)
+    ownership = build_ownership_analysis_service(onboarding, settings)
+    clm = build_clm_orchestration_service(onboarding, documents, ownership)
+    record = clm.create_case("202400001A")
+    case = onboarding.get_case(record.case_id)
+    assert case is not None
+    target_input = onboarding.build_submission_input(
+        case,
+        provider_mode=execution_mode,
+    )
+    now = datetime.now(UTC)
+    submission_snapshot = ClmSubmissionSnapshot(
+        snapshot_id=uuid4(),
+        target_input=target_input,
+        document_references=(),
+        ownership_reference=EvidenceReference(
+            reference_id=uuid4(),
+            version=1,
+            status="ANALYZED",
+            updated_at=now,
+        ),
+        provisional_ubo=ProvisionalUboSummary(candidate_count=0),
+        created_at=now,
+    )
+    classification = "MOCK" if plan_mode == GoldTierProviderMode.MOCK else "SANDBOX_PARTIAL"
+    bound_record = record.model_copy(
+        update={
+            "submission_plan": GoldTierSubmissionPlan(
+                environment=plan_mode,
+                provider_classification=classification,
+            ),
+            "submission_snapshot": submission_snapshot,
+        },
+        deep=True,
+    )
+    return DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=1,
+        onboarding=case,
+        clm=bound_record,
+        target_executions=(
+            GoldTierExecutionLedgerEntry(
+                submission_input=target_input,
+                state=GoldTierExecutionLedgerState.IN_PROGRESS,
+            ),
+        ),
+        created_at=now,
+        updated_at=now,
+    )
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [GoldTierProviderMode.MOCK, GoldTierProviderMode.SANDBOX],
+)
+def test_schema_v5_accepts_matching_plan_and_execution_provider(mode: GoldTierProviderMode) -> None:
+    snapshot = _provider_bound_snapshot(plan_mode=mode, execution_mode=mode)
+
+    decoded = object.__new__(MongoCaseStore)._decode(  # noqa: SLF001
+        {**snapshot.model_dump(mode="json"), "_id": str(snapshot.case_id)}
+    )
+
+    assert decoded.clm is not None and decoded.clm.submission_snapshot is not None
+    assert decoded.clm.submission_plan.environment == mode
+    assert decoded.clm.submission_snapshot.target_input.provider_mode == mode
+
+
+@pytest.mark.parametrize(
+    ("plan_mode", "execution_mode"),
+    [
+        (GoldTierProviderMode.MOCK, GoldTierProviderMode.SANDBOX),
+        (GoldTierProviderMode.SANDBOX, GoldTierProviderMode.MOCK),
+    ],
+)
+def test_schema_v5_rejects_contradictory_plan_and_execution_provider(
+    plan_mode: GoldTierProviderMode,
+    execution_mode: GoldTierProviderMode,
+) -> None:
+    with pytest.raises(ValueError, match="provider identity"):
+        _provider_bound_snapshot(plan_mode=plan_mode, execution_mode=execution_mode)
+
+
+@pytest.mark.parametrize(
+    ("plan_mode", "contradictory_mode"),
+    [
+        (GoldTierProviderMode.MOCK, GoldTierProviderMode.SANDBOX),
+        (GoldTierProviderMode.SANDBOX, GoldTierProviderMode.MOCK),
+    ],
+)
+def test_schema_v5_decode_rejects_persisted_provider_contradiction(
+    plan_mode: GoldTierProviderMode,
+    contradictory_mode: GoldTierProviderMode,
+) -> None:
+    snapshot = _provider_bound_snapshot(plan_mode=plan_mode, execution_mode=plan_mode)
+    raw = snapshot.model_dump(mode="json")
+    raw["_id"] = str(snapshot.case_id)
+    raw["clm"]["submission_snapshot"]["target_input"]["provider_mode"] = (
+        contradictory_mode.value
+    )
+    raw["target_executions"][0]["submission_input"]["provider_mode"] = (
+        contradictory_mode.value
+    )
+
+    with pytest.raises(PersistenceDataInvalidError):
+        object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
+
+
+def test_schema_v5_accepts_plan_without_submission_snapshot() -> None:
+    snapshot = _provider_bound_snapshot(
+        plan_mode=GoldTierProviderMode.SANDBOX,
+        execution_mode=GoldTierProviderMode.SANDBOX,
+    )
+    raw = snapshot.model_dump(mode="json")
+    raw["_id"] = str(snapshot.case_id)
+    raw["clm"]["submission_snapshot"] = None
+    raw["target_executions"] = []
+
+    decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
+
+    assert decoded.clm is not None
+    assert decoded.clm.submission_plan.environment == GoldTierProviderMode.SANDBOX
+    assert decoded.clm.submission_snapshot is None
+
+
+def test_schema_v5_rejects_matching_input_with_contradictory_execution_provider() -> None:
+    snapshot = _provider_bound_snapshot(
+        plan_mode=GoldTierProviderMode.MOCK,
+        execution_mode=GoldTierProviderMode.MOCK,
+    )
+    raw = snapshot.model_dump(mode="json")
+    raw["_id"] = str(snapshot.case_id)
+    raw["target_executions"][0]["submission_input"]["provider_mode"] = "SANDBOX"
+
+    with pytest.raises(PersistenceDataInvalidError):
+        object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
+
+
+def test_schema_v5_rejects_internally_contradictory_provider_plan() -> None:
+    snapshot = _provider_bound_snapshot(
+        plan_mode=GoldTierProviderMode.MOCK,
+        execution_mode=GoldTierProviderMode.MOCK,
+    )
+    raw = snapshot.model_dump(mode="json")
+    raw["_id"] = str(snapshot.case_id)
+    raw["clm"]["submission_plan"]["provider_classification"] = "SANDBOX_PARTIAL"
+
+    with pytest.raises(PersistenceDataInvalidError):
+        object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
 
 def test_schema_v2_read_receives_legacy_policy_snapshot_without_rewrite() -> None:
@@ -393,6 +640,7 @@ def test_schema_v2_read_receives_legacy_policy_snapshot_without_rewrite() -> Non
     )
     raw = current.model_dump(mode="json")
     raw["schema_version"] = 2
+    raw.pop("intelligence")
     raw["onboarding"].pop("policy_snapshot")
     raw["onboarding"].pop("registry_evidence_binding")
     raw["_id"] = str(case.case_id)
@@ -400,7 +648,7 @@ def test_schema_v2_read_receives_legacy_policy_snapshot_without_rewrite() -> Non
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 4
+    assert decoded.schema_version == 5
     assert decoded.onboarding.policy_snapshot.snapshot_label == "LEGACY_PHASE13_DEFAULTS_V1"
     assert decoded.onboarding.registry_evidence_binding is None
     assert str(decoded.onboarding.policy_snapshot.idp_review_confidence_threshold) == "0.85"
@@ -420,15 +668,275 @@ def test_schema_v3_read_has_absent_binding_without_rewrite() -> None:
     )
     raw = current.model_dump(mode="json")
     raw["schema_version"] = 3
+    raw.pop("intelligence")
     raw["onboarding"].pop("registry_evidence_binding")
     raw["_id"] = str(case.case_id)
     original = deepcopy(raw)
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 4
+    assert decoded.schema_version == 5
     assert decoded.onboarding.registry_evidence_binding is None
     assert raw == original
+
+
+def test_schema_v4_read_has_no_intelligence_record_and_is_not_rewritten() -> None:
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    current = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=9,
+        onboarding=case,
+        created_at=now,
+        updated_at=now,
+    )
+    raw = current.model_dump(mode="json")
+    raw["schema_version"] = 4
+    raw.pop("intelligence")
+    raw["onboarding"]["policy_snapshot"].pop("intelligence")
+    raw["_id"] = str(case.case_id)
+    original = deepcopy(raw)
+
+    decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
+
+    assert decoded.schema_version == 5
+    assert decoded.intelligence is None
+    assert decoded.onboarding.policy_snapshot.intelligence is None
+    assert raw == original
+
+
+def test_existing_schema_v5_reads_without_new_goldtier_preparation_fields() -> None:
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    case = onboarding.create_staged_case("202400001A")
+    submission = onboarding.build_submission_input(
+        case,
+        provider_mode=GoldTierProviderMode.MOCK,
+    )
+    now = datetime.now(UTC)
+    snapshot = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=10,
+        onboarding=case,
+        target_executions=(
+            GoldTierExecutionLedgerEntry(
+                submission_input=submission,
+                state=GoldTierExecutionLedgerState.IN_PROGRESS,
+            ),
+        ),
+        created_at=now,
+        updated_at=now,
+    )
+    raw = snapshot.model_dump(mode="json")
+    raw["onboarding"]["policy_snapshot"].pop("goldtier_target")
+    target_input = raw["target_executions"][0]["submission_input"]
+    for field in (
+        "provider_mode",
+        "policy_catalogue_version",
+        "target_external_key",
+        "target_policy",
+    ):
+        target_input.pop(field)
+    raw["_id"] = str(case.case_id)
+    original = deepcopy(raw)
+
+    decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
+
+    assert decoded.onboarding.policy_snapshot.goldtier_target is None
+    assert decoded.target_executions[0].submission_input.provider_mode == "MOCK"
+    assert decoded.target_executions[0].submission_input.target_policy is None
+    assert raw == original
+
+
+def test_schema_v5_intelligence_round_trip_is_strict_and_case_bound() -> None:
+    onboarding = intelligence_onboarding()
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    record = OnboardingIntelligenceRecord(
+        case_id=case.case_id,
+        version=1,
+        input_fingerprint="sha256:" + "a" * 64,
+        policy_catalogue_version=case.policy_snapshot.catalogue_version,
+        mock_risk=MockRiskAssessment(
+            score=65,
+            band=MockRiskBand.HIGH,
+            signal_assessments={
+                "entity_resolution": "35",
+                "document": "30",
+                "ownership": "NOT_ASSESSED",
+            },
+            reason_codes=("ENTITY_REVIEW_REQUIRED",),
+            not_assessed_signals=frozenset({"ownership", "pep", "sanctions"}),
+        ),
+        evaluated_at=now,
+    )
+    snapshot = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=1,
+        onboarding=case,
+        intelligence=record,
+        created_at=now,
+        updated_at=now,
+    )
+    store = object.__new__(MongoCaseStore)
+
+    encoded = store._encode(snapshot)  # noqa: SLF001
+    bson_round_trip = BSON(BSON.encode(encoded)).decode()
+    decoded = store._decode(bson_round_trip)  # noqa: SLF001
+
+    assert decoded == snapshot
+    wrong_case = record.model_copy(update={"case_id": uuid4()})
+    with pytest.raises(ValueError):
+        DurableCaseSnapshot(
+            case_id=case.case_id,
+            revision=1,
+            onboarding=case,
+            intelligence=wrong_case,
+            created_at=now,
+            updated_at=now,
+        )
+
+
+@pytest.mark.parametrize("corruption", ["entity", "ubo", "risk"])
+def test_schema_v5_rejects_semantically_contradictory_nested_intelligence(
+    corruption: str,
+) -> None:
+    onboarding = intelligence_onboarding()
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    snapshot = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=1,
+        onboarding=case,
+        intelligence=intelligence_record(case.case_id),
+        created_at=now,
+        updated_at=now,
+    )
+    store = object.__new__(MongoCaseStore)
+    raw = store._encode(snapshot)  # noqa: SLF001
+    if corruption == "entity":
+        raw["intelligence"]["entity_resolution"] = {
+            "outcome": "NO_MATCH",
+            "selected_candidate_id": "ghost",
+            "source_reference": None,
+            "candidates": [],
+            "reason_codes": ["NO_CANDIDATES"],
+            "model_version": "entity-resolution-linear-v1",
+            "assistance_label": "ML_ASSISTED",
+            "disclaimer": "NOT_IDENTITY_AUTHORITY",
+        }
+    elif corruption == "ubo":
+        raw["intelligence"]["ubo_advice"] = [
+            {
+                "party_id": "",
+                "probability": None,
+                "label": "LIKELY_UBO",
+                "authoritative_ownership_percent": "0",
+                "reason_codes": ["CONSUMES_DETERMINISTIC_OWNERSHIP_RESULT"],
+                "likely_threshold": "0.65",
+                "unlikely_threshold": "0.35",
+                "model_version": "ubo-advisory-linear-v1",
+                "assistance_label": "ML_ASSISTED",
+                "disclaimer": "NOT_LEGAL_UBO_DETERMINATION",
+            }
+        ]
+    else:
+        raw["intelligence"]["mock_risk"]["band"] = "HIGH"
+
+    with pytest.raises(PersistenceDataInvalidError):
+        store._decode(raw)  # noqa: SLF001
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "catalogue_version",
+        "missing_intelligence_policy",
+        "entity_weights",
+        "ubo_thresholds",
+        "risk_thresholds",
+        "risk_readiness_flag",
+        "unknown_risk_limitation",
+    ],
+)
+def test_schema_v5_rejects_intelligence_not_bound_to_immutable_case_policy(
+    corruption: str,
+) -> None:
+    onboarding = intelligence_onboarding()
+    case = onboarding.create_staged_case("202400001A")
+    assert case.policy_snapshot.intelligence is not None
+    now = datetime.now(UTC)
+    snapshot = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=1,
+        onboarding=case,
+        intelligence=intelligence_record(case.case_id),
+        created_at=now,
+        updated_at=now,
+    )
+    store = object.__new__(MongoCaseStore)
+    raw = store._encode(snapshot)  # noqa: SLF001
+    if corruption == "catalogue_version":
+        raw["intelligence"]["policy_catalogue_version"] = 999
+    elif corruption == "missing_intelligence_policy":
+        raw["onboarding"]["policy_snapshot"]["intelligence"] = None
+    elif corruption == "entity_weights":
+        default = case.policy_snapshot.intelligence
+        alternate = IntelligencePolicySnapshot(
+            **default.model_dump(exclude={"entity_resolution_weights"}),
+            entity_resolution_weights=EntityResolutionWeights(
+                identifier="0.10",
+                name="0.40",
+                address="0.30",
+                legal_form="0.10",
+                incorporation_date="0.10",
+            ),
+        )
+        raw["intelligence"]["entity_resolution"] = (
+            OnboardingIntelligenceService()
+            .resolve_entity(
+                source=EntityIdentity(
+                    candidate_id="source",
+                    legal_name="Synthetic Entity",
+                    registered_address="1 Synthetic Street",
+                ),
+                candidates=(
+                    EntityIdentity(
+                        candidate_id="candidate",
+                        legal_name="Synthetic Entity",
+                        registered_address="1 Synthetic Street",
+                    ),
+                ),
+                policy=alternate,
+            )
+            .model_dump(mode="json")
+        )
+    elif corruption == "ubo_thresholds":
+        raw["intelligence"]["ubo_advice"] = [
+            {
+                "party_id": "PERSON-1",
+                "probability": "0.800000",
+                "label": "LIKELY_UBO",
+                "authoritative_ownership_percent": "40",
+                "reason_codes": ["CONSUMES_DETERMINISTIC_OWNERSHIP_RESULT"],
+                "likely_threshold": "0.70",
+                "unlikely_threshold": "0.30",
+                "model_version": "ubo-advisory-linear-v1",
+                "assistance_label": "ML_ASSISTED",
+                "disclaimer": "NOT_LEGAL_UBO_DETERMINATION",
+            }
+        ]
+    elif corruption == "risk_thresholds":
+        raw["intelligence"]["mock_risk"]["medium_threshold"] = 20
+    elif corruption == "risk_readiness_flag":
+        raw["intelligence"]["mock_risk"]["blocks_readiness"] = True
+    else:
+        raw["intelligence"]["mock_risk"]["not_assessed_signals"].append(
+            "unexpected_external_signal"
+        )
+
+    with pytest.raises(PersistenceDataInvalidError):
+        store._decode(raw)  # noqa: SLF001
 
 
 @pytest.mark.parametrize(
@@ -770,10 +1278,7 @@ def test_partial_document_review_round_trips_across_adapter_restart() -> None:
             json={"expected_document_count": 1},
         )
         reviewed = first.post(
-            (
-                f"/api/onboarding/cases/{case_id}/documents/"
-                f"{uploaded.json()['document_id']}/reviews"
-            ),
+            (f"/api/onboarding/cases/{case_id}/documents/{uploaded.json()['document_id']}/reviews"),
             json={
                 "field_key": "legal_name",
                 "decision": "CORRECTED",
@@ -798,13 +1303,9 @@ def test_partial_document_review_round_trips_across_adapter_restart() -> None:
     assert restored.json()["version"] == expected_version
     assert restored_document.json()["events"] == expected_events
     legal_name = next(
-        item
-        for item in restored_document.json()["fields"]
-        if item["field_key"] == "legal_name"
+        item for item in restored_document.json()["fields"] if item["field_key"] == "legal_name"
     )
-    assert legal_name["original_extracted_value"] == (
-        "MERLION CIRCULAR LABS PTE. LIMITED"
-    )
+    assert legal_name["original_extracted_value"] == ("MERLION CIRCULAR LABS PTE. LIMITED")
     assert legal_name["reviewed_value"] == "MERLION CIRCULAR LABS PTE. LTD."
 
 

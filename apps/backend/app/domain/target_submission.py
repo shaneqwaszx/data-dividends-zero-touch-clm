@@ -6,12 +6,26 @@ from enum import StrEnum
 from pydantic import UUID4, BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.models import WorkflowState
+from app.domain.policy import GoldTierTargetPolicySnapshot
 from app.domain.target_safety import (
     SafeTargetErrorCode,
     SafeTargetIdentifier,
     SafeTargetMessage,
     SafeTargetStatus,
 )
+
+_NEW_PARTY_OPERATION_ORDER = ("SEARCH", "SHELL", "POLICY", "AMEND")
+_EXISTING_PARTY_OPERATION_ORDER = ("SEARCH", "POLICY", "AMEND")
+
+
+def _is_valid_operation_prefix(
+    operations: tuple["GoldTierOperationMarker", ...],
+) -> bool:
+    values = tuple(item.value for item in operations)
+    return values in {
+        _NEW_PARTY_OPERATION_ORDER[: len(values)],
+        _EXISTING_PARTY_OPERATION_ORDER[: len(values)],
+    }
 
 
 class SubmissionRegisteredAddress(BaseModel):
@@ -48,6 +62,16 @@ class GoldTierIdempotencyBindings(BaseModel):
     amend: UUID4
 
 
+class GoldTierProviderMode(StrEnum):
+    MOCK = "MOCK"
+    SANDBOX = "SANDBOX"
+
+
+class GoldTierProviderClassification(StrEnum):
+    MOCK = "MOCK"
+    SANDBOX_PARTIAL = "SANDBOX_PARTIAL"
+
+
 class GoldTierSubmissionInput(BaseModel):
     """Exact immutable business and identifier input consumed by target mappers."""
 
@@ -58,6 +82,10 @@ class GoldTierSubmissionInput(BaseModel):
     source_case_id: str = Field(min_length=1, max_length=96)
     correlation_id: UUID4
     accepted_at: datetime
+    provider_mode: GoldTierProviderMode = GoldTierProviderMode.MOCK
+    policy_catalogue_version: int = Field(default=0, ge=0)
+    target_external_key: str | None = Field(default=None, min_length=1, max_length=96)
+    target_policy: GoldTierTargetPolicySnapshot | None = None
     canonical_entity: SubmissionCanonicalEntity
     idempotency: GoldTierIdempotencyBindings
 
@@ -108,15 +136,9 @@ class GoldTierTargetOutcome(BaseModel):
 
     @model_validator(mode="after")
     def validate_terminal_shape(self) -> "GoldTierTargetOutcome":
-        operation_order = (
-            GoldTierOperationMarker.SEARCH,
-            GoldTierOperationMarker.SHELL,
-            GoldTierOperationMarker.POLICY,
-            GoldTierOperationMarker.AMEND,
-        )
-        if not self.completed_operations or self.completed_operations != operation_order[
-            : len(self.completed_operations)
-        ]:
+        if not self.completed_operations or not _is_valid_operation_prefix(
+            self.completed_operations
+        ):
             raise ValueError("Target operation markers must form an ordered prefix")
         if self.classification == GoldTierExecutionClassification.SUCCESS:
             if self.error_code is not None or self.error_message is not None:
@@ -196,13 +218,7 @@ class GoldTierExecutionLedgerEntry(BaseModel):
 
     @model_validator(mode="after")
     def validate_lifecycle_shape(self) -> "GoldTierExecutionLedgerEntry":
-        operation_order = (
-            GoldTierOperationMarker.SEARCH,
-            GoldTierOperationMarker.SHELL,
-            GoldTierOperationMarker.POLICY,
-            GoldTierOperationMarker.AMEND,
-        )
-        if self.attempted_operations != operation_order[: len(self.attempted_operations)]:
+        if not _is_valid_operation_prefix(self.attempted_operations):
             raise ValueError("Attempted target operations must form an ordered prefix")
         if self.state == GoldTierExecutionLedgerState.IN_PROGRESS:
             if self.target_outcome is not None or self.receipt is not None:

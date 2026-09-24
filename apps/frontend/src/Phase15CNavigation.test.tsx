@@ -285,6 +285,7 @@ function seedCaseDetail(queryClient: QueryClient, caseId: string, label: string)
   queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, caseId), caseDetailFixture(caseId, label));
   queryClient.setQueryData(caseQueryKeys.documents(relationshipActor.user_id, caseId), [documentFixture(caseId)]);
   queryClient.setQueryData(caseQueryKeys.ownership(relationshipActor.user_id, caseId), null);
+  queryClient.setQueryData(caseQueryKeys.intelligence(relationshipActor.user_id, caseId), null);
 }
 
 function LocationProbe() {
@@ -939,6 +940,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A), refreshedSummary);
     queryClient.setQueryData(caseQueryKeys.documents(relationshipActor.user_id, CASE_A), [failed]);
     queryClient.setQueryData(caseQueryKeys.ownership(relationshipActor.user_id, CASE_A), null);
+    queryClient.setQueryData(caseQueryKeys.intelligence(relationshipActor.user_id, CASE_A), null);
     await act(async () => root?.render(
       <QueryClientProvider client={queryClient}>
         <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
@@ -954,7 +956,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     const posts = request.mock.calls.filter(([, init]) => init?.method === "POST");
     expect(posts).toHaveLength(1);
     expect(String(posts[0][0])).toContain(`/intake/documents/${failed.document_id}/retry`);
-    expect(request.mock.calls.filter(([, init]) => !init?.method || init.method === "GET")).toHaveLength(3);
+    expect(request.mock.calls.filter(([, init]) => !init?.method || init.method === "GET")).toHaveLength(4);
   });
 
   it("locks mutations after review success plus refresh failure and exposes only read-only refresh recovery", async () => {
@@ -1021,7 +1023,7 @@ describe("Phase 15C case-bound action lifetime", () => {
       expect(String(posts[0][0])).toContain(`/cases/${CASE_A}/documents/`);
       expect(JSON.parse(String(posts[0][1]?.body))).toEqual({ field_key: "legal_name", decision: "ACCEPTED" });
       expect(request.mock.calls.filter(([url]) => String(url).endsWith("/resume"))).toHaveLength(0);
-      expect(request.mock.calls.filter(([, init]) => !init?.method || init.method === "GET")).toHaveLength(3);
+      expect(request.mock.calls.filter(([, init]) => !init?.method || init.method === "GET")).toHaveLength(4);
       expect(container?.textContent).toContain(
         outcome === "409"
           ? "The evidence changed before this action. Current case evidence was reloaded."

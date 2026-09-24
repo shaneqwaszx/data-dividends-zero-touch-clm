@@ -27,6 +27,7 @@ from app.persistence.repositories import (
     MongoDemoScenarioRepository,
     MongoDocumentProcessingRepository,
     MongoOnboardingCaseRepository,
+    MongoOnboardingIntelligenceRepository,
     MongoOwnershipAnalysisRepository,
     MongoReconciliationRepository,
     MongoReconciliationUnitOfWork,
@@ -57,6 +58,10 @@ from app.services.clm_repository import (
 from app.services.document_repository import (
     DocumentProcessingRepository,
     InMemoryDocumentProcessingRepository,
+)
+from app.services.onboarding_intelligence_repository import (
+    InMemoryOnboardingIntelligenceRepository,
+    OnboardingIntelligenceRepository,
 )
 from app.services.ownership_repository import (
     InMemoryOwnershipAnalysisRepository,
@@ -91,6 +96,7 @@ class PersistenceBundle:
     onboarding: OnboardingCaseRepository
     documents: DocumentProcessingRepository
     ownership: OwnershipAnalysisRepository
+    intelligence: OnboardingIntelligenceRepository
     reconciliation: ReconciliationRepository
     clm: ClmOrchestrationRepository
     automation: ZeroTouchAutomationRepository
@@ -124,6 +130,7 @@ def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
         onboarding = InMemoryOnboardingCaseRepository()
         documents = InMemoryDocumentProcessingRepository()
         ownership = InMemoryOwnershipAnalysisRepository()
+        intelligence = InMemoryOnboardingIntelligenceRepository()
         reconciliation = InMemoryReconciliationRepository()
         clm = InMemoryClmOrchestrationRepository()
         automation = InMemoryZeroTouchAutomationRepository()
@@ -134,6 +141,7 @@ def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
             onboarding=onboarding,
             documents=documents,
             ownership=ownership,
+            intelligence=intelligence,
             reconciliation=reconciliation,
             clm=clm,
             automation=automation,
@@ -147,6 +155,7 @@ def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
                 onboarding=onboarding,
                 documents=documents,
                 ownership=ownership,
+                intelligence=intelligence,
                 reconciliation=reconciliation,
                 clm=clm,
                 automation=automation,
@@ -195,6 +204,7 @@ def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
         onboarding=MongoOnboardingCaseRepository(store),
         documents=MongoDocumentProcessingRepository(store),
         ownership=MongoOwnershipAnalysisRepository(store),
+        intelligence=MongoOnboardingIntelligenceRepository(store),
         reconciliation=MongoReconciliationRepository(store),
         clm=MongoClmOrchestrationRepository(store),
         automation=MongoZeroTouchAutomationRepository(store),

@@ -7,6 +7,7 @@ import type {
   ZeroTouchCaseListItem,
   ZeroTouchCaseSummary,
 } from "./types";
+import { targetOutcomeLabel } from "./shared";
 
 export interface CaseRowView {
   case_id: string;
@@ -213,7 +214,12 @@ export function mapZeroTouchCaseToClientDetail(
     target_operations: summary.target_operations,
     readiness_blockers: summary.clm.readiness.blockers,
     readiness_warnings: summary.clm.readiness.warnings,
-    final_outcome: summary.metrics.final_outcome,
+    final_outcome: summary.metrics.final_outcome
+      ? targetOutcomeLabel(
+          summary.metrics.final_outcome,
+          summary.clm.submission_plan.environment,
+        )
+      : null,
   };
 }
 

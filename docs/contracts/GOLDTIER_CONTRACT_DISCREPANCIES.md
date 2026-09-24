@@ -97,3 +97,24 @@ The catalogue makes Phase 01 mock development safe by identifying the exact auth
 and quarantining conflicting evidence. It does not make real integration safe. Contract
 corrections, fresh authentication material, and environment details remain sponsor
 actions.
+
+## XPI sandbox dialect supplied 24 September 2026
+
+The separately supplied `GoldTier APIs_Guideline.pdf` and
+`GoldTier APIs.postman_collection.json` define a six-operation XPI sandbox dialect.
+They are primary evidence for the bounded XPI continuation only and do not silently
+replace the historical EDS-shaped Mock or production/PingFed contract.
+
+| Concern | Historical provisional EDS contract | Supplied XPI sandbox evidence | Current disposition |
+|---|---|---|---|
+| Paths | `/v1/eds/...` seven-operation catalogue | `/gt-xpi/v1/customers/...` and `/gt-xpi/v1/relatedParties/...` six-operation catalogue | Separate XPI adapter/DTO dialect; preserve Mock behavior. |
+| Search | Registration-number-oriented Mock request | `goldTierID`, `legalName`, `groupCompanyName`, `countryOfIncorporation`; registration number is not enabled in the collection | Do not rename the Mock DTO. Treat XPI registration-number search as unsupported pending confirmation/observation. |
+| Request headers/auth shape | OAuth2/correlation/source/idempotency provisional EDS contract | Collection requests are `noauth` and carry `Content-Type` plus `user_id` | `SPONSOR_SUPPLIED` sandbox behavior only. Never infer that production GoldTier has no authentication. |
+| Shell/policy/amend bodies | Nested EDS `party`, `policyDetails`, `sourceContext` shapes | Flat XPI customer bodies with different target enrichment fields | Strict XPI-specific DTOs and mapper; no direct ACRA-to-XPI payload mapping. |
+| Related-party lifecycle | Historical direct first-level operation semantics | Create RP Policy requires both parent `goldTierId` and `childId`, but no operation creates or explains the child identity | Local request transformation may be implemented; external RP execution remains blocked on the child-ID lifecycle. |
+| Responses | Project Mock response models | Collection contains no response examples; guide gives only general 200/400/500 descriptions | Decode only sanitized observed shapes; unknown/malformed responses fail closed. |
+
+The complete field-level reconciliation and unresolved questions are recorded in
+`docs/integration/GOLDTIER_XPI_MAPPING_MATRIX.md`. Example business values remain
+supporting sponsor-supplied sandbox inputs and are not production policy or canonical
+fixtures.

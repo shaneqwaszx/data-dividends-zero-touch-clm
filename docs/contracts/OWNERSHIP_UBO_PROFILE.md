@@ -126,3 +126,13 @@ classification.
 4. Q-007: Singapore fields/value lists.
 
 No Phase 04 Mock field or rule may become a real GoldTier assertion without confirmation.
+
+## Separate ML-assisted advisory
+
+`ubo-advisory-linear-v1` is a separate case-bound review aid. It consumes each retained
+deterministic `OwnershipCandidate`, preserves its authoritative Decimal percentage and
+classification, and emits `LIKELY_UBO`, `REVIEW`, or `UNLIKELY_UBO` with the permanent
+labels `ML_ASSISTED` and `NOT_LEGAL_UBO_DETERMINATION`. Indeterminate/review-required
+ownership produces `REVIEW` without a guessed probability. The project-defined advisory
+thresholds are editable and snapshotted for new cases, but do not change the graph,
+provisional UBO rule, or Q-004 status. See `docs/models/UBO_ADVISORY_MODEL_CARD.md`.

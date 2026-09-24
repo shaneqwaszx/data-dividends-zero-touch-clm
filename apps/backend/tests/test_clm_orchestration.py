@@ -16,6 +16,7 @@ from pydantic import ValidationError
 import app.services.clm_orchestration as clm_orchestration_module
 import app.services.onboarding as onboarding_module
 from app.config import Settings
+from app.connectors.goldtier import GoldTierRequestMapper
 from app.connectors.goldtier_models import (
     AmendPartyRequest,
     CreatePolicyRequest,
@@ -35,11 +36,20 @@ from app.domain.access import TeamId
 from app.domain.clm import ClmEventType, ClmOrchestrationRecord, ClmStatus
 from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.models import OnboardingCase
+from app.domain.policy import (
+    AuthorityLabelledTargetValue,
+    CasePolicySnapshot,
+    GoldTierTargetPolicySnapshot,
+    PolicyAuthority,
+    legacy_phase13_policy_snapshot,
+)
 from app.domain.target_submission import (
     GoldTierExecutionLedgerState,
     GoldTierOperationMarker,
+    GoldTierProviderMode,
 )
 from app.main import create_app
+from app.mappers.goldtier_xpi import GoldTierXpiRequestMapper
 from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.clm_repository import (
@@ -57,6 +67,28 @@ from app.services.repository import InMemoryOnboardingCaseRepository
 PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
 
+def sandbox_ready_policy_snapshot() -> CasePolicySnapshot:
+    labelled = AuthorityLabelledTargetValue(
+        value="SPONSOR VALUE",
+        authority=PolicyAuthority.SPONSOR_SUPPLIED,
+    )
+    return legacy_phase13_policy_snapshot().model_copy(
+        update={
+            "goldtier_target": GoldTierTargetPolicySnapshot(
+                kyc_customer_type=labelled,
+                client_segment=labelled,
+                customer_external_system=labelled,
+                registration_type=labelled,
+                policy=labelled,
+                booking_entity=labelled,
+                account_entity_type=labelled,
+                product_type=labelled,
+            )
+        },
+        deep=True,
+    )
+
+
 class RecordingGoldTier:
     def __init__(
         self,
@@ -66,7 +98,9 @@ class RecordingGoldTier:
         match_found: bool = False,
         controlled_failure_stage: str | None = None,
         unexpected_stage: str | None = None,
+        environment: GoldTierProviderMode = GoldTierProviderMode.MOCK,
     ) -> None:
+        self.environment = environment
         self.calls: list[str] = []
         self.requests: dict[str, object] = {}
         self.metadata: dict[str, GoldTierRequestMetadata] = {}
@@ -291,6 +325,8 @@ def invalidate_canonical_field(case: OnboardingCase, field: str) -> None:
 def build_services(
     goldtier: RecordingGoldTier | None = None,
     *,
+    goldtier_mapper: GoldTierRequestMapper | None = None,
+    policy_snapshot_provider: Callable[[], CasePolicySnapshot] | None = None,
     clm_repository: ClmOrchestrationRepository | None = None,
     clm_clock: Callable[[], datetime] | None = None,
 ) -> tuple[
@@ -304,7 +340,9 @@ def build_services(
     cases = OnboardingService(
         acra=MockAcraConnector(),
         goldtier=target,
+        goldtier_mapper=goldtier_mapper,
         repository=InMemoryOnboardingCaseRepository(),
+        policy_snapshot_provider=policy_snapshot_provider,
     )
     documents = DocumentProcessingService(
         cases=cases,
@@ -338,6 +376,8 @@ def make_ready_case(
     *,
     uen: str = "202400001A",
     goldtier: RecordingGoldTier | None = None,
+    goldtier_mapper: GoldTierRequestMapper | None = None,
+    policy_snapshot_provider: Callable[[], CasePolicySnapshot] | None = None,
     clm_repository: ClmOrchestrationRepository | None = None,
     clm_clock: Callable[[], datetime] | None = None,
 ) -> tuple[
@@ -350,6 +390,8 @@ def make_ready_case(
 ]:
     cases, documents, ownership, clm, target = build_services(
         goldtier,
+        goldtier_mapper=goldtier_mapper,
+        policy_snapshot_provider=policy_snapshot_provider,
         clm_repository=clm_repository,
         clm_clock=clm_clock,
     )
@@ -453,6 +495,58 @@ def test_happy_end_to_end_snapshot_plan_and_mock_submission() -> None:
     assert submitted.related_party_preparation.write_status == "RELATED_PARTY_WRITE_NOT_EXECUTED"
     assert target.calls == ["search", "shell", "policy", "amend"]
     assert cases.get_case(case_id).state == "GT_ENRICHED"  # type: ignore[arg-type,union-attr]
+
+
+def test_sandbox_plan_fails_closed_before_mock_ledger_or_connector_after_drift() -> None:
+    sandbox_target = RecordingGoldTier(environment=GoldTierProviderMode.SANDBOX)
+    cases, _, _, clm, _, case_id = make_ready_case(
+        goldtier=sandbox_target,
+        goldtier_mapper=GoldTierXpiRequestMapper(),
+        policy_snapshot_provider=sandbox_ready_policy_snapshot,
+    )
+    created = clm.get(case_id=case_id)  # type: ignore[arg-type]
+    assert created is not None
+    assert created.submission_plan.environment == GoldTierProviderMode.SANDBOX
+
+    mock_target = RecordingGoldTier(environment=GoldTierProviderMode.MOCK)
+    cases._goldtier = mock_target  # noqa: SLF001 - reproduce configuration drift
+
+    with pytest.raises(ClmRequestError, match="CLM_TARGET_PROVIDER_CONTEXT_MISMATCH") as exc:
+        clm.submit(case_id=case_id)  # type: ignore[arg-type]
+
+    retained = clm.get(case_id=case_id)  # type: ignore[arg-type]
+    assert retained is not None and retained.submission_snapshot is not None
+    assert retained.submission_snapshot.target_input.provider_mode == GoldTierProviderMode.SANDBOX
+    assert (
+        cases.get_execution_state(retained.submission_snapshot.submission_id)
+        == GoldTierExecutionLedgerState.NOT_STARTED
+    )
+    assert mock_target.calls == []
+    assert (
+        exc.value.public_message
+        == "Target provider context changed; submission cannot continue safely."
+    )
+
+
+def test_mock_plan_fails_closed_before_sandbox_ledger_or_connector_after_drift() -> None:
+    cases, _, _, clm, target, case_id = make_ready_case()
+    created = clm.get(case_id=case_id)  # type: ignore[arg-type]
+    assert created is not None
+    assert created.submission_plan.environment == GoldTierProviderMode.MOCK
+
+    cases._goldtier_mapper = GoldTierXpiRequestMapper()  # noqa: SLF001
+
+    with pytest.raises(ClmRequestError, match="CLM_TARGET_PROVIDER_CONTEXT_MISMATCH"):
+        clm.submit(case_id=case_id)  # type: ignore[arg-type]
+
+    retained = clm.get(case_id=case_id)  # type: ignore[arg-type]
+    assert retained is not None and retained.submission_snapshot is not None
+    assert retained.submission_snapshot.target_input.provider_mode == GoldTierProviderMode.MOCK
+    assert (
+        cases.get_execution_state(retained.submission_snapshot.submission_id)
+        == GoldTierExecutionLedgerState.NOT_STARTED
+    )
+    assert target.calls == []
 
 
 def test_document_and_multiple_blockers_prevent_all_goldtier_calls() -> None:
@@ -1513,6 +1607,6 @@ async def test_blocked_api_submit_returns_typed_conflict_and_zero_result() -> No
     assert blocked.status_code == 409
     assert blocked.json()["detail"] == {
         "code": "CLM_NOT_READY",
-        "message": "The case is not ready for Mock GoldTier submission.",
+        "message": "The case is not ready for GoldTier target submission.",
     }
     assert current.json()["goldtier_result"] is None

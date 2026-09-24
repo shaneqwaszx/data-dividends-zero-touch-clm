@@ -72,14 +72,16 @@ class ArchitectureCheckerTests(unittest.TestCase):
         (app / "domain").mkdir(parents=True)
         (app / "domain" / "ownership.py").write_text("OWNER = True\n", encoding="utf-8")
         (app / "composition.py").write_text(
+            "from app.connectors.goldtier_xpi import GoldTierXpiSandboxConnector\n"
             "from app.connectors.mock_goldtier import MockGoldTierConnector\n"
-            "TARGET = MockGoldTierConnector()\n",
+            "MOCK_TARGET = MockGoldTierConnector()\n"
+            "SANDBOX_TARGET = GoldTierXpiSandboxConnector()\n",
             encoding="utf-8",
         )
         (app / "config.py").write_text(
             "from typing import Literal\n"
             "class Settings:\n"
-            '    goldtier_connector_mode: Literal["mock"] = "mock"\n',
+            '    goldtier_connector_mode: Literal["mock", "sandbox"] = "mock"\n',
             encoding="utf-8",
         )
         (app / "main.py").write_text(
@@ -173,8 +175,10 @@ class ArchitectureCheckerTests(unittest.TestCase):
             self._rules_after(
                 "apps/backend/app/composition.py",
                 "from app.connectors.acra_bizfile_sandbox import AcraBizfileConnector\n"
+                "from app.connectors.goldtier_xpi import GoldTierXpiSandboxConnector\n"
                 "from app.connectors.mock_goldtier import MockGoldTierConnector\n"
-                "TARGET = MockGoldTierConnector()\n",
+                "MOCK_TARGET = MockGoldTierConnector()\n"
+                "SANDBOX_TARGET = GoldTierXpiSandboxConnector()\n",
             ),
         )
 
@@ -184,27 +188,40 @@ class ArchitectureCheckerTests(unittest.TestCase):
             "from typing import Literal\n"
             "class Settings:\n"
             "    goldtier_connector_mode: (\n"
-            "        Literal['mock']\n"
+            "        Literal['mock', 'sandbox']\n"
             "    ) = 'mock'\n",
         )
-        self.assertNotIn("MOCK_GOLDTIER_ONLY", rules)
+        self.assertNotIn("GOLDTIER_MODE_BOUNDARY", rules)
 
     def test_allows_mock_goldtier_import_alias_in_composition(self) -> None:
         rules = self._rules_after(
             "apps/backend/app/composition.py",
+            "from app.connectors.goldtier_xpi import GoldTierXpiSandboxConnector\n"
             "from app.connectors.mock_goldtier import MockGoldTierConnector as Target\n"
-            "CONNECTOR = Target()\n",
+            "MOCK_CONNECTOR = Target()\n"
+            "SANDBOX_CONNECTOR = GoldTierXpiSandboxConnector()\n",
         )
-        self.assertNotIn("MOCK_GOLDTIER_ONLY", rules)
+        self.assertNotIn("GOLDTIER_MODE_BOUNDARY", rules)
 
     def test_catches_semantic_live_goldtier_configuration(self) -> None:
         self.assertIn(
-            "MOCK_GOLDTIER_ONLY",
+            "GOLDTIER_MODE_BOUNDARY",
             self._rules_after(
                 "apps/backend/app/config.py",
                 "from typing import Literal\n"
                 "class Settings:\n"
                 '    goldtier_connector_mode: Literal["mock", "live"] = "mock"\n',
+            ),
+        )
+
+    def test_catches_sandbox_as_goldtier_default(self) -> None:
+        self.assertIn(
+            "GOLDTIER_MODE_BOUNDARY",
+            self._rules_after(
+                "apps/backend/app/config.py",
+                "from typing import Literal\n"
+                "class Settings:\n"
+                '    goldtier_connector_mode: Literal["mock", "sandbox"] = "sandbox"\n',
             ),
         )
 

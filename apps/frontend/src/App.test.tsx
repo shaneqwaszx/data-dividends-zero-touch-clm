@@ -396,6 +396,7 @@ const simulation: SimulationProfile = {
   registry_environment: "MOCK" as const,
   target_system: "GOLDTIER" as const,
   target_environment: "MOCK" as const,
+  target_provider_classification: "MOCK" as const,
   idp_system: "IDP" as const,
   idp_environment: "MOCK" as const,
   idp_provider: "MOCK_IDP" as const,
@@ -446,6 +447,7 @@ function makeClm(
     },
     submission_plan: {
       environment: "MOCK",
+      provider_classification: "MOCK",
       base_operations: [
         "searchParty",
         "createShellCustomer if NO_MATCH",
@@ -455,6 +457,7 @@ function makeClm(
       match_found_behavior: "REVIEW_REQUIRED_NO_WRITES",
       related_party_integration: "PENDING_SPONSOR_CONFIRMATION",
       real_ready_for_approval: "NOT_AVAILABLE",
+      request_preview: null,
     },
     related_party_preparation: submitted
       ? {
@@ -678,6 +681,18 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
   it("renders backend-provided mock environments", () => {
     const markup = renderToStaticMarkup(<SimulationBanner profile={simulation} />);
     expect(markup).toContain("ACRA Mock | GoldTier Mock | IDP Mock");
+  });
+
+  it("renders backend-provided GoldTier Sandbox classification without Mock wording", () => {
+    const sandbox = {
+      ...simulation,
+      target_environment: "SANDBOX" as const,
+      target_provider_classification: "SANDBOX_PARTIAL" as const,
+    };
+    const markup = renderToStaticMarkup(<SimulationBanner profile={sandbox} />);
+
+    expect(markup).toContain("GoldTier Sandbox (SANDBOX_PARTIAL)");
+    expect(markup).not.toContain("GoldTier Mock");
   });
 
   it("loads discovery metadata including the provisional threshold", async () => {
@@ -943,6 +958,40 @@ describe("Phase 05 unified CLM journey", () => {
     expect(markup).toMatch(/<button type="button">Submit to Mock GoldTier<\/button>/);
   });
 
+  it("derives Sandbox journey and submission labels from the backend plan", () => {
+    const mock = makeClm("READY_FOR_MOCK_SUBMISSION");
+    const sandbox: ClmCaseSummary = {
+      ...mock,
+      submission_plan: {
+        ...mock.submission_plan,
+        environment: "SANDBOX",
+        provider_classification: "SANDBOX_PARTIAL",
+      },
+    };
+    const markup = renderToStaticMarkup(<ClmJourney summary={sandbox} />);
+
+    expect(markup).toContain("GoldTier Sandbox");
+    expect(markup).toContain("Submit to GoldTier Sandbox");
+    expect(markup).not.toContain("Submit to Mock GoldTier");
+  });
+
+  it("renders a completed Sandbox journey without exposing Mock compatibility identifiers", () => {
+    const mock = makeClm("MOCK_GOLDTIER_SUBMITTED");
+    const sandbox: ClmCaseSummary = {
+      ...mock,
+      submission_plan: {
+        ...mock.submission_plan,
+        environment: "SANDBOX",
+        provider_classification: "SANDBOX_PARTIAL",
+      },
+    };
+    const markup = renderToStaticMarkup(<ClmJourney summary={sandbox} />);
+
+    expect(markup).toContain("GoldTier Sandbox submitted");
+    expect(markup.toLocaleLowerCase()).not.toContain("mock goldtier");
+    expect(markup).not.toMatch(/>MOCK_GOLDTIER_SUBMITTED</);
+  });
+
   it("shows Mock submission result and related-party write limitation truthfully", () => {
     const markup = renderToStaticMarkup(
       <ClmJourney summary={makeClm("MOCK_GOLDTIER_SUBMITTED")} />,
@@ -970,7 +1019,7 @@ describe("Phase 05 unified CLM journey", () => {
     const refreshing = renderToStaticMarkup(<ClmRefreshingState />);
     expect(refreshing).not.toContain("READY_FOR_MOCK_SUBMISSION");
     expect(refreshing).toContain("Refreshing authoritative CLM readiness");
-    expect(refreshing).toMatch(/<button[^>]*disabled=""[^>]*>Submit to Mock GoldTier/);
+    expect(refreshing).toMatch(/<button[^>]*disabled=""[^>]*>Submit to configured GoldTier/);
 
     release?.(makeDocument());
     await pending;
@@ -1159,7 +1208,7 @@ function makeReconciliation(status: ReconciliationSummary["status"] = "REVIEW_RE
 describe("Phase 06 sponsor-facing zero-touch journey", () => {
   it("shows completed automatic progress and zero human interventions", () => {
     const markup = renderToStaticMarkup(<OnboardingProgress summary={makeZeroTouch()} />);
-    expect(markup).toContain("Mock submission completed");
+    expect(markup).toContain("GoldTier submission completed");
     expect(markup).toContain("5</strong><span>Automated stages");
     expect(markup).toContain("0</strong><span>Human interventions");
     expect(markup).not.toContain("Evaluate Readiness");
@@ -1296,7 +1345,7 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(markup).toContain("PARTIAL");
     expect(markup).toContain("REGISTRY_EXPECTED_DATA_MISSING");
     expect(markup).toContain("Ownership Parties");
-    expect(markup).not.toContain("Mock submission completed");
+    expect(markup).not.toContain("GoldTier submission completed");
   });
 
   it("serializes the optional country only when selected", async () => {
@@ -1326,9 +1375,30 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     const markup = renderToStaticMarkup(<SponsorCaseSummary summary={makeZeroTouch()} />);
     expect(markup).toContain("Sponsor case summary");
     expect(markup).toContain("Human interventions after Start");
-    expect(markup).toContain("MOCK GOLDTIER SUBMITTED");
+    expect(markup).toContain("Mock GoldTier submitted");
     expect(markup).toContain("READY FOR APPROVAL UNAVAILABLE");
     expect(markup).not.toContain("APPROVED");
+  });
+
+  it("derives a completed Sandbox sponsor outcome without a Mock provider claim", () => {
+    const mock = makeZeroTouch();
+    const sandbox: ZeroTouchCaseSummary = {
+      ...mock,
+      clm: {
+        ...mock.clm,
+        submission_plan: {
+          ...mock.clm.submission_plan,
+          environment: "SANDBOX",
+          provider_classification: "SANDBOX_PARTIAL",
+        },
+      },
+    };
+    const markup = renderToStaticMarkup(<SponsorCaseSummary summary={sandbox} />);
+
+    expect(markup).toContain("GoldTier Sandbox outcome");
+    expect(markup).toContain("GoldTier Sandbox submitted");
+    expect(markup.toLocaleLowerCase()).not.toContain("mock goldtier");
+    expect(markup).not.toMatch(/>MOCK_GOLDTIER_SUBMITTED</);
   });
 
   it("keeps case identity and review navigation concise on the dashboard", () => {

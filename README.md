@@ -217,9 +217,10 @@ total. `IDP_MAX_FILES_PER_CASE`, `IDP_MAX_UPLOAD_BYTES`, and
 are project POC controls, not sponsor policy.
 
 See [.env.example](.env.example) and the
-[configuration reference](docs/integration/CONFIGURATION_REFERENCE.md). GoldTier/
-PingFed placeholders are intentionally unconsumed until a separately authorized real-
-adapter task; never populate them from the quarantined collection.
+[configuration reference](docs/integration/CONFIGURATION_REFERENCE.md). The optional
+GoldTier XPI sandbox lane is explicitly configured and remains `SANDBOX_PARTIAL`; Mock
+stays the default. PingFed/production placeholders remain unconsumed. Never populate
+either family from quarantined material.
 
 ## Tests and checks
 

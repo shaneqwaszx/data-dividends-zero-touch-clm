@@ -26,6 +26,7 @@ from app.demo.scenarios import (
     VALID_SME_UEN,
 )
 from app.domain.models import WorkflowState
+from app.domain.target_submission import GoldTierProviderMode
 from app.main import create_app
 from app.mappers.errors import MappingError
 from app.mappers.goldtier import build_amend_request, build_shell_request
@@ -67,6 +68,8 @@ class NonUtcAcraConnector:
 
 
 class RecordingGoldTierConnector:
+    environment = GoldTierProviderMode.MOCK
+
     def __init__(
         self,
         *,

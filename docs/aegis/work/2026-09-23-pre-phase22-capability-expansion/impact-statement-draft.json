@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "affectedLayers": [
+    "domain,service,API,persistence,frontend,contracts,reports"
+  ],
+  "owners": [
+    "Root implementation/Git coordinator; existing policy, zero-touch, activity, target-ledger, and ownership owners retained."
+  ],
+  "invariants": [
+    "Deterministic Decimal ownership remains authoritative; advisory ML/risk never creates legal/compliance truth; no target-ledger bypass; no inaccessible-case disclosure."
+  ],
+  "compatBoundary": "Legacy case snapshots and persisted events remain readable; Mock/default provider behavior remains unchanged; Phase 22 remains on hold.",
+  "nonGoals": [
+    "Live GoldTier/PingFed activation, autonomous approval, production OCR, Camunda, production SSO, non-Singapore registries."
+  ]
+}

@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import { ApiError, createShowcasePolicy, fetchPolicies, resetAllPolicies, resetPolicy, updatePolicy } from "../api";
-import type { AuthenticatedProfile, PolicyCatalogue, PolicyRule, PolicyValue } from "../types";
+import type { AuthenticatedProfile, PolicyAuthority, PolicyCatalogue, PolicyRule, PolicyValue } from "../types";
+
+const policyAuthorities: PolicyAuthority[] = [
+  "SPONSOR_SUPPLIED",
+  "SANDBOX_OBSERVED",
+  "PROJECT_DEFINED_PROVISIONAL",
+  "INDUSTRY_PRACTICE",
+  "TBD_SPONSOR",
+];
 
 export function displayPolicyValue(value: PolicyValue): string {
   return Array.isArray(value.value) ? value.value.join(", ") : String(value.value);
@@ -115,12 +123,13 @@ function PolicyRow({ catalogue, rule, canMutate, onSave, onReset }: {
   catalogue: PolicyCatalogue;
   rule: PolicyRule;
   canMutate: boolean;
-  onSave: (rule: PolicyRule, value: PolicyValue, name?: string, description?: string) => Promise<boolean>;
+  onSave: (rule: PolicyRule, value: PolicyValue, name?: string, description?: string, authority?: PolicyAuthority) => Promise<boolean>;
   onReset: (rule: PolicyRule) => void;
 }) {
   const [value, setValue] = useState(displayPolicyValue(rule.value));
   const [name, setName] = useState(rule.name);
   const [description, setDescription] = useState(rule.description);
+  const [authority, setAuthority] = useState(rule.authority);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const editable = policyIsEditable(rule, canMutate);
@@ -130,14 +139,21 @@ function PolicyRow({ catalogue, rule, canMutate, onSave, onReset }: {
     setValue(displayPolicyValue(rule.value));
     setName(rule.name);
     setDescription(rule.description);
+    setAuthority(rule.authority);
     setEditing(false);
     setSaving(false);
-  }, [catalogue.version, rule.description, rule.name, rule.value, rule.version]);
+  }, [catalogue.version, rule.authority, rule.description, rule.name, rule.value, rule.version]);
 
   async function save() {
     if (saving) return;
     setSaving(true);
-    const succeeded = await onSave(rule, parsePolicyValueInput(rule, value), showcase ? name : undefined, showcase ? description : undefined);
+    const succeeded = await onSave(
+      rule,
+      parsePolicyValueInput(rule, value),
+      showcase ? name : undefined,
+      showcase ? description : undefined,
+      authority ?? undefined,
+    );
     if (!succeeded) setSaving(false);
   }
 
@@ -151,6 +167,11 @@ function PolicyRow({ catalogue, rule, canMutate, onSave, onReset }: {
       <td>{editing ? <input aria-label={`${rule.name} value`} value={value} onChange={(event) => setValue(event.target.value)} /> : displayPolicyValue(rule.value)}</td>
       <td>{rule.value_type}</td>
       <td>{rule.classifications.join(" · ")}</td>
+      <td>{rule.authority === null
+        ? "—"
+        : editing
+          ? <select aria-label={`${rule.name} authority`} value={authority ?? "TBD_SPONSOR"} onChange={(event) => setAuthority(event.target.value as PolicyAuthority)}>{policyAuthorities.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}</select>
+          : rule.authority.replaceAll("_", " ")}</td>
       <td>{showcase ? "Showcase only · Not runtime enforced" : rule.enforcement.replaceAll("_", " ")}</td>
       <td>{rule.version}</td>
       <td>{editable && (editing
@@ -163,12 +184,12 @@ function PolicyRow({ catalogue, rule, canMutate, onSave, onReset }: {
 export function PolicyTable({ catalogue, canMutate, onSave, onReset }: {
   catalogue: PolicyCatalogue;
   canMutate: boolean;
-  onSave: (rule: PolicyRule, value: PolicyValue, name?: string, description?: string) => Promise<boolean>;
+  onSave: (rule: PolicyRule, value: PolicyValue, name?: string, description?: string, authority?: PolicyAuthority) => Promise<boolean>;
   onReset: (rule: PolicyRule) => void;
 }) {
   return (
     <div className="table-card table-scroll" tabIndex={0}>
-      <table className="table"><thead><tr><th>Rule</th><th>Value</th><th>Type</th><th>Classification</th><th>Enforcement</th><th>Version</th><th>Actions</th></tr></thead>
+      <table className="table"><thead><tr><th>Rule</th><th>Value</th><th>Type</th><th>Classification</th><th>Authority</th><th>Enforcement</th><th>Version</th><th>Actions</th></tr></thead>
         <tbody>{catalogue.rules.map((rule) => <PolicyRow key={rule.policy_id} catalogue={catalogue} rule={rule} canMutate={canMutate} onSave={onSave} onReset={onReset} />)}</tbody>
       </table>
     </div>
@@ -204,7 +225,7 @@ export default function PolicyRules({ actor }: { actor: AuthenticatedProfile }) 
     return result.succeeded;
   }
 
-  async function saveRule(rule: PolicyRule, value: PolicyValue, name?: string, description?: string) {
+  async function saveRule(rule: PolicyRule, value: PolicyValue, name?: string, description?: string, authority?: PolicyAuthority) {
     if (!catalogue) return false;
     return applyMutation(() => updatePolicy(rule.policy_id, {
       expected_catalogue_version: catalogue.version,
@@ -212,6 +233,7 @@ export default function PolicyRules({ actor }: { actor: AuthenticatedProfile }) 
       value,
       ...(name !== undefined ? { name } : {}),
       ...(description !== undefined ? { description } : {}),
+      ...(authority !== undefined ? { authority } : {}),
     }), "Policy update failed.");
   }
 

@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  caseActivityExportUrl,
   fetchCaseActivity,
   fetchZeroTouchCase,
   fetchZeroTouchCases,
@@ -127,6 +128,13 @@ describe("Phase 17 case activity", () => {
       `/api/clm/zero-touch/activity?case_id=${CASE_ID}&action=DOCUMENT&stage=DOCUMENT&outcome=REVIEW_REQUIRED&from=2026-09-01T00%3A00%3A00Z&to=2026-10-01T00%3A00%3A00Z&limit=25&offset=50`,
     );
     expect(request.mock.calls[0][1]).toMatchObject({ signal: controller.signal });
+    expect(caseActivityExportUrl({
+      caseId: CASE_ID,
+      action: "DOCUMENT",
+      limit: 100,
+    })).toBe(
+      `/api/clm/zero-touch/activity.csv?case_id=${CASE_ID}&action=DOCUMENT&limit=100`,
+    );
   });
 
   it.each([1, 25, 100])("replaces legacy 1+N detail fan-out for %i cases with one page call", async (count) => {
@@ -211,6 +219,10 @@ describe("Phase 17 case activity", () => {
     expect(container?.textContent).toContain("current case metadata");
     expect(container?.textContent).toContain("live view");
     expect(container?.textContent).not.toContain("ByLoop");
+    const exportLink = Array.from(container?.querySelectorAll("a") ?? [])
+      .find((link) => link.textContent === "Export current page CSV") as HTMLAnchorElement;
+    expect(exportLink.download).toBe("case-activity.csv");
+    expect(exportLink.getAttribute("href")).toContain("/api/clm/zero-touch/activity.csv?limit=50");
 
     const inspect = Array.from(container?.querySelectorAll("button") ?? [])
       .find((button) => button.textContent === "Inspect");

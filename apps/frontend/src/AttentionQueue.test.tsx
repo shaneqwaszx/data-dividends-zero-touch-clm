@@ -105,6 +105,8 @@ describe("blocker-aware attention queue contract", () => {
       "OWNERSHIP_CYCLE",
       "OWNERSHIP_INCOMPLETE",
       "OWNERSHIP_REVIEW_REQUIRED",
+      "ENTITY_RESOLUTION_REVIEW_REQUIRED",
+      "MOCK_RISK_REVIEW_REQUIRED",
       "EXISTING_PARTY_REVIEW_REQUIRED",
       "TARGET_PARTIAL_REVIEW_REQUIRED",
     ]);

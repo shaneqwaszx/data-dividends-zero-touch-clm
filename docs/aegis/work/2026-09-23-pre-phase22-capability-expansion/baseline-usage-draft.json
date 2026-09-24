@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "PRE-PHASE22-CAPABILITY-EXPANSION",
+  "requiredBaselineRefs": [
+    "origin/main@3ca232b58c3842f413c4552dbd3b85aabea4591c"
+  ],
+  "deliveredContextRefs": [
+    "user-supplied Pasted text.txt",
+    "AGENTS.md"
+  ],
+  "acknowledgedBeforePlanRefs": [
+    "origin/main@3ca232b58c3842f413c4552dbd3b85aabea4591c"
+  ],
+  "citedInPlanRefs": [
+    "origin/main@3ca232b58c3842f413c4552dbd3b85aabea4591c"
+  ],
+  "missingRefs": [
+    "origin/main@3ca232b58c3842f413c4552dbd3b85aabea4591c"
+  ],
+  "decision": "baseline-read-and-cited"
+}

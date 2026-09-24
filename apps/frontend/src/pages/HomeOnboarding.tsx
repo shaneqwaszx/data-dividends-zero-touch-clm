@@ -345,7 +345,7 @@ export default function HomeOnboarding({
       {summary.status === "RECOVERY_PENDING" && (
         <div className="ds-banner" style={{ marginBottom: 16 }}>
           <p style={{ margin: 0, fontSize: 12.5 }}>
-            Mock target outcome retained; finalization recovery is pending without target replay.
+            Target outcome retained; finalization recovery is pending without target replay.
           </p>
           <button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isSubmitting} onClick={onRecovery}>
             Complete safe recovery

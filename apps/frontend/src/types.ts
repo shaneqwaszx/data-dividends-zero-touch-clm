@@ -69,6 +69,13 @@ export type PolicyValue =
   | { type: "STRING"; value: string }
   | { type: "STRING_LIST"; value: string[] };
 
+export type PolicyAuthority =
+  | "SPONSOR_SUPPLIED"
+  | "SANDBOX_OBSERVED"
+  | "PROJECT_DEFINED_PROVISIONAL"
+  | "INDUSTRY_PRACTICE"
+  | "TBD_SPONSOR";
+
 export interface PolicyRule {
   policy_id: string;
   category: string;
@@ -86,6 +93,8 @@ export interface PolicyRule {
     | "SYSTEM_DERIVED"
     | "DISPLAY_ONLY_NOT_RUNTIME_ENFORCED"
   >;
+  authority: PolicyAuthority | null;
+  default_authority: PolicyAuthority | null;
   enforcement: "RUNTIME_ENFORCED" | "DISPLAY_SHOWCASE_ONLY" | "NOT_EDITABLE";
   version: number;
   created_at: string;
@@ -126,7 +135,8 @@ export interface SimulationProfile {
   registry_system: "ACRA";
   registry_environment: "MOCK" | "SANDBOX";
   target_system: "GOLDTIER";
-  target_environment: "MOCK";
+  target_environment: "MOCK" | "SANDBOX";
+  target_provider_classification: "MOCK" | "SANDBOX_PARTIAL";
   idp_system: "IDP";
   idp_environment: "MOCK" | "LOCAL";
   idp_provider: "MOCK_IDP" | "LOCAL_PDF_TEXT";
@@ -535,12 +545,47 @@ export interface ClmStageReadiness {
   reference_id: string | null;
 }
 
+export interface GoldTierPreviewField {
+  target_field: string;
+  value: string | null;
+  provenance:
+    | "REGISTRY"
+    | "DOCUMENT"
+    | "ENTITY_RESOLUTION"
+    | "POLICY"
+    | "USER_INPUT"
+    | "SYSTEM_DERIVED"
+    | "SPONSOR_SUPPLIED"
+    | "SANDBOX_OBSERVED"
+    | "INDUSTRY_PRACTICE";
+  authority:
+    | "CANONICAL_EVIDENCE"
+    | PolicyAuthority;
+  required: boolean;
+  missing: boolean;
+  validation: "VALID" | "MISSING" | "INVALID";
+}
+
+export interface GoldTierRequestPreviewData {
+  environment: "MOCK" | "SANDBOX";
+  policy_version: number;
+  operations: Array<{
+    operation: "SEARCH" | "SHELL" | "POLICY" | "AMEND";
+    fields: GoldTierPreviewField[];
+    missing_fields: string[];
+    validation: "VALID" | "MISSING" | "INVALID";
+  }>;
+  dispatch_ready: boolean;
+}
+
 export interface GoldTierSubmissionPlan {
-  environment: "MOCK";
+  environment: "MOCK" | "SANDBOX";
+  provider_classification: "MOCK" | "SANDBOX_PARTIAL";
   base_operations: string[];
-  match_found_behavior: "REVIEW_REQUIRED_NO_WRITES";
-  related_party_integration: "PENDING_SPONSOR_CONFIRMATION";
+  match_found_behavior: "REVIEW_REQUIRED_NO_WRITES" | "EXACT_MATCH_REUSE_ELSE_REVIEW_NO_WRITES";
+  related_party_integration: "PENDING_SPONSOR_CONFIRMATION" | "BLOCKED_CHILD_ID_LIFECYCLE";
   real_ready_for_approval: "NOT_AVAILABLE";
+  request_preview: GoldTierRequestPreviewData | null;
 }
 
 export interface ClmCaseSummary {
@@ -626,6 +671,7 @@ export type CaseActivityAction =
   | "DOCUMENT"
   | "RECONCILIATION"
   | "OWNERSHIP"
+  | "INTELLIGENCE"
   | "TARGET"
   | "COMPLETED";
 
@@ -664,6 +710,8 @@ export const BUSINESS_EXCEPTION_TYPES = [
   "OWNERSHIP_CYCLE",
   "OWNERSHIP_INCOMPLETE",
   "OWNERSHIP_REVIEW_REQUIRED",
+  "ENTITY_RESOLUTION_REVIEW_REQUIRED",
+  "MOCK_RISK_REVIEW_REQUIRED",
   "EXISTING_PARTY_REVIEW_REQUIRED",
   "TARGET_PARTIAL_REVIEW_REQUIRED",
 ] as const;
@@ -684,11 +732,15 @@ export const BUSINESS_EXCEPTION_TYPE_LABELS: Record<BusinessExceptionType, strin
   OWNERSHIP_CYCLE: "Ownership cycle",
   OWNERSHIP_INCOMPLETE: "Ownership incomplete",
   OWNERSHIP_REVIEW_REQUIRED: "Ownership review required",
+  ENTITY_RESOLUTION_REVIEW_REQUIRED: "Entity resolution review required",
+  MOCK_RISK_REVIEW_REQUIRED: "Mock advisory risk review required",
   EXISTING_PARTY_REVIEW_REQUIRED: "Existing party review required",
   TARGET_PARTIAL_REVIEW_REQUIRED: "Target partial review required",
 };
 
 export type ZeroTouchDemoScenario =
+  | "SME_STRAIGHT_THROUGH"
+  | "SME_AMBIGUOUS_ENTITY"
   | "STRAIGHT_THROUGH"
   | "DOCUMENT_DISCREPANCY"
   | "MULTIPLE_DOCUMENT_BLOCKERS"
@@ -874,6 +926,66 @@ export interface ZeroTouchCaseListItem {
   created_at: string;
   completed_at: string | null;
   mock_goldtier_party_id: string | null;
+}
+
+export type EntityResolutionOutcome =
+  | "EXACT_MATCH"
+  | "PROBABLE_MATCH"
+  | "REVIEW_REQUIRED"
+  | "NO_MATCH"
+  | "CONFLICT";
+
+export interface OnboardingIntelligenceRecord {
+  case_id: string;
+  version: number;
+  input_fingerprint: string;
+  policy_catalogue_version: number;
+  model_bundle_version: "onboarding-intelligence-v1";
+  entity_resolution: {
+    outcome: EntityResolutionOutcome;
+    selected_candidate_id: string | null;
+    source_reference: string | null;
+    candidates: Array<{
+      candidate_id: string;
+      probability: string;
+      assessed_weight: string;
+      corroborating_feature_count: number;
+      features: Array<{
+        name: string;
+        assessment: "ASSESSED" | "NOT_ASSESSED" | "CONFLICT";
+        agreement: string | null;
+        weight: string;
+      }>;
+      top_contributing_features: string[];
+      source_reference: string | null;
+    }>;
+    reason_codes: string[];
+    model_version: "entity-resolution-linear-v1";
+    assistance_label: "ML_ASSISTED";
+    disclaimer: "NOT_IDENTITY_AUTHORITY";
+  } | null;
+  ubo_advice: Array<{
+    party_id: string;
+    probability: string | null;
+    label: "LIKELY_UBO" | "REVIEW" | "UNLIKELY_UBO";
+    authoritative_ownership_percent: string;
+    reason_codes: string[];
+    model_version: "ubo-advisory-linear-v1";
+    assistance_label: "ML_ASSISTED";
+    disclaimer: "NOT_LEGAL_UBO_DETERMINATION";
+  }>;
+  mock_risk: {
+    score: number | null;
+    band: "LOW" | "MEDIUM" | "HIGH" | "NOT_ASSESSED";
+    signal_assessments: Record<string, string>;
+    reason_codes: string[];
+    not_assessed_signals: string[];
+    model_version: "mock-advisory-risk-rules-v1";
+    label: "MOCK_ADVISORY_RISK";
+    disclaimer: "NOT_COMPLIANCE_DECISION";
+    blocks_readiness: boolean;
+  } | null;
+  evaluated_at: string;
 }
 
 export interface CasePortfolioItem extends ZeroTouchCaseListItem {

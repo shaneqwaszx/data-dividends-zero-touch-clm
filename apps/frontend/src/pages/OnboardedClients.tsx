@@ -67,7 +67,7 @@ export default function OnboardedClients({
     <div className="ds-root ds-page">
       <h1>Onboarded</h1>
       <p className="text-muted">
-        Completed Mock workflow cases from the backend are shown here. This POC does not
+        Completed POC workflow cases from the backend are shown here. This POC does not
         provide a production client master, risk rating, scheduler, or periodic review date.
       </p>
 
@@ -121,11 +121,11 @@ export default function OnboardedClients({
         <p className="text-muted">No clients match these filters.</p>
       )}
       {filteredClients.length > 0 && (
-        <div className="table-card table-scroll" tabIndex={0} aria-label="Completed Mock workflow cases">
+        <div className="table-card table-scroll" tabIndex={0} aria-label="Completed POC workflow cases">
           <table className="table onboarded-table">
             <thead>
               <tr>
-                <th>Mock GoldTier party ID</th>
+                <th>GoldTier party ID</th>
                 <th>Case</th>
                 <th>Registration ID</th>
                 <th>Company</th>

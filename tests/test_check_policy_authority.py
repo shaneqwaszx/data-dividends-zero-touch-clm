@@ -176,6 +176,32 @@ class PolicyAuthorityCheckerTests(unittest.TestCase):
         self.assertTrue(any("local roles" in item for item in failures))
         self.assertTrue(any("Mock GoldTier" in item for item in failures))
 
+    def test_rejects_stale_policy_and_activity_contract_claims(self) -> None:
+        registry = copy.deepcopy(self.registry)
+        temporary, root = self._fixture(registry)
+        try:
+            policy_profile = root / "docs/contracts/POLICY_TEAM_IDENTITY_ADMIN_PROFILE.md"
+            policy_profile.write_text(
+                policy_profile.read_text(encoding="utf-8").replace(
+                    "The catalogue has 21 seed rules, including 13 intelligence rules:",
+                    "The eight seed rules are:",
+                ),
+                encoding="utf-8",
+            )
+            activity_profile = root / "docs/contracts/CASE_ACTIVITY_QUERY_PROFILE.md"
+            activity_profile.write_text(
+                activity_profile.read_text(encoding="utf-8").replace(
+                    "Supported case envelopes v1-v5 remain readable without rewrite.",
+                    "Supported case envelopes v1-v4 remain readable without rewrite.",
+                ),
+                encoding="utf-8",
+            )
+            failures = CHECK.validate(root)
+        finally:
+            temporary.cleanup()
+        self.assertTrue(any("21-rule policy catalogue" in item for item in failures))
+        self.assertTrue(any("schema-v5 activity" in item for item in failures))
+
 
 if __name__ == "__main__":
     unittest.main()

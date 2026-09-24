@@ -45,6 +45,7 @@ def test_execution_profile_is_safe_and_available_without_demo_controls() -> None
         "registry_environment": "MOCK",
         "target_system": "GOLDTIER",
         "target_environment": "MOCK",
+        "target_provider_classification": "MOCK",
         "idp_system": "IDP",
         "idp_environment": "LOCAL",
         "idp_provider": "LOCAL_PDF_TEXT",

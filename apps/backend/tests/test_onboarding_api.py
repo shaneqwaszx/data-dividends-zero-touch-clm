@@ -52,6 +52,7 @@ async def test_mock_scenario_discovery_and_review_response() -> None:
         "registry_environment": "MOCK",
         "target_system": "GOLDTIER",
         "target_environment": "MOCK",
+        "target_provider_classification": "MOCK",
         "idp_system": "IDP",
         "idp_environment": "LOCAL",
         "idp_provider": "LOCAL_PDF_TEXT",

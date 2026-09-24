@@ -36,11 +36,13 @@ pagination, retries, or mappings not supplied by authority.
 
 ## B. GoldTier
 
-Already implemented: `MockGoldTierConnector`, ordered Mock operations, target ledger,
-safe outcome projection, and no-replay recovery semantics.
+Already implemented: `MockGoldTierConnector`, ordered target operations, one target
+ledger, safe outcome projection, no-replay recovery semantics, and an explicit XPI
+sandbox adapter with strict request mapping and bounded safe response projection.
 
 Current classification/state: `GOLDTIER_MOCK` is `MOCK / INTERNAL_POC_ONLY`.
-`GOLDTIER_REAL` is `NOT_IMPLEMENTED / BLOCKED`.
+`GOLDTIER_XPI` is `PARTIAL / SANDBOX_PARTIAL`; `GOLDTIER_REAL` is
+`NOT_IMPLEMENTED / BLOCKED`.
 
 Missing material: Q-008/D-018 containment and rotation/revocation proof, sanitized auth
 reference, approved environment/base URL, exact operation contracts, Singapore mappings,
@@ -55,11 +57,13 @@ Required secret action: supply fresh least-privilege material only through the a
 out-of-repository backend delivery mechanism after quarantine material is revoked or
 rotated.
 
-What we will implement: only after all prerequisites and explicit runtime scope are
-approved, extend the existing port/adapter and preserve ledger ownership.
+What remains: obtain sponsor-authoritative target-policy values and remaining mapping,
+relationship and child-ID lifecycle decisions before any further mutation proof. Mock
+remains the default; XPI is selected only by explicit sandbox configuration and
+preserves ledger ownership.
 
-Cannot claim: real GoldTier calls, approval, Ready-for-Approval, OAuth flow, token
-cache, retries, mTLS, or Mock fallback.
+Cannot claim: Live/production GoldTier, sponsor-approved target values, approval,
+Ready-for-Approval, OAuth flow, token cache, retries, mTLS, or Mock fallback.
 
 ## C. PingFed
 

@@ -7,6 +7,7 @@ import {
   fetchDocuments,
   fetchExecutionProfile,
   fetchOwnership,
+  fetchIntelligence,
   fetchZeroTouchCase,
   fetchZeroTouchCases,
   type PriorityFilter,
@@ -75,6 +76,8 @@ export const caseQueryKeys = {
     ["auth", userId, "cases", "documents", caseId] as const,
   ownership: (userId: string, caseId: string) =>
     ["auth", userId, "cases", "ownership", caseId] as const,
+  intelligence: (userId: string, caseId: string) =>
+    ["auth", userId, "cases", "intelligence", caseId] as const,
   activities: (userId: string) => ["auth", userId, "activity"] as const,
   activity: (userId: string, filters: CaseActivityFilters) => [
     ...caseQueryKeys.activities(userId),
@@ -155,6 +158,13 @@ export function ownershipQueryOptions(userId: string, caseId: string) {
   };
 }
 
+export function intelligenceQueryOptions(userId: string, caseId: string) {
+  return {
+    queryKey: caseQueryKeys.intelligence(userId, caseId),
+    queryFn: ({ signal }: { signal: AbortSignal }) => fetchIntelligence(caseId, signal),
+  };
+}
+
 export function activityQueryOptions(userId: string, filters: CaseActivityFilters) {
   return {
     queryKey: caseQueryKeys.activity(userId, filters),
@@ -216,6 +226,10 @@ export function caseSummaryMutationEffect(
   void queryClient.invalidateQueries({ queryKey: caseQueryKeys.caseLists(userId) });
   queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
   void queryClient.invalidateQueries({ queryKey: caseQueryKeys.activities(userId) });
+  void queryClient.invalidateQueries({
+    queryKey: caseQueryKeys.intelligence(userId, summary.case.case_id),
+    exact: true,
+  });
 }
 
 export async function caseSupportingMutationEffect(
@@ -232,6 +246,10 @@ export async function caseSupportingMutationEffect(
     }),
     queryClient.invalidateQueries({
       queryKey: caseQueryKeys.ownership(userId, caseId),
+      exact: true,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: caseQueryKeys.intelligence(userId, caseId),
       exact: true,
     }),
   ]);
@@ -275,6 +293,10 @@ export async function caseDeletedEffect(
       queryKey: caseQueryKeys.ownership(userId, caseId),
       exact: true,
     }),
+    queryClient.cancelQueries({
+      queryKey: caseQueryKeys.intelligence(userId, caseId),
+      exact: true,
+    }),
     queryClient.cancelQueries({ queryKey: caseQueryKeys.activities(userId) }),
   ]);
   queryClient.setQueriesData<ZeroTouchCaseListItem[] | CasePortfolioPage>(
@@ -293,6 +315,10 @@ export async function caseDeletedEffect(
   queryClient.removeQueries({ queryKey: caseQueryKeys.detail(userId, caseId), exact: true });
   queryClient.removeQueries({ queryKey: caseQueryKeys.documents(userId, caseId), exact: true });
   queryClient.removeQueries({ queryKey: caseQueryKeys.ownership(userId, caseId), exact: true });
+  queryClient.removeQueries({
+    queryKey: caseQueryKeys.intelligence(userId, caseId),
+    exact: true,
+  });
   queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
   queryClient.removeQueries({ queryKey: caseQueryKeys.activities(userId) });
   await queryClient.invalidateQueries({

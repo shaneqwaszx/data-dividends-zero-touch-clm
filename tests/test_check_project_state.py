@@ -48,10 +48,13 @@ class ProjectStateCheckerTests(unittest.TestCase):
         app = root / "apps" / "backend" / "app"
         app.mkdir(parents=True)
         (app / "config.py").write_text(
-            'from typing import Literal\nclass Settings:\n    acra_connector_mode: Literal["mock", "sandbox"] = "mock"\n    goldtier_connector_mode: Literal["mock"] = "mock"\n    idp_connector_mode: Literal["mock", "local_pdf_text"] = "local_pdf_text"\n',
+            'from typing import Literal\nclass Settings:\n    acra_connector_mode: Literal["mock", "sandbox"] = "mock"\n    goldtier_connector_mode: Literal["mock", "sandbox"] = "mock"\n    idp_connector_mode: Literal["mock", "local_pdf_text"] = "local_pdf_text"\n',
             encoding="utf-8",
         )
-        (app / "composition.py").write_text("MockGoldTierConnector\n", encoding="utf-8")
+        (app / "composition.py").write_text(
+            "MockGoldTierConnector\nGoldTierXpiSandboxConnector\n",
+            encoding="utf-8",
+        )
         persistence = app / "persistence"
         persistence.mkdir()
         (persistence / "models.py").write_text(
@@ -118,6 +121,11 @@ class ProjectStateCheckerTests(unittest.TestCase):
                     "name": "GOLDTIER",
                     "mode": "mock",
                     "classification": "MOCK",
+                },
+                "target_sandbox": {
+                    "name": "GOLDTIER_XPI",
+                    "mode": "sandbox",
+                    "classification": "PARTIAL",
                 },
             },
             "persistence": {"default": "memory", "supported": ["memory", "mongo"]},

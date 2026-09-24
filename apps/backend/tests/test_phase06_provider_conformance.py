@@ -52,6 +52,7 @@ from app.domain.ownership import (
     Party,
     PartyType,
 )
+from app.domain.target_submission import GoldTierProviderMode
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.clm_repository import InMemoryClmOrchestrationRepository
 from app.services.document_processing import DocumentProcessingService
@@ -342,6 +343,8 @@ class LocalOwnershipAdapter:
 
 
 class LocalTargetAdapter:
+    environment = GoldTierProviderMode.MOCK
+
     def __init__(self) -> None:
         self.calls: list[str] = []
 

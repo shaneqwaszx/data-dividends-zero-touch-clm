@@ -13,6 +13,7 @@ from app.services.authorization import CaseAccessPolicy, CaseNotAvailableError
 from app.services.clm_repository import ClmOrchestrationRepository
 from app.services.document_repository import DocumentProcessingRepository
 from app.services.onboarding import OnboardingService
+from app.services.onboarding_intelligence_repository import OnboardingIntelligenceRepository
 from app.services.ownership_repository import OwnershipAnalysisRepository
 from app.services.reconciliation_repository import ReconciliationRepository
 from app.services.repository import OnboardingCaseRepository
@@ -47,6 +48,7 @@ class InMemoryCaseDeletionRepository:
         onboarding: OnboardingCaseRepository,
         documents: DocumentProcessingRepository,
         ownership: OwnershipAnalysisRepository,
+        intelligence: OnboardingIntelligenceRepository,
         reconciliation: ReconciliationRepository,
         clm: ClmOrchestrationRepository,
         automation: ZeroTouchAutomationRepository,
@@ -56,6 +58,7 @@ class InMemoryCaseDeletionRepository:
         self._onboarding = onboarding
         self._documents = documents
         self._ownership = ownership
+        self._intelligence = intelligence
         self._reconciliation = reconciliation
         self._clm = clm
         self._automation = automation
@@ -70,6 +73,7 @@ class InMemoryCaseDeletionRepository:
         binding_id = automation.ownership_provider_binding_id if automation is not None else None
         self._documents.delete_for_case(case_id)
         self._ownership.delete_for_case(case_id)
+        self._intelligence.delete_for_case(case_id)
         self._reconciliation.delete_for_case(case_id)
         self._clm.delete_for_case(case_id)
         self._automation.delete_for_case(case_id)

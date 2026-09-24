@@ -12,14 +12,17 @@ The execution profile exposes only `Process-local` or `Mongo-backed durable POC`
 
 ## Durable contract
 
-One case envelope contains schema version 1, revision, onboarding and Registry evidence,
+One case envelope (currently schema v5) contains revision, onboarding and Registry evidence,
 ordered document records and supersession links, reconciliation outcomes/decisions,
 ownership evidence, CLM and automation checkpoints, target execution ledger, safe demo
-scenario metadata, and timestamps. Every nested case/submission identity must agree.
+scenario metadata, an optional immutable case-bound advisory-intelligence projection,
+and timestamps. Every nested case/submission/intelligence identity must agree.
 Mongo `_id` must be the canonical UUID string equal to the envelope `case_id`. Missing,
 non-string, malformed, noncanonical, or mismatched keys are invalid persisted data on
 every read path and during startup. Unknown versions or invalid nested aggregates are
-not interpreted, repaired, or automatically migrated.
+not interpreted, repaired, or automatically migrated. Strict v1-v4 reads migrate only
+in memory to the current type; schema-v4 cases retain `intelligence = null`, are not
+recomputed from current policy, and are not rewritten by a read.
 
 ## Operation safety
 

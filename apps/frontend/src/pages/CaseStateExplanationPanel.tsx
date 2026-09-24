@@ -8,7 +8,7 @@ const STATUS_WORDING: Record<AutomationStatus, string> = {
   WAITING_FOR_REVIEW: "The workflow is waiting for human review.",
   RESUMING: "The workflow is resuming from retained state.",
   RECOVERY_PENDING: "The workflow has retained recovery work pending.",
-  COMPLETED: "The Mock workflow completed; this is not approval.",
+  COMPLETED: "The POC workflow completed; this is not approval.",
   TECHNICAL_FAILURE: "The workflow stopped after a technical failure.",
 };
 
@@ -17,8 +17,8 @@ const STAGE_WORDING: Record<AutomationStage, string> = {
   DOCUMENT: "Document evidence and reconciliation stage",
   OWNERSHIP: "Ownership analysis stage",
   READINESS: "Readiness evaluation stage",
-  MOCK_GOLDTIER: "Mock GoldTier target stage",
-  COMPLETE: "Mock workflow completion stage",
+  MOCK_GOLDTIER: "GoldTier target stage",
+  COMPLETE: "POC workflow completion stage",
 };
 
 const STAGE_TARGET: Partial<Record<AutomationStage, EvidenceFocusTarget>> = {
@@ -125,7 +125,7 @@ export default function CaseStateExplanationPanel({
 
       <h5>Target operations in retained order</h5>
       {summary.target_operations.length ? <ol aria-label="Target operations">{summary.target_operations.map((operation, index) => <li key={`${index}-${operation.operation}`}>{targetOperation(operation.operation)}: {targetOperationStatus(operation.status)}</li>)}</ol> : <p className="text-muted">No target operations are retained. Their absence does not mean success, skipped, or retryable.</p>}
-      <p className="control-help">Mock target success is not customer, compliance, legal, or Ready-for-Approval approval.</p>
+      <p className="control-help">Target success is not customer, compliance, legal, or Ready-for-Approval approval.</p>
 
       {summary.technical_failure && <div className="ds-banner ds-banner-warn"><strong>{summary.technical_failure.code}</strong><span>{summary.technical_failure.message}</span>{CODE_TARGET[summary.technical_failure.code] && <button type="button" className="btn btn-ghost" onClick={() => onNavigate(CODE_TARGET[summary.technical_failure!.code])}>Focus recovery evidence</button>}</div>}
     </section>

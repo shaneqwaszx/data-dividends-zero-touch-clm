@@ -4,6 +4,7 @@ from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,7 +22,7 @@ class Settings(BaseSettings):
     app_name: str = "Zero-Touch CLM API"
     app_env: Literal["development", "test", "production"] = "development"
     acra_connector_mode: Literal["mock", "sandbox"] = "mock"
-    goldtier_connector_mode: Literal["mock"] = "mock"
+    goldtier_connector_mode: Literal["mock", "sandbox"] = "mock"
     idp_connector_mode: Literal["mock", "local_pdf_text"] = "local_pdf_text"
     ownership_connector_mode: Literal["mock"] = "mock"
     demo_controls_enabled: bool = False
@@ -44,6 +45,16 @@ class Settings(BaseSettings):
     acra_timeout_seconds: float = 10.0
     acra_auth_header_name: str = ""
     acra_auth_header_value: SecretStr | None = None
+    goldtier_sandbox_base_url: str = ""
+    goldtier_sandbox_environment: str = Field(
+        default="", pattern=r"^(?:|[A-Za-z0-9][A-Za-z0-9_-]{0,31})$"
+    )
+    goldtier_sandbox_user_id: SecretStr | None = None
+    goldtier_sandbox_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
+    goldtier_sandbox_max_response_bytes: int = Field(
+        default=128 * 1024, ge=1024, le=1024 * 1024
+    )
+    goldtier_sandbox_allow_writes: bool = False
     mongo_uri: SecretStr | None = None
     mongo_database: str = Field(
         default="clm_poc", min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"
@@ -112,6 +123,31 @@ class Settings(BaseSettings):
             }
             if len(collections) != 5:
                 raise ValueError("registry cache collection must be distinct")
+        if self.goldtier_connector_mode == "sandbox":
+            parsed = urlsplit(self.goldtier_sandbox_base_url)
+            valid_base = (
+                parsed.scheme == "https"
+                and bool(parsed.hostname)
+                and parsed.username is None
+                and parsed.password is None
+                and parsed.path in {"", "/"}
+                and not parsed.query
+                and not parsed.fragment
+            )
+            user_id = (
+                self.goldtier_sandbox_user_id.get_secret_value()
+                if self.goldtier_sandbox_user_id is not None
+                else ""
+            )
+            if (
+                self.app_env == "production"
+                or not valid_base
+                or not self.goldtier_sandbox_environment
+                or not user_id
+                or len(user_id) > 160
+                or any(ord(character) < 32 for character in user_id)
+            ):
+                raise ValueError("GoldTier sandbox configuration is incomplete or unsafe")
         return self
 
     @property

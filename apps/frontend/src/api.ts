@@ -24,6 +24,7 @@ import type {
   AdminTeam,
   AdminProfile,
   PolicyCatalogue,
+  PolicyAuthority,
   PolicyValue,
   Role,
   AutomationStage,
@@ -31,6 +32,7 @@ import type {
   CaseActivityPage,
   CasePortfolioPage,
   EventOutcome,
+  OnboardingIntelligenceRecord,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -175,6 +177,18 @@ export async function deleteZeroTouchCase(caseId: string): Promise<void> {
     method: "DELETE",
   });
   if (!response.ok) await parseResponse<never>(response);
+}
+
+export async function fetchIntelligence(
+  caseId: string,
+  signal?: AbortSignal,
+): Promise<OnboardingIntelligenceRecord | null> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/intelligence`,
+    { signal },
+  );
+  if (response.status === 404) return null;
+  return parseResponse<OnboardingIntelligenceRecord>(response);
 }
 
 export async function attachZeroTouchDocument(
@@ -329,10 +343,7 @@ export interface CaseActivityFilters {
   offset?: number;
 }
 
-export async function fetchCaseActivity(
-  filters: CaseActivityFilters,
-  signal?: AbortSignal,
-): Promise<CaseActivityPage> {
+function caseActivityQuery(filters: CaseActivityFilters, explicitPaging: boolean): string {
   const query = new URLSearchParams();
   if (filters.caseId) query.set("case_id", filters.caseId);
   if (filters.teamFilter && filters.teamFilter !== "all") {
@@ -343,13 +354,24 @@ export async function fetchCaseActivity(
   if (filters.outcome) query.set("outcome", filters.outcome);
   if (filters.from) query.set("from", filters.from);
   if (filters.to) query.set("to", filters.to);
-  if (filters.limit !== undefined && filters.limit !== 50) {
+  if (filters.limit !== undefined && (explicitPaging || filters.limit !== 50)) {
     query.set("limit", String(filters.limit));
   }
-  if (filters.offset !== undefined && filters.offset !== 0) {
+  if (filters.offset !== undefined && (explicitPaging || filters.offset !== 0)) {
     query.set("offset", String(filters.offset));
   }
-  const suffix = query.size ? `?${query.toString()}` : "";
+  return query.size ? `?${query.toString()}` : "";
+}
+
+export function caseActivityExportUrl(filters: CaseActivityFilters): string {
+  return `${API_BASE_URL}/api/clm/zero-touch/activity.csv${caseActivityQuery(filters, true)}`;
+}
+
+export async function fetchCaseActivity(
+  filters: CaseActivityFilters,
+  signal?: AbortSignal,
+): Promise<CaseActivityPage> {
+  const suffix = caseActivityQuery(filters, false);
   const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/activity${suffix}`, {
     signal,
   });
@@ -720,6 +742,7 @@ export async function updatePolicy(
     value: PolicyValue;
     name?: string;
     description?: string;
+    authority?: PolicyAuthority;
   },
 ): Promise<PolicyCatalogue> {
   const response = await fetch(`${API_BASE_URL}/api/policies/${encodeURIComponent(policyId)}`, {

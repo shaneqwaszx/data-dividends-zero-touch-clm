@@ -62,6 +62,8 @@ const showcaseRule: PolicyRule = {
   maximum: null,
   allowed_values: [],
   classifications: ["DISPLAY_ONLY_NOT_RUNTIME_ENFORCED"],
+  authority: null,
+  default_authority: null,
   enforcement: "DISPLAY_SHOWCASE_ONLY",
   version: 1,
   created_at: "2026-09-11T00:00:00Z",
@@ -175,6 +177,28 @@ describe("Phase 14.5 production policy mutation workflow", () => {
     expect(markup).toContain("Edit");
     expect(markup).toContain("Reset to default");
     expect(policyIsEditable(showcaseRule, true)).toBe(true);
+  });
+
+  it("shows explicit GoldTier target authority alongside the editable value", () => {
+    const targetRule = {
+      ...showcaseRule,
+      policy_id: "GOLDTIER_POLICY",
+      category: "GoldTier target preparation",
+      name: "GoldTier policy",
+      value: { type: "STRING" as const, value: "TBD_SPONSOR" },
+      default_value: { type: "STRING" as const, value: "TBD_SPONSOR" },
+      classifications: ["PENDING_SPONSOR_CONFIRMATION" as const],
+      enforcement: "RUNTIME_ENFORCED" as const,
+      authority: "TBD_SPONSOR",
+      default_authority: "TBD_SPONSOR",
+    } as unknown as PolicyRule;
+
+    const markup = renderToStaticMarkup(
+      <PolicyTable catalogue={catalogue(targetRule)} canMutate onSave={async () => true} onReset={() => undefined} />,
+    );
+
+    expect(markup).toContain("Authority");
+    expect(markup).toContain("TBD SPONSOR");
   });
 
   it("submits only permitted custom edit fields and displays the authoritative update", async () => {

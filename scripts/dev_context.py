@@ -52,6 +52,7 @@ SELECTIVE_CHANGE_CLASSES = (
     *ROUTINE_CHANGE_CLASSES,
     "FRONTEND_STATE_CACHE",
 )
+MAX_REPORTED_DIRTY_PATHS = 8
 
 COMMON_SECTION_CONTEXT: dict[str, tuple[str, ...] | None] = {
     "AGENTS.md": None,
@@ -127,6 +128,17 @@ CLASS_SKILLS: dict[str, tuple[str, ...]] = {
 
 class ContextSelectionError(ValueError):
     """A safe narrow selection cannot be produced for the requested input."""
+
+
+def _summarize_tracked_status(status: str) -> str:
+    entries = [line.strip() for line in status.splitlines() if line.strip()]
+    if not entries:
+        return "clean"
+    visible = entries[:MAX_REPORTED_DIRTY_PATHS]
+    summary = "; ".join(visible)
+    if len(entries) > MAX_REPORTED_DIRTY_PATHS:
+        summary += f"; ... (+{len(entries) - MAX_REPORTED_DIRTY_PATHS} more)"
+    return summary
 
 
 @dataclass(frozen=True)
@@ -472,7 +484,7 @@ def render_context(
         f"origin/main: {origin}",
         f"Merge base: {merge_base}",
         f"Ahead/behind (origin/main...HEAD): {relationship}",
-        f"Tracked working tree: {status or 'clean'}",
+        f"Tracked working tree: {_summarize_tracked_status(status)}",
         f"Project-state verified date: {state.get('verified_date', 'UNAVAILABLE')}",
         f"Project-state main baseline: {state.get('verified_main_sha', 'UNAVAILABLE')}",
         "Documented providers:",

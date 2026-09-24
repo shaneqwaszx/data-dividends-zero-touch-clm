@@ -128,16 +128,18 @@ errors, or workflow events.
 ## Mode switching and API/UI
 
 Mock mode is the default and requires no external configuration. Sandbox mode is
-explicit and fails closed when required backend configuration is missing. Mock GoldTier
-is the only target mode.
+explicit and fails closed when required backend configuration is missing. GoldTier is
+separately Mock by default or the explicit `SANDBOX_PARTIAL` XPI adapter; neither
+provider falls back to Mock after an explicitly selected sandbox failure.
 
 The create/get case routes remain unchanged. The existing read-only discovery endpoint
 returns safe connector environment metadata: four synthetic scenarios in Mock mode and
 an empty scenario list in Sandbox mode. Internal canonical/proof metadata retains the
 query-free registry endpoint reference, while a dedicated browser response projection
 omits it and exposes only source system, environment, and sourcing timestamp. The UI
-renders `ACRA Mock` or `ACRA Sandbox` and always `GoldTier Mock`; it never receives the
-configured endpoint, auth headers, or secret settings and never calls ACRA directly.
+renders `ACRA Mock` or `ACRA Sandbox` and the backend-authoritative GoldTier Mock or
+GoldTier Sandbox (`SANDBOX_PARTIAL`) classification. It never receives configured
+endpoints, auth headers, or secret settings and never calls either provider directly.
 
 ## Live verification status
 

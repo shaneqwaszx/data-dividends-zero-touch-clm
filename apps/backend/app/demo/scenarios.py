@@ -3,7 +3,7 @@
 from decimal import Decimal
 from typing import Literal, Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 VALID_SME_UEN = "202400001A"
 INCOMPLETE_ENTITY_UEN = "202400002B"
@@ -27,7 +27,8 @@ class SimulationProfile(BaseModel):
     registry_system: Literal["ACRA"] = "ACRA"
     registry_environment: Literal["MOCK", "SANDBOX"] = "MOCK"
     target_system: Literal["GOLDTIER"] = "GOLDTIER"
-    target_environment: Literal["MOCK"] = "MOCK"
+    target_environment: Literal["MOCK", "SANDBOX"] = "MOCK"
+    target_provider_classification: Literal["MOCK", "SANDBOX_PARTIAL"] = "MOCK"
     idp_system: Literal["IDP"] = "IDP"
     idp_environment: Literal["MOCK", "LOCAL"] = "MOCK"
     idp_provider: Literal["MOCK_IDP", "LOCAL_PDF_TEXT"] = "MOCK_IDP"
@@ -36,6 +37,13 @@ class SimulationProfile(BaseModel):
     ownership_environment: Literal["MOCK"] = "MOCK"
     ubo_ownership_threshold_percent: Decimal = Decimal("25")
     persistence: Literal["Process-local", "Mongo-backed durable POC"] = "Process-local"
+
+    @model_validator(mode="after")
+    def target_classification_matches_environment(self) -> "SimulationProfile":
+        expected = "MOCK" if self.target_environment == "MOCK" else "SANDBOX_PARTIAL"
+        if self.target_provider_classification != expected:
+            raise ValueError("target provider classification contradicts its environment")
+        return self
 
 
 class MockScenarioDiscovery(BaseModel):

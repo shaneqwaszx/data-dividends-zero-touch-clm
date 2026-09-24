@@ -19,13 +19,14 @@ from app.domain.models import (
     WorkflowEvent,
     WorkflowState,
 )
+from app.domain.onboarding_intelligence import OnboardingIntelligenceRecord
 from app.domain.ownership import OwnershipAnalysisRecord
 from app.domain.policy import CasePolicySnapshot, legacy_phase13_policy_snapshot
 from app.domain.reconciliation import ReconciliationCaseRecord
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[4] = 4
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[5] = 5
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -86,7 +87,7 @@ class DurableCaseSnapshotV1(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=4,
+            schema_version=5,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -144,7 +145,7 @@ class DurableCaseSnapshotV2(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=4,
+            schema_version=5,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -200,7 +201,7 @@ class DurableCaseSnapshotV3(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=4,
+            schema_version=5,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -216,8 +217,8 @@ class DurableCaseSnapshotV3(BaseModel):
         )
 
 
-class DurableCaseSnapshot(BaseModel):
-    """Bounded authoritative structured state; never raw source/upload payloads."""
+class DurableCaseSnapshotV4(BaseModel):
+    """Strict pre-intelligence envelope accepted without a read-time rewrite."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -232,6 +233,52 @@ class DurableCaseSnapshot(BaseModel):
     automation: ZeroTouchAutomationRecord | None = None
     target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
     demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV4":
+        _validate_case_bindings(self)
+        if self.onboarding.policy_snapshot.intelligence is not None:
+            raise ValueError("schema-v4 policy snapshot cannot contain intelligence policy")
+        return self
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot(
+            schema_version=5,
+            case_id=self.case_id,
+            revision=self.revision,
+            onboarding=self.onboarding,
+            documents=self.documents,
+            ownership=self.ownership,
+            reconciliation=self.reconciliation,
+            clm=self.clm,
+            automation=self.automation,
+            target_executions=self.target_executions,
+            demo_scenario=self.demo_scenario,
+            intelligence=None,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
+
+
+class DurableCaseSnapshot(BaseModel):
+    """Bounded authoritative structured state; never raw source/upload payloads."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[5] = 5
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -259,6 +306,17 @@ def _validate_case_bindings(snapshot: Any) -> None:
     )
     if any(item.case_id != snapshot.case_id for item in records):
         raise ValueError("nested record does not match envelope")
+    intelligence = getattr(snapshot, "intelligence", None)
+    if intelligence is not None:
+        if intelligence.case_id != snapshot.case_id:
+            raise ValueError("intelligence record does not match envelope")
+        policy_snapshot = snapshot.onboarding.policy_snapshot
+        if policy_snapshot.intelligence is None:
+            raise ValueError("intelligence record requires immutable case policy")
+        intelligence.validate_policy_binding(
+            catalogue_version=policy_snapshot.catalogue_version,
+            policy=policy_snapshot.intelligence,
+        )
     if any(
         item.submission_input.case_id != snapshot.case_id for item in snapshot.target_executions
     ):
@@ -266,3 +324,17 @@ def _validate_case_bindings(snapshot: Any) -> None:
     submission_ids = [item.submission_input.submission_id for item in snapshot.target_executions]
     if len(set(submission_ids)) != len(submission_ids):
         raise ValueError("duplicate target execution identity")
+    clm = snapshot.clm
+    if clm is not None and clm.submission_snapshot is not None:
+        provider_mode = clm.submission_plan.environment
+        target_input = clm.submission_snapshot.target_input
+        if target_input.provider_mode != provider_mode:
+            raise ValueError("GoldTier provider identity does not match the retained plan")
+        for item in snapshot.target_executions:
+            if (
+                item.submission_input.submission_id == target_input.submission_id
+                and item.submission_input.provider_mode != provider_mode
+            ):
+                raise ValueError(
+                    "GoldTier provider identity does not match retained target execution"
+                )

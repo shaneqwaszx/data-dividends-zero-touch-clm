@@ -5,6 +5,7 @@ import {
   ApiError,
   deleteZeroTouchCase,
   fetchDocuments,
+  fetchIntelligence,
   fetchOwnership,
   fetchZeroTouchCase,
   replaceZeroTouchDocument,
@@ -22,10 +23,11 @@ import {
   caseSummaryMutationEffect,
   caseSupportingMutationEffect,
   documentQueryOptions,
+  intelligenceQueryOptions,
   ownershipQueryOptions,
   priorityMutationEffect,
 } from "../caseQueries";
-import { formatTimestamp, shouldPollAutomation } from "../shared";
+import { formatTimestamp, shouldPollAutomation, targetOutcomeLabel } from "../shared";
 import type {
   DocumentProcessingRecord,
   AuthenticatedProfile,
@@ -46,6 +48,8 @@ import PriorityControl, { PriorityBadge } from "./PriorityControl";
 import DeleteCaseDialog from "./DeleteCaseDialog";
 import DocumentEvidencePanel, { type DocumentReviewRequest } from "./DocumentEvidencePanel";
 import OwnershipPathExplorer from "./OwnershipPathExplorer";
+import IntelligencePanel from "./IntelligencePanel";
+import GoldTierRequestPreview from "./GoldTierRequestPreview";
 import RegistryProvenancePanel from "./RegistryProvenancePanel";
 
 const ACTION_LABELS: Record<ExceptionResolutionAction, string> = {
@@ -95,9 +99,11 @@ export default function CaseDetail({
   const detailQuery = useQuery(caseDetailQueryOptions(actor.user_id, caseId));
   const documentQuery = useQuery(documentQueryOptions(actor.user_id, caseId));
   const ownershipQuery = useQuery(ownershipQueryOptions(actor.user_id, caseId));
+  const intelligenceQuery = useQuery(intelligenceQueryOptions(actor.user_id, caseId));
   const summary = detailQuery.data ?? null;
   const documents = documentQuery.data ?? [];
   const ownership = ownershipQuery.data ?? null;
+  const intelligence = intelligenceQuery.data ?? null;
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
@@ -134,6 +140,10 @@ export default function CaseDetail({
       }),
       queryClient.cancelQueries({
         queryKey: ownershipQueryOptions(action.actorUserId, action.caseId).queryKey,
+        exact: true,
+      }),
+      queryClient.cancelQueries({
+        queryKey: intelligenceQueryOptions(action.actorUserId, action.caseId).queryKey,
         exact: true,
       }),
     ]);
@@ -178,7 +188,21 @@ export default function CaseDetail({
       }
       return ownership;
     });
-    const [latest] = await Promise.all([latestCase, latestDocuments, latestOwnership]);
+    const latestIntelligence = fetchIntelligence(action.caseId).then((record) => {
+      if (isCurrentCaseAction(action)) {
+        queryClient.setQueryData(
+          intelligenceQueryOptions(action.actorUserId, action.caseId).queryKey,
+          record,
+        );
+      }
+      return record;
+    });
+    const [latest] = await Promise.all([
+      latestCase,
+      latestDocuments,
+      latestOwnership,
+      latestIntelligence,
+    ]);
     return latest;
   }, [queryClient]);
 
@@ -525,15 +549,20 @@ export default function CaseDetail({
             <h4>Submission plan</h4>
             <p className="control-help">{summary.clm.submission_plan.environment} · {summary.clm.submission_plan.base_operations.join(" → ")}</p>
             <p className="control-help">Ready-for-Approval: {summary.clm.submission_plan.real_ready_for_approval.replaceAll("_", " ")}</p>
-            <div className="kv-row"><span className="kv-label">Mock GoldTier party ID</span><span className="kv-value">{summary.case.goldtier_result?.party_id ?? "—"}</span></div>
+            {summary.clm.submission_plan.request_preview && (
+              <GoldTierRequestPreview preview={summary.clm.submission_plan.request_preview} />
+            )}
+            <div className="kv-row"><span className="kv-label">{summary.clm.submission_plan.environment === "MOCK" ? "Mock GoldTier" : "GoldTier Sandbox"} party ID</span><span className="kv-value">{summary.case.goldtier_result?.party_id ?? "—"}</span></div>
             <h4>Run metrics</h4>
             <div className="kv-row"><span className="kv-label">Automated stages</span><span className="kv-value">{summary.metrics.automated_stages_completed}</span></div>
             <div className="kv-row"><span className="kv-label">Human interventions</span><span className="kv-value">{summary.metrics.human_interventions}</span></div>
             <div className="kv-row"><span className="kv-label">Exceptions</span><span className="kv-value">{summary.metrics.exceptions_resolved}/{summary.metrics.exceptions_raised} resolved</span></div>
-            <div className="kv-row"><span className="kv-label">Final outcome</span><span className="kv-value">{summary.metrics.final_outcome ?? "—"}</span></div>
+            <div className="kv-row"><span className="kv-label">Final outcome</span><span className="kv-value">{summary.metrics.final_outcome ? targetOutcomeLabel(summary.metrics.final_outcome, summary.clm.submission_plan.environment) : "—"}</span></div>
             </aside>
           </div>
         </div>
+
+        {intelligence && <IntelligencePanel record={intelligence} />}
 
         <h4 style={{ marginTop: 24 }}>Automation timeline</h4><div className="table-card"><table className="table"><thead><tr><th>Timestamp</th><th>Stage</th><th>Event</th><th>Outcome</th></tr></thead><tbody>{summary.timeline.map((event) => <tr key={event.sequence}><td>{formatTimestamp(event.timestamp)}</td><td>{event.stage}</td><td>{event.message}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>
       </div>

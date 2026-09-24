@@ -45,7 +45,7 @@ export default function ClientDetail({
     return (
       <section className="ds-root ds-page">
         <h1>Client record unavailable</h1>
-        <p className="text-muted">This case has not completed the Mock onboarding workflow.</p>
+        <p className="text-muted">This case has not completed the POC onboarding workflow.</p>
         <Link className="btn btn-secondary" to={paths.caseDetail(clientId)}>Open case details</Link>
       </section>
     );
@@ -60,7 +60,7 @@ export default function ClientDetail({
       <div className="side-panel">
         <h4 style={{ marginTop: 0 }}>Client record</h4>
         <div>
-          <div className="kv-row"><span className="kv-label">Mock GoldTier party ID</span><span className="kv-value">{client.mock_goldtier_party_id ?? "—"}</span></div>
+          <div className="kv-row"><span className="kv-label">GoldTier party ID</span><span className="kv-value">{client.mock_goldtier_party_id ?? "—"}</span></div>
           <div className="kv-row"><span className="kv-label">Status</span><span className="kv-value"><span className="tag tag-accent">{client.status.replaceAll("_", " ")}</span></span></div>
           <div className="kv-row"><span className="kv-label">Onboarded</span><span className="kv-value">{new Date(client.onboarded_at).toLocaleString()}</span></div>
           <div className="kv-row"><span className="kv-label">Risk rating</span><span className="kv-value">—</span></div>
@@ -95,11 +95,11 @@ export default function ClientDetail({
 
       <div className="ds-page" style={{ flex: 1 }}>
         <div className="ds-page-header">
-          <div><p className="card-kicker">{client.mock_goldtier_party_id ?? "Mock party —"} · {client.case_id} · {client.registration_id} · {client.jurisdiction ?? "—"}</p><h1>{client.company_name ?? client.registration_id}</h1></div>
+          <div><p className="card-kicker">{client.mock_goldtier_party_id ?? "GoldTier party —"} · {client.case_id} · {client.registration_id} · {client.jurisdiction ?? "—"}</p><h1>{client.company_name ?? client.registration_id}</h1></div>
           <ClientRecordActions />
         </div>
         <div className="ds-banner poc-boundary">
-          Completed zero-touch Mock workflow evidence. This view is not a production client master, approval record, or live GoldTier acceptance.
+          Completed zero-touch POC workflow evidence. This view is not a production client master, approval record, or live GoldTier acceptance.
         </div>
 
         <div className="ds-two-col">
@@ -160,7 +160,7 @@ export default function ClientDetail({
               {client.registry_operations.map((operation) => <tr key={operation.operation}><td>{operation.operation.replaceAll("_", " ")}</td><td>{operation.status}</td><td>{operation.record_count}</td><td>{operation.provenance}</td></tr>)}
             </tbody></table></div>
 
-            <h4>Mock target operations</h4>
+            <h4>GoldTier target operations</h4>
             <div style={{ marginBottom: 20 }}>
               {client.target_operations.map((operation) => <div className="kv-row" key={operation.operation}><span className="kv-label">{operation.operation}</span><span className="kv-value">{operation.status}</span></div>)}
               <div className="kv-row"><span className="kv-label">Final outcome</span><span className="kv-value">{client.final_outcome ?? "—"}</span></div>

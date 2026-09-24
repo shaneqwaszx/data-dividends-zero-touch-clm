@@ -36,6 +36,7 @@
         "OWNERSHIP_LOCAL_ENGINE",
         "OWNERSHIP_HIERARCHY_FUTURE",
         "GOLDTIER_MOCK",
+        "GOLDTIER_XPI",
         "GOLDTIER_REAL",
         "PINGFED_AUTH"
       ]
