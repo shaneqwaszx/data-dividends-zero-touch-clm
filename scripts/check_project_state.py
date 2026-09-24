@@ -52,6 +52,11 @@ EXPECTED_PROVIDERS = {
         "classification": "LOCAL",
     },
     "target": {"name": "GOLDTIER", "mode": "mock", "classification": "MOCK"},
+    "target_sandbox": {
+        "name": "GOLDTIER_XPI",
+        "mode": "sandbox",
+        "classification": "PARTIAL",
+    },
 }
 EXPECTED_IDENTITY = {
     "account_source": "bootstrap_repositories",
@@ -289,6 +294,10 @@ def validate(root: Path) -> list[str]:
             or documented not in allowed_default[0]
         ):
             failures.append(f"Documented default for {setting} does not match Settings")
+    if modes.get("goldtier_connector_mode") != ({"mock", "sandbox"}, "mock"):
+        failures.append(
+            "GoldTier Settings must expose only explicit mock/sandbox modes with Mock default"
+        )
     persistence = state.get("persistence")
     persistence_mode = modes.get("clm_persistence_mode")
     if not isinstance(persistence, dict):
@@ -321,6 +330,8 @@ def validate(root: Path) -> list[str]:
 
     if "MockGoldTierConnector" not in composition:
         failures.append("Current composition no longer proves Mock GoldTier")
+    if "GoldTierXpiSandboxConnector" not in composition:
+        failures.append("Current composition no longer proves explicit GoldTier XPI sandbox")
     workflow = state.get("workflow_engine", {})
     if not isinstance(workflow, dict) or workflow.get("camunda") != "not_implemented":
         failures.append(

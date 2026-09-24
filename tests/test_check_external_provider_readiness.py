@@ -92,6 +92,41 @@ class ExternalProviderReadinessTests(unittest.TestCase):
         failures = CHECKER.validate(self.root)
         self.assertTrue(any("GOLDTIER_REAL" in item for item in failures), failures)
 
+    def test_rejects_goldtier_xpi_runtime_deactivation(self) -> None:
+        value = self._registry()
+        entry = next(item for item in value["providers"] if item["provider_id"] == "GOLDTIER_XPI")
+        entry["runtime_activation_enabled"] = False
+        self._write_registry(value)
+        failures = CHECKER.validate(self.root)
+        self.assertTrue(
+            any("GOLDTIER_XPI runtime_activation_enabled" in item for item in failures),
+            failures,
+        )
+
+    def test_rejects_live_goldtier_mode_in_settings(self) -> None:
+        config = self.root / CHECKER.CONFIG_PATH
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                'goldtier_connector_mode: Literal["mock", "sandbox"] = "mock"',
+                'goldtier_connector_mode: Literal["mock", "sandbox", "live"] = "mock"',
+            ),
+            encoding="utf-8",
+        )
+        failures = CHECKER.validate(self.root)
+        self.assertTrue(any("GoldTier Settings" in item for item in failures), failures)
+
+    def test_rejects_sandbox_as_goldtier_default(self) -> None:
+        config = self.root / CHECKER.CONFIG_PATH
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                'goldtier_connector_mode: Literal["mock", "sandbox"] = "mock"',
+                'goldtier_connector_mode: Literal["mock", "sandbox"] = "sandbox"',
+            ),
+            encoding="utf-8",
+        )
+        failures = CHECKER.validate(self.root)
+        self.assertTrue(any("GoldTier Settings" in item for item in failures), failures)
+
     def test_rejects_local_idp_as_vendor_ocr(self) -> None:
         value = self._registry()
         entry = next(item for item in value["providers"] if item["provider_id"] == "IDP_LOCAL_PDF_TEXT")

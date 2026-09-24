@@ -1,11 +1,13 @@
 """Typed Phase 01 subset of the provisional GoldTier development contract."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import UUID4, BaseModel, ConfigDict, Field
+from pydantic import UUID4, BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.target_safety import (
     SafeTargetErrorCode,
@@ -141,7 +143,21 @@ class GoldTierSearchOutcome(StrEnum):
 
     NO_MATCH = "NO_MATCH"
     MATCH_FOUND = "MATCH_FOUND"
+    MULTIPLE_MATCHES = "MULTIPLE_MATCHES"
     FAILURE = "FAILURE"
+
+
+class GoldTierSearchCandidate(BaseModel):
+    """Bounded safe identity projection; raw provider fields stop at the connector."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    party_id: SafeTargetIdentifier
+    registration_number: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+    country: Annotated[str, Field(pattern=r"^[A-Za-z]{2,3}$")] | None = None
+    legal_name: Annotated[str, Field(min_length=1, max_length=160)] | None = None
+    legal_form: Annotated[str, Field(min_length=1, max_length=80)] | None = None
+    registered_address: Annotated[str, Field(min_length=1, max_length=240)] | None = None
 
 
 class GoldTierSearchResult(BaseModel):
@@ -150,8 +166,31 @@ class GoldTierSearchResult(BaseModel):
     outcome: GoldTierSearchOutcome
     status_code: Annotated[int, Field(ge=200, le=599)]
     matched_party_id: SafeTargetIdentifier | None = None
+    candidates: tuple[GoldTierSearchCandidate, ...] = Field(default=(), max_length=25)
     error_code: SafeTargetErrorCode | None = None
     message: SafeTargetMessage
+
+    @model_validator(mode="after")
+    def candidate_shape_matches_outcome(self) -> GoldTierSearchResult:
+        ids = tuple(item.party_id for item in self.candidates)
+        if len(ids) != len(set(ids)):
+            raise ValueError("GoldTier search candidates must be unique")
+        if self.outcome == GoldTierSearchOutcome.NO_MATCH and (
+            self.matched_party_id is not None or self.candidates
+        ):
+            raise ValueError("no-match result cannot contain candidates")
+        if self.outcome == GoldTierSearchOutcome.MULTIPLE_MATCHES and len(self.candidates) < 2:
+            raise ValueError("multiple-match result requires multiple candidates")
+        if (
+            self.outcome == GoldTierSearchOutcome.MATCH_FOUND
+            and self.candidates
+            and (
+                len(self.candidates) != 1
+                or self.matched_party_id != self.candidates[0].party_id
+            )
+        ):
+            raise ValueError("unique match must bind its candidate identity")
+        return self
 
 
 class GoldTierOperationResult(BaseModel):

@@ -4,11 +4,14 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.models import EventOutcome, GoldTierResult, SafeError
+from app.domain.target_preparation import GoldTierRequestPreview
 from app.domain.target_submission import (
     GoldTierExecutionReceipt,
+    GoldTierProviderClassification,
+    GoldTierProviderMode,
     GoldTierSubmissionInput,
     SubmissionCanonicalEntity,
 )
@@ -152,7 +155,10 @@ class ClmSubmissionSnapshot(BaseModel):
 class GoldTierSubmissionPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    environment: str = "MOCK"
+    environment: GoldTierProviderMode = GoldTierProviderMode.MOCK
+    provider_classification: GoldTierProviderClassification = (
+        GoldTierProviderClassification.MOCK
+    )
     base_operations: tuple[str, ...] = Field(
         default_factory=lambda: (
             "searchParty",
@@ -164,6 +170,19 @@ class GoldTierSubmissionPlan(BaseModel):
     match_found_behavior: str = "REVIEW_REQUIRED_NO_WRITES"
     related_party_integration: str = "PENDING_SPONSOR_CONFIRMATION"
     real_ready_for_approval: str = "NOT_AVAILABLE"
+    request_preview: GoldTierRequestPreview | None = None
+
+    @model_validator(mode="after")
+    def validate_provider_identity(self) -> "GoldTierSubmissionPlan":
+        expected = {
+            GoldTierProviderMode.MOCK: GoldTierProviderClassification.MOCK,
+            GoldTierProviderMode.SANDBOX: (
+                GoldTierProviderClassification.SANDBOX_PARTIAL
+            ),
+        }[self.environment]
+        if self.provider_classification != expected:
+            raise ValueError("GoldTier provider identity is internally inconsistent")
+        return self
 
 
 class ClmWorkflowEvent(BaseModel):

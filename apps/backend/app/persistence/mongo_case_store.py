@@ -62,6 +62,8 @@ from app.persistence.models import (
     DurableCaseSnapshotV1,
     DurableCaseSnapshotV2,
     DurableCaseSnapshotV3,
+    DurableCaseSnapshotV4,
+    _validate_case_bindings,
 )
 
 
@@ -461,6 +463,7 @@ class MongoCaseStore:
         return candidate.model_copy(deep=True)
 
     def _encode(self, snapshot: DurableCaseSnapshot) -> dict[str, Any]:
+        _validate_case_bindings(snapshot)
         raw_value = _persistence_value(snapshot)
         if not isinstance(raw_value, dict):
             raise PersistenceDataInvalidError
@@ -497,6 +500,10 @@ class MongoCaseStore:
                 legacy_v3 = DurableCaseSnapshotV3.model_validate(value)
                 _reject_unknown_model_fields(value, legacy_v3)
                 snapshot = legacy_v3.to_current()
+            elif schema_version == 4:
+                legacy_v4 = DurableCaseSnapshotV4.model_validate(value)
+                _reject_unknown_model_fields(value, legacy_v4)
+                snapshot = legacy_v4.to_current()
             elif schema_version == CASE_SNAPSHOT_SCHEMA_VERSION:
                 snapshot = DurableCaseSnapshot.model_validate(value)
                 _reject_unknown_model_fields(value, snapshot)
@@ -529,7 +536,7 @@ class MongoCaseStore:
             revision = raw["revision"]
             if type(schema_version) is not int or type(revision) is not int or revision < 0:
                 raise PersistenceDataInvalidError
-            if schema_version not in {1, 2, 3, CASE_SNAPSHOT_SCHEMA_VERSION}:
+            if schema_version not in {1, 2, 3, 4, CASE_SNAPSHOT_SCHEMA_VERSION}:
                 raise PersistenceSchemaUnsupportedError
             envelope_id = _canonical_uuid(raw["_id"])
             if _canonical_uuid(raw["case_id"]) != envelope_id:
@@ -844,6 +851,11 @@ def _persistence_value(value: object) -> Any:
         }
     if isinstance(value, (list, tuple)):
         return [_persistence_value(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted(
+            (_persistence_value(item) for item in value),
+            key=repr,
+        )
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, UUID):
@@ -1128,7 +1140,7 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
     return {
         "$and": [
             {"$in": [schema_type, ["int", "long"]]},
-            {"$in": ["$schema_version", [1, 2, 3, CASE_SNAPSHOT_SCHEMA_VERSION]]},
+            {"$in": ["$schema_version", [1, 2, 3, 4, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},
             {"$gte": ["$revision", 0]},
             _mongo_canonical_uuid("$_id"),
@@ -1423,7 +1435,7 @@ def _activity_candidate_valid_expression() -> dict[str, Any]:
     return {
         "$and": [
             {"$in": [schema_type, ["int", "long"]]},
-            {"$in": ["$schema_version", [1, 2, 3, CASE_SNAPSHOT_SCHEMA_VERSION]]},
+            {"$in": ["$schema_version", [1, 2, 3, 4, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},
             {"$gte": ["$revision", 0]},
             _mongo_canonical_uuid("$_id"),
@@ -1529,6 +1541,14 @@ def _activity_row_match(query: CaseActivityQuery) -> dict[str, Any]:
         conditions.append({"automation.events.event_type": {"$regex": "RECONCILIATION"}})
     elif query.action == CaseActivityAction.OWNERSHIP:
         conditions.append({"automation.events.stage": AutomationStage.OWNERSHIP.value})
+    elif query.action == CaseActivityAction.INTELLIGENCE:
+        conditions.append(
+            {
+                "automation.events.event_type": (
+                    AutomationEventType.INTELLIGENCE_EVALUATED.value
+                )
+            }
+        )
     elif query.action == CaseActivityAction.TARGET:
         conditions.append(
             {

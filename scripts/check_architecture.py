@@ -278,16 +278,23 @@ def check(root: Path) -> list[Finding]:
                     "dormant BizFile entered runtime composition",
                 )
             )
-        if not any(
+        mock_composed = any(
             name.endswith(".MockGoldTierConnector") for name in composition_imports
-        ) or not _instantiates_imported_symbol(
+        ) and _instantiates_imported_symbol(
             composition, "app.connectors.mock_goldtier.MockGoldTierConnector"
-        ):
+        )
+        sandbox_composed = any(
+            name.endswith(".GoldTierXpiSandboxConnector")
+            for name in composition_imports
+        ) and _instantiates_imported_symbol(
+            composition, "app.connectors.goldtier_xpi.GoldTierXpiSandboxConnector"
+        )
+        if not mock_composed or not sandbox_composed:
             findings.append(
                 Finding(
-                    "MOCK_GOLDTIER_ONLY",
+                    "GOLDTIER_MODE_BOUNDARY",
                     composition_path,
-                    "Mock GoldTier composition marker missing",
+                    "Mock-default and explicit XPI sandbox composition markers are required",
                 )
             )
     if config_path in tracked:
@@ -296,12 +303,12 @@ def check(root: Path) -> list[Finding]:
             goldtier_setting = _literal_setting(config, "goldtier_connector_mode")
         except SyntaxError:
             goldtier_setting = None
-        if goldtier_setting != ({"mock"}, "mock"):
+        if goldtier_setting != ({"mock", "sandbox"}, "mock"):
             findings.append(
                 Finding(
-                    "MOCK_GOLDTIER_ONLY",
+                    "GOLDTIER_MODE_BOUNDARY",
                     config_path,
-                    "GoldTier configuration is no longer Mock-only",
+                    "GoldTier modes must be exactly mock/sandbox with Mock default",
                 )
             )
     return findings

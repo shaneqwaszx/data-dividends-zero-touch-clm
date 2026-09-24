@@ -158,18 +158,20 @@ statuses, codes, and messages.
 
 The UI creates/reopens staged CLM cases, reuses the document and ownership controls, and
 shows five backend-authored stages, typed blockers, real-integration warnings, the safe
-Mock plan, result, and unified timeline. Every document/ownership mutation immediately
+configured target plan, result, and unified timeline. Every document/ownership mutation immediately
 replaces stale readiness with a refresh state and then fetches the authoritative CLM
 summary. A rejected/conflicting submit also refreshes. Submit is enabled only for a
 fresh backend `READY_FOR_MOCK_SUBMISSION` response.
 
 Environment labels remain ACRA Mock/Sandbox, IDP Mock/Local as supplied, ownership
-Mock/Local as supplied, and GoldTier Mock. Provisional IDP/UBO and unavailable
+Mock/Local as supplied, and backend-authoritative GoldTier Mock or GoldTier Sandbox
+(`SANDBOX_PARTIAL`). Provisional IDP/UBO and unavailable
 hierarchy/related-party/real-GoldTier/approval dependencies remain visible.
 
-## Future real GoldTier seam
+## GoldTier adapter seam
 
-The existing `GoldTierConnector` remains the replacement boundary. Phase 05 does not
-authorize a real adapter. PingFed, TLS 1.3, secret delivery, environment details,
-related-party mapping, hierarchy retrieval, and the approval transition must be
-resolved in a separately assigned later phase.
+The existing `GoldTierConnector` remains the replacement boundary. The pre-Phase 22
+candidate adds only the sponsor-supplied XPI sandbox dialect as an explicit partial
+adapter; it does not authorize production/Live GoldTier. PingFed, production secret
+delivery, related-party child-ID lifecycle, hierarchy creation, and the approval
+transition remain unresolved or separately gated.

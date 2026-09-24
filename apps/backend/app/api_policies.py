@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.access import AuthenticatedActor
 from app.domain.policy import (
+    PolicyAuthority,
     PolicyCatalogue,
     PolicyClassification,
     PolicyEnforcement,
@@ -45,6 +46,8 @@ class PolicyRuleResponse(BaseModel):
     maximum: str | int | None
     allowed_values: tuple[str, ...]
     classifications: tuple[PolicyClassification, ...]
+    authority: PolicyAuthority | None
+    default_authority: PolicyAuthority | None
     enforcement: PolicyEnforcement
     version: int
     created_at: datetime
@@ -97,6 +100,7 @@ class UpdatePolicyRequest(BaseModel):
     value: PolicyValue
     name: Annotated[str | None, Field(default=None, min_length=2, max_length=80)]
     description: Annotated[str | None, Field(default=None, min_length=2, max_length=240)]
+    authority: PolicyAuthority | None = None
 
 
 class ResetPolicyRequest(BaseModel):
@@ -157,6 +161,7 @@ def build_policy_router(service: PolicyManagementService) -> APIRouter:
                     value=body.value,
                     name=body.name,
                     description=body.description,
+                    authority=body.authority,
                 )
             )
         )

@@ -1,5 +1,7 @@
 /// <reference types="vitest/config" />
 
+// @ts-expect-error The browser tsconfig intentionally excludes Node ambient types.
+import { Agent as HttpAgent } from "node:http";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -285,6 +287,9 @@ function developmentNavigationFallback(): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
   const backendProxyTarget = env.VITE_BACKEND_PROXY_TARGET || "http://127.0.0.1:8000";
+  const guardedE2eBackendAgent = env.CLM_E2E_FRONTEND_PORT
+    ? new HttpAgent({ keepAlive: true, maxFreeSockets: 1 })
+    : undefined;
 
   return {
     appType: "mpa",
@@ -293,6 +298,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         "/api": {
           target: backendProxyTarget,
+          agent: guardedE2eBackendAgent,
           configure(proxy) {
             const diagnosticProxy = proxy as unknown as DiagnosticProxy;
             diagnosticProxy.on("proxyReq", (proxyRequest, request) => {

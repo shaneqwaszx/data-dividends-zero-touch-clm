@@ -23,6 +23,11 @@ class ConnectorError(RuntimeError):
         super().__init__(self.public_message)
 
 
+class MutationOutcomeUncertainError(ConnectorError):
+    """A mutation may have been accepted and therefore must not be replayed."""
+
+
+
 class AcraConfigurationError(ConnectorError):
     """Required ACRA sandbox configuration or authorization is unavailable."""
 

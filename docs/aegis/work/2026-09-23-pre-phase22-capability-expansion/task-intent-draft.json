@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "requestedOutcome": "Implement, independently review, publish, and open a PR for the authorized pre-Phase 22 capability expansion without activating Phase 22 or unproved Live integrations.",
+  "goal": "Deliver explainable entity resolution, ML-assisted UBO advice, mock advisory risk, bounded audit/workbench improvements, and an SME demo while preserving deterministic and provider safety owners.",
+  "successEvidence": [
+    "Focused RED/GREEN evidence, required verification matrix, exact independent quality-gate PASS, clean publication commit, pushed branch, open PR, and CI results."
+  ],
+  "stopCondition": "Stop dependent GoldTier work when source artefacts or sandbox evidence are absent; stop assignment mutation when role/capability authority is unresolved; stop publication unless an exact fresh independent PASS covers the reviewed revision.",
+  "nonGoals": [
+    "Live GoldTier/PingFed activation, autonomous approval, production OCR, Camunda, production SSO, non-Singapore registries."
+  ],
+  "scope": "Single orchestrated session on feature/pre-phase22-capability-expansion; root is sole writer and Git owner; specialists and quality gate are read-only except their owned reports.",
+  "changeKinds": [
+    "EXTERNAL_PROVIDER,BACKEND_DOMAIN,BACKEND_API,AUTH_RBAC_SECURITY,PERSISTENCE,FRONTEND_STATE_CACHE,FRONTEND_UI,ARCHITECTURE_REFACTOR"
+  ],
+  "riskHints": [
+    "high"
+  ]
+}

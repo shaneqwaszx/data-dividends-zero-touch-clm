@@ -22,6 +22,7 @@ PHYSICAL_SUITES = (
     BACKEND_ROOT / "tests" / "test_phase17_case_activity_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_phase18_case_portfolio_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_phase19_case_timing_real_mongo.py",
+    BACKEND_ROOT / "tests" / "test_provider_identity_real_mongo.py",
 )
 _SUMMARY_PATTERN = re.compile(
     r"(?P<count>\d+)\s+(?P<kind>passed|failed|skipped|errors?)\b",

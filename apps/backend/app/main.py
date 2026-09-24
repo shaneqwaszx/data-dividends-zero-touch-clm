@@ -22,6 +22,7 @@ from app.api_auth import (
     build_case_reauthorizer,
     install_auth_boundary,
 )
+from app.api_intelligence import build_intelligence_router
 from app.api_models import (
     BrowserTargetOperationEvidence,
     CaseActivityPageResponse,
@@ -67,6 +68,7 @@ from app.demo.zero_touch_control import ZeroTouchDemoControl, ZeroTouchDemoScena
 from app.domain.access import AuthenticatedActor, CasePriority, TeamId
 from app.domain.case_management import (
     CaseActivityAction,
+    CaseActivityPage,
     CaseTimingDataInvalidError,
     project_case_timing,
 )
@@ -91,6 +93,7 @@ from app.persistence.errors import (
     PersistenceSchemaUnsupportedError,
     PersistenceUnavailableError,
 )
+from app.services.activity_export import render_case_activity_csv
 from app.services.administration import AdministrationService, AdministrationValidationError
 from app.services.authentication import AuthenticationConfigurationError, AuthenticationService
 from app.services.authorization import (
@@ -123,6 +126,7 @@ from app.services.document_errors import (
 from app.services.document_processing import DocumentProcessingService
 from app.services.errors import OnboardingInfrastructureError
 from app.services.onboarding import OnboardingService
+from app.services.onboarding_intelligence import OnboardingIntelligenceProjectionService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_errors import (
     OwnershipInfrastructureError,
@@ -383,6 +387,18 @@ def create_app(
         reconciliation,
         repository=persistence.clm,
     )
+    intelligence_projection = OnboardingIntelligenceProjectionService(
+        cases=service,
+        documents=persistence.documents,
+        ownership=persistence.ownership,
+        repository=persistence.intelligence,
+        clock=active_clock,
+        candidate_resolver=(
+            zero_touch_demo.entity_candidates_for
+            if active_settings.demo_controls_enabled
+            else None
+        ),
+    )
     zero_touch = zero_touch_orchestrator or build_zero_touch_orchestrator(
         service,
         documents,
@@ -394,6 +410,7 @@ def create_app(
         establishment_discard=persistence.deletion.discard,
         durable_provider_bindings=persistence.mode == "mongo",
         clock=active_clock,
+        intelligence_evaluator=intelligence_projection.evaluate,
     )
     if e2e_portfolio_seed_count:
         if active_settings.app_env != "test" or not 1 <= e2e_portfolio_seed_count <= 250:
@@ -445,6 +462,13 @@ def create_app(
     )
     application.include_router(build_admin_router(administration))
     application.include_router(build_policy_router(policy_management))
+    application.include_router(
+        build_intelligence_router(
+            intelligence_projection,
+            cases=service,
+            access_policy=access_policy,
+        )
+    )
 
     def require_demo_controls() -> None:
         if not active_settings.demo_controls_enabled:
@@ -460,8 +484,15 @@ def create_app(
         registry_environment: Literal["MOCK", "SANDBOX"] = (
             "MOCK" if active_settings.acra_connector_mode == "mock" else "SANDBOX"
         )
+        target_environment: Literal["MOCK", "SANDBOX"] = (
+            "MOCK" if active_settings.goldtier_connector_mode == "mock" else "SANDBOX"
+        )
         return SimulationProfile(
             registry_environment=registry_environment,
+            target_environment=target_environment,
+            target_provider_classification=(
+                "MOCK" if target_environment == "MOCK" else "SANDBOX_PARTIAL"
+            ),
             idp_environment=(
                 "LOCAL" if active_settings.idp_connector_mode == "local_pdf_text" else "MOCK"
             ),
@@ -1404,12 +1435,7 @@ def create_app(
                 },
             ) from None
 
-    @application.get(
-        "/api/clm/zero-touch/activity",
-        response_model=CaseActivityPageResponse,
-        tags=["zero-touch"],
-    )
-    def list_zero_touch_activity(
+    def _authorized_activity_page(
         actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
         case_id: Annotated[UUID | None, Query(alias="case_id")] = None,
         team_filter: Annotated[str | None, Query(alias="team_filter", max_length=64)] = None,
@@ -1420,21 +1446,19 @@ def create_app(
         to_at: Annotated[datetime | None, Query(alias="to")] = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
         offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
-    ) -> CaseActivityPageResponse:
+    ) -> CaseActivityPage:
         try:
-            return CaseActivityPageResponse.from_domain(
-                case_query.list_activity(
-                    actor,
-                    case_id=case_id,
-                    team_filter=team_filter,
-                    action=action,
-                    stage=stage,
-                    outcome=outcome,
-                    from_at=from_at,
-                    to_at=to_at,
-                    limit=limit,
-                    offset=offset,
-                )
+            return case_query.list_activity(
+                actor,
+                case_id=case_id,
+                team_filter=team_filter,
+                action=action,
+                stage=stage,
+                outcome=outcome,
+                from_at=from_at,
+                to_at=to_at,
+                limit=limit,
+                offset=offset,
             )
         except CaseTeamFilterForbiddenError:
             raise HTTPException(
@@ -1481,6 +1505,33 @@ def create_app(
                     "message": "Case activity is temporarily unavailable.",
                 },
             ) from None
+
+    @application.get(
+        "/api/clm/zero-touch/activity",
+        response_model=CaseActivityPageResponse,
+        tags=["zero-touch"],
+    )
+    def list_zero_touch_activity(
+        page: Annotated[CaseActivityPage, Depends(_authorized_activity_page)],
+    ) -> CaseActivityPageResponse:
+        return CaseActivityPageResponse.from_domain(page)
+
+    @application.get(
+        "/api/clm/zero-touch/activity.csv",
+        tags=["zero-touch"],
+    )
+    def export_zero_touch_activity(
+        page: Annotated[CaseActivityPage, Depends(_authorized_activity_page)],
+    ) -> Response:
+        return Response(
+            content=render_case_activity_csv(page),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": 'attachment; filename="case-activity.csv"',
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @application.delete(
         "/api/clm/zero-touch/cases/{case_id}",

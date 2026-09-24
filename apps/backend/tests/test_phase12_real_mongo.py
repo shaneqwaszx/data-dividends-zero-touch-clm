@@ -39,6 +39,12 @@ from app.domain.documents import (
     ReviewDecision,
 )
 from app.domain.models import SafeError
+from app.domain.onboarding_intelligence import (
+    MockRiskAssessment,
+    MockRiskBand,
+    OnboardingIntelligenceRecord,
+)
+from app.domain.policy import CasePolicySnapshot, legacy_intelligence_policy_snapshot
 from app.domain.reconciliation import ReconciliationDecisionAction
 from app.domain.target_submission import (
     GoldTierExecutionLedgerEntry,
@@ -51,6 +57,7 @@ from app.persistence.errors import (
     PersistenceConflictError,
     PersistenceDataInvalidError,
 )
+from app.persistence.models import DurableCaseSnapshot
 from app.persistence.mongo_case_store import MongoCaseStore
 from app.persistence.repositories import (
     MongoDocumentProcessingRepository,
@@ -221,6 +228,68 @@ def test_real_mongo_concurrent_field_review_has_one_durable_winner(
     finally:
         for store in stores:
             store.close()
+
+
+def test_real_mongo_restart_rejects_policy_unbound_intelligence(
+    isolated_mongo_settings: Settings,
+) -> None:
+    settings = isolated_mongo_settings
+    store = _open_store(settings)
+    onboarding = build_onboarding_service(
+        settings=settings,
+        policy_snapshot_provider=lambda: CasePolicySnapshot(
+            snapshot_label="TEST_INTELLIGENCE_POLICY_V1",
+            catalogue_version=1,
+            idp_review_confidence_threshold="0.85",
+            ubo_threshold_percent="25.000000",
+            intelligence=legacy_intelligence_policy_snapshot(),
+            bound_at=datetime(2026, 9, 23, tzinfo=UTC),
+        ),
+    )
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    record = OnboardingIntelligenceRecord(
+        case_id=case.case_id,
+        version=1,
+        input_fingerprint="sha256:" + "a" * 64,
+        policy_catalogue_version=case.policy_snapshot.catalogue_version,
+        mock_risk=MockRiskAssessment(
+            score=15,
+            band=MockRiskBand.LOW,
+            signal_assessments={
+                "entity_resolution": "0",
+                "document": "15",
+                "ownership": "NOT_ASSESSED",
+            },
+            reason_codes=("DOCUMENT_EXCEPTION_COUNT_AVAILABLE",),
+            not_assessed_signals=frozenset({"ownership"}),
+        ),
+        evaluated_at=now,
+    )
+    store.create(
+        DurableCaseSnapshot(
+            case_id=case.case_id,
+            revision=0,
+            onboarding=case,
+            intelligence=record,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    store._collection.update_one(  # noqa: SLF001 - deliberate physical corruption
+        {"_id": str(case.case_id)},
+        {"$set": {"intelligence.policy_catalogue_version": 999}},
+    )
+    store.close()
+
+    restarted = _open_store(settings, initialize=False)
+    try:
+        with pytest.raises(PersistenceDataInvalidError):
+            restarted.get(case.case_id)
+        with pytest.raises(PersistenceDataInvalidError):
+            restarted.initialize()
+    finally:
+        restarted.close()
 
 
 def test_real_mongo_restart_preserves_review_refresh_and_stops_target(
@@ -612,6 +681,13 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
             )
             assert done.status_code == 200, done.text
             assert done.json()["status"] == "COMPLETED"
+            first_intelligence = first.get(
+                f"/api/clm/zero-touch/cases/{completed_id}/intelligence"
+            )
+            assert first_intelligence.status_code == 200
+            assert first_intelligence.json()["model_bundle_version"] == (
+                "onboarding-intelligence-v1"
+            )
 
             pending = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
             waiting = first.post(
@@ -636,12 +712,16 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
             documents = second.get(f"/api/onboarding/cases/{completed_id}/documents")
             review = second.get("/api/clm/zero-touch/cases?status=WAITING_FOR_REVIEW")
             profile = second.get("/api/system/execution-profile")
+            restored_intelligence = second.get(
+                f"/api/clm/zero-touch/cases/{completed_id}/intelligence"
+            )
             assert (
                 listed.status_code
                 == detail.status_code
                 == resumed_completed.status_code
                 == documents.status_code
                 == review.status_code
+                == restored_intelligence.status_code
                 == 200
             )
             assert {item["status"] for item in listed.json()} == {
@@ -654,6 +734,7 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
             assert len(documents.json()) == 3
             assert len(review.json()) == 1
             assert profile.json()["persistence"] == "Mongo-backed durable POC"
+            assert restored_intelligence.json() == first_intelligence.json()
             assert counters == before_restart
     finally:
         try:

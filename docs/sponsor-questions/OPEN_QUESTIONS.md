@@ -46,6 +46,12 @@ Who may update it, what retention is required, and which workflow reactions are
 permitted or required? Please define any EDD or human-approval authority and whether
 risk may block readiness. The system must not invent a calculated risk score.
 
+The pre-Phase 22 feature candidate adds a separately and permanently labelled
+`MOCK_ADVISORY_RISK / NOT_COMPLIANCE_DECISION` projection using only available local POC
+evidence. Its thresholds and optional readiness-review flag are project-defined,
+case-bound, editable defaults; the flag defaults false. This does not answer who owns a
+supplied risk input, authorize EDD/approval, or resolve Q-017.
+
 ### Q-018 - Production Zero-Touch / GoldTier deployment and handoff boundary
 
 For production, should Zero-Touch remain an external service or operate inside or
@@ -279,6 +285,28 @@ confirmed operation schemas/rules, including corrections for:
 
 Please also confirm whether combined-bundle path-parameter names should be corrected to
 the standalone `{partyId}` forms for `retrieveParty` and `getPolicy`.
+
+### GoldTier XPI sandbox continuation — unresolved authority
+
+The separately supplied six-operation XPI guide/collection and bounded no-match Search
+observations establish a Partial sandbox dialect only. They do not close the existing
+GoldTier questions. Please additionally confirm:
+
+- the approved Singapore values and authority for `kycCustomerType`, `clientSegment`,
+  `customerExternalSystem`, `registrationType`, `policy`, `bookingEntity`,
+  `accountEntityType`, and `productType` (Q-006/Q-007/Q-009/Q-010);
+- strict non-empty Search, create, policy, amend, 400, and 500 response schemas,
+  including identifier type/casing and error bodies (Q-011);
+- whether and how an authoritative related-party `childId` is created or retrieved,
+  whether Amend RP's `goldTierId` is that child identity, and the approved relationship
+  vocabularies/semantics (Q-006/Q-009/Q-010);
+- the production PingFed/authentication and handoff contract. The collection's
+  backend-only `user_id` and `noauth` metadata are sandbox observations, not production
+  authority (Q-008/Q-018).
+
+Until those points are resolved, customer mutation remains blocked by `TBD_SPONSOR`
+target policy, related-party dispatch remains blocked, and Sandbox/Partial must not be
+presented as Live.
 
 ## D. PHASE 06 ZERO-TOUCH CONFIRMATIONS
 

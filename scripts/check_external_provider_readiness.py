@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 from pathlib import Path
@@ -19,6 +20,7 @@ ACTIVATION_STATE_VALUES = [
     "INTERNAL_POC_ONLY",
     "BLOCKED",
     "PARTIAL_SCAFFOLD_ONLY",
+    "SANDBOX_PARTIAL",
     "READY_FOR_AUTHORIZED_SANDBOX_PROOF",
     "SANDBOX_VERIFIED",
     "LIVE_VERIFIED",
@@ -60,6 +62,7 @@ EXPECTED = {
     "OWNERSHIP_LOCAL_ENGINE": ("LOCAL", "INTERNAL_POC_ONLY", "local", True),
     "OWNERSHIP_HIERARCHY_FUTURE": ("NOT_IMPLEMENTED", "BLOCKED", "not_implemented", False),
     "GOLDTIER_MOCK": ("MOCK", "INTERNAL_POC_ONLY", "mock", True),
+    "GOLDTIER_XPI": ("PARTIAL", "SANDBOX_PARTIAL", "sandbox", True),
     "GOLDTIER_REAL": ("NOT_IMPLEMENTED", "BLOCKED", "not_implemented", False),
     "PINGFED_AUTH": ("NOT_IMPLEMENTED", "BLOCKED", "not_implemented", False),
 }
@@ -69,6 +72,7 @@ REQUIRED_QUESTIONS = {
     "ACRA_BIZFILE": {"Q-012"},
     "VENDOR_IDP_FUTURE": {"Q-003", "Q-005", "Q-013", "Q-014"},
     "OWNERSHIP_HIERARCHY_FUTURE": {"Q-002", "Q-004", "Q-006", "Q-007"},
+    "GOLDTIER_XPI": {"Q-001", "Q-007", "Q-009", "Q-010", "Q-011", "Q-018"},
     "GOLDTIER_REAL": {"Q-001", "Q-007", "Q-008", "Q-009", "Q-010", "Q-011", "Q-018"},
     "PINGFED_AUTH": {"Q-008", "Q-018"},
 }
@@ -128,6 +132,36 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError("JSON root must be an object")
     return value
+
+
+def _literal_setting(text: str, name: str) -> tuple[set[str], object] | None:
+    tree = ast.parse(text)
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != "Settings":
+            continue
+        for item in node.body:
+            if (
+                not isinstance(item, ast.AnnAssign)
+                or not isinstance(item.target, ast.Name)
+                or item.target.id != name
+                or not isinstance(item.annotation, ast.Subscript)
+                or not isinstance(item.annotation.value, ast.Name)
+                or item.annotation.value.id != "Literal"
+            ):
+                continue
+            values = (
+                item.annotation.slice.elts
+                if isinstance(item.annotation.slice, ast.Tuple)
+                else [item.annotation.slice]
+            )
+            allowed = {
+                value.value
+                for value in values
+                if isinstance(value, ast.Constant) and isinstance(value.value, str)
+            }
+            default = item.value.value if isinstance(item.value, ast.Constant) else None
+            return allowed, default
+    return None
 
 
 def validate(root: Path) -> list[str]:
@@ -261,6 +295,10 @@ def validate(root: Path) -> list[str]:
             "INTERNAL_POC_ONLY": set(),
             "BLOCKED": set(),
             "PARTIAL_SCAFFOLD_ONLY": set(),
+            "SANDBOX_PARTIAL": {
+                "authorized_sandbox_access",
+                "sanitized_evidence_present",
+            },
             "READY_FOR_AUTHORIZED_SANDBOX_PROOF": {"secret_delivery_ready", "authorized_sandbox_access"},
             "SANDBOX_VERIFIED": {"secret_delivery_ready", "authorized_sandbox_access", "sanitized_evidence_present"},
             "LIVE_VERIFIED": PROOF_FIELDS,
@@ -273,7 +311,12 @@ def validate(root: Path) -> list[str]:
                     f"{provider_id}.{proof_field} must be {expected} for activation_state {state}"
                 )
 
-        if entry.get("runtime_activation_enabled") is True and state not in {"INTERNAL_POC_ONLY", "SANDBOX_VERIFIED", "LIVE_VERIFIED"}:
+        if entry.get("runtime_activation_enabled") is True and state not in {
+            "INTERNAL_POC_ONLY",
+            "SANDBOX_PARTIAL",
+            "SANDBOX_VERIFIED",
+            "LIVE_VERIFIED",
+        }:
             failures.append(f"{provider_id} runtime activation is true for a blocked/scaffold state")
         if (
             entry.get("runtime_activation_enabled") is True
@@ -287,8 +330,14 @@ def validate(root: Path) -> list[str]:
         ):
             failures.append(f"{provider_id} runtime activation bypasses a required gate")
 
-    if not re.search(r'goldtier_connector_mode:\s*Literal\["mock"\]\s*=\s*"mock"', config_text):
-        failures.append("Current GoldTier Settings no longer prove Mock-only configuration")
+    try:
+        goldtier_setting = _literal_setting(config_text, "goldtier_connector_mode")
+    except SyntaxError:
+        goldtier_setting = None
+    if goldtier_setting != ({"mock", "sandbox"}, "mock"):
+        failures.append(
+            "Current GoldTier Settings must expose only explicit mock/sandbox modes with Mock default"
+        )
     if entries.get("GOLDTIER_REAL", {}).get("runtime_activation_enabled") is True:
         failures.append("GOLDTIER_REAL cannot be runtime enabled while Q-008/D-018 is unresolved")
     if entries.get("PINGFED_AUTH", {}).get("current_classification") != "NOT_IMPLEMENTED":

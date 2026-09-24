@@ -329,9 +329,9 @@ export function CompletedOverview({
     <section className="state-composition completed-overview" aria-labelledby="completed-heading">
       <div className="state-composition__header">
         <div>
-          <p className="card-kicker">Completed Mock workflow</p>
+          <p className="card-kicker">Completed POC workflow</p>
           <h2 id="completed-heading">{summary.case.entity?.legal_name ?? summary.case.requested_uen} is onboarded</h2>
-          <p className="text-muted">Completed zero-touch Mock workflow on {formatTimestamp(completedAt)}. This is not production approval or Ready-for-Approval.</p>
+          <p className="text-muted">Completed zero-touch POC workflow on {formatTimestamp(completedAt)}. This is not production approval or Ready-for-Approval.</p>
         </div>
       </div>
       <div className="state-grid completed-grid">
@@ -350,8 +350,8 @@ export function CompletedOverview({
           </div>
         </div>
         <aside className="card">
-          <p className="card-kicker">Mock client record</p>
-          <div className="kv-row"><span className="kv-label">Mock GoldTier party ID</span><span className="kv-value">{targetId ?? "—"}</span></div>
+          <p className="card-kicker">POC client record</p>
+          <div className="kv-row"><span className="kv-label">GoldTier party ID</span><span className="kv-value">{targetId ?? "—"}</span></div>
           <div className="kv-row"><span className="kv-label">Risk rating</span><span className="kv-value">—</span></div>
           <div className="kv-row"><span className="kv-label">Next review</span><span className="kv-value">—</span></div>
           <div className="kv-row"><span className="kv-label">Human touches</span><span className="kv-value">{summary.metrics.human_interventions}</span></div>

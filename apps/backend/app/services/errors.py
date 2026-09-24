@@ -19,3 +19,13 @@ class OnboardingInfrastructureError(RuntimeError):
         self.correlation_id = correlation_id
         self.code = code
         self.public_message = public_message
+
+
+class TargetProviderContextMismatchError(RuntimeError):
+    """Fail closed when an immutable submission meets incompatible target wiring."""
+
+    code = "GT_PROVIDER_CONTEXT_MISMATCH"
+    public_message = "Target provider context changed; submission cannot continue safely."
+
+    def __init__(self) -> None:
+        super().__init__(self.public_message)

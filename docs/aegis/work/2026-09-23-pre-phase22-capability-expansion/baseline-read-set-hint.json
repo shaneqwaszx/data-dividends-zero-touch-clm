@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "candidateDocs": [
+    "origin/main@3ca232b58c3842f413c4552dbd3b85aabea4591c"
+  ],
+  "whyRelevant": "Exact synchronized integration baseline required by the project constitution.",
+  "missingAuthority": [
+    "GoldTier XPI guideline PDF and Postman collection are absent; no current assignment capability or eligible-role decision exists."
+  ]
+}

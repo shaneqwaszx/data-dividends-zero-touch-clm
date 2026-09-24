@@ -8,9 +8,9 @@ It is not a sponsor contract, phase report, or substitute for current source and
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 4,
-  "verified_date": "2026-09-22",
-  "verified_main_sha": "ef338c9b7926a298e8987acb975fd93c96ed2bfb",
+  "case_envelope_schema_version": 5,
+  "verified_date": "2026-09-24",
+  "verified_main_sha": "3ca232b58c3842f413c4552dbd3b85aabea4591c",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -19,7 +19,8 @@ It is not a sponsor contract, phase report, or substitute for current source and
     "idp": {"name": "LOCAL_PDF_TEXT", "mode": "local_pdf_text", "classification": "LOCAL"},
     "idp_fault": {"name": "MOCK_IDP", "mode": "mock", "classification": "MOCK"},
     "ownership": {"name": "DECIMAL_GRAPH_ENGINE", "mode": "local", "classification": "LOCAL"},
-    "target": {"name": "GOLDTIER", "mode": "mock", "classification": "MOCK"}
+    "target": {"name": "GOLDTIER", "mode": "mock", "classification": "MOCK"},
+    "target_sandbox": {"name": "GOLDTIER_XPI", "mode": "sandbox", "classification": "PARTIAL"}
   },
   "persistence": {"default": "memory", "supported": ["memory", "mongo"]},
   "identity": {
@@ -93,6 +94,22 @@ Major implemented phases are:
   factual only. The deterministic injected clock propagates through the canonical
   `ZeroTouchOrchestrator` clock seam, while true chronology violations still fail
   closed. No timing-policy, SLA, escalation, approval, or risk behavior was added.
+- The pre-Phase 22 feature candidate adds a case-bound advisory-intelligence owner,
+  schema-v5 persistence, typed entity/risk review stops, two synthetic SME scenarios,
+  safe intelligence UI, a versioned synthetic evaluation, and bounded authorized CSV
+  activity export. It activates no external provider and adds no assignment/SLA owner.
+- The same pre-Phase 22 candidate adds an explicit GoldTier XPI sandbox lane behind the
+  existing connector/mapper/ledger owners. Mock remains the default. XPI is
+  `SANDBOX_PARTIAL`, uses a backend-only `user_id` header and TLS-1.3-only bounded
+  transport, exposes a safe case request preview, and blocks writes until all eight
+  target values have explicit non-TBD authority. No synthetic customer write was used
+  as acceptance evidence because that authority prerequisite remains unsatisfied;
+  related-party dispatch remains blocked on child-ID lifecycle evidence.
+- The candidate freezes GoldTier provider identity in the retained CLM submission plan.
+  Submission input derives from that plan; the mapper and connector are checked only
+  for compatibility before ledger/network activity. Mock/Sandbox drift fails closed,
+  and schema-v5 rejects contradictory plan/input/matching-ledger combinations without
+  introducing schema v6. Plan-only and historical schema reads remain supported.
 
 Phase 20 Sponsor Policy Authority Gate is accepted on main at
 `5039c7e548dfae1eeb8ad600f128ef374e3a6f2a`. D-009 confirms only that human exception
@@ -104,9 +121,9 @@ accepted on main at `ef338c9b7926a298e8987acb975fd93c96ed2bfb`. It adds strict p
 readiness and sanitized-evidence governance, CI/tooling checks, an activation packet,
 and a secret-security runbook. It activates no provider and changes no connector,
 composition, API, persistence, frontend, target-ledger, RBAC, mapping, auth, or runtime
-business-policy behavior. Generic ACRA remains Partial, BizFile remains Dormant, real
-GoldTier and PingFed remain Not Implemented, and the accepted credential-free evidence
-profiles remain limited to the current Mock/Local providers.
+business-policy behavior. Generic ACRA remains Partial, BizFile remains Dormant, and
+PingFed/production GoldTier remain Not Implemented. The later candidate XPI adapter is a
+separate sponsor sandbox lane only; it does not alter Phase 21's Live-readiness result.
 
 The Case Evidence & Explainability Workbench accepted through PR #43 adds a read-only
 presentation of the minimized nullable Mock-only registry-binding projection,
@@ -139,8 +156,10 @@ authenticated browser/API request
   -> bounded document intake and local deterministic extraction
   -> source-neutral reconciliation and review/resume where required
   -> registry-fed deterministic Decimal ownership graph analysis
+  -> versioned advisory entity resolution, UBO assistance, and mock risk
   -> readiness and immutable target snapshot
-  -> ordered Mock GoldTier search/shell/policy/amend with retained recovery ledger
+  -> ordered GoldTier Mock-default or explicit XPI-sandbox search/shell/policy/amend
+     with the same retained no-replay recovery ledger
   -> authorized bounded case portfolio/dashboard/activity and detailed evidence views
 ```
 
@@ -158,7 +177,8 @@ boundaries.
 | ACRA BizFile | none | module exists but is not composed | Dormant | Focused adapter code/tests only, not runtime availability |
 | IDP/OCR | `local_pdf_text` | Mock fault/demo provider | Local POC / Mock | Deterministic extraction from supported synthetic documents |
 | Ownership | registry evidence into local engine | Mock fault/demo provider | Local / Mock support | Deterministic Decimal graph analysis, not an external service |
-| GoldTier | `mock` only | none | Mock | Ordered synthetic target behavior and recovery semantics |
+| GoldTier | `mock` default | XPI `sandbox` mode | Mock active; sandbox partial | Ordered target behavior through one retained recovery ledger |
+| GoldTier XPI sandbox | none | explicit `sandbox` mode | Partial | Supplied-route search/Customer mutation adapter, strict safe projection, target-policy blocking, and no-replay semantics; not Live |
 | PingFed | none | future placeholders only | Not implemented | No token retrieval or authenticated target connection |
 | MongoDB | memory by default | explicit `mongo` mode | Optional local infrastructure | Single-instance durable POC behavior when configured |
 | Camunda | none | none | Not implemented | No runtime workflow-engine integration |
@@ -181,7 +201,8 @@ The provider matrix above is Observed. Thresholds, role behavior, policy default
 reconciliation actions, and deletion governance are mostly project-defined/provisional.
 GoldTier amend path, first-level related-party limit, lack of hierarchy creation,
 PingFed target, TLS 1.3 requirement, ACRA proof labeling, and UTC sourcing guidance have
-recorded sponsor confirmation. Live ACRA/GoldTier binding and production policy remain
+recorded sponsor confirmation. The XPI `user_id` sandbox header is artefact-observed,
+not PingFed or production authentication. Live ACRA/GoldTier binding and production policy remain
 unknown or blocked.
 
 ## Persistence modes
@@ -190,8 +211,9 @@ unknown or blocked.
   clears them.
 - `mongo` is explicit. Missing/invalid configuration, startup validation, reads, or
   writes fail closed and never fall back to memory.
-- One schema-versioned case envelope (current schema v4) owns durable case state. Strict
-  v1/v2/v3 reads represent absent cache binding as unrecorded metadata and do not rewrite.
+- One schema-versioned case envelope (current schema v5) owns durable case state. Strict
+  v1/v2/v3/v4 reads preserve absent historical fields, including v4
+  `intelligence = null`, and do not rewrite or reinterpret legacy cases.
   Repository adapters preserve revision compare-and-set, insert-only creation,
   update-only mutation, strict identity binding, and replay-aware recovery.
 - The optional Mock registry cache has a separate schema-v1 repository/collection and
@@ -235,10 +257,13 @@ unknown or blocked.
 - Deterministic local extraction and field provenance.
 - Source-neutral reconciliation with explicit bounded actions and resume.
 - Deterministic Decimal direct/indirect ownership paths and provisional UBO candidates.
-- Immutable per-case IDP/UBO policy snapshot.
+- Immutable per-case IDP/UBO and advisory-intelligence policy snapshot.
+- Explainable source-neutral entity resolution, ML-assisted UBO advice, and bounded mock
+  advisory risk, all with permanent non-authority labels and synthetic model cards.
 - Ordered Mock target execution with no-replay recovery states.
 - Memory/Mongo repository parity, case deletion, portfolio projection, dashboard, team
-  filtering, priority, retained-event activity, and session-scoped query caching.
+  filtering, priority, retained-event activity, bounded authorized CSV activity export,
+  advisory projection persistence, and session-scoped query caching.
 - Backend-authored factual case timing is accepted on main: one
   UTC observation per response, deterministic non-negative durations, fail-closed
   chronology, neutral UI labels, and no browser-clock authority or SLA inference.
@@ -254,7 +279,7 @@ unknown or blocked.
 - No `createRelationship` or multi-level hierarchy creation through GoldTier.
 - No sponsor-approved final UBO, document, source-authority, RBAC, retention, deletion,
   review, or Ready-for-Approval policy.
-- No autonomous approval, risk/compliance engine, legal UBO determination, production
+- No autonomous approval, production risk/compliance engine, legal UBO determination, production
   audit repository, distributed workflow, or multi-instance exactly-once guarantee.
 - No full analytics/MIS platform or full Exception Workbench.
 
@@ -264,12 +289,15 @@ unknown or blocked.
 onboarding package: a registration identifier and supporting corporate documents. The
 POC processes that supplied package; it does not claim upstream document solicitation
 or collection. ACRA is Mock by default, its generic sandbox-shaped seam is partial,
-BizFile is dormant, IDP is local deterministic, and GoldTier is Mock only. No Live
-ACRA, Live GoldTier, or Live PingFed connection is proved.
+BizFile is dormant, IDP is local deterministic, GoldTier is Mock by default, and the
+optional XPI lane is Partial sandbox only. No Live ACRA, Live GoldTier, or Live PingFed
+connection is proved.
 
 **Project/sponsor direction and provisional UAT presentation:** LOW/MEDIUM/HIGH as a
-supplied-risk direction remains unimplemented; the POC has no risk field, risk engine,
-score, or calculated risk. Separately, current manual UAT presents ordering-only case
+supplied-risk direction remains unimplemented. A separate local `MOCK_ADVISORY_RISK`
+projection now scores only available POC evidence and is permanently labelled
+`NOT_COMPLIANCE_DECISION`; missing signals remain `NOT_ASSESSED`, and readiness blocking
+defaults false. This does not answer Q-017. Separately, current manual UAT presents ordering-only case
 priority as Low/Medium/High/Unset. The nullable 1–10 API/Mongo field remains compatible:
 canonical writes are 1/5/10 and legacy reads map 1–3/4–7/8–10 to the three tiers. This
 project-defined presentation has no risk, SLA, routing, escalation, approval, or
@@ -339,7 +367,8 @@ production-host history fallback remains unverified and outside Phase 15C scope.
 - Q-016 blocks production identity, role, assignment, prioritization, and admin policy.
 - Q-017 blocks supplied LOW/MEDIUM/HIGH risk input authority: its producer/source,
   validation/provenance, update authority, workflow reactions, EDD/approval, and
-  readiness-blocking semantics remain unresolved; no calculated risk score is authorized.
+  readiness-blocking semantics remain unresolved. The local mock advisory score is a
+  project-defined demonstration and not the supplied risk input requested by Q-017.
 - Q-018 blocks the production Zero-Touch / GoldTier deployment and handoff boundary.
   The current external Zero-Touch -> Mock GoldTier sequence is POC architecture; its
   production placement (external versus inside/alongside GoldTier), handoff point,

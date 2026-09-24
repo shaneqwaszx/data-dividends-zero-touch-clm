@@ -17,6 +17,14 @@ from app.connectors.acra_sandbox import (
     StaticHeaderAcraRequestAuthorizer,
 )
 from app.connectors.errors import AcraConfigurationError
+from app.connectors.goldtier import GoldTierConnector, GoldTierRequestMapper
+from app.connectors.goldtier_xpi import (
+    GoldTierXpiConfigurationError,
+    GoldTierXpiHttpTransport,
+    GoldTierXpiSandboxConnection,
+    GoldTierXpiSandboxConnector,
+    HttpxGoldTierXpiTransport,
+)
 from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.connectors.mock_acra import MOCK_ACRA_DATASET_NAMESPACE, MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
@@ -37,7 +45,10 @@ from app.domain.models import (
     SourceEnvironment,
     SourceSystem,
 )
+from app.domain.onboarding_intelligence import OnboardingIntelligenceRecord
 from app.domain.policy import CasePolicySnapshot
+from app.mappers.goldtier import MockGoldTierRequestMapper
+from app.mappers.goldtier_xpi import GoldTierXpiRequestMapper
 from app.services.admin_repository import ProfileRepository, TeamRepository
 from app.services.authentication import AuthenticationService
 from app.services.clm_orchestration import ClmOrchestrationService
@@ -50,7 +61,8 @@ from app.services.document_repository import (
     DocumentProcessingRepository,
     InMemoryDocumentProcessingRepository,
 )
-from app.services.onboarding import OnboardingService
+from app.services.onboarding import EntityResolver, OnboardingService
+from app.services.onboarding_intelligence import OnboardingIntelligenceService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_repository import (
     InMemoryOwnershipAnalysisRepository,
@@ -92,8 +104,9 @@ def build_onboarding_service(
     target_execution_repository: TargetExecutionRepository | None = None,
     policy_snapshot_provider: Callable[[], CasePolicySnapshot] | None = None,
     registry_snapshot_repository: RegistrySnapshotRepository | None = None,
+    goldtier_transport: GoldTierXpiHttpTransport | None = None,
 ) -> OnboardingService:
-    """Compose configured ACRA and credential-free Mock GoldTier connectors."""
+    """Compose the explicitly configured GoldTier dialect with no runtime fallback."""
 
     catalogue = scenario_catalogue or Phase01MockScenarioCatalogue()
     active_settings = settings or get_settings()
@@ -107,9 +120,7 @@ def build_onboarding_service(
         RegistryProviderIdentity(
             provider=SourceSystem.ACRA,
             environment=SourceEnvironment.MOCK,
-            acquisition_contract_version=(
-                AcraRegistryProviderAdapter.ACQUISITION_CONTRACT_VERSION
-            ),
+            acquisition_contract_version=(AcraRegistryProviderAdapter.ACQUISITION_CONTRACT_VERSION),
             dataset_namespace=MOCK_ACRA_DATASET_NAMESPACE,
         )
         if active_settings.registry_cache_mode == "mock"
@@ -124,26 +135,48 @@ def build_onboarding_service(
         freshness_seconds = active_settings.registry_cache_freshness_seconds
         if freshness_seconds is None:
             raise ValueError("enabled registry cache requires an explicit freshness value")
-        if (
-            active_settings.clm_persistence_mode == "mongo"
-            and registry_snapshot_repository is None
-        ):
+        if active_settings.clm_persistence_mode == "mongo" and registry_snapshot_repository is None:
             raise ValueError("enabled Mongo registry cache requires its repository")
         registry_coordinator = RegistryAcquisitionCoordinator(
             registry_snapshot_repository or InMemoryRegistrySnapshotRepository(),
-            RegistryFreshnessPolicy.model_validate(
-                {"duration_seconds": freshness_seconds}
-            ),
+            RegistryFreshnessPolicy.model_validate({"duration_seconds": freshness_seconds}),
         )
+    goldtier: GoldTierConnector
+    goldtier_mapper: GoldTierRequestMapper
+    entity_resolver: EntityResolver | None
+    if active_settings.goldtier_connector_mode == "sandbox":
+        user_id = active_settings.goldtier_sandbox_user_id
+        if user_id is None:
+            raise GoldTierXpiConfigurationError
+        goldtier = GoldTierXpiSandboxConnector(
+            connection=GoldTierXpiSandboxConnection(
+                base_url=active_settings.goldtier_sandbox_base_url,
+                environment=active_settings.goldtier_sandbox_environment,
+                user_id=user_id,
+                timeout_seconds=active_settings.goldtier_sandbox_timeout_seconds,
+                max_response_bytes=active_settings.goldtier_sandbox_max_response_bytes,
+                allow_writes=active_settings.goldtier_sandbox_allow_writes,
+            ),
+            transport=goldtier_transport or HttpxGoldTierXpiTransport(),
+        )
+        goldtier_mapper = GoldTierXpiRequestMapper()
+        entity_resolver = OnboardingIntelligenceService()
+    else:
+        goldtier = MockGoldTierConnector(
+            policy_validation_failure_keys=catalogue.policy_validation_failure_uens(),
+            partial_amend_external_keys=catalogue.partial_amend_uens(),
+            match_found_external_keys=frozenset({"202400005E"}),
+        )
+        goldtier_mapper = MockGoldTierRequestMapper()
+        entity_resolver = None
+
     return OnboardingService(
         acra=None,
         registry_router=RegistryProviderRouter(registry_provider),
         registry_acquisition_coordinator=registry_coordinator,
-        goldtier=MockGoldTierConnector(
-            policy_validation_failure_keys=catalogue.policy_validation_failure_uens(),
-            partial_amend_external_keys=catalogue.partial_amend_uens(),
-            match_found_external_keys=frozenset({"202400005E"}),
-        ),
+        goldtier=goldtier,
+        goldtier_mapper=goldtier_mapper,
+        entity_resolver=entity_resolver,
         repository=repository or InMemoryOnboardingCaseRepository(),
         target_finalization_fault=target_finalization_fault,
         target_execution_repository=target_execution_repository,
@@ -296,6 +329,8 @@ def build_zero_touch_orchestrator(
     establishment_discard: Callable[[UUID], str | None] | None = None,
     durable_provider_bindings: bool = False,
     clock: Callable[[], datetime] | None = None,
+    intelligence_evaluator: Callable[[UUID], OnboardingIntelligenceRecord | None]
+    | None = None,
 ) -> ZeroTouchOrchestrator:
     """Compose the provider-neutral Phase 06 automation owner."""
 
@@ -318,6 +353,7 @@ def build_zero_touch_orchestrator(
         establishment_discard=establishment_discard,
         max_transitions_per_run=settings.zero_touch_max_transitions_per_run,
         clock=clock,
+        intelligence_evaluator=intelligence_evaluator,
     )
 
 

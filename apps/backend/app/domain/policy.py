@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -16,6 +17,37 @@ MAX_POLICY_RULES = 64
 MAX_POLICY_AUDIT_EVENTS = 256
 IDP_POLICY_ID = "DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD"
 UBO_POLICY_ID = "OWNERSHIP_UBO_THRESHOLD_PERCENT"
+ENTITY_RESOLUTION_AUTO_MATCH_THRESHOLD_ID = "ENTITY_RESOLUTION_AUTO_MATCH_THRESHOLD"
+ENTITY_RESOLUTION_REVIEW_THRESHOLD_ID = "ENTITY_RESOLUTION_REVIEW_THRESHOLD"
+ENTITY_RESOLUTION_AMBIGUITY_MARGIN_ID = "ENTITY_RESOLUTION_AMBIGUITY_MARGIN"
+ENTITY_RESOLUTION_IDENTIFIER_WEIGHT_ID = "ENTITY_RESOLUTION_IDENTIFIER_WEIGHT"
+ENTITY_RESOLUTION_NAME_WEIGHT_ID = "ENTITY_RESOLUTION_NAME_WEIGHT"
+ENTITY_RESOLUTION_ADDRESS_WEIGHT_ID = "ENTITY_RESOLUTION_ADDRESS_WEIGHT"
+ENTITY_RESOLUTION_LEGAL_FORM_WEIGHT_ID = "ENTITY_RESOLUTION_LEGAL_FORM_WEIGHT"
+ENTITY_RESOLUTION_INCORPORATION_DATE_WEIGHT_ID = "ENTITY_RESOLUTION_INCORPORATION_DATE_WEIGHT"
+UBO_ADVISORY_LIKELY_THRESHOLD_ID = "UBO_ADVISORY_LIKELY_THRESHOLD"
+UBO_ADVISORY_UNLIKELY_THRESHOLD_ID = "UBO_ADVISORY_UNLIKELY_THRESHOLD"
+MOCK_RISK_MEDIUM_THRESHOLD_ID = "MOCK_RISK_MEDIUM_THRESHOLD"
+MOCK_RISK_HIGH_THRESHOLD_ID = "MOCK_RISK_HIGH_THRESHOLD"
+MOCK_RISK_BLOCKS_READINESS_ID = "MOCK_RISK_BLOCKS_READINESS"
+GOLDTIER_KYC_CUSTOMER_TYPE_ID = "GOLDTIER_KYC_CUSTOMER_TYPE"
+GOLDTIER_CLIENT_SEGMENT_ID = "GOLDTIER_CLIENT_SEGMENT"
+GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_ID = "GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM"
+GOLDTIER_REGISTRATION_TYPE_ID = "GOLDTIER_REGISTRATION_TYPE"
+GOLDTIER_POLICY_ID = "GOLDTIER_POLICY"
+GOLDTIER_BOOKING_ENTITY_ID = "GOLDTIER_BOOKING_ENTITY"
+GOLDTIER_ACCOUNT_ENTITY_TYPE_ID = "GOLDTIER_ACCOUNT_ENTITY_TYPE"
+GOLDTIER_PRODUCT_TYPE_ID = "GOLDTIER_PRODUCT_TYPE"
+GOLDTIER_TARGET_POLICY_IDS = (
+    GOLDTIER_KYC_CUSTOMER_TYPE_ID,
+    GOLDTIER_CLIENT_SEGMENT_ID,
+    GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_ID,
+    GOLDTIER_REGISTRATION_TYPE_ID,
+    GOLDTIER_POLICY_ID,
+    GOLDTIER_BOOKING_ENTITY_ID,
+    GOLDTIER_ACCOUNT_ENTITY_TYPE_ID,
+    GOLDTIER_PRODUCT_TYPE_ID,
+)
 SHOWCASE_PLAIN_TEXT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _./:+%-]{0,127}$")
 SHOWCASE_EXPRESSION_PREFIX_PATTERN = re.compile(
     r"^(?:__import__|eval|exec|lambda|javascript|script)\b", re.IGNORECASE
@@ -41,6 +73,14 @@ class PolicyClassification(StrEnum):
     PENDING_SPONSOR_CONFIRMATION = "PENDING_SPONSOR_CONFIRMATION"
     SYSTEM_DERIVED = "SYSTEM_DERIVED"
     DISPLAY_ONLY_NOT_RUNTIME_ENFORCED = "DISPLAY_ONLY_NOT_RUNTIME_ENFORCED"
+
+
+class PolicyAuthority(StrEnum):
+    SPONSOR_SUPPLIED = "SPONSOR_SUPPLIED"
+    SANDBOX_OBSERVED = "SANDBOX_OBSERVED"
+    PROJECT_DEFINED_PROVISIONAL = "PROJECT_DEFINED_PROVISIONAL"
+    INDUSTRY_PRACTICE = "INDUSTRY_PRACTICE"
+    TBD_SPONSOR = "TBD_SPONSOR"
 
 
 class BooleanPolicyValue(BaseModel):
@@ -69,10 +109,34 @@ class DecimalPolicyValue(BaseModel):
         return value
 
 
+def normalize_safe_policy_text(value: str) -> str:
+    """Normalize bounded policy text and reject characters unsafe for target dispatch."""
+
+    normalized = value.strip()
+    if not normalized or any(
+        unicodedata.category(character) in {"Cc", "Cf", "Cs"}
+        for character in normalized
+    ):
+        raise ValueError("policy text must be non-blank control-free text")
+    return normalized
+
+
+def is_usable_policy_text(value: str) -> bool:
+    try:
+        return normalize_safe_policy_text(value) == value
+    except ValueError:
+        return False
+
+
 class StringPolicyValue(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     type: Literal[PolicyValueType.STRING] = PolicyValueType.STRING
     value: Annotated[str, Field(min_length=1, max_length=160)]
+
+    @field_validator("value")
+    @classmethod
+    def safe_text(cls, value: str) -> str:
+        return normalize_safe_policy_text(value)
 
 
 class StringListPolicyValue(BaseModel):
@@ -102,6 +166,7 @@ class PolicyAuditEvent(BaseModel):
         "POLICY_UPDATED",
         "POLICY_RESET_DEFAULT",
         "POLICY_CATALOGUE_RESET",
+        "POLICY_CATALOGUE_MIGRATED",
     ]
     actor_user_id: Annotated[str, Field(min_length=3, max_length=32)]
     target_id: Annotated[str, Field(min_length=3, max_length=64)]
@@ -139,6 +204,8 @@ class PolicyRule(BaseModel):
     maximum: str | int | None = None
     allowed_values: Annotated[tuple[str, ...], Field(max_length=32)] = ()
     classifications: Annotated[tuple[PolicyClassification, ...], Field(min_length=1, max_length=4)]
+    authority: PolicyAuthority | None = None
+    default_authority: PolicyAuthority | None = None
     enforcement: PolicyEnforcement
     version: Annotated[int, Field(ge=1)]
     created_at: datetime
@@ -151,6 +218,8 @@ class PolicyRule(BaseModel):
             raise ValueError("policy value type metadata does not match value")
         if self.updated_at < self.created_at:
             raise ValueError("policy update time precedes creation")
+        if (self.authority is None) != (self.default_authority is None):
+            raise ValueError("policy authority and default authority must be paired")
         validate_policy_value(self, self.value)
         validate_policy_value(self, self.default_value)
         return self
@@ -193,6 +262,135 @@ class PolicyCatalogue(BaseModel):
         return next((rule for rule in self.rules if rule.policy_id == policy_id), None)
 
 
+class EntityResolutionWeights(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    identifier: Annotated[Decimal, Field(ge=Decimal("0"), le=Decimal("1"))]
+    name: Annotated[Decimal, Field(ge=Decimal("0"), le=Decimal("1"))]
+    address: Annotated[Decimal, Field(ge=Decimal("0"), le=Decimal("1"))]
+    legal_form: Annotated[Decimal, Field(ge=Decimal("0"), le=Decimal("1"))]
+    incorporation_date: Annotated[Decimal, Field(ge=Decimal("0"), le=Decimal("1"))]
+
+    @model_validator(mode="after")
+    def weights_sum_to_one(self) -> EntityResolutionWeights:
+        if (
+            self.identifier + self.name + self.address + self.legal_form + self.incorporation_date
+            != Decimal("1")
+        ):
+            raise ValueError("entity-resolution weights must sum to one")
+        return self
+
+
+class IntelligencePolicySnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entity_resolution_auto_match_threshold: Annotated[
+        Decimal, Field(ge=Decimal("0"), le=Decimal("1"))
+    ]
+    entity_resolution_review_threshold: Annotated[Decimal, Field(ge=Decimal("0"), le=Decimal("1"))]
+    entity_resolution_ambiguity_margin: Annotated[Decimal, Field(ge=Decimal("0"), le=Decimal("1"))]
+    entity_resolution_weights: EntityResolutionWeights
+    ubo_advisory_likely_threshold: Annotated[Decimal, Field(ge=Decimal("0"), le=Decimal("1"))]
+    ubo_advisory_unlikely_threshold: Annotated[Decimal, Field(ge=Decimal("0"), le=Decimal("1"))]
+    mock_risk_medium_threshold: Annotated[int, Field(ge=0, le=100)]
+    mock_risk_high_threshold: Annotated[int, Field(ge=0, le=100)]
+    mock_risk_blocks_readiness: bool = False
+    entity_resolution_model_version: Literal["entity-resolution-linear-v1"] = (
+        "entity-resolution-linear-v1"
+    )
+    ubo_advisory_model_version: Literal["ubo-advisory-linear-v1"] = "ubo-advisory-linear-v1"
+    mock_risk_model_version: Literal["mock-advisory-risk-rules-v1"] = "mock-advisory-risk-rules-v1"
+
+    @model_validator(mode="after")
+    def validate_threshold_order(self) -> IntelligencePolicySnapshot:
+        if self.entity_resolution_review_threshold > self.entity_resolution_auto_match_threshold:
+            raise ValueError("entity-resolution review threshold exceeds probable threshold")
+        if self.ubo_advisory_unlikely_threshold >= self.ubo_advisory_likely_threshold:
+            raise ValueError("UBO advisory thresholds overlap")
+        if self.mock_risk_medium_threshold >= self.mock_risk_high_threshold:
+            raise ValueError("mock risk thresholds overlap")
+        return self
+
+
+def legacy_intelligence_policy_snapshot() -> IntelligencePolicySnapshot:
+    return IntelligencePolicySnapshot(
+        entity_resolution_auto_match_threshold=Decimal("0.85"),
+        entity_resolution_review_threshold=Decimal("0.60"),
+        entity_resolution_ambiguity_margin=Decimal("0.03"),
+        entity_resolution_weights=EntityResolutionWeights(
+            identifier=Decimal("0.55"),
+            name=Decimal("0.25"),
+            address=Decimal("0.10"),
+            legal_form=Decimal("0.05"),
+            incorporation_date=Decimal("0.05"),
+        ),
+        ubo_advisory_likely_threshold=Decimal("0.65"),
+        ubo_advisory_unlikely_threshold=Decimal("0.35"),
+        mock_risk_medium_threshold=30,
+        mock_risk_high_threshold=60,
+    )
+
+
+class AuthorityLabelledTargetValue(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    value: Annotated[str, Field(min_length=1, max_length=160)]
+    authority: PolicyAuthority
+
+    @field_validator("value")
+    @classmethod
+    def safe_text(cls, value: str) -> str:
+        return normalize_safe_policy_text(value)
+
+
+class GoldTierTargetPolicySnapshot(BaseModel):
+    """Case-bound institution-specific values; never canonical entity fields."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kyc_customer_type: AuthorityLabelledTargetValue
+    client_segment: AuthorityLabelledTargetValue
+    customer_external_system: AuthorityLabelledTargetValue
+    registration_type: AuthorityLabelledTargetValue
+    policy: AuthorityLabelledTargetValue
+    booking_entity: AuthorityLabelledTargetValue
+    account_entity_type: AuthorityLabelledTargetValue
+    product_type: AuthorityLabelledTargetValue
+
+    @property
+    def dispatch_ready(self) -> bool:
+        return not self.missing_fields and not self.invalid_fields
+
+    @property
+    def values(self) -> dict[str, AuthorityLabelledTargetValue]:
+        return {
+            "kycCustomerType": self.kyc_customer_type,
+            "clientSegment": self.client_segment,
+            "customerExternalSystem": self.customer_external_system,
+            "registrationType": self.registration_type,
+            "policy": self.policy,
+            "bookingEntity": self.booking_entity,
+            "accountEntityType": self.account_entity_type,
+            "productType": self.product_type,
+        }
+
+    @property
+    def missing_fields(self) -> tuple[str, ...]:
+        return tuple(
+            name
+            for name, item in self.values.items()
+            if item.authority == PolicyAuthority.TBD_SPONSOR or item.value == "TBD_SPONSOR"
+        )
+
+    @property
+    def invalid_fields(self) -> tuple[str, ...]:
+        return tuple(
+            name
+            for name, item in self.values.items()
+            if name not in self.missing_fields and not is_usable_policy_text(item.value)
+        )
+
+
 class CasePolicySnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -205,6 +403,8 @@ class CasePolicySnapshot(BaseModel):
         Decimal, Field(ge=Decimal("0"), le=Decimal("100"), decimal_places=6)
     ]
     comparator: Literal["GREATER_THAN_OR_EQUAL_TO"] = "GREATER_THAN_OR_EQUAL_TO"
+    intelligence: IntelligencePolicySnapshot | None = None
+    goldtier_target: GoldTierTargetPolicySnapshot | None = None
     bound_at: datetime
 
 

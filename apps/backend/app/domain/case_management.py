@@ -68,6 +68,7 @@ class CaseActivityAction(StrEnum):
     DOCUMENT = "DOCUMENT"
     RECONCILIATION = "RECONCILIATION"
     OWNERSHIP = "OWNERSHIP"
+    INTELLIGENCE = "INTELLIGENCE"
     TARGET = "TARGET"
     COMPLETED = "COMPLETED"
 
@@ -434,6 +435,8 @@ def activity_matches_action(
         return "RECONCILIATION" in event_type
     if action == CaseActivityAction.OWNERSHIP:
         return record.stage == AutomationStage.OWNERSHIP
+    if action == CaseActivityAction.INTELLIGENCE:
+        return record.event_type == AutomationEventType.INTELLIGENCE_EVALUATED
     if action == CaseActivityAction.TARGET:
         return (
             record.stage == AutomationStage.MOCK_GOLDTIER

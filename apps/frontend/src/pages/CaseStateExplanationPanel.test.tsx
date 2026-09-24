@@ -35,7 +35,7 @@ describe("CaseStateExplanationPanel", () => {
 
   it("preserves supplied target operation order and does not reinterpret absence", () => {
     const { view } = render(summary()); const operations = [...view.querySelectorAll('[aria-label="Target operations"] li')].map((item) => item.textContent);
-    expect(operations).toEqual(["SEARCH: NO_MATCH", "SHELL: CREATED", "POLICY: NOT_ATTEMPTED"]); expect(view.textContent).toContain("Mock target success is not customer, compliance, legal, or Ready-for-Approval approval");
+    expect(operations).toEqual(["SEARCH: NO_MATCH", "SHELL: CREATED", "POLICY: NOT_ATTEMPTED"]); expect(view.textContent).toContain("Target success is not customer, compliance, legal, or Ready-for-Approval approval");
     act(() => root?.render(<CaseStateExplanationPanel summary={{ ...summary(), target_operations: [] }} onNavigate={() => undefined} />));
     expect(view.textContent).toContain("Their absence does not mean success, skipped, or retryable");
   });

@@ -16,7 +16,19 @@ from app.connectors.goldtier_models import (
     SourceContext,
 )
 from app.domain.models import CanonicalLegalEntity
-from app.domain.target_submission import SubmissionCanonicalEntity
+from app.domain.target_preparation import (
+    GoldTierOperationPreview,
+    GoldTierPreviewField,
+    GoldTierRequestPreview,
+    TargetFieldAuthority,
+    TargetFieldValidation,
+    TargetValueProvenance,
+)
+from app.domain.target_submission import (
+    GoldTierProviderMode,
+    GoldTierSubmissionInput,
+    SubmissionCanonicalEntity,
+)
 from app.mappers.errors import MappingError
 
 MOCK_POLICY = "SINGAPORE_NTB_MOCK"
@@ -107,3 +119,81 @@ def build_amend_request(
         ),
         source_context=build_source_context(source_case_id, accepted_at),
     )
+
+
+def _mock_preview_field(name: str, value: str) -> GoldTierPreviewField:
+    return GoldTierPreviewField(
+        target_field=name,
+        value=value,
+        provenance=TargetValueProvenance.REGISTRY,
+        authority=TargetFieldAuthority.PROJECT_DEFINED_PROVISIONAL,
+        required=True,
+        missing=False,
+        validation=TargetFieldValidation.VALID,
+    )
+
+
+class MockGoldTierRequestMapper:
+    """Retain the accepted mock DTO mapping behind the shared mapper seam."""
+
+    environment = GoldTierProviderMode.MOCK
+
+    def build_search_request(self, submission: GoldTierSubmissionInput) -> SearchPartyRequest:
+        return build_search_request(submission.canonical_entity)
+
+    def build_shell_request(
+        self, submission: GoldTierSubmissionInput
+    ) -> CreateShellCustomerRequest:
+        return build_shell_request(
+            submission.canonical_entity,
+            submission.source_case_id,
+            submission.accepted_at,
+        )
+
+    def build_policy_request(
+        self, submission: GoldTierSubmissionInput, party_id: str
+    ) -> CreatePolicyRequest:
+        return build_policy_request(
+            submission.canonical_entity,
+            party_id,
+            submission.source_case_id,
+            submission.accepted_at,
+        )
+
+    def build_amend_request(
+        self, submission: GoldTierSubmissionInput, party_id: str
+    ) -> AmendPartyRequest:
+        del party_id
+        return build_amend_request(
+            submission.canonical_entity,
+            submission.source_case_id,
+            submission.accepted_at,
+        )
+
+    def build_preview(self, submission: GoldTierSubmissionInput) -> GoldTierRequestPreview:
+        entity = submission.canonical_entity
+        operations = (
+            GoldTierOperationPreview(
+                operation="SEARCH",
+                fields=(
+                    _mock_preview_field("registrationNumber", entity.registration_number),
+                ),
+                missing_fields=(),
+                validation=TargetFieldValidation.VALID,
+            ),
+        )
+        return GoldTierRequestPreview(
+            environment="MOCK",
+            policy_version=submission.policy_catalogue_version,
+            operations=operations,
+            dispatch_ready=True,
+        )
+
+    def validate_pre_dispatch(self, submission: GoldTierSubmissionInput) -> None:
+        """Construct every operation locally before the ledger or connector is touched."""
+
+        validation_party_id = "PRE_DISPATCH_VALIDATION"
+        self.build_search_request(submission)
+        self.build_shell_request(submission)
+        self.build_policy_request(submission, validation_party_id)
+        self.build_amend_request(submission, validation_party_id)

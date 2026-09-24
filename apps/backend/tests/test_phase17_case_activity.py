@@ -114,6 +114,15 @@ def test_action_buckets_preserve_existing_overlapping_semantics() -> None:
     assert activity_matches_action(target, CaseActivityAction.COMPLETED)
     assert not activity_matches_action(target, CaseActivityAction.DOCUMENT)
 
+    intelligence = target.model_copy(
+        update={
+            "event_type": AutomationEventType.INTELLIGENCE_EVALUATED,
+            "stage": AutomationStage.OWNERSHIP,
+        }
+    )
+    assert activity_matches_action(intelligence, CaseActivityAction.INTELLIGENCE)
+    assert activity_matches_action(intelligence, CaseActivityAction.OWNERSHIP)
+
 
 def test_memory_activity_scopes_before_events_filters_before_paging_and_orders_ties() -> None:
     cases = {

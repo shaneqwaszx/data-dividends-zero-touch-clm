@@ -20,6 +20,7 @@ from app.domain.case_management import (
 from app.domain.clm import ClmOrchestrationRecord
 from app.domain.documents import DocumentProcessingRecord
 from app.domain.models import OnboardingCase
+from app.domain.onboarding_intelligence import OnboardingIntelligenceRecord
 from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState
 from app.domain.reconciliation import ReconciliationCaseRecord
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
@@ -33,6 +34,9 @@ from app.persistence.errors import PersistenceConflictError
 from app.persistence.models import DurableCaseSnapshot
 from app.persistence.mongo_case_store import MongoCaseStore
 from app.services.clm_repository import ClmRepositoryConflictError
+from app.services.onboarding_intelligence_repository import (
+    OnboardingIntelligenceRepositoryConflictError,
+)
 from app.services.ownership_repository import OwnershipRepositoryConflictError
 from app.services.reconciliation_repository import (
     ReconciliationRepositoryConflictError,
@@ -91,9 +95,7 @@ class MongoOnboardingCaseRepository:
     def transaction_replace(self, case: OnboardingCase) -> None:
         self.save(case)
 
-    def transaction_restore(
-        self, case_id: UUID, snapshot: OnboardingCase | None
-    ) -> None:
+    def transaction_restore(self, case_id: UUID, snapshot: OnboardingCase | None) -> None:
         if snapshot is None:
             raise PersistenceConflictError
         self.save(snapshot)
@@ -237,6 +239,51 @@ class MongoOwnershipAnalysisRepository:
         if snapshot is None or snapshot.ownership is None:
             return None
         return snapshot.ownership.model_copy(deep=True)
+
+    def delete_for_case(self, case_id: UUID) -> None:
+        del case_id
+
+
+class MongoOnboardingIntelligenceRepository:
+    """Persist the advisory projection inside the authoritative case envelope."""
+
+    def __init__(self, store: MongoCaseStore) -> None:
+        self._store = store
+
+    def save(
+        self,
+        record: OnboardingIntelligenceRecord,
+        *,
+        expected_version: int | None,
+    ) -> OnboardingIntelligenceRecord:
+        validated = OnboardingIntelligenceRecord.model_validate(record)
+        with self._store.locked():
+            snapshot = self._store.get(validated.case_id)
+            if snapshot is None:
+                raise OnboardingIntelligenceRepositoryConflictError
+            current = snapshot.intelligence
+            if expected_version is None:
+                valid = current is None and validated.version == 1
+            else:
+                valid = (
+                    current is not None
+                    and current.version == expected_version
+                    and validated.version == expected_version + 1
+                )
+            if not valid:
+                raise OnboardingIntelligenceRepositoryConflictError
+            candidate = snapshot.model_copy(update={"intelligence": validated}, deep=True)
+            try:
+                self._store.replace(candidate, expected_revision=snapshot.revision)
+            except PersistenceConflictError:
+                raise OnboardingIntelligenceRepositoryConflictError from None
+            return validated.model_copy(deep=True)
+
+    def get_for_case(self, case_id: UUID) -> OnboardingIntelligenceRecord | None:
+        snapshot = self._store.get(case_id)
+        if snapshot is None or snapshot.intelligence is None:
+            return None
+        return snapshot.intelligence.model_copy(deep=True)
 
     def delete_for_case(self, case_id: UUID) -> None:
         del case_id
@@ -387,9 +434,7 @@ class MongoReconciliationRepository:
     def transaction_replace(self, record: ReconciliationCaseRecord) -> None:
         self.save(record, expected_version=record.version - 1)
 
-    def transaction_restore(
-        self, case_id: UUID, snapshot: ReconciliationCaseRecord | None
-    ) -> None:
+    def transaction_restore(self, case_id: UUID, snapshot: ReconciliationCaseRecord | None) -> None:
         del case_id, snapshot
         raise ReconciliationUnitOfWorkError
 
@@ -418,9 +463,7 @@ class MongoReconciliationUnitOfWork:
         expected_onboarding_fingerprint: str,
         expected_entity_fingerprint: str,
     ) -> ReconciliationCaseRecord:
-        validated_reconciliation = ReconciliationCaseRecord.model_validate(
-            reconciliation_candidate
-        )
+        validated_reconciliation = ReconciliationCaseRecord.model_validate(reconciliation_candidate)
         with self._store.locked():
             snapshot = self._store.get(validated_reconciliation.case_id)
             if (
@@ -484,8 +527,7 @@ class MongoTargetExecutionRepository:
         with self._store.locked():
             snapshot = self._store.get(case_id)
             if snapshot is None or any(
-                item.submission_input.submission_id
-                == entry.submission_input.submission_id
+                item.submission_input.submission_id == entry.submission_input.submission_id
                 for item in snapshot.target_executions
             ):
                 raise TargetExecutionRepositoryConflictError
@@ -518,9 +560,7 @@ class MongoTargetExecutionRepository:
                     break
             else:
                 raise TargetExecutionRepositoryConflictError
-            candidate = snapshot.model_copy(
-                update={"target_executions": tuple(entries)}, deep=True
-            )
+            candidate = snapshot.model_copy(update={"target_executions": tuple(entries)}, deep=True)
             try:
                 self._store.replace(candidate, expected_revision=snapshot.revision)
             except PersistenceConflictError:
@@ -538,9 +578,7 @@ class MongoTargetExecutionRepository:
                         raise TargetExecutionRepositoryConflictError
                     continue
                 entries.append(current)
-            candidate = snapshot.model_copy(
-                update={"target_executions": tuple(entries)}, deep=True
-            )
+            candidate = snapshot.model_copy(update={"target_executions": tuple(entries)}, deep=True)
             try:
                 self._store.replace(candidate, expected_revision=snapshot.revision)
             except PersistenceConflictError:

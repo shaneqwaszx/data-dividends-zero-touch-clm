@@ -775,7 +775,7 @@ def test_mongo_portfolio_rejects_malformed_projected_exception_pairs(
         store.list_portfolio(CasePortfolioScope(kind=PortfolioScopeKind.GLOBAL))
 
 
-@pytest.mark.parametrize("schema_version", [1, 2, 3, 4])
+@pytest.mark.parametrize("schema_version", [1, 2, 3, 4, 5])
 def test_mongo_portfolio_attention_projection_supports_every_readable_schema(
     schema_version: int,
 ) -> None:

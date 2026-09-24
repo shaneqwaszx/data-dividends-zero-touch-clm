@@ -17,10 +17,13 @@ from app.connectors.mock_ownership import MockOwnershipProvider, MockOwnershipSc
 from app.connectors.ownership import OwnershipProvider
 from app.domain.documents import DocumentFieldKey, IdpEnvironment
 from app.domain.models import CanonicalLegalEntity
+from app.domain.onboarding_intelligence import EntityIdentity
 from app.services.document_processing import canonical_value_for_field
 
 
 class ZeroTouchDemoScenario(StrEnum):
+    SME_STRAIGHT_THROUGH = "SME_STRAIGHT_THROUGH"
+    SME_AMBIGUOUS_ENTITY = "SME_AMBIGUOUS_ENTITY"
     STRAIGHT_THROUGH = "STRAIGHT_THROUGH"
     DOCUMENT_DISCREPANCY = "DOCUMENT_DISCREPANCY"
     MULTIPLE_DOCUMENT_BLOCKERS = "MULTIPLE_DOCUMENT_BLOCKERS"
@@ -169,6 +172,40 @@ class ZeroTouchDemoControl:
             ZeroTouchDemoScenario.MULTIPLE_OWNERSHIP_PATHS: MockOwnershipScenario.MULTIPLE_PATHS,
         }
         return MockOwnershipProvider(mapping.get(scenario, MockOwnershipScenario.DIRECT_OWNER))
+
+    def entity_candidates_for(
+        self, case_id: UUID, source: EntityIdentity
+    ) -> tuple[EntityIdentity, ...] | None:
+        """Return fictional candidate evidence only for the named SME demo scenarios."""
+
+        scenario = self.scenario_for(case_id)
+        if scenario == ZeroTouchDemoScenario.SME_STRAIGHT_THROUGH:
+            return (
+                EntityIdentity(
+                    candidate_id="SYNTHETIC-NONMATCH-1",
+                    registration_number="209999999Z",
+                    country="SG",
+                    legal_name="Fictional Harbour Services Pte. Ltd.",
+                    legal_form="PRIVATE_COMPANY_LIMITED_BY_SHARES",
+                    registered_address="99 Fictional Quay Singapore 099999",
+                    source_reference="SYNTHETIC_DEMO_CANDIDATE",
+                ),
+            )
+        if scenario == ZeroTouchDemoScenario.SME_AMBIGUOUS_ENTITY:
+            return tuple(
+                EntityIdentity(
+                    candidate_id=f"SYNTHETIC-AMBIGUOUS-{index}",
+                    registration_number=None,
+                    country=source.country,
+                    legal_name=source.legal_name,
+                    legal_form=source.legal_form,
+                    registered_address=source.registered_address,
+                    incorporated_on=source.incorporated_on,
+                    source_reference="SYNTHETIC_DEMO_CANDIDATE",
+                )
+                for index in (1, 2)
+            )
+        return None
 
     def should_fail_target_finalization(self, case_id: UUID) -> bool:
         """Inject only the bounded synthetic recovery fault selected at the demo edge."""

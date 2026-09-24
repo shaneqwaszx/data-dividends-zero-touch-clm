@@ -26,8 +26,9 @@ flowchart LR
     F --> G[Document intake and extraction]
     G --> H[Reconciliation]
     H --> I[Decimal ownership and UBO analysis]
-    I --> J[Readiness snapshot]
-    J --> K[Mock GoldTier execution ledger]
+    I --> IA[Case-bound advisory intelligence]
+    IA --> J[Readiness snapshot]
+    J --> K[GoldTier Mock or XPI-sandbox execution ledger]
     K --> L[Portfolio, dashboard and evidence UI]
 ```
 
@@ -65,6 +66,7 @@ shapes, and runtime calls dispatch through ports rather than reversing static ow
 | Documents/IDP | `domain/documents.py`, `services/document_media.py`, `document_processing.py`, `connectors/idp.py`, `local_pdf_idp.py` | intake validation, extraction, provenance, confidence/review records | case port, IDP port | source precedence or canonical overwrite |
 | Reconciliation | `domain/reconciliation.py`, `services/reconciliation.py`, reconciliation repository/UoW | compare observations, discrepancies, bounded decisions, resume binding | canonical/document evidence | implicit source winner |
 | Ownership/UBO | `domain/ownership.py`, `services/ownership_analysis.py`, `connectors/registry_ownership.py` | the single deterministic Decimal graph/path engine and classifications | source-neutral ownership graph | float math, legal approval, duplicate engine |
+| Advisory onboarding intelligence | `domain/onboarding_intelligence.py`, `services/onboarding_intelligence.py`, `services/onboarding_intelligence_repository.py` | explainable entity-candidate linkage, UBO advice over deterministic results, and mock advisory risk | canonical case/document/ownership evidence and immutable case policy | canonical/source mutation, legal UBO, compliance decision, approval, target execution, or direct readiness mutation |
 | CLM/readiness | `domain/clm.py`, `services/clm_orchestration.py` | readiness evaluation and immutable target plan | canonical/document/reconciliation/ownership evidence | raw provider payloads or target transport |
 | Target execution | `domain/target_submission.py`, `domain/target_safety.py`, `services/target_response_validation.py`, `services/target_execution_repository.py`, `connectors/goldtier*.py`, `mappers/goldtier.py` | ordered search/shell/policy/amend, strict responses, durable intent/outcome/finalization | target port and ledger | replay after uncertain attempt, sponsor approval claim |
 | Zero-touch workflow | `domain/zero_touch.py`, `services/zero_touch_orchestration.py`, provider bindings | stage ordering, typed exceptions, call stopping, resume | application services through ports | provider-specific payload logic |
@@ -155,6 +157,17 @@ Do not add a second calculator in a connector, mapper, route, frontend, or provi
 External ownership services, if ever approved, may supply graph evidence only through
 the existing port unless an ADR deliberately changes the canonical owner.
 
+The source-neutral onboarding-intelligence owner is separate from the ownership engine.
+It emits versioned, safe advisory projections only. Entity resolution applies exact
+identifier/country rules before a deterministic weighted probability proxy, never
+auto-selects from name or address alone, and routes conflicts/ties to typed review. UBO
+advice consumes—not recalculates—the Decimal result and is permanently labelled
+`NOT_LEGAL_UBO_DETERMINATION`. Mock risk uses only available case signals, exposes
+missing groups as `NOT_ASSESSED`, and is permanently labelled
+`NOT_COMPLIANCE_DECISION`. Its case-bound readiness flag defaults false; when explicitly
+enabled, the existing zero-touch owner may stop a high result for human review before
+target execution. Q-017 remains open.
+
 ## 8. Reconciliation architecture
 
 Reconciliation owns comparison of Registry and Document observations. It derives
@@ -167,14 +180,30 @@ Document-wins, confidence-wins, or newest-wins rule.
 
 Readiness consumes canonical entity, current documents, reconciliation state and
 ownership results. It creates an immutable target preparation snapshot. Target execution
-then uses the Mock GoldTier connector in strict order: search; conditional shell;
-policy; amend. Search match and each failure/partial result stop later operations as
-defined.
+then uses one explicitly composed GoldTier dialect. Mock remains the default. The XPI
+sandbox dialect is an opt-in `SANDBOX_PARTIAL` adapter with strict source-neutral
+mapping, bounded case-scoped preview, backend-only `user_id`, TLS 1.3 certificate-
+verified transport, redirects disabled, bounded time/body, and a separate write opt-in.
+Both paths preserve search; conditional shell; policy; amend ordering. The XPI path may
+reuse one exact identifier/country match through the existing advisory resolver; every
+multiple, probable, conflicting, or otherwise non-exact candidate stops at human review
+with no mutation.
+
+The retained `GoldTierSubmissionPlan` is the single provider-identity owner for one CLM
+submission. Its environment and provider classification are an immutable compatible
+pair. A later configuration change may select the default for a new plan, but it may
+not reinterpret an existing plan: submission input is derived from that retained plan,
+and the mapper and connector must both declare the same mode before any target-ledger
+entry or network call. A mismatch fails closed with one typed, sanitized internal
+error; Mock is never used as a Sandbox recovery path or vice versa.
 
 The target ledger is the canonical replay/recovery owner. Intent and operation markers
 are retained before calls. An uncertain attempted operation is not automatically
 replayed; a retained outcome permits finalization-only recovery. No route or remediation
-may bypass the ledger. Mock target submission is not sponsor approval.
+may bypass the ledger. Mutation timeout, transport ambiguity, oversized/malformed
+post-acceptance response, or cancellation leaves the attempted execution `IN_PROGRESS`
+for human reconciliation. Mock or sandbox target submission is not sponsor approval,
+customer approval, or Live interoperability.
 
 ## 10. Authentication, RBAC, team and admin architecture
 
@@ -194,6 +223,9 @@ The policy catalogue is bounded, typed and repository-owned. Only designated run
 rules affect new cases. On case creation, version, thresholds, comparator and binding
 time are copied into an immutable `CasePolicySnapshot`. Later policy changes never
 reinterpret existing cases. Custom showcase rules are non-executable and non-runtime.
+Eight GoldTier target-preparation values additionally carry explicit authority labels.
+`TBD_SPONSOR` values are visible in the preview and block sandbox mutations before the
+target ledger or network; a value without its authority label is never inferred ready.
 
 ## 12. Persistence and concurrency architecture
 
@@ -202,14 +234,24 @@ modes and never silently fall back to one another. Mongo owns one strict case en
 with schema version and revision. `_id`, envelope case ID and nested identities must
 agree.
 
-Case-envelope schema v4 adds an optional immutable registry evidence binding and reads
-strict v1/v2/v3 envelopes with an absent binding as unknown historical metadata. Reads
-do not infer cache disposition or rewrite legacy envelopes. The separate registry-cache
+Case-envelope schema v5 adds an optional case-bound advisory-intelligence projection.
+It strictly reads schema v1-v4 envelopes in memory; v4 preserves `intelligence = null`
+and is never reinterpreted or rewritten with current policy. Schema v4 introduced the
+optional immutable registry evidence binding, with older absent bindings remaining
+unknown historical metadata. Reads do not infer cache disposition. The separate registry-cache
 schema v1 uses canonical lossless UTC ISO-8601 strings in memory and Mongo, an exact-key
 digest identity, insert-only creation, and expected-revision replacement. Cache and case
 repositories remain separate; no cross-collection transaction is claimed. A successful
 cache write can survive a later case-persistence failure, while an incomplete/failed
 refresh can never replace a complete entry.
+
+The same schema-v5 envelope uses additive optional fields for GoldTier provider mode,
+authority-labelled target policy, and request-plan preview. Existing schema-v5 records
+without those fields read as Mock/no-target-enrichment and are not rewritten. No second
+case schema or persistence owner is introduced. When a schema-v5 CLM submission
+snapshot exists, its provider mode and any matching target-ledger input must agree with
+the retained plan. Contradictory persisted combinations are invalid; a plan without a
+submission snapshot remains valid, and no schema-v6 migration is introduced.
 
 Create is insert-only, updates are update-only, and mutations use expected revision/CAS.
 Case deletion re-authorizes inside the canonical case lock, physically deletes the
@@ -264,6 +306,12 @@ scope are contextual projections, not event-time facts.
 This activity view is a live, offset-paged view of currently retained automation events.
 It is not a complete compliance audit, actor ledger, immutable archive, cross-page
 snapshot, or causal order across cases. Case deletion removes the available activity.
+The `.csv` projection reuses the same authorized query, exports only the requested
+bounded page (maximum 100), uses fixed safe fields and UTC, hardens spreadsheet-formula
+prefixes, and sends no-cache/no-sniff headers. It is not a retention or regulatory
+export. Successful advisory evaluation emits one safe system-originated workflow event
+with model-bundle and case policy-catalogue version context; actor attribution for
+historical events remains unavailable.
 
 ## 14. Frontend and React Query architecture
 
@@ -283,6 +331,10 @@ offset and limit. Filter changes do not reuse a previous key as current data. Ac
 reads preserve `AbortSignal`; relevant mutations invalidate the user-scoped activity
 family, while deletion cancels and removes it before a late response can republish a
 deleted row.
+
+Intelligence detail keys include authenticated user and case identity. Reads preserve
+`AbortSignal`; supporting mutations invalidate the exact case key, and deletion cancels
+then removes it so stale advisory data cannot reappear across case or session boundaries.
 
 Portfolio page keys share the canonical authenticated case-list family and add status,
 priority filter/order, team, attention type, jurisdiction, normalized search, offset,
@@ -330,7 +382,8 @@ surface is currently verified by this repository.
   secrets, raw confidential artefacts, raw provider bodies, or KYC/PII logs.
 - External data, uploads, filenames, response objects and HTTP errors are untrusted.
 - External HTTP requires HTTPS, verified certificates, bounded timeouts and safe errors.
-  GoldTier requires TLS 1.3 when an authorized real connection exists.
+  The GoldTier XPI sandbox transport enforces TLS 1.3, verified certificates, no
+  redirects, bounded response retention, and safe fixed errors.
 - Browser Origin/Referer, session and CSRF checks remain centralized and fail closed.
 - Errors crossing API/browser boundaries use stable sanitized codes/messages.
 - Mock/Local/Sandbox/Dormant/Live labels remain explicit and evidence-based.
@@ -343,7 +396,7 @@ surface is currently verified by this repository.
 | BizFile | dormant connector module | not composed | explicit contract/security/architecture change only |
 | IDP | document service and IDP port | local deterministic default; Mock fault path | adapter replacement, no business-rule leak |
 | Ownership | ownership service/domain | local Decimal engine | evidence provider through existing port |
-| GoldTier | target connector/mapper/ledger | Mock only | authoritative contract + PingFed/TLS/security phase |
+| GoldTier | target connector/mapper/ledger | Mock default; XPI sandbox partial opt-in | sponsor-confirmed field authority and separate PingFed/production phase |
 | Mongo | persistence adapters | optional explicit mode | repository/schema skill, never routes |
 | Camunda | none | not implemented | new bounded phase and ADR if introduced |
 | Identity provider | authentication service | local POC | production security/authority phase |

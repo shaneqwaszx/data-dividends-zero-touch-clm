@@ -53,7 +53,19 @@ GOVERNED_DOCS = (
     Path("docs/contracts/POLICY_AUTHORITY_MATRIX.md"),
     Path("docs/contracts/POLICY_ACTIVATION_CONTRACT.md"),
     Path("docs/sponsor-questions/PHASE_20_POLICY_DECISION_PACKET.md"),
+    Path("docs/contracts/POLICY_TEAM_IDENTITY_ADMIN_PROFILE.md"),
+    Path("docs/contracts/CASE_ACTIVITY_QUERY_PROFILE.md"),
 )
+REQUIRED_CURRENT_CONTRACT_CLAIMS = {
+    Path("docs/contracts/POLICY_TEAM_IDENTITY_ADMIN_PROFILE.md"): (
+        ("21-rule policy catalogue", "The catalogue has 21 seed rules, including 13 intelligence rules:"),
+        ("13 intelligence runtime bindings", "plus all 13 intelligence rules"),
+    ),
+    Path("docs/contracts/CASE_ACTIVITY_QUERY_PROFILE.md"): (
+        ("schema-v5 activity", "Supported case envelopes v1-v5 remain readable without rewrite."),
+        ("bounded activity CSV", "The CSV endpoint is available only as the same authorized, filtered, bounded page."),
+    ),
+}
 FORBIDDEN_CLAIMS = {
     "Mock submission presented as Ready-for-Approval or approval": re.compile(
         r"\bMOCK_GOLDTIER_SUBMITTED\s+(?:is|means|achieves|equals)\s+"
@@ -193,6 +205,12 @@ def validate(root: Path) -> list[str]:
         for description, pattern in FORBIDDEN_CLAIMS.items():
             if pattern.search(text):
                 failures.append(f"{relative_path}: {description}")
+        normalized_text = " ".join(text.split())
+        for description, required_text in REQUIRED_CURRENT_CONTRACT_CLAIMS.get(
+            relative_path, ()
+        ):
+            if required_text not in normalized_text:
+                failures.append(f"{relative_path}: missing current {description} claim")
     return failures
 
 

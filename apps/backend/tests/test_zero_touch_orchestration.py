@@ -22,6 +22,11 @@ from app.connectors.mock_ownership import MockOwnershipProvider, MockOwnershipSc
 from app.demo.zero_touch_control import ZeroTouchDemoScenario
 from app.domain.access import TeamId
 from app.domain.documents import DocumentFieldKey, ReviewDecision
+from app.domain.onboarding_intelligence import (
+    MockRiskAssessment,
+    MockRiskBand,
+    OnboardingIntelligenceRecord,
+)
 from app.domain.zero_touch import ExceptionResolutionAction, ZeroTouchAutomationRecord
 from app.main import create_app
 from app.services.clm_orchestration import ClmOrchestrationService
@@ -221,6 +226,42 @@ def test_straight_through_reaches_mock_target_with_zero_human_interventions() ->
     case_id = UUID(result["case"]["case_id"])
     document = documents.list_documents(case_id=case_id)[0]
     assert document.completion_method == "AUTO_CONFIRMED"
+
+
+def test_case_bound_high_mock_risk_can_pause_readiness_without_compliance_decision() -> None:
+    client, zero, _, target, _ = build_system()
+
+    def high_risk(case_id: UUID) -> OnboardingIntelligenceRecord:
+        return OnboardingIntelligenceRecord(
+            case_id=case_id,
+            version=1,
+            input_fingerprint="sha256:" + "b" * 64,
+            policy_catalogue_version=1,
+            mock_risk=MockRiskAssessment(
+                score=80,
+                band=MockRiskBand.HIGH,
+                signal_assessments={
+                    "entity_resolution": "40",
+                    "document": "20",
+                    "ownership": "20",
+                },
+                reason_codes=("SYNTHETIC_ADVERSE_EVIDENCE",),
+                not_assessed_signals=frozenset({"pep", "sanctions", "adverse_media"}),
+                blocks_readiness=True,
+            ),
+            evaluated_at=datetime(2026, 9, 23, tzinfo=UTC),
+        )
+
+    zero._intelligence_evaluator = high_risk  # noqa: SLF001 - bounded injected seam
+    result = start_demo(client, "STRAIGHT_THROUGH")
+
+    assert result["status"] == "WAITING_FOR_REVIEW"
+    assert result["current_stage"] == "READINESS"
+    assert result["active_exceptions"][0]["exception_type"] == (
+        "MOCK_RISK_REVIEW_REQUIRED"
+    )
+    assert result["active_exceptions"][0]["available_actions"] == []
+    assert target.calls == []
 
 
 def test_cache_hit_journey_preserves_target_order_and_counts(

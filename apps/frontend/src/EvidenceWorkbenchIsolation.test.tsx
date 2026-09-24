@@ -250,6 +250,7 @@ function seedCase(
   client.setQueryData(caseQueryKeys.detail(actor.user_id, caseId), summaryFixture(caseId, `${pathPrefix} CASE`));
   client.setQueryData(caseQueryKeys.documents(actor.user_id, caseId), [documentFixture(caseId)]);
   client.setQueryData(caseQueryKeys.ownership(actor.user_id, caseId), ownershipFixture(caseId, analysisId, pathPrefix));
+  client.setQueryData(caseQueryKeys.intelligence(actor.user_id, caseId), null);
 }
 
 function response(value: unknown): Response {
@@ -408,7 +409,7 @@ describe("Evidence workbench integration isolation", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("uses exactly the three existing GET owners for an explicit read-only refresh", async () => {
+  it("uses exactly the four existing GET owners for an explicit read-only refresh", async () => {
     const client = createTestClient();
     seedCase(client, actorA, CASE_A, "analysis-a", "a");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("offline"));
@@ -425,6 +426,7 @@ describe("Evidence workbench integration isolation", () => {
       if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) return response(summaryFixture(CASE_A));
       if (url.endsWith(`/api/onboarding/cases/${CASE_A}/documents`)) return response([documentFixture(CASE_A)]);
       if (url.endsWith(`/api/onboarding/cases/${CASE_A}/ownership`)) return response(ownershipFixture(CASE_A, "analysis-refreshed", "refreshed"));
+      if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}/intelligence`)) return response(null);
       throw new Error(`Unexpected refresh request: ${method} ${url}`);
     });
 
@@ -438,6 +440,7 @@ describe("Evidence workbench integration isolation", () => {
       { url: `/api/clm/zero-touch/cases/${CASE_A}`, method: "GET" },
       { url: `/api/onboarding/cases/${CASE_A}/documents`, method: "GET" },
       { url: `/api/onboarding/cases/${CASE_A}/ownership`, method: "GET" },
+      { url: `/api/clm/zero-touch/cases/${CASE_A}/intelligence`, method: "GET" },
     ]);
   });
 });

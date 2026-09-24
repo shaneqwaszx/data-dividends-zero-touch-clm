@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "PRE-PHASE22-CAPABILITY-EXPANSION",
+  "currentTodo": "Freeze remediated content and run a fresh independent re-quality gate.",
+  "completedTodos": [
+    "Authority reconciliation and durable plan",
+    "Ready-slice implementation under strict RED/GREEN",
+    "Full local verification matrix",
+    "First independent gate and four current-slice remediations"
+  ],
+  "activeSlice": "Fresh independent exact-content re-review.",
+  "evidenceRefs": [
+    ".ai-pipeline/reports/PRE_PHASE22_CAPABILITY_EXPANSION_IMPLEMENTATION.md",
+    ".ai-pipeline/reports/PRE_PHASE22_CAPABILITY_EXPANSION_QUALITY_GATE.md",
+    ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_SYNTHETIC_EVALUATION.md",
+    ".ai-pipeline/reports/GOLDTIER_XPI_SANDBOX_DIAGNOSIS.md"
+  ],
+  "blockedOn": "GoldTier artefacts and assignment authorization only; unaffected lanes continue.",
+  "nextStep": "Fresh reviewer writes only the assigned quality-gate report; publish only after exact PASS.",
+  "updatedAt": "2026-09-24"
+}

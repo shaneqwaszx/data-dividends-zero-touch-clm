@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
-import type { CaseActivityFilters } from "../api";
+import { caseActivityExportUrl, type CaseActivityFilters } from "../api";
 import { activityQueryOptions } from "../caseQueries";
 import { paths } from "../navigation";
 import type {
@@ -19,6 +19,7 @@ const ACTIONS: CaseActivityAction[] = [
   "DOCUMENT",
   "RECONCILIATION",
   "OWNERSHIP",
+  "INTELLIGENCE",
   "TARGET",
   "COMPLETED",
 ];
@@ -121,9 +122,11 @@ export default function AuditTrail({
               setOffset(0);
             }
           }}>Refresh from page one</button>
-          <button className="btn btn-secondary" type="button" disabled title="Not available in current POC">
-            Export CSV
-          </button>
+          <a
+            className="btn btn-secondary"
+            href={caseActivityExportUrl(filters)}
+            download="case-activity.csv"
+          >Export current page CSV</a>
         </div>
       </div>
 

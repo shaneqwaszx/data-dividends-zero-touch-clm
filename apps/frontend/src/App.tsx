@@ -42,13 +42,19 @@ import type { CaseQueuePresentationState } from "./pages/CaseQueue";
 import ClientDetail from "./pages/ClientDetail";
 import Dashboard from "./pages/Dashboard";
 import HomeOnboarding from "./pages/HomeOnboarding";
+import GoldTierRequestPreview from "./pages/GoldTierRequestPreview";
 import OnboardedClients from "./pages/OnboardedClients";
 import PolicyRules from "./pages/PolicyRules";
 import AdminTeams from "./pages/AdminTeams";
 import AdminUsers from "./pages/AdminUsers";
 import RetainedIntakeRecovery from "./pages/RetainedIntakeRecovery";
 import { paths, requiredCapabilityForPath, WorkspaceRoutes, WorkspaceTabs } from "./navigation";
-import { formatTimestamp, shouldPollAutomation } from "./shared";
+import {
+  formatTimestamp,
+  goldTierJourneyLabel,
+  shouldPollAutomation,
+  targetOutcomeLabel,
+} from "./shared";
 import type {
   ClmCaseSummary,
   DocumentFieldKey,
@@ -337,13 +343,13 @@ export function SimulationBanner({ profile }: { profile: SimulationProfile | nul
     ? `${profile.registry_system} ${titleCaseEnvironment(profile.registry_environment)}`
     : null;
   const fullLabel = profile
-    ? `${sourceLabel} | GoldTier Mock | IDP ${titleCaseEnvironment(profile.idp_environment)} (${profile.idp_provider}) | Ownership Mock | External access is backend-managed`
+    ? `${sourceLabel} | GoldTier ${titleCaseEnvironment(profile.target_environment)}${profile.target_environment === "SANDBOX" ? ` (${profile.target_provider_classification})` : ""} | IDP ${titleCaseEnvironment(profile.idp_environment)} (${profile.idp_provider}) | Ownership Mock | External access is backend-managed`
     : "Loading backend connector profile...";
   return (
     <div className="environment-banner" role="status" title={fullLabel}>
       <span className="environment-banner__dot" aria-hidden="true" />
       <span className="environment-banner__label">
-        {profile ? `${sourceLabel} · GoldTier Mock · ${profile.persistence}` : "Loading profile…"}
+        {profile ? `${sourceLabel} · GoldTier ${titleCaseEnvironment(profile.target_environment)}${profile.target_environment === "SANDBOX" ? ` (${profile.target_provider_classification})` : ""} · ${profile.persistence}` : "Loading profile…"}
       </span>
       <span className="sr-only">{fullLabel}</span>
     </div>
@@ -755,12 +761,13 @@ export function ClmJourney({
 }) {
   const [isBusy, setIsBusy] = useState(false);
   const [clmError, setClmError] = useState<string | null>(null);
+  const targetLabel = goldTierJourneyLabel(summary.submission_plan.environment);
   const stages = [
     ["Registry", summary.readiness.registry.status],
     ["Document Review", summary.readiness.document.status],
     ["Ownership & UBO", summary.readiness.ownership.status],
     ["Readiness", summary.status],
-    ["Mock GoldTier", summary.readiness.goldtier.status],
+    [targetLabel, summary.readiness.goldtier.status],
   ];
 
   async function run(
@@ -787,11 +794,11 @@ export function ClmJourney({
           <h2 id="clm-heading">Unified CLM journey</h2>
           <p>
             Backend readiness is authoritative and is revalidated immediately before
-            the serialized Mock GoldTier submission.
+            the serialized {targetLabel} submission.
           </p>
         </div>
         <strong className={`clm-overall clm-overall--${summary.status}`}>
-          {summary.status}
+          {targetOutcomeLabel(summary.status, summary.submission_plan.environment)}
         </strong>
       </div>
 
@@ -799,19 +806,19 @@ export function ClmJourney({
         {stages.map(([label, stageStatus], index) => (
           <li key={label} data-stage-status={stageStatus}>
             <span>{index + 1}</span>
-            <div><strong>{label}</strong><small>{stageStatus}</small></div>
+            <div><strong>{label}</strong><small>{targetOutcomeLabel(stageStatus, summary.submission_plan.environment)}</small></div>
           </li>
         ))}
       </ol>
 
       <div className="clm-grid">
         <article>
-          <h3>Mock-submission blockers</h3>
+          <h3>Target-submission blockers</h3>
           {summary.readiness.blockers.length ? (
             <ul className="clm-list clm-list--blockers">
               {summary.readiness.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
             </ul>
-          ) : <p className="ready-copy">No current Mock-submission blockers.</p>}
+          ) : <p className="ready-copy">No current target-submission blockers.</p>}
         </article>
         <article>
           <h3>Real-integration warnings</h3>
@@ -837,6 +844,9 @@ export function ClmJourney({
           <div><dt>Real approval transition</dt><dd>{summary.submission_plan.real_ready_for_approval}</dd></div>
         </dl>
       </article>
+      {summary.submission_plan.request_preview && (
+        <GoldTierRequestPreview preview={summary.submission_plan.request_preview} />
+      )}
 
       <div className="clm-actions">
         <button
@@ -855,15 +865,15 @@ export function ClmJourney({
           }
         >
           {summary.status === "MOCK_GOLDTIER_SUBMITTED"
-            ? "Mock GoldTier submitted"
-            : "Submit to Mock GoldTier"}
+            ? `${targetLabel} submitted`
+            : `Submit to ${targetLabel}`}
         </button>
       </div>
 
       {clmError && <div className="request-error" role="alert">{clmError}</div>}
       {summary.submission && (
         <div className="mock-submission-result" role="status">
-          <strong>{summary.status}</strong>
+          <strong>{targetOutcomeLabel(summary.status, summary.submission_plan.environment)}</strong>
           <span>Submission {summary.submission.submission_id}</span>
           <span>{summary.submission.document_reference_count} reviewed document reference(s)</span>
           <span>
@@ -894,7 +904,7 @@ export function ClmRefreshingState() {
       <p className="section-label">Phase 05 integrated orchestration</p>
       <h2>Refreshing authoritative CLM readiness</h2>
       <p>Evidence changed. Submission remains disabled until the backend summary returns.</p>
-      <button type="button" disabled>Submit to Mock GoldTier</button>
+      <button type="button" disabled>Submit to configured GoldTier</button>
     </section>
   );
 }
@@ -924,7 +934,7 @@ const AUTOMATION_STAGES = [
   ["DOCUMENT", "Document verification"],
   ["OWNERSHIP", "Ownership & UBO"],
   ["READINESS", "Readiness"],
-  ["MOCK_GOLDTIER", "Mock GoldTier"],
+  ["MOCK_GOLDTIER", "GoldTier target"],
 ] as const;
 
 export function automationStageState(
@@ -980,7 +990,7 @@ export function OnboardingProgress({ summary }: { summary: ZeroTouchCaseSummary 
       </div>
       {summary.status === "COMPLETED" && (
         <div className="automation-complete" role="status">
-          <strong>Mock submission completed</strong>
+          <strong>GoldTier submission completed</strong>
           <span>Zero human interventions means deterministic processing only—not approval.</span>
         </div>
       )}
@@ -1172,7 +1182,7 @@ export function SponsorCaseSummary({
         </div>
         <div><dt>Human interventions after Start</dt><dd>{summary.metrics.human_interventions}</dd></div>
         <div><dt>Provisional UBO candidates</dt><dd>{ownershipCandidates ?? "Pending"}</dd></div>
-        <div><dt>Mock target outcome</dt><dd>{targetOutcome.replaceAll("_", " ")}</dd></div>
+        <div><dt>{goldTierJourneyLabel(summary.clm.submission_plan.environment)} outcome</dt><dd>{targetOutcomeLabel(targetOutcome, summary.clm.submission_plan.environment)}</dd></div>
         <div>
           <dt>Elapsed local POC time</dt>
           <dd>{summary.metrics.total_duration_ms === null ? "In progress" : `${summary.metrics.total_duration_ms} ms`}</dd>
@@ -1501,7 +1511,7 @@ export function SponsorOwnershipEvidence({ summary }: { summary: ZeroTouchCaseSu
 
 export function SponsorTargetEvidence({ summary }: { summary: ZeroTouchCaseSummary }) {
   if (!summary.target_operations.some((operation) => operation.status !== "NOT_ATTEMPTED")) return null;
-  return <section className="document-evidence-card" aria-labelledby="target-evidence-heading"><p className="section-label">Mock GoldTier stage evidence</p><h2 id="target-evidence-heading">Server-authored target operations</h2><ol>{summary.target_operations.map((operation) => <li key={operation.operation}>{operation.operation} — {operation.status}</li>)}</ol></section>;
+  return <section className="document-evidence-card" aria-labelledby="target-evidence-heading"><p className="section-label">{goldTierJourneyLabel(summary.clm.submission_plan.environment)} stage evidence</p><h2 id="target-evidence-heading">Server-authored target operations</h2><ol>{summary.target_operations.map((operation) => <li key={operation.operation}>{operation.operation} — {operation.status}</li>)}</ol></section>;
 }
 
 export function SponsorReadinessEvidence({ summary }: { summary: ZeroTouchCaseSummary }) {
@@ -1663,8 +1673,8 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
         <strong>{caseData.state}</strong>
       </div>
       <p className="completion-boundary">
-        This underlying case state is not an approval claim. Phase 05 readiness and Mock
-        GoldTier submission are reported separately by the unified orchestration summary.
+        This underlying case state is not an approval claim. Phase 05 readiness and
+        GoldTier target submission are reported separately by the unified orchestration summary.
       </p>
       <JurisdictionDecision caseData={caseData} />
       <RegistryAcquisitionPanel caseData={caseData} />
@@ -1692,7 +1702,7 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
         </article>
 
         <article className="detail-card">
-          <p className="section-label">Mock GoldTier result</p>
+          <p className="section-label">GoldTier result</p>
           {caseData.goldtier_result ? (
             <dl>
               <div><dt>Party ID</dt><dd>{caseData.goldtier_result.party_id}</dd></div>
@@ -1701,7 +1711,7 @@ export function CaseSummary({ caseData }: { caseData: OnboardingCase }) {
               <div><dt>Amend</dt><dd>{caseData.goldtier_result.amend_status ?? "Not attempted"}</dd></div>
             </dl>
           ) : (
-            <p className="empty-copy">No mock GoldTier customer was created.</p>
+            <p className="empty-copy">No GoldTier customer result is retained.</p>
           )}
         </article>
       </div>
@@ -2222,6 +2232,8 @@ export default function App({
             <p className="card-kicker">Demo/Test Controls</p>
             <label htmlFor="demo-scenario">Integrated synthetic scenario</label>
             <select id="demo-scenario" className="input" value={demoScenario} onChange={(event) => setDemoScenario(event.target.value as ZeroTouchDemoScenario)}>
+              <option value="SME_STRAIGHT_THROUGH">SME straight through with advisory intelligence</option>
+              <option value="SME_AMBIGUOUS_ENTITY">SME ambiguous entity review</option>
               <option value="STRAIGHT_THROUGH">Straight through</option>
               <option value="DOCUMENT_DISCREPANCY">Document discrepancy</option>
               <option value="LOW_CONFIDENCE_DOCUMENT">Low confidence</option>

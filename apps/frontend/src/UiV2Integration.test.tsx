@@ -208,6 +208,7 @@ describe("UI v2 backend integration adapters", () => {
       registry_environment: "MOCK",
       target_system: "GOLDTIER",
       target_environment: "MOCK",
+      target_provider_classification: "MOCK",
       idp_system: "IDP",
       idp_environment: "LOCAL",
       idp_provider: "LOCAL_PDF_TEXT",
@@ -313,10 +314,10 @@ describe("UI v2 backend integration adapters", () => {
     },
   );
 
-  it("renders truthful completion, exact Mock party label, and disabled audit download", () => {
+  it("renders truthful POC completion, GoldTier party label, and disabled audit download", () => {
     const markup = renderToStaticMarkup(<CompletedOverview summary={makePanelSummary("MATCH", "COMPLETED")} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />);
-    expect(markup).toContain("Completed Mock workflow");
-    expect(markup).toContain("Mock GoldTier party ID");
+    expect(markup).toContain("Completed POC workflow");
+    expect(markup).toContain("GoldTier party ID");
     expect(markup).toContain("GT-MOCK-1");
     expect(markup).toContain("Download audit trail");
     expect(markup).toContain("disabled");
@@ -330,6 +331,8 @@ describe("UI v2 backend integration adapters", () => {
       </QueryClientProvider>,
     );
     const clientActions = renderToStaticMarkup(<ClientRecordActions />);
+    expect(onboarded).toContain("Completed POC workflow cases");
+    expect(onboarded).not.toContain("Completed Mock workflow");
     expect(onboarded).toContain("Risk: All");
     expect(onboarded).toContain("disabled");
     expect(onboarded).toContain("Risk assessment is not connected");
@@ -489,6 +492,7 @@ describe("UI v2 backend integration adapters", () => {
       registry_environment: "MOCK",
       target_system: "GOLDTIER",
       target_environment: "MOCK",
+      target_provider_classification: "MOCK",
       idp_system: "IDP",
       idp_environment: "LOCAL",
       idp_provider: "LOCAL_PDF_TEXT",

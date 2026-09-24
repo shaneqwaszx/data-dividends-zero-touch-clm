@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "PRE-PHASE22-CAPABILITY-EXPANSION",
+  "taskIntentRef": "docs/aegis/work/2026-09-23-pre-phase22-capability-expansion/task-intent-draft.json",
+  "baselineRefs": [
+    "origin/main@3ca232b58c3842f413c4552dbd3b85aabea4591c"
+  ],
+  "scopeStatus": "verified-ready-slices-with-explicit-blocked-lanes",
+  "compatStatus": "verified-by-full-regression-lifecycle-browser-and-physical-mongo",
+  "retirementStatus": "no-fallback-or-duplicate-owner-added",
+  "newRiskSignals": [
+    "high"
+  ],
+  "decision": "ready-for-independent-gate"
+}

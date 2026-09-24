@@ -12,6 +12,7 @@ from app.connectors.goldtier_models import (
     GoldTierSearchResult,
     SearchPartyRequest,
 )
+from app.domain.target_submission import GoldTierProviderMode
 
 CANONICAL_AMEND_ROUTE = "/v1/eds/parties/{partyId}/amend"
 
@@ -23,6 +24,8 @@ def _validate_context(source_case_id: str, metadata: GoldTierRequestMetadata) ->
 
 class MockGoldTierConnector:
     """Simulate four EDS operations without HTTP or authentication."""
+
+    environment = GoldTierProviderMode.MOCK
 
     def __init__(
         self,
