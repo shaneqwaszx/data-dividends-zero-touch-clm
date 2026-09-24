@@ -162,3 +162,24 @@
   suites passed and all owned processes were removed.
 - Physical Mongo remains unavailable because the Docker Linux daemon is absent. Status
   remains `needs-verification` pending a fifth fresh independent exact-content gate.
+
+## Published-candidate CI remediation evidence
+
+- Published commit `9c17fc0634ca23b019cb3aba2ff339519288c530` passed frontend,
+  backend, security, E2E, and Windows lifecycle jobs in push run `36032038372`; the
+  physical Mongo harness reported `31 passed / 4 failed`.
+- The first remediation changed three zero-call assertions and one current-v2 uncertainty
+  fixture, but the fresh independent gate correctly rejected treating those as four
+  failed pytest items because two assertions share one test function. Its FAIL report is
+  preserved as
+  `PRE_PHASE22_PROVIDER_ORCHESTRATION_CI_REMEDIATION_QUALITY_GATE_FAILED.md`.
+- The complete four-item mapping is: review-refresh call count; failed-replacement call
+  count (with both sequential expectations retaining Search); current-v2 uncertainty
+  prefix; and the three-case aggregate, where two Search calls plus Shell, Policy, and
+  Amend produce five total GoldTier calls.
+- The remediation is test-only. It does not change runtime code, schema, provider
+  classification, mutation behavior, or replay policy.
+- Focused persistence/zero-touch evidence passes `111/111`; the physical Phase 12 file
+  collects all 15 tests; whitespace hygiene passes.
+- Status: `needs-verification` pending a fresh exact-content independent quality gate and
+  successful physical Mongo CI execution.

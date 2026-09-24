@@ -323,6 +323,32 @@ direct governance, secrets, and whitespace checks also pass. Physical Mongo rema
 unavailable because the Docker Linux daemon pipe is absent. Publication remains blocked
 until a fifth fresh exact-content independent gate returns `PASS`.
 
+### Published-candidate CI remediation
+
+The first published candidate, commit
+`9c17fc0634ca23b019cb3aba2ff339519288c530`, completed frontend, backend, security,
+E2E, and Windows lifecycle CI successfully. Push run `36032038372` reported the physical
+Mongo harness at `31 passed / 4 failed`. The harness intentionally exposes only aggregate
+counts, so diagnosis correlates each failed pytest item with the already-passing unit and
+codec coverage for the new stage order.
+
+The first remediation updated three zero-call assertions and one uncertain-target
+fixture. A fresh independent gate rejected that mapping because two zero-call assertions
+are in the same pytest function, and found the remaining stale aggregate assertion in
+the three-case restart test. The complete four-item mapping is: one review-refresh call
+count; one failed-replacement path whose two sequential assertions both retain the early
+Search; one current-v2 uncertainty fixture missing completed `GOLDTIER_SEARCH`; and one
+three-case aggregate that must include Search for the second pending Singapore case.
+The last total is therefore five GoldTier calls: two Search calls plus Shell, Policy,
+and Amend for the completed case. The failed gate is preserved as
+`PRE_PHASE22_PROVIDER_ORCHESTRATION_CI_REMEDIATION_QUALITY_GATE_FAILED.md`.
+
+The bounded remediation changes only those physical-test expectations and fixture data;
+product code, schema, provider behavior, no-replay policy, and business rules are
+unchanged. Focused persistence and zero-touch tests pass `111/111`, the physical suite
+still collects all 15 owned Phase 12 tests, and diff hygiene passes. Publication of the
+remediation remains blocked until a fresh exact-content independent gate passes.
+
 ## Limitations and open sponsor dependencies
 
 1. Seven GoldTier policy fields remain `TBD_SPONSOR`; therefore external customer writes

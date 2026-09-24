@@ -322,7 +322,7 @@ def test_real_mongo_restart_preserves_review_refresh_and_stops_target(
         assert initial_exception_ids.isdisjoint(
             item["exception_id"] for item in refreshed["active_exceptions"]
         )
-        assert counters == {"registry": 4, "idp": 1, "ownership": 0, "goldtier": 0}
+        assert counters == {"registry": 4, "idp": 1, "ownership": 0, "goldtier": 1}
 
     before_restart = counters.copy()
     with TestClient(create_app(settings)) as second:
@@ -411,7 +411,7 @@ def test_real_mongo_failed_replacement_restart_requires_retry_without_replay(
             failed_document_id
         )
         assert by_id[original["document_id"]]["superseded_at"] is not None
-        assert counters == {"registry": 4, "idp": 2, "ownership": 0, "goldtier": 0}
+        assert counters == {"registry": 4, "idp": 2, "ownership": 0, "goldtier": 1}
 
     before_restart = counters.copy()
     with TestClient(create_app(settings)) as second:
@@ -471,7 +471,7 @@ def test_real_mongo_failed_replacement_restart_requires_retry_without_replay(
             failed_document_id
         )
         assert after_retry_by_id[retried_document_id]["superseded_by_document_id"] is None
-        assert counters == {"registry": 4, "idp": 3, "ownership": 0, "goldtier": 0}
+        assert counters == {"registry": 4, "idp": 3, "ownership": 0, "goldtier": 1}
         completed = _complete_intake(second, case_id, expected_count=1)
         assert completed["status"] == "COMPLETED"
 
@@ -702,7 +702,7 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
             "registry": 8,
             "idp": 3,
             "ownership": 1,
-            "goldtier": 4,
+            "goldtier": 5,
         }
 
         with TestClient(create_app(settings)) as second:
@@ -942,6 +942,7 @@ def test_real_mongo_uncertain_target_restart_and_resume_never_replay(
             "current_stage": AutomationStage.MOCK_GOLDTIER,
             "completed_stages": (
                 AutomationStage.REGISTRY,
+                AutomationStage.GOLDTIER_SEARCH,
                 AutomationStage.DOCUMENT,
                 AutomationStage.OWNERSHIP,
                 AutomationStage.READINESS,
