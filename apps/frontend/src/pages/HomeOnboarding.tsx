@@ -8,7 +8,7 @@ import type {
   ZeroTouchCaseSummary,
   ZeroTouchException,
 } from "../types";
-import { CompletedOverview, ConfirmDetailsPanel, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
+import { CompletedOverview, ConfirmDetailsPanel, DetailedProcessingInspector, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
 import { PriorityBadge } from "./PriorityControl";
 
 export type JurisdictionSelection = "" | "SG" | "AU" | "MY" | "HK";
@@ -309,6 +309,8 @@ export default function HomeOnboarding({
 
         {requestError && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{requestError}</div>}
         {pollingWarning && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{pollingWarning}</div>}
+
+        <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
 
         <RegistryStatePanel summary={summary} />
         <ConfirmDetailsPanel summary={summary} isBusy={isResolving} onResolve={onReconcile} />

@@ -254,7 +254,7 @@ class DocumentProcessingService:
             display_name=display_name.strip(),
             media_type=extracted_content.media_type,
             size_bytes=len(content),
-            profile=DocumentProfile.PROVISIONAL_CORPORATE,
+            profile=DocumentProfile.CERTIFICATE_OF_INCORPORATION_POC,
             state=DocumentProcessingState.UPLOADED,
             created_at=now,
             updated_at=now,
@@ -304,7 +304,7 @@ class DocumentProcessingService:
             try:
                 provider_output = provider.process(
                     IdpDocumentInput(
-                        profile=DocumentProfile.PROVISIONAL_CORPORATE,
+                        profile=DocumentProfile.CERTIFICATE_OF_INCORPORATION_POC,
                         content=extracted_content.content,
                         media_type=extracted_content.media_type,
                         extracted_text=extracted_content.extracted_text,
@@ -828,10 +828,12 @@ def document_semantic_assessment(
         for field in fields_by_key.values()
     ):
         block(DocumentAutoClearBlocker.TEXT_UNAVAILABLE)
+    required_fields = required_document_fields(record.profile)
     for field_key in DocumentFieldKey:
         field = fields_by_key.get(field_key)
         if field is None or field.original_extracted_value is None:
-            block(DocumentAutoClearBlocker.REQUIRED_FIELD_MISSING)
+            if field_key in required_fields:
+                block(DocumentAutoClearBlocker.REQUIRED_FIELD_MISSING)
             continue
         if field.confidence < confidence_threshold:
             block(DocumentAutoClearBlocker.LOW_CONFIDENCE)
@@ -857,6 +859,20 @@ def document_semantic_assessment(
         if compare_values(field_key, effective_value, current_canonical) != ComparisonStatus.MATCH:
             block(DocumentAutoClearBlocker.SOURCE_CONFLICT)
     return DocumentAutoClearAssessment(eligible=not blockers, blockers=tuple(blockers))
+
+
+def required_document_fields(profile: DocumentProfile) -> frozenset[DocumentFieldKey]:
+    """Return semantic requiredness while retaining the legacy four-field profile."""
+
+    if profile == DocumentProfile.CERTIFICATE_OF_INCORPORATION_POC:
+        return frozenset(
+            {
+                DocumentFieldKey.LEGAL_NAME,
+                DocumentFieldKey.REGISTRATION_NUMBER,
+                DocumentFieldKey.COUNTRY_OF_INCORPORATION,
+            }
+        )
+    return frozenset(DocumentFieldKey)
 
 
 def canonical_value_for_field(

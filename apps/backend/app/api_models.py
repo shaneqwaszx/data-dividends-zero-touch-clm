@@ -22,6 +22,7 @@ from app.domain.clm import (
     ClmReadinessAssessment,
     ClmStatus,
     ClmWorkflowEvent,
+    GoldTierSearchCheckpoint,
     GoldTierSubmissionPlan,
     RelatedPartySubmissionPreparation,
 )
@@ -288,9 +289,7 @@ class OnboardingCaseResponse(BaseModel):
         return cls.model_validate(
             {
                 **projected_values,
-                "client_scope_label": (
-                    team.client_scope_label if team is not None else None
-                ),
+                "client_scope_label": (team.client_scope_label if team is not None else None),
                 "registry_evidence_binding": browser_binding,
             }
         )
@@ -437,6 +436,7 @@ class ClmCaseSummaryResponse(BaseModel):
     status: ClmStatus
     readiness: ClmReadinessAssessment
     submission_plan: GoldTierSubmissionPlan
+    target_search_checkpoint: GoldTierSearchCheckpoint | None
     related_party_preparation: RelatedPartySubmissionPreparation | None
     submission: BrowserClmSubmission | None
     goldtier_result: GoldTierResult | None
@@ -473,6 +473,7 @@ class ClmCaseSummaryResponse(BaseModel):
             status=record.status,
             readiness=record.readiness,
             submission_plan=record.submission_plan,
+            target_search_checkpoint=record.target_search_checkpoint,
             related_party_preparation=record.related_party_preparation,
             submission=submission,
             goldtier_result=record.goldtier_result,
@@ -553,6 +554,7 @@ class BrowserFieldReconciliation(BaseModel):
     field_name: ReconciliationField
     observations: tuple[BrowserReconciliationObservation, ...]
     outcome: ReconciliationOutcome
+    document_required: bool
     discrepancy_id: UUID | None
 
 
@@ -604,6 +606,7 @@ class ReconciliationResponse(BaseModel):
                     field_name=item.field_name,
                     observations=observations(item.observations),
                     outcome=item.outcome,
+                    document_required=item.document_required,
                     discrepancy_id=item.discrepancy_id,
                 )
                 for item in record.fields
@@ -873,6 +876,8 @@ class BrowserTargetOperationEvidence(BaseModel):
         "IN_PROGRESS",
         "NO_MATCH",
         "MATCH_FOUND",
+        "SKIPPED",
+        "REVIEW_REQUIRED",
         "CREATED",
         "SUCCESS",
         "FAILED",

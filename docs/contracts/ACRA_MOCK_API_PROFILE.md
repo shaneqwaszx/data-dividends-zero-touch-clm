@@ -6,6 +6,10 @@
 > are not asserted to be the authoritative subscribed ACRA API contract while Q-012
 > remains open.
 
+This profile belongs to the local synthetic `mock` mode. The separately named official
+`api_marketplace_mock` lane is `BLOCKED_AUTHORITY` after the 2026-09-24 no-auth request
+returned HTTP `401`; its historical sample shapes do not change this local Mock contract.
+
 The operations, paths, field names, collection limits, empty rules, and errors below
 are synthetic project behavior. They are not captured ACRA responses and do not prove
 live or sandbox interoperability. ACRA remains the business source; `MOCK` identifies

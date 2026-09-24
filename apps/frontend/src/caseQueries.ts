@@ -183,6 +183,7 @@ export function prefetchSessionQueries(
   queryClient: QueryClient,
   profile: AuthenticatedProfile,
 ): void {
+  if (!profile.capabilities.includes("CASE_ACCESS")) return;
   void queryClient.prefetchQuery(dashboardQueryOptions(profile.user_id, absent));
   void queryClient.prefetchQuery(
     casePortfolioQueryOptions(profile.user_id, {

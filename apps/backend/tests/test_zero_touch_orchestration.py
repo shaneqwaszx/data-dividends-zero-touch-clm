@@ -6,7 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 from threading import Barrier
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,13 +21,19 @@ from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
 from app.connectors.mock_ownership import MockOwnershipProvider, MockOwnershipScenario
 from app.demo.zero_touch_control import ZeroTouchDemoScenario
 from app.domain.access import TeamId
-from app.domain.documents import DocumentFieldKey, ReviewDecision
+from app.domain.documents import DocumentFieldKey, DocumentProfile, ReviewDecision
 from app.domain.onboarding_intelligence import (
     MockRiskAssessment,
     MockRiskBand,
     OnboardingIntelligenceRecord,
 )
-from app.domain.zero_touch import ExceptionResolutionAction, ZeroTouchAutomationRecord
+from app.domain.reconciliation import ReconciliationOutcome
+from app.domain.zero_touch import (
+    AutomationStage,
+    AutomationStatus,
+    ExceptionResolutionAction,
+    ZeroTouchAutomationRecord,
+)
 from app.main import create_app
 from app.services.clm_orchestration import ClmOrchestrationService
 from app.services.clm_repository import InMemoryClmOrchestrationRepository
@@ -126,6 +132,24 @@ class MultipleBlockerIdp(MockIdpProvider):
         return result.model_copy(update={"fields": fields})
 
 
+class AddressMismatchIdp(MockIdpProvider):
+    def __init__(self) -> None:
+        super().__init__(MockIdpScenario.ALL_FIELDS_MATCH)
+
+    def process(self, document: Any) -> Any:
+        result = super().process(document)
+        return result.model_copy(
+            update={
+                "fields": [
+                    field.model_copy(update={"value": "99 OTHER ROAD, 999999, SG"})
+                    if field.field_key == DocumentFieldKey.REGISTERED_ADDRESS
+                    else field
+                    for field in result.fields
+                ]
+            }
+        )
+
+
 def build_system(
     *, max_transitions: int = 12, connector: RecordingMockGoldTier | None = None
 ) -> tuple[
@@ -216,6 +240,7 @@ def test_straight_through_reaches_mock_target_with_zero_human_interventions() ->
     assert result["clm"]["status"] == "MOCK_GOLDTIER_SUBMITTED"
     assert result["completed_stages"] == [
         "REGISTRY",
+        "GOLDTIER_SEARCH",
         "DOCUMENT",
         "OWNERSHIP",
         "READINESS",
@@ -226,6 +251,126 @@ def test_straight_through_reaches_mock_target_with_zero_human_interventions() ->
     case_id = UUID(result["case"]["case_id"])
     document = documents.list_documents(case_id=case_id)[0]
     assert document.completion_method == "AUTO_CONFIRMED"
+
+
+def test_coi_missing_address_remains_registry_only_and_completes() -> None:
+    _, zero, _, target, _ = build_system()
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+
+    completed = zero.attach_document(
+        case_id=created.case_id,
+        display_name="coi-without-address.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=MockIdpProvider(MockIdpScenario.MISSING_FIELD),
+    )
+
+    reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
+    assert completed.status == "COMPLETED"
+    assert not any(
+        item.blocker_code == "DOCUMENT_REQUIRED_FIELD_MISSING"
+        for item in completed.active_exceptions
+    )
+    assert reconciliation is not None and reconciliation.status == "MATCHED"
+    address = next(
+        item for item in reconciliation.fields if item.field_name == "registered_address"
+    )
+    assert address.outcome == ReconciliationOutcome.REGISTRY_ONLY
+    assert address.document_required is False
+    assert target.calls == ["search", "shell", "policy", "amend"]
+
+
+def test_coi_supplied_mismatching_address_remains_reviewable() -> None:
+    _, zero, _, target, _ = build_system()
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+
+    paused = zero.attach_document(
+        case_id=created.case_id,
+        display_name="coi-with-mismatching-address.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=AddressMismatchIdp(),
+    )
+
+    reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
+    assert paused.status == "WAITING_FOR_REVIEW"
+    assert any(item.blocker_code == "DOCUMENT_SOURCE_CONFLICT" for item in paused.active_exceptions)
+    assert reconciliation is not None
+    address = next(
+        item for item in reconciliation.fields if item.field_name == "registered_address"
+    )
+    assert address.outcome == ReconciliationOutcome.CONFLICT
+    assert address.document_required is False
+    assert target.calls == ["search"]
+
+
+def test_legacy_document_profile_still_requires_registered_address() -> None:
+    _, zero, documents, target, _ = build_system()
+    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+    document = documents.create_document(
+        case_id=created.case_id,
+        display_name="legacy-corporate-profile.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        provider=MockIdpProvider(MockIdpScenario.MISSING_FIELD),
+    )
+    documents._repository.save(  # noqa: SLF001 - persisted legacy compatibility fixture
+        document.model_copy(update={"profile": DocumentProfile.PROVISIONAL_CORPORATE})
+    )
+
+    paused = zero.start(case_id=created.case_id)
+
+    reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
+    assert paused.status == "WAITING_FOR_REVIEW"
+    assert any(
+        item.blocker_code == "DOCUMENT_REQUIRED_FIELD_MISSING"
+        for item in paused.active_exceptions
+    )
+    assert reconciliation is not None
+    address = next(
+        item for item in reconciliation.fields if item.field_name == "registered_address"
+    )
+    assert address.outcome == ReconciliationOutcome.MISSING_IN_SOURCE
+    assert address.document_required is True
+    assert target.calls == ["search"]
+
+
+def test_registry_complete_restart_runs_search_before_document() -> None:
+    _, zero, documents, target, _ = build_system()
+    case = zero._cases.create_staged_case("202400001A")  # noqa: SLF001 - restart fixture
+    zero._clm._create_record(case)  # noqa: SLF001 - pre-Search durable fixture
+    documents.create_document(
+        case_id=case.case_id,
+        display_name="synthetic.pdf",
+        content_type="application/pdf",
+        content=PDF,
+    )
+    now = datetime.now(UTC)
+    zero.automation_repository.save(
+        ZeroTouchAutomationRecord(
+            case_id=case.case_id,
+            automation_id=uuid4(),
+            ownership_provider_binding_id=(
+                zero._ownership_provider_bindings.default_binding_id  # noqa: SLF001
+            ),
+            status=AutomationStatus.RUNNING,
+            current_stage=AutomationStage.GOLDTIER_SEARCH,
+            completed_stages=(AutomationStage.REGISTRY,),
+            started_at=now,
+            created_at=now,
+            updated_at=now,
+        ),
+        expected_version=None,
+    )
+
+    resumed = zero.start(case_id=case.case_id)
+
+    assert resumed.completed_stages[:3] == (
+        AutomationStage.REGISTRY,
+        AutomationStage.GOLDTIER_SEARCH,
+        AutomationStage.DOCUMENT,
+    )
+    assert target.calls == ["search", "shell", "policy", "amend"]
 
 
 def test_case_bound_high_mock_risk_can_pause_readiness_without_compliance_decision() -> None:
@@ -257,11 +402,9 @@ def test_case_bound_high_mock_risk_can_pause_readiness_without_compliance_decisi
 
     assert result["status"] == "WAITING_FOR_REVIEW"
     assert result["current_stage"] == "READINESS"
-    assert result["active_exceptions"][0]["exception_type"] == (
-        "MOCK_RISK_REVIEW_REQUIRED"
-    )
+    assert result["active_exceptions"][0]["exception_type"] == ("MOCK_RISK_REVIEW_REQUIRED")
     assert result["active_exceptions"][0]["available_actions"] == []
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_cache_hit_journey_preserves_target_order_and_counts(
@@ -361,7 +504,7 @@ def test_business_exceptions_pause_before_target(
     assert result["status"] == "WAITING_FOR_REVIEW"
     assert result["current_stage"] == stage
     assert result["active_exceptions"][0]["exception_type"] == exception_type
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_document_source_conflict_resolution_is_one_intervention_and_auto_resumes() -> None:
@@ -405,16 +548,15 @@ def test_low_confidence_has_no_unconfirmed_resolution_action() -> None:
     )
     assert resolved.status_code == 422
     assert resolved.json()["detail"]["code"] == "ZERO_TOUCH_RESOLUTION_NOT_ALLOWED"
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
-def test_existing_party_stops_after_search_and_creates_unresolvable_review() -> None:
+def test_existing_party_skips_shell_and_continues_to_completion() -> None:
     client, _, _, target, _ = build_system()
     result = start_demo(client, "EXISTING_PARTY")
-    assert result["status"] == "WAITING_FOR_REVIEW"
-    assert result["active_exceptions"][0]["exception_type"] == ("EXISTING_PARTY_REVIEW_REQUIRED")
-    assert result["active_exceptions"][0]["available_actions"] == []
-    assert target.calls == ["search"]
+    assert result["status"] == "COMPLETED"
+    assert result["active_exceptions"] == []
+    assert target.calls == ["search", "policy", "amend"]
 
 
 def test_provider_and_target_failures_are_technical_not_business_review() -> None:
@@ -423,7 +565,7 @@ def test_provider_and_target_failures_are_technical_not_business_review() -> Non
     assert provider_failure["status"] == "TECHNICAL_FAILURE"
     assert provider_failure["active_exceptions"] == []
     assert provider_failure["technical_failure"]["code"] == "IDP_PROCESSING_FAILED"
-    assert target.calls == []
+    assert target.calls == ["search"]
 
     client, _, _, target, _ = build_system()
     target_failure = start_demo(client, "TARGET_FAILURE")
@@ -484,7 +626,7 @@ def test_low_confidence_conflict_is_one_unverifiable_review_checkpoint() -> None
     assert result.status == "WAITING_FOR_REVIEW"
     assert result.active_exceptions[0].blocker_codes == ("DOCUMENT_LOW_CONFIDENCE",)
     assert result.active_exceptions[0].available_actions == ()
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_low_confidence_conflict_rejects_value_selection() -> None:
@@ -511,7 +653,7 @@ def test_low_confidence_conflict_rejects_value_selection() -> None:
     current = zero.get(case_id=created.case_id)
     assert current is not None and current.status == "WAITING_FOR_REVIEW"
     assert current.metrics.human_interventions == 0
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_partial_review_stays_waiting_then_safe_correction_resumes_once() -> None:
@@ -542,11 +684,9 @@ def test_partial_review_stays_waiting_then_safe_correction_resumes_once() -> Non
     partial = zero.get(case_id=created.case_id)
     assert partial is not None
     assert partial.status == "WAITING_FOR_REVIEW"
-    assert {item.blocker_code for item in partial.active_exceptions} == {
-        "DOCUMENT_REVIEW_REQUIRED"
-    }
+    assert {item.blocker_code for item in partial.active_exceptions} == {"DOCUMENT_REVIEW_REQUIRED"}
     assert partial.version > paused.version
-    assert target.calls == []
+    assert target.calls == ["search"]
 
     for key in (
         DocumentFieldKey.REGISTRATION_NUMBER,
@@ -561,9 +701,7 @@ def test_partial_review_stays_waiting_then_safe_correction_resumes_once() -> Non
         )
 
     completed = zero.get(case_id=created.case_id)
-    reviewed = documents.get_document(
-        case_id=created.case_id, document_id=document.document_id
-    )
+    reviewed = documents.get_document(case_id=created.case_id, document_id=document.document_id)
     assert completed is not None and completed.status == "COMPLETED"
     assert reviewed is not None
     legal_name = next(
@@ -621,7 +759,7 @@ def test_failed_replacement_returns_to_targeted_intake_and_resumes_once() -> Non
     assert recovered.active_exceptions == []
     assert recovered.events[-1].event_type == "DOCUMENT_REUPLOAD_REQUIRED"
     assert len(current_documents) == 1 and current_documents[0].state == "FAILED"
-    assert target.calls == []
+    assert target.calls == ["search"]
 
     retried = zero.retry_intake_document(
         case_id=created.case_id,
@@ -680,9 +818,9 @@ def test_replacement_repository_failure_does_not_enter_reupload_recovery(
     assert unchanged.status == "WAITING_FOR_REVIEW"
     assert unchanged.current_stage == "DOCUMENT"
     assert unchanged.active_exceptions == paused.active_exceptions
-    assert target.calls == []
+    assert target.calls == ["search"]
     assert zero.start(case_id=created.case_id).version == paused.version
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_in_lock_reauthorization_failure_prevents_review_mutation() -> None:
@@ -719,7 +857,7 @@ def test_in_lock_reauthorization_failure_prevents_review_mutation() -> None:
     assert unchanged_document is not None and unchanged_automation is not None
     assert len(unchanged_document.events) == len(document.events)
     assert unchanged_automation.version == automation.version
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_explicit_resume_repairs_interrupted_review_checkpoint_without_replay() -> None:
@@ -806,14 +944,10 @@ def _prepare_final_document_review(
                 else ReviewDecision.ACCEPTED
             ),
             corrected_value=(
-                case.entity.legal_name
-                if key == DocumentFieldKey.LEGAL_NAME
-                else None
+                case.entity.legal_name if key == DocumentFieldKey.LEGAL_NAME else None
             ),
         )
-    current = documents.get_document(
-        case_id=created.case_id, document_id=document.document_id
-    )
+    current = documents.get_document(case_id=created.case_id, document_id=document.document_id)
     assert current is not None
     return created.case_id, document.document_id, len(current.events)
 
@@ -870,7 +1004,7 @@ def test_reconciliation_conflict_after_review_fails_closed_then_repeat_repairs_o
     assert {item.exception_id for item in failed.active_exceptions} == blocker_ids
     assert reconciliation_calls["count"] == 1
     assert ownership_calls["count"] == 0
-    assert target.calls == []
+    assert target.calls == ["search"]
     reviewed = documents.get_document(case_id=case_id, document_id=document_id)
     assert reviewed is not None and len(reviewed.events) > event_count
     durable_event_count = len(reviewed.events)
@@ -886,11 +1020,11 @@ def test_reconciliation_conflict_after_review_fails_closed_then_repeat_repairs_o
     completed = zero.get(case_id=case_id)
     repeated = documents.get_document(case_id=case_id, document_id=document_id)
     assert completed is not None
-    assert completed.status == "WAITING_FOR_REVIEW"
-    assert completed.current_stage == "MOCK_GOLDTIER"
+    assert completed.status == "COMPLETED"
+    assert completed.current_stage == "COMPLETE"
     assert repeated is not None and len(repeated.events) == durable_event_count
     assert ownership_calls["count"] == 1
-    assert target.calls == ["search"]
+    assert target.calls == ["search", "policy", "amend"]
 
 
 def test_reconciliation_infrastructure_failure_after_review_resume_repairs_once(
@@ -928,7 +1062,7 @@ def test_reconciliation_infrastructure_failure_after_review_resume_repairs_once(
     assert {item.exception_id for item in failed.active_exceptions} == blocker_ids
     assert reconciliation_calls["count"] == 1
     assert ownership_calls["count"] == 0
-    assert target.calls == []
+    assert target.calls == ["search"]
 
     monkeypatch.setattr(zero._reconciliation, "reconcile_current", original)  # noqa: SLF001
     completed = zero.start(case_id=case_id, refresh_document_checkpoint=True)
@@ -974,7 +1108,7 @@ def test_automation_checkpoint_rejection_stops_progress_and_is_recoverable(
     assert failed.active_exceptions
     assert rejected["count"] == 1
     assert ownership_calls["count"] == 0
-    assert target.calls == []
+    assert target.calls == ["search"]
     durable = documents.get_document(case_id=case_id, document_id=document_id)
     assert durable is not None
     durable_event_count = len(durable.events)
@@ -1046,7 +1180,7 @@ def test_reconciliation_failure_preserves_an_independent_document_blocker(
     assert failed is not None
     assert {item.blocker_code for item in failed.active_exceptions} == before_codes
     assert calls["count"] == 1
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 @pytest.mark.parametrize("mutation", ["legal_name", "registered_address"])
@@ -1080,7 +1214,7 @@ def test_canonical_mutation_without_new_events_makes_resolution_stale(
     assert current is not None and current.status == "WAITING_FOR_REVIEW"
     assert len(zero._cases.get_case(case_id).events) == event_count  # type: ignore[union-attr]  # noqa: SLF001
     assert documents.list_documents(case_id=case_id)[0].state == "REVIEW_REQUIRED"
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_invalid_pdf_does_not_publish_started_state() -> None:
@@ -1097,7 +1231,7 @@ def test_invalid_pdf_does_not_publish_started_state() -> None:
     assert current.status == "PENDING_INPUTS"
     assert current.version == created.version
     assert all(event.event_type != "ONBOARDING_STARTED" for event in current.events)
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_registry_review_document_attach_does_not_publish_running_state() -> None:
@@ -1149,7 +1283,7 @@ def test_unexpected_document_fault_terminalizes_with_sanitized_failure(
     )
     assert "PRIVATE_ASSESSMENT_SENTINEL" not in current.model_dump_json()
     assert zero.start(case_id=created.case_id).version == current.version
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_ownership_provider_binding_survives_document_resolution() -> None:
@@ -1174,7 +1308,7 @@ def test_ownership_provider_binding_survives_document_resolution() -> None:
     assert resumed.status == "WAITING_FOR_REVIEW"
     assert resumed.current_stage == "OWNERSHIP"
     assert resumed.active_exceptions[0].exception_type == "OWNERSHIP_CYCLE"
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_phase05_finalization_recovery_completes_without_target_replay(
@@ -1266,7 +1400,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_EARLIER_DOCUMENT() -> None:
     assert paused.current_stage == "DOCUMENT"
     assert paused.active_exceptions[0].exception_type == "DOCUMENT_SOURCE_CONFLICT"
     assert paused.active_exceptions[0].evidence[0].reference_id == conflict.document_id
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_P06_QG_005_REVIEWED_CONFLICT_LATER_DOCUMENT() -> None:
@@ -1289,7 +1423,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_LATER_DOCUMENT() -> None:
 
     assert paused.status == "WAITING_FOR_REVIEW"
     assert paused.active_exceptions[0].evidence[0].reference_id == conflict.document_id
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_P11_ONE_CURRENT_FIELD_DISCREPANCY_RETAINS_BOTH_CONFLICT_DOCUMENTS() -> None:
@@ -1320,7 +1454,7 @@ def test_P11_ONE_CURRENT_FIELD_DISCREPANCY_RETAINS_BOTH_CONFLICT_DOCUMENTS() -> 
         item.source_record_id for item in legal.observations if item.source_kind == "DOCUMENT_IDP"
     ]
     assert document_ids == [first.document_id, second.document_id]
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_P06_QG_013_EQUAL_TIMESTAMPS_PRESERVE_INSERTION_ORDER_100_RUNS() -> None:
@@ -1363,7 +1497,7 @@ def test_P06_QG_013_EQUAL_TIMESTAMPS_PRESERVE_INSERTION_ORDER_100_RUNS() -> None
         ] == [first.document_id, second.document_id]
         assert paused.status == "WAITING_FOR_REVIEW"
 
-    assert target.calls == []
+    assert target.calls == ["search"] * 100
 
 
 def test_P06_QG_013_FORMER_FLAKY_TEST_IS_STABLE_100_RUNS() -> None:
@@ -1424,7 +1558,7 @@ def test_P06_QG_005_REVIEWED_LOW_CONFIDENCE_REMAINS_BLOCKED() -> None:
     assert paused.status == "WAITING_FOR_REVIEW"
     assert paused.active_exceptions[0].exception_type == "DOCUMENT_LOW_CONFIDENCE"
     assert paused.active_exceptions[0].available_actions == ()
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def _exercise_repeated_finalization_recovery(
@@ -1506,9 +1640,9 @@ def test_P06_QG_006_REPEATED_MATCH_FOUND_FINALIZATION_RETRY(
     _exercise_repeated_finalization_recovery(
         monkeypatch,
         uen="202400005E",
-        expected_status="WAITING_FOR_REVIEW",
-        expected_code="GT_EXISTING_PARTY_REVIEW_REQUIRED",
-        expected_calls=["search"],
+        expected_status="COMPLETED",
+        expected_code=None,
+        expected_calls=["search", "policy", "amend"],
     )
 
 
@@ -1588,7 +1722,7 @@ def test_stale_and_cross_case_exception_resolution_cannot_advance() -> None:
         },
     )
     assert isolated.status_code == 409
-    assert target.calls == []
+    assert target.calls == ["search", "search"]
 
 
 def test_loop_guard_stops_safely_without_downstream_calls() -> None:
@@ -1596,8 +1730,8 @@ def test_loop_guard_stops_safely_without_downstream_calls() -> None:
     result = start_demo(client, "STRAIGHT_THROUGH")
     assert result["status"] == "TECHNICAL_FAILURE"
     assert result["technical_failure"]["code"] == "AUTOMATION_LOOP_GUARD"
-    assert result["completed_stages"] == ["REGISTRY", "DOCUMENT"]
-    assert target.calls == []
+    assert result["completed_stages"] == ["REGISTRY", "GOLDTIER_SEARCH", "DOCUMENT"]
+    assert target.calls == ["search"]
 
 
 def test_malformed_target_response_terminalizes_without_replay_or_review() -> None:

@@ -46,3 +46,14 @@ Classification values are exactly `ALREADY_PRESENT_HARDENED`,
 - Raw debug-response tooling: absent.
 - Q-004 and Q-012: open.
 - No real ACRA network smoke was run or authorized.
+
+## 2026-09-24 official-Mock authority update
+
+The current provider-orchestration assignment introduces `api_marketplace_mock` as the
+sole canonical name for a distinct official API Marketplace Mock lane; it does not revive
+historical `bizfile_mock` or reclassify `ACRA_BIZFILE`. A bounded read-only no-auth GET
+to the official entity-query Mock endpoint returned HTTP `401`. This falsifies the old
+no-auth runtime assumption but does not establish what auth is required. The lane is
+therefore `MOCK / BLOCKED_AUTHORITY`, with runtime activation disabled pending Q-012.
+OAuth, guessed static-header behavior, raw-response tooling, Garden fallback, and Live
+claims remain prohibited. See `ACRA_API_MARKETPLACE_MOCK_READINESS.md` and D-050.

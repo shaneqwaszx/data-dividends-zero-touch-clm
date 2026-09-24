@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { formatDuration, formatTimestamp, STAGE_BANDS } from "../shared";
 import type {
   AutomationStage,
@@ -88,6 +90,104 @@ export function PipelineRail({ summary }: { summary: ZeroTouchCaseSummary }) {
         );
       })}
     </div>
+  );
+}
+
+export function DetailedProcessingInspector({ summary }: { summary: ZeroTouchCaseSummary }) {
+  const [expanded, setExpanded] = useState(false);
+  const registryOperations = (summary.case.registry_acquisition?.operation_results ?? [])
+    .filter((operation) => operation.status !== "NOT_ATTEMPTED");
+  const targetOperations = (summary.target_operations ?? [])
+    .filter((operation) => operation.status !== "NOT_ATTEMPTED");
+  const timeline = summary.timeline ?? [];
+
+  return (
+    <section className="card processing-inspector" aria-labelledby="processing-inspector-heading">
+      <div className="state-composition__header">
+        <div>
+          <p className="card-kicker">Backend-authored processing record</p>
+          <h2 id="processing-inspector-heading">Detailed processing</h2>
+          <p className="text-muted">Only stages and operations reported by the current case response are shown.</p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          aria-expanded={expanded}
+          aria-controls="processing-inspector-content"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? "Hide processing details" : "Show processing details"}
+        </button>
+      </div>
+
+      {expanded && (
+        <div id="processing-inspector-content">
+          <dl>
+            <div><dt>Current stage</dt><dd>{summary.current_stage.replaceAll("_", " ")}</dd></div>
+            <div><dt>Case status</dt><dd>{summary.status.replaceAll("_", " ")}</dd></div>
+            <div><dt>Last backend update</dt><dd>{formatTimestamp(summary.updated_at)}</dd></div>
+          </dl>
+
+          {registryOperations.length > 0 && (
+            <div className="table-scroll" tabIndex={0} aria-label="Occurred registry operations">
+              <table className="table">
+                <thead><tr><th>Provider</th><th>Operation</th><th>Status</th><th>Safe result</th></tr></thead>
+                <tbody>
+                  {registryOperations.map((operation) => (
+                    <tr key={operation.operation}>
+                      <td>{operation.provenance ? `${operation.provenance.provider} ${operation.provenance.environment}` : "Registry provider"}</td>
+                      <td>{operation.operation.replaceAll("_", " ")}</td>
+                      <td>{operation.status.replaceAll("_", " ")}</td>
+                      <td>{operation.error ? `${operation.error.code}: ${operation.error.message}` : `${operation.record_count} record(s)`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {targetOperations.length > 0 && (
+            <div className="table-scroll" tabIndex={0} aria-label="Occurred GoldTier operations">
+              <table className="table">
+                <thead><tr><th>Provider</th><th>Operation</th><th>Status</th></tr></thead>
+                <tbody>
+                  {targetOperations.map((operation) => (
+                    <tr key={operation.operation}>
+                      <td>GoldTier {summary.clm.submission_plan.environment}</td>
+                      <td>{operation.operation.replaceAll("_", " ")}</td>
+                      <td>{operation.status.replaceAll("_", " ")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {timeline.length > 0 && (
+            <div className="table-scroll" tabIndex={0} aria-label="Occurred automation events">
+              <table className="table">
+                <thead><tr><th>Timestamp</th><th>Stage</th><th>Status</th><th>Safe result</th></tr></thead>
+                <tbody>
+                  {timeline.map((event) => (
+                    <tr key={event.sequence}>
+                      <td>{formatTimestamp(event.timestamp)}</td>
+                      <td>{event.stage.replaceAll("_", " ")}</td>
+                      <td>{event.status.replaceAll("_", " ")}</td>
+                      <td>{event.code ? `${event.code}: ${event.message}` : event.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {registryOperations.length === 0 && targetOperations.length === 0 && timeline.length === 0 && (
+            <p className="empty-copy">No processing event has been reported yet.</p>
+          )}
+          <p className="control-help">Credentials, raw provider payloads, document contents, and internal exceptions are excluded.</p>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -263,7 +363,7 @@ export function ConfirmDetailsPanel({
         <span className="tag tag-accent-2">{reconciliation.status.replaceAll("_", " ")}</span>
       </div>
       <div className="reconciliation-summary" aria-label="Reconciliation outcomes">
-        {(["MATCH", "CONFLICT", "MISSING_IN_SOURCE", "UNVERIFIABLE", "INVALID"] as const).map((outcome) => (
+        {(["MATCH", "REGISTRY_ONLY", "CONFLICT", "MISSING_IN_SOURCE", "UNVERIFIABLE", "INVALID"] as const).map((outcome) => (
           <span className={`tag outcome-${outcome.toLowerCase()}`} key={outcome}>
             {reconciliation.fields.filter((field) => field.outcome === outcome).length} {outcome.replaceAll("_", " ").toLowerCase()}
           </span>

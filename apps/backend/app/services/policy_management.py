@@ -17,6 +17,7 @@ from app.domain.policy import (
     ENTITY_RESOLUTION_NAME_WEIGHT_ID,
     ENTITY_RESOLUTION_REVIEW_THRESHOLD_ID,
     GOLDTIER_ACCOUNT_ENTITY_TYPE_ID,
+    GOLDTIER_ACCOUNT_ENTITY_TYPE_POC_VALUE,
     GOLDTIER_BOOKING_ENTITY_ID,
     GOLDTIER_CLIENT_SEGMENT_ID,
     GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_ID,
@@ -405,12 +406,8 @@ class PolicyManagementService:
                         ENTITY_RESOLUTION_INCORPORATION_DATE_WEIGHT_ID
                     ],
                 ),
-                ubo_advisory_likely_threshold=decimal_values[
-                    UBO_ADVISORY_LIKELY_THRESHOLD_ID
-                ],
-                ubo_advisory_unlikely_threshold=decimal_values[
-                    UBO_ADVISORY_UNLIKELY_THRESHOLD_ID
-                ],
+                ubo_advisory_likely_threshold=decimal_values[UBO_ADVISORY_LIKELY_THRESHOLD_ID],
+                ubo_advisory_unlikely_threshold=decimal_values[UBO_ADVISORY_UNLIKELY_THRESHOLD_ID],
                 mock_risk_medium_threshold=cls._runtime_integer(
                     catalogue, MOCK_RISK_MEDIUM_THRESHOLD_ID
                 ),
@@ -577,8 +574,12 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
         policy_id: str,
         name: str,
         description: str,
+        *,
+        default_value: str = "TBD_SPONSOR",
+        default_authority: PolicyAuthority = PolicyAuthority.TBD_SPONSOR,
+        classifications: tuple[PolicyClassification, ...] = (pending,),
     ) -> PolicyRule:
-        typed = StringPolicyValue(value="TBD_SPONSOR")
+        typed = StringPolicyValue(value=default_value)
         return PolicyRule(
             policy_id=policy_id,
             category="GoldTier target preparation",
@@ -587,9 +588,9 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
             value=typed,
             value_type=PolicyValueType.STRING,
             default_value=typed,
-            classifications=(pending,),
-            authority=PolicyAuthority.TBD_SPONSOR,
-            default_authority=PolicyAuthority.TBD_SPONSOR,
+            classifications=classifications,
+            authority=default_authority,
+            default_authority=default_authority,
             enforcement=PolicyEnforcement.RUNTIME_ENFORCED,
             version=1,
             created_at=now,
@@ -863,7 +864,10 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
         target_rule(
             GOLDTIER_ACCOUNT_ENTITY_TYPE_ID,
             "GoldTier account entity type",
-            "Authority-labelled XPI account entity type; the default blocks dispatch.",
+            "Editable project-defined provisional XPI account entity type placeholder.",
+            default_value=GOLDTIER_ACCOUNT_ENTITY_TYPE_POC_VALUE,
+            default_authority=PolicyAuthority.PROJECT_DEFINED_PROVISIONAL,
+            classifications=(project, pending),
         ),
         target_rule(
             GOLDTIER_PRODUCT_TYPE_ID,

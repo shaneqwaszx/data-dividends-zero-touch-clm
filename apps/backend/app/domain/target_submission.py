@@ -112,6 +112,13 @@ class GoldTierOperationMarker(StrEnum):
     AMEND = "AMEND"
 
 
+class GoldTierSearchResolution(StrEnum):
+    """Trusted disposition carried from the early read-only Search checkpoint."""
+
+    NO_MATCH = "NO_MATCH"
+    EXACT_MATCH = "EXACT_MATCH"
+
+
 class GoldTierTargetOutcome(BaseModel):
     """Minimal trusted target facts retained before rich receipt mapping."""
 
@@ -210,9 +217,16 @@ class GoldTierExecutionLedgerEntry(BaseModel):
 
     submission_input: GoldTierSubmissionInput
     state: GoldTierExecutionLedgerState
-    attempted_operations: tuple[GoldTierOperationMarker, ...] = Field(
-        default=(), max_length=4
+    attempted_operations: tuple[GoldTierOperationMarker, ...] = Field(default=(), max_length=4)
+    completed_operations: tuple[GoldTierOperationMarker, ...] | None = Field(
+        default=None, max_length=4
     )
+    search_resolution: GoldTierSearchResolution | None = None
+    resolved_party_id: SafeTargetIdentifier | None = None
+    shell_status: SafeTargetStatus | None = None
+    policy_id: SafeTargetIdentifier | None = None
+    policy_status: SafeTargetStatus | None = None
+    amend_status: SafeTargetStatus | None = None
     target_outcome: GoldTierTargetOutcome | None = None
     receipt: GoldTierExecutionReceipt | None = None
 
@@ -220,15 +234,39 @@ class GoldTierExecutionLedgerEntry(BaseModel):
     def validate_lifecycle_shape(self) -> "GoldTierExecutionLedgerEntry":
         if not _is_valid_operation_prefix(self.attempted_operations):
             raise ValueError("Attempted target operations must form an ordered prefix")
+        completed = self.completed_operations
+        if completed is not None:
+            if not _is_valid_operation_prefix(completed):
+                raise ValueError("Completed target operations must form an ordered prefix")
+            if completed != self.attempted_operations[: len(completed)]:
+                raise ValueError("Completed operations must be a prefix of attempted operations")
+        if self.search_resolution is not None and (
+            not self.attempted_operations
+            or self.attempted_operations[0] != GoldTierOperationMarker.SEARCH
+        ):
+            raise ValueError("Search resolution requires an attempted Search")
+        if self.search_resolution == GoldTierSearchResolution.EXACT_MATCH and (
+            self.resolved_party_id is None or self.shell_status is None
+        ):
+            raise ValueError("Exact Search resolution requires the retained target identity")
+        if (
+            self.search_resolution == GoldTierSearchResolution.NO_MATCH
+            and self.resolved_party_id is not None
+            and GoldTierOperationMarker.SHELL not in (completed or self.attempted_operations)
+        ):
+            raise ValueError("No-match Search resolution cannot retain a target identity")
+        if self.policy_id is not None and self.resolved_party_id is None:
+            raise ValueError("Policy progress requires a resolved target identity")
+        if self.amend_status is not None and self.policy_status is None:
+            raise ValueError("Amend progress requires policy progress")
         if self.state == GoldTierExecutionLedgerState.IN_PROGRESS:
             if self.target_outcome is not None or self.receipt is not None:
                 raise ValueError("In-progress execution cannot have a terminal outcome")
         elif self.state == GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED:
             if self.target_outcome is None or self.receipt is not None:
                 raise ValueError("Recorded target outcome cannot contain a rich receipt")
-        elif (
-            self.state == GoldTierExecutionLedgerState.FINALIZED
-            and (self.target_outcome is None or self.receipt is None)
+        elif self.state == GoldTierExecutionLedgerState.FINALIZED and (
+            self.target_outcome is None or self.receipt is None
         ):
             raise ValueError("Finalized execution requires outcome and receipt")
         if (
@@ -236,4 +274,20 @@ class GoldTierExecutionLedgerEntry(BaseModel):
             and self.attempted_operations != self.target_outcome.completed_operations
         ):
             raise ValueError("Ledger operations must match the retained target outcome")
+        if (
+            self.target_outcome is not None
+            and completed is not None
+            and completed != self.attempted_operations
+        ):
+            raise ValueError("Terminal ledger operations must have definitive outcomes")
         return self
+
+    @property
+    def definitively_completed_operations(self) -> tuple[GoldTierOperationMarker, ...]:
+        """Treat legacy terminal rows as complete while leaving old in-flight rows uncertain."""
+
+        if self.completed_operations is not None:
+            return self.completed_operations
+        if self.target_outcome is not None:
+            return self.attempted_operations
+        return ()

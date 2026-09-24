@@ -52,8 +52,10 @@ reconciliation. The 24 September closure overlay is authoritative for current co
   address components, and a case-bound synthetic external key are mapped directly or
   system-derived. Contact, group-company, address type, and ANZSIC are omitted.
 - Eight target values are implemented as editable, authority-labelled, immutable
-  per-case policy fields. Their defaults remain `TBD_SPONSOR`, so sandbox mutation is
-  blocked before ledger/network until legitimate values and authority are supplied.
+  per-case policy fields. `accountEntityType` defaults to the user-authorized
+  `PROJECT_DEFINED_PROVISIONAL` POC placeholder; the other seven defaults remain
+  `TBD_SPONSOR`, so ordinary sandbox mutation is blocked before ledger/network until
+  legitimate values and authority are supplied.
 - Related-party strict DTOs are implemented locally. External RP dispatch remains
   blocked on `childId` lifecycle and relationship-value authority.
 
@@ -83,7 +85,7 @@ reconciliation. The 24 September closure overlay is authoritative for current co
 | Canonical entity | `registration_number` | ACRA/reconciled registration identity | `registration_number` | Create Customer Policy | `customerExternalSystemKey` | Bind to the same case external key used for Shell | Guide: optional depending on scenario; present in collection | Sponsor guide + collection | None | Nonblank, bounded, case-bound | Pending | Mapper required | `DERIVED` | Sandbox/production requiredness |
 | Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `policy` | Copy case-bound enrichment | Guide required | Sponsor guide + collection | Editable, versioned | Nonblank; block sentinel/missing | Pending | Snapshot/rule required | `TARGET_POLICY` | Approved policy vocabulary |
 | Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `bookingEntity` | Copy case-bound enrichment | Guide required | Sponsor guide + collection | Editable, versioned | Nonblank; block sentinel/missing | Pending | Snapshot/rule required | `TARGET_POLICY` | Approved booking-entity vocabulary |
-| Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `accountEntityType` | Copy case-bound enrichment | Collection example only | Collection supporting evidence | Editable, versioned | Nonblank for exact collection shape | Pending | Snapshot/rule required | `SPONSOR_SUPPLIED` | Requiredness and approved vocabulary |
+| Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `accountEntityType` | Copy case-bound enrichment | User-authorized bounded POC placeholder; collection shape is supporting evidence only | User direction / project policy | Editable, versioned; default `PROJECT_DEFINED_PROVISIONAL` | Nonblank and contract-valid; never promote to sponsor vocabulary | Pending | Snapshot/rule required | `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL` | Requiredness and sponsor-approved vocabulary |
 | Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `productType` | Copy case-bound enrichment | Collection example only | Collection supporting evidence | Editable, versioned | Nonblank for exact collection shape | Pending | Snapshot/rule required | `SPONSOR_SUPPLIED` | Requiredness and approved vocabulary |
 | Target ledger | Shell/Search result | decoded target result | target party identity | Amend Customer | `goldTierId` | Bind exact target ID | Guide required | Sponsor guide + collection | None | Nonblank, bounded, identity-bound | Pending | Mapper/decoder required | `SANDBOX_OBSERVED` | Response envelope and ID type |
 | Existing policy owner | target enrichment rule | explicit target policy | None | Amend Customer | `policy` | Reuse the case-bound policy value | Guide required | Sponsor guide + collection | Editable, versioned | Nonblank; exact match to case snapshot | Pending | Snapshot/rule required | `TARGET_POLICY` | Approved vocabulary |

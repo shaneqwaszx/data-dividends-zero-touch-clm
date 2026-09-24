@@ -54,6 +54,7 @@ export function targetOutcomeLabel(
 /** The wireframe pipeline grouped around backend-authored stages. */
 export const STAGE_BANDS: Array<{ label: string; stages: AutomationStage[] }> = [
   { label: "Registry verification", stages: ["REGISTRY"] },
+  { label: "GoldTier customer search", stages: ["GOLDTIER_SEARCH"] },
   { label: "Document and data check", stages: ["DOCUMENT"] },
   { label: "Ownership analysis", stages: ["OWNERSHIP"] },
   { label: "Readiness and GoldTier target", stages: ["READINESS", "MOCK_GOLDTIER", "COMPLETE"] },

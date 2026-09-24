@@ -8,9 +8,10 @@ sandbox/Live interoperability. It maps only the two currently retained sample sh
   - GET {base}/entityQuery/coShareholdersDetails?uen=...
 
 IMPORTANT -- read before wiring this in:
-  1. Auth: the retained sample seam uses no Authorization header. This dormant adapter
-     therefore exposes only `NoAuthAcraAuthorizer`; any authoritative authentication
-     behavior remains deferred pending Q-012.
+  1. Auth: a 2026-09-24 bounded diagnostic showed that the official Mock endpoint
+     rejects an unauthenticated request. `NoAuthAcraAuthorizer` remains only as a
+     historical unit-test seam; runtime composition requires an explicitly injected
+     authorized boundary pending Q-012 and never guesses a header or OAuth flow.
   2. `source_environment` is tagged "MOCK" only because the retained sample evidence
      was labelled "APIMarketplace-Mock". This is not a Sandbox or Live claim and must
      be reconciled under Q-012 before any runtime use.
@@ -118,7 +119,7 @@ class AcraBizfileConnection:
 
 
 class NoAuthAcraAuthorizer:
-    """No-op authorizer retained for the dormant sample-shaped Mock seam.
+    """Historical no-op authorizer retained only for isolated decoder/transport tests.
 
     Authentication for any other operation remains deferred pending the
     authoritative ACRA contract requested by Q-012.
@@ -412,24 +413,28 @@ class BizfileMockOwnershipPartiesDecoder:
             for holder in raw_shareholders
             if not holder.status or holder.status.strip().lower() != "withdrawn"
         )
-        parties = tuple(
-            AcraOwnershipPartyPayload(
-                party_id=holder.shareholder_id,
-                party_type=(
-                    "LEGAL_ENTITY"
-                    if holder.shareholder_category.strip().lower() == "corporate"
-                    else "NATURAL_PERSON"
-                ),
-                name=holder.shareholder_name,
-                registration_identifier=None,
-                country=None,  # NOTE: not present in sample
-                ownership_percentage=None,  # NOTE: see module docstring, point 3
+        parties: list[AcraOwnershipPartyPayload] = []
+        for holder in active:
+            category = holder.shareholder_category.strip().lower()
+            if category == "corporate":
+                party_type = "LEGAL_ENTITY"
+            elif category == "individual":
+                party_type = "NATURAL_PERSON"
+            else:
+                raise AcraMalformedResponseError
+            parties.append(
+                AcraOwnershipPartyPayload(
+                    party_id=holder.shareholder_id,
+                    party_type=party_type,
+                    name=holder.shareholder_name,
+                    registration_identifier=None,
+                    country=None,  # NOTE: not present in sample
+                    ownership_percentage=None,  # NOTE: see module docstring, point 3
+                )
             )
-            for holder in active
-        )
         return AcraOwnershipPartiesPayload(
             uen=entity.uen.upper(),
-            ownership_parties=parties,
+            ownership_parties=tuple(parties),
             source_environment="MOCK",
             source_endpoint=source_endpoint,
             retrieved_at=retrieved_at,
@@ -445,9 +450,8 @@ class BizfileMockAcraConnector:
     """Retrieve company/officer/shareholder data via the Bizfile API
     Marketplace Mock-tier entityQuery endpoints.
 
-    The retained sample seam uses no authentication, so `authorizer` defaults to
-    `NoAuthAcraAuthorizer`. Authoritative authentication requirements for every
-    operation remain blocked by Q-012 and are not implemented here.
+    Direct construction retains a historical no-auth test seam. Runtime composition
+    refuses that default: authoritative authentication remains blocked by Q-012.
     """
 
     def __init__(

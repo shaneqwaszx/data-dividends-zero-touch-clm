@@ -27,16 +27,18 @@ def test_e2e_upload_milestone_is_gated_and_payload_free(
 ) -> None:
     case_id = UUID("00000000-0000-4000-8000-000000000150")
     request_id = "00000000-0000-4000-8000-000000000151"
-    request = Request({
-        "type": "http",
-        "method": "POST",
-        "path": f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
-        "headers": [
-            (b"x-e2e-request-id", request_id.encode("ascii")),
-            (b"content-length", b"123"),
-            (b"x-document-name", b"private-document.pdf"),
-        ],
-    })
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
+            "headers": [
+                (b"x-e2e-request-id", request_id.encode("ascii")),
+                (b"content-length", b"123"),
+                (b"x-document-name", b"private-document.pdf"),
+            ],
+        }
+    )
     monkeypatch.setenv("CLM_E2E_BACKEND_PORT", "8765")
     started_at = time.monotonic()
 
@@ -179,7 +181,7 @@ async def test_upload_lists_four_compared_fields_and_preserves_parent_case() -> 
     assert body["state"] == "REVIEW_REQUIRED"
     assert body["display_name"] == "synthetic-corporate-profile.pdf"
     assert body["media_type"] == "application/pdf"
-    assert body["profile"] == "PROVISIONAL_CORPORATE"
+    assert body["profile"] == "CERTIFICATE_OF_INCORPORATION_POC"
     assert body["provider_environment"] == "MOCK"
     assert len(body["fields"]) == 4
     assert {item["comparison_status"] for item in body["fields"]} == {"MATCH"}
@@ -549,4 +551,4 @@ def test_failed_zero_touch_replacement_returns_retryable_controlled_response() -
     assert automation is not None and automation.status == "PENDING_INPUTS"
     assert automation.active_exceptions == []
     assert automation.events[-1].event_type == "DOCUMENT_REUPLOAD_REQUIRED"
-    assert target.calls == []
+    assert target.calls == ["search"]

@@ -39,9 +39,7 @@ def _sandbox_submission(*, ready: bool = True) -> object:
     policy = importlib.import_module("app.domain.policy")
     target = importlib.import_module("app.domain.target_submission")
     authority = (
-        policy.PolicyAuthority.SPONSOR_SUPPLIED
-        if ready
-        else policy.PolicyAuthority.TBD_SPONSOR
+        policy.PolicyAuthority.SPONSOR_SUPPLIED if ready else policy.PolicyAuthority.TBD_SPONSOR
     )
     value = "SPONSOR VALUE" if ready else "TBD_SPONSOR"
 
@@ -694,6 +692,56 @@ def test_target_enrichments_are_editable_authority_labelled_and_immutable_per_ca
     assert before.catalogue_version != after.catalogue_version
 
 
+def test_account_entity_type_is_the_only_provisional_target_default_and_remains_editable() -> None:
+    policy = importlib.import_module("app.domain.policy")
+    service = PolicyManagementService(InMemoryPolicyRepository())
+    before = service.case_snapshot()
+    rule = service.get(policy.GOLDTIER_ACCOUNT_ENTITY_TYPE_ID)
+
+    assert rule.value == policy.StringPolicyValue(value="PROJECT_DEFINED_PROVISIONAL")
+    assert rule.default_value == rule.value
+    assert rule.authority == policy.PolicyAuthority.PROJECT_DEFINED_PROVISIONAL
+    assert rule.default_authority == policy.PolicyAuthority.PROJECT_DEFINED_PROVISIONAL
+    assert before.goldtier_target.account_entity_type.value == "PROJECT_DEFINED_PROVISIONAL"
+    assert (
+        before.goldtier_target.account_entity_type.authority
+        == policy.PolicyAuthority.PROJECT_DEFINED_PROVISIONAL
+    )
+    assert before.goldtier_target.missing_fields == (
+        "kycCustomerType",
+        "clientSegment",
+        "customerExternalSystem",
+        "registrationType",
+        "policy",
+        "bookingEntity",
+        "productType",
+    )
+
+    updated_catalogue = service.update(
+        _director(),
+        rule.policy_id,
+        expected_catalogue_version=service.catalogue().version,
+        expected_rule_version=rule.version,
+        value=policy.StringPolicyValue(value="SPONSOR VALUE"),
+        authority=policy.PolicyAuthority.SPONSOR_SUPPLIED,
+    )
+    updated = updated_catalogue.rule(rule.policy_id)
+    assert updated is not None
+    assert updated.value == policy.StringPolicyValue(value="SPONSOR VALUE")
+    assert updated.authority == policy.PolicyAuthority.SPONSOR_SUPPLIED
+
+    reset_catalogue = service.reset_one(
+        _director(),
+        rule.policy_id,
+        expected_catalogue_version=updated_catalogue.version,
+        expected_rule_version=updated.version,
+    )
+    reset = reset_catalogue.rule(rule.policy_id)
+    assert reset is not None
+    assert reset.value == policy.StringPolicyValue(value="PROJECT_DEFINED_PROVISIONAL")
+    assert reset.authority == policy.PolicyAuthority.PROJECT_DEFINED_PROVISIONAL
+
+
 def test_target_policy_reset_restores_the_tbd_value_and_authority() -> None:
     policy = importlib.import_module("app.domain.policy")
     service = PolicyManagementService(InMemoryPolicyRepository())
@@ -968,9 +1016,7 @@ def test_xpi_customer_mutations_send_exact_shapes_and_map_safe_success() -> None
     )
     connector = _xpi_connector(transport)
 
-    shell = connector.create_shell_customer(
-        mapper.build_shell_request(submission), _metadata()
-    )
+    shell = connector.create_shell_customer(mapper.build_shell_request(submission), _metadata())
     policy = connector.create_policy(
         mapper.build_policy_request(submission, shell.party_id), _metadata()
     )
@@ -1138,9 +1184,7 @@ def test_non_exact_candidates_require_review_with_zero_shell_calls(
     candidates: list[dict[str, object]],
 ) -> None:
     module = importlib.import_module("app.connectors.goldtier_xpi")
-    transport = FakeXpiTransport(
-        [module.GoldTierXpiHttpResponse(status_code=200, body=candidates)]
-    )
+    transport = FakeXpiTransport([module.GoldTierXpiHttpResponse(status_code=200, body=candidates)])
     service = _xpi_onboarding_service(transport)
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
@@ -1304,9 +1348,7 @@ def test_oversized_post_dispatch_mutation_response_is_uncertain_and_non_replayab
                 module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345})
             )
         else:
-            transport_responses.append(
-                module.GoldTierXpiHttpResponse(status_code=200, body={})
-            )
+            transport_responses.append(module.GoldTierXpiHttpResponse(status_code=200, body={}))
     transport_responses.append(module.GoldTierXpiResponseTooLargeError())
     transport = FakeXpiTransport(transport_responses)
     service = _xpi_onboarding_service(transport)

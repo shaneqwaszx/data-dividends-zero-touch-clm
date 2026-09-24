@@ -8,6 +8,7 @@ from app.connectors.goldtier_models import (
     GoldTierOperationResult,
     GoldTierOutcome,
     GoldTierRequestMetadata,
+    GoldTierSearchCandidate,
     GoldTierSearchOutcome,
     GoldTierSearchResult,
     SearchPartyRequest,
@@ -44,10 +45,18 @@ class MockGoldTierConnector:
     ) -> GoldTierSearchResult:
         del metadata
         if request.registration_number in self._match_found_external_keys:
+            party_id = f"GT-MOCK-EXISTING-{request.registration_number}"
             return GoldTierSearchResult(
                 outcome=GoldTierSearchOutcome.MATCH_FOUND,
                 status_code=200,
-                matched_party_id=f"GT-MOCK-EXISTING-{request.registration_number}",
+                matched_party_id=party_id,
+                candidates=(
+                    GoldTierSearchCandidate(
+                        party_id=party_id,
+                        registration_number=request.registration_number,
+                        country="SG",
+                    ),
+                ),
                 message="An existing synthetic Mock party matched the registration number.",
             )
         return GoldTierSearchResult(
@@ -91,9 +100,7 @@ class MockGoldTierConnector:
                 error_code="GT_POLICY_VALIDATION_FAILED",
                 message="Mock policy validation rejected this synthetic scenario.",
             )
-        self._external_key_by_party_id[request.goldtier_id] = (
-            request.customer_external_system_key
-        )
+        self._external_key_by_party_id[request.goldtier_id] = request.customer_external_system_key
         return GoldTierOperationResult(
             outcome=GoldTierOutcome.SUCCESS,
             status_code=201,

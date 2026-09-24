@@ -42,6 +42,7 @@ from app.domain.jurisdiction import JurisdictionCode
 from app.domain.models import EventOutcome, SafeError
 from app.domain.target_submission import GoldTierExecutionLedgerState
 from app.domain.zero_touch import (
+    LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
     AutomationEvent,
     AutomationEventType,
     AutomationStage,
@@ -259,9 +260,7 @@ class MongoCaseStore:
                                         0,
                                     ]
                                 },
-                                "_priority_value": {
-                                    "$ifNull": ["$onboarding.priority", 0]
-                                },
+                                "_priority_value": {"$ifNull": ["$onboarding.priority", 0]},
                                 "_sort_updated_at": (
                                     _normalized_activity_timestamp_expression(
                                         "$automation.updated_at"
@@ -487,6 +486,16 @@ class MongoCaseStore:
         schema_version = value.get("schema_version")
         if type(schema_version) is not int:
             raise PersistenceDataInvalidError
+        automation_value = value.get("automation")
+        if (
+            schema_version in {1, 2, 3, 4, CASE_SNAPSHOT_SCHEMA_VERSION}
+            and isinstance(automation_value, dict)
+            and "stage_order_version" not in automation_value
+        ):
+            value["automation"] = {
+                **automation_value,
+                "stage_order_version": LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
+            }
         try:
             if schema_version == 1:
                 legacy_v1 = DurableCaseSnapshotV1.model_validate(value)
@@ -511,6 +520,8 @@ class MongoCaseStore:
                 raise PersistenceSchemaUnsupportedError
             if mongo_id != str(snapshot.case_id):
                 raise PersistenceDataInvalidError
+            if snapshot.automation is not None:
+                validate_automation_record(snapshot.automation)
             return snapshot
         except PersistenceSchemaUnsupportedError:
             raise
@@ -585,9 +596,10 @@ class MongoCaseStore:
                 "metrics",
             }
             optional_timing = {"started_at"}
-            if not expected_automation - optional_timing <= set(automation) or set(
-                automation
-            ) - expected_automation:
+            if (
+                not expected_automation - optional_timing <= set(automation)
+                or set(automation) - expected_automation
+            ):
                 raise PersistenceDataInvalidError
             exceptions = automation["exceptions"]
             if not isinstance(exceptions, list):
@@ -755,7 +767,7 @@ class MongoCaseStore:
             changed = True
         uncertain_target = any(
             entry.state == GoldTierExecutionLedgerState.IN_PROGRESS
-            and bool(entry.attempted_operations)
+            and entry.attempted_operations != entry.definitively_completed_operations
             for entry in target_executions
         )
         automation = snapshot.automation
@@ -802,7 +814,15 @@ class MongoCaseStore:
             recovered_automation.version += 1
             recovered_automation.status = AutomationStatus.PENDING_INPUTS
             recovered_automation.current_stage = AutomationStage.DOCUMENT
-            recovered_automation.completed_stages = (AutomationStage.REGISTRY,)
+            recovered_automation.completed_stages = (
+                (AutomationStage.REGISTRY,)
+                if recovered_automation.stage_order_version
+                == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+                else (
+                    AutomationStage.REGISTRY,
+                    AutomationStage.GOLDTIER_SEARCH,
+                )
+            )
             recovered_automation.technical_failure = None
             recovered_automation.completed_at = None
             for exception in recovered_automation.active_exceptions:
@@ -971,10 +991,7 @@ def _mongo_canonical_uuid(value: str) -> dict[str, Any]:
             {
                 "$regexMatch": {
                     "input": safe_value,
-                    "regex": (
-                        "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
-                        "[0-9a-f]{4}-[0-9a-f]{12}$"
-                    ),
+                    "regex": ("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
                 }
             },
         ]
@@ -991,8 +1008,7 @@ def _mongo_activity_timestamp(value: str) -> dict[str, Any]:
                 "$regexMatch": {
                     "input": safe_value,
                     "regex": (
-                        "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:"
-                        "[0-9]{2}:[0-9]{2}(\\.[0-9]{6})?Z$"
+                        "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{6})?Z$"
                     ),
                 }
             },
@@ -1087,9 +1103,7 @@ def _mongo_optional_projected_string(
 
 def _portfolio_exception_valid_expression() -> dict[str, Any]:
     item_type = {"$type": "$$exception"}
-    safe_item = {
-        "$cond": [{"$eq": [item_type, "object"]}, "$$exception", {}]
-    }
+    safe_item = {"$cond": [{"$eq": [item_type, "object"]}, "$$exception", {}]}
     keys = {
         "$map": {
             "input": {"$objectToArray": safe_item},
@@ -1134,9 +1148,7 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
     started_type = {"$type": "$automation.started_at"}
     final_outcome_type = {"$type": "$automation.metrics.final_outcome"}
     total_duration_type = {"$type": "$automation.metrics.total_duration_ms"}
-    jurisdiction_type = {
-        "$type": "$onboarding.jurisdiction_resolution.resolved_jurisdiction"
-    }
+    jurisdiction_type = {"$type": "$onboarding.jurisdiction_resolution.resolved_jurisdiction"}
     return {
         "$and": [
             {"$in": [schema_type, ["int", "long"]]},
@@ -1197,9 +1209,7 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
                     },
                 ]
             },
-            _mongo_optional_projected_string(
-                "$onboarding.entity", "legal_name", maximum=512
-            ),
+            _mongo_optional_projected_string("$onboarding.entity", "legal_name", maximum=512),
             {
                 "$or": [
                     {
@@ -1232,9 +1242,7 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
                     },
                 ]
             },
-            _mongo_optional_projected_string(
-                "$onboarding.goldtier_result", "party_id", maximum=96
-            ),
+            _mongo_optional_projected_string("$onboarding.goldtier_result", "party_id", maximum=96),
             {"$in": ["$automation.status", [item.value for item in AutomationStatus]]},
             {
                 "$in": [
@@ -1289,9 +1297,7 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
             {
                 "$or": [
                     {"$eq": [final_outcome_type, "null"]},
-                    _mongo_bounded_string(
-                        "$automation.metrics.final_outcome", 1, 64
-                    ),
+                    _mongo_bounded_string("$automation.metrics.final_outcome", 1, 64),
                 ]
             },
             {
@@ -1353,11 +1359,7 @@ def _portfolio_row_match(query: CasePortfolioQuery) -> dict[str, Any]:
         )
     if query.jurisdiction is not None:
         conditions.append(
-            {
-                "onboarding.jurisdiction_resolution.resolved_jurisdiction": (
-                    query.jurisdiction.value
-                )
-            }
+            {"onboarding.jurisdiction_resolution.resolved_jurisdiction": (query.jurisdiction.value)}
         )
     if query.search is not None:
         literal = case_portfolio_search_pattern(query.search)
@@ -1425,9 +1427,7 @@ def _activity_event_valid_expression() -> dict[str, Any]:
 
 def _activity_candidate_valid_expression() -> dict[str, Any]:
     events_type = {"$type": "$automation.events"}
-    safe_events = {
-        "$cond": [{"$eq": [events_type, "array"]}, "$automation.events", []]
-    }
+    safe_events = {"$cond": [{"$eq": [events_type, "array"]}, "$automation.events", []]}
     schema_type = {"$type": "$schema_version"}
     revision_type = {"$type": "$revision"}
     team_type = {"$type": "$onboarding.team_id"}
@@ -1543,11 +1543,7 @@ def _activity_row_match(query: CaseActivityQuery) -> dict[str, Any]:
         conditions.append({"automation.events.stage": AutomationStage.OWNERSHIP.value})
     elif query.action == CaseActivityAction.INTELLIGENCE:
         conditions.append(
-            {
-                "automation.events.event_type": (
-                    AutomationEventType.INTELLIGENCE_EVALUATED.value
-                )
-            }
+            {"automation.events.event_type": (AutomationEventType.INTELLIGENCE_EVALUATED.value)}
         )
     elif query.action == CaseActivityAction.TARGET:
         conditions.append(
@@ -1571,9 +1567,7 @@ def _activity_row_match(query: CaseActivityQuery) -> dict[str, Any]:
         conditions.append({"automation.events.stage": query.stage.value})
     if query.outcome is not None:
         conditions.append({"automation.events.outcome": query.outcome.value})
-    normalized_timestamp = _normalized_activity_timestamp_expression(
-        "$automation.events.timestamp"
-    )
+    normalized_timestamp = _normalized_activity_timestamp_expression("$automation.events.timestamp")
     if query.from_at is not None:
         conditions.append(
             {"$expr": {"$gte": [normalized_timestamp, _activity_timestamp_string(query.from_at)]}}

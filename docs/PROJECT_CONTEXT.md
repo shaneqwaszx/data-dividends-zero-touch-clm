@@ -258,14 +258,17 @@ registry, live ACRA, final GoldTier mapping, or Ready-for-Approval behavior was 
 ## Phase 11 implementation status
 
 The zero-touch path now turns the four current Registry/Document fields into immutable
-source-neutral observations, deterministic `MATCH`, `MISSING_IN_SOURCE`, `CONFLICT`,
-`UNVERIFIABLE`, or `INVALID` outcomes, and first-class process-local discrepancies.
+source-neutral observations, deterministic `MATCH`, narrow optional-address
+`REGISTRY_ONLY`, `MISSING_IN_SOURCE`, `CONFLICT`, `UNVERIFIABLE`, or `INVALID`
+outcomes, and first-class process-local discrepancies.
 No source wins automatically. Usable conflicts may explicitly retain Registry; one
 unambiguous legal-name conflict may explicitly select Document through a typed backend
 canonical-update service. Registration identity, country routing, and structured address
 cannot be replaced from the flat document value without new policy/mapping, so the
-backend does not advertise that action. Missing, invalid, and unverifiable evidence
-requires replacement.
+backend does not advertise that action. Required missing, invalid, and unverifiable
+evidence requires replacement. An absent address under the user-authorized COI POC
+profile remains registry-only evidence; a supplied address is still compared, and a
+legacy required-address profile still blocks.
 
 Every decision is case/discrepancy/version/fingerprint bound and retains both source
 observations. Resolving one of several discrepancies remains blocked; resolving all

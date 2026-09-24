@@ -54,6 +54,22 @@ def test_mock_mode_is_the_safe_default_composition() -> None:
     assert isinstance(connector, MockAcraConnector)
 
 
+def test_api_marketplace_mock_is_explicit_and_fails_closed_without_auth_authority() -> None:
+    settings = Settings(app_env="test", acra_connector_mode="api_marketplace_mock")
+
+    with pytest.raises(AcraConfigurationError) as caught:
+        build_acra_connector(
+            settings,
+            transport=ContractFixtureTransport(),
+            authorizer=SafeFakeAuthorizer(),
+        )
+
+    assert str(caught.value) == (
+        "The ACRA sandbox connector is not configured for authorized use."
+    )
+    assert "fixture-only-value" not in str(caught.value)
+
+
 def test_sandbox_mode_composes_with_safe_injected_boundaries() -> None:
     connector = build_acra_connector(
         sandbox_settings(),

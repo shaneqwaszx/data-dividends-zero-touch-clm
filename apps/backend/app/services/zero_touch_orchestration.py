@@ -10,7 +10,11 @@ from uuid import UUID, uuid4
 from app.connectors.idp import IdpProvider
 from app.connectors.ownership import OwnershipProvider
 from app.domain.access import CasePriority, TeamId
-from app.domain.clm import ClmStatus
+from app.domain.clm import (
+    ClmStatus,
+    GoldTierSearchCheckpointStatus,
+    GoldTierSearchDisposition,
+)
 from app.domain.documents import (
     DocumentAutoClearBlocker,
     DocumentFieldKey,
@@ -35,6 +39,8 @@ from app.domain.reconciliation import (
     ReconciliationStatus,
 )
 from app.domain.zero_touch import (
+    AUTOMATION_STAGE_ORDER_VERSION,
+    LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
     AutomationEvent,
     AutomationEventType,
     AutomationMetrics,
@@ -93,8 +99,7 @@ class ZeroTouchOrchestrator:
         establishment_discard: Callable[[UUID], str | None] | None = None,
         max_transitions_per_run: int = 12,
         clock: Callable[[], datetime] | None = None,
-        intelligence_evaluator: Callable[[UUID], OnboardingIntelligenceRecord | None]
-        | None = None,
+        intelligence_evaluator: Callable[[UUID], OnboardingIntelligenceRecord | None] | None = None,
         uuid_factory: Callable[[], UUID] | None = None,
     ) -> None:
         if not 1 <= max_transitions_per_run <= 32:
@@ -219,28 +224,65 @@ class ZeroTouchOrchestrator:
         now = self._clock()
         registry_ready = case.state == WorkflowState.VALIDATED and case.entity is not None
         registry_failed = case.state == WorkflowState.FAILED
+        search = clm_record.target_search_checkpoint
+        search_ready = bool(
+            search is not None
+            and search.status == GoldTierSearchCheckpointStatus.COMPLETED
+            and search.disposition
+            in {
+                GoldTierSearchDisposition.NO_MATCH,
+                GoldTierSearchDisposition.EXACT_MATCH,
+            }
+        )
+        search_review = bool(
+            search is not None and search.status == GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+        )
+        search_failed = bool(
+            search is not None and search.status == GoldTierSearchCheckpointStatus.FAILED
+        )
         record = ZeroTouchAutomationRecord(
             case_id=case.case_id,
             automation_id=self._uuid_factory(),
             ownership_provider_binding_id=(self._ownership_provider_bindings.default_binding_id),
             status=(
                 AutomationStatus.PENDING_INPUTS
-                if registry_ready
+                if registry_ready and search_ready
                 else (
                     AutomationStatus.TECHNICAL_FAILURE
-                    if registry_failed
+                    if registry_failed or search_failed
                     else AutomationStatus.WAITING_FOR_REVIEW
                 )
             ),
             current_stage=(
-                AutomationStage.DOCUMENT if registry_ready else AutomationStage.REGISTRY
+                AutomationStage.DOCUMENT
+                if registry_ready and search_ready
+                else AutomationStage.GOLDTIER_SEARCH
+                if registry_ready
+                else AutomationStage.REGISTRY
             ),
-            completed_stages=(AutomationStage.REGISTRY,) if registry_ready else (),
-            technical_failure=(case.error if registry_failed else None),
+            completed_stages=(
+                (AutomationStage.REGISTRY, AutomationStage.GOLDTIER_SEARCH)
+                if registry_ready and search_ready
+                else (AutomationStage.REGISTRY,)
+                if registry_ready
+                else ()
+            ),
+            technical_failure=(
+                case.error
+                if registry_failed
+                else SafeError(
+                    code=search.code or "GOLDTIER_SEARCH_FAILED",
+                    message=search.message,
+                )
+                if search_failed and search is not None
+                else None
+            ),
             metrics=AutomationMetrics(
-                automated_stages_completed=1 if registry_ready else 0,
+                automated_stages_completed=2 if search_ready else 1 if registry_ready else 0,
                 final_outcome=(
-                    AutomationStatus.TECHNICAL_FAILURE.value if registry_failed else None
+                    AutomationStatus.TECHNICAL_FAILURE.value
+                    if registry_failed or search_failed
+                    else None
                 ),
             ),
             created_at=now,
@@ -261,6 +303,46 @@ class ZeroTouchOrchestrator:
                 code="REGISTRY_AUTOMATED",
                 message="Registry evidence was validated automatically.",
             )
+            if search_ready and search is not None:
+                target_stage = record.current_stage
+                record.current_stage = AutomationStage.GOLDTIER_SEARCH
+                record = self._append_event(
+                    record,
+                    event_type=AutomationEventType.GOLDTIER_SEARCH_COMPLETED,
+                    outcome=EventOutcome.SUCCEEDED,
+                    code=search.code,
+                    message=search.message,
+                )
+                record.current_stage = target_stage
+            elif search_review and search is not None:
+                record = self._append_event(
+                    record,
+                    event_type=AutomationEventType.GOLDTIER_SEARCH_REVIEW_REQUIRED,
+                    outcome=EventOutcome.REVIEW_REQUIRED,
+                    code=search.code,
+                    message=search.message,
+                )
+                record = self._add_exception(
+                    record,
+                    exception_type=BusinessExceptionType.ENTITY_RESOLUTION_REVIEW_REQUIRED,
+                    stage=AutomationStage.GOLDTIER_SEARCH,
+                    blocker_code=search.code or "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
+                    explanation=(
+                        "GoldTier candidates require identity review; all target mutations "
+                        "remain blocked."
+                    ),
+                    evidence_version=f"goldtier-search:{search.request_id}",
+                    evidence=(),
+                    actions=(),
+                )
+            elif search_failed and search is not None:
+                record = self._append_event(
+                    record,
+                    event_type=AutomationEventType.GOLDTIER_SEARCH_FAILED,
+                    outcome=EventOutcome.FAILED,
+                    code=search.code,
+                    message=search.message,
+                )
         elif registry_failed:
             record = self._append_event(
                 record,
@@ -487,7 +569,8 @@ class ZeroTouchOrchestrator:
 
     def _current_documents(self, case_id: UUID) -> list[DocumentProcessingRecord]:
         return [
-            item for item in self._documents.list_documents(case_id=case_id)
+            item
+            for item in self._documents.list_documents(case_id=case_id)
             if item.is_current_evidence
         ]
 
@@ -605,8 +688,10 @@ class ZeroTouchOrchestrator:
                 if exc.code == "IDP_PROCESSING_FAILED":
                     recovered = self._return_to_document_intake(record)
                 raise ZeroTouchInfrastructureError(
-                    case_id=recovered.case_id, automation_id=recovered.automation_id,
-                    code=exc.code, message=exc.public_message,
+                    case_id=recovered.case_id,
+                    automation_id=recovered.automation_id,
+                    code=exc.code,
+                    message=exc.public_message,
                 ) from None
             candidate = record.model_copy(deep=True)
             for exception in candidate.active_exceptions:
@@ -643,9 +728,7 @@ class ZeroTouchOrchestrator:
             if reauthorize is not None:
                 reauthorize()
             automation = self._repository.get_for_case(case_id)
-            document = self._documents.get_document(
-                case_id=case_id, document_id=document_id
-            )
+            document = self._documents.get_document(case_id=case_id, document_id=document_id)
             reviewed_field = (
                 next((item for item in document.fields if item.field_key == field_key), None)
                 if document is not None
@@ -655,11 +738,15 @@ class ZeroTouchOrchestrator:
                 reviewed_field is not None
                 and reviewed_field.review_status != FieldReviewStatus.PENDING
             )
-            if automation is not None and not is_final_repeat and not (
-                automation.status == AutomationStatus.PENDING_INPUTS
-                or (
-                    automation.status == AutomationStatus.WAITING_FOR_REVIEW
-                    and automation.current_stage == AutomationStage.DOCUMENT
+            if (
+                automation is not None
+                and not is_final_repeat
+                and not (
+                    automation.status == AutomationStatus.PENDING_INPUTS
+                    or (
+                        automation.status == AutomationStatus.WAITING_FOR_REVIEW
+                        and automation.current_stage == AutomationStage.DOCUMENT
+                    )
                 )
             ):
                 raise ZeroTouchRequestError(
@@ -979,8 +1066,10 @@ class ZeroTouchOrchestrator:
             raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
         except ReconciliationInfrastructureError as exc:
             raise ZeroTouchInfrastructureError(
-                case_id=record.case_id, automation_id=record.automation_id,
-                code=exc.code, message=exc.public_message,
+                case_id=record.case_id,
+                automation_id=record.automation_id,
+                code=exc.code,
+                message=exc.public_message,
             ) from None
         actual_versions = {
             item.evidence_version
@@ -1014,10 +1103,17 @@ class ZeroTouchOrchestrator:
         candidate = record.model_copy(deep=True)
         candidate.status = AutomationStatus.PENDING_INPUTS
         candidate.current_stage = AutomationStage.DOCUMENT
-        candidate.completed_stages = (AutomationStage.REGISTRY,)
+        candidate.completed_stages = (
+            (AutomationStage.REGISTRY,)
+            if candidate.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+            else (
+                AutomationStage.REGISTRY,
+                AutomationStage.GOLDTIER_SEARCH,
+            )
+        )
         candidate.technical_failure = None
         candidate.completed_at = None
-        candidate.metrics.automated_stages_completed = 1
+        candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
         candidate.metrics.final_outcome = None
         for item in candidate.active_exceptions:
             item.status = BusinessExceptionStatus.CANCELLED
@@ -1054,6 +1150,12 @@ class ZeroTouchOrchestrator:
             AutomationStatus.TECHNICAL_FAILURE,
         }:
             return record
+        if (
+            record.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+            and record.status == AutomationStatus.RECOVERY_PENDING
+        ):
+            return record
+        record = self._upgrade_legacy_stage_order(record)
 
         finalization_recovery_attempts = 0
         for _ in range(self._max_transitions):
@@ -1061,6 +1163,60 @@ class ZeroTouchOrchestrator:
             if record.active_exceptions:
                 return record
             next_stage = _next_stage(record.completed_stages)
+            if next_stage == AutomationStage.GOLDTIER_SEARCH:
+                started_at = self._clock()
+                clm_record = self._clm.evaluate(case_id=case_id)
+                search = clm_record.target_search_checkpoint
+                if (
+                    search is not None
+                    and search.status == GoldTierSearchCheckpointStatus.COMPLETED
+                    and search.disposition
+                    in {
+                        GoldTierSearchDisposition.NO_MATCH,
+                        GoldTierSearchDisposition.EXACT_MATCH,
+                    }
+                ):
+                    record = self._complete_stage(
+                        record,
+                        stage=AutomationStage.GOLDTIER_SEARCH,
+                        event_type=AutomationEventType.GOLDTIER_SEARCH_COMPLETED,
+                        code=search.code or "GOLDTIER_SEARCH_COMPLETED",
+                        message=search.message,
+                        started_at=started_at,
+                    )
+                    continue
+                if (
+                    search is not None
+                    and search.status == GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+                ):
+                    record = self._add_exception(
+                        record,
+                        exception_type=BusinessExceptionType.ENTITY_RESOLUTION_REVIEW_REQUIRED,
+                        stage=AutomationStage.GOLDTIER_SEARCH,
+                        blocker_code=search.code or "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
+                        explanation=(
+                            "GoldTier candidates require identity review; all target "
+                            "mutations remain blocked."
+                        ),
+                        evidence_version=f"goldtier-search:{search.request_id}",
+                        evidence=(),
+                        actions=(),
+                    )
+                    return self._save(self._require_record(case_id), record)
+                return self._technical_failure(
+                    record,
+                    stage=AutomationStage.GOLDTIER_SEARCH,
+                    code=(
+                        search.code
+                        if search is not None and search.code
+                        else "GOLDTIER_SEARCH_FAILED"
+                    ),
+                    message=(
+                        search.message
+                        if search is not None
+                        else "GoldTier customer Search could not be completed safely."
+                    ),
+                )
             if next_stage == AutomationStage.DOCUMENT:
                 documents = self._documents.list_documents(case_id=case_id)
                 if not documents:
@@ -1262,8 +1418,7 @@ class ZeroTouchOrchestrator:
                     event_type=AutomationEventType.READINESS_AUTOMATED,
                     code="READINESS_AUTOMATED",
                     message=(
-                        "Authoritative target-submission readiness was evaluated "
-                        "automatically."
+                        "Authoritative target-submission readiness was evaluated automatically."
                     ),
                     started_at=started_at,
                 )
@@ -1290,7 +1445,7 @@ class ZeroTouchOrchestrator:
                     )
                     record = self._save(record, candidate)
                 try:
-                    clm_record = self._clm.submit(case_id=case_id)
+                    clm_record = self._clm.submit(case_id=case_id, single_checkpoint=True)
                 except ClmInfrastructureError as exc:
                     if exc.code == "CLM_FINALIZATION_RETRY_REQUIRED":
                         finalization_recovery_attempts += 1
@@ -1349,6 +1504,22 @@ class ZeroTouchOrchestrator:
                             candidate.started_at, candidate.completed_at
                         )
                     return self._save(record, candidate)
+                if clm_record.status == ClmStatus.SUBMITTING:
+                    operations = self._clm.attempted_target_operations(case_id=case_id)
+                    operation = operations[-1] if operations else "SEARCH"
+                    candidate = record.model_copy(deep=True)
+                    candidate = self._append_event(
+                        candidate,
+                        event_type=AutomationEventType.TARGET_OPERATION_CHECKPOINTED,
+                        outcome=EventOutcome.SUCCEEDED,
+                        code=f"GOLDTIER_{operation}_CHECKPOINTED",
+                        message=(
+                            f"GoldTier {operation} reached a durable checkpoint; "
+                            "the next target operation will use the retained ledger."
+                        ),
+                    )
+                    record = self._save(record, candidate)
+                    continue
                 if clm_record.status == ClmStatus.REVIEW_REQUIRED:
                     return self._raise_target_exception(record, clm_record.error)
                 return self._technical_failure(
@@ -1367,6 +1538,39 @@ class ZeroTouchOrchestrator:
             code="AUTOMATION_LOOP_GUARD",
             message="Automation stopped at the configured progression bound.",
         )
+
+    def _upgrade_legacy_stage_order(
+        self, record: ZeroTouchAutomationRecord
+    ) -> ZeroTouchAutomationRecord:
+        """Rebase non-terminal pre-Search progress without claiming Search evidence."""
+
+        if record.stage_order_version != LEGACY_AUTOMATION_STAGE_ORDER_VERSION:
+            return record
+        candidate = record.model_copy(deep=True)
+        candidate.stage_order_version = AUTOMATION_STAGE_ORDER_VERSION
+        registry_completed = AutomationStage.REGISTRY in record.completed_stages
+        candidate.completed_stages = (
+            (AutomationStage.REGISTRY,) if registry_completed else ()
+        )
+        candidate.current_stage = (
+            AutomationStage.GOLDTIER_SEARCH if registry_completed else AutomationStage.REGISTRY
+        )
+        candidate.status = AutomationStatus.RUNNING
+        candidate.started_at = candidate.started_at or self._clock()
+        candidate.completed_at = None
+        candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
+        candidate.metrics.final_outcome = None
+        candidate = self._append_event(
+            candidate,
+            event_type=AutomationEventType.AUTOMATION_RESUMING,
+            outcome=EventOutcome.SUCCEEDED,
+            code="AUTOMATION_STAGE_ORDER_UPGRADED",
+            message=(
+                "Historical onboarding progress is resuming at the earliest unproved "
+                "stage in the current workflow."
+            ),
+        )
+        return self._save(record, candidate)
 
     def _raise_document_exception(
         self,
@@ -1478,9 +1682,7 @@ class ZeroTouchOrchestrator:
                     ReconciliationOutcome.UNVERIFIABLE: (
                         BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE
                     ),
-                    ReconciliationOutcome.INVALID: (
-                        BusinessExceptionType.RECONCILIATION_INVALID
-                    ),
+                    ReconciliationOutcome.INVALID: (BusinessExceptionType.RECONCILIATION_INVALID),
                 }[discrepancy.outcome]
             )
             registry = next(
@@ -1892,8 +2094,7 @@ class ZeroTouchOrchestrator:
     ) -> ZeroTouchAutomationRecord:
         code = "ONBOARDING_INTELLIGENCE_V1"
         if any(
-            event.event_type == AutomationEventType.INTELLIGENCE_EVALUATED
-            and event.code == code
+            event.event_type == AutomationEventType.INTELLIGENCE_EVALUATED and event.code == code
             for event in record.events
         ):
             return record
@@ -1965,6 +2166,7 @@ class ZeroTouchOrchestrator:
 def _next_stage(completed: tuple[AutomationStage, ...]) -> AutomationStage:
     for stage in (
         AutomationStage.REGISTRY,
+        AutomationStage.GOLDTIER_SEARCH,
         AutomationStage.DOCUMENT,
         AutomationStage.OWNERSHIP,
         AutomationStage.READINESS,
@@ -1977,7 +2179,8 @@ def _next_stage(completed: tuple[AutomationStage, ...]) -> AutomationStage:
 
 def _stage_after(stage: AutomationStage) -> AutomationStage:
     stages = {
-        AutomationStage.REGISTRY: AutomationStage.DOCUMENT,
+        AutomationStage.REGISTRY: AutomationStage.GOLDTIER_SEARCH,
+        AutomationStage.GOLDTIER_SEARCH: AutomationStage.DOCUMENT,
         AutomationStage.DOCUMENT: AutomationStage.OWNERSHIP,
         AutomationStage.OWNERSHIP: AutomationStage.READINESS,
         AutomationStage.READINESS: AutomationStage.MOCK_GOLDTIER,

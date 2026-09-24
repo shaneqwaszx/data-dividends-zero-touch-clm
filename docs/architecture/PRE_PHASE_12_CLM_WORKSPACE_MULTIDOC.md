@@ -83,7 +83,9 @@ against the advisory 25 MiB limit; the backend remains authoritative.
 Every observation retains its source document ID/display name, provider/environment,
 observation time, confidence, validity, and normalized value. For each field:
 
-- no usable document value produces `MISSING_IN_SOURCE`;
+- no usable required document value produces `MISSING_IN_SOURCE`; an address absent
+  from every optional COI profile produces non-blocking `REGISTRY_ONLY` while retaining
+  separate registry and missing-document observations;
 - one or more equal valid document values are consistent even if another document omits
   the field;
 - distinct valid values remain a `CONFLICT` with every observation visible;

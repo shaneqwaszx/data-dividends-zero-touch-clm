@@ -191,16 +191,14 @@ def upload(
     return response.json()
 
 
-def pending_automation_record(
-    case_id: UUID, *, updated_at: datetime
-) -> ZeroTouchAutomationRecord:
+def pending_automation_record(case_id: UUID, *, updated_at: datetime) -> ZeroTouchAutomationRecord:
     return ZeroTouchAutomationRecord(
         case_id=case_id,
         automation_id=uuid4(),
         ownership_provider_binding_id="a" * 32,
         status=AutomationStatus.PENDING_INPUTS,
         current_stage=AutomationStage.DOCUMENT,
-        completed_stages=(AutomationStage.REGISTRY,),
+        completed_stages=(AutomationStage.REGISTRY, AutomationStage.GOLDTIER_SEARCH),
         created_at=updated_at,
         updated_at=updated_at,
     )
@@ -362,7 +360,9 @@ def test_three_document_call_counts_and_read_only_listing_do_not_trigger_work() 
     assert acra.calls == {key: 1 for key in acra.calls}
     assert idp.calls == 3
     assert ownership.calls == 0
-    assert zero_touch._clm.attempted_target_operations(case_id=created.case_id) == ()  # noqa: SLF001
+    assert zero_touch._clm.attempted_target_operations(case_id=created.case_id) == (  # noqa: SLF001
+        "SEARCH",
+    )
 
     before_listing = (dict(acra.calls), idp.calls, ownership.calls)
     assert [item.case_id for item in zero_touch.list_cases()] == [created.case_id]
@@ -401,7 +401,9 @@ def test_multi_document_conflict_stops_ownership_and_goldtier_calls() -> None:
     assert acra.calls == {key: 1 for key in acra.calls}
     assert idp.calls == 2
     assert ownership.calls == 0
-    assert zero_touch._clm.attempted_target_operations(case_id=created.case_id) == ()  # noqa: SLF001
+    assert zero_touch._clm.attempted_target_operations(case_id=created.case_id) == (  # noqa: SLF001
+        "SEARCH",
+    )
 
 
 def test_field_missing_from_one_document_does_not_create_false_missing_blocker() -> None:
@@ -462,8 +464,10 @@ def test_unverifiable_document_evidence_remains_visible_beside_usable_evidence()
     )
     assert discrepancy["allowed_actions"] == []
     assert payload["target_operations"] == [
-        {"operation": operation, "status": "NOT_ATTEMPTED"}
-        for operation in ("SEARCH", "SHELL", "POLICY", "AMEND")
+        {"operation": "SEARCH", "status": "NO_MATCH"},
+        {"operation": "SHELL", "status": "NOT_ATTEMPTED"},
+        {"operation": "POLICY", "status": "NOT_ATTEMPTED"},
+        {"operation": "AMEND", "status": "NOT_ATTEMPTED"},
     ]
 
 
@@ -539,7 +543,9 @@ def test_unsafe_docx_members_stop_before_idp_ownership_and_goldtier(
     assert acra.calls == {key: 1 for key in acra.calls}
     assert idp.calls == 0
     assert ownership.calls == 0
-    assert zero_touch._clm.attempted_target_operations(case_id=created.case_id) == ()  # noqa: SLF001
+    assert zero_touch._clm.attempted_target_operations(case_id=created.case_id) == (  # noqa: SLF001
+        "SEARCH",
+    )
     assert zero_touch.list_cases()[0].status == AutomationStatus.PENDING_INPUTS
 
 
@@ -567,7 +573,9 @@ def test_malformed_pdf_stops_before_idp_ownership_and_goldtier(payload: bytes) -
     assert acra.calls == {key: 1 for key in acra.calls}
     assert idp.calls == 0
     assert ownership.calls == 0
-    assert zero_touch._clm.attempted_target_operations(case_id=created.case_id) == ()  # noqa: SLF001
+    assert zero_touch._clm.attempted_target_operations(case_id=created.case_id) == (  # noqa: SLF001
+        "SEARCH",
+    )
     assert zero_touch.list_cases()[0].status == AutomationStatus.PENDING_INPUTS
 
 

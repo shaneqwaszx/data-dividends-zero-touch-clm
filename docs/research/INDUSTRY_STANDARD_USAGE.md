@@ -1,6 +1,6 @@
 # Industry-Standard Usage Ledger
 
-Date reviewed: 2026-09-23
+Date reviewed: 2026-09-24
 
 This ledger separates regulatory/industry guidance from technical implementation
 methods. It does not convert a reference into sponsor policy, a business rule, or proof
@@ -17,6 +17,9 @@ of compliance.
 | [NIST SP 800-92](https://www.nist.gov/publications/guide-computer-security-log-management) | Technical security guidance | Informs bounded, access-controlled, integrity-aware, safe audit projections and retention terminology. | No claim that the POC event trail is a complete compliance/SIEM audit system. |
 | [Fellegi-Sunter record linkage](https://doi.org/10.1080/01621459.1969.10501049) | Technical method | Informs transparent weighted agreements/disagreements and explicit uncertainty. | Not regulatory authority and not a justification for hidden probabilistic auto-linking. |
 | [Splink parameter-estimation tutorial](https://moj-analytical-services.github.io/splink/demos/tutorials/04_Estimating_model_parameters.html) | Technical implementation reference | Informs reproducible synthetic evaluation and the distinction between model parameters and decision thresholds. | Splink is not added as a dependency, and examples are not copied as business rules or production model evidence. |
+| [ACRA API Marketplace](https://www.acra.gov.sg/resources/eservice-tools-portals/api-marketplace/) | `OFFICIAL_PROVIDER_DOCUMENTATION` | Supports the existence of an official API Marketplace Mock lane distinct from local synthetic Mock. | Does not establish this operation's authentication, successful schema, subscriber entitlement, Sandbox, or Live interoperability. |
+| Pre-Phase-22 provider-orchestration direction dated 2026-09-24 | `SPONSOR_CONFIRMED` | Authorizes early GoldTier Search and incremental Search/Shell/Policy/Amend orchestration under the existing ledger. | Does not authorize target values, automatic candidate merge, replay, related-party dispatch, final approval, Q-016 behavior, or Phase 22. |
+| Pre-Phase-22 COI/account-placeholder/HR-console direction dated 2026-09-24 | `USER_AUTHORIZED_POC` | Authorizes the COI demo profile, provisional editable `accountEntityType` placeholder, optional detailed progress view, and HR-only provider-test capability. | Does not prove sponsor-approved document rules, target vocabulary, production RBAC, customer-write authority, or Live capability. |
 
 ## Project application rules
 

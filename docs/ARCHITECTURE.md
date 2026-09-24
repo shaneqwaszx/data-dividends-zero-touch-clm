@@ -23,12 +23,14 @@ flowchart LR
     D -->|Resolved SG| E[Registry provider boundary]
     D -->|Unresolved/conflict/unsupported| R[Controlled review or stop]
     E --> F[Canonical entity and registry evidence]
-    F --> G[Document intake and extraction]
+    F --> GS[Early read-only GoldTier Search]
+    GS -->|Exact or no match| G[Document intake and extraction]
+    GS -->|Ambiguous or failed| R
     G --> H[Reconciliation]
     H --> I[Decimal ownership and UBO analysis]
     I --> IA[Case-bound advisory intelligence]
     IA --> J[Readiness snapshot]
-    J --> K[GoldTier Mock or XPI-sandbox execution ledger]
+    J --> K[Incremental GoldTier Shell, Policy and Amend under one execution ledger]
     K --> L[Portfolio, dashboard and evidence UI]
 ```
 
@@ -176,6 +178,12 @@ actions, binds decisions to current evidence fingerprints/versions, and coordina
 canonical changes through its unit-of-work boundary. It has no implicit Registry-wins,
 Document-wins, confidence-wins, or newest-wins rule.
 
+The user-authorized Certificate of Incorporation POC profile treats absent document
+address as non-blocking `REGISTRY_ONLY`: reconciliation retains the usable registry
+observation and the missing document observation separately. This does not fabricate a
+document value or establish source precedence. Supplied address evidence remains
+strictly compared, and legacy profiles that require address remain blocking.
+
 ## 9. CLM and target execution architecture
 
 Readiness consumes canonical entity, current documents, reconciliation state and
@@ -205,6 +213,17 @@ post-acceptance response, or cancellation leaves the attempted execution `IN_PRO
 for human reconciliation. Mock or sandbox target submission is not sponsor approval,
 customer approval, or Live interoperability.
 
+The CLM aggregate owns one immutable, safe early-Search checkpoint bound to a canonical
+registry-identity fingerprint. It runs after Singapore registry identity exists and
+before document, reconciliation, or ownership work. Bounded candidates are evaluated
+only by the existing entity-resolution owner. An exact match retains the GoldTier party
+ID and seeds the existing execution ledger with Search complete and Shell skipped. A
+no-match checkpoint permits Shell only after the ordinary readiness prerequisites. Any
+ambiguous, conflicting, failed, stale, or uncertain state blocks target mutation.
+Policy and Amend each advance through separate durable ledger checkpoints; an attempted
+operation without a definitive result is never replayed automatically. No second target
+ledger, search resolver, or provider-specific workflow owner is introduced.
+
 ## 10. Authentication, RBAC, team and admin architecture
 
 The server session resolves a current repository-backed profile/team on every
@@ -224,8 +243,12 @@ rules affect new cases. On case creation, version, thresholds, comparator and bi
 time are copied into an immutable `CasePolicySnapshot`. Later policy changes never
 reinterpret existing cases. Custom showcase rules are non-executable and non-runtime.
 Eight GoldTier target-preparation values additionally carry explicit authority labels.
+The editable `accountEntityType` POC placeholder is
+`PROJECT_DEFINED_PROVISIONAL`; the other seven defaults remain `TBD_SPONSOR`.
 `TBD_SPONSOR` values are visible in the preview and block sandbox mutations before the
 target ledger or network; a value without its authority label is never inferred ready.
+The HR-only provider console may construct ephemeral `SANDBOX_TEST_ONLY` previews, but
+it cannot mutate the global catalogue or bypass the case-bound target ledger.
 
 ## 12. Persistence and concurrency architecture
 
@@ -252,6 +275,18 @@ case schema or persistence owner is introduced. When a schema-v5 CLM submission
 snapshot exists, its provider mode and any matching target-ledger input must agree with
 the retained plan. Contradictory persisted combinations are invalid; a plan without a
 submission snapshot remains valid, and no schema-v6 migration is introduced.
+
+The early Search checkpoint and incremental attempted/completed operation evidence are
+also additive schema-v5 fields. Historical terminal ledger rows infer completion only
+from their retained terminal outcome; historical in-progress rows never infer success.
+Automation has its own persisted stage-order version inside the envelope. Records without
+that field are the pre-Search v1 order; newly authored records use v2. Decode preserves
+the v1 facts without adding Search. On the next safe non-terminal continuation, the
+automation repository uses one CAS mutation to rebase to the earliest unproved v2 stage
+and then performs Search before re-evaluating later deterministic stages. Historical
+terminal records are not retroactively relabelled. Restart recovery treats attempted-but-
+not-completed mutations as uncertain, does not upgrade that state, and preserves the
+existing no-replay stop.
 
 Create is insert-only, updates are update-only, and mutations use expected revision/CAS.
 Case deletion re-authorizes inside the canonical case lock, physically deletes the

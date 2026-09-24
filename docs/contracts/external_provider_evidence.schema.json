@@ -29,6 +29,7 @@
       "type": "string",
       "enum": [
         "ACRA_MOCK",
+        "ACRA_API_MARKETPLACE_MOCK",
         "ACRA_GENERIC_SANDBOX",
         "ACRA_BIZFILE",
         "IDP_LOCAL_PDF_TEXT",
@@ -118,6 +119,21 @@
         "auth_mechanism_label": {"enum": ["NONE"]},
         "mapping_reference": {"enum": ["ACRA_CANONICAL_MAPPING"]},
         "call_order_result": {"enum": ["EXPECTED", "STOPPED_ON_FAILURE"]}
+      }
+    },
+    {
+      "properties": {
+        "provider_id": {"const": "ACRA_API_MARKETPLACE_MOCK"},
+        "mode": {"enum": ["mock"]},
+        "classification": {"enum": ["MOCK"]},
+        "operation": {"enum": ["entity_profile"]},
+        "safe_test_case_reference": {"pattern": "^(?![\\s\\S]*[\\r\\n])AUTHORIZED-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+        "http_outcome_category": {"enum": ["AUTH_FAILURE"]},
+        "contract_reference": {"enum": ["Q-012"]},
+        "certificate_verification_result": {"enum": ["VERIFIED"]},
+        "auth_mechanism_label": {"enum": ["NONE"]},
+        "mapping_reference": {"enum": ["ACRA_CANONICAL_MAPPING"]},
+        "call_order_result": {"enum": ["STOPPED_ON_FAILURE"]}
       }
     },
     {

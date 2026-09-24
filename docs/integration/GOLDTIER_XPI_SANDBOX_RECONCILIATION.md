@@ -88,10 +88,12 @@ tests only.
 No Shell, Policy, Amend, or related-party network request was executed.
 
 The customer path now satisfies the local DTO, mapping, preview, ledger, fail-closed,
-and no-replay prerequisites. However, all eight institution-specific target values are
-still `TBD_SPONSOR` in the authoritative policy defaults. The mapper therefore blocks
-before network or ledger creation. Substituting Postman example values would invent
-business authority, so the optional one-customer write was correctly not attempted.
+and no-replay prerequisites. The user-authorized `accountEntityType` POC placeholder is
+now editable and labelled `PROJECT_DEFINED_PROVISIONAL`; the other seven institution-
+specific target values remain `TBD_SPONSOR` in the authoritative policy defaults. The
+mapper therefore still blocks ordinary case mutation before network or ledger creation.
+Substituting Postman example values would invent business authority, so the optional
+one-customer write was correctly not attempted.
 
 Related-party execution remains additionally blocked because the supplied contract
 requires `childId` but provides no conclusive child-identity creation/retrieval

@@ -35,7 +35,7 @@ const hr: AuthenticatedProfile = {
   team_type: null,
   team_description: "Administration only; no client-case access",
   client_scope_label: "Administration only",
-  capabilities: ["POLICY_VIEW", "IDENTITY_ADMIN", "TEAM_ADMIN"],
+  capabilities: ["POLICY_VIEW", "IDENTITY_ADMIN", "TEAM_ADMIN", "PROVIDER_SANDBOX_TEST"],
 };
 
 const testCredential = "test_placeholder";
@@ -95,6 +95,7 @@ describe("Phase 14.5 administration and team filtering", () => {
     expect(markup).toContain("Users");
     expect(markup).toContain("Teams");
     expect(markup).toContain("Policy");
+    expect(markup).toContain("GoldTier Sandbox");
     expect(markup).not.toContain("Dashboard");
     expect(markup).not.toContain("New onboarding");
     const adminMarkup = renderToStaticMarkup(<AdminUsers />);

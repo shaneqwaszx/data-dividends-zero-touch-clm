@@ -37,6 +37,7 @@ GOLDTIER_REGISTRATION_TYPE_ID = "GOLDTIER_REGISTRATION_TYPE"
 GOLDTIER_POLICY_ID = "GOLDTIER_POLICY"
 GOLDTIER_BOOKING_ENTITY_ID = "GOLDTIER_BOOKING_ENTITY"
 GOLDTIER_ACCOUNT_ENTITY_TYPE_ID = "GOLDTIER_ACCOUNT_ENTITY_TYPE"
+GOLDTIER_ACCOUNT_ENTITY_TYPE_POC_VALUE = "PROJECT_DEFINED_PROVISIONAL"
 GOLDTIER_PRODUCT_TYPE_ID = "GOLDTIER_PRODUCT_TYPE"
 GOLDTIER_TARGET_POLICY_IDS = (
     GOLDTIER_KYC_CUSTOMER_TYPE_ID,
@@ -81,6 +82,7 @@ class PolicyAuthority(StrEnum):
     PROJECT_DEFINED_PROVISIONAL = "PROJECT_DEFINED_PROVISIONAL"
     INDUSTRY_PRACTICE = "INDUSTRY_PRACTICE"
     TBD_SPONSOR = "TBD_SPONSOR"
+    SANDBOX_TEST_ONLY = "SANDBOX_TEST_ONLY"
 
 
 class BooleanPolicyValue(BaseModel):
@@ -114,8 +116,7 @@ def normalize_safe_policy_text(value: str) -> str:
 
     normalized = value.strip()
     if not normalized or any(
-        unicodedata.category(character) in {"Cc", "Cf", "Cs"}
-        for character in normalized
+        unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in normalized
     ):
         raise ValueError("policy text must be non-blank control-free text")
     return normalized
