@@ -1,32 +1,32 @@
 ---
 name: fyp-phase-execution
-description: "Execute one explicitly assigned Data Dividends FYP phase or remediation task from planner handoff through implementation, verification, and completion reporting. Use for bounded project feature work where Codex must establish the branch and phase, preserve CLM architecture and security constraints, and stop before the next phase."
+description: "Use when implementing an explicitly assigned bounded Data Dividends FYP feature, phase, or remediation task."
 ---
 
 # FYP Phase Execution
 
-Execute exactly one assigned phase or remediation task. Treat AGENTS.md as the global
-authority and the matching active planner handoff under .ai-pipeline/001_planner/ as
-the current phase scope authority.
+Execute exactly one assigned bounded feature, phase, or remediation task. Treat
+`AGENTS.md` as global authority. A matching active planner handoff under
+`.ai-pipeline/001_planner/` is the scope authority for a phase or remediation; otherwise
+the explicit task supplies the bounded goal and acceptance criteria.
 
 ## Establish the work boundary
 
 1. Inspect the current branch, HEAD, staged files, tracked changes, and untracked files.
    Preserve pre-existing work and do not assume the branch name authorizes a phase.
-2. Identify the phase from the user's assignment, then select its matching planner
-   handoff. Include a remediation handoff when the task is remediation. If the assigned
-   scope cannot be matched unambiguously, stop the affected work instead of choosing a
-   phase by filename recency.
+2. Classify the assignment as a bounded feature/task, phase, or remediation. For a phase
+   or remediation, select its matching planner handoff. If the assigned scope cannot be
+   matched unambiguously, stop the affected work instead of choosing by filename recency.
 3. Follow the mandatory `AGENTS.md` loading policy: read the constitution in full,
    classify the change, run `scripts/dev_context.py --change-class <CLASS>` for every
    class, and read each emitted Tier 1 reference/section before relevant contracts,
-   decisions, open questions, skills, current owning source/tests, the assigned planner,
-   and the nearest relevant accepted gate/report. Unknown/ambiguous work uses `--full`;
+   decisions, open questions, skills, current owning source/tests, the assigned planner
+   when one exists, and the nearest relevant accepted gate/report. Unknown/ambiguous work uses `--full`;
    additional role files and historical reports remain Tier 2, retrieved only for a
    named unanswered question.
 4. Extract the goal, acceptance criteria, explicit non-goals, dependencies, unresolved
-   sponsor questions, and required checks. Do not convert later-phase readiness into
-   authority to start that phase.
+   sponsor questions, and required checks from the explicit task and any applicable
+   planner. Do not convert later-phase readiness into authority to start that phase.
 5. Record the canonical task-start capability/resource preflight from
    `docs/DEVELOPMENT_WORKFLOW.md`: current-session tools/plugins and effective
    permissions, required runtimes, relevant browser/database/lifecycle availability,
@@ -37,10 +37,10 @@ the current phase scope authority.
    unresolved authority and next authorized action. Keep current source, tested behavior
    and independently reviewed content distinct.
 
-## Execute the phase
+## Execute the task
 
 1. Inspect the existing implementation and tests before editing.
-2. Keep changes small and phase-bounded. Do not silently invent a business rule or
+2. Keep changes small and task-bounded. Do not silently invent a business rule or
    resolve contradictory evidence. Record the issue and stop the dependent portion.
 3. Preserve the repository architecture:
    - access external systems through connector/service interfaces;
@@ -71,8 +71,8 @@ the current phase scope authority.
 ## Verify and hand off
 
 1. Run every relevant configured backend, frontend, type/lint, contract, regression,
-   dependency-integrity, secret, and whitespace check required by the planner and
-   AGENTS.md. Whitespace/hygiene must include task-owned untracked files as well as
+   dependency-integrity, secret, and whitespace check required by the task, any
+   applicable planner, and `AGENTS.md`. Whitespace/hygiene must include task-owned untracked files as well as
    tracked changes. Report skipped, unavailable, and failed checks accurately, using the
    workflow's reproducible-defect/missing-infrastructure/stale-evidence/unresolved-authority
    classifications.
@@ -82,5 +82,5 @@ the current phase scope authority.
    results, current/tested/reviewed revision identities, decisions/assumptions,
    blockers/risks, and the recommended next authorized action.
 4. Do not commit, push, merge, or change branches unless explicitly instructed.
-5. End after the assigned phase. Never automatically begin the next phase, even when a
+5. End after the assigned task. Never automatically begin the next phase, even when a
    gate or report says it is ready.
