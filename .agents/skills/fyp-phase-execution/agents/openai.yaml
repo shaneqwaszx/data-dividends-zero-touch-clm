@@ -1,4 +1,4 @@
 interface:
   display_name: "FYP Phase Execution"
-  short_description: "Execute one bounded FYP phase safely"
-  default_prompt: "Use $fyp-phase-execution to execute the currently assigned FYP phase without expanding scope."
+  short_description: "Execute one bounded FYP task safely"
+  default_prompt: "Use $fyp-phase-execution to execute the currently assigned bounded FYP task without expanding scope."

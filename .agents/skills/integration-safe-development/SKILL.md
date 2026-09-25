@@ -1,14 +1,15 @@
 ---
 name: integration-safe-development
-description: "Use when starting or modifying a feature branch, preparing a pull request, syncing with main, resolving merge conflicts, integrating another developer's changes, or assessing whether repository work is safe to merge."
+description: "Use when synchronizing a completed feature with main, resolving merge conflicts, preparing a pull request, assessing merge readiness, or publishing independently accepted work."
 ---
 
 # Integration-Safe Development
 
-Keep feature work bounded to its intended delta and prove it is based on the latest
-`origin/main`. This skill does not authorize branch creation, commits, pushes, merges,
-rebases, resets, cleanup, or pull-request completion when the task has not authorized
-those actions.
+Integrate an existing bounded change with the latest `origin/main` and prove pre-PR
+readiness. Normal implementation belongs to `fyp-phase-execution`; independent
+acceptance belongs to `fyp-quality-gate`. This skill does not authorize commits, pushes,
+merges, rebases, resets, cleanup, or pull-request completion when the task has not
+authorized those actions.
 
 Follow the mandatory context-loading order in `AGENTS.md`, then read the assigned
 planner/task and `docs/development/BRANCH_MERGE_PROTOCOL.md`.
@@ -39,33 +40,7 @@ Record `BASE_SHA`, `FEATURE_BRANCH`, and `HEAD_SHA`. Confirm the branch began at
 recreate it only with explicit authorization. If implementation exists, preserve it;
 do not reset, rebase, or recreate the branch to hide drift.
 
-## Stage 2 — Scope map
-
-Before editing, identify exact expected files, shared interfaces, hotspot files, tests
-protecting existing behavior, and likely overlap with main. Create the smallest plan.
-Treat `App.tsx`, `api.ts`, `types.ts`, backend `main.py`/`composition.py`, CI, README, and
-dependency lockfiles as hotspots. Change one only when the delta cannot be isolated
-cleanly elsewhere.
-
-## Stage 3 — Implementation
-
-Implement only the assigned scope. Prefer small modules/components and existing
-provider/service boundaries. Do not add a duplicate implementation merely to avoid
-understanding the current owner. Preserve current main behavior unless the assigned
-requirement explicitly supersedes it.
-
-## Stage 4 — Local verification
-
-Run focused tests first, then applicable repository-defined backend tests, frontend
-tests, typecheck, lint, contract validation, security checks, and build. Read the
-current-main CI definition plus package/tool configuration for exact commands. Never
-invent a command or report an unexecuted check.
-
-Run whitespace/hygiene checks across tracked changes and every task-owned new file.
-Plain `git diff --check` does not inspect untracked Markdown. Derive test inventory from
-the current owned suites and record counts only as revision-specific evidence.
-
-## Stage 5 — Main-drift check
+## Stage 2 — Main-drift check
 
 Run:
 
@@ -78,7 +53,7 @@ git log --oneline HEAD..origin/main
 
 If the final command lists commits, integration is not finished.
 
-## Stage 6 — Integrate latest main
+## Stage 3 — Integrate latest main
 
 When authorized, merge `origin/main` into the feature branch with
 `git merge origin/main`. Do not rebase a shared/pushed branch or auto-resolve conflicts.
@@ -101,12 +76,12 @@ Follow the protocol's special guidance for frontend, API/type, composition, lock
 CI, and documentation conflicts. Never select a lockfile side before establishing
 whether dependency manifests intentionally changed.
 
-## Stage 7 — Regression verification
+## Stage 4 — Regression verification
 
 Run focused conflict-area tests first, then every applicable broad repository check.
 Verify that merged main behavior and tests did not disappear.
 
-## Stage 8 — Pre-PR audit
+## Stage 5 — Pre-PR audit
 
 Confirm all intended and supporting feature work is committed. Run
 `git status --short`; if it reports staged, unstaged, or untracked files, stop and
@@ -127,7 +102,7 @@ stop for owner guidance. A checker PASS proves only its listed deterministic che
 does not prove semantic merge safety. Do not claim `MERGE SAFE` while any required
 check failed, was skipped, or origin/main remains ahead.
 
-## Stage 9 — Publication after exact independent PASS
+## Stage 6 — Publication after exact independent PASS
 
 Publication requires both exact independent `PASS` on frozen content and explicit
 task/owner authorization for the external actions. `PASS WITH MINOR FIXES` requires
@@ -153,7 +128,7 @@ publication role when available.
    excuse another failing applicable run. Report pending CI as in progress and do not
    promise unattended monitoring.
 
-## Stage 10 — Handoff
+## Stage 7 — Handoff
 
 Report feature branch, `BASE_SHA`, latest `origin/main` SHA, `HEAD_SHA`, whether main was
 merged after development, files and hotspots changed, API/schema/config changes, exact
