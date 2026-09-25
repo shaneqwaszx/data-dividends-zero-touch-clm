@@ -43,19 +43,24 @@ sanitized evidence → integration-security review → independent QG →
 `SANDBOX_VERIFIED`.
 
 Q-012 must supply the approved environment/base URL, operation paths, request/response
-schemas, auth, not-found/error semantics, timeout/rate rules, TLS/mTLS/private-CA
-requirements, subscription/access, approved test UEN, and secret-delivery mechanism.
-BizFile remains dormant until a separately authorized provider change.
+schemas, remaining token response/error and downstream-value semantics, not-found/error
+semantics, timeout/rate/retry rules, TLS/mTLS/private-CA requirements,
+subscription/access, approved test UEN, and secret-delivery mechanism. BizFile remains
+dormant until a separately authorized provider change.
 
 The official API Marketplace Mock is tracked separately as
 `ACRA_API_MARKETPLACE_MOCK / api_marketplace_mock / MOCK`. A safe read-only GET to the
 official entity-query Mock endpoint without an Authorization header returned HTTP `401`
 on 2026-09-24. This is `OFFICIAL_MOCK_OBSERVED` failure evidence and sets the lane to
-`BLOCKED_AUTHORITY`; it does not identify an authentication mechanism or authorize
-OAuth, a guessed static header, successful mapping, runtime activation, Sandbox, or Live
-claims. `docs/integration/ACRA_API_MARKETPLACE_MOCK_READINESS.md` is the bounded evidence
-summary. Local Mock remains default, generic sandbox remains Partial, and BizFile remains
-Dormant.
+`BLOCKED_AUTHORITY`. Official request-side facts now establish OAuth2 Client Credentials,
+HTTP Basic client authentication at the exact Mock token endpoint, a 60-minute token
+lifetime, and downstream header name `token`; Bearer is not established and Production
+uses a separate token host. This partial authority permits only inert settings, fixed
+constants, and a pure Basic-auth constructor. It does not authorize a token request,
+response parsing, downstream injection, successful mapping, runtime activation,
+Sandbox, or Live claims. `docs/integration/ACRA_API_MARKETPLACE_MOCK_READINESS.md` is the
+bounded evidence summary. Local Mock remains default, generic sandbox remains Partial,
+and BizFile remains Dormant.
 
 ### GoldTier and PingFed
 

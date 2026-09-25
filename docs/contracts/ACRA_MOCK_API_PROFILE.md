@@ -390,7 +390,9 @@ GoldTier calls.
 ## Limitations and sponsor dependencies
 
 - Q-012 remains open for authoritative ACRA operations, paths, schemas, auth, errors,
-  limits, TLS/mTLS/private CA, access, and live verification.
+  limits, TLS/mTLS/private CA, access, and live verification. Request-side official Mock
+  token facts are partially resolved, but no token response/downstream or successful
+  operation contract is implemented.
 - Q-015 remains open; acquisition adds no jurisdiction source precedence or resolution.
 - Officer roles and relationship semantics are project vocabulary, not legal findings.
 - Collection bounds are conservative POC safety limits, not ACRA service limits or SLAs.

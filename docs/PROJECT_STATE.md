@@ -129,8 +129,10 @@ Major implemented phases are:
   case-ledger boundary; related-party dispatch remains blocked on child-ID lifecycle.
 - The official ACRA API Marketplace Mock has the explicit mode
   `api_marketplace_mock`, distinct from local `mock` and generic `sandbox`. A bounded
-  no-auth read returned `401`; authentication authority remains unresolved under Q-012,
-  so runtime composition fails closed without OAuth/header guessing or fallback.
+  no-auth read returned `401`. Official request-side OAuth2 Client Credentials facts
+  are now documented with inert backend settings and a pure Basic-auth constructor;
+  token response/downstream semantics, access, and successful operation authority remain
+  unresolved under Q-012, so runtime composition still fails closed without fallback.
 
 Phase 20 Sponsor Policy Authority Gate is accepted on main at
 `5039c7e548dfae1eeb8ad600f128ef374e3a6f2a`. D-009 confirms only that human exception
@@ -195,7 +197,7 @@ boundaries.
 | Boundary | Active/default | Other implemented seam | Classification | What is proved |
 |---|---|---|---|---|
 | ACRA | `mock` | generic `sandbox` connector | Mock active; sandbox partial | Synthetic ACRA-shaped behavior and adapter isolation |
-| ACRA API Marketplace Mock | none | explicit `api_marketplace_mock` mode | Mock / Blocked authority | Official Mock endpoint existence and one sanitized no-auth `401`; no successful schema or auth contract |
+| ACRA API Marketplace Mock | none | explicit `api_marketplace_mock` mode plus inert auth/config foundation | Mock / Blocked authority | Official request-side token facts and one sanitized no-auth `401`; no token response, successful schema, access, or interoperability proof |
 | Registry cache | disabled | opt-in synthetic Mock only | Project-defined POC | Complete normalized Mock snapshots under exact identity and fixed elapsed-time freshness |
 | ACRA BizFile | none | module exists but is not composed | Dormant | Focused adapter code/tests only, not runtime availability |
 | IDP/OCR | `local_pdf_text` | Mock fault/demo provider | Local POC / Mock | Deterministic extraction from supported synthetic documents |
@@ -387,8 +389,10 @@ production-host history fallback remains unverified and outside Phase 15C scope.
 
 ## Current open sponsor blockers
 
-- Q-012 blocks authoritative/live ACRA binding, operation schema, auth, errors, rate
-  limits, TLS/mTLS/private-CA requirements, and sandbox proof.
+- Q-012 is partially resolved for official Mock request-side token facts; it still
+  blocks authoritative/live ACRA binding, successful operation and token-response
+  schemas, downstream token semantics, access/secret delivery, errors, rate/retry
+  limits, TLS/mTLS/private-CA requirements, related operations, and sandbox proof.
 - Q-008/D-018 blocks real GoldTier/PingFed authentication material and containment.
 - Q-001/Q-002/Q-006/Q-007 block Ready-for-Approval, hierarchy retrieval, related-party
   semantics, and final Singapore target mappings.

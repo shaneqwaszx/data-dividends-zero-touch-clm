@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     acra_timeout_seconds: float = 10.0
     acra_auth_header_name: str = ""
     acra_auth_header_value: SecretStr | None = None
+    acra_api_marketplace_mock_client_id: str | None = None
+    acra_api_marketplace_mock_secret_key: SecretStr | None = None
     goldtier_sandbox_base_url: str = ""
     goldtier_sandbox_environment: str = Field(
         default="", pattern=r"^(?:|[A-Za-z0-9][A-Za-z0-9_-]{0,31})$"

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from pydantic import SecretStr, ValidationError
 
 from app.config import Settings
 from app.connectors.acra_sandbox import (
@@ -49,13 +50,26 @@ def sandbox_settings() -> Settings:
 
 
 def test_mock_mode_is_the_safe_default_composition() -> None:
-    connector = build_acra_connector(Settings(app_env="test"))
+    connector = build_acra_connector(
+        Settings(
+            app_env="test",
+            acra_api_marketplace_mock_client_id="test_client_id",
+            acra_api_marketplace_mock_secret_key=SecretStr("test_secret_key"),
+        )
+    )
 
     assert isinstance(connector, MockAcraConnector)
 
 
-def test_api_marketplace_mock_is_explicit_and_fails_closed_without_auth_authority() -> None:
-    settings = Settings(app_env="test", acra_connector_mode="api_marketplace_mock")
+def test_api_marketplace_mock_credentials_do_not_activate_or_use_generic_auth() -> None:
+    settings = Settings(
+        app_env="test",
+        acra_connector_mode="api_marketplace_mock",
+        acra_api_marketplace_mock_client_id="test_client_id",
+        acra_api_marketplace_mock_secret_key=SecretStr("test_secret_key"),
+        acra_auth_header_name="Authorization",
+        acra_auth_header_value=SecretStr("test_generic_value"),
+    )
 
     with pytest.raises(AcraConfigurationError) as caught:
         build_acra_connector(
@@ -68,6 +82,25 @@ def test_api_marketplace_mock_is_explicit_and_fails_closed_without_auth_authorit
         "The ACRA sandbox connector is not configured for authorized use."
     )
     assert "fixture-only-value" not in str(caught.value)
+
+
+def test_marketplace_credentials_do_not_substitute_for_generic_sandbox_auth() -> None:
+    settings = Settings(
+        app_env="test",
+        acra_connector_mode="sandbox",
+        acra_base_url="https://sandbox.synthetic-acra.example",
+        acra_company_path_template="/business-profile/{uen}",
+        acra_api_marketplace_mock_client_id="test_client_id",
+        acra_api_marketplace_mock_secret_key=SecretStr("test_secret_key"),
+    )
+
+    with pytest.raises(AcraConfigurationError):
+        build_acra_connector(settings, transport=ContractFixtureTransport())
+
+
+def test_retired_bizfile_mock_mode_is_invalid() -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"app_env": "test", "acra_connector_mode": "bizfile_mock"})
 
 
 def test_sandbox_mode_composes_with_safe_injected_boundaries() -> None:

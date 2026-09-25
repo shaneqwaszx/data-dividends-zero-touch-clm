@@ -16,15 +16,15 @@ Classification values are exactly `ALREADY_PRESENT_HARDENED`,
 | Original path | Commit | Original behavior | Current-main equivalent | Classification / selected action | Reason | Test or evidence |
 |---|---|---|---|---|---|---|
 | `apps/backend/app/connectors/acra_bizfile_sandbox.py` | `4ae4ed19` | Added HTTPS-bounded base/path/query construction and timeout validation for entity basic information and shareholder operations. | Same dormant connection owner, later security-remediated. | `ALREADY_PRESENT_HARDENED` — retain current owner; add only the bounded business-profile helper from `897a4c4`. | Current code preserves HTTPS, no userinfo/query/fragment base, bounded paths/timeouts, injected transport, and safe errors. | BizFile connection/security tests; accepted `ACRA_BIZFILE_SECURITY_REMEDIATION_QUALITY_GATE.md`. |
-| same | `4ae4ed19` | Added no-header authorizer and speculative OAuth/token lifecycle. | `NoAuthAcraAuthorizer` remains; OAuth was removed by `74a5fd2f`. | `SUPERSEDED_SECURITY` — preserve no-header seam; do not restore OAuth/token code. | Q-012 supplies no authoritative auth contract; token URL/cache/secret handling was speculative. | Module exposure test; secret scan; accepted BizFile security gate. |
+| same | `4ae4ed19` | Added no-header authorizer and speculative OAuth/token lifecycle. | `NoAuthAcraAuthorizer` remains; the historical lifecycle was removed by `74a5fd2f`. | `SUPERSEDED_SECURITY` — preserve no-header seam; do not restore the historical token lifecycle. | Its token URL/cache/secret and Bearer behavior were speculative. D-053 permits a separate minimal official-Mock auth foundation only. | Module exposure test; secret scan; accepted BizFile security gate; D-053 auth tests. |
 | same | `4ae4ed19` | Added tolerant sample-shaped DTOs for address, dates, constitution, embedded officers, shareholder entities, and withdrawn-holder filtering. | Current strict source DTO boundary and dormant decoders. | `ALREADY_PRESENT_HARDENED` — retain and require exactly one returned entity. | Useful decoding already survived current main; stricter single-entity/requested-UEN binding prevents ambiguous reconstruction. | Focused company/officer/ownership, wrong-identity, missing/multiple-entity tests. |
 | same | `4ae4ed19` | Added company/officer/ownership connector calls, HTTP status/transport error mapping, UTC clock, and response decoding. | Current dormant `BizfileMockAcraConnector`. | `ALREADY_PRESENT_HARDENED` — retain current safe transport/error boundary. | Current main already preserves typed safe errors and removes speculative auth. | Focused connector tests and accepted security report. |
 | same | `4ae4ed19` | Passed query-bearing request URLs into source provenance. | Canonical ACRA source DTO rejects query-bearing provenance. | `PORT_TO_CURRENT_ARCHITECTURE` — retain request query for transport but strip it from provenance. | UEN/query data must not become retained endpoint provenance. | Query-free provenance test and source DTO validators. |
 | same | `4ae4ed19` | Failed the unconfirmed relationship operation as unavailable. | Registry acquisition distinguishes valid empty ownership evidence from transport failure. | `PORT_TO_CURRENT_ARCHITECTURE` — return a strict empty typed relationship result without network traffic. | Absence yields truthful `PARTIAL` if composed directly; no endpoint or derived relationship is invented. | Empty relationship focused test; Phase 10 acquisition rules. |
-| `apps/backend/app/composition.py` | `897a4c4` | Composed a new runtime `bizfile_mock` mode with HTTP transport and header authorizer. | Only `mock` and generic `sandbox` are composed; BizFile is explicitly Dormant. | `SUPERSEDED_SECURITY` — no import, factory branch, or runtime activation restored. | Phase 21 and Q-012 prohibit activation. | Configuration/composition searches, provider-readiness checker, mode tests. |
-| `apps/backend/app/config.py` | `897a4c4` | Added `bizfile_mock` to `ACRA_CONNECTOR_MODE`. | Mode remains `mock | sandbox`; default is Mock. | `SUPERSEDED_SECURITY` — do not restore the setting. | A setting would create an unsupported activation surface. | `test_acra_modes.py`; provider-readiness registry/checker. |
+| `apps/backend/app/composition.py` | `897a4c4` | Composed a new runtime `bizfile_mock` mode with HTTP transport and header authorizer. | Local `mock` and generic `sandbox` are composed; official `api_marketplace_mock` is recognized but fails closed; BizFile is explicitly Dormant. | `SUPERSEDED_SECURITY` — no historical import, factory branch, or runtime activation restored. | Phase 21 and remaining Q-012 authority prohibit activation. | Configuration/composition searches, provider-readiness checker, mode tests. |
+| `apps/backend/app/config.py` | `897a4c4` | Added `bizfile_mock` to `ACRA_CONNECTOR_MODE`. | Modes are `mock | api_marketplace_mock | sandbox`; default is Mock and the official lane cannot compose. | `SUPERSEDED_SECURITY` — do not restore the historical setting. | The canonical official-Mock name is distinct from dormant BizFile and remains fail-closed. | `test_acra_modes.py`; provider-readiness registry/checker. |
 | `apps/backend/app/connectors/acra_bizfile_sandbox.py` | `897a4c4` | Renamed the entity-basic path field and added a `businessProfile` endpoint constructor. | Entity-basic helper already exists under the current field name; no business-profile operation is composed. | `PORT_TO_CURRENT_ARCHITECTURE` — keep current name; add URL construction only. | The helper is bounded/dormant and makes no request or contract claim. | Business-profile helper/no-call test. |
-| same | `897a4c4` | Added OAuth2 client credentials, token cache, guessed token behavior, and bearer injection. | Deliberately removed by `74a5fd2f`. | `SUPERSEDED_SECURITY` — not restored. | No auth authority, secret-delivery boundary, or token contract exists. | OAuth-absence test; secret scan; Q-012. |
+| same | `897a4c4` | Added OAuth2 client credentials, token cache, guessed token behavior, and bearer injection. | Deliberately removed by `74a5fd2f`; none of its lifecycle or Bearer behavior is restored. | `SUPERSEDED_SECURITY` — not restored. | D-053 confirms only bounded request-side facts and explicitly leaves response, downstream value, access, and activation unresolved. | Historical-code absence, minimal auth-foundation tests, secret scan, Q-012. |
 | same | `897a4c4` | Normalized provenance by dropping the UEN query. | Required by current source DTO; missing in the remediated dormant connector before this reconciliation. | `PORT_TO_CURRENT_ARCHITECTURE` — restore query-free provenance for every returned operation. | Preserves safe evidence without changing the transport URL. | Query-free company and empty-operation tests. |
 | same | `897a4c4` | Treated HTTP 200 plus explicit empty `entities` as company absence and typed empty officers/ownership parties. | Current decoder otherwise classified empty envelopes as malformed. | `PORT_TO_CURRENT_ARCHITECTURE` — restore operation-specific empty semantics while keeping missing/multiple/malformed envelopes invalid. | Distinguishes valid absence from malformed shape without weakening validation. | Empty-entities and missing/multiple-envelope tests. |
 | same | `897a4c4` | Returned an empty relationship payload because no relationship endpoint was known. | Current registry acquisition already models empty mandatory ownership evidence as Partial. | `PORT_TO_CURRENT_ARCHITECTURE` — restore strict typed absence, with no transport call or derivation. | Avoids a false technical outage while claiming no unsupported endpoint. | Focused relationship test; Phase 10 partial-state tests. |
@@ -42,7 +42,8 @@ Classification values are exactly `ALREADY_PRESENT_HARDENED`,
 - ACRA Mock: active/default `MOCK`; Garden is synthetic project data.
 - Generic sandbox: `PARTIAL`, runtime-disabled.
 - BizFile: `DORMANT`, uncomposed, runtime activation false.
-- OAuth/token cache: absent.
+- Token request/lifecycle/cache and downstream injection: absent; only the D-053 pure
+  Basic-auth constructor and fixed request-side facts exist.
 - Raw debug-response tooling: absent.
 - Q-004 and Q-012: open.
 - No real ACRA network smoke was run or authorized.
@@ -53,7 +54,18 @@ The current provider-orchestration assignment introduces `api_marketplace_mock` 
 sole canonical name for a distinct official API Marketplace Mock lane; it does not revive
 historical `bizfile_mock` or reclassify `ACRA_BIZFILE`. A bounded read-only no-auth GET
 to the official entity-query Mock endpoint returned HTTP `401`. This falsifies the old
-no-auth runtime assumption but does not establish what auth is required. The lane is
-therefore `MOCK / BLOCKED_AUTHORITY`, with runtime activation disabled pending Q-012.
-OAuth, guessed static-header behavior, raw-response tooling, Garden fallback, and Live
-claims remain prohibited. See `ACRA_API_MARKETPLACE_MOCK_READINESS.md` and D-050.
+no-auth runtime assumption; at that evidence revision the required mechanism was still
+unknown. The lane remains `MOCK / BLOCKED_AUTHORITY`, with runtime activation disabled
+pending Q-012. Historical speculative OAuth/token behavior, guessed static headers,
+raw-response tooling, Garden fallback, and Live claims remain prohibited. See
+`ACRA_API_MARKETPLACE_MOCK_READINESS.md`, D-050, and the later D-053 refinement below.
+
+## 2026-09-25 official-Mock authentication reconciliation
+
+D-053 partially resolves Q-012 only for the official Mock request-side token facts. The
+historical OAuth lifecycle remains superseded: no request method/body, token response,
+cache/refresh, Bearer injection, operation call, or fallback was restored. The new
+foundation is separate from dormant BizFile and consists only of optional inert backend
+credentials, the exact Mock token endpoint/header/lifetime constants, and a pure HTTP
+Basic constructor. `api_marketplace_mock` remains `MOCK / BLOCKED_AUTHORITY` and runtime
+activation remains disabled.
