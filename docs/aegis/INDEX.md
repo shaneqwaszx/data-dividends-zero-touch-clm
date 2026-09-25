@@ -53,3 +53,7 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-09-23 | artifact | docs/aegis/work/2026-09-23-pre-phase22-capability-expansion/drift-check-draft.json | Pre-Phase 22 integrated capability expansion drift check draft |
 | 2026-09-23 | plan | docs/aegis/plans/2026-09-23-pre-phase22-capability-expansion.md | Pre-Phase 22 integrated capability expansion |
 | 2026-09-23 | adr | docs/aegis/adr/ADR-0001-onboarding-intelligence-advisory-boundary.md | ADR-0001 - Source-neutral onboarding intelligence is advisory and case-bound |
+| 2026-09-24 | work | docs/aegis/work/2026-09-24-pre-phase22-provider-orchestration/10-intent.md | Pre-Phase 22 provider orchestration intent |
+| 2026-09-24 | work | docs/aegis/work/2026-09-24-pre-phase22-provider-orchestration/20-checkpoint.md | Pre-Phase 22 provider orchestration checkpoint |
+| 2026-09-24 | work | docs/aegis/work/2026-09-24-pre-phase22-provider-orchestration/90-evidence.md | Pre-Phase 22 provider orchestration evidence |
+| 2026-09-24 | work | docs/aegis/work/2026-09-24-pre-phase22-provider-orchestration/99-reflection.md | Pre-Phase 22 provider orchestration reflection |

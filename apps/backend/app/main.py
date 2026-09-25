@@ -37,6 +37,7 @@ from app.api_models import (
     ZeroTouchCaseSummaryResponse,
 )
 from app.api_policies import build_policy_router
+from app.api_provider_sandbox import build_provider_sandbox_router
 from app.composition import (
     build_acra_connector as build_acra_connector,
 )
@@ -72,14 +73,22 @@ from app.domain.case_management import (
     CaseTimingDataInvalidError,
     project_case_timing,
 )
-from app.domain.clm import GoldTierSubmissionPlan
+from app.domain.clm import (
+    GoldTierSearchCheckpointStatus,
+    GoldTierSearchDisposition,
+    GoldTierSubmissionPlan,
+)
 from app.domain.dashboard import DashboardSnapshot
 from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.jurisdiction import JurisdictionCode
 from app.domain.models import EventOutcome
 from app.domain.ownership import OwnershipCandidate
 from app.domain.reconciliation import ReconciliationDecisionAction
-from app.domain.target_submission import GoldTierOperationMarker, GoldTierTargetOutcome
+from app.domain.target_submission import (
+    GoldTierExecutionLedgerEntry,
+    GoldTierOperationMarker,
+    GoldTierTargetOutcome,
+)
 from app.domain.zero_touch import (
     AutomationStage,
     AutomationStatus,
@@ -163,9 +172,7 @@ def _e2e_upload_milestone(
         return
     declared_length = request.headers.get("content-length", "")
     content_length = (
-        int(declared_length)
-        if declared_length.isascii() and declared_length.isdecimal()
-        else None
+        int(declared_length) if declared_length.isascii() and declared_length.isdecimal() else None
     )
     payload: dict[str, object] = {
         "milestone": milestone,
@@ -394,9 +401,7 @@ def create_app(
         repository=persistence.intelligence,
         clock=active_clock,
         candidate_resolver=(
-            zero_touch_demo.entity_candidates_for
-            if active_settings.demo_controls_enabled
-            else None
+            zero_touch_demo.entity_candidates_for if active_settings.demo_controls_enabled else None
         ),
     )
     zero_touch = zero_touch_orchestrator or build_zero_touch_orchestrator(
@@ -461,6 +466,7 @@ def create_app(
         )
     )
     application.include_router(build_admin_router(administration))
+    application.include_router(build_provider_sandbox_router(service, active_settings))
     application.include_router(build_policy_router(policy_management))
     application.include_router(
         build_intelligence_router(
@@ -482,13 +488,18 @@ def create_app(
 
     def execution_profile() -> SimulationProfile:
         registry_environment: Literal["MOCK", "SANDBOX"] = (
-            "MOCK" if active_settings.acra_connector_mode == "mock" else "SANDBOX"
+            "SANDBOX" if active_settings.acra_connector_mode == "sandbox" else "MOCK"
         )
         target_environment: Literal["MOCK", "SANDBOX"] = (
             "MOCK" if active_settings.goldtier_connector_mode == "mock" else "SANDBOX"
         )
         return SimulationProfile(
             registry_environment=registry_environment,
+            registry_provider_mode={
+                "mock": "LOCAL_MOCK",
+                "api_marketplace_mock": "API_MARKETPLACE_MOCK",
+                "sandbox": "GENERIC_SANDBOX",
+            }[active_settings.acra_connector_mode],
             target_environment=target_environment,
             target_provider_classification=(
                 "MOCK" if target_environment == "MOCK" else "SANDBOX_PARTIAL"
@@ -637,9 +648,15 @@ def create_app(
         )
 
     def target_operation_evidence(
+        clm_record: object,
+        entry: GoldTierExecutionLedgerEntry | None,
         outcome: GoldTierTargetOutcome | None,
     ) -> tuple[BrowserTargetOperationEvidence, ...]:
         """Project only bounded operation outcomes; never target requests or receipts."""
+
+        from app.domain.clm import ClmOrchestrationRecord
+
+        orchestration = ClmOrchestrationRecord.model_validate(clm_record)
 
         order = (
             GoldTierOperationMarker.SEARCH,
@@ -647,7 +664,23 @@ def create_app(
             GoldTierOperationMarker.POLICY,
             GoldTierOperationMarker.AMEND,
         )
-        attempted = outcome.completed_operations if outcome is not None else ()
+        checkpoint = orchestration.target_search_checkpoint
+        attempted = (
+            entry.attempted_operations
+            if entry is not None
+            else outcome.completed_operations
+            if outcome is not None
+            else (GoldTierOperationMarker.SEARCH,)
+            if checkpoint is not None
+            else ()
+        )
+        completed = (
+            entry.definitively_completed_operations
+            if entry is not None
+            else outcome.completed_operations
+            if outcome is not None
+            else attempted
+        )
         last_attempted = attempted[-1] if attempted else None
         result: list[BrowserTargetOperationEvidence] = []
         for operation in order:
@@ -656,22 +689,31 @@ def create_app(
                 "IN_PROGRESS",
                 "NO_MATCH",
                 "MATCH_FOUND",
+                "SKIPPED",
+                "REVIEW_REQUIRED",
                 "CREATED",
                 "SUCCESS",
                 "FAILED",
             ] = "NOT_ATTEMPTED"
-            if operation in attempted:
-                if operation == GoldTierOperationMarker.SEARCH:
-                    operation_status = (
-                        "MATCH_FOUND"
-                        if outcome is not None
-                        and outcome.error_code == "GT_EXISTING_PARTY_REVIEW_REQUIRED"
-                        else "FAILED"
-                        if outcome is not None
-                        and outcome.error_code is not None
-                        and last_attempted == operation
-                        else "NO_MATCH"
-                    )
+            if operation == GoldTierOperationMarker.SEARCH and checkpoint is not None:
+                operation_status = (
+                    "MATCH_FOUND"
+                    if checkpoint.disposition == GoldTierSearchDisposition.EXACT_MATCH
+                    else "NO_MATCH"
+                    if checkpoint.disposition == GoldTierSearchDisposition.NO_MATCH
+                    else "REVIEW_REQUIRED"
+                    if checkpoint.status == GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+                    else "FAILED"
+                )
+            elif (
+                operation == GoldTierOperationMarker.SHELL
+                and checkpoint is not None
+                and checkpoint.disposition == GoldTierSearchDisposition.EXACT_MATCH
+            ):
+                operation_status = "SKIPPED"
+            elif operation in attempted:
+                if operation not in completed:
+                    operation_status = "IN_PROGRESS"
                 elif (
                     outcome is not None
                     and outcome.error_code is not None
@@ -699,11 +741,12 @@ def create_app(
         clm_record = clm.get(case_id=automation.case_id)
         if case is None or clm_record is None:
             raise HTTPException(status_code=404, detail="Zero-touch case not found")
-        target_outcome = (
-            service.get_target_outcome(clm_record.submission_snapshot.submission_id)
+        target_entry = (
+            service.get_target_execution_entry(clm_record.submission_snapshot.submission_id)
             if clm_record.submission_snapshot is not None
             else None
         )
+        target_outcome = target_entry.target_outcome if target_entry is not None else None
         observed_at = active_clock()
         try:
             timing = project_case_timing(
@@ -731,7 +774,7 @@ def create_app(
                 observed_at=observed_at,
             ),
             reconciliation=reconciliation.get(case_id=automation.case_id),
-            target_operations=target_operation_evidence(target_outcome),
+            target_operations=target_operation_evidence(clm_record, target_entry, target_outcome),
             team=administration.directory.get(case.team_id),
         )
 
@@ -1375,9 +1418,7 @@ def create_app(
         attention_type: Annotated[
             BusinessExceptionType | None, Query(alias="attention_type")
         ] = None,
-        jurisdiction: Annotated[
-            JurisdictionCode | None, Query(alias="jurisdiction")
-        ] = None,
+        jurisdiction: Annotated[JurisdictionCode | None, Query(alias="jurisdiction")] = None,
         search: Annotated[str | None, Query(alias="search")] = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
         offset: Annotated[int, Query(ge=0, le=10_000)] = 0,

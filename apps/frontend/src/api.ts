@@ -33,6 +33,11 @@ import type {
   CasePortfolioPage,
   EventOutcome,
   OnboardingIntelligenceRecord,
+  GoldTierSandboxStatus,
+  GoldTierSandboxSearchInput,
+  GoldTierSandboxSearchResult,
+  GoldTierSandboxDryRunInput,
+  GoldTierSandboxDryRunResult,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -440,6 +445,35 @@ export async function fetchZeroTouchCase(
 export async function fetchExecutionProfile(signal?: AbortSignal): Promise<SimulationProfile> {
   const response = await fetch(`${API_BASE_URL}/api/system/execution-profile`, { signal });
   return parseResponse<SimulationProfile>(response);
+}
+
+export async function fetchGoldTierSandboxStatus(
+  signal?: AbortSignal,
+): Promise<GoldTierSandboxStatus> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/goldtier-sandbox/status`, { signal });
+  return parseResponse<GoldTierSandboxStatus>(response);
+}
+
+export async function searchGoldTierSandbox(
+  input: GoldTierSandboxSearchInput,
+): Promise<GoldTierSandboxSearchResult> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/goldtier-sandbox/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<GoldTierSandboxSearchResult>(response);
+}
+
+export async function dryRunGoldTierSandbox(
+  input: GoldTierSandboxDryRunInput,
+): Promise<GoldTierSandboxDryRunResult> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/goldtier-sandbox/dry-run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseResponse<GoldTierSandboxDryRunResult>(response);
 }
 
 export async function resumeZeroTouchCase(caseId: string): Promise<ZeroTouchCaseSummary> {

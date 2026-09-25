@@ -43,6 +43,7 @@ def test_execution_profile_is_safe_and_available_without_demo_controls() -> None
         "is_simulated": True,
         "registry_system": "ACRA",
         "registry_environment": "MOCK",
+        "registry_provider_mode": "LOCAL_MOCK",
         "target_system": "GOLDTIER",
         "target_environment": "MOCK",
         "target_provider_classification": "MOCK",
@@ -98,7 +99,7 @@ def test_multiple_document_blockers_remain_visible_and_stop_target() -> None:
     evidence = client.get(
         f"/api/demo/clm/zero-touch/cases/{result['case']['case_id']}/uat-evidence"
     ).json()
-    assert evidence["target_calls"] == []
+    assert evidence["target_calls"] == ["SEARCH"]
     assert set(evidence["active_blockers"]) == set(exception["blocker_codes"])
 
 

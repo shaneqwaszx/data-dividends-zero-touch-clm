@@ -74,6 +74,7 @@ SafeSourceReference = Annotated[
 class DocumentProfile(StrEnum):
     """Project-defined provisional profile pending sponsor answer Q-003."""
 
+    CERTIFICATE_OF_INCORPORATION_POC = "CERTIFICATE_OF_INCORPORATION_POC"
     PROVISIONAL_CORPORATE = "PROVISIONAL_CORPORATE"
 
 

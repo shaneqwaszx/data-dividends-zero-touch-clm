@@ -87,6 +87,16 @@ their authoritative schemas/role and relationship vocabularies, pagination/limit
 empty/partial semantics. The sandbox-shaped adapter fails closed for the new operations;
 their Mock behavior is not evidence that these endpoints exist in ACRA.
 
+On 2026-09-24, a bounded read-only GET without an Authorization header to the official
+API Marketplace Mock entity-query endpoint
+`https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/entityBasicInformation`
+returned HTTP `401`. This disproves the historical no-auth runtime assumption for the
+observed request but does not identify OAuth, a static header, API key, mTLS, or another
+mechanism. The canonical `api_marketplace_mock` lane therefore remains
+`BLOCKED_AUTHORITY` with runtime activation disabled. Please confirm the exact Mock-tier
+authentication/subscription mechanism and approved secret-delivery path; Q-012 remains
+open, and no Live claim is made.
+
 ## JURISDICTION EVIDENCE AUTHORITY
 
 ### Q-015 - Jurisdiction source precedence, disagreement, and review authority

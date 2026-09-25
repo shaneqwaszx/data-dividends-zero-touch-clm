@@ -24,6 +24,7 @@ from app.connectors.goldtier_models import (
     GoldTierOperationResult,
     GoldTierOutcome,
     GoldTierRequestMetadata,
+    GoldTierSearchCandidate,
     GoldTierSearchOutcome,
     GoldTierSearchResult,
     SearchPartyRequest,
@@ -129,7 +130,7 @@ class RecordingGoldTier:
             raise RuntimeError("PRIVATE_GOLDTIER_FAILURE_SENTINEL")
 
     def search_party(
-        self, request: SearchPartyRequest, metadata: GoldTierRequestMetadata
+        self, request: object, metadata: GoldTierRequestMetadata
     ) -> GoldTierSearchResult:
         self._record("search", request, metadata)
         self._raise_if_unexpected("search")
@@ -141,13 +142,31 @@ class RecordingGoldTier:
                 message="Synthetic controlled search failure.",
             )
         if self._match_found:
+            party_id = "GT-EXISTING-SYNTHETIC"
             return GoldTierSearchResult(
                 outcome=GoldTierSearchOutcome.MATCH_FOUND,
                 status_code=200,
-                matched_party_id="GT-EXISTING-SYNTHETIC",
+                matched_party_id=party_id,
+                candidates=(
+                    GoldTierSearchCandidate(
+                        party_id=party_id,
+                        registration_number=(
+                            request.registration_number
+                            if isinstance(request, SearchPartyRequest)
+                            else "202400001A"
+                        ),
+                        country="SG",
+                    ),
+                ),
                 message="Synthetic existing party candidate.",
             )
-        return self._delegate.search_party(request, metadata)
+        if isinstance(request, SearchPartyRequest):
+            return self._delegate.search_party(request, metadata)
+        return GoldTierSearchResult(
+            outcome=GoldTierSearchOutcome.NO_MATCH,
+            status_code=200,
+            message="Synthetic sandbox Search returned no candidate.",
+        )
 
     def create_shell_customer(
         self, request: CreateShellCustomerRequest, metadata: GoldTierRequestMetadata
@@ -432,9 +451,9 @@ def recovery_case_configuration(
         return (
             "202400001A",
             RecordingGoldTier(match_found=True),
-            ClmStatus.REVIEW_REQUIRED,
-            ["search"],
-            "GT_EXISTING_PARTY_REVIEW_REQUIRED",
+            ClmStatus.MOCK_GOLDTIER_SUBMITTED,
+            ["search", "policy", "amend"],
+            None,
         )
     if outcome == "policy":
         return (
@@ -466,12 +485,12 @@ def test_staged_intake_stops_before_goldtier_and_preserves_legacy_composition() 
     staged = clm.create_case("202400001A")
     assert staged.status == ClmStatus.COLLECTING_EVIDENCE
     assert staged.readiness.registry.status == "READY"
-    assert target.calls == []
+    assert target.calls == ["search"]
     assert cases.get_case(staged.case_id).state == "VALIDATED"  # type: ignore[union-attr]
 
     legacy = cases.create_case("202400001A")
     assert legacy.state == "COMPLETED"
-    assert target.calls == ["search", "shell", "policy", "amend"]
+    assert target.calls == ["search", "search", "shell", "policy", "amend"]
 
 
 def test_happy_end_to_end_snapshot_plan_and_mock_submission() -> None:
@@ -546,7 +565,7 @@ def test_mock_plan_fails_closed_before_sandbox_ledger_or_connector_after_drift()
         cases.get_execution_state(retained.submission_snapshot.submission_id)
         == GoldTierExecutionLedgerState.NOT_STARTED
     )
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_document_and_multiple_blockers_prevent_all_goldtier_calls() -> None:
@@ -566,7 +585,7 @@ def test_document_and_multiple_blockers_prevent_all_goldtier_calls() -> None:
     }
     with pytest.raises(ClmRequestError, match="CLM_NOT_READY"):
         clm.submit(case_id=record.case_id)
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_reviewed_mismatch_is_source_conflict_and_never_overwrites_registry() -> None:
@@ -591,7 +610,7 @@ def test_reviewed_mismatch_is_source_conflict_and_never_overwrites_registry() ->
     ownership.analyze(case_id=record.case_id)
     evaluated = clm.evaluate(case_id=record.case_id)
     assert "SOURCE_CONFLICT_REQUIRES_POLICY" in evaluated.readiness.blockers
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_stale_ready_result_is_revalidated_before_submission() -> None:
@@ -607,7 +626,7 @@ def test_stale_ready_result_is_revalidated_before_submission() -> None:
     current = clm.get(case_id=case_id)  # type: ignore[arg-type]
     assert current is not None
     assert "DOCUMENT_REVIEW_INCOMPLETE" in current.readiness.blockers
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 @pytest.mark.parametrize(
@@ -637,7 +656,7 @@ def test_current_canonical_invalid_blocks_readiness_and_submission(field: str) -
     assert evaluated.status != ClmStatus.READY_FOR_MOCK_SUBMISSION
     with pytest.raises(ClmRequestError, match="CLM_NOT_READY"):
         clm.submit(case_id=case_id)  # type: ignore[arg-type]
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_reviewed_document_is_compared_with_current_canonical_entity() -> None:
@@ -654,7 +673,7 @@ def test_reviewed_document_is_compared_with_current_canonical_entity() -> None:
     assert "SOURCE_CONFLICT_REQUIRES_POLICY" in evaluated.readiness.blockers
     with pytest.raises(ClmRequestError, match="CLM_NOT_READY"):
         clm.submit(case_id=case_id)  # type: ignore[arg-type]
-    assert target.calls == []
+    assert target.calls == ["search", "search"]
 
 
 def test_final_submit_revalidates_current_canonical_without_new_evaluation() -> None:
@@ -671,7 +690,7 @@ def test_final_submit_revalidates_current_canonical_without_new_evaluation() -> 
     assert current is not None
     assert current.readiness.registry.status == "BLOCKED"
     assert "CANONICAL_DATA_INVALID" in current.readiness.blockers
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_snapshot_is_exact_target_mapper_source_after_live_entity_mutation(
@@ -768,14 +787,13 @@ def test_goldtier_failure_and_partial_amend_terminalize_truthfully(
     assert target.calls == expected_calls
 
 
-def test_match_found_routes_to_review_and_executes_search_only() -> None:
+def test_exact_match_skips_shell_and_continues_policy_and_amend() -> None:
     target = RecordingGoldTier(match_found=True)
     _, _, _, clm, _, case_id = make_ready_case(goldtier=target)
     submitted = clm.submit(case_id=case_id)  # type: ignore[arg-type]
-    assert submitted.status == ClmStatus.REVIEW_REQUIRED
-    assert submitted.error is not None
-    assert submitted.error.code == "GT_EXISTING_PARTY_REVIEW_REQUIRED"
-    assert target.calls == ["search"]
+    assert submitted.status == ClmStatus.MOCK_GOLDTIER_SUBMITTED
+    assert submitted.error is None
+    assert target.calls == ["search", "policy", "amend"]
 
 
 @pytest.mark.parametrize(
@@ -789,6 +807,13 @@ def test_controlled_required_stage_failures_stop_later_operations(
     stage: str, calls: list[str], code: str
 ) -> None:
     target = RecordingGoldTier(controlled_failure_stage=stage)
+    if stage == "search":
+        _, _, _, clm, _ = build_services(target)
+        failed = clm.create_case("202400001A")
+        assert failed.status == ClmStatus.FAILED
+        assert failed.error is not None and failed.error.code == code
+        assert target.calls == calls
+        return
     _, _, _, clm, _, case_id = make_ready_case(goldtier=target)
     submitted = clm.submit(case_id=case_id)  # type: ignore[arg-type]
     assert submitted.status == ClmStatus.FAILED
@@ -799,19 +824,21 @@ def test_controlled_required_stage_failures_stop_later_operations(
 def test_unexpected_submission_failure_is_safe_terminal_and_retrievable() -> None:
     target = RecordingGoldTier(unexpected_stage="policy")
     cases, _, _, clm, _, case_id = make_ready_case(goldtier=target)
-    with pytest.raises(ClmInfrastructureError) as failure:
+    with pytest.raises(ClmRequestError) as failure:
         clm.submit(case_id=case_id)  # type: ignore[arg-type]
     current = clm.get(case_id=case_id)  # type: ignore[arg-type]
-    assert failure.value.code == "GT_POLICY_UNEXPECTED_FAILURE"
+    assert failure.value.code == "CLM_TARGET_OUTCOME_UNCERTAIN"
     assert "PRIVATE_GOLDTIER_FAILURE_SENTINEL" not in failure.value.public_message
-    assert current is not None and current.status == ClmStatus.FAILED
-    assert current.error is not None and current.error.code == "GT_POLICY_UNEXPECTED_FAILURE"
+    assert current is not None and current.status == ClmStatus.SUBMITTING
     assert target.calls == ["search", "shell", "policy"]
     assert current.submission_snapshot is not None
     outcome = cases.get_target_outcome(current.submission_snapshot.submission_id)
-    assert outcome is not None and outcome.infrastructure_failure
-    assert outcome.error_code == "GT_POLICY_UNEXPECTED_FAILURE"
-    assert "PRIVATE_GOLDTIER_FAILURE_SENTINEL" not in outcome.model_dump_json()
+    assert outcome is None
+    assert cases.is_execution_outcome_uncertain(current.submission_snapshot.submission_id)
+    with pytest.raises(ClmRequestError, match="CLM_TARGET_OUTCOME_UNCERTAIN"):
+        clm.submit(case_id=case_id)  # type: ignore[arg-type]
+    assert target.calls == ["search", "shell", "policy"]
+    assert "PRIVATE_GOLDTIER_FAILURE_SENTINEL" not in current.model_dump_json()
 
 
 @pytest.mark.parametrize(
@@ -931,6 +958,19 @@ def test_malformed_target_response_records_safe_outcome_and_never_replays(
     sentinel: str,
 ) -> None:
     target = UntrustedResponseGoldTier(stage=stage, response=response)
+    if stage == "search":
+        _, _, _, clm, _ = build_services(target)
+        failed = clm.create_case("202400001A")
+        assert failed.status == ClmStatus.FAILED
+        assert failed.error is not None
+        assert failed.error.code == "GT_MALFORMED_TARGET_RESPONSE"
+        assert failed.submission_snapshot is None
+        assert target.calls == expected_calls
+        assert sentinel not in failed.model_dump_json()
+        retained = clm.evaluate(case_id=failed.case_id)
+        assert retained.status == ClmStatus.FAILED
+        assert target.calls == expected_calls
+        return
     cases, _, _, clm, _, case_id = make_ready_case(goldtier=target)
 
     with pytest.raises(ClmInfrastructureError) as failure:
@@ -1048,7 +1088,7 @@ def test_normal_outcome_construction_failure_uses_constant_fallback(
     assert "PRIVATE_NORMAL_OUTCOME_CONSTRUCTION_SENTINEL" not in combined
 
 
-def test_unexpected_response_validator_failure_cannot_leave_in_progress(
+def test_unexpected_response_validator_failure_is_uncertain_and_never_replayed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cases, _, _, clm, target, case_id = make_ready_case()
@@ -1058,31 +1098,23 @@ def test_unexpected_response_validator_failure_cannot_leave_in_progress(
         raise RuntimeError("PRIVATE_RESPONSE_VALIDATOR_SENTINEL")
 
     monkeypatch.setattr(onboarding_module, "validate_shell_response", fail_validation)
-    with pytest.raises(ClmInfrastructureError) as first:
+    with pytest.raises(ClmRequestError) as first:
         clm.submit(case_id=case_id)  # type: ignore[arg-type]
-    assert first.value.code == "CLM_FINALIZATION_RETRY_REQUIRED"
+    assert first.value.code == "CLM_TARGET_OUTCOME_UNCERTAIN"
     current = clm.get(case_id=case_id)  # type: ignore[arg-type]
     assert current is not None and current.submission_snapshot is not None
     submission_id = current.submission_snapshot.submission_id
     outcome = cases.get_target_outcome(submission_id)
-    assert outcome is not None
-    assert outcome.error_code == "GT_TARGET_OUTCOME_RECORDING_FAILED"
-    assert outcome.completed_operations == (
-        GoldTierOperationMarker.SEARCH,
-        GoldTierOperationMarker.SHELL,
-    )
-    assert cases.get_execution_state(submission_id) == (
-        GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED
-    )
+    assert outcome is None
+    assert cases.get_execution_state(submission_id) == GoldTierExecutionLedgerState.IN_PROGRESS
+    assert cases.is_execution_outcome_uncertain(submission_id)
     assert target.calls == ["search", "shell"]
 
-    with pytest.raises(ClmInfrastructureError) as recovery_signal:
+    with pytest.raises(ClmRequestError) as recovery_signal:
         clm.submit(case_id=case_id)  # type: ignore[arg-type]
-    assert recovery_signal.value.code == "GT_TARGET_OUTCOME_RECORDING_FAILED"
-    recovered = clm.submit(case_id=case_id)  # type: ignore[arg-type]
-    assert recovered.status == ClmStatus.FAILED
+    assert recovery_signal.value.code == "CLM_TARGET_OUTCOME_UNCERTAIN"
     assert target.calls == ["search", "shell"]
-    combined = first.value.public_message + outcome.model_dump_json() + recovered.model_dump_json()
+    combined = first.value.public_message + current.model_dump_json()
     assert "PRIVATE_RESPONSE_VALIDATOR_SENTINEL" not in combined
 
 
@@ -1288,9 +1320,9 @@ def test_two_concurrent_retries_after_pre_receipt_failure_finalize_once(
         (
             "match",
             "202400001A",
-            ClmStatus.REVIEW_REQUIRED,
-            ["search"],
-            "GT_EXISTING_PARTY_REVIEW_REQUIRED",
+            ClmStatus.MOCK_GOLDTIER_SUBMITTED,
+            ["search", "policy", "amend"],
+            None,
         ),
         (
             "policy",
@@ -1464,7 +1496,7 @@ def test_case_evidence_and_submission_are_isolated() -> None:
     clm.submit(case_id=ready.case_id)
     unchanged = clm.get(case_id=other.case_id)
     assert unchanged is not None and unchanged.submission_snapshot is None
-    assert target.calls == ["search", "shell", "policy", "amend"]
+    assert target.calls == ["search", "search", "shell", "policy", "amend"]
 
 
 @pytest.mark.anyio

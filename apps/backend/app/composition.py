@@ -208,6 +208,13 @@ def build_acra_connector(
     if settings.acra_connector_mode == "mock":
         return MockAcraConnector()
 
+    if settings.acra_connector_mode == "api_marketplace_mock":
+        # The explicit official Mock mode is recognized, but activation remains
+        # blocked: the endpoint rejected a no-auth diagnostic and no authoritative
+        # authentication contract exists. Do not compose dormant BizFile code or
+        # guess a header/OAuth flow, even when a generic test authorizer is supplied.
+        raise AcraConfigurationError
+
     connection = AcraSandboxConnection(
         base_url=settings.acra_base_url,
         company_path_template=settings.acra_company_path_template,
@@ -329,8 +336,7 @@ def build_zero_touch_orchestrator(
     establishment_discard: Callable[[UUID], str | None] | None = None,
     durable_provider_bindings: bool = False,
     clock: Callable[[], datetime] | None = None,
-    intelligence_evaluator: Callable[[UUID], OnboardingIntelligenceRecord | None]
-    | None = None,
+    intelligence_evaluator: Callable[[UUID], OnboardingIntelligenceRecord | None] | None = None,
 ) -> ZeroTouchOrchestrator:
     """Compose the provider-neutral Phase 06 automation owner."""
 

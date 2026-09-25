@@ -9,9 +9,12 @@ from app.connectors.idp import IdpProcessingError
 from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
 from app.domain.documents import (
     ComparisonStatus,
+    DocumentAutoClearBlocker,
     DocumentEventType,
     DocumentFieldKey,
+    DocumentProcessingRecord,
     DocumentProcessingState,
+    DocumentProfile,
     FieldReviewStatus,
     ReviewDecision,
 )
@@ -31,6 +34,7 @@ from app.services.document_errors import (
 from app.services.document_processing import (
     DocumentProcessingService,
     compare_values,
+    document_semantic_assessment,
     normalize_document_value,
 )
 from app.services.document_repository import InMemoryDocumentProcessingRepository
@@ -155,7 +159,7 @@ def valid_provider_result(*, source_reference: str = "LOCAL_PAGE_1") -> dict[str
         DocumentFieldKey.COUNTRY_OF_INCORPORATION: "SG",
     }
     return {
-        "profile": "PROVISIONAL_CORPORATE",
+        "profile": "CERTIFICATE_OF_INCORPORATION_POC",
         "fields": [
             {
                 "field_key": key.value,
@@ -213,6 +217,7 @@ def test_all_fields_match_with_provenance_and_pending_human_review() -> None:
     record = create(service)
 
     assert record.state == DocumentProcessingState.REVIEW_REQUIRED
+    assert record.profile == DocumentProfile.CERTIFICATE_OF_INCORPORATION_POC
     assert record.display_name == "synthetic.pdf"
     assert record.media_type == "application/pdf"
     assert record.processed_at is not None
@@ -232,6 +237,76 @@ def test_all_fields_match_with_provenance_and_pending_human_review() -> None:
     assert [event.timestamp for event in record.events] == sorted(
         event.timestamp for event in record.events
     )
+
+
+def test_coi_profile_does_not_require_registered_address_but_compares_it_when_present() -> None:
+    service, _ = make_service()
+
+    missing = create(service, MockIdpScenario.MISSING_FIELD)
+    missing_assessment = service.assess_auto_clear(case_id=CASE_ID, document_id=missing.document_id)
+    assert missing_assessment.eligible is True
+    assert DocumentAutoClearBlocker.REQUIRED_FIELD_MISSING not in missing_assessment.blockers
+    assert DocumentAutoClearBlocker.SOURCE_CONFLICT not in missing_assessment.blockers
+
+    mismatch_result = valid_provider_result()
+    fields = mismatch_result["fields"]
+    assert isinstance(fields, list)
+    address = next(item for item in fields if item["field_key"] == "registered_address")
+    address["value"] = "99 OTHER ROAD, 999999, SG"
+    service, _ = make_service(provider=StubProvider(result=mismatch_result))
+    mismatch = create(service)
+    mismatch_assessment = service.assess_auto_clear(
+        case_id=CASE_ID, document_id=mismatch.document_id
+    )
+    assert field(mismatch, DocumentFieldKey.REGISTERED_ADDRESS).comparison_status == (
+        ComparisonStatus.MISMATCH
+    )
+    assert DocumentAutoClearBlocker.SOURCE_CONFLICT in mismatch_assessment.blockers
+
+
+@pytest.mark.parametrize(
+    "required_field",
+    [
+        DocumentFieldKey.LEGAL_NAME,
+        DocumentFieldKey.REGISTRATION_NUMBER,
+        DocumentFieldKey.COUNTRY_OF_INCORPORATION,
+    ],
+)
+def test_coi_profile_requires_each_authoritative_certificate_field(
+    required_field: DocumentFieldKey,
+) -> None:
+    provider_result = valid_provider_result()
+    fields = provider_result["fields"]
+    assert isinstance(fields, list)
+    required = next(item for item in fields if item["field_key"] == required_field.value)
+    required["value"] = None
+    required["confidence"] = 0.0
+    required["page_number"] = None
+    service, _ = make_service(provider=StubProvider(result=provider_result))
+
+    record = create(service)
+    assessment = service.assess_auto_clear(case_id=CASE_ID, document_id=record.document_id)
+
+    assert DocumentAutoClearBlocker.REQUIRED_FIELD_MISSING in assessment.blockers
+
+
+def test_legacy_profile_record_still_decodes_and_requires_registered_address() -> None:
+    service, _ = make_service()
+    record = create(service, MockIdpScenario.MISSING_FIELD)
+    persisted = record.model_dump(mode="json")
+    persisted["profile"] = "PROVISIONAL_CORPORATE"
+
+    legacy = DocumentProcessingRecord.model_validate(persisted)
+
+    assert legacy.profile == DocumentProfile.PROVISIONAL_CORPORATE
+    new_assessment = service.assess_auto_clear(case_id=CASE_ID, document_id=record.document_id)
+    legacy_assessment = document_semantic_assessment(
+        record=legacy,
+        current_entity=canonical_entity(),
+        confidence_threshold=0.85,
+    )
+    assert new_assessment.eligible is True
+    assert DocumentAutoClearBlocker.REQUIRED_FIELD_MISSING in legacy_assessment.blockers
 
 
 def test_mismatch_low_confidence_and_missing_scenarios_are_independent() -> None:

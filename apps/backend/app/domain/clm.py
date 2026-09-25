@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.models import EventOutcome, GoldTierResult, SafeError
 from app.domain.target_preparation import GoldTierRequestPreview
+from app.domain.target_safety import SafeTargetErrorCode, SafeTargetIdentifier, SafeTargetMessage
 from app.domain.target_submission import (
     GoldTierExecutionReceipt,
     GoldTierProviderClassification,
@@ -52,6 +53,10 @@ class ClmBlockerCode(StrEnum):
     OWNERSHIP_ANALYSIS_INCOMPLETE = "OWNERSHIP_ANALYSIS_INCOMPLETE"
     OWNERSHIP_REVIEW_REQUIRED = "OWNERSHIP_REVIEW_REQUIRED"
     OWNERSHIP_ANALYSIS_FAILED = "OWNERSHIP_ANALYSIS_FAILED"
+    GOLDTIER_SEARCH_REQUIRED = "GOLDTIER_SEARCH_REQUIRED"
+    GOLDTIER_SEARCH_REVIEW_REQUIRED = "GOLDTIER_SEARCH_REVIEW_REQUIRED"
+    GOLDTIER_SEARCH_FAILED = "GOLDTIER_SEARCH_FAILED"
+    GOLDTIER_SEARCH_STALE = "GOLDTIER_SEARCH_STALE"
 
 
 class ClmWarningCode(StrEnum):
@@ -73,6 +78,80 @@ class ClmEventType(StrEnum):
     MOCK_TARGET_EXECUTION_RECORDED = "MOCK_TARGET_EXECUTION_RECORDED"
     MOCK_SUBMISSION_COMPLETED = "MOCK_SUBMISSION_COMPLETED"
     CLM_SUBMISSION_FAILED = "CLM_SUBMISSION_FAILED"
+    GOLDTIER_SEARCH_STARTED = "GOLDTIER_SEARCH_STARTED"
+    GOLDTIER_SEARCH_COMPLETED = "GOLDTIER_SEARCH_COMPLETED"
+    GOLDTIER_SEARCH_REVIEW_REQUIRED = "GOLDTIER_SEARCH_REVIEW_REQUIRED"
+    GOLDTIER_SEARCH_FAILED = "GOLDTIER_SEARCH_FAILED"
+    GOLDTIER_OPERATION_CHECKPOINTED = "GOLDTIER_OPERATION_CHECKPOINTED"
+
+
+class GoldTierSearchCheckpointStatus(StrEnum):
+    COMPLETED = "COMPLETED"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    FAILED = "FAILED"
+    STALE = "STALE"
+
+
+class GoldTierSearchDisposition(StrEnum):
+    NO_MATCH = "NO_MATCH"
+    EXACT_MATCH = "EXACT_MATCH"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    FAILED = "FAILED"
+
+
+class RetainedGoldTierCandidate(BaseModel):
+    """Bounded safe candidate evidence; raw provider responses never enter the aggregate."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    party_id: SafeTargetIdentifier
+    registration_number: str | None = Field(default=None, min_length=1, max_length=64)
+    country: str | None = Field(default=None, pattern=r"^[A-Za-z]{2,3}$")
+    legal_name: str | None = Field(default=None, min_length=1, max_length=160)
+    legal_form: str | None = Field(default=None, min_length=1, max_length=80)
+    registered_address: str | None = Field(default=None, min_length=1, max_length=240)
+
+
+class GoldTierSearchCheckpoint(BaseModel):
+    """Immutable early Search evidence bound to one canonical identity fingerprint."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    request_id: UUID
+    identity_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    provider_mode: GoldTierProviderMode
+    provider_classification: GoldTierProviderClassification
+    status: GoldTierSearchCheckpointStatus
+    disposition: GoldTierSearchDisposition
+    provider_outcome: str = Field(min_length=1, max_length=32)
+    status_code: int = Field(ge=200, le=599)
+    candidate_count: int = Field(ge=0, le=25)
+    candidates: tuple[RetainedGoldTierCandidate, ...] = Field(default=(), max_length=25)
+    selected_party_id: SafeTargetIdentifier | None = None
+    resolution_outcome: str | None = Field(default=None, min_length=1, max_length=32)
+    code: SafeTargetErrorCode | None = None
+    message: SafeTargetMessage
+    searched_at: datetime
+
+    @model_validator(mode="after")
+    def validate_checkpoint(self) -> "GoldTierSearchCheckpoint":
+        if self.candidate_count != len(self.candidates):
+            raise ValueError("Search candidate count must match retained candidates")
+        if self.disposition == GoldTierSearchDisposition.EXACT_MATCH:
+            if (
+                self.selected_party_id is None
+                or self.status != GoldTierSearchCheckpointStatus.COMPLETED
+            ):
+                raise ValueError("Exact Search checkpoint requires a selected target identity")
+        elif self.selected_party_id is not None:
+            raise ValueError("Only an exact Search checkpoint may select a target identity")
+        expected = {
+            GoldTierProviderMode.MOCK: GoldTierProviderClassification.MOCK,
+            GoldTierProviderMode.SANDBOX: GoldTierProviderClassification.SANDBOX_PARTIAL,
+        }[self.provider_mode]
+        if self.provider_classification != expected:
+            raise ValueError("Search checkpoint provider identity is inconsistent")
+        return self
 
 
 class StageReadiness(BaseModel):
@@ -156,9 +235,7 @@ class GoldTierSubmissionPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     environment: GoldTierProviderMode = GoldTierProviderMode.MOCK
-    provider_classification: GoldTierProviderClassification = (
-        GoldTierProviderClassification.MOCK
-    )
+    provider_classification: GoldTierProviderClassification = GoldTierProviderClassification.MOCK
     base_operations: tuple[str, ...] = Field(
         default_factory=lambda: (
             "searchParty",
@@ -176,9 +253,7 @@ class GoldTierSubmissionPlan(BaseModel):
     def validate_provider_identity(self) -> "GoldTierSubmissionPlan":
         expected = {
             GoldTierProviderMode.MOCK: GoldTierProviderClassification.MOCK,
-            GoldTierProviderMode.SANDBOX: (
-                GoldTierProviderClassification.SANDBOX_PARTIAL
-            ),
+            GoldTierProviderMode.SANDBOX: (GoldTierProviderClassification.SANDBOX_PARTIAL),
         }[self.environment]
         if self.provider_classification != expected:
             raise ValueError("GoldTier provider identity is internally inconsistent")
@@ -212,6 +287,7 @@ class ClmOrchestrationRecord(BaseModel):
     status: ClmStatus
     readiness: ClmReadinessAssessment
     submission_plan: GoldTierSubmissionPlan
+    target_search_checkpoint: GoldTierSearchCheckpoint | None = None
     submission_snapshot: ClmSubmissionSnapshot | None = None
     execution_receipt: GoldTierExecutionReceipt | None = None
     related_party_preparation: RelatedPartySubmissionPreparation | None = None

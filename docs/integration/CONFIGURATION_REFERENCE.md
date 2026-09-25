@@ -28,14 +28,14 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `PHASE14_5_MAX_ACTIVE_SESSIONS` | security | `256` | Process-local global session capacity, 1–1000 |
 | `PHASE13_COOKIE_SECURE` | security | environment-derived | Defaults `true` in production and `false` in local development/test; explicit production `false` fails startup |
 | `PHASE13_BROWSER_ORIGIN` | security | `http://127.0.0.1:8000` locally | Canonical browser origin. Production requires an explicit exact HTTPS origin and fails before persistence initialization when absent or malformed. |
-| `ACRA_CONNECTOR_MODE` | integration | `mock` | `mock` or sandbox-shaped `sandbox` |
+| `ACRA_CONNECTOR_MODE` | integration | `mock` | `mock`, canonical `api_marketplace_mock`, or generic `sandbox`; local Mock remains the default and there is no fallback |
 | `REGISTRY_CACHE_MODE` | provisional Mock POC | `disabled` | `disabled` preserves retrieve-for-each-case behavior; `mock` enables only exact-key synthetic Mock ACRA reuse |
 | `REGISTRY_CACHE_FRESHNESS_SECONDS` | provisional Mock POC | unset | Required as exactly `7776000` when `REGISTRY_CACHE_MODE=mock`; 90 elapsed 24-hour periods, not calendar months or ACRA policy |
-| `ACRA_BASE_URL` | integration | empty | HTTPS subscriber base; required only for sandbox mode |
-| `ACRA_COMPANY_PATH_TEMPLATE` | integration | empty | Authorized path with exactly one `{uen}` placeholder |
-| `ACRA_TIMEOUT_SECONDS` | integration | `10` | Bounded sandbox HTTP timeout |
-| `ACRA_AUTH_HEADER_NAME` | security | empty | Backend-only generic seam pending Q-012 |
-| `ACRA_AUTH_HEADER_VALUE` | secret | empty | Local secret only; never commit/log |
+| `ACRA_BASE_URL` | integration | empty | HTTPS subscriber base; required only for the generic sandbox mode |
+| `ACRA_COMPANY_PATH_TEMPLATE` | integration | empty | Generic-sandbox authorized path with exactly one `{uen}` placeholder |
+| `ACRA_TIMEOUT_SECONDS` | integration | `10` | Bounded ACRA HTTP timeout |
+| `ACRA_AUTH_HEADER_NAME` | security | empty | Backend-only generic-sandbox seam pending Q-012; not authority for API Marketplace Mock authentication |
+| `ACRA_AUTH_HEADER_VALUE` | secret | empty | Local generic-sandbox secret only; never commit/log; not an API Marketplace Mock auth decision |
 | `GOLDTIER_CONNECTOR_MODE` | integration | `mock` | Explicit `mock` or sponsor XPI `sandbox`; there is no automatic fallback |
 | `GOLDTIER_SANDBOX_BASE_URL` | integration | empty | HTTPS origin only; required in sandbox mode and never a production/Live claim |
 | `GOLDTIER_SANDBOX_ENVIRONMENT` | integration | empty | Bounded path segment used by the supplied XPI routes |
@@ -72,11 +72,19 @@ For the scripted sponsor demo both demo flags are enabled in their respective la
 processes, while `IDP_CONNECTOR_MODE=local_pdf_text` remains the normal sponsor path.
 Developer controls use their dedicated demo provider boundary and do not replace it.
 
+`api_marketplace_mock` is the sole canonical name for the official ACRA API Marketplace
+Mock lane. The safe 2026-09-24 no-auth diagnostic returned HTTP `401`, so its readiness
+state is `BLOCKED_AUTHORITY` and Q-012 still blocks runtime activation. Do not configure
+an arbitrary static header or restore historical OAuth code to bypass that gate. The
+fixed observed query-free endpoint is recorded in
+`ACRA_API_MARKETPLACE_MOCK_READINESS.md`; it is a Mock endpoint, never a Live label.
+
 ## Script-only smoke settings
 
 `ACRA_LIVE_SMOKE_ENABLED` and `ACRA_SMOKE_UEN` are read only by
 `scripts/acra_sandbox_smoke.py`. The smoke is disabled by default and must not run until
-Q-012 and authorized access are satisfied.
+Q-012 and authorized access are satisfied. It is not the API Marketplace Mock diagnostic
+and must not be repurposed to bypass the `BLOCKED_AUTHORITY` state.
 
 ## MongoDB persistence and diagnostic
 

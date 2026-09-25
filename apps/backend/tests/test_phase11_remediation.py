@@ -224,7 +224,14 @@ def test_direct_field_result_rejects_false_outcome(
         )
 
 
-@pytest.mark.parametrize("outcome", tuple(ReconciliationOutcome))
+@pytest.mark.parametrize(
+    "outcome",
+    tuple(
+        outcome
+        for outcome in ReconciliationOutcome
+        if outcome != ReconciliationOutcome.REGISTRY_ONLY
+    ),
+)
 def test_direct_field_result_accepts_each_truthful_outcome(
     outcome: ReconciliationOutcome,
 ) -> None:
@@ -668,4 +675,4 @@ def test_low_confidence_conflict_has_one_unverifiable_blocker_and_no_action() ->
     assert api_legal[0]["outcome"] == "UNVERIFIABLE"
     assert api_legal[0]["allowed_actions"] == []
     assert zero._ownership.get(case_id=created.case_id) is None  # noqa: SLF001
-    assert target.calls == []
+    assert target.calls == ["search"]

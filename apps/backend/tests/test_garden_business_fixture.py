@@ -169,17 +169,18 @@ def test_garden_mock_acquisition_feeds_the_existing_decimal_engine() -> None:
 
 
 def test_garden_reaches_normal_mock_completion_without_external_network() -> None:
-    client = TestClient(
-        create_app(Settings(app_env="test", idp_connector_mode="local_pdf_text"))
-    )
+    client = TestClient(create_app(Settings(app_env="test", idp_connector_mode="local_pdf_text")))
     created = client.post("/api/clm/zero-touch/cases", json={"uen": GARDEN_BUSINESS_UEN})
     assert created.status_code == 201
     created_payload = created.json()
     case_id = created_payload["case"]["case_id"]
     assert created_payload["status"] == "PENDING_INPUTS"
-    assert {item["status"] for item in created_payload["target_operations"]} == {
-        "NOT_ATTEMPTED"
-    }
+    assert [item["status"] for item in created_payload["target_operations"]] == [
+        "NO_MATCH",
+        "NOT_ATTEMPTED",
+        "NOT_ATTEMPTED",
+        "NOT_ATTEMPTED",
+    ]
     completed = client.post(
         f"/api/clm/zero-touch/cases/{case_id}/documents",
         headers={"content-type": "application/pdf", "X-Document-Name": "garden-profile.pdf"},

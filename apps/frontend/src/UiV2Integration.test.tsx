@@ -103,7 +103,7 @@ function makePanelSummary(
     confidence: null,
     validity: "VALID",
   } as const;
-  const discrepancy = reconciliationOutcome === "MATCH" ? null : {
+  const discrepancy = ["MATCH", "REGISTRY_ONLY"].includes(reconciliationOutcome) ? null : {
     discrepancy_id: "discrepancy-1",
     field_name: "legal_name",
     outcome: reconciliationOutcome,
@@ -151,7 +151,7 @@ function makePanelSummary(
     reconciliation: {
       reconciliation_id: "reconciliation-1",
       version: 1,
-      status: reconciliationOutcome === "MATCH" ? "MATCHED" : "REVIEW_REQUIRED",
+      status: ["MATCH", "REGISTRY_ONLY"].includes(reconciliationOutcome) ? "MATCHED" : "REVIEW_REQUIRED",
       source_document_ids: [],
       source_document_event_counts: [],
       fields: [{ field_name: "legal_name", observations: [observation], outcome: reconciliationOutcome, discrepancy_id: discrepancy?.discrepancy_id ?? null }],
@@ -302,7 +302,7 @@ describe("UI v2 backend integration adapters", () => {
     expect(markup).toContain("Q-012");
   });
 
-  it.each(["MATCH", "MISSING_IN_SOURCE", "CONFLICT", "UNVERIFIABLE", "INVALID"] as const)(
+  it.each(["MATCH", "REGISTRY_ONLY", "MISSING_IN_SOURCE", "CONFLICT", "UNVERIFIABLE", "INVALID"] as const)(
     "renders the reconciliation outcome %s without inventing source precedence",
     (outcome) => {
       const summary = { ...makePanelSummary(outcome), current_stage: "DOCUMENT" as const };
@@ -310,7 +310,7 @@ describe("UI v2 backend integration adapters", () => {
       expect(markup).toContain("Confirm details");
       expect(markup).toContain(outcome.replaceAll("_", " ").toLowerCase());
       expect(markup).toContain("No source wins automatically");
-      if (outcome !== "CONFLICT" && outcome !== "MATCH") expect(markup).toContain("Replacement evidence is required");
+      if (!["CONFLICT", "MATCH", "REGISTRY_ONLY"].includes(outcome)) expect(markup).toContain("Replacement evidence is required");
     },
   );
 

@@ -10,10 +10,11 @@ It is not a sponsor contract, phase report, or substitute for current source and
   "schema_version": 1,
   "case_envelope_schema_version": 5,
   "verified_date": "2026-09-24",
-  "verified_main_sha": "3ca232b58c3842f413c4552dbd3b85aabea4591c",
+  "verified_main_sha": "5f71b4d4d4dcf11ccf4d742446a0fec67aac7da3",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
+    "registry_api_marketplace_mock": {"name": "ACRA_API_MARKETPLACE_MOCK", "mode": "api_marketplace_mock", "classification": "MOCK"},
     "registry_sandbox": {"name": "ACRA_GENERIC_SANDBOX", "mode": "sandbox", "classification": "PARTIAL"},
     "registry_bizfile": {"name": "ACRA_BIZFILE", "mode": "dormant", "classification": "DORMANT"},
     "idp": {"name": "LOCAL_PDF_TEXT", "mode": "local_pdf_text", "classification": "LOCAL"},
@@ -101,15 +102,35 @@ Major implemented phases are:
 - The same pre-Phase 22 candidate adds an explicit GoldTier XPI sandbox lane behind the
   existing connector/mapper/ledger owners. Mock remains the default. XPI is
   `SANDBOX_PARTIAL`, uses a backend-only `user_id` header and TLS-1.3-only bounded
-  transport, exposes a safe case request preview, and blocks writes until all eight
-  target values have explicit non-TBD authority. No synthetic customer write was used
-  as acceptance evidence because that authority prerequisite remains unsatisfied;
+  transport and exposes a safe case request preview. `accountEntityType` now has one
+  user-authorized provisional POC placeholder, while the other seven target defaults
+  remain `TBD_SPONSOR` and continue to block ordinary mutation. No synthetic customer
+  write was used as acceptance evidence because that authority prerequisite remains unsatisfied;
   related-party dispatch remains blocked on child-ID lifecycle evidence.
 - The candidate freezes GoldTier provider identity in the retained CLM submission plan.
   Submission input derives from that plan; the mapper and connector are checked only
   for compatibility before ledger/network activity. Mock/Sandbox drift fails closed,
   and schema-v5 rejects contradictory plan/input/matching-ledger combinations without
   introducing schema v6. Plan-only and historical schema reads remain supported.
+- This Pre-Phase-22 provider-orchestration candidate runs read-only GoldTier Search
+  immediately after canonical Registry identity. Exact existing customers retain their
+  target ID and skip Shell; no-match cases continue to readiness before Shell; ambiguous
+  candidates block all target writes. Shell, Policy, and Amend then advance through
+  separate durable checkpoints under the same target ledger and uncertain mutations are
+  not replayed.
+- The main demo document now defaults to the project-defined COI profile: legal name,
+  registration number, and jurisdiction are required, while address is optional and
+  remains Registry evidence if absent. `accountEntityType` has one editable provisional
+  POC placeholder; the other seven institution-specific target defaults remain
+  `TBD_SPONSOR`.
+- HR alone has `PROVIDER_SANDBOX_TEST` and still has no `CASE_ACCESS`. The HR console
+  exposes safe GoldTier status, bounded read-only Search, offline request preview/dry
+  run, and a process-local safe timeline. Standalone writes are blocked by the existing
+  case-ledger boundary; related-party dispatch remains blocked on child-ID lifecycle.
+- The official ACRA API Marketplace Mock has the explicit mode
+  `api_marketplace_mock`, distinct from local `mock` and generic `sandbox`. A bounded
+  no-auth read returned `401`; authentication authority remains unresolved under Q-012,
+  so runtime composition fails closed without OAuth/header guessing or fallback.
 
 Phase 20 Sponsor Policy Authority Gate is accepted on main at
 `5039c7e548dfae1eeb8ad600f128ef374e3a6f2a`. D-009 confirms only that human exception
@@ -153,13 +174,14 @@ authenticated browser/API request
   -> optional exact-key synthetic Mock snapshot cache (disabled by default)
   -> ACRA Mock or configured generic sandbox-shaped acquisition on cache bypass/miss/stale
   -> canonical legal entity and normalized registry evidence
+  -> early read-only GoldTier Search and existing-customer resolution
   -> bounded document intake and local deterministic extraction
   -> source-neutral reconciliation and review/resume where required
   -> registry-fed deterministic Decimal ownership graph analysis
   -> versioned advisory entity resolution, UBO assistance, and mock risk
   -> readiness and immutable target snapshot
-  -> ordered GoldTier Mock-default or explicit XPI-sandbox search/shell/policy/amend
-     with the same retained no-replay recovery ledger
+  -> incremental GoldTier Mock-default or explicit XPI-sandbox Shell/Policy/Amend
+     checkpoints with the same retained no-replay recovery ledger
   -> authorized bounded case portfolio/dashboard/activity and detailed evidence views
 ```
 
@@ -173,12 +195,13 @@ boundaries.
 | Boundary | Active/default | Other implemented seam | Classification | What is proved |
 |---|---|---|---|---|
 | ACRA | `mock` | generic `sandbox` connector | Mock active; sandbox partial | Synthetic ACRA-shaped behavior and adapter isolation |
+| ACRA API Marketplace Mock | none | explicit `api_marketplace_mock` mode | Mock / Blocked authority | Official Mock endpoint existence and one sanitized no-auth `401`; no successful schema or auth contract |
 | Registry cache | disabled | opt-in synthetic Mock only | Project-defined POC | Complete normalized Mock snapshots under exact identity and fixed elapsed-time freshness |
 | ACRA BizFile | none | module exists but is not composed | Dormant | Focused adapter code/tests only, not runtime availability |
 | IDP/OCR | `local_pdf_text` | Mock fault/demo provider | Local POC / Mock | Deterministic extraction from supported synthetic documents |
 | Ownership | registry evidence into local engine | Mock fault/demo provider | Local / Mock support | Deterministic Decimal graph analysis, not an external service |
 | GoldTier | `mock` default | XPI `sandbox` mode | Mock active; sandbox partial | Ordered target behavior through one retained recovery ledger |
-| GoldTier XPI sandbox | none | explicit `sandbox` mode | Partial | Supplied-route search/Customer mutation adapter, strict safe projection, target-policy blocking, and no-replay semantics; not Live |
+| GoldTier XPI sandbox | none | explicit `sandbox` mode | Partial | Supplied-route Search/customer mutation adapter, early Search orchestration, strict safe projection, target-policy blocking, and no-replay semantics; no customer write evidence and not Live |
 | PingFed | none | future placeholders only | Not implemented | No token retrieval or authenticated target connection |
 | MongoDB | memory by default | explicit `mongo` mode | Optional local infrastructure | Single-instance durable POC behavior when configured |
 | Camunda | none | none | Not implemented | No runtime workflow-engine integration |
@@ -197,7 +220,8 @@ authorized contract and execution evidence are required.
 - **Unknown / blocked:** the sponsor/API owner has not supplied sufficient authority or
   usable access evidence.
 
-The provider matrix above is Observed. Thresholds, role behavior, policy defaults,
+The provider matrix above is Observed. The official ACRA Mock `401` is only
+`OFFICIAL_MOCK_OBSERVED` failure evidence. Thresholds, role behavior, policy defaults,
 reconciliation actions, and deletion governance are mostly project-defined/provisional.
 GoldTier amend path, first-level related-party limit, lack of hierarchy creation,
 PingFed target, TLS 1.3 requirement, ACRA proof labeling, and UTC sourcing guidance have
@@ -213,7 +237,14 @@ unknown or blocked.
   writes fail closed and never fall back to memory.
 - One schema-versioned case envelope (current schema v5) owns durable case state. Strict
   v1/v2/v3/v4 reads preserve absent historical fields, including v4
-  `intelligence = null`, and do not rewrite or reinterpret legacy cases.
+  `intelligence = null`, without a read-only persistence rewrite. Automation records
+  persist a separate stage-order version: a missing value is the pre-Search v1 order,
+  while newly authored records use v2. A safe non-terminal v1 continuation is rebased in
+  one CAS mutation to the earliest unproved v2 stage and must actually execute Search;
+  it is never labelled Search-complete during decode or recovery. Historical terminal
+  outcomes remain terminal, while historical in-flight target attempts remain uncertain
+  and non-replayable. Early Search and incremental ledger fields therefore remain
+  schema-v5 compatible without hiding the stage-order semantic change.
   Repository adapters preserve revision compare-and-set, insert-only creation,
   update-only mutation, strict identity binding, and replay-aware recovery.
 - The optional Mock registry cache has a separate schema-v1 repository/collection and

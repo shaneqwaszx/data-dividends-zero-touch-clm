@@ -16,6 +16,7 @@ from app.domain.documents import (
 )
 from app.domain.models import CanonicalLegalEntity, OnboardingCase
 from app.domain.reconciliation import (
+    NON_BLOCKING_RECONCILIATION_OUTCOMES,
     DiscrepancyStatus,
     FieldReconciliationResult,
     ObservationValidity,
@@ -25,7 +26,6 @@ from app.domain.reconciliation import (
     ReconciliationDiscrepancy,
     ReconciliationField,
     ReconciliationObservation,
-    ReconciliationOutcome,
     ReconciliationSourceKind,
     ReconciliationStatus,
     derive_allowed_actions,
@@ -35,6 +35,7 @@ from app.services.document_processing import (
     DocumentProcessingService,
     canonical_value_for_field,
     normalize_document_value,
+    required_document_fields,
 )
 from app.services.onboarding import OnboardingService
 from app.services.reconciliation_errors import (
@@ -115,7 +116,10 @@ class ReconciliationService:
                     retained = list(discrepancies)
                 status = (
                     ReconciliationStatus.MATCHED
-                    if all(item.outcome == ReconciliationOutcome.MATCH for item in fields)
+                    if all(
+                        item.outcome in NON_BLOCKING_RECONCILIATION_OUTCOMES
+                        for item in fields
+                    )
                     else ReconciliationStatus.REVIEW_REQUIRED
                 )
                 candidate = ReconciliationCaseRecord(
@@ -328,6 +332,10 @@ class ReconciliationService:
             return False
         return hmac.compare_digest(
             record.evidence_fingerprint, self._evidence_fingerprint(case, documents)
+        ) and all(
+            item.document_required
+            == self._document_field_required(documents, item.field_name)
+            for item in record.fields
         )
 
     def _current_evidence(
@@ -359,15 +367,20 @@ class ReconciliationService:
         base_fingerprint = self._evidence_fingerprint(case, documents)
         registry_entity = case.registry_acquisition.entity_profile  # type: ignore[union-attr]
         for field_name in ReconciliationField:
+            document_required = self._document_field_required(documents, field_name)
             observations = self._observations_for_field(
                 case=case,
                 registry_entity=registry_entity,
                 documents=documents,
                 field_name=field_name,
             )
-            outcome = derive_reconciliation_outcome(field_name, observations)
+            outcome = derive_reconciliation_outcome(
+                field_name,
+                observations,
+                document_required=document_required,
+            )
             discrepancy_id = None
-            if outcome != ReconciliationOutcome.MATCH:
+            if outcome not in NON_BLOCKING_RECONCILIATION_OUTCOMES:
                 discrepancy_id = self._uuid_factory()
                 discrepancies.append(
                     ReconciliationDiscrepancy(
@@ -387,10 +400,21 @@ class ReconciliationService:
                     field_name=field_name,
                     observations=observations,
                     outcome=outcome,
+                    document_required=document_required,
                     discrepancy_id=discrepancy_id,
                 )
             )
         return tuple(results), tuple(discrepancies)
+
+    @staticmethod
+    def _document_field_required(
+        documents: list[DocumentProcessingRecord], field_name: ReconciliationField
+    ) -> bool:
+        document_key = FIELD_TO_DOCUMENT[field_name]
+        return any(
+            document_key in required_document_fields(document.profile)
+            for document in documents
+        )
 
     def _observations_for_field(
         self,
@@ -572,7 +596,7 @@ class ReconciliationService:
         case: OnboardingCase, documents: list[DocumentProcessingRecord]
     ) -> str:
         payload = {
-            "domain": "phase-15b-reconciliation-evidence-v2",
+            "domain": "phase-15b-reconciliation-evidence-v3",
             "case_id": str(case.case_id),
             "requested_identifier": case.requested_uen,
             "current_canonical": (

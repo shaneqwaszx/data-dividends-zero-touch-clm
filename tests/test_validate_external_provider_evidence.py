@@ -14,14 +14,18 @@ from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
 READINESS_PATH = ROOT / "scripts" / "check_external_provider_readiness.py"
-READINESS_SPEC = importlib.util.spec_from_file_location("check_external_provider_readiness", READINESS_PATH)
+READINESS_SPEC = importlib.util.spec_from_file_location(
+    "check_external_provider_readiness", READINESS_PATH
+)
 if READINESS_SPEC is None or READINESS_SPEC.loader is None:
     raise RuntimeError("Unable to load readiness checker")
 READINESS = importlib.util.module_from_spec(READINESS_SPEC)
 sys.modules[READINESS_SPEC.name] = READINESS
 READINESS_SPEC.loader.exec_module(READINESS)
 MODULE_PATH = ROOT / "scripts" / "validate_external_provider_evidence.py"
-SPEC = importlib.util.spec_from_file_location("evidence_validator_under_test", MODULE_PATH)
+SPEC = importlib.util.spec_from_file_location(
+    "evidence_validator_under_test", MODULE_PATH
+)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError("Unable to load evidence validator")
 VALIDATOR = importlib.util.module_from_spec(SPEC)
@@ -45,6 +49,22 @@ VALID = {
     "sanitized_result_category": "EXPECTED_SUCCESS",
     "call_order_result": "EXPECTED",
     "redaction_check_result": "PASS",
+}
+
+ACRA_API_MARKETPLACE_AUTH_FAILURE = {
+    **VALID,
+    "provider_id": "ACRA_API_MARKETPLACE_MOCK",
+    "mode": "mock",
+    "classification": "MOCK",
+    "operation": "entity_profile",
+    "safe_test_case_reference": "AUTHORIZED-123e4567-e89b-42d3-a456-426614174002",
+    "http_outcome_category": "AUTH_FAILURE",
+    "contract_reference": "Q-012",
+    "certificate_verification_result": "VERIFIED",
+    "auth_mechanism_label": "NONE",
+    "mapping_reference": "ACRA_CANONICAL_MAPPING",
+    "sanitized_result_category": "STOPPED_FAIL_CLOSED",
+    "call_order_result": "STOPPED_ON_FAILURE",
 }
 
 
@@ -72,6 +92,23 @@ class ExternalProviderEvidenceTests(unittest.TestCase):
     def test_valid_sanitized_profile_passes(self) -> None:
         self._write(VALID)
         self.assertEqual(VALIDATOR.validate_document(ROOT, self.path), [])
+
+    def test_api_marketplace_auth_failure_profile_passes(self) -> None:
+        self._write(ACRA_API_MARKETPLACE_AUTH_FAILURE)
+
+        self.assertEqual(VALIDATOR.validate_document(ROOT, self.path), [])
+
+    def test_api_marketplace_profile_rejects_invented_auth_or_success(self) -> None:
+        for update in (
+            {"auth_mechanism_label": "BACKEND_INJECTED"},
+            {"http_outcome_category": "SUCCESS"},
+            {"call_order_result": "EXPECTED"},
+            {"safe_test_case_reference": VALID["safe_test_case_reference"]},
+        ):
+            with self.subTest(update=update):
+                self._write({**ACRA_API_MARKETPLACE_AUTH_FAILURE, **update})
+                failures = VALIDATOR.validate_document(ROOT, self.path)
+                self.assertTrue(failures, failures)
 
     def test_schema_and_validator_contracts_are_synchronized(self) -> None:
         self.assertEqual(VALIDATOR.validate_schema_definition(ROOT), [])
@@ -110,14 +147,14 @@ class ExternalProviderEvidenceTests(unittest.TestCase):
         self._write(VALID)
 
         failures = VALIDATOR.validate_document(disposable_root, self.path)
-        self.assertTrue(any("duplicate JSON key" in item for item in failures), failures)
+        self.assertTrue(
+            any("duplicate JSON key" in item for item in failures), failures
+        )
         self.assertNotIn(canary, "\n".join(failures))
 
         output = io.StringIO()
         with redirect_stdout(output):
-            exit_code = VALIDATOR.main(
-                [str(self.path), "--root", str(disposable_root)]
-            )
+            exit_code = VALIDATOR.main([str(self.path), "--root", str(disposable_root)])
         self.assertEqual(exit_code, 1)
         self.assertNotIn(canary, output.getvalue())
 
@@ -155,13 +192,18 @@ class ExternalProviderEvidenceTests(unittest.TestCase):
         value = {**VALID, "provider_id": "PINGFED_AUTH"}
         self._write(value)
         failures = VALIDATOR.validate_document(ROOT, self.path)
-        self.assertTrue(any("sandbox evidence" in item or "provider" in item for item in failures), failures)
+        self.assertTrue(
+            any("sandbox evidence" in item or "provider" in item for item in failures),
+            failures,
+        )
 
     def test_rejects_mode_mismatch(self) -> None:
         value = {**VALID, "mode": "local"}
         self._write(value)
         failures = VALIDATOR.validate_document(ROOT, self.path)
-        self.assertTrue(any("mode does not match" in item for item in failures), failures)
+        self.assertTrue(
+            any("mode does not match" in item for item in failures), failures
+        )
 
     def test_rejects_unauthorized_sandbox_success(self) -> None:
         value = {
@@ -176,8 +218,12 @@ class ExternalProviderEvidenceTests(unittest.TestCase):
         }
         self._write(value)
         failures = VALIDATOR.validate_document(ROOT, self.path)
-        self.assertTrue(any("eligible readiness state" in item for item in failures), failures)
-        self.assertTrue(any("authorized sandbox access" in item for item in failures), failures)
+        self.assertTrue(
+            any("eligible readiness state" in item for item in failures), failures
+        )
+        self.assertTrue(
+            any("authorized sandbox access" in item for item in failures), failures
+        )
 
     def test_rejects_duplicate_json_keys(self) -> None:
         canary = "arbitrary" + "?" + "access_" + "token=opaque"
@@ -186,7 +232,9 @@ class ExternalProviderEvidenceTests(unittest.TestCase):
             encoding="utf-8",
         )
         failures = VALIDATOR.validate_document(ROOT, self.path)
-        self.assertTrue(any("unavailable or invalid" in item for item in failures), failures)
+        self.assertTrue(
+            any("unavailable or invalid" in item for item in failures), failures
+        )
         self.assertNotIn(canary, "\n".join(failures))
 
         output = io.StringIO()
@@ -206,31 +254,51 @@ class ExternalProviderEvidenceTests(unittest.TestCase):
         }
         self._write(value)
         failures = VALIDATOR.validate_document(ROOT, self.path)
-        self.assertTrue(any("provider evidence profile" in item for item in failures), failures)
+        self.assertTrue(
+            any("provider evidence profile" in item for item in failures), failures
+        )
 
     def test_provider_profiles_reject_every_cross_provider_enum_value(self) -> None:
         for provider_id, profile in VALIDATOR.PROVIDER_PROFILES.items():
             representative = {**VALID, "provider_id": provider_id}
             for field, allowed in profile.items():
                 representative[field] = min(allowed)
+            if provider_id == "ACRA_API_MARKETPLACE_MOCK":
+                representative["safe_test_case_reference"] = (
+                    ACRA_API_MARKETPLACE_AUTH_FAILURE["safe_test_case_reference"]
+                )
             self.assertEqual(VALIDATOR.validate_provider_profile(representative), [])
 
             for field in VALIDATOR.PROVIDER_PROFILE_FIELDS:
                 for disallowed in VALIDATOR.ENUMS[field] - profile[field]:
-                    with self.subTest(provider_id=provider_id, field=field, value=disallowed):
+                    with self.subTest(
+                        provider_id=provider_id, field=field, value=disallowed
+                    ):
                         candidate = {**representative, field: disallowed}
                         failures = VALIDATOR.validate_provider_profile(candidate)
-                        self.assertTrue(any(field in item for item in failures), failures)
+                        self.assertTrue(
+                            any(field in item for item in failures), failures
+                        )
 
-        blocked_profiles = VALIDATOR.ALLOWED_PROVIDERS - set(VALIDATOR.PROVIDER_PROFILES)
+        blocked_profiles = VALIDATOR.ALLOWED_PROVIDERS - set(
+            VALIDATOR.PROVIDER_PROFILES
+        )
         for provider_id in blocked_profiles:
             with self.subTest(blocked_provider_id=provider_id):
                 candidate = {**VALID, "provider_id": provider_id}
                 failures = VALIDATOR.validate_provider_profile(candidate)
-                self.assertTrue(any("no current provider evidence profile" in item for item in failures), failures)
+                self.assertTrue(
+                    any(
+                        "no current provider evidence profile" in item
+                        for item in failures
+                    ),
+                    failures,
+                )
 
     def test_positive_policy_rejects_hostile_text_in_every_string_field(self) -> None:
-        string_fields = tuple(field for field, value in VALID.items() if isinstance(value, str))
+        string_fields = tuple(
+            field for field, value in VALID.items() if isinstance(value, str)
+        )
         hostile_values = (
             "client.secret",
             "client;secret",
@@ -258,10 +326,14 @@ class ExternalProviderEvidenceTests(unittest.TestCase):
                 with self.subTest(field=field, hostile_value=hostile_value):
                     self._assert_rejected_without_echo(field, hostile_value)
 
-    def test_positive_policy_rejects_non_scalar_values_in_every_scalar_field(self) -> None:
+    def test_positive_policy_rejects_non_scalar_values_in_every_scalar_field(
+        self,
+    ) -> None:
         for field in VALID:
             for hostile_value in ({"value": "nested"}, ["array"]):
-                with self.subTest(field=field, hostile_type=type(hostile_value).__name__):
+                with self.subTest(
+                    field=field, hostile_type=type(hostile_value).__name__
+                ):
                     self._assert_rejected_without_echo(field, hostile_value)
 
 

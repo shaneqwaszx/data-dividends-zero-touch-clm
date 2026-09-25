@@ -19,6 +19,7 @@ CLASSIFICATIONS = set(CLASSIFICATION_VALUES)
 ACTIVATION_STATE_VALUES = [
     "INTERNAL_POC_ONLY",
     "BLOCKED",
+    "BLOCKED_AUTHORITY",
     "PARTIAL_SCAFFOLD_ONLY",
     "SANDBOX_PARTIAL",
     "READY_FOR_AUTHORIZED_SANDBOX_PROOF",
@@ -55,12 +56,23 @@ ROOT_FIELDS = {
 
 EXPECTED = {
     "ACRA_MOCK": ("MOCK", "INTERNAL_POC_ONLY", "mock", True),
+    "ACRA_API_MARKETPLACE_MOCK": (
+        "MOCK",
+        "BLOCKED_AUTHORITY",
+        "api_marketplace_mock",
+        False,
+    ),
     "ACRA_GENERIC_SANDBOX": ("PARTIAL", "PARTIAL_SCAFFOLD_ONLY", "sandbox", False),
     "ACRA_BIZFILE": ("DORMANT", "BLOCKED", "dormant", False),
     "IDP_LOCAL_PDF_TEXT": ("LOCAL", "INTERNAL_POC_ONLY", "local_pdf_text", True),
     "VENDOR_IDP_FUTURE": ("NOT_IMPLEMENTED", "BLOCKED", "not_implemented", False),
     "OWNERSHIP_LOCAL_ENGINE": ("LOCAL", "INTERNAL_POC_ONLY", "local", True),
-    "OWNERSHIP_HIERARCHY_FUTURE": ("NOT_IMPLEMENTED", "BLOCKED", "not_implemented", False),
+    "OWNERSHIP_HIERARCHY_FUTURE": (
+        "NOT_IMPLEMENTED",
+        "BLOCKED",
+        "not_implemented",
+        False,
+    ),
     "GOLDTIER_MOCK": ("MOCK", "INTERNAL_POC_ONLY", "mock", True),
     "GOLDTIER_XPI": ("PARTIAL", "SANDBOX_PARTIAL", "sandbox", True),
     "GOLDTIER_REAL": ("NOT_IMPLEMENTED", "BLOCKED", "not_implemented", False),
@@ -68,6 +80,7 @@ EXPECTED = {
 }
 
 REQUIRED_QUESTIONS = {
+    "ACRA_API_MARKETPLACE_MOCK": {"Q-012"},
     "ACRA_GENERIC_SANDBOX": {"Q-012"},
     "ACRA_BIZFILE": {"Q-012"},
     "VENDOR_IDP_FUTURE": {"Q-003", "Q-005", "Q-013", "Q-014"},
@@ -88,7 +101,11 @@ QUESTION_GATE_FIELDS = {
     "Q-009": {"contract_authority_complete", "mapping_authority_complete"},
     "Q-010": {"contract_authority_complete", "mapping_authority_complete"},
     "Q-011": {"contract_authority_complete", "mapping_authority_complete"},
-    "Q-012": {"contract_authority_complete", "auth_authority_complete", "tls_authority_complete"},
+    "Q-012": {
+        "contract_authority_complete",
+        "auth_authority_complete",
+        "tls_authority_complete",
+    },
     "Q-013": {"contract_authority_complete", "mapping_authority_complete"},
     "Q-014": {"contract_authority_complete", "mapping_authority_complete"},
     "Q-018": {"contract_authority_complete"},
@@ -128,7 +145,9 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
+    value = json.loads(
+        path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys
+    )
     if not isinstance(value, dict):
         raise TypeError("JSON root must be an object")
     return value
@@ -178,7 +197,9 @@ def validate(root: Path) -> list[str]:
     if registry.get("schema_version") != 1:
         failures.append("schema_version must be 1")
     if registry.get("current_classification_values") != CLASSIFICATION_VALUES:
-        failures.append("current_classification_values must match the strict vocabulary")
+        failures.append(
+            "current_classification_values must match the strict vocabulary"
+        )
     if registry.get("activation_state_values") != ACTIVATION_STATE_VALUES:
         failures.append("activation_state_values must match the strict vocabulary")
 
@@ -198,7 +219,10 @@ def validate(root: Path) -> list[str]:
             failures.append(f"{label} fields do not match the strict schema")
             continue
         provider_id = entry.get("provider_id")
-        if not isinstance(provider_id, str) or PROVIDER_ID.fullmatch(provider_id) is None:
+        if (
+            not isinstance(provider_id, str)
+            or PROVIDER_ID.fullmatch(provider_id) is None
+        ):
             failures.append(f"{label}.provider_id is invalid")
             continue
         if provider_id in seen:
@@ -214,10 +238,14 @@ def validate(root: Path) -> list[str]:
         if not isinstance(entry.get("runtime_mode"), str) or not entry["runtime_mode"]:
             failures.append(f"{provider_id}.runtime_mode must be non-empty")
         questions = entry.get("required_questions")
-        if not isinstance(questions, list) or any(
-            not isinstance(question, str) or QUESTION_ID.fullmatch(question) is None
-            for question in questions
-        ) or len(set(questions)) != len(questions):
+        if (
+            not isinstance(questions, list)
+            or any(
+                not isinstance(question, str) or QUESTION_ID.fullmatch(question) is None
+                for question in questions
+            )
+            or len(set(questions)) != len(questions)
+        ):
             failures.append(f"{provider_id}.required_questions is invalid")
         else:
             missing_open_reference = sorted(set(questions) - open_questions)
@@ -242,13 +270,21 @@ def validate(root: Path) -> list[str]:
         if entry is None:
             continue
         if entry.get("current_classification") != classification:
-            failures.append(f"{provider_id} classification contradicts current project truth")
+            failures.append(
+                f"{provider_id} classification contradicts current project truth"
+            )
         if entry.get("activation_state") != state:
-            failures.append(f"{provider_id} activation_state contradicts current project truth")
+            failures.append(
+                f"{provider_id} activation_state contradicts current project truth"
+            )
         if entry.get("runtime_mode") != mode:
-            failures.append(f"{provider_id} runtime_mode contradicts current project truth")
+            failures.append(
+                f"{provider_id} runtime_mode contradicts current project truth"
+            )
         if entry.get("runtime_activation_enabled") is not runtime_enabled:
-            failures.append(f"{provider_id} runtime_activation_enabled contradicts current composition")
+            failures.append(
+                f"{provider_id} runtime_activation_enabled contradicts current composition"
+            )
         required = REQUIRED_QUESTIONS.get(provider_id, set())
         actual = set(entry.get("required_questions", []))
         if not required <= actual:
@@ -256,7 +292,10 @@ def validate(root: Path) -> list[str]:
                 f"{provider_id} removed required sponsor gate(s): "
                 + ", ".join(sorted(required - actual))
             )
-        if entry.get("activation_state") in AUTHORITY_STATES and actual & open_questions:
+        if (
+            entry.get("activation_state") in AUTHORITY_STATES
+            and actual & open_questions
+        ):
             failures.append(
                 f"{provider_id} is ready/verified while required sponsor questions remain open: "
                 + ", ".join(sorted(actual & open_questions))
@@ -281,26 +320,51 @@ def validate(root: Path) -> list[str]:
                 "mapping_authority_complete",
             ]
             if any(entry.get(field) is not True for field in gate_fields):
-                failures.append(f"{provider_id} is ready/verified with an incomplete authority gate")
-            if state in {"SANDBOX_VERIFIED", "LIVE_VERIFIED"} and entry.get("sanitized_evidence_present") is not True:
+                failures.append(
+                    f"{provider_id} is ready/verified with an incomplete authority gate"
+                )
+            if (
+                state in {"SANDBOX_VERIFIED", "LIVE_VERIFIED"}
+                and entry.get("sanitized_evidence_present") is not True
+            ):
                 failures.append(f"{provider_id} is verified without sanitized evidence")
-            if state in {"SANDBOX_VERIFIED", "LIVE_VERIFIED"} and entry.get("authorized_sandbox_access") is not True:
-                failures.append(f"{provider_id} is verified without authorized sandbox access")
-            if state == "LIVE_VERIFIED" and entry.get("authorized_live_evidence_present") is not True:
-                failures.append(f"{provider_id} is Live-verified without separate Live evidence")
+            if (
+                state in {"SANDBOX_VERIFIED", "LIVE_VERIFIED"}
+                and entry.get("authorized_sandbox_access") is not True
+            ):
+                failures.append(
+                    f"{provider_id} is verified without authorized sandbox access"
+                )
+            if (
+                state == "LIVE_VERIFIED"
+                and entry.get("authorized_live_evidence_present") is not True
+            ):
+                failures.append(
+                    f"{provider_id} is Live-verified without separate Live evidence"
+                )
             if entry.get("runtime_activation_enabled") is not True:
-                failures.append(f"{provider_id} is ready/verified while runtime activation is disabled")
+                failures.append(
+                    f"{provider_id} is ready/verified while runtime activation is disabled"
+                )
 
         expected_proof = {
             "INTERNAL_POC_ONLY": set(),
             "BLOCKED": set(),
+            "BLOCKED_AUTHORITY": {"sanitized_evidence_present"},
             "PARTIAL_SCAFFOLD_ONLY": set(),
             "SANDBOX_PARTIAL": {
                 "authorized_sandbox_access",
                 "sanitized_evidence_present",
             },
-            "READY_FOR_AUTHORIZED_SANDBOX_PROOF": {"secret_delivery_ready", "authorized_sandbox_access"},
-            "SANDBOX_VERIFIED": {"secret_delivery_ready", "authorized_sandbox_access", "sanitized_evidence_present"},
+            "READY_FOR_AUTHORIZED_SANDBOX_PROOF": {
+                "secret_delivery_ready",
+                "authorized_sandbox_access",
+            },
+            "SANDBOX_VERIFIED": {
+                "secret_delivery_ready",
+                "authorized_sandbox_access",
+                "sanitized_evidence_present",
+            },
             "LIVE_VERIFIED": PROOF_FIELDS,
         }.get(state, set())
         for proof_field in PROOF_FIELDS:
@@ -317,32 +381,63 @@ def validate(root: Path) -> list[str]:
             "SANDBOX_VERIFIED",
             "LIVE_VERIFIED",
         }:
-            failures.append(f"{provider_id} runtime activation is true for a blocked/scaffold state")
+            failures.append(
+                f"{provider_id} runtime activation is true for a blocked/scaffold state"
+            )
         if (
             entry.get("runtime_activation_enabled") is True
             and state in {"SANDBOX_VERIFIED", "LIVE_VERIFIED"}
-            and any(entry.get(field) is not True for field in (
-                "contract_authority_complete",
-                "auth_authority_complete",
-                "tls_authority_complete",
-                "mapping_authority_complete",
-            ))
+            and any(
+                entry.get(field) is not True
+                for field in (
+                    "contract_authority_complete",
+                    "auth_authority_complete",
+                    "tls_authority_complete",
+                    "mapping_authority_complete",
+                )
+            )
         ):
-            failures.append(f"{provider_id} runtime activation bypasses a required gate")
+            failures.append(
+                f"{provider_id} runtime activation bypasses a required gate"
+            )
 
     try:
+        acra_setting = _literal_setting(config_text, "acra_connector_mode")
         goldtier_setting = _literal_setting(config_text, "goldtier_connector_mode")
     except SyntaxError:
+        acra_setting = None
         goldtier_setting = None
+    if acra_setting != ({"mock", "api_marketplace_mock", "sandbox"}, "mock"):
+        failures.append(
+            "Current ACRA Settings must expose only explicit mock/api_marketplace_mock/"
+            "sandbox modes with local Mock default"
+        )
     if goldtier_setting != ({"mock", "sandbox"}, "mock"):
         failures.append(
             "Current GoldTier Settings must expose only explicit mock/sandbox modes with Mock default"
         )
     if entries.get("GOLDTIER_REAL", {}).get("runtime_activation_enabled") is True:
-        failures.append("GOLDTIER_REAL cannot be runtime enabled while Q-008/D-018 is unresolved")
-    if entries.get("PINGFED_AUTH", {}).get("current_classification") != "NOT_IMPLEMENTED":
+        failures.append(
+            "GOLDTIER_REAL cannot be runtime enabled while Q-008/D-018 is unresolved"
+        )
+    if (
+        entries.get("ACRA_API_MARKETPLACE_MOCK", {}).get("runtime_activation_enabled")
+        is True
+    ):
+        failures.append(
+            "ACRA_API_MARKETPLACE_MOCK cannot be runtime enabled while Q-012 auth authority is unresolved"
+        )
+    if entries.get("ACRA_BIZFILE", {}).get("activation_state") != "BLOCKED":
+        failures.append("ACRA_BIZFILE must remain dormant and blocked")
+    if (
+        entries.get("PINGFED_AUTH", {}).get("current_classification")
+        != "NOT_IMPLEMENTED"
+    ):
         failures.append("PingFed must remain not implemented")
-    if entries.get("VENDOR_IDP_FUTURE", {}).get("current_classification") != "NOT_IMPLEMENTED":
+    if (
+        entries.get("VENDOR_IDP_FUTURE", {}).get("current_classification")
+        != "NOT_IMPLEMENTED"
+    ):
         failures.append("Vendor IDP/OCR must remain not implemented")
     if entries.get("OWNERSHIP_LOCAL_ENGINE", {}).get("runtime_mode") == "external":
         failures.append("Local ownership engine cannot be labelled external")

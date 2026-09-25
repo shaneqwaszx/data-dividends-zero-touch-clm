@@ -34,10 +34,16 @@ class ObservationValidity(StrEnum):
 
 class ReconciliationOutcome(StrEnum):
     MATCH = "MATCH"
+    REGISTRY_ONLY = "REGISTRY_ONLY"
     MISSING_IN_SOURCE = "MISSING_IN_SOURCE"
     CONFLICT = "CONFLICT"
     UNVERIFIABLE = "UNVERIFIABLE"
     INVALID = "INVALID"
+
+
+NON_BLOCKING_RECONCILIATION_OUTCOMES = frozenset(
+    {ReconciliationOutcome.MATCH, ReconciliationOutcome.REGISTRY_ONLY}
+)
 
 
 class DiscrepancyStatus(StrEnum):
@@ -62,9 +68,13 @@ class ReconciliationStatus(StrEnum):
 def derive_reconciliation_outcome(
     field_name: ReconciliationField,
     observations: tuple["ReconciliationObservation", ...],
+    *,
+    document_required: bool = True,
 ) -> ReconciliationOutcome:
     """Derive one truthful current outcome from normalized source observations."""
 
+    if not document_required and field_name != ReconciliationField.REGISTERED_ADDRESS:
+        raise ValueError("only registered address may be optional document evidence")
     if any(item.field_name != field_name for item in observations):
         raise ValueError("reconciliation observations must identify one field")
     sources = {item.source_kind for item in observations}
@@ -90,6 +100,10 @@ def derive_reconciliation_outcome(
     if any(item.validity == ObservationValidity.MISSING for item in registry_observations):
         return ReconciliationOutcome.MISSING_IN_SOURCE
     if not any(item.validity == ObservationValidity.VALID for item in document_observations):
+        if not document_required and all(
+            item.validity == ObservationValidity.MISSING for item in document_observations
+        ):
+            return ReconciliationOutcome.REGISTRY_ONLY
         return ReconciliationOutcome.MISSING_IN_SOURCE
     values = {
         item.normalized_value
@@ -276,8 +290,8 @@ class ReconciliationDiscrepancy(BaseModel):
         derived_outcome = derive_reconciliation_outcome(
             self.field_name, self.observations
         )
-        if self.outcome == ReconciliationOutcome.MATCH:
-            raise ValueError("matching fields cannot create discrepancies")
+        if self.outcome in NON_BLOCKING_RECONCILIATION_OUTCOMES:
+            raise ValueError("non-blocking fields cannot create discrepancies")
         if self.outcome != derived_outcome:
             raise ValueError("discrepancy outcome must agree with its observations")
         if any(item.field_name != self.field_name for item in self.observations):
@@ -327,6 +341,7 @@ class FieldReconciliationResult(BaseModel):
     field_name: ReconciliationField
     observations: tuple[ReconciliationObservation, ...] = Field(min_length=2, max_length=24)
     outcome: ReconciliationOutcome
+    document_required: bool = True
     discrepancy_id: UUID | None = None
 
     @model_validator(mode="after")
@@ -336,12 +351,18 @@ class FieldReconciliationResult(BaseModel):
         observation_ids = [item.observation_id for item in self.observations]
         if len(observation_ids) != len(set(observation_ids)):
             raise ValueError("field observation IDs must be unique")
+        if not self.document_required and self.field_name != ReconciliationField.REGISTERED_ADDRESS:
+            raise ValueError("only registered address may be optional document evidence")
         if self.outcome != derive_reconciliation_outcome(
-            self.field_name, self.observations
+            self.field_name,
+            self.observations,
+            document_required=self.document_required,
         ):
             raise ValueError("field outcome must agree with its observations")
-        if (self.outcome == ReconciliationOutcome.MATCH) != (self.discrepancy_id is None):
-            raise ValueError("only non-matching field results require a discrepancy")
+        if (self.outcome in NON_BLOCKING_RECONCILIATION_OUTCOMES) != (
+            self.discrepancy_id is None
+        ):
+            raise ValueError("only blocking field results require a discrepancy")
         return self
 
 
@@ -378,7 +399,9 @@ class ReconciliationCaseRecord(BaseModel):
     @property
     def semantically_cleared(self) -> bool:
         if self.status == ReconciliationStatus.MATCHED:
-            return all(item.outcome == ReconciliationOutcome.MATCH for item in self.fields)
+            return all(
+                item.outcome in NON_BLOCKING_RECONCILIATION_OUTCOMES for item in self.fields
+            )
         if self.status != ReconciliationStatus.RESOLVED:
             return False
         by_id = {item.discrepancy_id: item for item in self.discrepancies}
@@ -451,7 +474,9 @@ class ReconciliationCaseRecord(BaseModel):
             raise ValueError("open discrepancies must be referenced by current fields")
         derived_status = (
             ReconciliationStatus.MATCHED
-            if all(item.outcome == ReconciliationOutcome.MATCH for item in self.fields)
+            if all(
+                item.outcome in NON_BLOCKING_RECONCILIATION_OUTCOMES for item in self.fields
+            )
             else (
                 ReconciliationStatus.REVIEW_REQUIRED
                 if open_current

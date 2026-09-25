@@ -16,6 +16,9 @@ credential, tool, placeholder, Mock test, or documentation example exists.
 - `INTERNAL_POC_ONLY`: the current Mock or Local POC path is explicitly bounded to
   internal synthetic behavior. It is not sandbox or Live evidence.
 - `BLOCKED`: authority, implementation, access, or security prerequisites are missing.
+- `BLOCKED_AUTHORITY`: a bounded sanitized observation exists, but it falsified or could
+  not establish a required authority assumption. Runtime activation remains disabled
+  until the API owner supplies the missing contract or security decision.
 - `PARTIAL_SCAFFOLD_ONLY`: authority-independent seam or dormant code exists; it cannot
   be used to infer transport, mapping, auth, retry, or provider success.
 - `SANDBOX_PARTIAL`: an explicitly selected sandbox adapter and bounded sanitized
@@ -44,13 +47,25 @@ schemas, auth, not-found/error semantics, timeout/rate rules, TLS/mTLS/private-C
 requirements, subscription/access, approved test UEN, and secret-delivery mechanism.
 BizFile remains dormant until a separately authorized provider change.
 
+The official API Marketplace Mock is tracked separately as
+`ACRA_API_MARKETPLACE_MOCK / api_marketplace_mock / MOCK`. A safe read-only GET to the
+official entity-query Mock endpoint without an Authorization header returned HTTP `401`
+on 2026-09-24. This is `OFFICIAL_MOCK_OBSERVED` failure evidence and sets the lane to
+`BLOCKED_AUTHORITY`; it does not identify an authentication mechanism or authorize
+OAuth, a guessed static header, successful mapping, runtime activation, Sandbox, or Live
+claims. `docs/integration/ACRA_API_MARKETPLACE_MOCK_READINESS.md` is the bounded evidence
+summary. Local Mock remains default, generic sandbox remains Partial, and BizFile remains
+Dormant.
+
 ### GoldTier and PingFed
 
 The sponsor-supplied XPI dialect is currently `SANDBOX_PARTIAL`: bounded read-only
 Search observations and an explicit opt-in adapter exist, while Mock remains the
-default. Customer mutation was not executed because the eight target-policy defaults
-remain `TBD_SPONSOR`; related-party mutation remains blocked by child-ID lifecycle and
-relationship-authority gaps. The adapter is not PingFed or production authentication.
+default. Customer mutation was not executed because seven target-policy defaults remain
+`TBD_SPONSOR`; only the user-authorized `accountEntityType` POC placeholder is
+`PROJECT_DEFINED_PROVISIONAL`. Related-party mutation remains blocked by child-ID
+lifecycle and relationship-authority gaps. The adapter is not PingFed or production
+authentication.
 
 Promotion beyond this bounded state remains: unresolved contract and business authority
 → approved secret delivery → complete Singapore mappings and exact operations →
@@ -99,9 +114,12 @@ secret-bearing URLs therefore have no legitimate representation in the artifact.
 Sandbox evidence cannot promote a row to `LIVE_VERIFIED`; Live requires a separate
 approved environment, authorization, execution, and review record.
 
-Profile v2 also binds whole records to current provider truth. Only `ACRA_MOCK`,
+Profile v2 also binds whole records to current provider truth. `ACRA_MOCK`,
 `IDP_LOCAL_PDF_TEXT`, `OWNERSHIP_LOCAL_ENGINE`, and `GOLDTIER_MOCK` have accepted
-credential-free profiles. Each fixes the compatible mode, classification, operation,
-non-HTTP outcome, contract, certificate/auth label, mapping, and call-order category.
-All sandbox, dormant, future, and real providers have no accepted evidence profile;
-adding one requires explicit authority plus a reviewed schema/validator change.
+credential-free profiles. `ACRA_API_MARKETPLACE_MOCK` has only a fail-closed
+`AUTH_FAILURE / NONE / Q-012 / STOPPED_ON_FAILURE` profile for a future diagnostic with
+complete safe metadata; it cannot represent success or invented auth. Each profile fixes
+the compatible mode, classification, operation, outcome, contract, certificate/auth
+label, mapping, and call-order category. All sandbox, dormant, future, and real providers
+have no accepted evidence profile; adding one requires explicit authority plus a reviewed
+schema/validator change.

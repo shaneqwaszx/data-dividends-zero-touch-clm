@@ -7,6 +7,8 @@ from threading import RLock
 from typing import Protocol
 from uuid import UUID, uuid4
 
+from app.connectors.errors import ConnectorError, public_connector_error
+from app.connectors.goldtier_models import GoldTierSearchOutcome
 from app.domain.access import CasePriority, TeamId
 from app.domain.clm import (
     ClmBlockerCode,
@@ -18,10 +20,14 @@ from app.domain.clm import (
     ClmWarningCode,
     ClmWorkflowEvent,
     EvidenceReference,
+    GoldTierSearchCheckpoint,
+    GoldTierSearchCheckpointStatus,
+    GoldTierSearchDisposition,
     GoldTierSubmissionPlan,
     ProvisionalUboSummary,
     ReadinessStageStatus,
     RelatedPartySubmissionPreparation,
+    RetainedGoldTierCandidate,
     StageReadiness,
 )
 from app.domain.documents import (
@@ -36,6 +42,7 @@ from app.domain.models import (
     SafeError,
     WorkflowState,
 )
+from app.domain.onboarding_intelligence import EntityResolutionOutcome
 from app.domain.ownership import (
     OwnershipAnalysisRecord,
     OwnershipAnalysisState,
@@ -46,6 +53,7 @@ from app.domain.target_submission import (
     GoldTierExecutionLedgerState,
     GoldTierExecutionReceipt,
     GoldTierProviderMode,
+    GoldTierSearchResolution,
 )
 from app.services.canonical_validation import validate_entity
 from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
@@ -63,6 +71,7 @@ from app.services.errors import (
 )
 from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
+from app.services.target_response_validation import InvalidTargetResponseError
 
 REAL_INTEGRATION_WARNINGS = [
     ClmWarningCode.IDP_PROFILE_PROVISIONAL,
@@ -169,7 +178,7 @@ class ClmOrchestrationService:
         case = self._cases.get_case(case_id)
         if case is None:
             return record
-        readiness = self._evaluate_current(case)
+        readiness = self._evaluate_current(case, search_checkpoint=record.target_search_checkpoint)
         return record.model_copy(
             update={
                 "status": _status_for_readiness(case, readiness),
@@ -183,8 +192,10 @@ class ClmOrchestrationService:
         """Expose safe operation names for sponsor UAT evidence, never payloads."""
 
         record = self._repository.get_for_case(case_id)
-        if record is None or record.submission_snapshot is None:
+        if record is None:
             return ()
+        if record.submission_snapshot is None:
+            return ("SEARCH",) if record.target_search_checkpoint is not None else ()
         return tuple(
             marker.value
             for marker in self._cases.get_attempted_target_operations(
@@ -198,7 +209,15 @@ class ClmOrchestrationService:
             if record.submission_snapshot is not None:
                 return record
             case = self._require_case(case_id)
-            readiness = self._evaluate_current(case)
+            if (
+                record.target_search_checkpoint is None
+                or record.target_search_checkpoint.identity_fingerprint
+                != _target_identity_fingerprint(case)
+            ):
+                record = self._perform_early_search(record, case)
+            readiness = self._evaluate_current(
+                case, search_checkpoint=record.target_search_checkpoint
+            )
             candidate = record.model_copy(deep=True)
             candidate.readiness = readiness
             candidate.status = _status_for_readiness(case, readiness)
@@ -227,8 +246,8 @@ class ClmOrchestrationService:
     def submission_plan(self, *, case_id: UUID) -> GoldTierSubmissionPlan:
         return self._require_record(case_id).submission_plan.model_copy(deep=True)
 
-    def submit(self, *, case_id: UUID) -> ClmOrchestrationRecord:
-        """Revalidate evidence inside a per-case boundary, snapshot, and submit once."""
+    def submit(self, *, case_id: UUID, single_checkpoint: bool = False) -> ClmOrchestrationRecord:
+        """Advance durable target checkpoints; callers may stop after one mutation."""
 
         with self._lock_for(case_id):
             record = self._require_record(case_id)
@@ -264,7 +283,25 @@ class ClmOrchestrationService:
                 receipt = self._cases.get_execution_receipt(snapshot.submission_id)
             if receipt is None:
                 execution_state = self._cases.get_execution_state(snapshot.submission_id)
-                if execution_state == GoldTierExecutionLedgerState.IN_PROGRESS:
+                if execution_state == GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED:
+                    try:
+                        receipt = self._cases.finalize_recorded_execution(snapshot.submission_id)
+                    except Exception:
+                        raise ClmInfrastructureError(
+                            case_id=record.case_id,
+                            orchestration_id=record.orchestration_id,
+                            correlation_id=record.correlation_id,
+                            code="CLM_FINALIZATION_RETRY_REQUIRED",
+                            message=(
+                                "GoldTier target execution was retained but "
+                                "finalization must be retried."
+                            ),
+                        ) from None
+                if (
+                    receipt is None
+                    and execution_state == GoldTierExecutionLedgerState.IN_PROGRESS
+                    and self._cases.is_execution_outcome_uncertain(snapshot.submission_id)
+                ):
                     raise ClmRequestError(
                         code="CLM_TARGET_OUTCOME_UNCERTAIN",
                         message=(
@@ -272,43 +309,96 @@ class ClmOrchestrationService:
                             "outcome and cannot be replayed automatically."
                         ),
                     ) from None
-                try:
-                    receipt = self._cases.execute_submission_input(snapshot.target_input)
-                except TargetProviderContextMismatchError as exc:
-                    raise ClmRequestError(
-                        code="CLM_TARGET_PROVIDER_CONTEXT_MISMATCH",
-                        message=exc.public_message,
-                    ) from None
-                except Exception:
-                    receipt = self._cases.get_execution_receipt(snapshot.submission_id)
-                    if receipt is None:
-                        execution_state = self._cases.get_execution_state(snapshot.submission_id)
-                        if execution_state == GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED:
+                if receipt is None:
+                    checkpoint = record.target_search_checkpoint
+                    if (
+                        checkpoint is None
+                        or checkpoint.status != GoldTierSearchCheckpointStatus.COMPLETED
+                        or checkpoint.disposition
+                        not in {
+                            GoldTierSearchDisposition.NO_MATCH,
+                            GoldTierSearchDisposition.EXACT_MATCH,
+                        }
+                    ):
+                        raise ClmRequestError(
+                            code="CLM_TARGET_SEARCH_NOT_RESOLVED",
+                            message=(
+                                "GoldTier customer identity is not resolved for target mutation."
+                            ),
+                        )
+                    search_resolution = (
+                        GoldTierSearchResolution.EXACT_MATCH
+                        if checkpoint.disposition == GoldTierSearchDisposition.EXACT_MATCH
+                        else GoldTierSearchResolution.NO_MATCH
+                    )
+                    try:
+                        receipt = self._cases.advance_incremental_submission_input(
+                            snapshot.target_input,
+                            search_resolution=search_resolution,
+                            selected_party_id=checkpoint.selected_party_id,
+                        )
+                    except TargetProviderContextMismatchError as exc:
+                        raise ClmRequestError(
+                            code="CLM_TARGET_PROVIDER_CONTEXT_MISMATCH",
+                            message=exc.public_message,
+                        ) from None
+                    except Exception:
+                        receipt = self._cases.get_execution_receipt(snapshot.submission_id)
+                        if receipt is None:
+                            execution_state = self._cases.get_execution_state(
+                                snapshot.submission_id
+                            )
+                            if (
+                                execution_state
+                                == GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED
+                            ):
+                                raise ClmInfrastructureError(
+                                    case_id=record.case_id,
+                                    orchestration_id=record.orchestration_id,
+                                    correlation_id=record.correlation_id,
+                                    code="CLM_FINALIZATION_RETRY_REQUIRED",
+                                    message=(
+                                        "GoldTier target execution was retained but "
+                                        "finalization must be retried."
+                                    ),
+                                ) from None
+                            if execution_state == GoldTierExecutionLedgerState.IN_PROGRESS:
+                                if self._cases.is_execution_outcome_uncertain(
+                                    snapshot.submission_id
+                                ):
+                                    raise ClmRequestError(
+                                        code="CLM_TARGET_OUTCOME_UNCERTAIN",
+                                        message=(
+                                            "A GoldTier target operation has no definitive "
+                                            "retained outcome and cannot be replayed "
+                                            "automatically."
+                                        ),
+                                    ) from None
+                                raise
                             raise ClmInfrastructureError(
                                 case_id=record.case_id,
                                 orchestration_id=record.orchestration_id,
                                 correlation_id=record.correlation_id,
-                                code="CLM_FINALIZATION_RETRY_REQUIRED",
-                                message=(
-                                    "GoldTier target execution was retained but "
-                                    "finalization must be retried."
-                                ),
+                                code="CLM_SUBMISSION_UNEXPECTED_FAILURE",
+                                message="GoldTier target submission could not be completed.",
                             ) from None
-                        if execution_state == GoldTierExecutionLedgerState.IN_PROGRESS:
-                            raise ClmRequestError(
-                                code="CLM_TARGET_OUTCOME_UNCERTAIN",
-                                message=(
-                                    "A prior GoldTier target operation has no definitive "
-                                    "retained outcome and cannot be replayed automatically."
-                                ),
-                            ) from None
-                        raise ClmInfrastructureError(
-                            case_id=record.case_id,
-                            orchestration_id=record.orchestration_id,
-                            correlation_id=record.correlation_id,
-                            code="CLM_SUBMISSION_UNEXPECTED_FAILURE",
-                            message="GoldTier target submission could not be completed.",
-                        ) from None
+
+            if receipt is None:
+                candidate = record.model_copy(deep=True)
+                candidate.status = ClmStatus.SUBMITTING
+                operation_names = self.attempted_target_operations(case_id=case_id)
+                operation = operation_names[-1] if operation_names else "SEARCH"
+                checkpointed = self._record_event(
+                    record,
+                    candidate,
+                    event_type=ClmEventType.GOLDTIER_OPERATION_CHECKPOINTED,
+                    outcome=EventOutcome.SUCCEEDED,
+                    code=f"GOLDTIER_{operation}_CHECKPOINTED",
+                    message=f"GoldTier {operation} reached a durable operation checkpoint.",
+                )
+                if single_checkpoint:
+                    return checkpointed
+                return self.submit(case_id=case_id, single_checkpoint=False)
 
             if record.execution_receipt is None:
                 record = self._persist_execution_receipt(record, receipt)
@@ -349,19 +439,28 @@ class ClmOrchestrationService:
             if item.is_current_evidence
         ]
         ownership = self._ownership.get(case_id=record.case_id)
-        readiness = _evaluate_readiness(
-            case=case,
-            documents=documents,
-            ownership=ownership,
-            document_confidence_threshold=float(
-                case.policy_snapshot.idp_review_confidence_threshold
+        if (
+            record.target_search_checkpoint is None
+            or record.target_search_checkpoint.identity_fingerprint
+            != _target_identity_fingerprint(case)
+        ):
+            record = self._perform_early_search(record, case)
+        readiness = _readiness_with_search(
+            _evaluate_readiness(
+                case=case,
+                documents=documents,
+                ownership=ownership,
+                document_confidence_threshold=float(
+                    case.policy_snapshot.idp_review_confidence_threshold
+                ),
+                reconciliation_cleared=(
+                    self._reconciliation.is_currently_cleared(case_id=record.case_id)
+                    if self._reconciliation is not None
+                    else False
+                ),
+                now=self._clock(),
             ),
-            reconciliation_cleared=(
-                self._reconciliation.is_currently_cleared(case_id=record.case_id)
-                if self._reconciliation is not None
-                else False
-            ),
-            now=self._clock(),
+            record.target_search_checkpoint,
         )
         if readiness.blockers:
             candidate = record.model_copy(deep=True)
@@ -537,15 +636,214 @@ class ClmOrchestrationService:
             )
         )
         try:
-            return self._repository.save(record, expected_version=None)
+            saved = self._repository.save(record, expected_version=None)
         except ClmRepositoryConflictError:
             raise ClmRequestError(
                 code="CLM_CASE_ALREADY_EXISTS",
                 message="A CLM orchestration record already exists for this case.",
             ) from None
+        if readiness.registry.status == ReadinessStageStatus.READY:
+            return self._perform_early_search(saved, case)
+        return saved
+
+    def _perform_early_search(
+        self,
+        record: ClmOrchestrationRecord,
+        case: OnboardingCase,
+    ) -> ClmOrchestrationRecord:
+        """Persist intent, call read-only Search once, and retain only safe evidence."""
+
+        identity_fingerprint = _target_identity_fingerprint(case)
+        current = record.target_search_checkpoint
+        if (
+            current is not None
+            and current.identity_fingerprint == identity_fingerprint
+            and current.status != GoldTierSearchCheckpointStatus.STALE
+        ):
+            return record
+        request_id = self._uuid_factory()
+        started = record.model_copy(deep=True)
+        started = self._record_event(
+            record,
+            started,
+            event_type=ClmEventType.GOLDTIER_SEARCH_STARTED,
+            outcome=EventOutcome.SUCCEEDED,
+            code="GOLDTIER_SEARCH_STARTED",
+            message="Early read-only GoldTier customer Search started.",
+        )
+        searched_at = self._clock()
+        try:
+            evidence = self._cases.search_target_identity(
+                case_id=case.case_id,
+                request_id=request_id,
+                provider_mode=record.submission_plan.environment,
+                searched_at=searched_at,
+            )
+        except TargetProviderContextMismatchError:
+            return self._record_search_failure(
+                started,
+                request_id=request_id,
+                identity_fingerprint=identity_fingerprint,
+                searched_at=searched_at,
+                code="CLM_TARGET_PROVIDER_CONTEXT_MISMATCH",
+                message="Configured GoldTier provider identity does not match this case.",
+            )
+        except InvalidTargetResponseError:
+            return self._record_search_failure(
+                started,
+                request_id=request_id,
+                identity_fingerprint=identity_fingerprint,
+                searched_at=searched_at,
+                code="GT_MALFORMED_TARGET_RESPONSE",
+                message="GoldTier target returned an invalid response.",
+            )
+        except ConnectorError as exc:
+            public = public_connector_error(exc)
+            return self._record_search_failure(
+                started,
+                request_id=request_id,
+                identity_fingerprint=identity_fingerprint,
+                searched_at=searched_at,
+                code=public.code,
+                message=public.message,
+            )
+        except Exception:
+            return self._record_search_failure(
+                started,
+                request_id=request_id,
+                identity_fingerprint=identity_fingerprint,
+                searched_at=searched_at,
+                code="GT_SEARCH_UNEXPECTED_FAILURE",
+                message="GoldTier party search could not be completed.",
+            )
+
+        result = evidence.result
+        resolution = evidence.resolution
+        selected_party_id = None
+        if result.outcome == GoldTierSearchOutcome.NO_MATCH:
+            status = GoldTierSearchCheckpointStatus.COMPLETED
+            disposition = GoldTierSearchDisposition.NO_MATCH
+            event_type = ClmEventType.GOLDTIER_SEARCH_COMPLETED
+            event_outcome = EventOutcome.SUCCEEDED
+            code = "GOLDTIER_SEARCH_NO_MATCH"
+            message = "No GoldTier customer was found; new-customer onboarding may continue."
+        elif (
+            resolution is not None
+            and resolution.outcome == EntityResolutionOutcome.EXACT_MATCH
+            and resolution.selected_candidate_id is not None
+        ):
+            status = GoldTierSearchCheckpointStatus.COMPLETED
+            disposition = GoldTierSearchDisposition.EXACT_MATCH
+            selected_party_id = resolution.selected_candidate_id
+            event_type = ClmEventType.GOLDTIER_SEARCH_COMPLETED
+            event_outcome = EventOutcome.SUCCEEDED
+            code = "GOLDTIER_SEARCH_EXACT_MATCH"
+            message = "An exact GoldTier customer was retained; Shell creation will be skipped."
+        elif result.outcome == GoldTierSearchOutcome.FAILURE:
+            status = GoldTierSearchCheckpointStatus.FAILED
+            disposition = GoldTierSearchDisposition.FAILED
+            event_type = ClmEventType.GOLDTIER_SEARCH_FAILED
+            event_outcome = EventOutcome.FAILED
+            code = "GT_SEARCH_FAILED"
+            message = "GoldTier party search returned a controlled failure."
+        else:
+            status = GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+            disposition = GoldTierSearchDisposition.REVIEW_REQUIRED
+            event_type = ClmEventType.GOLDTIER_SEARCH_REVIEW_REQUIRED
+            event_outcome = EventOutcome.REVIEW_REQUIRED
+            code = "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
+            message = (
+                "GoldTier candidates require human identity review; target writes are blocked."
+            )
+
+        checkpoint = GoldTierSearchCheckpoint(
+            request_id=request_id,
+            identity_fingerprint=identity_fingerprint,
+            provider_mode=record.submission_plan.environment,
+            provider_classification=record.submission_plan.provider_classification,
+            status=status,
+            disposition=disposition,
+            provider_outcome=result.outcome.value,
+            status_code=result.status_code,
+            candidate_count=len(result.candidates),
+            candidates=tuple(
+                RetainedGoldTierCandidate(
+                    party_id=item.party_id,
+                    registration_number=item.registration_number,
+                    country=item.country,
+                    legal_name=item.legal_name,
+                    legal_form=item.legal_form,
+                    registered_address=item.registered_address,
+                )
+                for item in result.candidates
+            ),
+            selected_party_id=selected_party_id,
+            resolution_outcome=(resolution.outcome.value if resolution is not None else None),
+            code=code,
+            message=message,
+            searched_at=searched_at,
+        )
+        candidate = started.model_copy(deep=True)
+        candidate.target_search_checkpoint = checkpoint
+        candidate.readiness = _readiness_with_search(candidate.readiness, checkpoint)
+        candidate.status = _status_for_readiness(case, candidate.readiness)
+        if status == GoldTierSearchCheckpointStatus.FAILED:
+            candidate.error = SafeError(code=code, message=message)
+        return self._record_event(
+            started,
+            candidate,
+            event_type=event_type,
+            outcome=event_outcome,
+            code=code,
+            message=message,
+        )
+
+    def _record_search_failure(
+        self,
+        record: ClmOrchestrationRecord,
+        *,
+        request_id: UUID,
+        identity_fingerprint: str,
+        searched_at: datetime,
+        code: str,
+        message: str,
+    ) -> ClmOrchestrationRecord:
+        checkpoint = GoldTierSearchCheckpoint(
+            request_id=request_id,
+            identity_fingerprint=identity_fingerprint,
+            provider_mode=record.submission_plan.environment,
+            provider_classification=record.submission_plan.provider_classification,
+            status=GoldTierSearchCheckpointStatus.FAILED,
+            disposition=GoldTierSearchDisposition.FAILED,
+            provider_outcome="FAILURE",
+            status_code=503,
+            candidate_count=0,
+            code=code,
+            message=message,
+            searched_at=searched_at,
+        )
+        candidate = record.model_copy(deep=True)
+        candidate.target_search_checkpoint = checkpoint
+        candidate.readiness = _readiness_with_search(candidate.readiness, checkpoint)
+        candidate.status = _status_for_readiness(
+            self._require_case(record.case_id), candidate.readiness
+        )
+        candidate.error = SafeError(code=code, message=message)
+        return self._record_event(
+            record,
+            candidate,
+            event_type=ClmEventType.GOLDTIER_SEARCH_FAILED,
+            outcome=EventOutcome.FAILED,
+            code=code,
+            message=message,
+        )
 
     def _evaluate_current(
-        self, case: OnboardingCase, *, now: datetime | None = None
+        self,
+        case: OnboardingCase,
+        *,
+        search_checkpoint: GoldTierSearchCheckpoint | None = None,
+        now: datetime | None = None,
     ) -> ClmReadinessAssessment:
         documents = [
             item
@@ -553,19 +851,22 @@ class ClmOrchestrationService:
             if item.is_current_evidence
         ]
         ownership = self._ownership.get(case_id=case.case_id)
-        return _evaluate_readiness(
-            case=case,
-            documents=documents,
-            ownership=ownership,
-            document_confidence_threshold=float(
-                case.policy_snapshot.idp_review_confidence_threshold
+        return _readiness_with_search(
+            _evaluate_readiness(
+                case=case,
+                documents=documents,
+                ownership=ownership,
+                document_confidence_threshold=float(
+                    case.policy_snapshot.idp_review_confidence_threshold
+                ),
+                reconciliation_cleared=(
+                    self._reconciliation.is_currently_cleared(case_id=case.case_id)
+                    if self._reconciliation is not None
+                    else False
+                ),
+                now=now or self._clock(),
             ),
-            reconciliation_cleared=(
-                self._reconciliation.is_currently_cleared(case_id=case.case_id)
-                if self._reconciliation is not None
-                else False
-            ),
-            now=now or self._clock(),
+            search_checkpoint,
         )
 
     def _build_snapshot(
@@ -803,8 +1104,65 @@ def _evaluate_readiness(
     )
 
 
+def _readiness_with_search(
+    readiness: ClmReadinessAssessment,
+    checkpoint: GoldTierSearchCheckpoint | None,
+) -> ClmReadinessAssessment:
+    """Overlay target-identity readiness without changing document/ownership owners."""
+
+    blockers = list(readiness.blockers)
+    if checkpoint is None:
+        blocker = ClmBlockerCode.GOLDTIER_SEARCH_REQUIRED
+        status = ReadinessStageStatus.BLOCKED
+    elif checkpoint.status == GoldTierSearchCheckpointStatus.REVIEW_REQUIRED:
+        blocker = ClmBlockerCode.GOLDTIER_SEARCH_REVIEW_REQUIRED
+        status = ReadinessStageStatus.REVIEW_REQUIRED
+    elif checkpoint.status == GoldTierSearchCheckpointStatus.FAILED:
+        blocker = ClmBlockerCode.GOLDTIER_SEARCH_FAILED
+        status = ReadinessStageStatus.FAILED
+    elif checkpoint.status == GoldTierSearchCheckpointStatus.STALE:
+        blocker = ClmBlockerCode.GOLDTIER_SEARCH_STALE
+        status = ReadinessStageStatus.BLOCKED
+    else:
+        blocker = None
+        status = ReadinessStageStatus.READY if not blockers else ReadinessStageStatus.BLOCKED
+    if blocker is not None and blocker not in blockers:
+        blockers.append(blocker)
+    return readiness.model_copy(
+        update={
+            "goldtier": StageReadiness(
+                status=status,
+                reference_id=(str(checkpoint.request_id) if checkpoint is not None else None),
+            ),
+            "blockers": blockers,
+        },
+        deep=True,
+    )
+
+
+def _target_identity_fingerprint(case: OnboardingCase) -> str:
+    entity = case.entity
+    if (
+        entity is None
+        or entity.registration_number is None
+        or entity.legal_name is None
+        or entity.country_of_incorporation is None
+    ):
+        raise ValueError("Canonical identity is unavailable")
+    value = "|".join(
+        (
+            entity.registration_number.strip().upper(),
+            " ".join(entity.legal_name.split()).casefold(),
+            entity.country_of_incorporation.strip().upper(),
+        )
+    )
+    return sha256(value.encode("utf-8")).hexdigest()
+
+
 def _status_for_readiness(case: OnboardingCase, readiness: ClmReadinessAssessment) -> ClmStatus:
     if case.state == WorkflowState.FAILED:
+        return ClmStatus.FAILED
+    if ClmBlockerCode.GOLDTIER_SEARCH_FAILED in readiness.blockers:
         return ClmStatus.FAILED
     if not readiness.blockers:
         return ClmStatus.READY_FOR_MOCK_SUBMISSION
@@ -816,6 +1174,7 @@ def _status_for_readiness(case: OnboardingCase, readiness: ClmReadinessAssessmen
         ClmBlockerCode.SOURCE_CONFLICT_REQUIRES_POLICY,
         ClmBlockerCode.OWNERSHIP_REVIEW_REQUIRED,
         ClmBlockerCode.OWNERSHIP_ANALYSIS_FAILED,
+        ClmBlockerCode.GOLDTIER_SEARCH_REVIEW_REQUIRED,
     }
     if review_codes.intersection(readiness.blockers):
         return ClmStatus.REVIEW_REQUIRED

@@ -26,6 +26,9 @@ class SimulationProfile(BaseModel):
     is_simulated: Literal[True] = True
     registry_system: Literal["ACRA"] = "ACRA"
     registry_environment: Literal["MOCK", "SANDBOX"] = "MOCK"
+    registry_provider_mode: Literal["LOCAL_MOCK", "API_MARKETPLACE_MOCK", "GENERIC_SANDBOX"] = (
+        "LOCAL_MOCK"
+    )
     target_system: Literal["GOLDTIER"] = "GOLDTIER"
     target_environment: Literal["MOCK", "SANDBOX"] = "MOCK"
     target_provider_classification: Literal["MOCK", "SANDBOX_PARTIAL"] = "MOCK"

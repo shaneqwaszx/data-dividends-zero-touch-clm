@@ -33,7 +33,7 @@ reconciled against authoritative subscriber documentation before a live smoke te
 | `company.registeredAddress.unit` + `buildingName` | `registered_address.address_line_2` | Trim each optional value, normalize empty-after-trim to `None`, and join only remaining values with comma and space; emit `None` when both are absent | NO | LOW: project display transformation | YES |
 | `company.registeredAddress.postalCode` | `registered_address.postal_code` | Trim and reject blank; preserve text to retain leading zeroes | YES when address is present | MEDIUM: Singapore address convention; exact source name unconfirmed | YES |
 | `company.registeredAddress.countryCode` | `registered_address.country_code` | Trim and reject blank; preserve source code | YES when address is present | LOW for exact source field | YES |
-| Configured connector mode | `source.environment` | `mock` -> `MOCK`; `sandbox` -> `SANDBOX` | YES | HIGH: project provenance decision D-019 | NO |
+| Configured connector mode | `source.environment` | local `mock` -> `MOCK`; official `api_marketplace_mock` -> `MOCK`; generic `sandbox` -> `SANDBOX`. Provider-mode metadata must distinguish the two Mock lanes. | YES | HIGH: project provenance decisions D-019/D-050 | NO |
 | Constant business source | `source.source_system` | Always `ACRA`; never `MOCK_ACRA` | YES | CONFIRMED: D-002/D-006 and Phase 01 boundary | NO |
 | Actual query-free request endpoint | `source.registry_source_link` | Store the HTTPS ACRA endpoint/reference used for the UEN request; exclude authorization and headers | YES | CONFIRMED concept: D-006/D-012; exact endpoint pending Q-012 | YES |
 | Backend UTC clock at accepted response decoding | `source.retrieved_at` | Timezone-aware UTC datetime serialized as ISO-8601 | YES | CONFIRMED: D-006/D-012 | NO |
@@ -44,6 +44,16 @@ failure produces the fixed safe `ACRA_MALFORMED_RESPONSE` boundary. Source-neutr
 canonical minimum checks independently prevent blank required business values from
 reaching GoldTier. The internal canonical model retains `registry_source_link` for
 future proof mapping, but the browser-facing case projection deliberately omits it.
+
+## API Marketplace Mock observation boundary
+
+The 2026-09-24 read-only no-auth diagnostic to
+`https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/entityBasicInformation`
+returned HTTP `401`. No successful provider payload was accepted, so the observation
+adds no new field, enum, default, relationship, or ownership-percentage mapping. In
+particular, historical sample-derived `SG` defaults, constitution-to-entity-type mapping,
+shareholder categories, and empty relationship behavior remain provisional/supporting
+evidence rather than newly proved official contract behavior. Q-012 remains open.
 
 ## Intentionally ignored in Phase 02
 

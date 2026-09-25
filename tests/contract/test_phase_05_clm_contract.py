@@ -57,7 +57,9 @@ class Phase05ClmContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         domain = (BACKEND / "domain" / "clm.py").read_text(encoding="utf-8")
-        self.assertIn("execute_submission_input(snapshot.target_input)", clm)
+        self.assertIn("advance_incremental_submission_input(", clm)
+        self.assertIn("snapshot.target_input,", clm)
+        self.assertIn("finalize_recorded_execution(snapshot.submission_id)", clm)
         self.assertIn("execution_receipt: GoldTierExecutionReceipt", domain)
         self.assertIn("input_fingerprint", clm)
 

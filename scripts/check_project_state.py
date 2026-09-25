@@ -30,6 +30,11 @@ REQUIRED_SECTIONS = {
 PROJECT_STATE_SCHEMA_VERSION = 1
 EXPECTED_PROVIDERS = {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
+    "registry_api_marketplace_mock": {
+        "name": "ACRA_API_MARKETPLACE_MOCK",
+        "mode": "api_marketplace_mock",
+        "classification": "MOCK",
+    },
     "registry_sandbox": {
         "name": "ACRA_GENERIC_SANDBOX",
         "mode": "sandbox",

@@ -1,5 +1,6 @@
 """Production-shaped ACRA sandbox adapter with isolated transport and auth seams."""
 
+import json
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -129,6 +130,8 @@ class StaticHeaderAcraRequestAuthorizer:
 class HttpxAcraTransport:
     """TLS-verifying HTTP implementation kept behind `AcraHttpTransport`."""
 
+    _MAX_RESPONSE_BYTES = 256 * 1024
+
     def get(
         self,
         url: str,
@@ -136,13 +139,32 @@ class HttpxAcraTransport:
         headers: Mapping[str, str],
         timeout_seconds: float,
     ) -> AcraHttpResponse:
-        with httpx.Client(follow_redirects=False, verify=True) as client:
-            response = client.get(url, headers=dict(headers), timeout=timeout_seconds)
-        if response.status_code != 200:
-            return AcraHttpResponse(status_code=response.status_code)
+        with (
+            httpx.Client(follow_redirects=False, verify=True) as client,
+            client.stream("GET", url, headers=dict(headers), timeout=timeout_seconds) as response,
+        ):
+            if response.status_code != 200:
+                return AcraHttpResponse(status_code=response.status_code)
+            content_type = response.headers.get("content-type", "")
+            if content_type.split(";", 1)[0].strip().lower() != "application/json":
+                return AcraHttpResponse(status_code=response.status_code)
+            declared = response.headers.get("content-length")
+            if declared is not None:
+                try:
+                    if int(declared) > self._MAX_RESPONSE_BYTES:
+                        return AcraHttpResponse(status_code=response.status_code)
+                except ValueError:
+                    return AcraHttpResponse(status_code=response.status_code)
+            chunks: list[bytes] = []
+            total = 0
+            for chunk in response.iter_bytes():
+                total += len(chunk)
+                if total > self._MAX_RESPONSE_BYTES:
+                    return AcraHttpResponse(status_code=response.status_code)
+                chunks.append(chunk)
         try:
-            body = cast(object, response.json())
-        except ValueError:
+            body = cast(object, json.loads(b"".join(chunks)))
+        except (UnicodeDecodeError, ValueError):
             body = None
         return AcraHttpResponse(status_code=response.status_code, body=body)
 

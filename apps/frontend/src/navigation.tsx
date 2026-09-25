@@ -25,6 +25,7 @@ export const routePatterns = {
   policy: "/policy",
   adminUsers: "/admin/users",
   adminTeams: "/admin/teams",
+  goldtierSandbox: "/admin/goldtier-sandbox",
 } as const;
 
 const CASE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,6 +54,7 @@ export const paths = {
   policy: routePatterns.policy,
   adminUsers: routePatterns.adminUsers,
   adminTeams: routePatterns.adminTeams,
+  goldtierSandbox: routePatterns.goldtierSandbox,
 } as const;
 
 export type AppTab =
@@ -63,7 +65,8 @@ export type AppTab =
   | "audit"
   | "policy"
   | "users"
-  | "teams";
+  | "teams"
+  | "goldtier-sandbox";
 
 interface NavigationItem {
   tab: AppTab;
@@ -82,6 +85,7 @@ const navigationItems: NavigationItem[] = [
   { tab: "policy", label: "Policy", path: paths.policy, capability: "POLICY_VIEW", end: true },
   { tab: "users", label: "Users", path: paths.adminUsers, capability: "IDENTITY_ADMIN", end: true },
   { tab: "teams", label: "Teams", path: paths.adminTeams, capability: "TEAM_ADMIN", end: true },
+  { tab: "goldtier-sandbox", label: "GoldTier Sandbox", path: paths.goldtierSandbox, capability: "PROVIDER_SANDBOX_TEST", end: true },
 ];
 
 const routeCapabilities: Array<{ pattern: string; capability: Capability; caseParam?: boolean }> = [
@@ -97,6 +101,7 @@ const routeCapabilities: Array<{ pattern: string; capability: Capability; casePa
   { pattern: routePatterns.policy, capability: "POLICY_VIEW" },
   { pattern: routePatterns.adminUsers, capability: "IDENTITY_ADMIN" },
   { pattern: routePatterns.adminTeams, capability: "TEAM_ADMIN" },
+  { pattern: routePatterns.goldtierSandbox, capability: "PROVIDER_SANDBOX_TEST" },
 ];
 
 export function requiredCapabilityForPath(pathname: string): Capability | null {
@@ -113,6 +118,7 @@ export function defaultPathForProfile(actor: AuthenticatedProfile): string | nul
   if (actor.capabilities.includes("CASE_ACCESS")) return paths.dashboard;
   if (actor.capabilities.includes("IDENTITY_ADMIN")) return paths.adminUsers;
   if (actor.capabilities.includes("TEAM_ADMIN")) return paths.adminTeams;
+  if (actor.capabilities.includes("PROVIDER_SANDBOX_TEST")) return paths.goldtierSandbox;
   if (actor.capabilities.includes("POLICY_VIEW")) return paths.policy;
   return null;
 }
@@ -218,6 +224,7 @@ export interface WorkspaceRoutesProps {
   policy: ReactNode;
   adminUsers: ReactNode;
   adminTeams: ReactNode;
+  goldtierSandbox: ReactNode;
 }
 
 export function WorkspaceRoutes({
@@ -233,6 +240,7 @@ export function WorkspaceRoutes({
   policy,
   adminUsers,
   adminTeams,
+  goldtierSandbox,
 }: WorkspaceRoutesProps) {
   const caseAccess = (content: ReactNode) => (
     <CapabilityRoute actor={actor} capability="CASE_ACCESS">{content}</CapabilityRoute>
@@ -280,6 +288,10 @@ export function WorkspaceRoutes({
       <Route
         path={routePatterns.adminTeams}
         element={<CapabilityRoute actor={actor} capability="TEAM_ADMIN">{adminTeams}</CapabilityRoute>}
+      />
+      <Route
+        path={routePatterns.goldtierSandbox}
+        element={<CapabilityRoute actor={actor} capability="PROVIDER_SANDBOX_TEST">{goldtierSandbox}</CapabilityRoute>}
       />
       <Route path="*" element={<UnavailableRoute actor={actor} />} />
     </Routes>

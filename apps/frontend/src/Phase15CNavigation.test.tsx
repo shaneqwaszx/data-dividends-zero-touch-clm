@@ -93,7 +93,7 @@ const hrActor: AuthenticatedProfile = {
   user_id: "harper-lee",
   display_name: "Harper Lee",
   role: "HR",
-  capabilities: ["IDENTITY_ADMIN"],
+  capabilities: ["IDENTITY_ADMIN", "PROVIDER_SANDBOX_TEST"],
 };
 
 const relationshipActor: AuthenticatedProfile = {
@@ -314,6 +314,7 @@ function RouteFixture({ profile = allCapabilitiesActor }: { profile?: Authentica
         policy={<Screen>policy</Screen>}
         adminUsers={<Screen>users</Screen>}
         adminTeams={<Screen>teams</Screen>}
+        goldtierSandbox={<Screen>goldtier-sandbox</Screen>}
       />
       <LocationProbe />
     </>
@@ -483,6 +484,12 @@ describe("Phase 15C canonical route ownership", () => {
       .toBe(paths.adminUsers));
     expect(container?.textContent).toContain("users");
     expect(container?.textContent).not.toContain("dashboard");
+
+    await act(async () => root?.render(
+      <MemoryRouter key={paths.goldtierSandbox} initialEntries={[paths.goldtierSandbox]}><RouteFixture profile={hrActor} /></MemoryRouter>,
+    ));
+    expect(container?.querySelector("[data-testid='screen']")?.textContent).toBe("goldtier-sandbox");
+    expect(requiredCapabilityForPath(paths.goldtierSandbox)).toBe("PROVIDER_SANDBOX_TEST");
   });
 
   it("P15C-NAV-03 restores exact case URLs through Back and Forward", async () => {
@@ -537,7 +544,7 @@ describe("Phase 15C canonical route ownership", () => {
 
   it("P15C-NAV-05 keeps unknown, malformed, and capability-unavailable routes generic and inert", async () => {
     const request = vi.spyOn(globalThis, "fetch");
-    for (const path of ["/unknown/private-value", "/cases/not-a-case-id", paths.adminUsers]) {
+    for (const path of ["/unknown/private-value", "/cases/not-a-case-id", paths.adminUsers, paths.goldtierSandbox]) {
       await act(async () => root?.render(
         <MemoryRouter key={path} initialEntries={[path]}>
           <QueryClientProvider client={testClient()}><App actor={actor} onLogout={() => undefined} /></QueryClientProvider>
@@ -1503,6 +1510,7 @@ describe("Phase 15C intake and mutation safety", () => {
       paths.root, paths.dashboard, paths.newOnboarding, paths.retainedIntake(CASE_A),
       paths.cases, paths.caseDetail(CASE_A), paths.onboarded, paths.onboardedDetail(CASE_A),
       paths.audit, paths.auditCase(CASE_A), paths.policy, paths.adminUsers, paths.adminTeams,
+      paths.goldtierSandbox,
       "/unknown",
     ];
     for (const path of entries) {

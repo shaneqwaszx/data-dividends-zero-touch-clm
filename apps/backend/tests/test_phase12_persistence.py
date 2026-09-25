@@ -53,10 +53,13 @@ from app.domain.target_submission import (
     GoldTierProviderMode,
 )
 from app.domain.zero_touch import (
+    AUTOMATION_STAGE_ORDER_VERSION,
+    LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
     AutomationEventType,
     AutomationStage,
     AutomationStatus,
     ZeroTouchAutomationRecord,
+    validate_automation_record,
 )
 from app.main import create_app
 from app.persistence.composition import build_persistence_bundle
@@ -221,7 +224,7 @@ def _pending_automation_record(
         ownership_provider_binding_id="a" * 32,
         status=AutomationStatus.PENDING_INPUTS,
         current_stage=AutomationStage.DOCUMENT,
-        completed_stages=(AutomationStage.REGISTRY,),
+        completed_stages=(AutomationStage.REGISTRY, AutomationStage.GOLDTIER_SEARCH),
         created_at=updated_at,
         updated_at=updated_at,
     )
@@ -433,6 +436,41 @@ def _install_counting_goldtier(
     return calls
 
 
+def _base_schema_v5_raw_without_early_search(
+    codec: MongoCaseStore,
+    snapshot: DurableCaseSnapshot,
+) -> dict[str, object]:
+    """Build the exact pre-Search stage shape while retaining strict storage fields."""
+
+    raw = codec._encode(snapshot)  # noqa: SLF001 - compatibility fixture boundary
+    raw_automation = raw["automation"]
+    assert isinstance(raw_automation, dict)
+    raw_automation.pop("stage_order_version")
+    raw_automation["completed_stages"] = [
+        stage
+        for stage in raw_automation["completed_stages"]
+        if stage != AutomationStage.GOLDTIER_SEARCH.value
+    ]
+    raw_automation["events"] = [
+        event
+        for event in raw_automation["events"]
+        if not str(event["event_type"]).startswith("GOLDTIER_SEARCH_")
+    ]
+    raw_metrics = raw_automation["metrics"]
+    assert isinstance(raw_metrics, dict)
+    raw_metrics["automated_stages_completed"] = len(raw_automation["completed_stages"])
+    raw_metrics["stage_durations_ms"].pop(AutomationStage.GOLDTIER_SEARCH.value, None)
+    raw_clm = raw["clm"]
+    assert isinstance(raw_clm, dict)
+    raw_clm.pop("target_search_checkpoint")
+    raw_clm["events"] = [
+        event
+        for event in raw_clm["events"]
+        if not str(event["event_type"]).startswith("GOLDTIER_SEARCH_")
+    ]
+    return raw
+
+
 def test_memory_mode_never_requires_mongo() -> None:
     bundle = build_persistence_bundle(
         Settings(_env_file=None, clm_persistence_mode="memory", mongo_uri=None)
@@ -468,6 +506,307 @@ def test_schema_version_is_explicit_and_unknown_version_is_rejected() -> None:
     raw["schema_version"] = 6
     with pytest.raises(PersistenceSchemaUnsupportedError):
         store._decode(raw)  # noqa: SLF001 - direct corruption boundary test
+
+
+def test_schema_v5_round_trip_preserves_registry_only_search_restart_checkpoint() -> None:
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    automation = ZeroTouchAutomationRecord(
+        case_id=case.case_id,
+        automation_id=uuid4(),
+        ownership_provider_binding_id="a" * 32,
+        status=AutomationStatus.RUNNING,
+        current_stage=AutomationStage.GOLDTIER_SEARCH,
+        completed_stages=(AutomationStage.REGISTRY,),
+        started_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    snapshot = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=0,
+        onboarding=case,
+        automation=automation,
+        created_at=now,
+        updated_at=now,
+    )
+    codec = object.__new__(MongoCaseStore)
+
+    decoded = codec._decode(codec._encode(snapshot))  # noqa: SLF001
+
+    assert decoded.automation is not None
+    assert decoded.automation.current_stage == AutomationStage.GOLDTIER_SEARCH
+    assert decoded.automation.completed_stages == (AutomationStage.REGISTRY,)
+
+
+@pytest.mark.parametrize(
+    ("stage_order_version", "status", "current_stage", "completed_stages"),
+    [
+        (
+            AUTOMATION_STAGE_ORDER_VERSION,
+            AutomationStatus.PENDING_INPUTS,
+            AutomationStage.DOCUMENT,
+            [AutomationStage.REGISTRY.value],
+        ),
+        (
+            LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
+            AutomationStatus.PENDING_INPUTS,
+            AutomationStage.DOCUMENT,
+            [
+                AutomationStage.REGISTRY.value,
+                AutomationStage.GOLDTIER_SEARCH.value,
+            ],
+        ),
+        (
+            AUTOMATION_STAGE_ORDER_VERSION,
+            AutomationStatus.COMPLETED,
+            AutomationStage.COMPLETE,
+            [
+                AutomationStage.REGISTRY.value,
+                AutomationStage.GOLDTIER_SEARCH.value,
+            ],
+        ),
+    ],
+)
+def test_schema_v5_decode_rejects_explicit_automation_stage_order_tampering(
+    stage_order_version: int,
+    status: AutomationStatus,
+    current_stage: AutomationStage,
+    completed_stages: list[str],
+) -> None:
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    snapshot = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=7,
+        onboarding=case,
+        automation=_pending_automation_record(case.case_id, updated_at=now, version=3),
+        created_at=now,
+        updated_at=now,
+    )
+    codec = object.__new__(MongoCaseStore)
+    raw = codec._encode(snapshot)  # noqa: SLF001 - exact persistence representation
+    raw_automation = raw["automation"]
+    assert isinstance(raw_automation, dict)
+    raw_automation["stage_order_version"] = stage_order_version
+    raw_automation["status"] = status.value
+    raw_automation["current_stage"] = current_stage.value
+    raw_automation["completed_stages"] = completed_stages
+
+    with pytest.raises(PersistenceDataInvalidError):
+        codec._decode(raw)  # noqa: SLF001 - direct corruption boundary test
+
+
+def test_base_schema_v5_pending_record_decodes_with_explicit_legacy_stage_order() -> None:
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    snapshot = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=7,
+        onboarding=case,
+        automation=_pending_automation_record(case.case_id, updated_at=now, version=3),
+        created_at=now,
+        updated_at=now,
+    )
+    codec = object.__new__(MongoCaseStore)
+    raw = codec._encode(snapshot)  # noqa: SLF001 - exact persistence representation
+    raw_automation = raw["automation"]
+    assert isinstance(raw_automation, dict)
+    raw_automation.pop("stage_order_version", None)
+    raw_automation["completed_stages"] = [AutomationStage.REGISTRY.value]
+    original = deepcopy(raw)
+
+    decoded = codec._decode(raw)  # noqa: SLF001 - compatibility boundary
+
+    assert decoded.automation is not None
+    assert decoded.automation.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+    assert decoded.automation.status == AutomationStatus.PENDING_INPUTS
+    assert decoded.automation.current_stage == AutomationStage.DOCUMENT
+    assert decoded.automation.completed_stages == (AutomationStage.REGISTRY,)
+    assert codec._encode(decoded)["automation"]["stage_order_version"] == (  # noqa: SLF001
+        LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+    )
+    assert raw == original
+    assert AUTOMATION_STAGE_ORDER_VERSION > LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+
+
+def test_base_schema_v5_pending_restart_runs_search_before_later_stages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    goldtier_calls = _install_counting_goldtier(monkeypatch)
+    store = MemoryEnvelopeStore()
+    with TestClient(_durable_adapter_app(store)) as first:  # type: ignore[arg-type]
+        created = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
+        assert created.status_code == 201
+        case_id = UUID(created.json()["case"]["case_id"])
+
+    codec = object.__new__(MongoCaseStore)
+    raw = codec._encode(store.records[case_id])  # noqa: SLF001
+    raw_automation = raw["automation"]
+    assert isinstance(raw_automation, dict)
+    raw_automation.pop("stage_order_version")
+    raw_automation["status"] = AutomationStatus.PENDING_INPUTS.value
+    raw_automation["current_stage"] = AutomationStage.DOCUMENT.value
+    raw_automation["completed_stages"] = [AutomationStage.REGISTRY.value]
+    raw_automation["events"] = [
+        event
+        for event in raw_automation["events"]
+        if not str(event["event_type"]).startswith("GOLDTIER_SEARCH_")
+    ]
+    raw_metrics = raw_automation["metrics"]
+    assert isinstance(raw_metrics, dict)
+    raw_metrics["automated_stages_completed"] = 1
+    raw_metrics["stage_durations_ms"].pop(AutomationStage.GOLDTIER_SEARCH.value, None)
+    raw_clm = raw["clm"]
+    assert isinstance(raw_clm, dict)
+    raw_clm.pop("target_search_checkpoint")
+    raw_clm["events"] = [
+        event
+        for event in raw_clm["events"]
+        if not str(event["event_type"]).startswith("GOLDTIER_SEARCH_")
+    ]
+    store.records[case_id] = codec._decode(raw)  # noqa: SLF001
+    calls_before_restart = goldtier_calls.copy()
+
+    with TestClient(_durable_adapter_app(store)) as second:  # type: ignore[arg-type]
+        uploaded = second.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
+            headers={"Content-Type": "text/plain", "X-Document-Name": "Profile.txt"},
+            content=TEXT_PROFILE.encode(),
+        )
+        completed = second.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/complete",
+            json={"expected_document_count": 1},
+        )
+
+    assert uploaded.status_code == 201
+    assert completed.status_code == 200
+    assert completed.json()["status"] == AutomationStatus.COMPLETED.value
+    assert goldtier_calls == {
+        "search": calls_before_restart["search"] + 1,
+        "shell": calls_before_restart["shell"] + 1,
+        "policy": calls_before_restart["policy"] + 1,
+        "amend": calls_before_restart["amend"] + 1,
+    }
+    persisted = store.records[case_id]
+    assert persisted.automation is not None
+    assert persisted.automation.stage_order_version == AUTOMATION_STAGE_ORDER_VERSION
+    event_codes = [event.code for event in persisted.automation.events]
+    event_types = [event.event_type for event in persisted.automation.events]
+    assert event_codes.index("AUTOMATION_STAGE_ORDER_UPGRADED") < event_types.index(
+        AutomationEventType.GOLDTIER_SEARCH_COMPLETED
+    )
+
+
+def test_base_schema_v5_review_resolution_rebases_before_target_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    goldtier_calls = _install_counting_goldtier(monkeypatch)
+    store = MemoryEnvelopeStore()
+    mismatched_profile = TEXT_PROFILE.replace(
+        "MERLION CIRCULAR LABS PTE. LTD.", "MERLION CIRCULAR LABS PTE. LIMITED"
+    )
+    with TestClient(_durable_adapter_app(store)) as first:  # type: ignore[arg-type]
+        created = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
+        case_id = UUID(created.json()["case"]["case_id"])
+        uploaded = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
+            headers={"Content-Type": "text/plain", "X-Document-Name": "Mismatch.txt"},
+            content=mismatched_profile.encode(),
+        )
+        paused = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/complete",
+            json={"expected_document_count": 1},
+        )
+    assert uploaded.status_code == 201
+    assert paused.status_code == 200
+    assert paused.json()["status"] == AutomationStatus.WAITING_FOR_REVIEW.value
+
+    codec = object.__new__(MongoCaseStore)
+    raw = _base_schema_v5_raw_without_early_search(codec, store.records[case_id])
+    decoded = codec._decode(raw)  # noqa: SLF001
+    assert decoded.automation is not None
+    assert decoded.automation.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+    validate_automation_record(decoded.automation)
+    store.records[case_id] = decoded
+    paused_body = paused.json()
+    exception = paused_body["active_exceptions"][0]
+    calls_before_restart = goldtier_calls.copy()
+
+    with TestClient(_durable_adapter_app(store)) as second:  # type: ignore[arg-type]
+        resumed = second.post(
+            (
+                f"/api/clm/zero-touch/cases/{case_id}/exceptions/"
+                f"{exception['exception_id']}/resolve"
+            ),
+            json={
+                "action": "KEEP_REGISTRY_VALUE",
+                "expected_automation_version": paused_body["version"],
+                "evidence_version": exception["evidence_version"],
+            },
+        )
+
+    assert resumed.status_code == 200
+    assert resumed.json()["status"] == AutomationStatus.COMPLETED.value
+    assert goldtier_calls == {
+        "search": calls_before_restart["search"] + 1,
+        "shell": calls_before_restart["shell"] + 1,
+        "policy": calls_before_restart["policy"] + 1,
+        "amend": calls_before_restart["amend"] + 1,
+    }
+    persisted = store.records[case_id]
+    assert persisted.automation is not None
+    assert persisted.automation.stage_order_version == AUTOMATION_STAGE_ORDER_VERSION
+
+
+def test_base_schema_v5_completed_record_remains_terminal_without_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    goldtier_calls = _install_counting_goldtier(monkeypatch)
+    store = MemoryEnvelopeStore()
+    with TestClient(_durable_adapter_app(store)) as first:  # type: ignore[arg-type]
+        created = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
+        case_id = UUID(created.json()["case"]["case_id"])
+        first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
+            headers={"Content-Type": "text/plain", "X-Document-Name": "Profile.txt"},
+            content=TEXT_PROFILE.encode(),
+        )
+        completed = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/complete",
+            json={"expected_document_count": 1},
+        )
+    assert completed.status_code == 200
+    assert completed.json()["status"] == AutomationStatus.COMPLETED.value
+
+    codec = object.__new__(MongoCaseStore)
+    raw = _base_schema_v5_raw_without_early_search(codec, store.records[case_id])
+    decoded = codec._decode(raw)  # noqa: SLF001
+    assert decoded.automation is not None
+    assert decoded.automation.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+    validate_automation_record(decoded.automation)
+    expected_version = decoded.automation.version
+    store.records[case_id] = decoded
+    calls_before_restart = goldtier_calls.copy()
+
+    with TestClient(_durable_adapter_app(store)) as second:  # type: ignore[arg-type]
+        for _ in range(3):
+            resumed = second.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
+            assert resumed.status_code == 200
+            assert resumed.json()["status"] == AutomationStatus.COMPLETED.value
+            assert resumed.json()["version"] == expected_version
+
+    assert goldtier_calls == calls_before_restart
+    persisted = store.records[case_id]
+    assert persisted.automation is not None
+    assert persisted.automation.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+    assert all(
+        event.event_type != AutomationEventType.GOLDTIER_SEARCH_COMPLETED
+        for event in persisted.automation.events
+    )
 
 
 def _provider_bound_snapshot(
@@ -573,12 +912,8 @@ def test_schema_v5_decode_rejects_persisted_provider_contradiction(
     snapshot = _provider_bound_snapshot(plan_mode=plan_mode, execution_mode=plan_mode)
     raw = snapshot.model_dump(mode="json")
     raw["_id"] = str(snapshot.case_id)
-    raw["clm"]["submission_snapshot"]["target_input"]["provider_mode"] = (
-        contradictory_mode.value
-    )
-    raw["target_executions"][0]["submission_input"]["provider_mode"] = (
-        contradictory_mode.value
-    )
+    raw["clm"]["submission_snapshot"]["target_input"]["provider_mode"] = contradictory_mode.value
+    raw["target_executions"][0]["submission_input"]["provider_mode"] = contradictory_mode.value
 
     with pytest.raises(PersistenceDataInvalidError):
         object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
@@ -994,8 +1329,10 @@ def test_mongo_storage_identity_accepts_exact_canonical_match() -> None:
     "interrupted_state",
     [DocumentProcessingState.UPLOADED, DocumentProcessingState.PROCESSING],
 )
+@pytest.mark.parametrize("legacy_stage_order", [False, True])
 def test_interrupted_current_document_recovers_automation_to_targeted_retry(
     interrupted_state: DocumentProcessingState,
+    legacy_stage_order: bool,
 ) -> None:
     store = MemoryEnvelopeStore()
     with TestClient(_durable_adapter_app(store)) as first:  # type: ignore[arg-type]
@@ -1020,8 +1357,21 @@ def test_interrupted_current_document_recovers_automation_to_targeted_retry(
     )
     running = snapshot.automation.model_copy(
         update={
+            "stage_order_version": (
+                LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+                if legacy_stage_order
+                else AUTOMATION_STAGE_ORDER_VERSION
+            ),
             "status": AutomationStatus.RUNNING,
             "current_stage": AutomationStage.DOCUMENT,
+            "completed_stages": (
+                (AutomationStage.REGISTRY,)
+                if legacy_stage_order
+                else (
+                    AutomationStage.REGISTRY,
+                    AutomationStage.GOLDTIER_SEARCH,
+                )
+            ),
             "started_at": now,
         },
         deep=True,
@@ -1039,7 +1389,14 @@ def test_interrupted_current_document_recovers_automation_to_targeted_retry(
     assert recovered.automation is not None
     assert recovered.automation.status == AutomationStatus.PENDING_INPUTS
     assert recovered.automation.current_stage == AutomationStage.DOCUMENT
-    assert recovered.automation.completed_stages == (AutomationStage.REGISTRY,)
+    assert recovered.automation.completed_stages == (
+        (AutomationStage.REGISTRY,)
+        if legacy_stage_order
+        else (
+            AutomationStage.REGISTRY,
+            AutomationStage.GOLDTIER_SEARCH,
+        )
+    )
     assert recovered.automation.events[-1].event_type == (
         AutomationEventType.DOCUMENT_REUPLOAD_REQUIRED
     )
@@ -1221,6 +1578,7 @@ def test_new_composition_reconstructs_pending_and_review_queue_from_adapters() -
             "current_stage": AutomationStage.MOCK_GOLDTIER,
             "completed_stages": (
                 AutomationStage.REGISTRY,
+                AutomationStage.GOLDTIER_SEARCH,
                 AutomationStage.DOCUMENT,
                 AutomationStage.OWNERSHIP,
                 AutomationStage.READINESS,
@@ -1258,6 +1616,61 @@ def test_new_composition_reconstructs_pending_and_review_queue_from_adapters() -
         reopened = second.get(f"/api/clm/zero-touch/cases/{completed_id}")
         assert reopened.status_code == 200
         assert reopened.json()["status"] == "COMPLETED"
+
+
+def test_registry_only_coi_address_round_trips_across_adapter_restart() -> None:
+    store = MemoryEnvelopeStore()
+    certificate_without_address = TEXT_PROFILE.replace(
+        "Registered Address: 18 INNOVATION WAY, #04-01, 018956, SG\n", ""
+    )
+    with TestClient(_durable_adapter_app(store)) as first:  # type: ignore[arg-type]
+        created = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
+        case_id = created.json()["case"]["case_id"]
+        uploaded = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
+            headers={"Content-Type": "text/plain", "X-Document-Name": "Certificate.txt"},
+            content=certificate_without_address.encode(),
+        )
+        completed = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/complete",
+            json={"expected_document_count": 1},
+        )
+
+        assert uploaded.status_code == 201
+        assert completed.status_code == 200
+        assert completed.json()["status"] == "COMPLETED"
+        address = next(
+            item
+            for item in completed.json()["reconciliation"]["fields"]
+            if item["field_name"] == "registered_address"
+        )
+        assert address["outcome"] == "REGISTRY_ONLY"
+        assert address["document_required"] is False
+
+    case_uuid = UUID(case_id)
+    snapshot = store.records[case_uuid]
+    assert snapshot.reconciliation is not None
+    persisted_address = next(
+        item
+        for item in snapshot.reconciliation.fields
+        if item.field_name == "registered_address"
+    )
+    assert persisted_address.outcome == "REGISTRY_ONLY"
+    assert persisted_address.document_required is False
+    codec = object.__new__(MongoCaseStore)
+    assert codec._decode(codec._encode(snapshot)) == snapshot  # noqa: SLF001
+
+    with TestClient(_durable_adapter_app(store)) as second:  # type: ignore[arg-type]
+        reopened = second.get(f"/api/clm/zero-touch/cases/{case_id}")
+        assert reopened.status_code == 200
+        assert reopened.json()["status"] == "COMPLETED"
+        reopened_address = next(
+            item
+            for item in reopened.json()["reconciliation"]["fields"]
+            if item["field_name"] == "registered_address"
+        )
+        assert reopened_address["outcome"] == "REGISTRY_ONLY"
+        assert reopened_address["document_required"] is False
 
 
 def test_partial_document_review_round_trips_across_adapter_restart() -> None:
@@ -1309,8 +1722,10 @@ def test_partial_document_review_round_trips_across_adapter_restart() -> None:
     assert legal_name["reviewed_value"] == "MERLION CIRCULAR LABS PTE. LTD."
 
 
+@pytest.mark.parametrize("legacy_stage_order", [False, True])
 def test_uncertain_target_resume_stays_recovery_pending_without_replay(
     monkeypatch: pytest.MonkeyPatch,
+    legacy_stage_order: bool,
 ) -> None:
     goldtier_calls = _install_counting_goldtier(monkeypatch)
     store = MemoryEnvelopeStore()
@@ -1334,10 +1749,20 @@ def test_uncertain_target_resume_stays_recovery_pending_without_replay(
     assert snapshot.automation is not None and snapshot.target_executions
     running = snapshot.automation.model_copy(
         update={
+            "stage_order_version": (
+                LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+                if legacy_stage_order
+                else AUTOMATION_STAGE_ORDER_VERSION
+            ),
             "status": AutomationStatus.RUNNING,
             "current_stage": AutomationStage.MOCK_GOLDTIER,
             "completed_stages": (
                 AutomationStage.REGISTRY,
+                *(
+                    ()
+                    if legacy_stage_order
+                    else (AutomationStage.GOLDTIER_SEARCH,)
+                ),
                 AutomationStage.DOCUMENT,
                 AutomationStage.OWNERSHIP,
                 AutomationStage.READINESS,
@@ -1415,7 +1840,7 @@ def test_memory_mode_preserves_safe_pending_and_completed_resume_behavior(
         assert uploaded.status_code == 201
         assert terminal.status_code == 200
         assert terminal.json()["status"] == "COMPLETED"
-        assert goldtier_calls == {"search": 1, "shell": 1, "policy": 1, "amend": 1}
+        assert goldtier_calls == {"search": 2, "shell": 1, "policy": 1, "amend": 1}
         calls_before_completed_resume = goldtier_calls.copy()
 
         completed_resume = client.post(f"/api/clm/zero-touch/cases/{completed_id}/resume")

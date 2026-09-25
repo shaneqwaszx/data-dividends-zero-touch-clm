@@ -25,6 +25,7 @@ from app.domain.reconciliation import (
     ReconciliationOutcome,
     ReconciliationSourceKind,
     ReconciliationStatus,
+    derive_reconciliation_outcome,
 )
 from app.domain.zero_touch import ExceptionResolutionAction
 from app.services.reconciliation_errors import ReconciliationRequestError
@@ -53,9 +54,7 @@ class FieldOverrideIdp(MockIdpProvider):
                     field.model_copy(
                         update={
                             "value": self._values.get(field.field_key, field.value),
-                            "confidence": self._confidence.get(
-                                field.field_key, field.confidence
-                            ),
+                            "confidence": self._confidence.get(field.field_key, field.confidence),
                         }
                     )
                     for field in result.fields
@@ -139,6 +138,47 @@ def test_field_result_direct_match_and_conflict_shapes() -> None:
             field_name=ReconciliationField.LEGAL_NAME,
             observations=(registry, document),
             outcome=ReconciliationOutcome.CONFLICT,
+        )
+
+
+def test_registry_only_outcome_is_bounded_to_optional_registered_address() -> None:
+    registry = observation(
+        field=ReconciliationField.REGISTERED_ADDRESS,
+        value="18 INNOVATION WAY, 018956, SG",
+    )
+    document = observation(
+        field=ReconciliationField.REGISTERED_ADDRESS,
+        source=ReconciliationSourceKind.DOCUMENT_IDP,
+        value=None,
+        validity=ObservationValidity.MISSING,
+    )
+
+    assert derive_reconciliation_outcome(
+        ReconciliationField.REGISTERED_ADDRESS,
+        (registry, document),
+        document_required=False,
+    ) == ReconciliationOutcome.REGISTRY_ONLY
+    result = FieldReconciliationResult(
+        field_name=ReconciliationField.REGISTERED_ADDRESS,
+        observations=(registry, document),
+        outcome=ReconciliationOutcome.REGISTRY_ONLY,
+        document_required=False,
+    )
+    assert result.discrepancy_id is None
+
+    with pytest.raises(ValidationError):
+        FieldReconciliationResult(
+            field_name=ReconciliationField.LEGAL_NAME,
+            observations=(
+                observation(),
+                observation(
+                    source=ReconciliationSourceKind.DOCUMENT_IDP,
+                    value=None,
+                    validity=ObservationValidity.MISSING,
+                ),
+            ),
+            outcome=ReconciliationOutcome.REGISTRY_ONLY,
+            document_required=False,
         )
 
 
@@ -238,16 +278,12 @@ def test_all_fields_match_and_formatting_only_legal_name_match() -> None:
     result = attach(
         zero,
         created.case_id,
-        FieldOverrideIdp(
-            {DocumentFieldKey.LEGAL_NAME: "  merlion   circular labs pte. ltd.  "}
-        ),
+        FieldOverrideIdp({DocumentFieldKey.LEGAL_NAME: "  merlion   circular labs pte. ltd.  "}),
     )
     reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
     assert result.status == "COMPLETED"
     assert reconciliation is not None and reconciliation.status == "MATCHED"
-    assert [field.outcome for field in reconciliation.fields] == [
-        ReconciliationOutcome.MATCH
-    ] * 4
+    assert [field.outcome for field in reconciliation.fields] == [ReconciliationOutcome.MATCH] * 4
     assert target.calls == ["search", "shell", "policy", "amend"]
 
 
@@ -290,20 +326,21 @@ def test_safe_review_correction_is_effective_and_preserves_original_evidence() -
     reviewed_observation = next(
         item for item in legal.observations if item.source_kind == "DOCUMENT_IDP"
     )
-    stored = documents.get_document(
-        case_id=created.case_id, document_id=document.document_id
-    )
+    stored = documents.get_document(case_id=created.case_id, document_id=document.document_id)
     assert reconciliation.status == "MATCHED"
     assert reviewed_observation.raw_value == "MERLION CIRCULAR LABS PTE. LTD."
     assert reviewed_observation.source_system == "HUMAN_REVIEW"
     assert reviewed_observation.evidence_reference == "DOCUMENT_REVIEW_CORRECTION"
     assert reviewed_observation.confidence is None
     assert stored is not None
-    assert next(
-        item.original_extracted_value
-        for item in stored.fields
-        if item.field_key == DocumentFieldKey.LEGAL_NAME
-    ) == original
+    assert (
+        next(
+            item.original_extracted_value
+            for item in stored.fields
+            if item.field_key == DocumentFieldKey.LEGAL_NAME
+        )
+        == original
+    )
 
 
 @pytest.mark.parametrize(
@@ -313,12 +350,6 @@ def test_safe_review_correction_is_effective_and_preserves_original_evidence() -
             MockIdpScenario.ALL_FIELDS_MATCH,
             DocumentFieldKey.LEGAL_NAME,
             ReviewDecision.REJECTED,
-            ReconciliationOutcome.MISSING_IN_SOURCE,
-        ),
-        (
-            MockIdpScenario.MISSING_FIELD,
-            DocumentFieldKey.REGISTERED_ADDRESS,
-            ReviewDecision.CORRECTED,
             ReconciliationOutcome.MISSING_IN_SOURCE,
         ),
         (
@@ -361,12 +392,10 @@ def test_rejected_missing_and_low_confidence_reviews_remain_blocking(
     reconciliation = zero._reconciliation.reconcile_current(  # noqa: SLF001
         case_id=created.case_id
     )
-    discrepancy = current_discrepancy(
-        reconciliation, ReconciliationField(key.value)
-    )
+    discrepancy = current_discrepancy(reconciliation, ReconciliationField(key.value))
     assert reconciliation.status == "REVIEW_REQUIRED"
     assert discrepancy.outcome == expected_outcome
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 @pytest.mark.parametrize(
@@ -402,34 +431,37 @@ def test_each_active_field_conflict_stops_before_ownership_and_target(
     assert result.status == "WAITING_FOR_REVIEW"
     assert result.current_stage == "DOCUMENT"
     assert zero._ownership.get(case_id=created.case_id) is None  # noqa: SLF001
-    assert target.calls == []
+    assert target.calls == ["search"]
     assert reconciliation is not None
     field = next(item for item in reconciliation.fields if item.field_name == field_name)
     assert field.outcome == ReconciliationOutcome.CONFLICT
 
 
-def test_missing_invalid_and_unverifiable_are_distinct() -> None:
+def test_registry_only_invalid_and_unverifiable_are_distinct() -> None:
     scenarios = (
         (
             {DocumentFieldKey.REGISTERED_ADDRESS: None},
             {},
             ReconciliationField.REGISTERED_ADDRESS,
-            ReconciliationOutcome.MISSING_IN_SOURCE,
+            ReconciliationOutcome.REGISTRY_ONLY,
+            ["search", "shell", "policy", "amend"],
         ),
         (
             {DocumentFieldKey.COUNTRY_OF_INCORPORATION: "SINGAPORE"},
             {},
             ReconciliationField.COUNTRY_OF_INCORPORATION,
             ReconciliationOutcome.INVALID,
+            ["search"],
         ),
         (
             {},
             {DocumentFieldKey.LEGAL_NAME: 0.4},
             ReconciliationField.LEGAL_NAME,
             ReconciliationOutcome.UNVERIFIABLE,
+            ["search"],
         ),
     )
-    for values, confidence, field_name, expected in scenarios:
+    for values, confidence, field_name, expected, expected_calls in scenarios:
         _, zero, _, target, _ = build_system()
         created = zero.create_case("202400001A")
         attach(
@@ -439,10 +471,11 @@ def test_missing_invalid_and_unverifiable_are_distinct() -> None:
         )
         reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
         assert reconciliation is not None
-        assert next(
-            item for item in reconciliation.fields if item.field_name == field_name
-        ).outcome == expected
-        assert target.calls == []
+        assert (
+            next(item for item in reconciliation.fields if item.field_name == field_name).outcome
+            == expected
+        )
+        assert target.calls == expected_calls
 
 
 def test_multiple_conflicts_resolve_one_stays_blocked_then_all_resume_once() -> None:
@@ -470,7 +503,7 @@ def test_multiple_conflicts_resolve_one_stays_blocked_then_all_resume_once() -> 
         evidence_fingerprint=first.evidence_fingerprint,
     )
     assert still_blocked.status == "WAITING_FOR_REVIEW"
-    assert target.calls == []
+    assert target.calls == ["search"]
     record = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
     assert record is not None and len(record.open_discrepancies) == 1
     second = record.open_discrepancies[0]
@@ -487,10 +520,10 @@ def test_multiple_conflicts_resolve_one_stays_blocked_then_all_resume_once() -> 
         evidence_version=active.evidence_version,
     )
     assert completed.status == "COMPLETED"
-    assert target.calls == ["search", "shell", "policy", "amend"]
+    assert target.calls == ["search", "search", "shell", "policy", "amend"]
     version = completed.version
     assert zero.start(case_id=created.case_id).version == version
-    assert target.calls == ["search", "shell", "policy", "amend"]
+    assert target.calls == ["search", "search", "shell", "policy", "amend"]
 
 
 def test_use_document_legal_name_updates_canonical_only_through_service() -> None:
@@ -528,7 +561,7 @@ def test_use_document_legal_name_updates_canonical_only_through_service() -> Non
     assert len(record.discrepancies[0].observations) == 2
     assert record.discrepancies[0].decision is not None
     assert record.discrepancies[0].decision.action == "USE_DOCUMENT_VALUE"
-    assert target.calls == ["search", "shell", "policy", "amend"]
+    assert target.calls == ["search", "search", "shell", "policy", "amend"]
 
 
 def test_unadvertised_use_document_action_is_rejected_for_address() -> None:
@@ -537,9 +570,7 @@ def test_unadvertised_use_document_action_is_rejected_for_address() -> None:
     attach(
         zero,
         created.case_id,
-        FieldOverrideIdp(
-            {DocumentFieldKey.REGISTERED_ADDRESS: "99 OTHER ROAD, 999999, SG"}
-        ),
+        FieldOverrideIdp({DocumentFieldKey.REGISTERED_ADDRESS: "99 OTHER ROAD, 999999, SG"}),
     )
     record = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
     assert record is not None
@@ -553,7 +584,7 @@ def test_unadvertised_use_document_action_is_rejected_for_address() -> None:
             evidence_fingerprint=discrepancy.evidence_fingerprint,
         )
     assert caught.value.code == "RECONCILIATION_ACTION_NOT_ALLOWED"
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_stale_version_and_fingerprint_are_rejected() -> None:
@@ -585,7 +616,7 @@ def test_stale_version_and_fingerprint_are_rejected() -> None:
             evidence_fingerprint="0" * 64,
         )
     assert caught.value.code == "RECONCILIATION_STALE"
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_duplicate_identical_reconciliation_decision_is_idempotent() -> None:
@@ -630,7 +661,7 @@ def test_repeated_reads_do_not_rerun_idp_or_target() -> None:
         assert response.status_code == 200
     assert provider.calls == 1
     assert zero._ownership.get(case_id=created.case_id) is None  # noqa: SLF001
-    assert target.calls == []
+    assert target.calls == ["search"]
 
 
 def test_replacement_document_cancels_old_discrepancy_and_resumes() -> None:
@@ -693,7 +724,8 @@ def test_api_exposes_normalized_safe_state_and_explicit_resolution_endpoint() ->
     )
     assert resolved.status_code == 200
     assert resolved.json()["status"] == "COMPLETED"
-    assert resolved.json()["reconciliation"]["discrepancies"][0]["decision"][
-        "action"
-    ] == "KEEP_REGISTRY_VALUE"
+    assert (
+        resolved.json()["reconciliation"]["discrepancies"][0]["decision"]["action"]
+        == "KEEP_REGISTRY_VALUE"
+    )
     assert target.calls == ["search", "shell", "policy", "amend"]

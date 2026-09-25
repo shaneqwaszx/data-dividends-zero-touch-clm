@@ -92,6 +92,11 @@ class ProjectStateCheckerTests(unittest.TestCase):
             "verification_status": "verified-against-main",
             "providers": {
                 "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
+                "registry_api_marketplace_mock": {
+                    "name": "ACRA_API_MARKETPLACE_MOCK",
+                    "mode": "api_marketplace_mock",
+                    "classification": "MOCK",
+                },
                 "registry_sandbox": {
                     "name": "ACRA_GENERIC_SANDBOX",
                     "mode": "sandbox",

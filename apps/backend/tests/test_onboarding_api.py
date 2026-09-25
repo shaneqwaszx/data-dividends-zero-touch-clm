@@ -40,9 +40,7 @@ async def test_mock_scenario_discovery_and_review_response() -> None:
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         scenarios = await client.get("/api/onboarding/mock-scenarios")
-        review = await client.post(
-            "/api/onboarding/cases", json={"uen": INCOMPLETE_ENTITY_UEN}
-        )
+        review = await client.post("/api/onboarding/cases", json={"uen": INCOMPLETE_ENTITY_UEN})
 
     assert scenarios.status_code == 200
     discovery = scenarios.json()
@@ -50,6 +48,7 @@ async def test_mock_scenario_discovery_and_review_response() -> None:
         "is_simulated": True,
         "registry_system": "ACRA",
         "registry_environment": "MOCK",
+        "registry_provider_mode": "LOCAL_MOCK",
         "target_system": "GOLDTIER",
         "target_environment": "MOCK",
         "target_provider_classification": "MOCK",
@@ -59,9 +58,9 @@ async def test_mock_scenario_discovery_and_review_response() -> None:
         "idp_review_confidence_threshold": 0.85,
         "ownership_system": "OWNERSHIP_PROVIDER",
         "ownership_environment": "MOCK",
-            "ubo_ownership_threshold_percent": "25",
-            "persistence": "Process-local",
-        }
+        "ubo_ownership_threshold_percent": "25",
+        "persistence": "Process-local",
+    }
     assert {scenario["expected_outcome"] for scenario in discovery["scenarios"]} == {
         "COMPLETED",
         "REVIEW_REQUIRED",

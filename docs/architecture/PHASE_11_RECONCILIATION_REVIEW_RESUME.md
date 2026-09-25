@@ -31,24 +31,29 @@ The deterministic rules reuse the existing document normalizer:
 - address: reuse the current whitespace/case normalization and exact comparison; no
   geocoder or fuzzy service is used.
 
-Outcomes are `MATCH`, `MISSING_IN_SOURCE`, `CONFLICT`, `UNVERIFIABLE`, and `INVALID`.
+Outcomes are `MATCH`, `REGISTRY_ONLY`, `MISSING_IN_SOURCE`, `CONFLICT`,
+`UNVERIFIABLE`, and `INVALID`.
 Low-confidence provider evidence retains its supplied confidence and is
 `UNVERIFIABLE`. One current field/evidence set has one derived outcome and at most one
 current discrepancy. A low-confidence value that also differs therefore remains one
 actionless `UNVERIFIABLE` discrepancy; it cannot simultaneously establish an actionable
 valid-vs-valid `CONFLICT`. Independent problems in different fields remain separate.
-No freshness outcome or source-precedence rule exists.
+No freshness outcome or source-precedence rule exists. `REGISTRY_ONLY` is narrowly
+derived for an absent registered address when all current document profiles make it
+optional; it retains the missing document observation and usable registry observation
+without fabricating a match or document value. A supplied address is still compared,
+and legacy required-address profiles still block on absence.
 
 ## Discrepancies and decisions
 
-Every non-match creates a first-class discrepancy with retained observations, status,
+Every blocking non-match creates a first-class discrepancy with retained observations, status,
 backend-authored actions, evidence fingerprint, and optional decision. Superseded
 document discrepancies are cancelled, not deleted; the document and discrepancy
 history remain process-local.
 
 The field result derives its outcome from the observations. The discrepancy re-derives
 the same outcome and its exact allowed actions. The case aggregate requires every
-current non-match field to link to the matching current discrepancy, rejects unrelated
+current blocking field to link to the matching current discrepancy, rejects unrelated
 open discrepancies, and derives `MATCHED`, `REVIEW_REQUIRED`, or `RESOLVED` semantics
 from those links/statuses. Repository reads and writes revalidate nested instances and
 lowercase 64-hex fingerprints, so forged summary states cannot clear reconciliation.

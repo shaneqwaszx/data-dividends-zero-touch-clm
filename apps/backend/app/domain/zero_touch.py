@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,8 +10,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.models import EventOutcome, SafeError
 
 ZERO_TOUCH_POLICY_VERSION = "PHASE_06_POC_V1"
+LEGACY_AUTOMATION_STAGE_ORDER_VERSION: Literal[1] = 1
+AUTOMATION_STAGE_ORDER_VERSION: Literal[2] = 2
+LEGACY_AUTOMATION_STAGE_ORDER = (
+    "REGISTRY",
+    "DOCUMENT",
+    "OWNERSHIP",
+    "READINESS",
+    "MOCK_GOLDTIER",
+)
 AUTOMATION_STAGE_ORDER = (
     "REGISTRY",
+    "GOLDTIER_SEARCH",
     "DOCUMENT",
     "OWNERSHIP",
     "READINESS",
@@ -30,6 +41,7 @@ class AutomationStatus(StrEnum):
 
 class AutomationStage(StrEnum):
     REGISTRY = "REGISTRY"
+    GOLDTIER_SEARCH = "GOLDTIER_SEARCH"
     DOCUMENT = "DOCUMENT"
     OWNERSHIP = "OWNERSHIP"
     READINESS = "READINESS"
@@ -73,6 +85,9 @@ class AutomationEventType(StrEnum):
     ONBOARDING_CREATED = "ONBOARDING_CREATED"
     ONBOARDING_STARTED = "ONBOARDING_STARTED"
     REGISTRY_AUTOMATED = "REGISTRY_AUTOMATED"
+    GOLDTIER_SEARCH_COMPLETED = "GOLDTIER_SEARCH_COMPLETED"
+    GOLDTIER_SEARCH_REVIEW_REQUIRED = "GOLDTIER_SEARCH_REVIEW_REQUIRED"
+    GOLDTIER_SEARCH_FAILED = "GOLDTIER_SEARCH_FAILED"
     DOCUMENT_AUTO_CONFIRMED = "DOCUMENT_AUTO_CONFIRMED"
     DOCUMENT_REVIEW_REQUIRED = "DOCUMENT_REVIEW_REQUIRED"
     DOCUMENT_REUPLOAD_REQUIRED = "DOCUMENT_REUPLOAD_REQUIRED"
@@ -86,6 +101,7 @@ class AutomationEventType(StrEnum):
     MOCK_SUBMISSION_STARTED = "MOCK_SUBMISSION_STARTED"
     MOCK_FINALIZATION_RECOVERY_PENDING = "MOCK_FINALIZATION_RECOVERY_PENDING"
     TARGET_OPERATION_RECOVERY_PENDING = "TARGET_OPERATION_RECOVERY_PENDING"
+    TARGET_OPERATION_CHECKPOINTED = "TARGET_OPERATION_CHECKPOINTED"
     MOCK_SUBMISSION_COMPLETED = "MOCK_SUBMISSION_COMPLETED"
     BUSINESS_EXCEPTION_RAISED = "BUSINESS_EXCEPTION_RAISED"
     BUSINESS_EXCEPTION_RESOLVED = "BUSINESS_EXCEPTION_RESOLVED"
@@ -166,6 +182,7 @@ class ZeroTouchAutomationRecord(BaseModel):
     case_id: UUID
     automation_id: UUID
     version: int = Field(default=0, ge=0)
+    stage_order_version: Literal[1, 2] = AUTOMATION_STAGE_ORDER_VERSION
     policy_version: str = ZERO_TOUCH_POLICY_VERSION
     ownership_provider_binding_id: str = Field(
         min_length=32, max_length=64, exclude=True, repr=False
@@ -241,12 +258,19 @@ def validate_automation_transition(
 ) -> None:
     """Reject status or checkpoint changes outside the Phase 06 state table."""
 
+    if candidate.stage_order_version < previous.stage_order_version:
+        raise ValueError("zero-touch automation stage order cannot be downgraded")
+    pending_completed_stages = (
+        (AutomationStage.REGISTRY,)
+        if candidate.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+        else (AutomationStage.REGISTRY, AutomationStage.GOLDTIER_SEARCH)
+    )
     document_reupload_recovery = (
         previous.status == AutomationStatus.WAITING_FOR_REVIEW
         and previous.current_stage == AutomationStage.DOCUMENT
         and candidate.status == AutomationStatus.PENDING_INPUTS
         and candidate.current_stage == AutomationStage.DOCUMENT
-        and candidate.completed_stages == (AutomationStage.REGISTRY,)
+        and candidate.completed_stages == pending_completed_stages
         and bool(candidate.events)
         and candidate.events[-1].event_type == AutomationEventType.DOCUMENT_REUPLOAD_REQUIRED
     )
@@ -261,7 +285,12 @@ def validate_automation_transition(
 def validate_automation_record(record: ZeroTouchAutomationRecord) -> None:
     """Validate status, stage, blocker, and completed-prefix invariants."""
 
-    expected_prefix = tuple(AutomationStage(value) for value in AUTOMATION_STAGE_ORDER)
+    stage_order = (
+        LEGACY_AUTOMATION_STAGE_ORDER
+        if record.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+        else AUTOMATION_STAGE_ORDER
+    )
+    expected_prefix = tuple(AutomationStage(value) for value in stage_order)
     if record.completed_stages != expected_prefix[: len(record.completed_stages)]:
         raise ValueError("completed automation stages must be an ordered unique prefix")
     first_incomplete = (
@@ -272,9 +301,14 @@ def validate_automation_record(record: ZeroTouchAutomationRecord) -> None:
 
     open_exceptions = record.active_exceptions
     if record.status == AutomationStatus.PENDING_INPUTS:
+        required_completed_stages = (
+            (AutomationStage.REGISTRY,)
+            if record.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+            else (AutomationStage.REGISTRY, AutomationStage.GOLDTIER_SEARCH)
+        )
         if (
             record.current_stage != AutomationStage.DOCUMENT
-            or record.completed_stages != (AutomationStage.REGISTRY,)
+            or record.completed_stages != required_completed_stages
             or open_exceptions
             or record.technical_failure is not None
         ):

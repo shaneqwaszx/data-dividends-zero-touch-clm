@@ -14,6 +14,7 @@ const STATUS_WORDING: Record<AutomationStatus, string> = {
 
 const STAGE_WORDING: Record<AutomationStage, string> = {
   REGISTRY: "Registry evidence stage",
+  GOLDTIER_SEARCH: "GoldTier customer search stage",
   DOCUMENT: "Document evidence and reconciliation stage",
   OWNERSHIP: "Ownership analysis stage",
   READINESS: "Readiness evaluation stage",

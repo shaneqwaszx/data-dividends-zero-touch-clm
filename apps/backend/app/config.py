@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     app_name: str = "Zero-Touch CLM API"
     app_env: Literal["development", "test", "production"] = "development"
-    acra_connector_mode: Literal["mock", "sandbox"] = "mock"
+    acra_connector_mode: Literal["mock", "api_marketplace_mock", "sandbox"] = "mock"
     goldtier_connector_mode: Literal["mock", "sandbox"] = "mock"
     idp_connector_mode: Literal["mock", "local_pdf_text"] = "local_pdf_text"
     ownership_connector_mode: Literal["mock"] = "mock"
@@ -51,9 +51,7 @@ class Settings(BaseSettings):
     )
     goldtier_sandbox_user_id: SecretStr | None = None
     goldtier_sandbox_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
-    goldtier_sandbox_max_response_bytes: int = Field(
-        default=128 * 1024, ge=1024, le=1024 * 1024
-    )
+    goldtier_sandbox_max_response_bytes: int = Field(default=128 * 1024, ge=1024, le=1024 * 1024)
     goldtier_sandbox_allow_writes: bool = False
     mongo_uri: SecretStr | None = None
     mongo_database: str = Field(
@@ -111,9 +109,7 @@ class Settings(BaseSettings):
             if self.acra_connector_mode != "mock":
                 raise ValueError("registry cache is supported only for Mock ACRA")
             if self.registry_cache_freshness_seconds != 7_776_000:
-                raise ValueError(
-                    "enabled Mock registry cache requires 7,776,000 freshness seconds"
-                )
+                raise ValueError("enabled Mock registry cache requires 7,776,000 freshness seconds")
             collections = {
                 self.mongo_case_collection,
                 self.mongo_admin_teams_collection,
@@ -148,6 +144,8 @@ class Settings(BaseSettings):
                 or any(ord(character) < 32 for character in user_id)
             ):
                 raise ValueError("GoldTier sandbox configuration is incomplete or unsafe")
+        if self.acra_connector_mode == "api_marketplace_mock" and self.app_env == "production":
+            raise ValueError("ACRA API Marketplace Mock is non-production only")
         return self
 
     @property

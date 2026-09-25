@@ -18,7 +18,8 @@ export type Capability =
   | "CASE_ACCESS"
   | "CASE_GLOBAL"
   | "IDENTITY_ADMIN"
-  | "TEAM_ADMIN";
+  | "TEAM_ADMIN"
+  | "PROVIDER_SANDBOX_TEST";
 
 export interface AuthenticatedTeam {
   team_id: TeamId;
@@ -145,6 +146,91 @@ export interface SimulationProfile {
   ownership_environment: "MOCK";
   ubo_ownership_threshold_percent: string;
   persistence: "Process-local" | "Mongo-backed durable POC";
+}
+
+export interface GoldTierSandboxStatus {
+  configured: boolean;
+  mode: "MOCK" | "SANDBOX";
+  classification: "MOCK" | "SANDBOX_PARTIAL";
+  safe_host: string | null;
+  writes_enabled: boolean;
+  timeout_seconds: number;
+  max_response_bytes: number;
+  last_diagnostic_at: string | null;
+  blocker: string | null;
+  related_party_blocker: "BLOCKED_CHILD_ID_LIFECYCLE";
+  timeline: GoldTierSandboxDiagnosticEvent[];
+}
+
+export interface GoldTierSandboxDiagnosticEvent {
+  event_id: string;
+  action: "STATUS" | "SEARCH" | "DRY_RUN" | "WRITE_BLOCKED";
+  outcome: "SUCCEEDED" | "FAILED" | "BLOCKED";
+  code: string;
+  occurred_at: string;
+}
+
+export interface GoldTierSandboxSearchInput {
+  goldtier_id?: string;
+  legal_name?: string;
+  country_of_incorporation?: string;
+  group_company_name?: string;
+}
+
+export interface GoldTierSandboxSearchCandidate {
+  party_id: string;
+  registration_number: string | null;
+  country: string | null;
+  legal_name: string | null;
+  legal_form: string | null;
+  registered_address: string | null;
+}
+
+export interface GoldTierSandboxSearchResult {
+  status: string;
+  count: number;
+  candidates: GoldTierSandboxSearchCandidate[];
+  elapsed_ms: number;
+  entity_resolution: string;
+}
+
+export interface GoldTierSandboxTestValues {
+  kyc_customer_type: string;
+  client_segment: string;
+  customer_external_system: string;
+  registration_type: string;
+  policy: string;
+  booking_entity: string;
+  account_entity_type: string;
+  product_type: string;
+}
+
+export interface GoldTierSandboxDryRunInput {
+  search: GoldTierSandboxSearchInput;
+  test_values: GoldTierSandboxTestValues;
+}
+
+export interface GoldTierSandboxPreviewField {
+  target_field: string;
+  value: string | null;
+  provenance: string;
+  authority: string;
+  required: boolean;
+  missing: boolean;
+  validation: "VALID" | "MISSING" | "INVALID";
+}
+
+export interface GoldTierSandboxDryRunOperation {
+  operation: string;
+  fields: GoldTierSandboxPreviewField[];
+  missing_fields: string[];
+  validation: "VALID" | "MISSING" | "INVALID";
+}
+
+export interface GoldTierSandboxDryRunResult {
+  operations: GoldTierSandboxDryRunOperation[];
+  dispatch_ready: boolean;
+  blocker: string | null;
 }
 
 export interface MockScenarioDiscovery {
@@ -658,6 +744,7 @@ export type AutomationStatus =
 
 export type AutomationStage =
   | "REGISTRY"
+  | "GOLDTIER_SEARCH"
   | "DOCUMENT"
   | "OWNERSHIP"
   | "READINESS"
@@ -814,7 +901,8 @@ export interface ReconciliationSummary {
   fields: Array<{
     field_name: ReconciliationField;
     observations: ReconciliationObservation[];
-    outcome: "MATCH" | "CONFLICT" | "MISSING_IN_SOURCE" | "UNVERIFIABLE" | "INVALID";
+    outcome: "MATCH" | "REGISTRY_ONLY" | "CONFLICT" | "MISSING_IN_SOURCE" | "UNVERIFIABLE" | "INVALID";
+    document_required?: boolean;
     discrepancy_id: string | null;
   }>;
   discrepancies: ReconciliationDiscrepancy[];
@@ -877,6 +965,8 @@ export interface ZeroTouchCaseSummary {
       | "IN_PROGRESS"
       | "NO_MATCH"
       | "MATCH_FOUND"
+      | "SKIPPED"
+      | "REVIEW_REQUIRED"
       | "CREATED"
       | "SUCCESS"
       | "FAILED";

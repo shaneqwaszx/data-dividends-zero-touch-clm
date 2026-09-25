@@ -235,17 +235,14 @@ def test_uen_drives_independent_ownership_and_target_outcomes() -> None:
     assert ownership_cycle["active_exceptions"][0]["blocker_code"] == "OWNERSHIP_CYCLE"
 
     existing_party = start(client, "202400005E", matching_fields("202400005E"))
-    assert existing_party["status"] == "WAITING_FOR_REVIEW"
-    assert existing_party["current_stage"] == "MOCK_GOLDTIER"
-    assert (
-        existing_party["active_exceptions"][0]["blocker_code"]
-        == "GT_EXISTING_PARTY_REVIEW_REQUIRED"
-    )
+    assert existing_party["status"] == "COMPLETED"
+    assert existing_party["current_stage"] == "COMPLETE"
+    assert existing_party["active_exceptions"] == []
     assert existing_party["target_operations"] == [
         {"operation": "SEARCH", "status": "MATCH_FOUND"},
-        {"operation": "SHELL", "status": "NOT_ATTEMPTED"},
-        {"operation": "POLICY", "status": "NOT_ATTEMPTED"},
-        {"operation": "AMEND", "status": "NOT_ATTEMPTED"},
+        {"operation": "SHELL", "status": "SKIPPED"},
+        {"operation": "POLICY", "status": "CREATED"},
+        {"operation": "AMEND", "status": "SUCCESS"},
     ]
 
 
