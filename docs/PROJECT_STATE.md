@@ -9,8 +9,8 @@ It is not a sponsor contract, phase report, or substitute for current source and
 {
   "schema_version": 1,
   "case_envelope_schema_version": 5,
-  "verified_date": "2026-09-24",
-  "verified_main_sha": "5f71b4d4d4dcf11ccf4d742446a0fec67aac7da3",
+  "verified_date": "2026-09-25",
+  "verified_main_sha": "ac7518be43437b0f475e0334660689c15ba93c51",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
