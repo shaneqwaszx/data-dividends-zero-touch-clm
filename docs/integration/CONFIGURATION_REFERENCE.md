@@ -36,6 +36,8 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `ACRA_TIMEOUT_SECONDS` | integration | `10` | Bounded ACRA HTTP timeout |
 | `ACRA_AUTH_HEADER_NAME` | security | empty | Backend-only generic-sandbox seam pending Q-012; not authority for API Marketplace Mock authentication |
 | `ACRA_AUTH_HEADER_VALUE` | secret | empty | Local generic-sandbox secret only; never commit/log; not an API Marketplace Mock auth decision |
+| `ACRA_API_MARKETPLACE_MOCK_CLIENT_ID` | optional backend credential | empty | Official Mock OAuth2 client identifier; presence does not select or activate the provider |
+| `ACRA_API_MARKETPLACE_MOCK_SECRET_KEY` | optional backend secret | empty | Official Mock OAuth2 secret key; `SecretStr`, never commit/log, and presence does not select or activate the provider |
 | `GOLDTIER_CONNECTOR_MODE` | integration | `mock` | Explicit `mock` or sponsor XPI `sandbox`; there is no automatic fallback |
 | `GOLDTIER_SANDBOX_BASE_URL` | integration | empty | HTTPS origin only; required in sandbox mode and never a production/Live claim |
 | `GOLDTIER_SANDBOX_ENVIRONMENT` | integration | empty | Bounded path segment used by the supplied XPI routes |
@@ -74,9 +76,14 @@ Developer controls use their dedicated demo provider boundary and do not replace
 
 `api_marketplace_mock` is the sole canonical name for the official ACRA API Marketplace
 Mock lane. The safe 2026-09-24 no-auth diagnostic returned HTTP `401`, so its readiness
-state is `BLOCKED_AUTHORITY` and Q-012 still blocks runtime activation. Do not configure
-an arbitrary static header or restore historical OAuth code to bypass that gate. The
-fixed observed query-free endpoint is recorded in
+state is `BLOCKED_AUTHORITY` and Q-012 still blocks runtime activation. Official
+request-side authentication facts now establish OAuth2 Client Credentials, HTTP Basic
+client authentication at the exact Mock token endpoint, a documented 60-minute token
+lifetime, and the downstream header name `token`. They do not establish a Bearer
+scheme, token response/error schema, request method/body, operation contract, approved
+test UEN, secret-delivery readiness, or successful interoperability. The two optional
+credential settings above therefore remain inert; the generic `ACRA_AUTH_HEADER_VALUE`
+is not a fallback for this lane. The fixed observed query-free endpoint is recorded in
 `ACRA_API_MARKETPLACE_MOCK_READINESS.md`; it is a Mock endpoint, never a Live label.
 
 ## Script-only smoke settings
@@ -119,6 +126,8 @@ D-018 still prohibits the quarantined authentication material.
 ## Fail-closed rules
 
 - Unsupported connector modes fail settings validation.
+- API Marketplace Mock credentials alone never activate its blocked runtime lane and
+  are never substituted for generic-sandbox authorization.
 - ACRA sandbox mode without valid HTTPS/path/auth configuration fails before use.
 - GoldTier sandbox mode without a safe HTTPS origin, bounded environment, or backend-
   only `user_id` fails before use; mutation dispatch also requires the separate write

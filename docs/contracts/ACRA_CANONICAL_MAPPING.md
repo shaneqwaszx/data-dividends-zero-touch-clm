@@ -53,7 +53,10 @@ returned HTTP `401`. No successful provider payload was accepted, so the observa
 adds no new field, enum, default, relationship, or ownership-percentage mapping. In
 particular, historical sample-derived `SG` defaults, constitution-to-entity-type mapping,
 shareholder categories, and empty relationship behavior remain provisional/supporting
-evidence rather than newly proved official contract behavior. Q-012 remains open.
+evidence rather than newly proved official contract behavior. Official request-side
+authentication facts are now recorded separately in the readiness document, but they
+add no mapping authority. Q-012 remains open and partially resolved only for those auth
+facts.
 
 ## Intentionally ignored in Phase 02
 

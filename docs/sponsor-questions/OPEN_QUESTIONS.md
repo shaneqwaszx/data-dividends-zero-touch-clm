@@ -91,11 +91,22 @@ On 2026-09-24, a bounded read-only GET without an Authorization header to the of
 API Marketplace Mock entity-query endpoint
 `https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/entityBasicInformation`
 returned HTTP `401`. This disproves the historical no-auth runtime assumption for the
-observed request but does not identify OAuth, a static header, API key, mTLS, or another
-mechanism. The canonical `api_marketplace_mock` lane therefore remains
-`BLOCKED_AUTHORITY` with runtime activation disabled. Please confirm the exact Mock-tier
-authentication/subscription mechanism and approved secret-delivery path; Q-012 remains
-open, and no Live claim is made.
+observed request.
+
+Q-012 is now **PARTIALLY RESOLVED** for the official Mock request-side authentication
+facts. Official ACRA material confirms OAuth2 Client Credentials at exactly
+`https://api-sandbox.bizfile.gov.sg/authorizeServer/oauth/token?grant_type=client_credentials`,
+using HTTP Basic with client ID as username and secret key as password. The documented
+token lifetime is 60 minutes and the downstream API header name is exactly `token`.
+Bearer is not established. Mock and Production use separate token hosts; no Production
+token URL is recorded or implemented here.
+
+Q-012 remains **OPEN** for the successful operation base/path/schema, official test
+UENs, token response and error schema, downstream token value semantics, approved
+secret-delivery/access, provider errors, rate limits, retry policy, TLS/mTLS/private-CA
+requirements, officer/shareholder/relationship operations, and a successful sanitized
+receipt. The canonical `api_marketplace_mock` lane therefore remains
+`BLOCKED_AUTHORITY` with runtime activation disabled and no Sandbox or Live claim.
 
 ## JURISDICTION EVIDENCE AUTHORITY
 

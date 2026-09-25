@@ -210,9 +210,10 @@ def build_acra_connector(
 
     if settings.acra_connector_mode == "api_marketplace_mock":
         # The explicit official Mock mode is recognized, but activation remains
-        # blocked: the endpoint rejected a no-auth diagnostic and no authoritative
-        # authentication contract exists. Do not compose dormant BizFile code or
-        # guess a header/OAuth flow, even when a generic test authorizer is supplied.
+        # blocked: request-side token authentication facts are known, while the
+        # successful operation, token-response/error, access, and security contracts
+        # remain incomplete. Do not compose dormant BizFile code or substitute the
+        # generic sandbox seam, even when credentials or a test authorizer are supplied.
         raise AcraConfigurationError
 
     connection = AcraSandboxConnection(
