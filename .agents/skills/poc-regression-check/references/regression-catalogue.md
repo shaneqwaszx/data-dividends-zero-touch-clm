@@ -188,6 +188,15 @@ as do IDP, ownership, and GoldTier counts. Browser summaries expose only normali
 records, opaque evidence references, provider/environment, UTC times, statuses, counts,
 and fixed safe issues. They label the surface as a project-owned synthetic Mock contract.
 
+## Official API Marketplace Mock runtime scenario
+
+This separately authorized provider-Mock scenario does not replace any synthetic Mock
+scenario and supplies no subscriber Sandbox, Production, or Live claim.
+
+| Scenario | Terminal/checkpoint result | Required calls/evidence | Prohibited calls/claims |
+|---|---|---|---|
+| `REGISTRY_GARDEN_OFFICIAL_MARKETPLACE_MOCK` (`11111999A`) | `REVIEW_REQUIRED / REGISTRY_EXPECTED_DATA_MISSING`; partial acquisition retained | One cached Mock token per process run; strict entity basic and embedded-officer retrieval; Garden shareholder request returns explicit empty entities; relationships are explicit empty without a provider call; source environment `MOCK` | No synthetic ACRA fallback, generic sandbox call, Bearer header, ownership percentage/relationship fabrication, ownership analysis, GoldTier call, Sandbox/Production/Live claim, or false completion |
+
 ## Phase 16 synthetic Mock registry snapshot scenarios
 
 These scenarios apply only when the backend explicitly enables the synthetic Mock cache
@@ -436,6 +445,7 @@ refresh, sandbox/live caching, or production cross-team sharing authority.
 
 | Established by | Change |
 |---|---|
+| Official ACRA API Marketplace Mock runtime integration | Preserved every synthetic Mock scenario and added an explicit opt-in official Mock retrieval scenario whose empty Garden shareholder evidence stops at `REVIEW_REQUIRED / REGISTRY_EXPECTED_DATA_MISSING` without fallback, derived percentage, ownership analysis, target call, or Live claim |
 | Pre-Phase 22 ACRA teammate reconciliation | Preserved Phase 09/10 routing, acquisition, ownership, and target call stopping; added the bounded `11111999A` Garden synthetic fixture at the Mock provider boundary, expanded the project UEN syntax predicate to the three assigned ACRA-style forms, and kept BizFile Dormant with OAuth/raw-debug/runtime activation absent |
 | Phase 13 implementation | Preserved all Registry→Document→Reconciliation→Ownership→Readiness→Mock GoldTier scenarios and call stopping; added authenticated session/CSRF enforcement, exhaustive non-enumerating team access, immutable team creation, strict nullable priority/backend ordering, schema-v1 compatibility, schema-v2 adapter parity, and a genuine-Mongo restart scenario in CI |
 | Phase 12 quality-gate remediation | Preserved the accepted architecture and prior phases; added canonical Mongo key/envelope identity validation, coordinated interrupted-document input recovery, bounded targeted same-case retry, and genuine-Mongo adverse restart/CAS/atomicity coverage |

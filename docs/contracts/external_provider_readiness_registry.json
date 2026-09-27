@@ -9,6 +9,7 @@
   ],
   "activation_state_values": [
     "INTERNAL_POC_ONLY",
+    "MOCK_INTEROPERABILITY_OBSERVED",
     "BLOCKED",
     "BLOCKED_AUTHORITY",
     "PARTIAL_SCAFFOLD_ONLY",
@@ -37,18 +38,18 @@
     {
       "provider_id": "ACRA_API_MARKETPLACE_MOCK",
       "current_classification": "MOCK",
-      "activation_state": "BLOCKED_AUTHORITY",
+      "activation_state": "MOCK_INTEROPERABILITY_OBSERVED",
       "runtime_mode": "api_marketplace_mock",
       "required_questions": ["Q-012"],
       "contract_authority_complete": false,
       "auth_authority_complete": false,
       "tls_authority_complete": false,
       "mapping_authority_complete": false,
-      "secret_delivery_ready": false,
+      "secret_delivery_ready": true,
       "authorized_sandbox_access": false,
       "sanitized_evidence_present": true,
       "authorized_live_evidence_present": false,
-      "runtime_activation_enabled": false
+      "runtime_activation_enabled": true
     },
     {
       "provider_id": "ACRA_GENERIC_SANDBOX",

@@ -7,6 +7,7 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from app.config import Settings
+from app.connectors.acra_api_marketplace_mock import AcraApiMarketplaceMockConnector
 from app.connectors.acra_sandbox import (
     AcraHttpResponse,
     AcraSandboxConnector,
@@ -40,6 +41,7 @@ class ContractFixtureTransport:
 
 def sandbox_settings() -> Settings:
     return Settings(
+        _env_file=None,
         app_env="test",
         demo_controls_enabled=True,
         acra_connector_mode="sandbox",
@@ -52,6 +54,7 @@ def sandbox_settings() -> Settings:
 def test_mock_mode_is_the_safe_default_composition() -> None:
     connector = build_acra_connector(
         Settings(
+            _env_file=None,
             app_env="test",
             acra_api_marketplace_mock_client_id="test_client_id",
             acra_api_marketplace_mock_secret_key=SecretStr("test_secret_key"),
@@ -61,8 +64,9 @@ def test_mock_mode_is_the_safe_default_composition() -> None:
     assert isinstance(connector, MockAcraConnector)
 
 
-def test_api_marketplace_mock_credentials_do_not_activate_or_use_generic_auth() -> None:
+def test_api_marketplace_mock_selects_only_official_mock_connector() -> None:
     settings = Settings(
+        _env_file=None,
         app_env="test",
         acra_connector_mode="api_marketplace_mock",
         acra_api_marketplace_mock_client_id="test_client_id",
@@ -71,27 +75,38 @@ def test_api_marketplace_mock_credentials_do_not_activate_or_use_generic_auth() 
         acra_auth_header_value=SecretStr("test_generic_value"),
     )
 
-    with pytest.raises(AcraConfigurationError) as caught:
-        build_acra_connector(
-            settings,
-            transport=ContractFixtureTransport(),
-            authorizer=SafeFakeAuthorizer(),
-        )
-
-    assert str(caught.value) == (
-        "The ACRA sandbox connector is not configured for authorized use."
+    connector = build_acra_connector(
+        settings,
+        transport=ContractFixtureTransport(),
     )
-    assert "fixture-only-value" not in str(caught.value)
+
+    assert isinstance(connector, AcraApiMarketplaceMockConnector)
+    assert not isinstance(connector, AcraSandboxConnector)
+    assert "test_generic_value" not in repr(connector)
 
 
 def test_marketplace_credentials_do_not_substitute_for_generic_sandbox_auth() -> None:
     settings = Settings(
+        _env_file=None,
         app_env="test",
         acra_connector_mode="sandbox",
         acra_base_url="https://sandbox.synthetic-acra.example",
         acra_company_path_template="/business-profile/{uen}",
         acra_api_marketplace_mock_client_id="test_client_id",
         acra_api_marketplace_mock_secret_key=SecretStr("test_secret_key"),
+    )
+
+    with pytest.raises(AcraConfigurationError):
+        build_acra_connector(settings, transport=ContractFixtureTransport())
+
+
+def test_marketplace_mode_requires_dedicated_credentials() -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="test",
+        acra_connector_mode="api_marketplace_mock",
+        acra_auth_header_name="token",
+        acra_auth_header_value=SecretStr("generic-value"),
     )
 
     with pytest.raises(AcraConfigurationError):
@@ -119,20 +134,23 @@ def test_sandbox_mode_composes_with_safe_injected_boundaries() -> None:
 @pytest.mark.parametrize(
     "settings",
     [
-        Settings(app_env="test", acra_connector_mode="sandbox"),
+        Settings(_env_file=None, app_env="test", acra_connector_mode="sandbox"),
         Settings(
+            _env_file=None,
             app_env="test",
             acra_connector_mode="sandbox",
             acra_base_url="http://insecure.synthetic-acra.example",
             acra_company_path_template="/business-profile/{uen}",
         ),
         Settings(
+            _env_file=None,
             app_env="test",
             acra_connector_mode="sandbox",
             acra_base_url="https://sandbox.synthetic-acra.example",
             acra_company_path_template="/missing-placeholder",
         ),
         Settings(
+            _env_file=None,
             app_env="test",
             acra_connector_mode="sandbox",
             acra_base_url="https://sandbox.synthetic-acra.example",
@@ -151,7 +169,9 @@ def test_missing_or_invalid_sandbox_configuration_fails_safely(settings: Setting
 
 
 def test_expanded_mock_operations_do_not_fabricate_sandbox_contracts() -> None:
-    mock_case = build_onboarding_service(settings=Settings(app_env="test")).create_case(
+    mock_case = build_onboarding_service(
+        settings=Settings(_env_file=None, app_env="test")
+    ).create_case(
         VALID_SME_UEN
     )
     sandbox_case = build_onboarding_service(
@@ -186,7 +206,7 @@ def anyio_backend() -> str:
 
 @pytest.mark.anyio
 async def test_safe_discovery_reports_sandbox_without_scenarios_or_secrets() -> None:
-    service = build_onboarding_service(settings=Settings(app_env="test"))
+    service = build_onboarding_service(settings=Settings(_env_file=None, app_env="test"))
     application = create_app(sandbox_settings(), onboarding_service=service)
     transport = httpx.ASGITransport(app=application)
 

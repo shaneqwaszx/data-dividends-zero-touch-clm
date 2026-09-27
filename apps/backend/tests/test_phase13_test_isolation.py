@@ -17,6 +17,7 @@ def test_child_probe_ordinary_composition_is_in_memory() -> None:
     settings = Settings()
     assert settings.clm_persistence_mode == "memory"
     assert settings.mongo_database == ORDINARY_TEST_DATABASE
+    assert settings.acra_connector_mode == "mock"
     application = create_app(ordinary_test_settings())
     assert application is not None
 

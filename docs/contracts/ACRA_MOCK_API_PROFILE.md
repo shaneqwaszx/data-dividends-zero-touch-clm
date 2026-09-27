@@ -7,8 +7,9 @@
 > remains open.
 
 This profile belongs to the local synthetic `mock` mode. The separately named official
-`api_marketplace_mock` lane is `BLOCKED_AUTHORITY` after the 2026-09-24 no-auth request
-returned HTTP `401`; its historical sample shapes do not change this local Mock contract.
+`api_marketplace_mock` lane is an opt-in `MOCK_INTEROPERABILITY_OBSERVED` runtime after
+the authorized 2026-09-26 token/entity/shareholder observations. Its provider data does
+not change this local synthetic Mock contract or its fixture-only percentage rules.
 
 The operations, paths, field names, collection limits, empty rules, and errors below
 are synthetic project behavior. They are not captured ACRA responses and do not prove
@@ -389,10 +390,10 @@ GoldTier calls.
 
 ## Limitations and sponsor dependencies
 
-- Q-012 remains open for authoritative ACRA operations, paths, schemas, auth, errors,
-  limits, TLS/mTLS/private CA, access, and live verification. Request-side official Mock
-  token facts are partially resolved, but no token response/downstream or successful
-  operation contract is implemented.
+- Q-012 remains open for authoritative provider errors, limits, complete operation and
+  relationship semantics, same-entity capital/share-class denominator authority,
+  subscriber Sandbox, Production, and Live verification. The official Mock token,
+  entity, and shareholder subset is separately observed and implemented.
 - Q-015 remains open; acquisition adds no jurisdiction source precedence or resolution.
 - Officer roles and relationship semantics are project vocabulary, not legal findings.
 - Collection bounds are conservative POC safety limits, not ACRA service limits or SLAs.

@@ -12,7 +12,7 @@ explicitly says so.
 |---|---|---|---|---|---|---|---|
 | Singapore onboarding | IMPLEMENTED | Closed Singapore route from jurisdiction/Registry through evidence, ownership, advisory intelligence, readiness, and Mock GoldTier completion | Current source/tests; project POC decisions | Synthetic/local default; completion is not approval | Start a supported SG synthetic case | Full backend/frontend plus Garden and zero-touch suites | Production provider and policy authority |
 | ACRA local Mock | IMPLEMENTED | Default deterministic multi-operation synthetic Registry provider | Project Mock contracts | Not official ACRA data or Live | Run a normal synthetic SG onboarding | ACRA contract and regression suites | None for local demo |
-| ACRA API Marketplace Mock | BLOCKED | Explicit `api_marketplace_mock` mode, optional inert credentials, request-side Basic-auth foundation, readiness row, and fail-closed composition | Official provider documentation; D-050/D-053; one `OFFICIAL_MOCK_OBSERVED` 401 | Token response/error, downstream value, access/secret delivery, and successful operation contract unknown; no fallback | Show execution-profile/readiness documentation; activation fails closed | Auth/configuration, provider-readiness, governance, and fail-closed composition tests | Remaining Q-012 authority plus approved access/test UEN |
+| ACRA API Marketplace Mock | PARTIAL | Explicit opt-in `api_marketplace_mock` mode with fixed Mock token/entity/shareholder transport, strict decoders, memory-only token cache, and no fallback | Supplied Postman exports; authorized 2026-09-26 Mock observations; D-050/D-053/D-054 | Garden shareholders empty; no compatible percentage denominator; provider errors/limits and Production/Live contracts unresolved | Select the official Mock mode and retrieve an approved entity; observe truthful relationship-data stop | Auth/provider fake-transport suites, sanitized smoke receipt, routing/governance, and application stop test | Remaining Q-012 relationship/error/limit authority |
 | IDP / Certificate profile | IMPLEMENTED | Main demo defaults to `CERTIFICATE_OF_INCORPORATION_POC`; legal name, registration number, and jurisdiction required; address optional | User-authorized POC / `PROJECT_DEFINED_POC` | Local text extraction, not OCR or document-authenticity proof | Upload supported synthetic PDF/DOCX/TXT certificate evidence | Document API/processing/reconciliation/replacement suites | Q-003 production document policy |
 | Reconciliation | IMPLEMENTED | Source-neutral comparison and bounded human resolution; absent optional COI address is explicit non-blocking `REGISTRY_ONLY` and does not fabricate document evidence; supplied mismatch and legacy required-address absence still block | Existing project decision D-030 refined by user-authorized D-052 | No global source precedence | Exercise missing-address COI, supplied address mismatch, and legacy required profile | Integrated zero-touch/reconciliation/persistence tests | Q-015 authority |
 | Ownership graph | IMPLEMENTED | Registry evidence feeds one deterministic Decimal graph engine | Current architecture / D-021 | Local POC; no external ownership service | Use Garden Business indirect ownership | Ownership/contract/Garden suites | Production ownership evidence contract |
@@ -76,9 +76,9 @@ explicitly says so.
 ### ACRA
 
 - Local Mock is the safe default and provides deterministic synthetic operations.
-- Official API Marketplace Mock is a distinct explicit `MOCK` mode, currently in
-  activation state `BLOCKED_AUTHORITY` after a bounded no-auth `401`. Request-side
-  OAuth2 Client Credentials facts are documented, but no token or operation is invoked.
+- Official API Marketplace Mock is a distinct explicit opt-in `MOCK` mode in activation
+  state `MOCK_INTEROPERABILITY_OBSERVED`. Bounded authorized token, entity, shareholder,
+  and schema-only capital observations exist; Garden relationships remain unavailable.
 - Generic sandbox remains a separate partial scaffold; dormant BizFile is not composed;
   none of these lanes is Live.
 - Test: provider-mode diagnostics, governance checkers, strict connector tests, and SG

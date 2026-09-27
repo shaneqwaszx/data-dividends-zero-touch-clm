@@ -169,10 +169,23 @@ class AcraOwnershipPartyPayload(BaseModel):
     ]
     registration_identifier: OptionalSourceText = Field(default=None, max_length=64)
     country: SourceCountryCode | None = None
+    source_category: SourceCodeText | None = None
+    source_status: SourceCodeText | None = None
+    share_allotted: Annotated[
+        Decimal | None,
+        Field(ge=Decimal("0"), max_digits=18, decimal_places=6),
+    ] = None
     ownership_percentage: Annotated[
         Decimal | None,
         Field(gt=Decimal("0"), le=Decimal("100"), max_digits=12, decimal_places=6),
     ] = None
+
+    @field_validator("share_allotted", mode="before")
+    @classmethod
+    def share_allotted_must_be_exact(cls, value: object) -> object:
+        if isinstance(value, (float, bool)):
+            raise ValueError("share_allotted must use exact Decimal-compatible input")
+        return value
 
 
 class AcraRelationshipPayload(BaseModel):

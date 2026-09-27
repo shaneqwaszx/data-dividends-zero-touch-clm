@@ -2,8 +2,9 @@
 
 ## Status and evidence boundary
 
-This is a narrow Phase 02 project adapter contract, not an ACRA-published JSON schema
-and not evidence of live sandbox interoperability.
+This is a narrow project adapter contract, not an ACRA-published JSON schema and not
+evidence of subscriber Sandbox, Production, or Live interoperability. A bounded subset
+is now supported by observed official API Marketplace Mock responses.
 
 Official ACRA public material confirms that the Business Profile API is part of the
 Entity Information Query service and includes information such as UEN, entity name,
@@ -47,21 +48,28 @@ future proof mapping, but the browser-facing case projection deliberately omits 
 
 ## API Marketplace Mock observation boundary
 
-The 2026-09-24 read-only no-auth diagnostic to
-`https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/entityBasicInformation`
-returned HTTP `401`. No successful provider payload was accepted, so the observation
-adds no new field, enum, default, relationship, or ownership-percentage mapping. In
-particular, historical sample-derived `SG` defaults, constitution-to-entity-type mapping,
-shareholder categories, and empty relationship behavior remain provisional/supporting
-evidence rather than newly proved official contract behavior. Official request-side
-authentication facts are now recorded separately in the readiness document, but they
-add no mapping authority. Q-012 remains open and partially resolved only for those auth
-facts.
+The authorized 2026-09-26 official Mock run proved that the strict decoder shape is
+compatible with the observed entity-basic and shareholder responses for the approved
+Mock identities. Returned UEN is bound to requested UEN; company name, basic profile,
+embedded officer fields, shareholder name/category/status, and `shareAllotted` are
+accepted only through the strict source boundary. Unknown fields are ignored only where
+the boundary model explicitly permits them. Query values and raw payloads are not
+retained as provenance.
+
+This evidence does not make all mappings provider-confirmed. The current `SG` default,
+constitution-to-entity-type normalization, and officer vocabulary are project-derived
+transformations. `shareAllotted` is retained as Decimal source evidence only. Garden
+shareholders were explicitly empty, and the separately observed capital sample did not
+prove a same-entity compatible denominator or share-class rule. Therefore the official
+Mock lane derives no percentage and creates no ownership relationship. Q-012 remains
+open for the missing semantics and for every subscriber Sandbox, Production, or Live
+claim.
 
 ## Intentionally ignored in Phase 02
 
 - business activities and SSIC classifications;
-- position-holder, officer, shareholder, owner, partner, and member records;
+- owner, partner, member, and unobserved position-holder fields; official Mock officer
+  and shareholder fields are used only as described above;
 - former names and audit-firm data;
 - account/annual-return due dates;
 - binary Business Profile documents and proof-category codes;

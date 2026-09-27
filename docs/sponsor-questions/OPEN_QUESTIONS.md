@@ -87,26 +87,30 @@ their authoritative schemas/role and relationship vocabularies, pagination/limit
 empty/partial semantics. The sandbox-shaped adapter fails closed for the new operations;
 their Mock behavior is not evidence that these endpoints exist in ACRA.
 
-On 2026-09-24, a bounded read-only GET without an Authorization header to the official
-API Marketplace Mock entity-query endpoint
-`https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/entityBasicInformation`
-returned HTTP `401`. This disproves the historical no-auth runtime assumption for the
-observed request.
+Q-012 is now **PARTIALLY RESOLVED** for the official API Marketplace Mock only. The
+supplied Postman exports and the explicitly authorized 2026-09-26 run confirm OAuth2
+Client Credentials at the exact Mock token endpoint, HTTP Basic client authentication,
+an empty JSON request body, and raw downstream header name `token` (not Bearer). The
+observed successful token JSON has exactly `access_token` string, `expires_in` integer,
+`scope` string, and `token_type` string fields.
 
-Q-012 is now **PARTIALLY RESOLVED** for the official Mock request-side authentication
-facts. Official ACRA material confirms OAuth2 Client Credentials at exactly
-`https://api-sandbox.bizfile.gov.sg/authorizeServer/oauth/token?grant_type=client_credentials`,
-using HTTP Basic with client ID as username and secret key as password. The documented
-token lifetime is 60 minutes and the downstream API header name is exactly `token`.
-Bearer is not established. Mock and Production use separate token hosts; no Production
-token URL is recorded or implemented here.
+The same bounded run observed successful strict Mock interoperability for
+`entityBasicInformation` and `coShareholdersDetails` using approved Mock identities.
+Garden entity identity matched. SIM LIM shareholder identity matched and supplied
+share-count evidence. Garden shareholder retrieval returned an explicit empty entities
+collection, so the local synthetic Garden chain is not provider evidence. A separate
+capital sample exposed issued/paid-up capital, allotted-share, currency, and share-type
+fields, but it did not establish a same-entity, compatible denominator for the observed
+shareholders. The sanitized receipt retains no UEN values, raw payload, credentials,
+token/header values, or provider error text.
 
-Q-012 remains **OPEN** for the successful operation base/path/schema, official test
-UENs, token response and error schema, downstream token value semantics, approved
-secret-delivery/access, provider errors, rate limits, retry policy, TLS/mTLS/private-CA
-requirements, officer/shareholder/relationship operations, and a successful sanitized
-receipt. The canonical `api_marketplace_mock` lane therefore remains
-`BLOCKED_AUTHORITY` with runtime activation disabled and no Sandbox or Live claim.
+Q-012 remains **OPEN** for authoritative not-found and provider-error schemas, token
+failure schema, rate/timeout/retry guidance, mTLS/private-CA requirements if any,
+pagination and collection limits, complete officer/address/constitution semantics,
+same-entity capital/share-class denominator semantics, relationship/control semantics,
+and all subscriber Sandbox, Production, and Live contracts. The canonical
+`api_marketplace_mock` lane is opt-in `MOCK_INTEROPERABILITY_OBSERVED`; it is not
+Sandbox or Live, and missing ownership relationships continue to fail closed.
 
 ## JURISDICTION EVIDENCE AUTHORITY
 

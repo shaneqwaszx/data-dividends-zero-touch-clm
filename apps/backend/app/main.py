@@ -490,16 +490,21 @@ def create_app(
         registry_environment: Literal["MOCK", "SANDBOX"] = (
             "SANDBOX" if active_settings.acra_connector_mode == "sandbox" else "MOCK"
         )
+        registry_provider_mode: Literal[
+            "LOCAL_MOCK", "API_MARKETPLACE_MOCK", "GENERIC_SANDBOX"
+        ]
+        if active_settings.acra_connector_mode == "mock":
+            registry_provider_mode = "LOCAL_MOCK"
+        elif active_settings.acra_connector_mode == "api_marketplace_mock":
+            registry_provider_mode = "API_MARKETPLACE_MOCK"
+        else:
+            registry_provider_mode = "GENERIC_SANDBOX"
         target_environment: Literal["MOCK", "SANDBOX"] = (
             "MOCK" if active_settings.goldtier_connector_mode == "mock" else "SANDBOX"
         )
         return SimulationProfile(
             registry_environment=registry_environment,
-            registry_provider_mode={
-                "mock": "LOCAL_MOCK",
-                "api_marketplace_mock": "API_MARKETPLACE_MOCK",
-                "sandbox": "GENERIC_SANDBOX",
-            }[active_settings.acra_connector_mode],
+            registry_provider_mode=registry_provider_mode,
             target_environment=target_environment,
             target_provider_classification=(
                 "MOCK" if target_environment == "MOCK" else "SANDBOX_PARTIAL"

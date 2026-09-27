@@ -19,6 +19,9 @@ credential, tool, placeholder, Mock test, or documentation example exists.
 - `BLOCKED_AUTHORITY`: a bounded sanitized observation exists, but it falsified or could
   not establish a required authority assumption. Runtime activation remains disabled
   until the API owner supplies the missing contract or security decision.
+- `MOCK_INTEROPERABILITY_OBSERVED`: an official provider Mock has an explicitly
+  authorized, bounded, schema-valid runtime path and sanitized success evidence. It is
+  selectable only as Mock and supplies no Sandbox, Production, or Live claim.
 - `PARTIAL_SCAFFOLD_ONLY`: authority-independent seam or dormant code exists; it cannot
   be used to infer transport, mapping, auth, retry, or provider success.
 - `SANDBOX_PARTIAL`: an explicitly selected sandbox adapter and bounded sanitized
@@ -49,16 +52,16 @@ subscription/access, approved test UEN, and secret-delivery mechanism. BizFile r
 dormant until a separately authorized provider change.
 
 The official API Marketplace Mock is tracked separately as
-`ACRA_API_MARKETPLACE_MOCK / api_marketplace_mock / MOCK`. A safe read-only GET to the
-official entity-query Mock endpoint without an Authorization header returned HTTP `401`
-on 2026-09-24. This is `OFFICIAL_MOCK_OBSERVED` failure evidence and sets the lane to
-`BLOCKED_AUTHORITY`. Official request-side facts now establish OAuth2 Client Credentials,
-HTTP Basic client authentication at the exact Mock token endpoint, a 60-minute token
-lifetime, and downstream header name `token`; Bearer is not established and Production
-uses a separate token host. This partial authority permits only inert settings, fixed
-constants, and a pure Basic-auth constructor. It does not authorize a token request,
-response parsing, downstream injection, successful mapping, runtime activation,
-Sandbox, or Live claims. `docs/integration/ACRA_API_MARKETPLACE_MOCK_READINESS.md` is the
+`ACRA_API_MARKETPLACE_MOCK / api_marketplace_mock / MOCK`. Supplied Postman exports and
+the explicitly authorized 2026-09-26 bounded run establish the exact Mock token request,
+strict token response, raw `token` downstream header, and successful entity/shareholder
+interoperability for approved Mock identities. The lane is therefore
+`MOCK_INTEROPERABILITY_OBSERVED` and explicit opt-in runtime composition is allowed.
+Tokens are memory-only, redirects are disabled, certificate verification remains on,
+and no generic-sandbox or synthetic fallback exists. Garden shareholder data was
+explicitly empty and capital/share-class evidence did not establish a compatible
+ownership denominator, so relationship acquisition remains partial. This is neither
+Sandbox nor Live. `docs/integration/ACRA_API_MARKETPLACE_MOCK_READINESS.md` is the
 bounded evidence summary. Local Mock remains default, generic sandbox remains Partial,
 and BizFile remains Dormant.
 
@@ -121,9 +124,12 @@ approved environment, authorization, execution, and review record.
 
 Profile v2 also binds whole records to current provider truth. `ACRA_MOCK`,
 `IDP_LOCAL_PDF_TEXT`, `OWNERSHIP_LOCAL_ENGINE`, and `GOLDTIER_MOCK` have accepted
-credential-free profiles. `ACRA_API_MARKETPLACE_MOCK` has only a fail-closed
-`AUTH_FAILURE / NONE / Q-012 / STOPPED_ON_FAILURE` profile for a future diagnostic with
-complete safe metadata; it cannot represent success or invented auth. Each profile fixes
+credential-free profiles. Its existing `ACRA_API_MARKETPLACE_MOCK` auth-failure profile
+remains valid only for that historical failure category. Successful official Mock
+operation evidence uses the stricter dedicated
+`acra_api_marketplace_mock_evidence.schema.json` receipt, which permits only fixed safe
+operation metadata and no credential, query value, header, raw payload, or error text.
+Each profile fixes
 the compatible mode, classification, operation, outcome, contract, certificate/auth
 label, mapping, and call-order category. All sandbox, dormant, future, and real providers
 have no accepted evidence profile; adding one requires explicit authority plus a reviewed
