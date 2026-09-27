@@ -102,10 +102,12 @@ the ACRA adapter. Unknown, conflicting, or recognized-but-unimplemented jurisdic
 fail closed before a provider call. User input cannot select a URL, module, credential,
 or adapter.
 
-`MockAcraConnector` is default. `AcraSandboxConnector` is a generic sandbox-shaped
-partial seam. `acra_bizfile_sandbox.py` is dormant and must not enter runtime composition
-without an explicit external-provider phase, contract reconciliation, security review,
-mode/config design, and truthful evidence. No active ACRA path is Live.
+`MockAcraConnector` is default. `AcraApiMarketplaceMockConnector` is a distinct explicit
+opt-in official Mock lane with fixed provider endpoints, an in-memory OAuth token, raw
+`token` downstream authentication, and no fallback. `AcraSandboxConnector` remains a
+generic sandbox-shaped partial seam. `acra_bizfile_sandbox.py` supplies only the strict
+sample decoder reused behind the official connector and is not independently composed.
+No active ACRA path is Live.
 
 ACRA source DTOs are freshly reconstructed and validated, request-identifier bound,
 normalized, and mapped through `mappers/acra.py`. Direct ACRA-to-GoldTier mapping is
@@ -427,7 +429,7 @@ surface is currently verified by this repository.
 
 | Provider | Runtime owner | Current composition | Allowed next change boundary |
 |---|---|---|---|
-| ACRA | registry/ACRA connectors and mapper | Mock default; generic sandbox partial | existing connector interface plus external-provider skill |
+| ACRA | registry/ACRA connectors and mapper | synthetic Mock default; official API Marketplace Mock opt-in; generic sandbox partial | existing connector interface plus external-provider skill |
 | BizFile | dormant connector module | not composed | explicit contract/security/architecture change only |
 | IDP | document service and IDP port | local deterministic default; Mock fault path | adapter replacement, no business-rule leak |
 | Ownership | ownership service/domain | local Decimal engine | evidence provider through existing port |

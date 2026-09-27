@@ -2,6 +2,7 @@
 
 import json
 import re
+import ssl
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -40,6 +41,9 @@ class AcraHttpResponse:
 
     status_code: int
     body: object | None = None
+    content_type: str | None = None
+    response_bytes: int | None = None
+    size_limit_exceeded: bool = False
 
 
 class AcraHttpTransport(Protocol):
@@ -132,6 +136,15 @@ class HttpxAcraTransport:
 
     _MAX_RESPONSE_BYTES = 256 * 1024
 
+    def __init__(
+        self,
+        *,
+        ssl_context: ssl.SSLContext | None = None,
+        trust_env: bool = True,
+    ) -> None:
+        self._ssl_context = ssl_context
+        self._trust_env = trust_env
+
     def get(
         self,
         url: str,
@@ -140,7 +153,11 @@ class HttpxAcraTransport:
         timeout_seconds: float,
     ) -> AcraHttpResponse:
         with (
-            httpx.Client(follow_redirects=False, verify=True) as client,
+            httpx.Client(
+                follow_redirects=False,
+                verify=True if self._ssl_context is None else self._ssl_context,
+                trust_env=self._trust_env,
+            ) as client,
             client.stream("GET", url, headers=dict(headers), timeout=timeout_seconds) as response,
         ):
             if response.status_code != 200:
@@ -152,21 +169,39 @@ class HttpxAcraTransport:
             if declared is not None:
                 try:
                     if int(declared) > self._MAX_RESPONSE_BYTES:
-                        return AcraHttpResponse(status_code=response.status_code)
+                        return AcraHttpResponse(
+                            status_code=response.status_code,
+                            content_type=content_type,
+                            size_limit_exceeded=True,
+                        )
                 except ValueError:
-                    return AcraHttpResponse(status_code=response.status_code)
+                    return AcraHttpResponse(
+                        status_code=response.status_code,
+                        content_type=content_type,
+                        size_limit_exceeded=True,
+                    )
             chunks: list[bytes] = []
             total = 0
             for chunk in response.iter_bytes():
                 total += len(chunk)
                 if total > self._MAX_RESPONSE_BYTES:
-                    return AcraHttpResponse(status_code=response.status_code)
+                    return AcraHttpResponse(
+                        status_code=response.status_code,
+                        content_type=content_type,
+                        response_bytes=total,
+                        size_limit_exceeded=True,
+                    )
                 chunks.append(chunk)
         try:
             body = cast(object, json.loads(b"".join(chunks)))
         except (UnicodeDecodeError, ValueError):
             body = None
-        return AcraHttpResponse(status_code=response.status_code, body=body)
+        return AcraHttpResponse(
+            status_code=response.status_code,
+            body=body,
+            content_type=content_type,
+            response_bytes=total,
+        )
 
 
 class _ProjectAddressResponse(BaseModel):

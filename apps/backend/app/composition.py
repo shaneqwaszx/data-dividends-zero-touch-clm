@@ -1,11 +1,21 @@
 """Side-effect-free connector and service composition through Phase 07."""
 
+import ssl
 from collections.abc import Callable
 from datetime import datetime
 from uuid import UUID
 
 from app.config import Settings, get_settings
 from app.connectors.acra import AcraConnector
+from app.connectors.acra_api_marketplace_auth import (
+    AcraApiMarketplaceMockRequestAuthorizer,
+    AcraApiMarketplaceMockTokenClient,
+    AcraMarketplaceTokenTransport,
+)
+from app.connectors.acra_api_marketplace_mock import (
+    AcraApiMarketplaceMockConnection,
+    AcraApiMarketplaceMockConnector,
+)
 from app.connectors.acra_sandbox import (
     AcraHttpTransport,
     AcraRequestAuthorizer,
@@ -99,6 +109,7 @@ def build_onboarding_service(
     acra_transport: AcraHttpTransport | None = None,
     acra_authorizer: AcraRequestAuthorizer | None = None,
     acra_decoder: AcraResponseDecoder | None = None,
+    acra_marketplace_token_transport: AcraMarketplaceTokenTransport | None = None,
     target_finalization_fault: Callable[[UUID], bool] | None = None,
     repository: OnboardingCaseRepository | None = None,
     target_execution_repository: TargetExecutionRepository | None = None,
@@ -115,6 +126,7 @@ def build_onboarding_service(
         transport=acra_transport,
         authorizer=acra_authorizer,
         decoder=acra_decoder,
+        marketplace_token_transport=acra_marketplace_token_transport,
     )
     cache_identity = (
         RegistryProviderIdentity(
@@ -202,19 +214,31 @@ def build_acra_connector(
     transport: AcraHttpTransport | None = None,
     authorizer: AcraRequestAuthorizer | None = None,
     decoder: AcraResponseDecoder | None = None,
+    marketplace_token_transport: AcraMarketplaceTokenTransport | None = None,
 ) -> AcraConnector:
-    """Select Mock or Sandbox ACRA without changing business orchestration."""
+    """Select one explicit ACRA lane without runtime fallback."""
 
     if settings.acra_connector_mode == "mock":
         return MockAcraConnector()
 
     if settings.acra_connector_mode == "api_marketplace_mock":
-        # The explicit official Mock mode is recognized, but activation remains
-        # blocked: request-side token authentication facts are known, while the
-        # successful operation, token-response/error, access, and security contracts
-        # remain incomplete. Do not compose dormant BizFile code or substitute the
-        # generic sandbox seam, even when credentials or a test authorizer are supplied.
-        raise AcraConfigurationError
+        token_client = AcraApiMarketplaceMockTokenClient(
+            client_id=settings.acra_api_marketplace_mock_client_id,
+            secret_key=settings.acra_api_marketplace_mock_secret_key,
+            timeout_seconds=settings.acra_timeout_seconds,
+            transport=marketplace_token_transport,
+        )
+        return AcraApiMarketplaceMockConnector(
+            connection=AcraApiMarketplaceMockConnection(
+                timeout_seconds=settings.acra_timeout_seconds,
+            ),
+            transport=transport
+            or HttpxAcraTransport(
+                ssl_context=ssl.create_default_context(),
+                trust_env=False,
+            ),
+            authorizer=AcraApiMarketplaceMockRequestAuthorizer(token_client),
+        )
 
     connection = AcraSandboxConnection(
         base_url=settings.acra_base_url,

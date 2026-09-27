@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
 import socket
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from threading import Thread
 from typing import Any
@@ -39,6 +41,11 @@ from app.services.authentication import (  # noqa: E402
     generate_scrypt_password_hash,
     parse_scrypt_password_hash,
 )
+
+
+class _ThreadedServerConfig(uvicorn.Config):
+    def get_loop_factory(self) -> Callable[[], asyncio.AbstractEventLoop]:
+        return asyncio.SelectorEventLoop
 
 
 class FakeSeedApi:
@@ -389,7 +396,9 @@ def test_http_seeder_runs_twice_against_one_live_memory_backend() -> None:
     listener.listen()
     port = listener.getsockname()[1]
     server = uvicorn.Server(
-        uvicorn.Config(application, host="127.0.0.1", port=port, log_level="error")
+        _ThreadedServerConfig(
+            application, host="127.0.0.1", port=port, log_level="error"
+        )
     )
     worker = Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     worker.start()

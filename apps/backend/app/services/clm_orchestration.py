@@ -52,6 +52,7 @@ from app.domain.target_submission import (
     GoldTierExecutionClassification,
     GoldTierExecutionLedgerState,
     GoldTierExecutionReceipt,
+    GoldTierProviderClassification,
     GoldTierProviderMode,
     GoldTierSearchResolution,
 )
@@ -562,8 +563,8 @@ class ClmOrchestrationService:
         )
         if mode == GoldTierProviderMode.SANDBOX:
             return GoldTierSubmissionPlan(
-                environment="SANDBOX",
-                provider_classification="SANDBOX_PARTIAL",
+                environment=GoldTierProviderMode.SANDBOX,
+                provider_classification=GoldTierProviderClassification.SANDBOX_PARTIAL,
                 base_operations=(
                     "customers/search",
                     "customers/create if NO_MATCH",

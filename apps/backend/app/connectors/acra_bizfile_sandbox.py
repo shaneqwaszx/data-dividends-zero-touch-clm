@@ -1,32 +1,30 @@
-"""Dormant BizFile-shaped ACRA adapter for bounded sample-response decoding.
+"""Dormant BizFile connector plus strict official-Mock-compatible decoders.
 
-The default URL and decoder shapes came from teammate sample evidence. Q-012 remains
-open, so this module is uncomposed and proves neither an authoritative contract nor
-sandbox/Live interoperability. It maps only the two currently retained sample shapes:
+The connector in this module remains uncomposed. Its strict decoders are reused by the
+separate official API Marketplace Mock connector after the authorized 2026-09-26
+observations proved compatibility for two response shapes. Q-012 remains open; this
+proves neither subscriber Sandbox nor Live interoperability:
 
   - GET {base}/entityQuery/entityBasicInformation?uen=...
   - GET {base}/entityQuery/coShareholdersDetails?uen=...
 
 IMPORTANT -- read before wiring this in:
-  1. Auth: a 2026-09-24 bounded diagnostic showed that the official Mock endpoint
-     rejects an unauthenticated request. `NoAuthAcraAuthorizer` remains only as a
-     historical unit-test seam; runtime composition requires an explicitly injected
-     authorized boundary pending Q-012 and never guesses a header or OAuth flow.
-  2. `source_environment` is tagged "MOCK" only because the retained sample evidence
-     was labelled "APIMarketplace-Mock". This is not a Sandbox or Live claim and must
-     be reconciled under Q-012 before any runtime use.
-  3. Every field marked NOTE below is a best-effort mapping made from a
-     single sample response and needs confirming against full API docs
-     or a second sample before this goes near real filings:
+  1. Auth: `NoAuthAcraAuthorizer` remains only as a historical direct-test seam. The
+     official runtime uses its dedicated OAuth client and raw `token` header; the
+     dormant connector does not own authentication.
+  2. `source_environment` is `MOCK` for the fixed official Mock lane only. It is not a
+     generic Sandbox, Production, or Live claim.
+  3. Every field marked NOTE below remains project-derived or incomplete even though
+     the observed official Mock entity/shareholder payloads decoded successfully:
        - entity_status: not present in the sample at all -- left None.
        - country_code: not present in the sample -- defaulted to "SG".
        - entity_type: mapped from entityConstnDetailsAndType.constitution;
          confirm this is the right analog across entity types.
-       - ownership_percentage: the shareholders response gives raw
-         `shareAllotted` counts, not percentages, and no total issued
-         share figure -- left unset rather than guessed.
-       - "grouping" array in shareholders response is unmapped (always
-         empty in the sample; shape unconfirmed).
+       - ownership_percentage: the shareholders response gives raw `shareAllotted`
+         counts. A separate capital identity does not establish a compatible
+         same-entity denominator -- left unset rather than guessed.
+       - non-empty "grouping" is rejected because its member and ownership semantics
+         remain unconfirmed.
    4. No sample was provided for a relationships/ownership-graph endpoint,
       so `fetch_relationships` makes no network call and returns an explicitly
       empty typed result; this is not evidence of an authoritative endpoint.
@@ -35,10 +33,12 @@ IMPORTANT -- read before wiring this in:
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from decimal import Decimal
+from typing import Literal
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.connectors.acra import (
     AcraAddressPayload,
@@ -358,6 +358,20 @@ class _RealShareholder(BaseModel):
     shareholder_id: NonBlankSourceText = Field(alias="shareholderId")
     shareholder_name: NonBlankSourceText = Field(alias="shareholderName")
     status: TrimmedSourceText | None = None
+    share_allotted: Decimal | None = Field(
+        default=None,
+        alias="shareAllotted",
+        ge=Decimal("0"),
+        max_digits=18,
+        decimal_places=6,
+    )
+
+    @field_validator("share_allotted", mode="before")
+    @classmethod
+    def share_allotted_must_be_exact(cls, value: object) -> object:
+        if isinstance(value, (float, bool)):
+            raise ValueError("shareAllotted must use exact Decimal-compatible input")
+        return value
 
 
 class _RealShareholders(BaseModel):
@@ -389,6 +403,9 @@ class BizfileMockOwnershipPartiesDecoder:
     "ownership parties" before relying on it.
     """
 
+    def __init__(self, *, include_withdrawn: bool = False) -> None:
+        self._include_withdrawn = include_withdrawn
+
     def decode(
         self,
         body: object,
@@ -407,15 +424,24 @@ class BizfileMockOwnershipPartiesDecoder:
         if entity.uen.upper() != requested_uen:
             raise AcraMalformedResponseError
 
+        if entity.shareholders is not None and entity.shareholders.grouping:
+            # The supplied collection names grouping but provides no authoritative
+            # member schema or ownership semantics. Fail closed instead of flattening.
+            raise AcraMalformedResponseError
         raw_shareholders = entity.shareholders.individual if entity.shareholders else ()
-        active = (
-            holder
-            for holder in raw_shareholders
-            if not holder.status or holder.status.strip().lower() != "withdrawn"
+        selected = (
+            raw_shareholders
+            if self._include_withdrawn
+            else tuple(
+                holder
+                for holder in raw_shareholders
+                if not holder.status or holder.status.strip().lower() != "withdrawn"
+            )
         )
         parties: list[AcraOwnershipPartyPayload] = []
-        for holder in active:
+        for holder in selected:
             category = holder.shareholder_category.strip().lower()
+            party_type: Literal["NATURAL_PERSON", "LEGAL_ENTITY"]
             if category == "corporate":
                 party_type = "LEGAL_ENTITY"
             elif category == "individual":
@@ -429,6 +455,9 @@ class BizfileMockOwnershipPartiesDecoder:
                     name=holder.shareholder_name,
                     registration_identifier=None,
                     country=None,  # NOTE: not present in sample
+                    source_category=holder.shareholder_category,
+                    source_status=holder.status,
+                    share_allotted=holder.share_allotted,
                     ownership_percentage=None,  # NOTE: see module docstring, point 3
                 )
             )

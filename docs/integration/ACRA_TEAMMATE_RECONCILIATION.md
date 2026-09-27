@@ -5,7 +5,9 @@
 This matrix accounts for every ACRA-relevant path and behavior introduced by teammate
 commits `4ae4ed19`, `897a4c4`, and `79e808f`. Current source/tests and the accepted
 security/provider-governance boundaries take precedence over the historical branch.
-BizFile remains `DORMANT`, uncomposed, and runtime-disabled; Q-004 and Q-012 remain open.
+BizFile remains `DORMANT`, uncomposed, and runtime-disabled. Its strict sample decoders
+are reused behind the separately owned official Mock connector; Q-004 and Q-012 remain
+open.
 
 Classification values are exactly `ALREADY_PRESENT_HARDENED`,
 `PORT_TO_CURRENT_ARCHITECTURE`, `SUPERSEDED_SECURITY`, `BLOCKED_AUTHORITY`, and
@@ -40,13 +42,16 @@ Classification values are exactly `ALREADY_PRESENT_HARDENED`,
 ## Final provider/security state
 
 - ACRA Mock: active/default `MOCK`; Garden is synthetic project data.
+- Official API Marketplace Mock: explicit opt-in `MOCK_INTEROPERABILITY_OBSERVED`;
+  fixed token/entity/shareholder transport with no fallback.
 - Generic sandbox: `PARTIAL`, runtime-disabled.
 - BizFile: `DORMANT`, uncomposed, runtime activation false.
-- Token request/lifecycle/cache and downstream injection: absent; only the D-053 pure
-  Basic-auth constructor and fixed request-side facts exist.
+- Token request/lifecycle/cache and downstream injection: implemented only in the
+  dedicated official Mock owner under D-054; tokens remain memory-only.
 - Raw debug-response tooling: absent.
 - Q-004 and Q-012: open.
-- No real ACRA network smoke was run or authorized.
+- A bounded authorized official Mock smoke exists; no generic Sandbox, Production, or
+  Live smoke was run or authorized.
 
 ## 2026-09-24 official-Mock authority update
 
@@ -69,3 +74,15 @@ foundation is separate from dormant BizFile and consists only of optional inert 
 credentials, the exact Mock token endpoint/header/lifetime constants, and a pure HTTP
 Basic constructor. `api_marketplace_mock` remains `MOCK / BLOCKED_AUTHORITY` and runtime
 activation remains disabled.
+
+## 2026-09-26 official-Mock runtime reconciliation
+
+D-054 supersedes the activation conclusion of the two dated updates above without
+reviving historical `bizfile_mock`. The dedicated `api_marketplace_mock` owner now has
+the exact observed token schema, memory-only renewal cache, raw `token` downstream
+header, fixed read-only entity/shareholder operations, strict identity-bound decoders,
+and sanitized success evidence. The activation state is
+`MOCK_INTEROPERABILITY_OBSERVED`, explicit opt-in only. Garden shareholders were empty;
+no synthetic fallback, percentage, or relationship was introduced. BizFile remains
+dormant, generic sandbox remains Partial, and Q-012 remains open for the unevidenced
+provider/error/relationship and every non-Mock contract.

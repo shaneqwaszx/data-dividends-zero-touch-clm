@@ -57,3 +57,7 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-09-24 | work | docs/aegis/work/2026-09-24-pre-phase22-provider-orchestration/20-checkpoint.md | Pre-Phase 22 provider orchestration checkpoint |
 | 2026-09-24 | work | docs/aegis/work/2026-09-24-pre-phase22-provider-orchestration/90-evidence.md | Pre-Phase 22 provider orchestration evidence |
 | 2026-09-24 | work | docs/aegis/work/2026-09-24-pre-phase22-provider-orchestration/99-reflection.md | Pre-Phase 22 provider orchestration reflection |
+| 2026-09-26 | work | docs/aegis/work/2026-09-26-acra-marketplace-mock-runtime/10-intent.md | ACRA API Marketplace Mock runtime intent |
+| 2026-09-26 | work | docs/aegis/work/2026-09-26-acra-marketplace-mock-runtime/20-checkpoint.md | ACRA API Marketplace Mock runtime checkpoint |
+| 2026-09-26 | work | docs/aegis/work/2026-09-26-acra-marketplace-mock-runtime/90-evidence.md | ACRA API Marketplace Mock runtime evidence |
+| 2026-09-26 | work | docs/aegis/work/2026-09-26-acra-marketplace-mock-runtime/99-reflection.md | ACRA API Marketplace Mock runtime reflection |

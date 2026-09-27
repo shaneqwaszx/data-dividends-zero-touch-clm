@@ -18,6 +18,7 @@ CLASSIFICATION_VALUES = ["MOCK", "LOCAL", "PARTIAL", "DORMANT", "NOT_IMPLEMENTED
 CLASSIFICATIONS = set(CLASSIFICATION_VALUES)
 ACTIVATION_STATE_VALUES = [
     "INTERNAL_POC_ONLY",
+    "MOCK_INTEROPERABILITY_OBSERVED",
     "BLOCKED",
     "BLOCKED_AUTHORITY",
     "PARTIAL_SCAFFOLD_ONLY",
@@ -58,9 +59,9 @@ EXPECTED = {
     "ACRA_MOCK": ("MOCK", "INTERNAL_POC_ONLY", "mock", True),
     "ACRA_API_MARKETPLACE_MOCK": (
         "MOCK",
-        "BLOCKED_AUTHORITY",
+        "MOCK_INTEROPERABILITY_OBSERVED",
         "api_marketplace_mock",
-        False,
+        True,
     ),
     "ACRA_GENERIC_SANDBOX": ("PARTIAL", "PARTIAL_SCAFFOLD_ONLY", "sandbox", False),
     "ACRA_BIZFILE": ("DORMANT", "BLOCKED", "dormant", False),
@@ -349,6 +350,10 @@ def validate(root: Path) -> list[str]:
 
         expected_proof = {
             "INTERNAL_POC_ONLY": set(),
+            "MOCK_INTEROPERABILITY_OBSERVED": {
+                "secret_delivery_ready",
+                "sanitized_evidence_present",
+            },
             "BLOCKED": set(),
             "BLOCKED_AUTHORITY": {"sanitized_evidence_present"},
             "PARTIAL_SCAFFOLD_ONLY": set(),
@@ -377,6 +382,7 @@ def validate(root: Path) -> list[str]:
 
         if entry.get("runtime_activation_enabled") is True and state not in {
             "INTERNAL_POC_ONLY",
+            "MOCK_INTEROPERABILITY_OBSERVED",
             "SANDBOX_PARTIAL",
             "SANDBOX_VERIFIED",
             "LIVE_VERIFIED",
@@ -419,13 +425,6 @@ def validate(root: Path) -> list[str]:
     if entries.get("GOLDTIER_REAL", {}).get("runtime_activation_enabled") is True:
         failures.append(
             "GOLDTIER_REAL cannot be runtime enabled while Q-008/D-018 is unresolved"
-        )
-    if (
-        entries.get("ACRA_API_MARKETPLACE_MOCK", {}).get("runtime_activation_enabled")
-        is True
-    ):
-        failures.append(
-            "ACRA_API_MARKETPLACE_MOCK cannot be runtime enabled while Q-012 auth authority is unresolved"
         )
     if entries.get("ACRA_BIZFILE", {}).get("activation_state") != "BLOCKED":
         failures.append("ACRA_BIZFILE must remain dormant and blocked")

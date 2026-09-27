@@ -67,7 +67,7 @@ class ExternalProviderReadinessTests(unittest.TestCase):
             failures,
         )
 
-    def test_rejects_api_marketplace_runtime_activation_while_auth_is_unknown(
+    def test_rejects_api_marketplace_return_to_blocked_runtime_state(
         self,
     ) -> None:
         value = self._registry()
@@ -76,7 +76,9 @@ class ExternalProviderReadinessTests(unittest.TestCase):
             for item in value["providers"]
             if item["provider_id"] == "ACRA_API_MARKETPLACE_MOCK"
         )
-        entry["runtime_activation_enabled"] = True
+        entry["activation_state"] = "BLOCKED_AUTHORITY"
+        entry["runtime_activation_enabled"] = False
+        entry["secret_delivery_ready"] = False
         self._write_registry(value)
 
         failures = CHECKER.validate(self.root)

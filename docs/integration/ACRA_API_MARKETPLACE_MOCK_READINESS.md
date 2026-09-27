@@ -9,74 +9,89 @@ the generic `sandbox` seam, the dormant BizFile provider, or Live ACRA.
 Current classification and readiness are:
 
 - provider classification: `MOCK`;
-- evidence classification: `OFFICIAL_MOCK_OBSERVED` (authentication failure only);
-- authentication authority: partial (request-side Mock facts only);
-- activation state: `BLOCKED_AUTHORITY`;
-- runtime activation: disabled;
-- governing open question: Q-012.
+- evidence classification: `OBSERVED_MOCK_INTEROPERABILITY`;
+- activation state: `MOCK_INTEROPERABILITY_OBSERVED`;
+- runtime activation: explicit opt-in only;
+- governing open question: Q-012 remains open.
 
 The local synthetic ACRA Mock remains the default. The generic sandbox remains
 `PARTIAL / PARTIAL_SCAFFOLD_ONLY`. `ACRA_BIZFILE` remains `DORMANT / BLOCKED`.
 
-## Sanitized diagnostic evidence
+## CONFIRMED_PROVIDER_CONTRACT
 
-On 2026-09-24, a bounded read-only `GET` was made to the official Mock entity-query
-endpoint without an Authorization header:
+The supplied official Mock Postman exports establish the following bounded contract:
 
-`https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/entityBasicInformation`
+- API base: `https://api-sandbox.bizfile.gov.sg/api/acra`;
+- token request: `POST` to
+  `https://api-sandbox.bizfile.gov.sg/authorizeServer/oauth/token` with
+  `grant_type=client_credentials` in the query;
+- token authentication: HTTP Basic using the Mock client ID and secret key;
+- token content type/body: `application/json` with an empty body;
+- downstream authentication: raw access token in the header named exactly `token`;
+- entity operation: `GET /entityQuery/entityBasicInformation?uen=<UEN>`;
+- shareholder operation: `GET /entityQuery/coShareholdersDetails?uen=<UEN>`;
+- capital evidence operation: `GET /entityQuery/coCapitalDetails?uen=<UEN>`;
+- related supplied collections include business profile, officer record, registered
+  address, and constitution operations.
 
-The result was HTTP `401`. No credential was supplied, no mutation was attempted, and
-no request query, test identity, response body, response header, provider error text, or
-customer data is retained here.
+Bearer downstream authentication is not established and is not used. Production host,
+Production token behavior, mutation operations, subscription management, and Live ACRA
+are outside this contract.
 
-The observation proves only that the historical no-auth hypothesis is false for this
-request. It does not prove a successful entity response, schema, not-found behavior,
-officer/shareholder operation, relationship operation, mapping, Sandbox
-interoperability, or Live connectivity.
+## OBSERVED_MOCK_INTEROPERABILITY
 
-No exact UTC instant or safe diagnostic/correlation UUID was retained. Therefore this
-summary is intentionally not represented as a schema-v2 external-provider evidence JSON
-record. The strict validator contains a future auth-failure profile, but an artifact may
-be created only from an actual diagnostic that retains every required safe metadata
-field.
+On 2026-09-26, an explicitly authorized bounded run used the supplied Mock credentials.
+TLS certificate verification remained enabled, environment proxy settings were not
+trusted, redirects were disabled, time and response size were bounded, and the process
+contacted only `api-sandbox.bizfile.gov.sg`.
 
-## Source-use boundary
+The token response was HTTP `200`, JSON, and had exactly these observed field names and
+types: `access_token` string, `expires_in` integer, `scope` string, and `token_type`
+string. The observed expiry value was 1,799 seconds; the token value and all credential
+values were retained only in process memory and were not recorded.
 
-- Current user direction is authority for the bounded POC mode name, this sanitized
-  observation, and the official authentication facts recorded below.
-- Official ACRA material establishes the request-side Mock token facts below. It does
-  not establish the successful operation or token response/error contracts still listed
-  as open.
-- Historical Postman-derived comments and sample response shapes remain supporting
-  evidence. The observed `401` supersedes the no-auth assumption for runtime use.
-- The dormant sample decoder may inform tests, but it cannot become successful-provider
-  evidence without an authenticated, bounded, schema-valid response.
+Strict operation observations were:
 
-## Confirmed request-side authentication facts
+- entity basic information for the approved Garden Mock identity returned HTTP `200`,
+  matched the requested UEN, decoded strictly, and returned `GARDEN BUSINESS`;
+- shareholder details for the approved SIM LIM Mock identity returned HTTP `200`,
+  matched the requested UEN, decoded strictly, and exposed shareholder identity,
+  category, status, and share-count evidence but no provider percentage;
+- shareholder details for the Garden Mock identity returned HTTP `200` with an explicit
+  empty `entities` collection, so the synthetic Garden shareholder chain is not present
+  in the observed official Mock response;
+- the supplied capital sample identity returned HTTP `200` and exposed share-detail
+  fields including currency, issued and paid-up share capital, allotted shares, and
+  share type. It is not the Garden or SIM LIM identity and therefore does not establish
+  a denominator for either observed shareholder response.
 
-- grant: OAuth2 Client Credentials;
-- exact Mock token endpoint:
-  `https://api-sandbox.bizfile.gov.sg/authorizeServer/oauth/token?grant_type=client_credentials`;
-- token-endpoint client authentication: HTTP Basic, with client ID as username and
-  secret key as password;
-- documented token lifetime: 60 minutes;
-- downstream API header name: exactly `token`;
-- Bearer is not established;
-- Mock and Production token hosts are separate; no Production token URL is represented
-  in configuration or source.
+The minimized operation receipt is
+`docs/evidence/acra_api_marketplace_mock_2026-09-26.json`, governed by
+`docs/contracts/acra_api_marketplace_mock_evidence.schema.json`. It contains no query
+values, credentials, token/header values, raw payload, provider error text, or personal
+data.
 
-The code foundation stores only optional backend credentials, fixed non-secret facts,
-and a pure HTTP Basic constructor. It does not construct or send a token request, assume
-a method/body, parse a response, cache or refresh a token, inject a downstream token, or
-activate a connector. The generic sandbox header value is not a fallback.
+## PROJECT_DERIVED_TRANSFORMATION
 
-## Required next evidence
+The runtime reuses only the sample decoder fields proven compatible by the observations.
+It binds returned UEN to requested UEN, rejects ambiguous identities, keeps query-free
+provenance, and carries shareholder category/status/share counts as untrusted source
+evidence. Current Singapore/default entity and officer vocabulary normalization remains
+project-defined unless separately evidenced by the supplied operation contract.
 
-Before runtime activation, the API owner must answer the remaining Q-012 items: approved
-secret delivery and access, token response/error schema and downstream value semantics,
-successful operation base/path/schema, approved Mock identities, provider errors,
-rate/timeout/retry guidance, TLS requirements, related operations, and a successful
-sanitized receipt. A subsequent authorized diagnostic must use certificate verification,
-disabled redirects, bounded time and response size, safe status/schema summaries, and no
-raw payload logging. Any uncertain auth result must stop; it must never trigger scheme,
-method/body, response-shape, operation, or fallback guessing.
+No ownership percentage is derived. `shareAllotted` is evidence of a count only. The
+official Mock lane returns no synthetic relationship fallback and therefore reaches the
+existing truthful Registry expected-data stop when a relationship graph is required.
+
+## STILL_OPEN
+
+Q-012 remains open for authoritative not-found and provider-error schemas, rate limits,
+retry guidance, service-level timeout guidance, mTLS/private-CA requirements if any,
+pagination/collection limits, complete officer/address/constitution semantics, complete
+same-entity capital/share-class denominator semantics, relationship/control semantics,
+and any subscriber Sandbox, Production, or Live contract. The token failure schema was
+not exercised during the authorized successful run.
+
+No uncertain result permits scheme, endpoint, mapping, percentage, or provider fallback
+guessing. Any missing company identity or required relationship data continues to fail
+closed.

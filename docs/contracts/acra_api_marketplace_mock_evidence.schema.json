@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/data-dividends/acra-api-marketplace-mock-evidence.schema.json",
+  "title": "Sanitized ACRA API Marketplace Mock observation evidence",
+  "type": "array",
+  "minItems": 1,
+  "maxItems": 8,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "provider",
+      "classification",
+      "timestamp_utc",
+      "operation_name",
+      "safe_endpoint",
+      "http_status",
+      "response_content_type",
+      "bounded_response_bytes",
+      "returned_requested_uen_equal",
+      "strict_schema_validation",
+      "result_classification"
+    ],
+    "properties": {
+      "provider": {"const": "ACRA_API_MARKETPLACE_MOCK"},
+      "classification": {"const": "MOCK"},
+      "timestamp_utc": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?![\\s\\S]*[\\r\\n])[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,6})?Z$"
+      },
+      "operation_name": {
+        "enum": [
+          "entityBasicInformation",
+          "coShareholdersDetails",
+          "coCapitalDetails"
+        ]
+      },
+      "safe_endpoint": {
+        "enum": [
+          "https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/entityBasicInformation",
+          "https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/coShareholdersDetails",
+          "https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/coCapitalDetails"
+        ]
+      },
+      "http_status": {"type": "integer", "minimum": 100, "maximum": 599},
+      "response_content_type": {"const": "application/json"},
+      "bounded_response_bytes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 262144
+      },
+      "returned_requested_uen_equal": {"type": "boolean"},
+      "strict_schema_validation": {
+        "enum": ["PASS", "FAIL", "SCHEMA_OBSERVED_ONLY"]
+      },
+      "result_classification": {
+        "enum": ["SUCCESS", "EMPTY", "SUCCESS_SCHEMA_ONLY", "FAILURE"]
+      }
+    },
+    "allOf": [
+      {
+        "oneOf": [
+          {
+            "properties": {
+              "operation_name": {"const": "entityBasicInformation"},
+              "safe_endpoint": {"const": "https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/entityBasicInformation"}
+            }
+          },
+          {
+            "properties": {
+              "operation_name": {"const": "coShareholdersDetails"},
+              "safe_endpoint": {"const": "https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/coShareholdersDetails"}
+            }
+          },
+          {
+            "properties": {
+              "operation_name": {"const": "coCapitalDetails"},
+              "safe_endpoint": {"const": "https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/coCapitalDetails"}
+            }
+          }
+        ]
+      },
+      {
+        "oneOf": [
+          {
+            "properties": {
+              "operation_name": {"enum": ["entityBasicInformation", "coShareholdersDetails"]},
+              "http_status": {"const": 200},
+              "returned_requested_uen_equal": {"const": true},
+              "strict_schema_validation": {"const": "PASS"},
+              "result_classification": {"const": "SUCCESS"}
+            }
+          },
+          {
+            "properties": {
+              "operation_name": {"enum": ["entityBasicInformation", "coShareholdersDetails"]},
+              "http_status": {"const": 200},
+              "returned_requested_uen_equal": {"const": false},
+              "strict_schema_validation": {"const": "PASS"},
+              "result_classification": {"const": "EMPTY"}
+            }
+          },
+          {
+            "properties": {
+              "operation_name": {"const": "coCapitalDetails"},
+              "http_status": {"const": 200},
+              "returned_requested_uen_equal": {"const": true},
+              "strict_schema_validation": {"const": "SCHEMA_OBSERVED_ONLY"},
+              "result_classification": {"const": "SUCCESS_SCHEMA_ONLY"}
+            }
+          },
+          {
+            "properties": {
+              "strict_schema_validation": {"const": "FAIL"},
+              "result_classification": {"const": "FAILURE"}
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

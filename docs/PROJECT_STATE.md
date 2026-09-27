@@ -127,12 +127,14 @@ Major implemented phases are:
   exposes safe GoldTier status, bounded read-only Search, offline request preview/dry
   run, and a process-local safe timeline. Standalone writes are blocked by the existing
   case-ledger boundary; related-party dispatch remains blocked on child-ID lifecycle.
-- The official ACRA API Marketplace Mock has the explicit mode
-  `api_marketplace_mock`, distinct from local `mock` and generic `sandbox`. A bounded
-  no-auth read returned `401`. Official request-side OAuth2 Client Credentials facts
-  are now documented with inert backend settings and a pure Basic-auth constructor;
-  token response/downstream semantics, access, and successful operation authority remain
-  unresolved under Q-012, so runtime composition still fails closed without fallback.
+- The official ACRA API Marketplace Mock has the explicit opt-in mode
+  `api_marketplace_mock`, distinct from local `mock` and generic `sandbox`. Authorized
+  bounded Mock observations prove the exact token response shape plus strict entity and
+  shareholder interoperability for approved Mock identities. Tokens remain memory-only,
+  the downstream header is raw `token`, and there is no fallback. Garden shareholders
+  were explicitly empty and no compatible ownership denominator was established, so
+  relationship acquisition remains partial and stops truthfully. Q-012 remains open;
+  this lane is Mock, not Sandbox or Live.
 
 Phase 20 Sponsor Policy Authority Gate is accepted on main at
 `5039c7e548dfae1eeb8ad600f128ef374e3a6f2a`. D-009 confirms only that human exception
@@ -174,7 +176,7 @@ authenticated browser/API request
   -> jurisdiction observations and resolver
   -> closed registry router (resolved SG only)
   -> optional exact-key synthetic Mock snapshot cache (disabled by default)
-  -> ACRA Mock or configured generic sandbox-shaped acquisition on cache bypass/miss/stale
+  -> configured synthetic Mock, official API Marketplace Mock, or generic sandbox-shaped acquisition on cache bypass/miss/stale
   -> canonical legal entity and normalized registry evidence
   -> early read-only GoldTier Search and existing-customer resolution
   -> bounded document intake and local deterministic extraction
@@ -197,7 +199,7 @@ boundaries.
 | Boundary | Active/default | Other implemented seam | Classification | What is proved |
 |---|---|---|---|---|
 | ACRA | `mock` | generic `sandbox` connector | Mock active; sandbox partial | Synthetic ACRA-shaped behavior and adapter isolation |
-| ACRA API Marketplace Mock | none | explicit `api_marketplace_mock` mode plus inert auth/config foundation | Mock / Blocked authority | Official request-side token facts and one sanitized no-auth `401`; no token response, successful schema, access, or interoperability proof |
+| ACRA API Marketplace Mock | explicit opt-in | fixed official Mock token/entity/shareholder transport with no fallback | Mock / Observed interoperability | Authorized token plus strict entity/shareholder success; Garden shareholders empty; no ownership-percentage authority and not Live |
 | Registry cache | disabled | opt-in synthetic Mock only | Project-defined POC | Complete normalized Mock snapshots under exact identity and fixed elapsed-time freshness |
 | ACRA BizFile | none | module exists but is not composed | Dormant | Focused adapter code/tests only, not runtime availability |
 | IDP/OCR | `local_pdf_text` | Mock fault/demo provider | Local POC / Mock | Deterministic extraction from supported synthetic documents |

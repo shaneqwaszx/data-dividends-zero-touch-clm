@@ -1,0 +1,54 @@
+[
+  {
+    "provider": "ACRA_API_MARKETPLACE_MOCK",
+    "classification": "MOCK",
+    "timestamp_utc": "2026-09-26T06:57:36.900594Z",
+    "operation_name": "entityBasicInformation",
+    "safe_endpoint": "https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/entityBasicInformation",
+    "http_status": 200,
+    "response_content_type": "application/json",
+    "bounded_response_bytes": 1921,
+    "returned_requested_uen_equal": true,
+    "strict_schema_validation": "PASS",
+    "result_classification": "SUCCESS"
+  },
+  {
+    "provider": "ACRA_API_MARKETPLACE_MOCK",
+    "classification": "MOCK",
+    "timestamp_utc": "2026-09-26T06:57:40.593117Z",
+    "operation_name": "coShareholdersDetails",
+    "safe_endpoint": "https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/coShareholdersDetails",
+    "http_status": 200,
+    "response_content_type": "application/json",
+    "bounded_response_bytes": 1278,
+    "returned_requested_uen_equal": true,
+    "strict_schema_validation": "PASS",
+    "result_classification": "SUCCESS"
+  },
+  {
+    "provider": "ACRA_API_MARKETPLACE_MOCK",
+    "classification": "MOCK",
+    "timestamp_utc": "2026-09-26T06:57:40.763188Z",
+    "operation_name": "coShareholdersDetails",
+    "safe_endpoint": "https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/coShareholdersDetails",
+    "http_status": 200,
+    "response_content_type": "application/json",
+    "bounded_response_bytes": 15,
+    "returned_requested_uen_equal": false,
+    "strict_schema_validation": "PASS",
+    "result_classification": "EMPTY"
+  },
+  {
+    "provider": "ACRA_API_MARKETPLACE_MOCK",
+    "classification": "MOCK",
+    "timestamp_utc": "2026-09-26T06:57:40.920705Z",
+    "operation_name": "coCapitalDetails",
+    "safe_endpoint": "https://api-sandbox.bizfile.gov.sg/api/acra/entityQuery/coCapitalDetails",
+    "http_status": 200,
+    "response_content_type": "application/json",
+    "bounded_response_bytes": 589,
+    "returned_requested_uen_equal": true,
+    "strict_schema_validation": "SCHEMA_OBSERVED_ONLY",
+    "result_classification": "SUCCESS_SCHEMA_ONLY"
+  }
+]
