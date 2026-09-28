@@ -219,6 +219,19 @@ requires `childId` but provides no conclusive child-identity creation/retrieval
 lifecycle. Relationship value authority is also unresolved. Local DTO validation is not
 evidence that the related-party operation is safe to dispatch.
 
+The HR Sandbox Console exposes these as separate backend-authored readiness states:
+customer operations are `PARTIAL`, while related-party operations are
+`BLOCKED_CONTRACT` with blocker `BLOCKED_CHILD_ID_LIFECYCLE` and required authority
+`SPONSOR_CONFIRMATION`. This is a contract/lifecycle blocker, not evidence of a network
+connectivity problem.
+
+The future safe architecture is to obtain an authoritative child customer identity
+from a sponsor-confirmed create/search/read-back lifecycle, durably bind that identity
+to the case-owned party evidence, and pass only that exact ID to the ledger-owned
+related-party operation. Parent-ID substitution, local/random child-ID generation, and
+any relationship write before that authority exists remain prohibited. No
+related-party network call is made by the current runtime.
+
 ## Classification and remaining authority
 
 - Provider: `GOLDTIER_XPI`

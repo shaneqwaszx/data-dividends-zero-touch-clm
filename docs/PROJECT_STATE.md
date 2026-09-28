@@ -10,7 +10,7 @@ It is not a sponsor contract, phase report, or substitute for current source and
   "schema_version": 1,
   "case_envelope_schema_version": 6,
   "verified_date": "2026-09-28",
-  "verified_main_sha": "463ecdcb4357bb44618cdd5b277671766543dbfc",
+  "verified_main_sha": "b7cca1f8ae4dfe70d1b3cfe262c527c80f94c1a4",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -95,12 +95,13 @@ Major implemented phases are:
   factual only. The deterministic injected clock propagates through the canonical
   `ZeroTouchOrchestrator` clock seam, while true chronology violations still fail
   closed. No timing-policy, SLA, escalation, approval, or risk behavior was added.
-- The pre-Phase 22 feature candidate adds a case-bound advisory-intelligence owner,
+- The pre-Phase 22 capability checkpoint accepted on main adds a case-bound
+  advisory-intelligence owner,
   schema-v5 persistence, typed entity/risk review stops, two synthetic SME scenarios,
   safe intelligence UI, a versioned synthetic evaluation, and bounded authorized CSV
   activity export. It activates no external provider and adds no assignment/SLA owner.
-- The same pre-Phase 22 candidate adds an explicit GoldTier XPI sandbox lane behind the
-  existing connector/mapper/ledger owners. Mock remains the default. XPI is
+- The same accepted pre-Phase 22 checkpoint adds an explicit GoldTier XPI sandbox lane
+  behind the existing connector/mapper/ledger owners. Mock remains the default. XPI is
   `SANDBOX_PARTIAL`, uses a backend-only `user_id` header and TLS-1.3-only bounded
   transport and exposes a safe case request preview. The corrected OpenAPI 1.0.0 owns
   exact KYC/Client Segment vocabularies (17/23). Singapore fixes
@@ -108,21 +109,21 @@ Major implemented phases are:
   `bookingEntity=ANZBGL (Singapore Branch)`; KYC type and segment are validated,
   write-once case decisions rather than global defaults. Related-party dispatch remains
   blocked on child-ID lifecycle evidence.
-- The final Pre-Phase-22 completion candidate makes the collection-observed empty
+- The final pre-Phase 22 checkpoint accepted on main makes the collection-observed empty
   `accountEntityType` and `productType` values compatible without treating either as
   sponsor vocabulary, and adds one backend-authored safe pipeline projection consumed
   by the optional visual inspector. On 2026-09-27, configured application-connector
   Searches reached the real `anz-nutmeg` XPI sandbox and returned no match, including
   a fresh Search for the official-Mock Garden Singapore identity. No mutation had been
-  sent at that checkpoint. The final candidate adds case-bound classification, fixed
+  sent at that checkpoint. The accepted checkpoint adds case-bound classification, fixed
   Singapore policy values, and a strict post-Amend read-back checkpoint; external
   acceptance evidence remains distinct from implementation evidence.
-- The candidate freezes GoldTier provider identity in the retained CLM submission plan.
-  Submission input derives from that plan; the mapper and connector are checked only
-  for compatibility before ledger/network activity. Mock/Sandbox drift fails closed,
+- The accepted checkpoint freezes GoldTier provider identity in the retained CLM
+  submission plan. Submission input derives from that plan; the mapper and connector
+  are checked only for compatibility before ledger/network activity. Mock/Sandbox drift fails closed,
   and schema-v6 rejects contradictory plan/input/matching-ledger combinations. Exact
   schema-v1 through schema-v5 reads remain supported without rewrite.
-- The current completion candidate moves the first read-only GoldTier Search ahead of
+- The current main checkpoint moves the first read-only GoldTier Search ahead of
   ACRA bootstrap by retaining bounded initial legal-name/UEN/country identity. Exact
   existing customers reuse only a prior same-ID verified canonical target state and skip
   ACRA/Shell/new-policy creation before same-ID Amend/read-back; no-match cases alone
@@ -176,7 +177,7 @@ readiness and sanitized-evidence governance, CI/tooling checks, an activation pa
 and a secret-security runbook. It activates no provider and changes no connector,
 composition, API, persistence, frontend, target-ledger, RBAC, mapping, auth, or runtime
 business-policy behavior. Generic ACRA remains Partial, BizFile remains Dormant, and
-PingFed/production GoldTier remain Not Implemented. The later candidate XPI adapter is a
+PingFed/production GoldTier remain Not Implemented. The later accepted XPI adapter is a
 separate sponsor sandbox lane only; it does not alter Phase 21's Live-readiness result.
 
 The Case Evidence & Explainability Workbench accepted through PR #43 adds a read-only
@@ -208,7 +209,9 @@ authenticated browser/API request
      -> no match: closed SG registry router and optional exact-key Mock cache
         -> configured synthetic Mock, official API Marketplace Mock, or generic sandbox-shaped acquisition
         -> canonical legal entity and normalized registry evidence
-     -> ambiguous/failed: controlled stop before ACRA or target mutation
+     -> ambiguous: retain case documents/evidence while customer identity stays under
+        review; stop before ACRA and every target mutation
+     -> failed: controlled stop before ACRA or target mutation
   -> bounded document intake and local deterministic extraction
   -> source-neutral reconciliation and review/resume where required
   -> registry-fed deterministic Decimal ownership graph analysis
@@ -325,7 +328,9 @@ unknown or blocked.
   with exact identity isolation and immutable per-case source/cache-use evidence.
 - PDF, DOCX and UTF-8 TXT technical intake with strict size/structure handling.
 - Deterministic local extraction and field provenance.
-- Source-neutral reconciliation with explicit bounded actions and resume.
+- Source-neutral reconciliation with explicit bounded actions and resume, including
+  case-scoped comparison against retained prior-case canonical evidence when an exact
+  verified existing target is reused and fresh ACRA bootstrap is skipped.
 - Deterministic Decimal direct/indirect ownership paths and provisional UBO candidates.
 - Immutable per-case IDP/UBO and advisory-intelligence policy snapshot.
 - Explainable source-neutral entity resolution, ML-assisted UBO advice, and bounded mock

@@ -274,6 +274,24 @@ Phase 05 likewise performs no related-party write. It reports only a minimized i
 preparation summary with `PENDING_SPONSOR_CONFIRMATION` and
 `RELATED_PARTY_WRITE_NOT_EXECUTED`.
 
+Please also confirm the authoritative `childId` lifecycle before any related-party
+dispatch:
+
+1. What does `childId` represent in the GoldTier XPI related-party endpoints?
+2. Is `childId` the GoldTier party ID of the related party?
+3. How is `childId` created for a related party not already in GoldTier?
+4. Is there a related-party Shell/create endpoint not included in the supplied collection?
+5. If the related party already exists, how should it be searched or retrieved?
+6. How is the relationship between the parent customer and child party created or identified?
+7. What relationship-type/value vocabulary should be used?
+8. Can one related party be associated with multiple customers?
+9. What are the retry/idempotency semantics for related-party Policy and Amend?
+10. What evidence is sufficient to reuse an existing `childId`?
+
+Until all dependent authority is supplied, `BLOCKED_CHILD_ID_LIFECYCLE` remains a
+contract blocker. The project performs zero related-party network calls and will not
+substitute the parent ID or generate a local/random child ID.
+
 ### Q-009 — Authoritative values and casing
 
 Where corrected standalone OpenAPI enums and JSON examples conflict, which values and

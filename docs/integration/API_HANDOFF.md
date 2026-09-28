@@ -25,6 +25,23 @@ deployment is not configured.
 The React primary path creates and attaches in one Start interaction; the backend keeps
 these two inputs separate so rejected PDFs do not create false running state.
 
+Every accepted Start creates a new CLM case identity and preserves that case's own
+document, reconciliation, and activity history. Customer identity is separate: an
+exact GoldTier match may reuse the existing target ID and skip Shell/new-policy work,
+while an ambiguous match blocks Shell, target binding, and Amend without discarding the
+new case or preventing bounded document intake. A no-match case continues through ACRA
+and the new-customer path.
+
+For an exact reused target, reconciliation labels the retained canonical baseline as
+`EXISTING_CASE`; it does not claim that ACRA was called again for the new case. The new
+case owns its own document and reconciliation records even when the retained target ID
+is shared with an earlier completed case.
+
+The Onboarded view requests exactly the accessible `COMPLETED` cases and does not apply
+a hidden frontend status filter. It is a completed-case POC projection, not a deduped
+client master. A future customer-centric view may group cases by an authoritative
+target customer ID, but that projection is deliberately not implemented here.
+
 ## Review API
 
 `POST /api/clm/zero-touch/cases/{case_id}/exceptions/{exception_id}/resolve`

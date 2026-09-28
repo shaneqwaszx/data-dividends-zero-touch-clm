@@ -66,3 +66,15 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-09-27 | work | docs/aegis/work/2026-09-27-goldtier-sandbox-pipeline-inspector/90-evidence.md | GoldTier sandbox pipeline inspector evidence |
 | 2026-09-27 | work | docs/aegis/work/2026-09-27-goldtier-sandbox-pipeline-inspector/99-reflection.md | GoldTier sandbox pipeline inspector reflection |
 | 2026-09-27 | plan | docs/aegis/plans/2026-09-27-goldtier-first-provider-verified-recovery.md | GoldTier-first provider-verified recovery implementation plan |
+| 2026-09-28 | work | docs/aegis/work/2026-09-28-review-intervention-ux-publication/10-intent.md | Review/intervention UX publication intent |
+| 2026-09-28 | work | docs/aegis/work/2026-09-28-review-intervention-ux-publication/20-checkpoint.md | Review/intervention UX publication checkpoint |
+| 2026-09-28 | work | docs/aegis/work/2026-09-28-review-intervention-ux-publication/90-evidence.md | Review/intervention UX publication evidence |
+| 2026-09-28 | work | docs/aegis/work/2026-09-28-review-intervention-ux-publication/99-reflection.md | Review/intervention UX publication reflection |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-review-intervention-ux-publication/task-intent-draft.json | Review/intervention UX publication task intent draft |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-review-intervention-ux-publication/baseline-read-set-hint.json | Review/intervention UX publication baseline read-set hint |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-review-intervention-ux-publication/baseline-usage-draft.json | Review/intervention UX publication baseline usage draft |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-review-intervention-ux-publication/impact-statement-draft.json | Review/intervention UX publication impact statement draft |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-review-intervention-ux-publication/todo-checkpoint-draft.json | Review/intervention UX publication todo checkpoint draft |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-review-intervention-ux-publication/drift-check-draft.json | Review/intervention UX publication drift check draft |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-review-intervention-ux-publication/resume-state-hint.json | 2026-09-28-review-intervention-ux-publication resume state hint |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-review-intervention-ux-publication/evidence-bundle-draft-publication-verification.json | 2026-09-28-review-intervention-ux-publication evidence publication-verification |
