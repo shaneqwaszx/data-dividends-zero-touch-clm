@@ -865,14 +865,15 @@ def test_team_creation_is_server_assigned_and_director_must_select_team(
         json={"uen": "202400001A"},
         headers={"X-CSRF-Token": director_csrf},
     )
-    selected = director.post(
-        "/api/clm/zero-touch/cases",
-        json={"uen": "202400001A", "team_id": "TEAM_B"},
-        headers={"X-CSRF-Token": director_csrf},
-    )
     assert omitted.status_code == 422
-    assert selected.status_code == 201
-    assert selected.json()["case"]["team_id"] == "TEAM_B"
+    for selected_team in ("TEAM_A", "TEAM_B"):
+        selected = director.post(
+            "/api/clm/zero-touch/cases",
+            json={"uen": "202400001A", "team_id": selected_team},
+            headers={"X-CSRF-Token": director_csrf},
+        )
+        assert selected.status_code == 201
+        assert selected.json()["case"]["team_id"] == selected_team
 
 
 def test_cross_team_case_id_and_nonexistent_case_share_safe_404(

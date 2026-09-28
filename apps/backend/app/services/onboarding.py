@@ -112,6 +112,46 @@ from app.services.target_response_validation import (
 T = TypeVar("T")
 
 
+_INITIAL_SEARCH_FAILURES: dict[str, tuple[str, int, str]] = {
+    "GT_XPI_SEARCH_INVALID": (
+        "SEARCH_REQUEST_REJECTED",
+        400,
+        "GoldTier rejected the customer Search request.",
+    ),
+    "GT_XPI_TIMEOUT": ("SEARCH_TIMEOUT", 504, "GoldTier customer Search timed out."),
+    "GT_XPI_SERVICE_UNAVAILABLE": (
+        "SEARCH_SERVICE_UNAVAILABLE",
+        503,
+        "GoldTier customer Search is unavailable.",
+    ),
+    "GT_XPI_CONFIGURATION_ERROR": (
+        "SEARCH_SERVICE_UNAVAILABLE",
+        503,
+        "GoldTier customer Search is unavailable.",
+    ),
+    "GT_XPI_MALFORMED_RESPONSE": (
+        "SEARCH_MALFORMED_RESPONSE",
+        502,
+        "GoldTier customer Search returned an invalid response.",
+    ),
+}
+
+
+def _initial_search_failure(
+    code: str | None, *, status_code: int | None = None
+) -> GoldTierSearchResult:
+    safe_code, safe_status, message = _INITIAL_SEARCH_FAILURES.get(
+        code or "",
+        ("SEARCH_SERVICE_UNAVAILABLE", 503, "GoldTier customer Search could not be completed."),
+    )
+    return GoldTierSearchResult(
+        outcome=GoldTierSearchOutcome.FAILURE,
+        status_code=status_code or safe_status,
+        error_code=safe_code,
+        message=message,
+    )
+
+
 class EntityResolver(Protocol):
     def resolve_entity(
         self,
@@ -576,28 +616,19 @@ class OnboardingService:
                     )
                 )
             except ConnectorError as exc:
-                public = public_connector_error(exc)
-                return self._terminate(
-                    case,
-                    WorkflowState.FAILED,
-                    EventOutcome.FAILED,
-                    public.code,
-                    public.message,
-                )
+                result = _initial_search_failure(exc.code)
             except InvalidTargetResponseError:
-                return self._terminate(
-                    case,
-                    WorkflowState.FAILED,
-                    EventOutcome.FAILED,
-                    "GT_MALFORMED_TARGET_RESPONSE",
-                    "GoldTier target returned an invalid response.",
-                )
+                result = _initial_search_failure("GT_XPI_MALFORMED_RESPONSE")
 
             disposition = "REVIEW_REQUIRED"
             selected_party_id: str | None = None
             if result.outcome == GoldTierSearchOutcome.NO_MATCH:
                 disposition = "NO_MATCH"
             elif result.outcome == GoldTierSearchOutcome.FAILURE:
+                result = _initial_search_failure(
+                    result.error_code,
+                    status_code=result.status_code,
+                )
                 disposition = "FAILED"
             elif (
                 result.outcome == GoldTierSearchOutcome.MATCH_FOUND
@@ -635,7 +666,11 @@ class OnboardingService:
             case.initial_target_search = InitialGoldTierSearchEvidence(
                 request_id=search_request_id,
                 disposition=disposition,
-                provider_outcome=result.outcome.value,
+                provider_outcome=(
+                    result.error_code
+                    if disposition == "FAILED" and result.error_code is not None
+                    else result.outcome.value
+                ),
                 status_code=result.status_code,
                 candidate_count=len(result.candidates),
                 candidate_party_ids=tuple(item.party_id for item in result.candidates),
@@ -667,20 +702,21 @@ class OnboardingService:
                     ),
                 )
             if disposition == "FAILED":
-                return self._terminate(
+                self._record(
                     case,
-                    WorkflowState.FAILED,
+                    WorkflowState.GT_SEARCHED,
                     EventOutcome.FAILED,
-                    "GT_SEARCH_FAILED",
-                    "GoldTier party search returned a controlled failure.",
+                    result.message,
+                    result.error_code or "SEARCH_SERVICE_UNAVAILABLE",
                 )
-            self._record(
-                case,
-                WorkflowState.GT_SEARCHED,
-                EventOutcome.SUCCEEDED,
-                "No GoldTier customer was found; ACRA acquisition may continue.",
-                "GOLDTIER_FIRST_NO_MATCH",
-            )
+            else:
+                self._record(
+                    case,
+                    WorkflowState.GT_SEARCHED,
+                    EventOutcome.SUCCEEDED,
+                    "No GoldTier customer was found; ACRA acquisition may continue.",
+                    "GOLDTIER_FIRST_NO_MATCH",
+                )
 
         if resolution.status == JurisdictionResolutionStatus.UNRESOLVED:
             return self._terminate(

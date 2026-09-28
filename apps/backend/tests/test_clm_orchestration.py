@@ -34,7 +34,7 @@ from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.mock_idp import MockIdpProvider
 from app.connectors.mock_ownership import MockOwnershipProvider
 from app.domain.access import TeamId
-from app.domain.clm import ClmEventType, ClmOrchestrationRecord, ClmStatus
+from app.domain.clm import ClmBlockerCode, ClmEventType, ClmOrchestrationRecord, ClmStatus
 from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.models import OnboardingCase
 from app.domain.policy import (
@@ -810,8 +810,11 @@ def test_controlled_required_stage_failures_stop_later_operations(
     if stage == "search":
         _, _, _, clm, _ = build_services(target)
         failed = clm.create_case("202400001A")
-        assert failed.status == ClmStatus.FAILED
-        assert failed.error is not None and failed.error.code == code
+        assert failed.status == ClmStatus.COLLECTING_EVIDENCE
+        assert failed.error is None
+        assert failed.target_search_checkpoint is not None
+        assert failed.target_search_checkpoint.code == code
+        assert ClmBlockerCode.GOLDTIER_SEARCH_FAILED in failed.readiness.blockers
         assert target.calls == calls
         return
     _, _, _, clm, _, case_id = make_ready_case(goldtier=target)
@@ -961,14 +964,16 @@ def test_malformed_target_response_records_safe_outcome_and_never_replays(
     if stage == "search":
         _, _, _, clm, _ = build_services(target)
         failed = clm.create_case("202400001A")
-        assert failed.status == ClmStatus.FAILED
-        assert failed.error is not None
-        assert failed.error.code == "GT_MALFORMED_TARGET_RESPONSE"
+        assert failed.status == ClmStatus.COLLECTING_EVIDENCE
+        assert failed.error is None
+        assert failed.target_search_checkpoint is not None
+        assert failed.target_search_checkpoint.code == "GT_MALFORMED_TARGET_RESPONSE"
+        assert ClmBlockerCode.GOLDTIER_SEARCH_FAILED in failed.readiness.blockers
         assert failed.submission_snapshot is None
         assert target.calls == expected_calls
         assert sentinel not in failed.model_dump_json()
         retained = clm.evaluate(case_id=failed.case_id)
-        assert retained.status == ClmStatus.FAILED
+        assert retained.status == ClmStatus.COLLECTING_EVIDENCE
         assert target.calls == expected_calls
         return
     cases, _, _, clm, _, case_id = make_ready_case(goldtier=target)

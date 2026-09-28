@@ -252,23 +252,23 @@ class ZeroTouchOrchestrator:
             ownership_provider_binding_id=(self._ownership_provider_bindings.default_binding_id),
             status=(
                 AutomationStatus.PENDING_INPUTS
-                if registry_ready and search_ready
+                if registry_ready and (search_ready or search_failed)
                 else (
                     AutomationStatus.TECHNICAL_FAILURE
-                    if registry_failed or search_failed
+                    if registry_failed
                     else AutomationStatus.WAITING_FOR_REVIEW
                 )
             ),
             current_stage=(
                 AutomationStage.DOCUMENT
-                if registry_ready and search_ready
+                if registry_ready and (search_ready or search_failed)
                 else AutomationStage.GOLDTIER_SEARCH
                 if search_review or search_failed or registry_ready
                 else AutomationStage.REGISTRY
             ),
             completed_stages=(
                 (AutomationStage.REGISTRY, AutomationStage.GOLDTIER_SEARCH)
-                if registry_ready and search_ready
+                if registry_ready and (search_ready or search_failed)
                 else (AutomationStage.REGISTRY,)
                 if registry_ready
                 else ()
@@ -276,18 +276,13 @@ class ZeroTouchOrchestrator:
             technical_failure=(
                 case.error
                 if registry_failed
-                else SafeError(
-                    code=search.code or "GOLDTIER_SEARCH_FAILED",
-                    message=search.message,
-                )
-                if search_failed and search is not None
                 else None
             ),
             metrics=AutomationMetrics(
                 automated_stages_completed=2 if search_ready else 1 if registry_ready else 0,
                 final_outcome=(
                     AutomationStatus.TECHNICAL_FAILURE.value
-                    if registry_failed or search_failed
+                    if registry_failed
                     else None
                 ),
             ),
@@ -1512,6 +1507,22 @@ class ZeroTouchOrchestrator:
                         ),
                         evidence=(),
                         actions=(),
+                    )
+                if ClmBlockerCode.GOLDTIER_SEARCH_FAILED in clm_record.readiness.blockers:
+                    search = clm_record.target_search_checkpoint
+                    return self._technical_failure(
+                        record,
+                        stage=AutomationStage.GOLDTIER_SEARCH,
+                        code=(
+                            search.code
+                            if search is not None and search.code
+                            else "SEARCH_SERVICE_UNAVAILABLE"
+                        ),
+                        message=(
+                            "GoldTier Search failed after independent case evidence was retained. "
+                            "Customer existence remains unresolved and all target mutations are "
+                            "blocked."
+                        ),
                     )
                 if clm_record.status != ClmStatus.READY_FOR_MOCK_SUBMISSION:
                     return self._technical_failure(

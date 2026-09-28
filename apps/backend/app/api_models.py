@@ -1347,6 +1347,16 @@ def project_processing_pipeline(
         else None
     )
     search_result = (
+        "No existing customer found. Continuing as a new customer."
+        if checkpoint is not None
+        and checkpoint.disposition == GoldTierSearchDisposition.NO_MATCH
+        else (
+            "GoldTier Search failed. This does not mean the customer does not exist. "
+            "Case evidence may continue, but GoldTier target mutations remain blocked."
+        )
+        if checkpoint is not None
+        and checkpoint.disposition == GoldTierSearchDisposition.FAILED
+        else
         f"{checkpoint.candidate_count} candidate(s) retained"
         if checkpoint is not None and search_status == "COMPLETE"
         else f"{checkpoint.candidate_count} candidate(s) require review"
@@ -1432,6 +1442,13 @@ def project_processing_pipeline(
     ]
     advisory_status: ProcessingNodeStatus = "COMPLETE" if intelligence_events else "NOT_REACHED"
     advisory_timestamp = intelligence_events[-1].timestamp if intelligence_events else None
+    projected_readiness_status = stage_status(AutomationStage.READINESS)
+    if (
+        projected_readiness_status == "NOT_REACHED"
+        and clm.readiness.evaluated_at is not None
+        and clm.readiness.blockers
+    ):
+        projected_readiness_status = "BLOCKED"
 
     case_policy_snapshot = getattr(case, "policy_snapshot", None)
     target_policy = (
@@ -1590,6 +1607,11 @@ def project_processing_pipeline(
         ),
     )
     target_status = stage_status(AutomationStage.MOCK_GOLDTIER)
+    if checkpoint is not None and checkpoint.disposition in {
+        GoldTierSearchDisposition.FAILED,
+        GoldTierSearchDisposition.REVIEW_REQUIRED,
+    }:
+        target_status = "BLOCKED"
     if target_operation_children:
         child_states = {item.status for item in target_operation_children}
         if "FAILED" in child_states:
@@ -1743,7 +1765,7 @@ def project_processing_pipeline(
         BrowserProcessingNode(
             node_id="READINESS",
             label="Readiness decision",
-            status=stage_status(AutomationStage.READINESS),
+            status=projected_readiness_status,
             backend_stage=AutomationStage.READINESS,
             timestamp=clm.readiness.evaluated_at,
             safe_result=(
@@ -1762,7 +1784,16 @@ def project_processing_pipeline(
             backend_stage=AutomationStage.MOCK_GOLDTIER,
             timestamp=stage_timestamp(AutomationStage.MOCK_GOLDTIER),
             safe_result="Ledger-owned target sequence",
-            blocker_code=exception_code(AutomationStage.MOCK_GOLDTIER),
+            blocker_code=(
+                str(checkpoint.code)
+                if checkpoint is not None
+                and checkpoint.disposition
+                in {
+                    GoldTierSearchDisposition.FAILED,
+                    GoldTierSearchDisposition.REVIEW_REQUIRED,
+                }
+                else exception_code(AutomationStage.MOCK_GOLDTIER)
+            ),
             retained_goldtier_id=retained_goldtier_id,
             children=target_children,
         ),

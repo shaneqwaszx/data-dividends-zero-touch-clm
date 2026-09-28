@@ -673,7 +673,7 @@ class ClmOrchestrationService:
                     GoldTierSearchDisposition.REVIEW_REQUIRED: (
                         "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
                     ),
-                    GoldTierSearchDisposition.FAILED: "GT_SEARCH_FAILED",
+                    GoldTierSearchDisposition.FAILED: initial_search.provider_outcome,
                 }[disposition],
                 message={
                     GoldTierSearchDisposition.EXACT_MATCH: (
@@ -686,7 +686,7 @@ class ClmOrchestrationService:
                         "Initial GoldTier candidates require exact identity review."
                     ),
                     GoldTierSearchDisposition.FAILED: (
-                        "Initial GoldTier Search returned a controlled failure."
+                        "Initial GoldTier Search failed; customer existence remains unresolved."
                     ),
                 }[disposition],
                 searched_at=initial_search.searched_at,
@@ -893,7 +893,7 @@ class ClmOrchestrationService:
         candidate.readiness = _readiness_with_search(candidate.readiness, checkpoint)
         candidate.status = _status_for_readiness(case, candidate.readiness)
         if status == GoldTierSearchCheckpointStatus.FAILED:
-            candidate.error = SafeError(code=code, message=message)
+            candidate.error = None
         return self._record_event(
             started,
             candidate,
@@ -933,7 +933,7 @@ class ClmOrchestrationService:
         candidate.status = _status_for_readiness(
             self._require_case(record.case_id), candidate.readiness
         )
-        candidate.error = SafeError(code=code, message=message)
+        candidate.error = None
         return self._record_event(
             record,
             candidate,
@@ -1297,8 +1297,6 @@ def _initial_or_canonical_identity_fingerprint(case: OnboardingCase) -> str:
 
 def _status_for_readiness(case: OnboardingCase, readiness: ClmReadinessAssessment) -> ClmStatus:
     if case.state == WorkflowState.FAILED:
-        return ClmStatus.FAILED
-    if ClmBlockerCode.GOLDTIER_SEARCH_FAILED in readiness.blockers:
         return ClmStatus.FAILED
     if not readiness.blockers:
         return ClmStatus.READY_FOR_MOCK_SUBMISSION
