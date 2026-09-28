@@ -26,7 +26,7 @@ from app.domain.reconciliation import ReconciliationCaseRecord
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[5] = 5
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[6] = 6
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -87,7 +87,7 @@ class DurableCaseSnapshotV1(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=5,
+            schema_version=6,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -145,7 +145,7 @@ class DurableCaseSnapshotV2(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=5,
+            schema_version=6,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -201,7 +201,7 @@ class DurableCaseSnapshotV3(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=5,
+            schema_version=6,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -245,7 +245,7 @@ class DurableCaseSnapshotV4(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=5,
+            schema_version=6,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -262,12 +262,56 @@ class DurableCaseSnapshotV4(BaseModel):
         )
 
 
+class DurableCaseSnapshotV5(BaseModel):
+    """Strict pre-GoldTier-first envelope accepted and migrated in memory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[5] = 5
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV5":
+        _validate_case_bindings(self)
+        return self
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot(
+            schema_version=6,
+            case_id=self.case_id,
+            revision=self.revision,
+            onboarding=self.onboarding,
+            documents=self.documents,
+            ownership=self.ownership,
+            reconciliation=self.reconciliation,
+            clm=self.clm,
+            automation=self.automation,
+            target_executions=self.target_executions,
+            demo_scenario=self.demo_scenario,
+            intelligence=self.intelligence,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
+
+
 class DurableCaseSnapshot(BaseModel):
     """Bounded authoritative structured state; never raw source/upload payloads."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[5] = 5
+    schema_version: Literal[6] = 6
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase

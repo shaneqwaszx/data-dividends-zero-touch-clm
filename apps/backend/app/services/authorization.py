@@ -147,6 +147,16 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         "/api/clm/zero-touch/cases/{case_id}/priority",
         RouteAccess.CASE_SCOPED,
     ),
+    RoutePolicy(
+        "PUT",
+        "/api/clm/zero-touch/cases/{case_id}/target-classification",
+        RouteAccess.CASE_SCOPED,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/clm/zero-touch/cases/{case_id}/target-recovery",
+        RouteAccess.CASE_SCOPED,
+    ),
     RoutePolicy("POST", "/api/onboarding/cases/{case_id}/ownership/load", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "POST",

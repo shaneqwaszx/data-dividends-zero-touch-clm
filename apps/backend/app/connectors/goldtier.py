@@ -35,6 +35,10 @@ class GoldTierRequestMapper(Protocol):
         self, submission: GoldTierSubmissionInput
     ) -> GoldTierSearchRequest: ...
 
+    def build_readback_request(
+        self, submission: GoldTierSubmissionInput, party_id: str
+    ) -> GoldTierSearchRequest: ...
+
     def build_shell_request(
         self, submission: GoldTierSubmissionInput
     ) -> GoldTierShellRequest: ...

@@ -329,15 +329,17 @@ def test_all_authenticated_roles_can_read_policy_catalogue(user_id: str) -> None
     assert len(response.json()["rules"]) == 29
 
 
-def test_target_policy_api_exposes_and_updates_explicit_authority() -> None:
+def test_target_policy_api_exposes_fixed_sponsor_documented_authority() -> None:
     client, csrf = _client_for("olivia-koh")
     catalogue = client.get("/api/policies").json()
     rule = next(
         item for item in catalogue["rules"] if item["policy_id"] == "GOLDTIER_POLICY"
     )
 
-    assert rule["authority"] == "TBD_SPONSOR"
-    assert rule["default_authority"] == "TBD_SPONSOR"
+    assert rule["value"]["value"] == "Singapore"
+    assert rule["authority"] == "SPONSOR_DOCUMENTED"
+    assert rule["default_authority"] == "SPONSOR_DOCUMENTED"
+    assert rule["allowed_values"] == ["Singapore"]
 
     updated = client.patch(
         "/api/policies/GOLDTIER_POLICY",
@@ -350,13 +352,8 @@ def test_target_policy_api_exposes_and_updates_explicit_authority() -> None:
         },
     )
 
-    assert updated.status_code == 200
-    changed = next(
-        item
-        for item in updated.json()["rules"]
-        if item["policy_id"] == "GOLDTIER_POLICY"
-    )
-    assert changed["authority"] == "SPONSOR_SUPPLIED"
+    assert updated.status_code == 422
+    assert updated.json()["detail"]["code"] == "POLICY_REQUEST_INVALID"
 
 
 @pytest.mark.parametrize("user_id", ["ethan-tan", "olivia-koh"])

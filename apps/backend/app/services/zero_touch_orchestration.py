@@ -11,6 +11,7 @@ from app.connectors.idp import IdpProvider
 from app.connectors.ownership import OwnershipProvider
 from app.domain.access import CasePriority, TeamId
 from app.domain.clm import (
+    ClmBlockerCode,
     ClmStatus,
     GoldTierSearchCheckpointStatus,
     GoldTierSearchDisposition,
@@ -135,6 +136,7 @@ class ZeroTouchOrchestrator:
         uen: str,
         country_of_incorporation: str | None = None,
         *,
+        legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
         establishment_action: Callable[[UUID], None] | None = None,
@@ -150,6 +152,7 @@ class ZeroTouchOrchestrator:
                     correlation_id,
                     uen,
                     country_of_incorporation,
+                    legal_name=legal_name,
                     team_id=team_id,
                     priority=priority,
                 )
@@ -170,6 +173,7 @@ class ZeroTouchOrchestrator:
         uen: str,
         country_of_incorporation: str | None,
         *,
+        legal_name: str | None,
         team_id: TeamId | None,
         priority: CasePriority | None,
     ) -> ZeroTouchAutomationRecord:
@@ -181,6 +185,7 @@ class ZeroTouchOrchestrator:
                 correlation_id,
                 uen,
                 country_of_incorporation,
+                legal_name=legal_name,
                 team_id=team_id,
                 priority=priority,
             )
@@ -776,6 +781,75 @@ class ZeroTouchOrchestrator:
 
     def get(self, *, case_id: UUID) -> ZeroTouchAutomationRecord | None:
         return self._repository.get_for_case(case_id)
+
+    def bind_target_classification(
+        self,
+        *,
+        case_id: UUID,
+        kyc_customer_type: str,
+        client_segment: str,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> ZeroTouchAutomationRecord:
+        """Bind a case-only target decision and resume only its waiting checkpoint."""
+
+        with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            record = self._require_record(case_id)
+            clm_record = self._clm.get(case_id=case_id)
+            if clm_record is None or clm_record.submission_snapshot is not None:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_TARGET_CLASSIFICATION_FROZEN",
+                    message="Target classification is already frozen for submission.",
+                )
+            try:
+                self._cases.bind_goldtier_case_classification(
+                    case_id=case_id,
+                    kyc_customer_type=kyc_customer_type,
+                    client_segment=client_segment,
+                )
+                self._clm.refresh_target_classification(case_id=case_id)
+            except (ValueError, ClmRequestError) as exc:
+                code = (
+                    exc.code
+                    if isinstance(exc, ClmRequestError)
+                    else "ZERO_TOUCH_TARGET_CLASSIFICATION_INVALID"
+                )
+                message = (
+                    exc.public_message
+                    if isinstance(exc, ClmRequestError)
+                    else str(exc)
+                )
+                raise ZeroTouchRequestError(code=code, message=message) from None
+
+            classification_exceptions = [
+                item
+                for item in record.active_exceptions
+                if item.exception_type == BusinessExceptionType.TARGET_CLASSIFICATION_REQUIRED
+            ]
+            if not classification_exceptions:
+                return record
+            candidate = record.model_copy(deep=True)
+            resolved_at = self._clock()
+            for item in candidate.active_exceptions:
+                if item.exception_type == BusinessExceptionType.TARGET_CLASSIFICATION_REQUIRED:
+                    item.status = BusinessExceptionStatus.RESOLVED
+                    item.resolved_at = resolved_at
+            candidate.metrics.human_interventions += 1
+            candidate.metrics.exceptions_resolved += len(classification_exceptions)
+            if not candidate.active_exceptions:
+                candidate.status = AutomationStatus.RESUMING
+            candidate = self._append_event(
+                candidate,
+                event_type=AutomationEventType.TARGET_CLASSIFICATION_RECORDED,
+                outcome=EventOutcome.SUCCEEDED,
+                code="TARGET_CLASSIFICATION_RECORDED",
+                message="Case-specific target classifications were retained with POC authority.",
+            )
+            saved = self._save(record, candidate)
+            if saved.active_exceptions or saved.current_stage != AutomationStage.READINESS:
+                return saved
+            return self._advance_locked(case_id=case_id)
 
     def list_cases(
         self, *, status: AutomationStatus | None = None
@@ -1404,6 +1478,31 @@ class ZeroTouchOrchestrator:
                         stage=AutomationStage.READINESS,
                         code=exc.code,
                         message="Readiness evaluation could not progress safely.",
+                    )
+                if ClmBlockerCode.GOLDTIER_CLASSIFICATION_REQUIRED in clm_record.readiness.blockers:
+                    classification_case = self._cases.get_case(case_id)
+                    if classification_case is None:
+                        return self._technical_failure(
+                            record,
+                            stage=AutomationStage.READINESS,
+                            code="ZERO_TOUCH_CASE_NOT_FOUND",
+                            message="The onboarding case is unavailable.",
+                        )
+                    return self._add_exception(
+                        record,
+                        exception_type=BusinessExceptionType.TARGET_CLASSIFICATION_REQUIRED,
+                        stage=AutomationStage.READINESS,
+                        blocker_code=ClmBlockerCode.GOLDTIER_CLASSIFICATION_REQUIRED.value,
+                        explanation=(
+                            "A bounded KYC customer type and client segment must be selected "
+                            "from the current GoldTier vocabulary."
+                        ),
+                        evidence_version=(
+                            f"target-classification:{case_id}:"
+                            f"{classification_case.policy_snapshot.catalogue_version}"
+                        ),
+                        evidence=(),
+                        actions=(),
                     )
                 if clm_record.status != ClmStatus.READY_FOR_MOCK_SUBMISSION:
                     return self._technical_failure(

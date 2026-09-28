@@ -15,7 +15,7 @@ from pydantic import SecretStr, ValidationError
 from app.config import Settings
 from app.domain.access import AuthenticatedActor, Role, UserProfile
 from app.services.admin_repository import InMemoryPolicyRepository
-from app.services.policy_management import PolicyManagementService
+from app.services.policy_management import PolicyManagementService, PolicyValidationError
 
 PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
@@ -359,6 +359,7 @@ def test_sandbox_success_retains_provider_truthful_clm_and_activity_messages() -
             module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
             module.GoldTierXpiHttpResponse(status_code=200, body={}),
             module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body=[{"goldTierId": 12345}]),
         ]
     )
 
@@ -471,6 +472,7 @@ def test_sandbox_messages_survive_schema_v5_codec_without_provider_reinterpretat
             module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
             module.GoldTierXpiHttpResponse(status_code=200, body={}),
             module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body=[{"goldTierId": 12345}]),
         ]
     )
     orchestrator, documents, ownership, terminal = _run_sandbox_case(transport)
@@ -664,7 +666,7 @@ def test_related_party_owner_percent_accepts_inclusive_bounded_values(value: str
     assert relationship.owner_percent == value
 
 
-def test_target_enrichments_are_editable_authority_labelled_and_immutable_per_case() -> None:
+def test_target_classification_vocabulary_is_case_bound_not_globally_editable() -> None:
     policy = importlib.import_module("app.domain.policy")
     service = PolicyManagementService(InMemoryPolicyRepository())
     before = service.case_snapshot()
@@ -676,20 +678,111 @@ def test_target_enrichments_are_editable_authority_labelled_and_immutable_per_ca
     assert before.goldtier_target.kyc_customer_type.authority == "TBD_SPONSOR"
     assert before.goldtier_target.dispatch_ready is False
 
-    service.update(
-        _director(),
-        rule.policy_id,
-        expected_catalogue_version=service.catalogue().version,
-        expected_rule_version=rule.version,
-        value=policy.StringPolicyValue(value="SPONSOR VALUE"),
-        authority=policy.PolicyAuthority.SPONSOR_SUPPLIED,
-    )
+    assert rule.allowed_values == ("TBD_SPONSOR", *policy.GOLDTIER_KYC_CUSTOMER_TYPE_VALUES)
+    with pytest.raises(PolicyValidationError):
+        service.update(
+            _director(),
+            rule.policy_id,
+            expected_catalogue_version=service.catalogue().version,
+            expected_rule_version=rule.version,
+            value=policy.StringPolicyValue(value="Company - Private"),
+            authority=policy.PolicyAuthority.USER_AUTHORIZED_POC,
+        )
     after = service.case_snapshot()
+    assert after.goldtier_target == before.goldtier_target
+    assert after.catalogue_version == before.catalogue_version
 
-    assert before.goldtier_target.kyc_customer_type.value == "TBD_SPONSOR"
-    assert after.goldtier_target.kyc_customer_type.value == "SPONSOR VALUE"
-    assert after.goldtier_target.kyc_customer_type.authority == "SPONSOR_SUPPLIED"
-    assert before.catalogue_version != after.catalogue_version
+
+def test_legacy_case_without_goldtier_target_does_not_offer_editable_classification() -> None:
+    api_models = importlib.import_module("app.api_models")
+    domain_models = importlib.import_module("app.domain.models")
+    now = datetime(2026, 9, 27, tzinfo=UTC)
+    case = domain_models.OnboardingCase(
+        case_id=UUID("00000000-0000-4000-8000-000000000021"),
+        source_case_id="LEGACY-NO-TARGET",
+        correlation_id=UUID("00000000-0000-4000-8000-000000000022"),
+        requested_uen="202400001A",
+        state=domain_models.WorkflowState.REVIEW_REQUIRED,
+        created_at=now,
+        updated_at=now,
+    )
+
+    classification = api_models.BrowserTargetClassification.from_case(case)
+
+    assert case.policy_snapshot.goldtier_target is None
+    assert classification.editable is False
+    assert classification.kyc_customer_type.selected_value is None
+    assert classification.client_segment.selected_value is None
+
+
+def test_case_target_classification_is_validated_bound_once_and_serialized_exactly() -> None:
+    composition = importlib.import_module("app.composition")
+    policy = importlib.import_module("app.domain.policy")
+    policy_service = PolicyManagementService(InMemoryPolicyRepository())
+    service = composition.build_onboarding_service(
+        settings=Settings(
+            _env_file=None,
+            app_env="test",
+            goldtier_connector_mode="sandbox",
+            goldtier_sandbox_base_url="https://sandbox.goldtier.invalid",
+            goldtier_sandbox_environment="synthetic",
+            goldtier_sandbox_user_id=SecretStr("synthetic-user-id"),
+        ),
+        goldtier_transport=FakeXpiTransport(),
+        policy_snapshot_provider=policy_service.case_snapshot,
+    )
+    case = service.create_staged_case("202400001A")
+
+    with pytest.raises(ValueError, match="current vocabulary"):
+        service.bind_goldtier_case_classification(
+            case_id=case.case_id,
+            kyc_customer_type="Multilateral Agencies",
+            client_segment="Corporate",
+        )
+
+    bound = service.bind_goldtier_case_classification(
+        case_id=case.case_id,
+        kyc_customer_type="Company - Private",
+        client_segment="Corporate",
+    )
+    target = bound.policy_snapshot.goldtier_target
+
+    assert target.kyc_customer_type.value == "Company - Private"
+    assert target.client_segment.value == "Corporate"
+    assert target.kyc_customer_type.authority == policy.PolicyAuthority.USER_AUTHORIZED_POC
+    assert target.client_segment.authority == policy.PolicyAuthority.USER_AUTHORIZED_POC
+    assert target.registration_type.value == "ACRA"
+    assert target.customer_external_system.value == "DSD"
+    assert target.policy.value == "Singapore"
+    assert target.booking_entity.value == "ANZBGL (Singapore Branch)"
+    assert target.dispatch_ready is True
+    with pytest.raises(ValueError, match="already frozen"):
+        service.bind_goldtier_case_classification(
+            case_id=case.case_id,
+            kyc_customer_type="Company - Public",
+            client_segment="Corporate",
+        )
+
+
+def test_policy_contract_accepts_and_serializes_empty_optional_sponsor_fields() -> None:
+    models = _xpi_models()
+    request = models.XpiCreateCustomerPolicyRequest(
+        customer_external_system="DSD",
+        customer_external_system_key="FYP-SYNTHETIC-001",
+        goldtier_id="12345",
+        policy="SANDBOX POLICY EXAMPLE",
+        booking_entity="SANDBOX BOOKING EXAMPLE",
+    )
+
+    assert request.model_dump(by_alias=True) == {
+        "customerExternalSystem": "DSD",
+        "customerExternalSystemKey": "FYP-SYNTHETIC-001",
+        "goldTierId": "12345",
+        "policy": "SANDBOX POLICY EXAMPLE",
+        "bookingEntity": "SANDBOX BOOKING EXAMPLE",
+        "accountEntityType": "",
+        "productType": "",
+    }
 
 
 def test_account_entity_type_is_the_only_provisional_target_default_and_remains_editable() -> None:
@@ -710,11 +803,6 @@ def test_account_entity_type_is_the_only_provisional_target_default_and_remains_
     assert before.goldtier_target.missing_fields == (
         "kycCustomerType",
         "clientSegment",
-        "customerExternalSystem",
-        "registrationType",
-        "policy",
-        "bookingEntity",
-        "productType",
     )
 
     updated_catalogue = service.update(
@@ -742,32 +830,80 @@ def test_account_entity_type_is_the_only_provisional_target_default_and_remains_
     assert reset.authority == policy.PolicyAuthority.PROJECT_DEFINED_PROVISIONAL
 
 
-def test_target_policy_reset_restores_the_tbd_value_and_authority() -> None:
+def test_singapore_uen_registration_mapping_is_user_authorized_and_never_abn() -> None:
+    policy = importlib.import_module("app.domain.policy")
+    mapper_module = importlib.import_module("app.mappers.goldtier_xpi")
+    service = PolicyManagementService(InMemoryPolicyRepository())
+    registration_rule = service.get(policy.GOLDTIER_REGISTRATION_TYPE_ID)
+    snapshot = service.case_snapshot().goldtier_target
+    base = _sandbox_submission()
+    submission = base.model_copy(
+        update={
+            "canonical_entity": base.canonical_entity.model_copy(
+                update={"registration_number": "11111999A"}
+            ),
+            "target_policy": base.target_policy.model_copy(
+                update={"registration_type": snapshot.registration_type}
+            ),
+        }
+    )
+
+    request = mapper_module.GoldTierXpiRequestMapper().build_shell_request(submission)
+    serialized = request.model_dump(by_alias=True, exclude_none=True)
+
+    assert registration_rule.value == policy.StringPolicyValue(value="ACRA")
+    assert registration_rule.authority == policy.PolicyAuthority.USER_AUTHORIZED_POC
+    assert snapshot.registration_type.value == "ACRA"
+    assert snapshot.registration_type.authority == policy.PolicyAuthority.USER_AUTHORIZED_POC
+    assert serialized["registration"] == {
+        "registrationType": "ACRA",
+        "countryIso2": "SG",
+        "registrationNumber": "11111999A",
+    }
+    assert serialized["countryOfIncorporation"] == "SG"
+    assert "ABN" not in str(serialized)
+
+
+def test_sandbox_external_system_example_is_separate_from_acra_identity() -> None:
+    policy = importlib.import_module("app.domain.policy")
+    service = PolicyManagementService(InMemoryPolicyRepository())
+    rule = service.get(policy.GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_ID)
+    snapshot = service.case_snapshot().goldtier_target
+
+    assert rule.value == policy.StringPolicyValue(value="DSD")
+    assert rule.authority == policy.PolicyAuthority.SPONSOR_DOCUMENTED
+    assert snapshot.customer_external_system.value == "DSD"
+    assert (
+        snapshot.customer_external_system.authority
+        == policy.PolicyAuthority.SPONSOR_DOCUMENTED
+    )
+
+
+def test_target_policy_reset_preserves_the_fixed_value_and_authority() -> None:
     policy = importlib.import_module("app.domain.policy")
     service = PolicyManagementService(InMemoryPolicyRepository())
     original = service.get(policy.GOLDTIER_POLICY_ID)
-    updated_catalogue = service.update(
-        _director(),
-        original.policy_id,
-        expected_catalogue_version=service.catalogue().version,
-        expected_rule_version=original.version,
-        value=policy.StringPolicyValue(value="SPONSOR VALUE"),
-        authority=policy.PolicyAuthority.SPONSOR_SUPPLIED,
-    )
-    updated = updated_catalogue.rule(original.policy_id)
-    assert updated is not None
+    with pytest.raises(PolicyValidationError):
+        service.update(
+            _director(),
+            original.policy_id,
+            expected_catalogue_version=service.catalogue().version,
+            expected_rule_version=original.version,
+            value=policy.StringPolicyValue(value="SPONSOR VALUE"),
+            authority=policy.PolicyAuthority.SPONSOR_SUPPLIED,
+        )
 
     reset_catalogue = service.reset_one(
         _director(),
         original.policy_id,
-        expected_catalogue_version=updated_catalogue.version,
-        expected_rule_version=updated.version,
+        expected_catalogue_version=service.catalogue().version,
+        expected_rule_version=original.version,
     )
     reset = reset_catalogue.rule(original.policy_id)
 
     assert reset is not None
-    assert reset.value == policy.StringPolicyValue(value="TBD_SPONSOR")
-    assert reset.authority == policy.PolicyAuthority.TBD_SPONSOR
+    assert reset.value == policy.StringPolicyValue(value="Singapore")
+    assert reset.authority == policy.PolicyAuthority.SPONSOR_DOCUMENTED
 
 
 def test_xpi_mapper_uses_canonical_fields_and_case_bound_target_policy() -> None:
@@ -826,9 +962,44 @@ def test_xpi_mapper_blocks_missing_target_enrichment_before_request_construction
         "registrationType",
         "policy",
         "bookingEntity",
-        "accountEntityType",
-        "productType",
     )
+
+
+def test_xpi_mapper_emits_empty_optional_fields_without_treating_them_as_blockers() -> None:
+    policy = importlib.import_module("app.domain.policy")
+    mapper_module = importlib.import_module("app.mappers.goldtier_xpi")
+    submission = _sandbox_submission().model_copy(
+        update={
+            "target_policy": _sandbox_submission().target_policy.model_copy(
+                update={
+                    "account_entity_type": policy.AuthorityLabelledTargetValue(
+                        value="PROJECT_DEFINED_PROVISIONAL",
+                        authority=policy.PolicyAuthority.PROJECT_DEFINED_PROVISIONAL,
+                    ),
+                    "product_type": policy.AuthorityLabelledTargetValue(
+                        value="TBD_SPONSOR",
+                        authority=policy.PolicyAuthority.TBD_SPONSOR,
+                    ),
+                }
+            )
+        }
+    )
+
+    mapper = mapper_module.GoldTierXpiRequestMapper()
+    request = mapper.build_policy_request(submission, "12345")
+    preview = mapper.build_preview(submission)
+    policy_preview = next(item for item in preview.operations if item.operation == "POLICY")
+    optional_fields = {
+        item.target_field: item
+        for item in policy_preview.fields
+        if item.target_field in {"accountEntityType", "productType"}
+    }
+
+    assert request.model_dump(by_alias=True)["accountEntityType"] == ""
+    assert request.model_dump(by_alias=True)["productType"] == ""
+    assert preview.dispatch_ready is True
+    assert all(item.required is False for item in optional_fields.values())
+    assert all(item.missing is False for item in optional_fields.values())
 
 
 def test_request_preview_is_network_free_authority_labelled_and_policy_versioned() -> None:
@@ -883,6 +1054,7 @@ def _xpi_onboarding_service(
     *,
     target_ready: bool = True,
     target_policy_override: object | None = None,
+    acra_connector: object | None = None,
 ) -> object:
     onboarding = importlib.import_module("app.services.onboarding")
     intelligence = importlib.import_module("app.services.onboarding_intelligence")
@@ -900,7 +1072,7 @@ def _xpi_onboarding_service(
         deep=True,
     )
     return onboarding.OnboardingService(
-        acra=mock_acra.MockAcraConnector(),
+        acra=acra_connector or mock_acra.MockAcraConnector(),
         goldtier=_xpi_connector(transport),
         goldtier_mapper=mapper,
         entity_resolver=intelligence.OnboardingIntelligenceService(),
@@ -1088,6 +1260,7 @@ def test_no_match_executes_customer_path_once_through_the_existing_target_ledger
             module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
             module.GoldTierXpiHttpResponse(status_code=200, body={}),
             module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body=[{"goldTierId": 12345}]),
         ]
     )
     service = _xpi_onboarding_service(transport)
@@ -1104,9 +1277,54 @@ def test_no_match_executes_customer_path_once_through_the_existing_target_ledger
         "SHELL",
         "POLICY",
         "AMEND",
+        "READBACK",
     )
     assert repeated == receipt
-    assert len(transport.calls) == 4
+    assert len(transport.calls) == 5
+    assert transport.calls[-1]["url"].endswith("/customers/search?goldTierID=12345")
+
+
+@pytest.mark.parametrize(
+    "readback_body",
+    [
+        [],
+        [{"goldTierId": 67890}],
+        [{"goldTierId": 12345}, {"goldTierId": 67890}],
+    ],
+    ids=["no-match", "wrong-id", "multiple"],
+)
+def test_post_amend_readback_requires_one_exact_retained_customer(
+    readback_body: list[dict[str, object]],
+) -> None:
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    transport = FakeXpiTransport(
+        [
+            module.GoldTierXpiHttpResponse(status_code=200, body=[]),
+            module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
+            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body=readback_body),
+        ]
+    )
+    service = _xpi_onboarding_service(transport)
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+
+    receipt = service.execute_submission_input(submission)
+    repeated = service.execute_submission_input(submission)
+
+    assert receipt.classification == "REVIEW_REQUIRED"
+    assert receipt.error is not None
+    assert receipt.error.code == "GT_READBACK_IDENTITY_REVIEW_REQUIRED"
+    assert repeated == receipt
+    assert service.get_attempted_target_operations(submission.submission_id) == (
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "AMEND",
+        "READBACK",
+    )
+    assert len(transport.calls) == 5
 
 
 def test_unique_exact_match_uses_existing_party_path_without_shell() -> None:
@@ -1125,7 +1343,7 @@ def test_unique_exact_match_uses_existing_party_path_without_shell() -> None:
                 ],
             ),
             module.GoldTierXpiHttpResponse(status_code=200, body={}),
-            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body=[{"goldTierId": 12345}]),
         ]
     )
     service = _xpi_onboarding_service(transport)
@@ -1139,10 +1357,11 @@ def test_unique_exact_match_uses_existing_party_path_without_shell() -> None:
     assert receipt.result.shell_status == "EXISTING_PARTY_REUSED"
     assert service.get_attempted_target_operations(submission.submission_id) == (
         "SEARCH",
-        "POLICY",
         "AMEND",
+        "READBACK",
     )
     assert not any(call["url"].endswith("/customers/create") for call in transport.calls)
+    assert not any(call["url"].endswith("/customers/createPolicy") for call in transport.calls)
 
 
 @pytest.mark.parametrize(
@@ -1310,6 +1529,643 @@ def test_uncertain_shell_attempt_remains_in_progress_and_cannot_replay() -> None
     assert service.is_execution_outcome_uncertain(submission.submission_id) is True
     assert len(transport.calls) == call_count
     _assert_no_mock_provider_claim([str(replay.value)])
+
+
+def test_provider_verified_recovery_resolves_uncertain_shell_without_replay() -> None:
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    target = importlib.import_module("app.domain.target_submission")
+    timeout_request = httpx.Request("POST", "https://sandbox.goldtier.invalid")
+    transport = FakeXpiTransport(
+        [
+            httpx.ReadTimeout("private timeout", request=timeout_request),
+        ]
+    )
+    service = _xpi_onboarding_service(transport)
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+
+    with pytest.raises(Exception, match="uncertain"):
+        service.advance_incremental_submission_input(
+            submission,
+            search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+            selected_party_id=None,
+        )
+
+    transport.responses.append(
+        module.GoldTierXpiHttpResponse(
+            status_code=200,
+            body=[{"goldTierId": 12345, "legalName": case.entity.legal_name}],
+        )
+    )
+    recovered = service.recover_uncertain_shell_from_provider(
+        submission_input=submission,
+        recovered_party_id="12345",
+        legal_name=case.entity.legal_name,
+        registration_number=case.requested_uen,
+        country_of_incorporation=case.entity.country_of_incorporation,
+        actor_id="director-test",
+        origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+    )
+    repeated = service.recover_uncertain_shell_from_provider(
+        submission_input=submission,
+        recovered_party_id="12345",
+        legal_name=case.entity.legal_name,
+        registration_number=case.requested_uen,
+        country_of_incorporation=case.entity.country_of_incorporation,
+        actor_id="director-test",
+        origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+    )
+
+    assert repeated == recovered
+    assert tuple(item.value for item in recovered.attempted_operations) == ("SEARCH", "SHELL")
+    assert tuple(item.value for item in recovered.definitively_completed_operations) == ("SEARCH",)
+    assert tuple(item.value for item in recovered.lifecycle_resolved_operations) == (
+        "SEARCH",
+        "SHELL",
+    )
+    assert recovered.provider_verified_recovery is not None
+    assert recovered.provider_verified_recovery.replayed is False
+    assert [call["method"] for call in transport.calls] == ["POST", "GET"]
+    recovered_case = service.get_case(case.case_id)
+    assert recovered_case is not None
+    assert recovered_case.state == "GT_SHELL_CREATED"
+    assert recovered_case.goldtier_result is not None
+    assert recovered_case.goldtier_result.party_id == "12345"
+    assert recovered_case.goldtier_result.shell_status == "PROVIDER_VERIFIED_RECOVERY"
+    assert recovered_case.events[-1].code == "GT_SHELL_PROVIDER_VERIFIED_RECOVERY"
+    assert "uncertain" in recovered_case.events[-1].message
+    assert "without replay" in recovered_case.events[-1].message
+
+    transport.responses.extend(
+        [
+            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body=[{"goldTierId": 12345}]),
+        ]
+    )
+    assert (
+        service.advance_incremental_submission_input(
+            submission,
+            search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+            selected_party_id=None,
+        )
+        is None
+    )
+    assert (
+        service.advance_incremental_submission_input(
+            submission,
+            search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+            selected_party_id=None,
+        )
+        is None
+    )
+    receipt = service.advance_incremental_submission_input(
+        submission,
+        search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+        selected_party_id=None,
+    )
+    assert receipt is not None
+    assert receipt.classification == "SUCCESS"
+    assert [call["method"] for call in transport.calls] == [
+        "POST",
+        "GET",
+        "POST",
+        "POST",
+        "GET",
+    ]
+
+
+def _uncertain_policy_fixture() -> tuple[object, object, object, FakeXpiTransport]:
+    errors = importlib.import_module("app.connectors.errors")
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    target = importlib.import_module("app.domain.target_submission")
+    timeout_request = httpx.Request("POST", "https://sandbox.goldtier.invalid")
+    transport = FakeXpiTransport(
+        [
+            httpx.ReadTimeout("private timeout", request=timeout_request),
+        ]
+    )
+    service = _xpi_onboarding_service(transport)
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+    with pytest.raises(errors.MutationOutcomeUncertainError):
+        service.advance_incremental_submission_input(
+            submission,
+            search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+            selected_party_id=None,
+        )
+    transport.responses.extend(
+        [
+            module.GoldTierXpiHttpResponse(
+                status_code=200,
+                body=[{"goldTierId": 12345, "legalName": case.entity.legal_name}],
+            ),
+            httpx.ReadTimeout("private timeout", request=timeout_request),
+        ]
+    )
+    service.recover_uncertain_shell_from_provider(
+        submission_input=submission,
+        recovered_party_id="12345",
+        legal_name=case.entity.legal_name,
+        registration_number=case.requested_uen,
+        country_of_incorporation=case.entity.country_of_incorporation,
+        actor_id="director-test",
+        origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+    )
+    with pytest.raises(errors.MutationOutcomeUncertainError):
+        service.advance_incremental_submission_input(
+            submission,
+            search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+            selected_party_id=None,
+        )
+    return service, case, submission, transport
+
+
+def test_policy_provider_recovery_preserves_uncertainty_and_never_replays_policy() -> None:
+    errors = importlib.import_module("app.connectors.errors")
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    target = importlib.import_module("app.domain.target_submission")
+    service, case, submission, transport = _uncertain_policy_fixture()
+    assert submission.target_policy is not None
+    call_count = len(transport.calls)
+
+    with pytest.raises(errors.MutationOutcomeUncertainError):
+        service.advance_incremental_submission_input(
+            submission,
+            search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+            selected_party_id=None,
+        )
+    assert len(transport.calls) == call_count
+
+    recovered = service.recover_uncertain_policy_from_provider(
+        submission_input=submission,
+        recovered_party_id="12345",
+        legal_name=case.entity.legal_name,
+        registration_number=case.requested_uen,
+        country_of_incorporation=case.entity.country_of_incorporation,
+        provider_policy=submission.target_policy.policy.value,
+        provider_policy_status="Requested",
+        actor_id="director-test",
+        origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+    )
+    repeated = service.recover_uncertain_policy_from_provider(
+        submission_input=submission,
+        recovered_party_id="12345",
+        legal_name=case.entity.legal_name,
+        registration_number=case.requested_uen,
+        country_of_incorporation=case.entity.country_of_incorporation,
+        provider_policy=submission.target_policy.policy.value,
+        provider_policy_status="Requested",
+        actor_id="director-test",
+        origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+    )
+
+    assert repeated == recovered
+    assert len(transport.calls) == call_count
+    assert tuple(item.value for item in recovered.attempted_operations) == (
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+    )
+    assert tuple(item.value for item in recovered.definitively_completed_operations) == (
+        "SEARCH",
+    )
+    assert tuple(item.value for item in recovered.lifecycle_resolved_operations) == (
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+    )
+    policy_recovery = recovered.provider_verified_policy_recovery
+    assert policy_recovery is not None
+    assert policy_recovery.original_outcome_uncertain is True
+    assert policy_recovery.replayed is False
+    assert policy_recovery.provider_policy == submission.target_policy.policy.value
+    assert policy_recovery.provider_policy_status == "Requested"
+    recovered_case = service.get_case(case.case_id)
+    assert recovered_case is not None
+    assert recovered_case.state == "GT_POLICY_CREATED"
+    assert recovered_case.goldtier_result is not None
+    assert recovered_case.goldtier_result.policy_status == "PROVIDER_VERIFIED_REQUESTED"
+    assert recovered_case.events[-1].code == "GT_POLICY_PROVIDER_VERIFIED_RECOVERY"
+
+    transport.responses.extend(
+        [
+            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body=[{"goldTierId": 12345}]),
+        ]
+    )
+    assert (
+        service.advance_incremental_submission_input(
+            submission,
+            search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+            selected_party_id=None,
+        )
+        is None
+    )
+    receipt = service.advance_incremental_submission_input(
+        submission,
+        search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+        selected_party_id=None,
+    )
+    assert receipt is not None and receipt.classification == "SUCCESS"
+    policy_calls = [
+        call for call in transport.calls if str(call["url"]).endswith("/customers/createPolicy")
+    ]
+    amend_calls = [
+        call for call in transport.calls if str(call["url"]).endswith("/customers/amendCustomer")
+    ]
+    assert len(policy_calls) == 1
+    assert len(amend_calls) == 1
+
+
+def test_provider_verified_amend_failure_is_durable_state_and_never_replayed() -> None:
+    errors = importlib.import_module("app.connectors.errors")
+    target = importlib.import_module("app.domain.target_submission")
+    service, case, submission, transport = _uncertain_policy_fixture()
+    assert submission.target_policy is not None
+    service.recover_uncertain_policy_from_provider(
+        submission_input=submission,
+        recovered_party_id="12345",
+        legal_name=case.entity.legal_name,
+        registration_number=case.requested_uen,
+        country_of_incorporation=case.entity.country_of_incorporation,
+        provider_policy=submission.target_policy.policy.value,
+        provider_policy_status="Requested",
+        actor_id="director-test",
+        origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+    )
+    timeout_request = httpx.Request("POST", "https://sandbox.goldtier.invalid")
+    transport.responses.append(httpx.ReadTimeout("private timeout", request=timeout_request))
+
+    with pytest.raises(errors.MutationOutcomeUncertainError):
+        service.advance_incremental_submission_input(
+            submission,
+            search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+            selected_party_id=None,
+        )
+    call_count = len(transport.calls)
+
+    failed = service.recover_uncertain_amend_failure_from_provider(
+        submission_input=submission,
+        recovered_party_id="12345",
+        provider_status=target.GoldTierProviderFailureStatus.PROVIDER_VALIDATION_FAILED,
+        provider_status_evidence="Valdiation Failed",
+        actor_id="director-test",
+        origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+    )
+    repeated = service.recover_uncertain_amend_failure_from_provider(
+        submission_input=submission,
+        recovered_party_id="12345",
+        provider_status=target.GoldTierProviderFailureStatus.PROVIDER_VALIDATION_FAILED,
+        provider_status_evidence="Valdiation Failed",
+        actor_id="director-test",
+        origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+    )
+
+    assert repeated == failed
+    assert len(transport.calls) == call_count
+    assert tuple(item.value for item in failed.attempted_operations) == (
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "AMEND",
+    )
+    assert tuple(item.value for item in failed.lifecycle_resolved_operations) == (
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+    )
+    assert target.GoldTierOperationMarker.AMEND not in (
+        failed.definitively_completed_operations
+    )
+    amend_failure = failed.provider_verified_amend_failure
+    assert amend_failure is not None
+    assert amend_failure.operation == target.GoldTierOperationMarker.AMEND
+    assert amend_failure.original_outcome_uncertain is True
+    assert amend_failure.provider_reconciliation == "PROVIDER_VERIFIED_FAILURE"
+    assert amend_failure.provider_status == "PROVIDER_VALIDATION_FAILED"
+    assert amend_failure.provider_status_evidence == "Valdiation Failed"
+    assert amend_failure.replayed is False
+    assert service.is_execution_outcome_uncertain(submission.submission_id) is True
+
+    with pytest.raises(ValueError, match="provider-verified failure"):
+        service.advance_incremental_submission_input(
+            submission,
+            search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+            selected_party_id=None,
+        )
+    assert len(transport.calls) == call_count
+
+
+@pytest.mark.parametrize(
+    ("recovered_party_id", "provider_policy", "expected_error"),
+    [
+        ("99999", "Singapore", "exactly match"),
+        ("12345", "Australia", "does not match the case policy"),
+    ],
+)
+def test_policy_provider_recovery_rejects_wrong_id_or_policy_without_network(
+    recovered_party_id: str,
+    provider_policy: str,
+    expected_error: str,
+) -> None:
+    target = importlib.import_module("app.domain.target_submission")
+    service, case, submission, transport = _uncertain_policy_fixture()
+    call_count = len(transport.calls)
+
+    with pytest.raises(ValueError, match=expected_error):
+        service.recover_uncertain_policy_from_provider(
+            submission_input=submission,
+            recovered_party_id=recovered_party_id,
+            legal_name=case.entity.legal_name,
+            registration_number=case.requested_uen,
+            country_of_incorporation=case.entity.country_of_incorporation,
+            provider_policy=provider_policy,
+            provider_policy_status="Requested",
+            actor_id="director-test",
+            origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+        )
+    assert len(transport.calls) == call_count
+
+
+def test_policy_provider_recovery_rejects_wrong_case_without_network() -> None:
+    target = importlib.import_module("app.domain.target_submission")
+    service, case, submission, transport = _uncertain_policy_fixture()
+    other = service.create_staged_case("202400001A")
+    other_submission = service.build_submission_input(other, provider_mode="SANDBOX")
+    call_count = len(transport.calls)
+
+    with pytest.raises(ValueError, match="exactly match"):
+        service.recover_uncertain_policy_from_provider(
+            submission_input=other_submission,
+            recovered_party_id="12345",
+            legal_name=case.entity.legal_name,
+            registration_number=case.requested_uen,
+            country_of_incorporation=case.entity.country_of_incorporation,
+            provider_policy=submission.target_policy.policy.value,
+            provider_policy_status="Requested",
+            actor_id="director-test",
+            origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+        )
+    assert len(transport.calls) == call_count
+
+
+def test_provider_verified_recovery_rejects_wrong_uen_before_provider_call() -> None:
+    target = importlib.import_module("app.domain.target_submission")
+    transport = FakeXpiTransport()
+    service = _xpi_onboarding_service(transport)
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+
+    with pytest.raises(ValueError, match="exactly match"):
+        service.recover_uncertain_shell_from_provider(
+            submission_input=submission,
+            recovered_party_id="12345",
+            legal_name=case.entity.legal_name,
+            registration_number="WRONG-UEN",
+            country_of_incorporation=case.entity.country_of_incorporation,
+            actor_id="director-test",
+            origin=target.GoldTierRecoveryOrigin.HISTORICAL_LOCAL_LEDGER_LOST,
+        )
+
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize(
+    "provider_body",
+    [
+        [{"goldTierId": 67890, "legalName": "MERLION CIRCULAR LABS PTE. LTD."}],
+        [
+            {"goldTierId": 12345, "legalName": "MERLION CIRCULAR LABS PTE. LTD."},
+            {"goldTierId": 67890, "legalName": "MERLION CIRCULAR LABS PTE. LTD."},
+        ],
+    ],
+    ids=["name-only-wrong-id", "multiple-candidates"],
+)
+def test_provider_verified_recovery_rejects_non_exact_provider_evidence(
+    provider_body: list[dict[str, object]],
+) -> None:
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    target = importlib.import_module("app.domain.target_submission")
+    transport = FakeXpiTransport(
+        [module.GoldTierXpiHttpResponse(status_code=200, body=provider_body)]
+    )
+    service = _xpi_onboarding_service(transport)
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+
+    with pytest.raises(ValueError, match="one exact target identity"):
+        service.recover_uncertain_shell_from_provider(
+            submission_input=submission,
+            recovered_party_id="12345",
+            legal_name=case.entity.legal_name,
+            registration_number=case.requested_uen,
+            country_of_incorporation=case.entity.country_of_incorporation,
+            actor_id="director-test",
+            origin=target.GoldTierRecoveryOrigin.HISTORICAL_LOCAL_LEDGER_LOST,
+        )
+
+    assert len(transport.calls) == 1
+    assert transport.calls[0]["method"] == "GET"
+
+
+def test_provider_verified_recovery_rejects_definitively_failed_shell() -> None:
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    target = importlib.import_module("app.domain.target_submission")
+    transport = FakeXpiTransport(
+        [
+            module.GoldTierXpiHttpResponse(
+                status_code=400,
+                body={"errorCode": "GT_SHELL_FAILED"},
+            )
+        ]
+    )
+    service = _xpi_onboarding_service(transport)
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+    receipt = service.advance_incremental_submission_input(
+        submission,
+        search_resolution=target.GoldTierSearchResolution.NO_MATCH,
+        selected_party_id=None,
+    )
+    call_count = len(transport.calls)
+
+    assert receipt is not None and receipt.classification == "FAILED"
+    with pytest.raises(ValueError, match="Only one uncertain Shell"):
+        service.recover_uncertain_shell_from_provider(
+            submission_input=submission,
+            recovered_party_id="12345",
+            legal_name=case.entity.legal_name,
+            registration_number=case.requested_uen,
+            country_of_incorporation=case.entity.country_of_incorporation,
+            actor_id="director-test",
+            origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+        )
+    assert len(transport.calls) == call_count
+
+
+def test_provider_verified_recovery_rejects_conflicting_completed_target_id() -> None:
+    target = importlib.import_module("app.domain.target_submission")
+    transport = FakeXpiTransport()
+    service = _xpi_onboarding_service(transport)
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+
+    service._start_incremental_execution(  # noqa: SLF001 - adversarial retained-state setup
+        submission,
+        search_resolution=target.GoldTierSearchResolution.EXACT_MATCH,
+        selected_party_id="99999",
+    )
+    with pytest.raises(ValueError, match="Only one uncertain Shell"):
+        service.recover_uncertain_shell_from_provider(
+            submission_input=submission,
+            recovered_party_id="12345",
+            legal_name=case.entity.legal_name,
+            registration_number=case.requested_uen,
+            country_of_incorporation=case.entity.country_of_incorporation,
+            actor_id="director-test",
+            origin=target.GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+        )
+    assert transport.calls == []
+
+
+def test_goldtier_first_exact_match_reuses_verified_target_state_and_skips_shell() -> None:
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    target = importlib.import_module("app.domain.target_submission")
+    transport = FakeXpiTransport(
+        [
+            module.GoldTierXpiHttpResponse(status_code=200, body=[]),
+            module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
+            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body=[{"goldTierId": 12345}]),
+            module.GoldTierXpiHttpResponse(
+                status_code=200,
+                body=[
+                    {
+                        "goldTierId": 12345,
+                        "legalName": "MERLION CIRCULAR LABS PTE. LTD.",
+                    }
+                ],
+            ),
+            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body=[{"goldTierId": 12345}]),
+        ]
+    )
+    service = _xpi_onboarding_service(transport)
+    first = service.create_staged_case("202400001A")
+    first_submission = service.build_submission_input(first, provider_mode="SANDBOX")
+    assert service.execute_submission_input(first_submission).classification == "SUCCESS"
+
+    second = service.create_staged_case_with_identity(
+        UUID("00000000-0000-4000-8000-000000000101"),
+        UUID("00000000-0000-4000-8000-000000000102"),
+        "202400001A",
+        "SG",
+        legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+    )
+
+    assert second.state == "VALIDATED"
+    assert second.registry_acquisition is None
+    assert second.existing_target_state is not None
+    assert second.existing_target_state.target_party_id == "12345"
+    assert second.initial_target_search is not None
+    assert second.initial_target_search.disposition == "EXACT_MATCH"
+    second_submission = service.build_submission_input(second, provider_mode="SANDBOX")
+    assert (
+        service.advance_incremental_submission_input(
+            second_submission,
+            search_resolution=target.GoldTierSearchResolution.EXACT_MATCH,
+            selected_party_id="12345",
+        )
+        is None
+    )
+    receipt = service.advance_incremental_submission_input(
+        second_submission,
+        search_resolution=target.GoldTierSearchResolution.EXACT_MATCH,
+        selected_party_id="12345",
+    )
+
+    assert receipt is not None and receipt.classification == "SUCCESS"
+    assert receipt.result is not None and receipt.result.party_id == "12345"
+    assert receipt.result.policy_id is None
+    assert receipt.result.policy_status is None
+    assert service.get_attempted_target_operations(second_submission.submission_id) == (
+        "SEARCH",
+        "AMEND",
+        "READBACK",
+    )
+    second_target_calls = transport.calls[-3:]
+    assert [call["method"] for call in second_target_calls] == ["GET", "POST", "GET"]
+    assert not any(
+        call["url"].endswith(("/customers/create", "/customers/createPolicy"))
+        for call in second_target_calls
+    )
+
+
+@pytest.mark.parametrize(
+    ("search_body", "expected_state", "expected_acra_calls"),
+    [
+        ([], "VALIDATED", 4),
+        (
+            [
+                {"goldTierId": 12345, "legalName": "GARDEN BUSINESS"},
+                {"goldTierId": 67890, "legalName": "GARDEN BUSINESS"},
+            ],
+            "REVIEW_REQUIRED",
+            0,
+        ),
+    ],
+    ids=["no-match-acra", "ambiguous-no-acra"],
+)
+def test_goldtier_first_branch_controls_acra_bootstrap(
+    search_body: list[dict[str, object]],
+    expected_state: str,
+    expected_acra_calls: int,
+) -> None:
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    mock_acra = importlib.import_module("app.connectors.mock_acra")
+
+    class CountingAcra(mock_acra.MockAcraConnector):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def fetch_company(self, uen: str) -> object:
+            self.calls += 1
+            return super().fetch_company(uen)
+
+        def fetch_officers(self, uen: str) -> object:
+            self.calls += 1
+            return super().fetch_officers(uen)
+
+        def fetch_ownership_parties(self, uen: str) -> object:
+            self.calls += 1
+            return super().fetch_ownership_parties(uen)
+
+        def fetch_relationships(self, uen: str) -> object:
+            self.calls += 1
+            return super().fetch_relationships(uen)
+
+    acra = CountingAcra()
+    transport = FakeXpiTransport(
+        [module.GoldTierXpiHttpResponse(status_code=200, body=search_body)]
+    )
+    service = _xpi_onboarding_service(transport, acra_connector=acra)
+
+    case = service.create_staged_case_with_identity(
+        UUID("00000000-0000-4000-8000-000000000201"),
+        UUID("00000000-0000-4000-8000-000000000202"),
+        "11111999A",
+        "SG",
+        legal_name="GARDEN BUSINESS",
+    )
+
+    assert case.state == expected_state
+    assert acra.calls == expected_acra_calls
+    assert [call["method"] for call in transport.calls] == ["GET"]
+    if expected_state == "REVIEW_REQUIRED":
+        assert service.get_attempted_target_operations(case.case_id) == ()
 
 
 @pytest.mark.parametrize(

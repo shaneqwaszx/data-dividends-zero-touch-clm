@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.config import Settings
 from app.connectors.errors import ConnectorError, public_connector_error
@@ -20,6 +20,9 @@ from app.connectors.goldtier_xpi_models import XpiCustomerSearchRequest
 from app.domain.access import ROLE_CAPABILITIES, AuthenticatedActor, Capability
 from app.domain.onboarding_intelligence import EntityResolutionOutcome
 from app.domain.policy import (
+    GOLDTIER_CLIENT_SEGMENT_VALUES,
+    GOLDTIER_KYC_CUSTOMER_TYPE_VALUES,
+    GOLDTIER_VOCABULARY_VERSION,
     AuthorityLabelledTargetValue,
     GoldTierTargetPolicySnapshot,
     PolicyAuthority,
@@ -60,6 +63,9 @@ class GoldTierSandboxStatusResponse(BaseModel):
     blocker: str | None
     related_party_blocker: Literal["BLOCKED_CHILD_ID_LIFECYCLE"] = "BLOCKED_CHILD_ID_LIFECYCLE"
     timeline: tuple[SandboxDiagnosticEvent, ...]
+    vocabulary_version: str
+    kyc_customer_types: tuple[str, ...]
+    client_segments: tuple[str, ...]
 
 
 class SandboxSearchRequest(BaseModel):
@@ -86,12 +92,26 @@ class SandboxTestValues(BaseModel):
 
     kyc_customer_type: Annotated[str, Field(min_length=1, max_length=160)]
     client_segment: Annotated[str, Field(min_length=1, max_length=160)]
-    customer_external_system: Annotated[str, Field(min_length=1, max_length=160)]
-    registration_type: Annotated[str, Field(min_length=1, max_length=160)]
-    policy: Annotated[str, Field(min_length=1, max_length=160)]
-    booking_entity: Annotated[str, Field(min_length=1, max_length=160)]
-    account_entity_type: Annotated[str, Field(min_length=1, max_length=160)]
-    product_type: Annotated[str, Field(min_length=1, max_length=160)]
+    customer_external_system: Literal["DSD"] = "DSD"
+    registration_type: Literal["ACRA"] = "ACRA"
+    policy: Literal["Singapore"] = "Singapore"
+    booking_entity: Literal["ANZBGL (Singapore Branch)"] = "ANZBGL (Singapore Branch)"
+    account_entity_type: Annotated[str, Field(max_length=160)] = ""
+    product_type: Annotated[str, Field(max_length=160)] = ""
+
+    @field_validator("kyc_customer_type")
+    @classmethod
+    def current_kyc_vocabulary(cls, value: str) -> str:
+        if value not in GOLDTIER_KYC_CUSTOMER_TYPE_VALUES:
+            raise ValueError("KYC customer type is not in the current vocabulary")
+        return value
+
+    @field_validator("client_segment")
+    @classmethod
+    def current_segment_vocabulary(cls, value: str) -> str:
+        if value not in GOLDTIER_CLIENT_SEGMENT_VALUES:
+            raise ValueError("Client segment is not in the current vocabulary")
+        return value
 
 
 class SandboxDryRunRequest(BaseModel):
@@ -148,7 +168,10 @@ def build_provider_sandbox_router(
     @router.get("/status", response_model=GoldTierSandboxStatusResponse)
     def sandbox_status(request: Request) -> GoldTierSandboxStatusResponse:
         _require_provider_sandbox_test(request)
-        configured = settings.goldtier_connector_mode == "sandbox"
+        configured = (
+            settings.goldtier_connector_mode == "sandbox"
+            and onboarding.target_provider_mode == GoldTierProviderMode.SANDBOX
+        )
         blocker = (
             "GOLDTIER_SANDBOX_NOT_CONFIGURED"
             if not configured
@@ -170,6 +193,9 @@ def build_provider_sandbox_router(
             last_diagnostic_at=(current[-1].occurred_at if current else None),
             blocker=blocker,
             timeline=current,
+            vocabulary_version=GOLDTIER_VOCABULARY_VERSION,
+            kyc_customer_types=GOLDTIER_KYC_CUSTOMER_TYPE_VALUES,
+            client_segments=GOLDTIER_CLIENT_SEGMENT_VALUES,
         )
 
     @router.post("/search", response_model=SandboxSearchResponse)
@@ -268,7 +294,10 @@ def _submission_for(body: SandboxDryRunRequest) -> GoldTierSubmissionInput:
     generated = tuple(uuid4() for _ in range(7))
     authority = PolicyAuthority.SANDBOX_TEST_ONLY
     labelled = {
-        name: AuthorityLabelledTargetValue(value=value, authority=authority)
+        name: AuthorityLabelledTargetValue(
+            value=value or "TBD_SPONSOR",
+            authority=authority,
+        )
         for name, value in body.test_values.model_dump().items()
     }
     country = body.search.country_of_incorporation

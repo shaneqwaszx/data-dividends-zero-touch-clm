@@ -556,7 +556,7 @@ def test_existing_party_skips_shell_and_continues_to_completion() -> None:
     result = start_demo(client, "EXISTING_PARTY")
     assert result["status"] == "COMPLETED"
     assert result["active_exceptions"] == []
-    assert target.calls == ["search", "policy", "amend"]
+    assert target.calls == ["search", "amend"]
 
 
 def test_provider_and_target_failures_are_technical_not_business_review() -> None:
@@ -1024,7 +1024,7 @@ def test_reconciliation_conflict_after_review_fails_closed_then_repeat_repairs_o
     assert completed.current_stage == "COMPLETE"
     assert repeated is not None and len(repeated.events) == durable_event_count
     assert ownership_calls["count"] == 1
-    assert target.calls == ["search", "policy", "amend"]
+    assert target.calls == ["search", "amend"]
 
 
 def test_reconciliation_infrastructure_failure_after_review_resume_repairs_once(
@@ -1642,7 +1642,7 @@ def test_P06_QG_006_REPEATED_MATCH_FOUND_FINALIZATION_RETRY(
         uen="202400005E",
         expected_status="COMPLETED",
         expected_code=None,
-        expected_calls=["search", "policy", "amend"],
+        expected_calls=["search", "amend"],
     )
 
 

@@ -6,6 +6,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from pydantic import ValidationError
+
 from app.domain.access import ROLE_CAPABILITIES, AuthenticatedActor, Capability
 from app.domain.policy import (
     ENTITY_RESOLUTION_ADDRESS_WEIGHT_ID,
@@ -19,12 +21,18 @@ from app.domain.policy import (
     GOLDTIER_ACCOUNT_ENTITY_TYPE_ID,
     GOLDTIER_ACCOUNT_ENTITY_TYPE_POC_VALUE,
     GOLDTIER_BOOKING_ENTITY_ID,
+    GOLDTIER_BOOKING_ENTITY_POC_VALUE,
     GOLDTIER_CLIENT_SEGMENT_ID,
+    GOLDTIER_CLIENT_SEGMENT_VALUES,
     GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_ID,
+    GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_POC_VALUE,
     GOLDTIER_KYC_CUSTOMER_TYPE_ID,
+    GOLDTIER_KYC_CUSTOMER_TYPE_VALUES,
     GOLDTIER_POLICY_ID,
+    GOLDTIER_POLICY_POC_VALUE,
     GOLDTIER_PRODUCT_TYPE_ID,
     GOLDTIER_REGISTRATION_TYPE_ID,
+    GOLDTIER_REGISTRATION_TYPE_POC_VALUE,
     GOLDTIER_TARGET_POLICY_IDS,
     IDP_POLICY_ID,
     MAX_POLICY_AUDIT_EVENTS,
@@ -72,6 +80,11 @@ class PolicyNotFoundError(Exception):
 
 class PolicyValidationError(Exception):
     pass
+
+
+CASE_BOUND_GOLDTIER_POLICY_IDS = frozenset(
+    {GOLDTIER_KYC_CUSTOMER_TYPE_ID, GOLDTIER_CLIENT_SEGMENT_ID}
+)
 
 
 class PolicyManagementService:
@@ -204,6 +217,8 @@ class PolicyManagementService:
             raise AdministrationConflictError
         if rule.enforcement == PolicyEnforcement.NOT_EDITABLE:
             raise PolicyValidationError
+        if policy_id in CASE_BOUND_GOLDTIER_POLICY_IDS:
+            raise PolicyValidationError
         if authority is not None and policy_id not in GOLDTIER_TARGET_POLICY_IDS:
             raise PolicyValidationError
         if rule.enforcement == PolicyEnforcement.DISPLAY_SHOWCASE_ONLY:
@@ -224,7 +239,10 @@ class PolicyManagementService:
             },
             deep=True,
         )
-        candidate_rule = PolicyRule.model_validate(candidate_rule)
+        try:
+            candidate_rule = PolicyRule.model_validate(candidate_rule.model_dump())
+        except ValidationError:
+            raise PolicyValidationError from None
         return self._save(
             current,
             rules=tuple(
@@ -253,6 +271,8 @@ class PolicyManagementService:
             or rule.version != expected_rule_version
         ):
             raise AdministrationConflictError
+        if policy_id in CASE_BOUND_GOLDTIER_POLICY_IDS:
+            raise PolicyValidationError
         now = self._clock()
         reset = PolicyRule.model_validate(
             rule.model_copy(
@@ -578,6 +598,7 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
         default_value: str = "TBD_SPONSOR",
         default_authority: PolicyAuthority = PolicyAuthority.TBD_SPONSOR,
         classifications: tuple[PolicyClassification, ...] = (pending,),
+        allowed_values: tuple[str, ...] = (),
     ) -> PolicyRule:
         typed = StringPolicyValue(value=default_value)
         return PolicyRule(
@@ -588,6 +609,7 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
             value=typed,
             value_type=PolicyValueType.STRING,
             default_value=typed,
+            allowed_values=allowed_values,
             classifications=classifications,
             authority=default_authority,
             default_authority=default_authority,
@@ -834,37 +856,58 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
         target_rule(
             GOLDTIER_KYC_CUSTOMER_TYPE_ID,
             "GoldTier KYC customer type",
-            "Authority-labelled XPI Shell customer type; the default blocks dispatch.",
+            "Case-selected XPI Shell customer type from the corrected OpenAPI vocabulary.",
+            allowed_values=("TBD_SPONSOR", *GOLDTIER_KYC_CUSTOMER_TYPE_VALUES),
         ),
         target_rule(
             GOLDTIER_CLIENT_SEGMENT_ID,
             "GoldTier client segment",
-            "Authority-labelled XPI Shell client segment; the default blocks dispatch.",
+            "Case-selected XPI Shell client segment from the corrected OpenAPI vocabulary.",
+            allowed_values=("TBD_SPONSOR", *GOLDTIER_CLIENT_SEGMENT_VALUES),
         ),
         target_rule(
             GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_ID,
             "GoldTier customer external system",
-            "Authority-labelled XPI external-system label; the default blocks dispatch.",
+            (
+                "Sponsor-documented sandbox source-system label; independent of "
+                "SG registration identity."
+            ),
+            default_value=GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_POC_VALUE,
+            default_authority=PolicyAuthority.SPONSOR_DOCUMENTED,
+            classifications=(project, pending),
+            allowed_values=(GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_POC_VALUE,),
         ),
         target_rule(
             GOLDTIER_REGISTRATION_TYPE_ID,
             "GoldTier registration type",
-            "Authority-labelled XPI registration type; the default blocks dispatch.",
+            "User-authorized Singapore mapping to the sponsor-documented ACRA registration type.",
+            default_value=GOLDTIER_REGISTRATION_TYPE_POC_VALUE,
+            default_authority=PolicyAuthority.USER_AUTHORIZED_POC,
+            classifications=(project, pending),
+            allowed_values=(GOLDTIER_REGISTRATION_TYPE_POC_VALUE,),
         ),
         target_rule(
             GOLDTIER_POLICY_ID,
             "GoldTier policy",
-            "Authority-labelled XPI customer policy; the default blocks dispatch.",
+            "Sponsor-documented Singapore XPI customer policy.",
+            default_value=GOLDTIER_POLICY_POC_VALUE,
+            default_authority=PolicyAuthority.SPONSOR_DOCUMENTED,
+            classifications=(project, pending),
+            allowed_values=(GOLDTIER_POLICY_POC_VALUE,),
         ),
         target_rule(
             GOLDTIER_BOOKING_ENTITY_ID,
             "GoldTier booking entity",
-            "Authority-labelled XPI booking entity; the default blocks dispatch.",
+            "User-authorized bounded POC selection from the sponsor booking-entity vocabulary.",
+            default_value=GOLDTIER_BOOKING_ENTITY_POC_VALUE,
+            default_authority=PolicyAuthority.USER_AUTHORIZED_POC,
+            classifications=(project, pending),
+            allowed_values=(GOLDTIER_BOOKING_ENTITY_POC_VALUE,),
         ),
         target_rule(
             GOLDTIER_ACCOUNT_ENTITY_TYPE_ID,
             "GoldTier account entity type",
-            "Editable project-defined provisional XPI account entity type placeholder.",
+            "Optional XPI sandbox field; an unconfirmed placeholder is emitted as empty.",
             default_value=GOLDTIER_ACCOUNT_ENTITY_TYPE_POC_VALUE,
             default_authority=PolicyAuthority.PROJECT_DEFINED_PROVISIONAL,
             classifications=(project, pending),
@@ -872,7 +915,7 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
         target_rule(
             GOLDTIER_PRODUCT_TYPE_ID,
             "GoldTier product type",
-            "Authority-labelled XPI product type; the default blocks dispatch.",
+            "Optional XPI sandbox field; the unconfirmed default is emitted as empty.",
         ),
     )
     return PolicyCatalogue(

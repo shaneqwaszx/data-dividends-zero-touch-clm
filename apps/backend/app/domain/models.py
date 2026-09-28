@@ -618,6 +618,56 @@ class GoldTierResult(BaseModel):
     policy_id: str | None = None
     policy_status: str | None = None
     amend_status: str | None = None
+    readback_party_id: str | None = None
+    readback_status: str | None = None
+
+
+class InitialCustomerIdentity(BaseModel):
+    """User-supplied identity retained before any registry or target lookup."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    legal_name: str = Field(min_length=1, max_length=160)
+    registration_number: str = Field(min_length=1, max_length=32)
+    country_of_incorporation: str = Field(min_length=2, max_length=3)
+
+
+class ExistingTargetStateProvenance(BaseModel):
+    """Safe provenance for canonical state reused from a prior verified target case."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source: str = "EXISTING_TARGET_STATE"
+    source_case_id: UUID
+    target_party_id: str = Field(min_length=1, max_length=96)
+    verified_at: datetime
+
+
+class InitialGoldTierSearchEvidence(BaseModel):
+    """Bounded Search-first evidence retained before optional ACRA acquisition."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    request_id: UUID
+    disposition: Literal["NO_MATCH", "EXACT_MATCH", "REVIEW_REQUIRED", "FAILED"]
+    provider_outcome: str = Field(min_length=1, max_length=32)
+    status_code: int = Field(ge=200, le=599)
+    candidate_count: int = Field(ge=0, le=25)
+    candidate_party_ids: tuple[str, ...] = Field(default=(), max_length=25)
+    candidate_legal_names: tuple[str | None, ...] = Field(default=(), max_length=25)
+    selected_party_id: str | None = Field(default=None, min_length=1, max_length=96)
+    searched_at: datetime
+
+    @model_validator(mode="after")
+    def validate_initial_search(self) -> "InitialGoldTierSearchEvidence":
+        if (
+            self.candidate_count != len(self.candidate_party_ids)
+            or self.candidate_count != len(self.candidate_legal_names)
+        ):
+            raise ValueError("Initial Search candidate evidence must remain aligned")
+        if (self.disposition == "EXACT_MATCH") != (self.selected_party_id is not None):
+            raise ValueError("Only an exact initial Search may retain a target identity")
+        return self
 
 
 class SafeError(BaseModel):
@@ -634,6 +684,9 @@ class OnboardingCase(BaseModel):
     source_case_id: str
     correlation_id: UUID
     requested_uen: str
+    initial_identity: InitialCustomerIdentity | None = None
+    initial_target_search: InitialGoldTierSearchEvidence | None = None
+    existing_target_state: ExistingTargetStateProvenance | None = None
     policy_snapshot: CasePolicySnapshot = Field(default_factory=legacy_phase13_policy_snapshot)
     team_id: TeamId | None = None
     priority: CasePriority | None = None
@@ -651,6 +704,21 @@ class OnboardingCase(BaseModel):
 
     @model_validator(mode="after")
     def validate_registry_binding(self) -> "OnboardingCase":
+        if self.initial_identity is not None and (
+            self.initial_identity.registration_number != self.requested_uen
+        ):
+            raise ValueError("Initial identity must match the requested identifier")
+        if self.existing_target_state is not None:
+            if self.entity is None or self.initial_target_search is None:
+                raise ValueError(
+                    "Existing target state requires hydrated entity and Search evidence"
+                )
+            if (
+                self.initial_target_search.disposition != "EXACT_MATCH"
+                or self.initial_target_search.selected_party_id
+                != self.existing_target_state.target_party_id
+            ):
+                raise ValueError("Existing target state must match the exact Search identity")
         binding = self.registry_evidence_binding
         acquisition = self.registry_acquisition
         if binding is None:

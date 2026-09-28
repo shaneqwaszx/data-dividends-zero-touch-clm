@@ -283,6 +283,7 @@ def build_case_reauthorizer(
     access: CaseAccessPolicy,
     cases: OnboardingService,
     case_id: UUID,
+    required_capability: Capability | None = None,
 ) -> Callable[[], None]:
     """Capture request credentials for a fresh check inside the case mutation lock."""
 
@@ -303,6 +304,17 @@ def build_case_reauthorizer(
                     "message": "The requested case was not found.",
                 },
             ) from None
+        if (
+            required_capability is not None
+            and required_capability not in ROLE_CAPABILITIES[session.actor.profile.role]
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "CAPABILITY_FORBIDDEN",
+                    "message": "The requested case action is not permitted.",
+                },
+            )
 
     return reauthorize
 

@@ -16,6 +16,15 @@ class OnboardingCaseRepository(Protocol):
 
     def get(self, case_id: UUID) -> OnboardingCase | None: ...
 
+    def find_verified_target_case(
+        self,
+        *,
+        registration_number: str,
+        legal_name: str,
+        country_of_incorporation: str,
+        party_id: str,
+    ) -> OnboardingCase | None: ...
+
     def delete_for_case(self, case_id: UUID) -> None: ...
 
     @property
@@ -74,6 +83,38 @@ class InMemoryOnboardingCaseRepository:
         with self._lock:
             case = self._cases.get(case_id)
             return case.model_copy(deep=True) if case is not None else None
+
+    def find_verified_target_case(
+        self,
+        *,
+        registration_number: str,
+        legal_name: str,
+        country_of_incorporation: str,
+        party_id: str,
+    ) -> OnboardingCase | None:
+        def normalized(value: str) -> str:
+            return " ".join(value.strip().split()).casefold()
+
+        with self._lock:
+            for case in self._cases.values():
+                entity = case.entity
+                result = case.goldtier_result
+                if (
+                    entity is not None
+                    and result is not None
+                    and result.party_id == party_id
+                    and result.readback_party_id == party_id
+                    and result.readback_status is not None
+                    and entity.registration_number is not None
+                    and entity.legal_name is not None
+                    and entity.country_of_incorporation is not None
+                    and entity.registration_number.upper() == registration_number.upper()
+                    and normalized(entity.legal_name) == normalized(legal_name)
+                    and entity.country_of_incorporation.upper()
+                    == country_of_incorporation.upper()
+                ):
+                    return case.model_copy(deep=True)
+        return None
 
     def transaction_snapshot(self, case_id: UUID) -> OnboardingCase | None:
         case = self._cases.get(case_id)

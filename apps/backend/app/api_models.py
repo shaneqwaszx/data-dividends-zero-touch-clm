@@ -23,6 +23,7 @@ from app.domain.clm import (
     ClmStatus,
     ClmWorkflowEvent,
     GoldTierSearchCheckpoint,
+    GoldTierSearchDisposition,
     GoldTierSubmissionPlan,
     RelatedPartySubmissionPreparation,
 )
@@ -71,7 +72,12 @@ from app.domain.ownership import (
     OwnershipWorkflowEvent,
     Party,
 )
-from app.domain.policy import CasePolicySnapshot
+from app.domain.policy import (
+    GOLDTIER_CLIENT_SEGMENT_VALUES,
+    GOLDTIER_KYC_CUSTOMER_TYPE_VALUES,
+    CasePolicySnapshot,
+    PolicyAuthority,
+)
 from app.domain.reconciliation import (
     DiscrepancyStatus,
     ObservationValidity,
@@ -84,6 +90,7 @@ from app.domain.reconciliation import (
     ReconciliationStatus,
 )
 from app.domain.zero_touch import (
+    LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
     AutomationEvent,
     AutomationEventType,
     AutomationMetrics,
@@ -95,6 +102,17 @@ from app.domain.zero_touch import (
     SafeExceptionEvidence,
     ZeroTouchAutomationRecord,
 )
+
+ProcessingNodeStatus = Literal[
+    "COMPLETE",
+    "IN_PROGRESS",
+    "EMPTY",
+    "SKIPPED",
+    "REVIEW_REQUIRED",
+    "BLOCKED",
+    "FAILED",
+    "NOT_REACHED",
+]
 
 
 class BrowserSourceMetadata(BaseModel):
@@ -638,6 +656,83 @@ class ReconciliationResponse(BaseModel):
         )
 
 
+class BrowserProcessingNode(BaseModel):
+    """Safe backend-authored workflow node; never includes raw provider evidence."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: str = Field(pattern=r"^[A-Z0-9_]+$", max_length=64)
+    label: str = Field(min_length=1, max_length=96)
+    status: ProcessingNodeStatus
+    provider: str | None = Field(default=None, max_length=64)
+    environment: str | None = Field(default=None, max_length=64)
+    operation: str | None = Field(default=None, max_length=64)
+    backend_stage: AutomationStage | None = None
+    timestamp: datetime | None = None
+    safe_result: str | None = Field(default=None, max_length=160)
+    record_count: int | None = Field(default=None, ge=0, le=128)
+    blocker_code: str | None = Field(default=None, max_length=64)
+    retained_goldtier_id: str | None = Field(default=None, min_length=1, max_length=96)
+    children: tuple["BrowserProcessingNode", ...] = Field(default_factory=tuple, max_length=12)
+
+
+class BrowserTargetClassificationField(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    allowed_values: tuple[str, ...]
+    selected_value: str | None = None
+    authority: PolicyAuthority | None = None
+    required: Literal[True] = True
+
+
+class BrowserTargetClassification(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    vocabulary_version: Literal["GOLDTIER_OPENAPI_V1_0_0"] = "GOLDTIER_OPENAPI_V1_0_0"
+    editable: bool
+    kyc_customer_type: BrowserTargetClassificationField
+    client_segment: BrowserTargetClassificationField
+
+    @classmethod
+    def from_case(cls, case: OnboardingCase) -> "BrowserTargetClassification":
+        target = case.policy_snapshot.goldtier_target
+
+        def selected(item: object) -> tuple[str | None, PolicyAuthority | None]:
+            if item is None:
+                return None, None
+            value = getattr(item, "value", None)
+            authority = getattr(item, "authority", None)
+            if authority == PolicyAuthority.TBD_SPONSOR or value == "TBD_SPONSOR":
+                return None, None
+            return value, authority
+
+        kyc_value, kyc_authority = selected(target.kyc_customer_type if target else None)
+        segment_value, segment_authority = selected(target.client_segment if target else None)
+        frozen = case.goldtier_result is not None or case.state in {
+            WorkflowState.GT_SHELL_CREATED,
+            WorkflowState.GT_POLICY_CREATED,
+            WorkflowState.GT_ENRICHED,
+            WorkflowState.COMPLETED,
+        }
+        return cls(
+            editable=(
+                target is not None
+                and not frozen
+                and (kyc_value is None or segment_value is None)
+            ),
+            kyc_customer_type=BrowserTargetClassificationField(
+                allowed_values=GOLDTIER_KYC_CUSTOMER_TYPE_VALUES,
+                selected_value=kyc_value,
+                authority=kyc_authority,
+            ),
+            client_segment=BrowserTargetClassificationField(
+                allowed_values=GOLDTIER_CLIENT_SEGMENT_VALUES,
+                selected_value=segment_value,
+                authority=segment_authority,
+            ),
+        )
+
+
 class ZeroTouchCaseSummaryResponse(BaseModel):
     """Sponsor-facing authoritative automation and bounded CLM summary."""
 
@@ -655,6 +750,9 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     technical_failure: SafeError | None
     metrics: AutomationMetrics
     target_operations: tuple["BrowserTargetOperationEvidence", ...]
+    stage_order_version: Literal[1, 2]
+    processing_pipeline: tuple[BrowserProcessingNode, ...]
+    target_classification: BrowserTargetClassification
     timeline: list[AutomationEvent]
     created_at: datetime
     updated_at: datetime
@@ -669,6 +767,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         timing: "CaseDetailTimingResponse",
         reconciliation: ReconciliationCaseRecord | None = None,
         target_operations: tuple["BrowserTargetOperationEvidence", ...] = (),
+        processing_pipeline: tuple[BrowserProcessingNode, ...] = (),
         team: TeamRecord | None = None,
     ) -> "ZeroTouchCaseSummaryResponse":
         return cls(
@@ -690,6 +789,9 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
             technical_failure=record.technical_failure,
             metrics=record.metrics,
             target_operations=target_operations,
+            stage_order_version=record.stage_order_version,
+            processing_pipeline=processing_pipeline,
+            target_classification=BrowserTargetClassification.from_case(case),
             timeline=record.events,
             created_at=record.created_at,
             updated_at=record.updated_at,
@@ -870,18 +972,623 @@ class BrowserTargetOperationEvidence(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    operation: Literal["SEARCH", "SHELL", "POLICY", "AMEND"]
+    operation: Literal["SEARCH", "SHELL", "POLICY", "AMEND", "READBACK"]
     status: Literal[
         "NOT_ATTEMPTED",
         "IN_PROGRESS",
         "NO_MATCH",
         "MATCH_FOUND",
         "SKIPPED",
+        "RECOVERED",
         "REVIEW_REQUIRED",
         "CREATED",
         "SUCCESS",
         "FAILED",
     ]
+
+
+def project_processing_pipeline(
+    *,
+    automation: ZeroTouchAutomationRecord,
+    clm: ClmOrchestrationRecord,
+    case: OnboardingCase,
+    reconciliation: ReconciliationCaseRecord | None,
+    target_operations: tuple[BrowserTargetOperationEvidence, ...],
+    retained_goldtier_id: str | None,
+) -> tuple[BrowserProcessingNode, ...]:
+    """Build the exact, presentation-safe workflow order from retained backend facts."""
+
+    def exception_code(stage: AutomationStage) -> str | None:
+        return next(
+            (item.blocker_code for item in automation.active_exceptions if item.stage == stage),
+            None,
+        )
+
+    def stage_timestamp(stage: AutomationStage) -> datetime | None:
+        timestamps = [item.timestamp for item in automation.events if item.stage == stage]
+        return max(timestamps) if timestamps else None
+
+    def stage_status(stage: AutomationStage) -> ProcessingNodeStatus:
+        if stage in automation.completed_stages:
+            return "COMPLETE"
+        if automation.current_stage != stage:
+            return "NOT_REACHED"
+        if automation.status == AutomationStatus.TECHNICAL_FAILURE:
+            return "FAILED"
+        if automation.status == AutomationStatus.WAITING_FOR_REVIEW:
+            return "REVIEW_REQUIRED"
+        if automation.status in {
+            AutomationStatus.PENDING_INPUTS,
+            AutomationStatus.RECOVERY_PENDING,
+        }:
+            return "BLOCKED"
+        return "IN_PROGRESS"
+
+    def readiness_status(value: object) -> ProcessingNodeStatus:
+        normalized = str(value)
+        return {
+            "READY": "COMPLETE",
+            "SUBMITTED": "COMPLETE",
+            "IN_PROGRESS": "IN_PROGRESS",
+            "REVIEW_REQUIRED": "REVIEW_REQUIRED",
+            "FAILED": "FAILED",
+            "BLOCKED": "BLOCKED",
+            "MISSING": "BLOCKED",
+            "NOT_SUBMITTED": "NOT_REACHED",
+        }.get(normalized, "NOT_REACHED")  # type: ignore[return-value]
+
+    def operation_status(value: str) -> ProcessingNodeStatus:
+        return {
+            "NOT_ATTEMPTED": "NOT_REACHED",
+            "IN_PROGRESS": "IN_PROGRESS",
+            "NO_MATCH": "COMPLETE",
+            "MATCH_FOUND": "COMPLETE",
+            "SKIPPED": "SKIPPED",
+            "RECOVERED": "COMPLETE",
+            "REVIEW_REQUIRED": "REVIEW_REQUIRED",
+            "CREATED": "COMPLETE",
+            "SUCCESS": "COMPLETE",
+            "FAILED": "FAILED",
+        }[value]  # type: ignore[return-value]
+
+    jurisdiction = case.jurisdiction_resolution
+    jurisdiction_status: ProcessingNodeStatus = "NOT_REACHED"
+    jurisdiction_result: str | None = None
+    jurisdiction_timestamp: datetime | None = None
+    if jurisdiction is not None:
+        jurisdiction_timestamp = jurisdiction.resolved_at
+        if jurisdiction.status.value == "RESOLVED":
+            jurisdiction_status = "COMPLETE"
+            jurisdiction_result = "Jurisdiction resolved"
+        else:
+            jurisdiction_status = "REVIEW_REQUIRED"
+            jurisdiction_result = "Jurisdiction requires review"
+
+    acquisition = case.registry_acquisition
+    existing_target_state = getattr(case, "existing_target_state", None)
+    initial_target_search = getattr(case, "initial_target_search", None)
+    registry_children: tuple[BrowserProcessingNode, ...] = ()
+    registry_status = stage_status(AutomationStage.REGISTRY)
+    registry_provider: str | None = None
+    registry_environment: str | None = None
+    registry_timestamp = stage_timestamp(AutomationStage.REGISTRY)
+    if acquisition is not None:
+        operation_nodes: list[BrowserProcessingNode] = []
+        for item in acquisition.operation_results:
+            provenance = item.provenance
+            if provenance is not None and registry_provider is None:
+                registry_provider = provenance.provider.value
+                registry_environment = provenance.environment.value
+            mapped_status: ProcessingNodeStatus = {
+                "COMPLETE": "COMPLETE",
+                "EMPTY": "EMPTY",
+                "FAILED": "FAILED",
+                "NOT_ATTEMPTED": "NOT_REACHED",
+            }[item.status.value]  # type: ignore[assignment]
+            operation_nodes.append(
+                BrowserProcessingNode(
+                    node_id=f"ACRA_{item.operation.value}",
+                    label=(
+                        "Shareholders"
+                        if item.operation.value == "OWNERSHIP_PARTIES"
+                        else item.operation.value.replace("_", " ").title()
+                    ),
+                    status=mapped_status,
+                    provider=provenance.provider.value if provenance is not None else "ACRA",
+                    environment=provenance.environment.value if provenance is not None else None,
+                    operation=item.operation.value,
+                    backend_stage=AutomationStage.REGISTRY,
+                    timestamp=provenance.retrieved_at if provenance is not None else None,
+                    safe_result=(
+                        "Operation returned no records"
+                        if mapped_status == "EMPTY"
+                        else "Operation evidence retained"
+                        if mapped_status == "COMPLETE"
+                        else "Operation failed"
+                        if mapped_status == "FAILED"
+                        else "Operation was not attempted"
+                    ),
+                    record_count=item.record_count,
+                    blocker_code=item.error.code if item.error is not None else None,
+                )
+            )
+        registry_children = tuple(operation_nodes)
+        registry_timestamp = acquisition.retrieved_at
+        registry_status = {
+            "COMPLETE": "COMPLETE",
+            "PARTIAL": "REVIEW_REQUIRED",
+            "FAILED": "FAILED",
+        }[acquisition.status.value]  # type: ignore[assignment]
+    elif existing_target_state is not None:
+        registry_status = "SKIPPED"
+
+    target_by_name = {item.operation: item for item in target_operations}
+    checkpoint = clm.target_search_checkpoint
+    search_evidence = target_by_name.get(
+        "SEARCH", BrowserTargetOperationEvidence(operation="SEARCH", status="NOT_ATTEMPTED")
+    )
+    search_status = operation_status(search_evidence.status)
+    if (
+        checkpoint is None
+        and search_evidence.status == "NOT_ATTEMPTED"
+        and automation.current_stage == AutomationStage.GOLDTIER_SEARCH
+    ):
+        search_status = stage_status(AutomationStage.GOLDTIER_SEARCH)
+    search_event_timestamps = [
+        item.timestamp
+        for item in clm.events
+        if item.event_type.value.startswith("GOLDTIER_SEARCH_")
+    ]
+    search_timestamp = (
+        checkpoint.searched_at
+        if checkpoint is not None
+        else max(search_event_timestamps)
+        if search_event_timestamps
+        else None
+    )
+    search_result = (
+        f"{checkpoint.candidate_count} candidate(s) retained"
+        if checkpoint is not None and search_status == "COMPLETE"
+        else f"{checkpoint.candidate_count} candidate(s) require review"
+        if checkpoint is not None and search_status == "REVIEW_REQUIRED"
+        else {
+            "IN_PROGRESS": "Search in progress",
+            "REVIEW_REQUIRED": "Search requires review",
+            "BLOCKED": "Search blocked",
+            "FAILED": "Search failed",
+            "SKIPPED": "Search skipped",
+            "EMPTY": "Search returned no candidates",
+            "COMPLETE": "Search completed",
+            "NOT_REACHED": "Search not reached",
+        }[search_status]
+    )
+    branch_statuses: dict[str, ProcessingNodeStatus] = {
+        "EXACT_MATCH": "NOT_REACHED",
+        "NO_MATCH": "NOT_REACHED",
+        "MULTIPLE_OR_AMBIGUOUS": "NOT_REACHED",
+    }
+    if checkpoint is not None:
+        branch_statuses = {name: "SKIPPED" for name in branch_statuses}
+        if checkpoint.disposition == GoldTierSearchDisposition.EXACT_MATCH:
+            branch_statuses["EXACT_MATCH"] = "COMPLETE"
+        elif checkpoint.disposition == GoldTierSearchDisposition.NO_MATCH:
+            branch_statuses["NO_MATCH"] = "COMPLETE"
+        elif checkpoint.disposition == GoldTierSearchDisposition.REVIEW_REQUIRED:
+            branch_statuses["MULTIPLE_OR_AMBIGUOUS"] = "REVIEW_REQUIRED"
+    search_children = tuple(
+        BrowserProcessingNode(
+            node_id=f"GOLDTIER_SEARCH_{name}",
+            label={
+                "EXACT_MATCH": "Exact match",
+                "NO_MATCH": "No match",
+                "MULTIPLE_OR_AMBIGUOUS": "Multiple or ambiguous matches",
+            }[name],
+            status=status,
+            provider="GOLDTIER",
+            environment=clm.submission_plan.environment.value,
+            operation="SEARCH",
+            backend_stage=AutomationStage.GOLDTIER_SEARCH,
+            timestamp=checkpoint.searched_at if checkpoint is not None else None,
+            safe_result=(
+                f"{checkpoint.candidate_count} candidate(s) retained"
+                if checkpoint is not None and status not in {"SKIPPED", "NOT_REACHED"}
+                else None
+            ),
+            record_count=(
+                checkpoint.candidate_count
+                if checkpoint is not None and status not in {"SKIPPED", "NOT_REACHED"}
+                else None
+            ),
+            blocker_code=(
+                str(checkpoint.code)
+                if checkpoint is not None and status == "REVIEW_REQUIRED"
+                else None
+            ),
+            retained_goldtier_id=(
+                retained_goldtier_id if name == "EXACT_MATCH" and status == "COMPLETE" else None
+            ),
+        )
+        for name, status in branch_statuses.items()
+    )
+
+    reconciliation_status: ProcessingNodeStatus = "NOT_REACHED"
+    reconciliation_result: str | None = None
+    reconciliation_timestamp: datetime | None = None
+    if reconciliation is not None:
+        reconciliation_timestamp = reconciliation.updated_at
+        reconciliation_status = {
+            "NOT_STARTED": "NOT_REACHED",
+            "MATCHED": "COMPLETE",
+            "RESOLVED": "COMPLETE",
+            "REVIEW_REQUIRED": "REVIEW_REQUIRED",
+            "FAILED": "FAILED",
+        }[reconciliation.status.value]  # type: ignore[assignment]
+        reconciliation_result = f"{len(reconciliation.discrepancies)} discrepancy record(s)"
+
+    intelligence_events = [
+        item
+        for item in automation.events
+        if item.event_type == AutomationEventType.INTELLIGENCE_EVALUATED
+    ]
+    advisory_status: ProcessingNodeStatus = "COMPLETE" if intelligence_events else "NOT_REACHED"
+    advisory_timestamp = intelligence_events[-1].timestamp if intelligence_events else None
+
+    case_policy_snapshot = getattr(case, "policy_snapshot", None)
+    target_policy = (
+        case_policy_snapshot.goldtier_target if case_policy_snapshot is not None else None
+    )
+    classification_event_times = [
+        item.timestamp
+        for item in getattr(case, "events", ())
+        if item.code == "GOLDTIER_CASE_CLASSIFICATION_BOUND"
+    ]
+    classification_timestamp = (
+        max(classification_event_times) if classification_event_times else None
+    )
+    if (
+        classification_timestamp is None
+        and target_policy is not None
+        and case_policy_snapshot is not None
+    ):
+        classification_timestamp = case_policy_snapshot.bound_at
+    classification_fields = (
+        (
+            "KYC_CUSTOMER_TYPE",
+            "KYC customer type",
+            target_policy.kyc_customer_type if target_policy is not None else None,
+        ),
+        (
+            "CLIENT_SEGMENT",
+            "Client segment",
+            target_policy.client_segment if target_policy is not None else None,
+        ),
+        (
+            "REGISTRATION_TYPE",
+            "Registration type",
+            target_policy.registration_type if target_policy is not None else None,
+        ),
+        (
+            "CUSTOMER_EXTERNAL_SYSTEM",
+            "Customer external system",
+            target_policy.customer_external_system if target_policy is not None else None,
+        ),
+        (
+            "POLICY",
+            "Policy",
+            target_policy.policy if target_policy is not None else None,
+        ),
+        (
+            "BOOKING_ENTITY",
+            "Booking entity",
+            target_policy.booking_entity if target_policy is not None else None,
+        ),
+    )
+    classification_children = tuple(
+        BrowserProcessingNode(
+            node_id=f"TARGET_CLASSIFICATION_{field_id}",
+            label=label,
+            status=(
+                "REVIEW_REQUIRED"
+                if item is None
+                or item.authority == PolicyAuthority.TBD_SPONSOR
+                or item.value == "TBD_SPONSOR"
+                else "COMPLETE"
+            ),
+            backend_stage=AutomationStage.READINESS,
+            timestamp=classification_timestamp,
+            safe_result=(f"{item.value} · {item.authority.value}" if item is not None else None),
+            blocker_code=(
+                "GOLDTIER_CLASSIFICATION_REQUIRED"
+                if item is None
+                or item.authority == PolicyAuthority.TBD_SPONSOR
+                or item.value == "TBD_SPONSOR"
+                else None
+            ),
+        )
+        for field_id, label, item in classification_fields
+    )
+    classification_status: ProcessingNodeStatus = (
+        "COMPLETE"
+        if target_policy is not None and target_policy.dispatch_ready
+        else "REVIEW_REQUIRED"
+    )
+    classification_nodes = (
+        (
+            BrowserProcessingNode(
+                node_id="TARGET_CLASSIFICATION",
+                label="Target classification",
+                status=classification_status,
+                backend_stage=AutomationStage.READINESS,
+                timestamp=classification_timestamp,
+                safe_result=(
+                    "Case target values are bound"
+                    if classification_status == "COMPLETE"
+                    else "Case target classification is required"
+                ),
+                blocker_code=(
+                    None
+                    if classification_status == "COMPLETE"
+                    else "GOLDTIER_CLASSIFICATION_REQUIRED"
+                ),
+                children=classification_children,
+            ),
+        )
+        if target_policy is not None
+        and clm.submission_plan.environment.value == "SANDBOX"
+        else ()
+    )
+
+    target_operation_children = tuple(
+        BrowserProcessingNode(
+            node_id=f"GOLDTIER_{item.operation}",
+            label={
+                "SEARCH": "Search",
+                "SHELL": "Customer shell",
+                "POLICY": "Customer policy",
+                "AMEND": "Customer amendment",
+                "READBACK": "Post-amend read-back",
+            }[item.operation],
+            status=operation_status(item.status),
+            provider="GOLDTIER",
+            environment=clm.submission_plan.environment.value,
+            operation=item.operation,
+            backend_stage=AutomationStage.MOCK_GOLDTIER,
+            safe_result=(
+                "Recovered from provider verification · Original transport outcome: "
+                "Uncertain · Replay: No"
+                if item.status == "RECOVERED"
+                else item.status.replace("_", " ").title()
+            ),
+            retained_goldtier_id=(
+                retained_goldtier_id
+                if item.operation in {"SHELL", "POLICY", "AMEND", "READBACK"}
+                and operation_status(item.status) in {"COMPLETE", "SKIPPED"}
+                else None
+            ),
+        )
+        for item in target_operations
+        if item.operation != "SEARCH"
+        or automation.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+    )
+    completed_status: ProcessingNodeStatus = (
+        "COMPLETE" if automation.status == AutomationStatus.COMPLETED else "NOT_REACHED"
+    )
+    target_children = (
+        *target_operation_children,
+        BrowserProcessingNode(
+            node_id="GOLDTIER_COMPLETED",
+            label="Completed",
+            status=completed_status,
+            backend_stage=AutomationStage.COMPLETE,
+            timestamp=automation.completed_at,
+            safe_result=(
+                "Automation completed" if completed_status == "COMPLETE" else "Not completed"
+            ),
+            retained_goldtier_id=(
+                retained_goldtier_id if completed_status == "COMPLETE" else None
+            ),
+        ),
+    )
+    target_status = stage_status(AutomationStage.MOCK_GOLDTIER)
+    if target_operation_children:
+        child_states = {item.status for item in target_operation_children}
+        if "FAILED" in child_states:
+            target_status = "FAILED"
+        elif "REVIEW_REQUIRED" in child_states:
+            target_status = "REVIEW_REQUIRED"
+        elif "IN_PROGRESS" in child_states:
+            target_status = "IN_PROGRESS"
+        elif all(
+            item.status in {"COMPLETE", "SKIPPED"} for item in target_operation_children
+        ):
+            target_status = "COMPLETE"
+
+    common_prefix = (
+        BrowserProcessingNode(
+            node_id="CASE_START",
+            label="Case start",
+            status="COMPLETE",
+            timestamp=automation.created_at,
+            safe_result="Automation record created",
+        ),
+        BrowserProcessingNode(
+            node_id="JURISDICTION",
+            label="Jurisdiction decision",
+            status=jurisdiction_status,
+            timestamp=jurisdiction_timestamp,
+            safe_result=jurisdiction_result,
+            blocker_code=exception_code(AutomationStage.REGISTRY),
+        ),
+        BrowserProcessingNode(
+            node_id="ACRA_REGISTRY",
+            label="ACRA registry",
+            status=registry_status,
+            provider=registry_provider or "ACRA",
+            environment=registry_environment,
+            backend_stage=AutomationStage.REGISTRY,
+            timestamp=registry_timestamp,
+            safe_result=(
+                "ACRA skipped after exact verified GoldTier match"
+                if existing_target_state is not None
+                else "Registry acquisition retained"
+                if acquisition is not None
+                else "Registry acquisition not reached"
+            ),
+            blocker_code=exception_code(AutomationStage.REGISTRY),
+            children=registry_children,
+        ),
+    )
+    early_search = BrowserProcessingNode(
+        node_id="GOLDTIER_SEARCH",
+        label="GoldTier search",
+        status=search_status,
+        provider="GOLDTIER",
+        environment=clm.submission_plan.environment.value,
+        operation="SEARCH",
+        backend_stage=AutomationStage.GOLDTIER_SEARCH,
+        timestamp=search_timestamp,
+        safe_result=search_result,
+        record_count=checkpoint.candidate_count if checkpoint is not None else None,
+        blocker_code=(
+            str(checkpoint.code)
+            if checkpoint is not None and checkpoint.code
+            else exception_code(AutomationStage.GOLDTIER_SEARCH)
+        ),
+        retained_goldtier_id=(
+            retained_goldtier_id
+            if checkpoint is not None
+            and checkpoint.disposition == GoldTierSearchDisposition.EXACT_MATCH
+            else None
+        ),
+        children=search_children,
+    )
+    initial_identity = getattr(case, "initial_identity", None)
+    initial_identity_node = BrowserProcessingNode(
+        node_id="INITIAL_IDENTITY",
+        label="Initial identity",
+        status="COMPLETE" if initial_identity is not None else "NOT_REACHED",
+        timestamp=getattr(case, "created_at", None) if initial_identity is not None else None,
+        safe_result=(
+            "Legal name, registration ID, and country retained"
+            if initial_identity is not None
+            else "Initial identity not supplied"
+        ),
+    )
+    existing_target_node = BrowserProcessingNode(
+        node_id="EXISTING_TARGET_STATE",
+        label="Existing GoldTier state",
+        status="COMPLETE" if existing_target_state is not None else "NOT_REACHED",
+        provider="GOLDTIER" if existing_target_state is not None else None,
+        environment=(
+            clm.submission_plan.environment.value
+            if existing_target_state is not None
+            else None
+        ),
+        retained_goldtier_id=(
+            existing_target_state.target_party_id
+            if existing_target_state is not None
+            else None
+        ),
+        safe_result=(
+            "Verified prior target state hydrated"
+            if existing_target_state is not None
+            else "No existing target state hydrated"
+        ),
+    )
+    common_suffix = (
+        BrowserProcessingNode(
+            node_id="DOCUMENT_IDP",
+            label="Document and IDP",
+            status=readiness_status(clm.readiness.document.status.value),
+            backend_stage=AutomationStage.DOCUMENT,
+            timestamp=stage_timestamp(AutomationStage.DOCUMENT),
+            safe_result=clm.readiness.document.status.value.replace("_", " ").title(),
+            blocker_code=exception_code(AutomationStage.DOCUMENT),
+        ),
+        BrowserProcessingNode(
+            node_id="RECONCILIATION",
+            label="Evidence reconciliation",
+            status=reconciliation_status,
+            backend_stage=AutomationStage.DOCUMENT,
+            timestamp=reconciliation_timestamp,
+            safe_result=reconciliation_result,
+            blocker_code=exception_code(AutomationStage.DOCUMENT),
+        ),
+        BrowserProcessingNode(
+            node_id="OWNERSHIP_UBO",
+            label="Ownership and UBO",
+            status=readiness_status(clm.readiness.ownership.status.value),
+            backend_stage=AutomationStage.OWNERSHIP,
+            timestamp=stage_timestamp(AutomationStage.OWNERSHIP),
+            safe_result=clm.readiness.ownership.status.value.replace("_", " ").title(),
+            blocker_code=exception_code(AutomationStage.OWNERSHIP),
+        ),
+        BrowserProcessingNode(
+            node_id="ADVISORY",
+            label="Advisory evaluation",
+            status=advisory_status,
+            backend_stage=AutomationStage.OWNERSHIP,
+            timestamp=advisory_timestamp,
+            safe_result=(
+                "Advisory result retained" if intelligence_events else "Advisory not reached"
+            ),
+        ),
+        *classification_nodes,
+        BrowserProcessingNode(
+            node_id="READINESS",
+            label="Readiness decision",
+            status=stage_status(AutomationStage.READINESS),
+            backend_stage=AutomationStage.READINESS,
+            timestamp=clm.readiness.evaluated_at,
+            safe_result=(
+                "Ready for target submission"
+                if not clm.readiness.blockers
+                else f"{len(clm.readiness.blockers)} blocker(s) retained"
+            ),
+            blocker_code=(clm.readiness.blockers[0].value if clm.readiness.blockers else None),
+        ),
+        BrowserProcessingNode(
+            node_id="GOLDTIER_TARGET",
+            label="GoldTier target",
+            status=target_status,
+            provider="GOLDTIER",
+            environment=clm.submission_plan.environment.value,
+            backend_stage=AutomationStage.MOCK_GOLDTIER,
+            timestamp=stage_timestamp(AutomationStage.MOCK_GOLDTIER),
+            safe_result="Ledger-owned target sequence",
+            blocker_code=exception_code(AutomationStage.MOCK_GOLDTIER),
+            retained_goldtier_id=retained_goldtier_id,
+            children=target_children,
+        ),
+        BrowserProcessingNode(
+            node_id="HUMAN_APPROVAL",
+            label="Human approval (unresolved)",
+            status=(
+                "REVIEW_REQUIRED" if completed_status == "COMPLETE" else "NOT_REACHED"
+            ),
+            timestamp=automation.completed_at,
+            safe_result=(
+                "Sandbox lifecycle completed; approval is not implemented"
+                if completed_status == "COMPLETE"
+                else "Approval boundary not reached; transition is not implemented"
+            ),
+            blocker_code="READY_FOR_APPROVAL_NOT_IMPLEMENTED",
+        ),
+    )
+    if automation.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION:
+        return (*common_prefix, *common_suffix)
+    if initial_target_search is not None:
+        prefix: tuple[BrowserProcessingNode, ...] = (
+            common_prefix[0],
+            initial_identity_node,
+            common_prefix[1],
+            early_search,
+            common_prefix[2],
+        )
+        if existing_target_state is not None:
+            prefix = (*prefix, existing_target_node)
+        return (*prefix, *common_suffix)
+    return (*common_prefix, early_search, *common_suffix)
 
 
 ZeroTouchCaseSummaryResponse.model_rebuild()

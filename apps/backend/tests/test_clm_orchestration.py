@@ -452,7 +452,7 @@ def recovery_case_configuration(
             "202400001A",
             RecordingGoldTier(match_found=True),
             ClmStatus.MOCK_GOLDTIER_SUBMITTED,
-            ["search", "policy", "amend"],
+            ["search", "amend"],
             None,
         )
     if outcome == "policy":
@@ -787,13 +787,13 @@ def test_goldtier_failure_and_partial_amend_terminalize_truthfully(
     assert target.calls == expected_calls
 
 
-def test_exact_match_skips_shell_and_continues_policy_and_amend() -> None:
+def test_exact_match_skips_shell_and_policy_then_amends_existing_party() -> None:
     target = RecordingGoldTier(match_found=True)
     _, _, _, clm, _, case_id = make_ready_case(goldtier=target)
     submitted = clm.submit(case_id=case_id)  # type: ignore[arg-type]
     assert submitted.status == ClmStatus.MOCK_GOLDTIER_SUBMITTED
     assert submitted.error is None
-    assert target.calls == ["search", "policy", "amend"]
+    assert target.calls == ["search", "amend"]
 
 
 @pytest.mark.parametrize(
@@ -1321,7 +1321,7 @@ def test_two_concurrent_retries_after_pre_receipt_failure_finalize_once(
             "match",
             "202400001A",
             ClmStatus.MOCK_GOLDTIER_SUBMITTED,
-            ["search", "policy", "amend"],
+            ["search", "amend"],
             None,
         ),
         (

@@ -32,8 +32,57 @@ MOCK_RISK_HIGH_THRESHOLD_ID = "MOCK_RISK_HIGH_THRESHOLD"
 MOCK_RISK_BLOCKS_READINESS_ID = "MOCK_RISK_BLOCKS_READINESS"
 GOLDTIER_KYC_CUSTOMER_TYPE_ID = "GOLDTIER_KYC_CUSTOMER_TYPE"
 GOLDTIER_CLIENT_SEGMENT_ID = "GOLDTIER_CLIENT_SEGMENT"
+GOLDTIER_VOCABULARY_VERSION = "GOLDTIER_OPENAPI_V1_0_0"
+GOLDTIER_CLIENT_SEGMENT_VALUES = (
+    "Corporate",
+    "DI - Diversified Industrials",
+    "DI - Education and Defence",
+    "DI - Food, Beverage, and Agribusiness",
+    "DI - Government",
+    "DI - Telecom, Media, Entertainment, and Technology",
+    "DI - Transport and Logistics",
+    "FIG - Banks",
+    "FIG - Diversified Financials",
+    "FIG - Funds",
+    "FIG - Insurance",
+    "FIG - OSU",
+    "Global Subsidiary Group",
+    "Private Wealth",
+    "Property and Health",
+    "Resource, Energy, and Infrastructure",
+    "Retail",
+    "Commercial BB (Business Banking)",
+    "Commercial RBB (Regional Business Banking)",
+    "Commercial SBB (Small Business Banking)",
+    "Corporate Finance",
+    "Diversified & Specialist Industries",
+    "Personal",
+)
+GOLDTIER_KYC_CUSTOMER_TYPE_VALUES = (
+    "Association - Incorporated",
+    "Association - Unincorporated",
+    "Co-Operative",
+    "Company - Private",
+    "Company - Public",
+    "Government",
+    "Individual",
+    "Managed Fund",
+    "Partnership - Regulated",
+    "Partnership - Unregulated",
+    "Regulated Financial Institution",
+    "Regulated Fund Manager - ANZ Approved",
+    "Regulated Fund Manager - Non-ANZ Approved",
+    "Sole Trader",
+    "Trust - Regulated",
+    "Trust - Unregulated",
+    "Unregulated Fund Manager",
+)
 GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_ID = "GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM"
+GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_POC_VALUE = "DSD"
 GOLDTIER_REGISTRATION_TYPE_ID = "GOLDTIER_REGISTRATION_TYPE"
+GOLDTIER_REGISTRATION_TYPE_POC_VALUE = "ACRA"
+GOLDTIER_POLICY_POC_VALUE = "Singapore"
+GOLDTIER_BOOKING_ENTITY_POC_VALUE = "ANZBGL (Singapore Branch)"
 GOLDTIER_POLICY_ID = "GOLDTIER_POLICY"
 GOLDTIER_BOOKING_ENTITY_ID = "GOLDTIER_BOOKING_ENTITY"
 GOLDTIER_ACCOUNT_ENTITY_TYPE_ID = "GOLDTIER_ACCOUNT_ENTITY_TYPE"
@@ -78,7 +127,11 @@ class PolicyClassification(StrEnum):
 
 class PolicyAuthority(StrEnum):
     SPONSOR_SUPPLIED = "SPONSOR_SUPPLIED"
+    SPONSOR_DOCUMENTED = "SPONSOR_DOCUMENTED"
+    SPONSOR_EXAMPLE = "SPONSOR_EXAMPLE"
     SANDBOX_OBSERVED = "SANDBOX_OBSERVED"
+    USER_AUTHORIZED_POC = "USER_AUTHORIZED_POC"
+    PROJECT_DERIVED_POC = "PROJECT_DERIVED_POC"
     PROJECT_DEFINED_PROVISIONAL = "PROJECT_DEFINED_PROVISIONAL"
     INDUSTRY_PRACTICE = "INDUSTRY_PRACTICE"
     TBD_SPONSOR = "TBD_SPONSOR"
@@ -358,6 +411,8 @@ class GoldTierTargetPolicySnapshot(BaseModel):
     account_entity_type: AuthorityLabelledTargetValue
     product_type: AuthorityLabelledTargetValue
 
+    _OPTIONAL_SANDBOX_FIELDS = frozenset({"accountEntityType", "productType"})
+
     @property
     def dispatch_ready(self) -> bool:
         return not self.missing_fields and not self.invalid_fields
@@ -380,7 +435,8 @@ class GoldTierTargetPolicySnapshot(BaseModel):
         return tuple(
             name
             for name, item in self.values.items()
-            if item.authority == PolicyAuthority.TBD_SPONSOR or item.value == "TBD_SPONSOR"
+            if name not in self._OPTIONAL_SANDBOX_FIELDS
+            and (item.authority == PolicyAuthority.TBD_SPONSOR or item.value == "TBD_SPONSOR")
         )
 
     @property
@@ -388,7 +444,9 @@ class GoldTierTargetPolicySnapshot(BaseModel):
         return tuple(
             name
             for name, item in self.values.items()
-            if name not in self.missing_fields and not is_usable_policy_text(item.value)
+            if name not in self.missing_fields
+            and name not in self._OPTIONAL_SANDBOX_FIELDS
+            and not is_usable_policy_text(item.value)
         )
 
 
