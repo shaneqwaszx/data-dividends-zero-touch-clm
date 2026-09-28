@@ -81,7 +81,7 @@ server revalidates current case-owned evidence and persists one minimized snapsh
 | `OWNERSHIP_BLOCKED` | `REVIEW_REQUIRED` | Reviewed document; cycle/incomplete ownership result | Zero GoldTier calls; no definitive UBO promotion |
 | `MULTIPLE_BLOCKERS` | collecting/review with every applicable typed blocker | Incomplete document and ownership evidence | Zero GoldTier calls; no first-blocker-only response |
 | `GOLDTIER_MATCH_FOUND` | `REVIEW_REQUIRED / GT_EXISTING_PARTY_REVIEW_REQUIRED` | Search only | No shell, policy, amend, or success |
-| `GOLDTIER_SEARCH_FAILURE` | `FAILED / GT_SEARCH_FAILED` | Search only | No later call |
+| `GOLDTIER_SEARCH_FAILURE` | Collect independent evidence, then `TECHNICAL_FAILURE / safe Search category` | Search once; ACRA/document/reconciliation/ownership may continue | No no-match claim, reviewer substitution, retry, shell, policy, or amend |
 | `GOLDTIER_SHELL_FAILURE` | `FAILED / GT_SHELL_FAILED` | Search, shell | No policy or amend |
 | `GOLDTIER_POLICY_FAILURE` | `FAILED / GT_POLICY_VALIDATION_FAILED` | Search, shell, policy | No amend |
 | `GOLDTIER_PARTIAL_AMEND` | `REVIEW_REQUIRED / GT_OPTIONAL_SECTION_REVIEW` | Search, shell, policy, amend | No Mock-submitted success |
@@ -249,8 +249,9 @@ refresh, sandbox/live caching, or production cross-team sharing authority.
 ## Accepted cross-scenario invariants
 
 - GoldTier search `NO_MATCH` alone permits shell creation. `MATCH_FOUND` stops at
-  `REVIEW_REQUIRED`; modeled search `FAILURE` stops at `FAILED`; neither creates a
-  shell.
+  `REVIEW_REQUIRED`; modeled search `FAILURE` retains its safe category, permits only
+  independent case-evidence collection, and then stops at `TECHNICAL_FAILURE` at
+  `GOLDTIER_SEARCH`. Neither match nor failure creates a shell.
 - Unexpected failures during ACRA fetch/mapping or GoldTier search/shell/policy/amend
   persist one sanitized terminal `FAILED` event and stop before every later operation.
 - Malformed required ACRA source data ends as retrievable `FAILED` with a stable safe

@@ -109,3 +109,21 @@ acceptance.
 - D-056/D-057 remain the Singapore mapping and vocabulary owners.
 - Phase 22, production policy, related parties, hierarchy and final approval remain out
   of scope.
+
+## Amendment — 2026-09-28: failed Search does not invalidate independent evidence
+
+The original statement that a failed initial Search stops before ACRA is superseded.
+An ambiguous Search still stops before ACRA because candidate identity requires review.
+A technical or controlled Search failure instead retains a safe typed failure category,
+continues the independent ACRA/document/reconciliation/ownership evidence path, and
+keeps customer existence unresolved. GoldTier Shell, Policy, Amend and every other
+target mutation remain blocked. When independent evidence collection finishes, the
+automation terminates as a technical failure at GoldTier Search and does not create a
+business-review exception. A normal `200 []` Search response remains the only
+no-match path; failure is never reclassified as no-match.
+
+No browser or operator retry is added because a safe late exact-match transition is not
+currently proved against retained ACRA evidence and the prior-verified identity rule.
+The existing target ledger remains the sole mutation/replay owner, and no historical
+Amend or uncertain mutation is replayed. This amendment changes workflow consequence
+only; it adds no schema, persistence owner, provider mode, Live claim or approval rule.
