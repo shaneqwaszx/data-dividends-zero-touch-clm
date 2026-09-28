@@ -9,8 +9,8 @@ It is not a sponsor contract, phase report, or substitute for current source and
 {
   "schema_version": 1,
   "case_envelope_schema_version": 6,
-  "verified_date": "2026-09-28",
-  "verified_main_sha": "b7cca1f8ae4dfe70d1b3cfe262c527c80f94c1a4",
+  "verified_date": "2026-09-29",
+  "verified_main_sha": "d23d7b7335ba402b071191821c35e4f5e879ed7c",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -165,6 +165,26 @@ Major implemented phases are:
   were explicitly empty and no compatible ownership denominator was established, so
   relationship acquisition remains partial and stops truthfully. Q-012 remains open;
   this lane is Mock, not Sandbox or Live.
+- PR #62 is accepted on main. Director team selection is explicit and blank by default,
+  with no silent Alpha/Beta fallback; Director/RM deletion remains backend-authorized.
+  GoldTier Search `NO_MATCH` remains the normal new-customer path, while ambiguous
+  Search retains the case/evidence and blocks target mutation. Technical Search failure
+  remains distinct from customer absence: safe independent ACRA, document,
+  reconciliation, and ownership evidence may continue, but unresolved Search produces
+  zero Shell/Policy/Amend calls. Pipeline statuses distinguish `FAILED`, `BLOCKED`,
+  `NOT_REACHED`, and `REVIEW_REQUIRED`; the current blocker follows workflow order, and
+  problem-stage controls navigate to their real diagnostic or resolution owners.
+  D-060 and the ADR-006 amendment govern the failed-Search evidence continuation.
+  These operator-recovery controls do not make all ordinary blockers user-resolvable
+  and do not add a late Search retry, editable final review, or pre-write GoldTier
+  confirmation.
+
+Post-merge main CI run `36452914032` for this SHA passed on its second attempt. The
+initial Windows demo-lifecycle attempt failed because local lifecycle ports were
+already occupied; after the ports were freed, the exact local 23/23 lifecycle suite
+passed and the GitHub rerun passed all six jobs: backend, frontend, e2e, security,
+phase12-mongo, and demo-lifecycle-windows. The first failure is retained as a
+transient environment incident, not a product defect.
 
 Phase 20 Sponsor Policy Authority Gate is accepted on main at
 `5039c7e548dfae1eeb8ad600f128ef374e3a6f2a`. D-009 confirms only that human exception
@@ -211,7 +231,9 @@ authenticated browser/API request
         -> canonical legal entity and normalized registry evidence
      -> ambiguous: retain case documents/evidence while customer identity stays under
         review; stop before ACRA and every target mutation
-     -> failed: controlled stop before ACRA or target mutation
+     -> technical Search failure: retain case and continue independent ACRA, document,
+        reconciliation, and ownership evidence; target identity remains unresolved,
+        then terminate at the Search blocker with no Shell/Policy/Amend mutation
   -> bounded document intake and local deterministic extraction
   -> source-neutral reconciliation and review/resume where required
   -> registry-fed deterministic Decimal ownership graph analysis
@@ -336,6 +358,10 @@ unknown or blocked.
 - Explainable source-neutral entity resolution, ML-assisted UBO advice, and bounded mock
   advisory risk, all with permanent non-authority labels and synthetic model cards.
 - Ordered Mock target execution with no-replay recovery states.
+- Operator blocker recovery controls: explicit Director team choice and backend-
+  authorized case deletion, truthful failed/blocked/not-reached/review-required stage
+  projections, and accessible problem-stage navigation to existing owners. This does
+  not provide general blocker rectification or final GoldTier confirmation.
 - Memory/Mongo repository parity, case deletion, portfolio projection, dashboard, team
   filtering, priority, retained-event activity, bounded authorized CSV activity export,
   advisory projection persistence, and session-scoped query caching.
@@ -354,6 +380,10 @@ unknown or blocked.
 - No `createRelationship` or multi-level hierarchy creation through GoldTier.
 - No sponsor-approved final UBO, document, source-authority, RBAC, retention, deletion,
   review, or Ready-for-Approval policy.
+- No fully recoverable onboarding flow: ordinary blocker rectification, retained-case
+  identity correction/resume, safe GoldTier Search recheck, editable final review,
+  explicit confirmation before the first GoldTier business mutation, expanded human
+  intervention, or HR ACRA testing console remain unimplemented.
 - No autonomous approval, production risk/compliance engine, legal UBO determination, production
   audit repository, distributed workflow, or multi-instance exactly-once guarantee.
 - No full analytics/MIS platform or full Exception Workbench.
@@ -473,12 +503,21 @@ Consult `docs/sponsor-questions/OPEN_QUESTIONS.md` for exact wording and current
 
 These are candidates, not authorization to implement:
 
-1. Sponsor contract/access reconciliation for ACRA and GoldTier/PingFed.
-2. Independent governance-context quality gate and any bounded remediation.
-3. Sponsor-confirmed Ready-for-Approval/reviewer/retention policy design.
-4. Authoritative external-provider work only after contract, security and credential
+1. **Recoverable onboarding + final review/confirmation** (next bounded product package;
+   not implemented): retained-case identity correction/resume; real user rectification
+   for ordinary blockers; safe GoldTier read-only recheck; editable pre-submission
+   fields; an RM-focused final review summary; explicit confirmation before the first
+   GoldTier business mutation; human intervention for edge cases; an HR ACRA testing
+   console; improved blocker-tile usability/accessibility; and validated Garden plus
+   additional official-Mock demo samples.
+2. Sponsor contract/access reconciliation for ACRA and GoldTier/PingFed.
+3. Independent governance-context quality gate and any bounded remediation.
+4. Sponsor-confirmed Ready-for-Approval/reviewer/retention policy design.
+5. Authoritative external-provider work only after contract, security and credential
    prerequisites are satisfied.
-5. Measured hotspot or production-scale portfolio/activity work if evidence shows need.
+6. Camunda runtime integration remains a separate optional, requirements-dependent
+   package and is not implemented.
+7. Measured hotspot or production-scale portfolio/activity work if evidence shows need.
 
 Every new package requires a bounded planner handoff, change classification, relevant
 skill, proportional verification, and independent quality gate.
