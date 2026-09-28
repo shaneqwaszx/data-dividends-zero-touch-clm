@@ -61,6 +61,10 @@ class GoldTierSandboxStatusResponse(BaseModel):
     max_response_bytes: int
     last_diagnostic_at: datetime | None
     blocker: str | None
+    customer_operations: Literal["AVAILABLE", "PARTIAL"] = "PARTIAL"
+    related_party_operations: Literal["BLOCKED_CONTRACT"] = "BLOCKED_CONTRACT"
+    blocker_code: Literal["BLOCKED_CHILD_ID_LIFECYCLE"] = "BLOCKED_CHILD_ID_LIFECYCLE"
+    required_authority: Literal["SPONSOR_CONFIRMATION"] = "SPONSOR_CONFIRMATION"
     related_party_blocker: Literal["BLOCKED_CHILD_ID_LIFECYCLE"] = "BLOCKED_CHILD_ID_LIFECYCLE"
     timeline: tuple[SandboxDiagnosticEvent, ...]
     vocabulary_version: str

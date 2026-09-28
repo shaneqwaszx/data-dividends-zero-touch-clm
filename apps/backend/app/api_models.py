@@ -524,6 +524,199 @@ class BusinessExceptionResponse(BaseModel):
     resolution: ExceptionResolutionAction | None
 
 
+class BrowserAuthorizedInterventionAction(BaseModel):
+    """One backend-authorized action and its operator-facing meaning."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action: ExceptionResolutionAction
+    label: str = Field(min_length=1, max_length=96)
+    description: str = Field(min_length=1, max_length=200)
+
+
+class BrowserGoldTierCandidateSummary(BaseModel):
+    """Bounded candidate identity fields already retained by the CLM aggregate."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    party_id: str = Field(min_length=1, max_length=96)
+    registration_number: str | None = Field(default=None, max_length=64)
+    country: str | None = Field(default=None, max_length=3)
+    legal_name: str | None = Field(default=None, max_length=160)
+    legal_form: str | None = Field(default=None, max_length=80)
+
+
+class BrowserHumanIntervention(BaseModel):
+    """Backend-authored operator projection without a second resolution engine."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    intervention_id: UUID
+    owning_stage: AutomationStage
+    owning_stage_label: str = Field(min_length=1, max_length=96)
+    title: str = Field(min_length=1, max_length=120)
+    blocker_code: str = Field(min_length=1, max_length=64)
+    explanation: str = Field(min_length=1, max_length=300)
+    required_evidence_or_input: tuple[str, ...] = Field(default_factory=tuple, max_length=4)
+    authorized_actions: tuple[BrowserAuthorizedInterventionAction, ...] = Field(
+        default_factory=tuple, max_length=4
+    )
+    no_action_reason: str | None = Field(default=None, max_length=240)
+    expected_next_step: str = Field(min_length=1, max_length=300)
+    candidate_summaries: tuple[BrowserGoldTierCandidateSummary, ...] = Field(
+        default_factory=tuple, max_length=4
+    )
+
+
+_INTERVENTION_STAGE_LABELS: dict[AutomationStage, str] = {
+    AutomationStage.REGISTRY: "ACRA registry",
+    AutomationStage.GOLDTIER_SEARCH: "GoldTier Search / customer identity",
+    AutomationStage.DOCUMENT: "Documents / reconciliation",
+    AutomationStage.OWNERSHIP: "Ownership / UBO",
+    AutomationStage.READINESS: "Readiness / target classification",
+    AutomationStage.MOCK_GOLDTIER: "GoldTier target mutation",
+    AutomationStage.COMPLETE: "Completed workflow",
+}
+
+_INTERVENTION_ACTIONS: dict[
+    ExceptionResolutionAction, tuple[str, str]
+] = {
+    ExceptionResolutionAction.KEEP_REGISTRY_VALUE: (
+        "Keep registry value",
+        "Retain the current registry observation for the bounded discrepancy.",
+    ),
+    ExceptionResolutionAction.USE_DOCUMENT_VALUE: (
+        "Use document value",
+        "Apply the supported document value through the existing reconciliation owner.",
+    ),
+    ExceptionResolutionAction.REQUEST_ADDITIONAL_INFORMATION: (
+        "Request additional information",
+        "Record that additional evidence is required before the workflow can continue.",
+    ),
+}
+
+
+def project_human_interventions(
+    *,
+    automation: ZeroTouchAutomationRecord,
+    clm: ClmOrchestrationRecord,
+) -> tuple[BrowserHumanIntervention, ...]:
+    """Project current blockers and only actions already authorized by their owners."""
+
+    checkpoint = clm.target_search_checkpoint
+    projections: list[BrowserHumanIntervention] = []
+    for exception in automation.active_exceptions:
+        required: tuple[str, ...] = (
+            "Review the retained evidence identified by the blocker.",
+        )
+        title = f"Action required — {_INTERVENTION_STAGE_LABELS[exception.stage]}"
+        expected = (
+            "Use only a backend-authorized action below. The owning service will "
+            "re-evaluate retained evidence after it accepts the decision."
+        )
+        no_action = (
+            "No safe resolution action is authorized for this retained blocker. "
+            "The workflow remains fail-closed."
+        )
+        candidates: tuple[BrowserGoldTierCandidateSummary, ...] = ()
+
+        if exception.blocker_code == "GT_SEARCH_IDENTITY_REVIEW_REQUIRED":
+            title = "Possible existing customer found"
+            required = (
+                "Additional registration identity or provider customer-detail verification.",
+            )
+            expected = (
+                "Case-specific documents may be retained while target identity stays unresolved. "
+                "Shell, target binding, and Amend remain blocked until exact identity is proved."
+            )
+            no_action = (
+                "The backend has not authorized candidate confirmation, manual GoldTier-ID entry, "
+                "or a new-customer Shell while identity is ambiguous."
+            )
+            if checkpoint is not None:
+                candidates = tuple(
+                    BrowserGoldTierCandidateSummary(
+                        party_id=str(item.party_id),
+                        registration_number=item.registration_number,
+                        country=item.country,
+                        legal_name=item.legal_name,
+                        legal_form=item.legal_form,
+                    )
+                    for item in checkpoint.candidates[:4]
+                )
+        elif exception.blocker_code == "REGISTRY_EXPECTED_DATA_MISSING":
+            title = "Registry evidence incomplete"
+            required = (
+                "Complete ownership or relationship evidence, or an explicitly authorized "
+                "manual-review decision.",
+            )
+            expected = (
+                "The successful registry connection remains retained. Continue only through an "
+                "action listed below; ignoring the missing evidence is not authorized."
+            )
+            no_action = (
+                "No ignore-and-continue action is authorized. Supply complete evidence or await an "
+                "approved manual-review path."
+            )
+        elif exception.blocker_code == "INITIAL_IDENTITY_INCOMPLETE":
+            title = "Initial identity incomplete"
+            required = ("The missing legal name, registration ID, or country field.",)
+            expected = (
+                "Correct the identity through an existing backend-supported intake path; this "
+                "retained case cannot be advanced with incomplete identity."
+            )
+        elif exception.blocker_code in {
+            "UNCERTAIN_TARGET_MUTATION",
+            "TARGET_OPERATION_OUTCOME_UNCERTAIN",
+        }:
+            title = "Provider verification required"
+            required = ("Provider-side verification of the retained attempted operation.",)
+            expected = "Verify the provider outcome without replaying the mutation."
+            no_action = "Automatic retry or replay is not authorized for an uncertain mutation."
+        elif exception.blocker_code == "PROVIDER_VALIDATION_FAILED":
+            title = "Provider validation failed"
+            required = ("Provider diagnosis and authority for any corrected future request.",)
+            expected = (
+                "Retain the failed outcome and diagnose it before any separately authorized "
+                "attempt."
+            )
+            no_action = (
+                "Retry is not authorized because safe idempotency and corrected input are "
+                "unproved."
+            )
+        elif exception.stage == AutomationStage.DOCUMENT:
+            title = "Document or reconciliation review required"
+            required = ("Current document evidence or a supported reconciliation decision.",)
+        elif exception.stage == AutomationStage.READINESS:
+            title = "Readiness input required"
+            required = ("Complete the backend-declared case classification or readiness evidence.",)
+
+        actions = tuple(
+            BrowserAuthorizedInterventionAction(
+                action=action,
+                label=_INTERVENTION_ACTIONS[action][0],
+                description=_INTERVENTION_ACTIONS[action][1],
+            )
+            for action in exception.available_actions
+        )
+        projections.append(
+            BrowserHumanIntervention(
+                intervention_id=exception.exception_id,
+                owning_stage=exception.stage,
+                owning_stage_label=_INTERVENTION_STAGE_LABELS[exception.stage],
+                title=title,
+                blocker_code=exception.blocker_code,
+                explanation=exception.explanation,
+                required_evidence_or_input=required,
+                authorized_actions=actions,
+                no_action_reason=None if actions else no_action,
+                expected_next_step=expected,
+                candidate_summaries=candidates,
+            )
+        )
+    return tuple(projections)
+
+
 class BrowserReconciliationObservation(BaseModel):
     """Normalized browser evidence; raw source text remains in backend domain records."""
 
@@ -746,6 +939,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     current_stage: AutomationStage
     completed_stages: tuple[AutomationStage, ...]
     active_exceptions: list[BusinessExceptionResponse]
+    interventions: tuple[BrowserHumanIntervention, ...]
     reconciliation: ReconciliationResponse | None
     technical_failure: SafeError | None
     metrics: AutomationMetrics
@@ -781,6 +975,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
             active_exceptions=[
                 BusinessExceptionResponse.model_validate(item) for item in record.active_exceptions
             ],
+            interventions=project_human_interventions(automation=record, clm=clm_record),
             reconciliation=(
                 ReconciliationResponse.from_domain(reconciliation)
                 if reconciliation is not None
@@ -1067,6 +1262,7 @@ def project_processing_pipeline(
     acquisition = case.registry_acquisition
     existing_target_state = getattr(case, "existing_target_state", None)
     initial_target_search = getattr(case, "initial_target_search", None)
+    initial_search_disposition = getattr(initial_target_search, "disposition", None)
     registry_children: tuple[BrowserProcessingNode, ...] = ()
     registry_status = stage_status(AutomationStage.REGISTRY)
     registry_provider: str | None = None
@@ -1121,6 +1317,10 @@ def project_processing_pipeline(
         }[acquisition.status.value]  # type: ignore[assignment]
     elif existing_target_state is not None:
         registry_status = "SKIPPED"
+    elif (
+        initial_search_disposition == "REVIEW_REQUIRED"
+    ):
+        registry_status = "NOT_REACHED"
 
     target_by_name = {item.operation: item for item in target_operations}
     checkpoint = clm.target_search_checkpoint
@@ -1430,11 +1630,17 @@ def project_processing_pipeline(
             safe_result=(
                 "ACRA skipped after exact verified GoldTier match"
                 if existing_target_state is not None
+                else "Waiting for GoldTier customer identity resolution"
+                if initial_search_disposition == "REVIEW_REQUIRED"
                 else "Registry acquisition retained"
                 if acquisition is not None
                 else "Registry acquisition not reached"
             ),
-            blocker_code=exception_code(AutomationStage.REGISTRY),
+            blocker_code=(
+                "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
+                if initial_search_disposition == "REVIEW_REQUIRED"
+                else exception_code(AutomationStage.REGISTRY)
+            ),
             children=registry_children,
         ),
     )
