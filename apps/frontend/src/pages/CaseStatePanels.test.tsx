@@ -7,6 +7,8 @@ import {
   DetailedProcessingInspector,
   OnboardingProgressPanel,
   PipelineRail,
+  ProcessingBlockerPanels,
+  processingNodeFocusTarget,
   RegistryStatePanel,
   registryPresentation,
 } from "./CaseStatePanels";
@@ -105,6 +107,76 @@ describe("OnboardingProgressPanel", () => {
     }
     expect(markup).toContain('aria-valuemax="7"');
     expect(markup).toContain('aria-valuenow="2"');
+  });
+
+  it("uses the earliest actionable backend node and exposes only problem stages as buttons", () => {
+    const summary = summaryWithPipeline([
+      processingNode("GOLDTIER_SEARCH", "GoldTier search", "FAILED"),
+      processingNode("ACRA_REGISTRY", "ACRA registry", "COMPLETE"),
+      processingNode("TARGET_CLASSIFICATION", "Target classification", "REVIEW_REQUIRED"),
+    ]);
+
+    const markup = renderToStaticMarkup(
+      <OnboardingProgressPanel summary={summary} onStageActivate={() => undefined} />,
+    );
+
+    expect(markup).toContain("current: GoldTier search — Failed");
+    expect(markup).toContain('aria-label="Open details for GoldTier search"');
+    expect(markup).toContain('aria-label="Open details for Target classification"');
+    expect(markup).not.toContain('aria-label="Open details for ACRA registry"');
+    expect(markup.match(/<button/g)).toHaveLength(2);
+  });
+
+  it("maps only actionable stable backend nodes to specific existing panels", () => {
+    expect(processingNodeFocusTarget(processingNode("GOLDTIER_SEARCH", "Search", "FAILED"))).toBe("case-search-diagnostic");
+    expect(processingNodeFocusTarget(processingNode("ACRA_REGISTRY", "ACRA", "REVIEW_REQUIRED"))).toBe("case-evidence-registry");
+    expect(processingNodeFocusTarget(processingNode("DOCUMENT_IDP", "Document", "BLOCKED"))).toBe("case-evidence-documents");
+    expect(processingNodeFocusTarget(processingNode("TARGET_CLASSIFICATION_CLIENT_SEGMENT", "Classification", "REVIEW_REQUIRED"))).toBe(
+      "case-target-classification",
+    );
+    expect(processingNodeFocusTarget(processingNode("GOLDTIER_TARGET", "Target", "BLOCKED"))).toBe("case-target-blocker");
+    expect(processingNodeFocusTarget(processingNode("HUMAN_APPROVAL", "Approval", "REVIEW_REQUIRED"))).toBe("case-human-approval-boundary");
+    expect(processingNodeFocusTarget(processingNode("ACRA_REGISTRY", "ACRA", "COMPLETE"))).toBeNull();
+    expect(processingNodeFocusTarget(processingNode("UNRECOGNISED_NODE", "Unknown", "FAILED"))).toBeNull();
+  });
+
+  it("renders dedicated read-only destinations for Search, target, and approval blockers", () => {
+    const search = {
+      ...processingNode("GOLDTIER_SEARCH", "GoldTier search", "FAILED"),
+      blocker_code: "SEARCH_TIMEOUT",
+      safe_result: "Customer existence remains unresolved.",
+    };
+    const target = {
+      ...processingNode("GOLDTIER_TARGET", "GoldTier target", "BLOCKED"),
+      blocker_code: "GOLDTIER_SEARCH_FAILED",
+    };
+    const approval = processingNode("HUMAN_APPROVAL", "Human approval", "REVIEW_REQUIRED");
+
+    const markup = renderToStaticMarkup(
+      <ProcessingBlockerPanels summary={summaryWithPipeline([search, target, approval])} />,
+    );
+
+    expect(markup).toContain('id="case-search-diagnostic"');
+    expect(markup).toContain("does not prove that the customer is absent");
+    expect(markup).toContain('id="case-target-blocker"');
+    expect(markup).toContain("does not provide a bypass or replay action");
+    expect(markup).toContain('id="case-human-approval-boundary"');
+    expect(markup).toContain("Final approval is unresolved");
+  });
+
+  it("does not advertise a stage when its otherwise-valid destination is unavailable", () => {
+    const summary = summaryWithPipeline([
+      processingNode("TARGET_CLASSIFICATION", "Target classification", "REVIEW_REQUIRED"),
+    ]);
+    const markup = renderToStaticMarkup(
+      <OnboardingProgressPanel
+        summary={summary}
+        onStageActivate={() => undefined}
+        availableFocusTargets={new Set(["case-search-diagnostic"])}
+      />,
+    );
+
+    expect(markup).not.toContain("<button");
   });
 
   it("keeps the technical inspector collapsed independently of primary progress", () => {

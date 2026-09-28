@@ -20,7 +20,7 @@ import {
   retryZeroTouchIntakeDocument,
 } from "./api";
 import { shouldRefreshAfterMutationError } from "./pages/CaseDetail";
-import { ClientRecordActions } from "./pages/ClientDetail";
+import { ClientCaseControls, ClientRecordActions } from "./pages/ClientDetail";
 import {
   CompletedOverview,
   ConfirmDetailsPanel,
@@ -350,6 +350,16 @@ describe("UI v2 backend integration adapters", () => {
     );
     expect(markup).toContain('<th aria-label="Open"></th>');
     expect(markup).not.toContain("sr-only");
+  });
+
+  it("routes an onboarded client back to the authoritative case controls", () => {
+    const caseId = "00000000-0000-4000-8000-000000000001";
+    const markup = renderToStaticMarkup(
+      <MemoryRouter><ClientCaseControls caseId={caseId} /></MemoryRouter>,
+    );
+
+    expect(markup).toContain("Open full case");
+    expect(markup).toContain(`href="/cases/${caseId}"`);
   });
 
   it("detects restart-interrupted documents only from the backend recovery code", () => {

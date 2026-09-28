@@ -4,6 +4,7 @@ import type {
   ExceptionResolutionAction,
   ReconciliationDecisionAction,
   ReconciliationDiscrepancy,
+  ProcessingNode,
   SimulationProfile,
   ZeroTouchCaseSummary,
   ZeroTouchException,
@@ -13,6 +14,14 @@ import HumanInterventionPanel from "./HumanInterventionPanel";
 import { PriorityBadge } from "./PriorityControl";
 
 export type JurisdictionSelection = "" | "SG" | "AU" | "MY" | "HK";
+
+export function openCaseDetailAtStage(
+  openCaseDetail: (caseId: string, focusNodeId?: string) => void,
+  caseId: string,
+  node: ProcessingNode,
+): void {
+  openCaseDetail(caseId, node.node_id);
+}
 
 const ACCEPTED_DOCUMENTS = "application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt";
 const FOLDER_INPUT_ATTRIBUTES = { webkitdirectory: "", directory: "" } as Record<string, string>;
@@ -56,6 +65,7 @@ export default function HomeOnboarding({
   onPriorityChange,
   isSubmitting,
   isResolving,
+  creationDisabled = false,
   requestError,
   pollingWarning,
   intakeProgress,
@@ -65,6 +75,9 @@ export default function HomeOnboarding({
   onReplace,
   onRecovery,
   onStartNewCase,
+  onOpenCaseDetail = () => undefined,
+  canDeleteCurrentCase = false,
+  onDeleteCurrentCase = () => undefined,
   onViewOnboarded,
   onViewAudit,
   registryProviderMode,
@@ -84,6 +97,7 @@ export default function HomeOnboarding({
   onPriorityChange: (value: number | "") => void;
   isSubmitting: boolean;
   isResolving: boolean;
+  creationDisabled?: boolean;
   requestError: string | null;
   pollingWarning: string | null;
   intakeProgress: string | null;
@@ -93,6 +107,9 @@ export default function HomeOnboarding({
   onReplace: (documentId: string, eventCount: number, file: File) => void;
   onRecovery: () => void;
   onStartNewCase: () => void;
+  onOpenCaseDetail?: (caseId: string, focusNodeId?: string) => void;
+  canDeleteCurrentCase?: boolean;
+  onDeleteCurrentCase?: () => void;
   onViewOnboarded: (caseId: string) => void;
   onViewAudit: (caseId: string) => void;
   registryProviderMode?: SimulationProfile["registry_provider_mode"];
@@ -280,7 +297,7 @@ export default function HomeOnboarding({
           </div>
 
           <div style={{ marginTop: 24 }}>
-            <button type="submit" className="btn btn-primary" disabled={isSubmitting || isResolving}>
+            <button type="submit" className="btn btn-primary" disabled={isSubmitting || isResolving || creationDisabled}>
               {isSubmitting ? intakeProgress ?? "Starting onboarding…" : "Create onboarding"}
             </button>
             {intakeProgress && <span className="intake-progress" role="status">{intakeProgress}</span>}
@@ -323,6 +340,14 @@ export default function HomeOnboarding({
           <div className="case-header-actions">
             <PriorityBadge priority={summary.case.priority} />
             <span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span>
+            <button type="button" className="btn btn-secondary" onClick={() => onOpenCaseDetail(summary.case.case_id)}>
+              Open full case
+            </button>
+            {canDeleteCurrentCase && (
+              <button type="button" className="btn btn-danger" onClick={onDeleteCurrentCase}>
+                Delete case
+              </button>
+            )}
           </div>
         </div>
 
@@ -342,7 +367,14 @@ export default function HomeOnboarding({
           </button>
         )}
 
-        <OnboardingProgressPanel summary={summary} />
+        <OnboardingProgressPanel
+          summary={summary}
+          onStageActivate={(node) => openCaseDetailAtStage(
+            onOpenCaseDetail,
+            summary.case.case_id,
+            node,
+          )}
+        />
 
         <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
 

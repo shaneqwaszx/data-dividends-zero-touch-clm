@@ -13,7 +13,7 @@ import {
 import { AuthProvider, transitionAuthState, type AuthState } from "./auth";
 import { loadCaseQueueRows } from "./pages/CaseQueue";
 import LoginPage from "./pages/LoginPage";
-import HomeOnboarding from "./pages/HomeOnboarding";
+import HomeOnboarding, { openCaseDetailAtStage } from "./pages/HomeOnboarding";
 import {
   PriorityBadge,
   default as PriorityControl,
@@ -97,6 +97,18 @@ afterEach(() => {
 });
 
 describe("Phase 13 authenticated frontend boundary", () => {
+  it("preserves a selected retained-case pipeline node when opening Case Detail", () => {
+    const open = vi.fn();
+    openCaseDetailAtStage(open, "case-1", {
+      node_id: "GOLDTIER_SEARCH",
+      label: "GoldTier search",
+      status: "FAILED",
+      children: [],
+    });
+
+    expect(open).toHaveBeenCalledWith("case-1", "GOLDTIER_SEARCH");
+  });
+
   it("renders the canonical team and complete optional priority choices", () => {
     const markup = renderToStaticMarkup(
       <HomeOnboarding
@@ -135,6 +147,78 @@ describe("Phase 13 authenticated frontend boundary", () => {
     expect(markup).not.toContain("10 — Highest");
     expect(markup).toContain("DBS Corporate Onboarding");
     expect(markup).not.toContain("Create case for team");
+  });
+
+  it("disables creation when an explicit Director team has not been selected", () => {
+    const markup = renderToStaticMarkup(
+      <HomeOnboarding
+        summary={null}
+        uen="202400001A"
+        onUenChange={() => undefined}
+        legalName="Synthetic Company"
+        countryOfIncorporation="SG"
+        onCountryChange={() => undefined}
+        documentFiles={[]}
+        onDocumentFilesChange={() => undefined}
+        caseTeamDisplayName="Select a team above"
+        priority=""
+        onPriorityChange={() => undefined}
+        isSubmitting={false}
+        isResolving={false}
+        creationDisabled
+        requestError={null}
+        pollingWarning={null}
+        intakeProgress={null}
+        onStart={() => undefined}
+        onResolve={() => undefined}
+        onReconcile={() => undefined}
+        onReplace={() => undefined}
+        onRecovery={() => undefined}
+        onStartNewCase={() => undefined}
+        onViewOnboarded={() => undefined}
+        onViewAudit={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain('type="submit"');
+    expect(markup).toContain('disabled=""');
+    expect(markup).toContain("Select a team above");
+  });
+
+  it("shows retained-case open and delete controls only when deletion is authorized", () => {
+    const created = makeDetail("00000000-0000-4000-8000-000000000001", "2026-09-07T01:00:00Z");
+    const common = {
+      summary: created,
+      uen: "202400001A",
+      onUenChange: () => undefined,
+      countryOfIncorporation: "SG" as const,
+      onCountryChange: () => undefined,
+      documentFiles: [],
+      onDocumentFilesChange: () => undefined,
+      caseTeamDisplayName: "DBS Corporate Onboarding",
+      priority: "" as const,
+      onPriorityChange: () => undefined,
+      isSubmitting: false,
+      isResolving: false,
+      requestError: null,
+      pollingWarning: null,
+      intakeProgress: null,
+      onStart: () => undefined,
+      onResolve: () => undefined,
+      onReconcile: () => undefined,
+      onReplace: () => undefined,
+      onRecovery: () => undefined,
+      onStartNewCase: () => undefined,
+      onViewOnboarded: () => undefined,
+      onViewAudit: () => undefined,
+    };
+
+    const allowed = renderToStaticMarkup(<HomeOnboarding {...common} canDeleteCurrentCase />);
+    const hidden = renderToStaticMarkup(<HomeOnboarding {...common} />);
+    expect(allowed).toContain("Open full case");
+    expect(allowed).toContain("Delete case");
+    expect(hidden).toContain("Open full case");
+    expect(hidden).not.toContain("Delete case");
   });
 
   it("sends priority in the one create request and omits it when unset", async () => {
