@@ -1,6 +1,5 @@
 import { useRef, useState, type DragEvent, type FormEvent } from "react";
 
-import { formatTimestamp } from "../shared";
 import type {
   ExceptionResolutionAction,
   ReconciliationDecisionAction,
@@ -10,15 +9,10 @@ import type {
   ZeroTouchException,
 } from "../types";
 import { CompletedOverview, ConfirmDetailsPanel, DetailedProcessingInspector, OnboardingProgressPanel, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
+import HumanInterventionPanel from "./HumanInterventionPanel";
 import { PriorityBadge } from "./PriorityControl";
 
 export type JurisdictionSelection = "" | "SG" | "AU" | "MY" | "HK";
-
-const ACTION_LABELS: Partial<Record<ExceptionResolutionAction, string>> = {
-  KEEP_REGISTRY_VALUE: "Keep registry values",
-  USE_DOCUMENT_VALUE: "Use document value",
-  REQUEST_ADDITIONAL_INFORMATION: "Request additional information",
-};
 
 const ACCEPTED_DOCUMENTS = "application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt";
 const FOLDER_INPUT_ATTRIBUTES = { webkitdirectory: "", directory: "" } as Record<string, string>;
@@ -305,8 +299,13 @@ export default function HomeOnboarding({
         <h4 style={{ marginTop: 0 }}>Pipeline</h4>
         <PipelineRail summary={summary} />
         <hr className="hr" />
-        <button type="button" className="btn btn-ghost" style={{ justifyContent: "flex-start", paddingLeft: 0 }} onClick={onStartNewCase}>
-          Start a new case
+        <button
+          type="button"
+          className="btn btn-primary btn-block new-case-cta"
+          aria-label="Start a new case"
+          onClick={onStartNewCase}
+        >
+          + Start a new case
         </button>
       </div>
 
@@ -348,36 +347,14 @@ export default function HomeOnboarding({
         <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
 
         <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} />
-        <ConfirmDetailsPanel summary={summary} isBusy={isResolving} onResolve={onReconcile} />
+        <ConfirmDetailsPanel summary={summary} isBusy={isResolving} />
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
 
-        {summary.active_exceptions.filter((exception) => exception.stage !== "REGISTRY").map((exception) => (
-        <div className="ds-banner ds-banner-warn" key={exception.exception_id} style={{ marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h3 style={{ margin: 0 }}>{exception.exception_type.replaceAll("_", " ")}</h3>
-            <span className="text-muted" style={{ fontSize: 11 }}>{formatTimestamp(exception.created_at)}</span>
-          </div>
-          <p style={{ marginTop: 8, fontSize: 12.5 }}>{exception.explanation}</p>
-          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-            {exception.available_actions.map((action) => (
-              <button
-                key={action}
-                type="button"
-                className="btn btn-primary"
-                disabled={isResolving}
-                onClick={() => onResolve(exception, action)}
-              >
-                {ACTION_LABELS[action] ?? action.replaceAll("_", " ")}
-              </button>
-            ))}
-            {exception.available_actions.length === 0 && (
-              <span className="text-muted" style={{ fontSize: 12 }}>
-                No backend-authorized action is currently available. Replacement evidence may be required.
-              </span>
-            )}
-          </div>
-        </div>
-      ))}
+        <HumanInterventionPanel
+          summary={summary}
+          isBusy={isResolving}
+          onResolve={onResolve}
+        />
 
       {summary.status === "RECOVERY_PENDING" && (
         <div className="ds-banner" style={{ marginBottom: 16 }}>

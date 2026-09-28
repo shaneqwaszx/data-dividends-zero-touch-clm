@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-09-28-review-intervention-ux-publication",
+  "taskIntentRef": "docs/aegis/work/2026-09-28-review-intervention-ux-publication/task-intent-draft.json",
+  "baselineRefs": [
+    "origin/main@b7cca1f8ae4dfe70d1b3cfe262c527c80f94c1a4"
+  ],
+  "scopeStatus": "Within publication scope",
+  "compatStatus": "No architecture, persistence, provider transport, auth, or runtime composition change",
+  "retirementStatus": "No retirement boundary in this publication task",
+  "newRiskSignals": [],
+  "decision": "needs-verification"
+}

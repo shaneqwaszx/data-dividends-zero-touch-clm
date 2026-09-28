@@ -432,6 +432,8 @@ export function registryPresentation(
   providerMode?: RegistryProviderMode,
 ): RegistryPresentation {
   const acquisition = summary.case.registry_acquisition;
+  const registryNode = (summary.processing_pipeline ?? [])
+    .find((item) => item.node_id === "ACRA_REGISTRY");
   const registryException = summary.active_exceptions.find((item) => item.stage === "REGISTRY");
   const issue = acquisition?.issues[0];
   const operationError = acquisition?.operation_results.find((item) => item.error)?.error;
@@ -460,6 +462,22 @@ export function registryPresentation(
     || acquisition?.operation_results.some(
       (operation) => operation.operation === "ENTITY_PROFILE" && operation.status === "COMPLETE",
     ) === true;
+
+  if (!acquisition && registryNode?.status === "NOT_REACHED") {
+    return {
+      heading: "ACRA not reached",
+      description: registryNode.safe_result ?? "The backend reports that registry acquisition has not started.",
+      tag: "Not reached",
+      provider,
+      connection: "No ACRA call occurred",
+      entity,
+      issue: registryNode.blocker_code ? "Blocked by prior backend review" : "Not started",
+      action: "Resolve the prior backend-authored blocker",
+      attention: false,
+      code: registryNode.blocker_code ?? null,
+      message: registryNode.safe_result ?? null,
+    };
+  }
 
   if (code === "REGISTRY_EXPECTED_DATA_MISSING") {
     return {
@@ -558,7 +576,13 @@ export function RegistryStatePanel({
   const routeState = registryRouteProgressState(route?.status);
   const presentation = registryPresentation(summary, registryProviderMode);
 
-  if (summary.current_stage !== "REGISTRY" && !presentation.attention) return null;
+  const registryNode = (summary.processing_pipeline ?? [])
+    .find((item) => item.node_id === "ACRA_REGISTRY");
+  if (
+    summary.current_stage !== "REGISTRY"
+    && !presentation.attention
+    && registryNode?.status !== "NOT_REACHED"
+  ) return null;
 
   return (
     <section className="state-composition" aria-labelledby="registry-state-heading">
@@ -694,6 +718,13 @@ export function ConfirmDetailsPanel({
                     </button>
                   ))}
                 </div>
+              )}
+              {discrepancy?.status === "OPEN"
+                && discrepancy.allowed_actions.length > 0
+                && !onResolve && (
+                <p className="control-help">
+                  Use the backend-authorized Action required panel to record this decision.
+                </p>
               )}
               {discrepancy?.status === "OPEN" && discrepancy.allowed_actions.length === 0 && (
                 <p className="control-help">Replacement evidence is required; no value-selection action is allowed.</p>

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "candidateDocs": [
+    "origin/main@b7cca1f8ae4dfe70d1b3cfe262c527c80f94c1a4",
+    "AGENTS.md",
+    "docs/DEVELOPMENT_WORKFLOW.md",
+    "docs/PROJECT_STATE.md"
+  ],
+  "whyRelevant": "Defines exact integration baseline, repository governance, required verification, and provider truth",
+  "missingAuthority": []
+}

@@ -14,8 +14,14 @@ from fastapi.testclient import TestClient
 import app.composition as composition
 from app.composition import build_zero_touch_demo_control
 from app.config import Settings
-from app.connectors.goldtier_models import GoldTierOperationResult, GoldTierOutcome
-from app.connectors.mock_acra import MockAcraConnector
+from app.connectors.goldtier_models import (
+    GoldTierOperationResult,
+    GoldTierOutcome,
+    GoldTierSearchCandidate,
+    GoldTierSearchOutcome,
+    GoldTierSearchResult,
+)
+from app.connectors.mock_acra import MISSING_OWNERSHIP_UEN, MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
 from app.connectors.mock_ownership import MockOwnershipProvider, MockOwnershipScenario
@@ -103,6 +109,60 @@ class RecordingMockAcra(MockAcraConnector):
     def fetch_relationships(self, uen: str) -> Any:
         self.calls.append("relationships")
         return super().fetch_relationships(uen)
+
+
+class AmbiguousRecordingMockGoldTier(RecordingMockGoldTier):
+    def search_party(self, request: Any, metadata: Any) -> GoldTierSearchResult:
+        del metadata
+        self.calls.append("search")
+        return GoldTierSearchResult(
+            outcome=GoldTierSearchOutcome.MULTIPLE_MATCHES,
+            status_code=200,
+            candidates=(
+                GoldTierSearchCandidate(
+                    party_id="GT-MOCK-CANDIDATE-1",
+                    registration_number=request.registration_number,
+                    country="SG",
+                    legal_name="GARDEN BUSINESS",
+                ),
+                GoldTierSearchCandidate(
+                    party_id="GT-MOCK-CANDIDATE-2",
+                    registration_number=request.registration_number,
+                    country="SG",
+                    legal_name="GARDEN BUSINESS HOLDINGS",
+                ),
+            ),
+            message="Two synthetic candidates require identity review.",
+        )
+
+
+class ExistingAfterFirstRecordingMockGoldTier(RecordingMockGoldTier):
+    def __init__(self) -> None:
+        super().__init__()
+        self.existing_party_id: str | None = None
+
+    def search_party(self, request: Any, metadata: Any) -> GoldTierSearchResult:
+        if self.existing_party_id is None:
+            return super().search_party(request, metadata)
+        self.calls.append("search")
+        candidate = GoldTierSearchCandidate(
+            party_id=self.existing_party_id,
+            registration_number=request.registration_number,
+            country="SG",
+            legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        )
+        return GoldTierSearchResult(
+            outcome=GoldTierSearchOutcome.MATCH_FOUND,
+            status_code=200,
+            matched_party_id=candidate.party_id,
+            candidates=(candidate,),
+            message="The existing synthetic customer matched exactly.",
+        )
+
+    def create_shell_customer(self, request: Any, metadata: Any) -> Any:
+        result = super().create_shell_customer(request, metadata)
+        self.existing_party_id = result.party_id
+        return result
 
 
 class MalformedShellGoldTier(RecordingMockGoldTier):
@@ -251,6 +311,176 @@ def test_straight_through_reaches_mock_target_with_zero_human_interventions() ->
     case_id = UUID(result["case"]["case_id"])
     document = documents.list_documents(case_id=case_id)[0]
     assert document.completion_method == "AUTO_CONFIRMED"
+
+
+def test_ambiguous_initial_goldtier_identity_is_not_reported_as_acra_failure() -> None:
+    connector = AmbiguousRecordingMockGoldTier()
+    client, zero, documents, target, _ = build_system(connector=connector)
+
+    created = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="SYNTHETIC COMPANY PTE. LTD.",
+        team_id=TeamId.TEAM_A,
+    )
+    response = client.get(f"/api/clm/zero-touch/cases/{created.case_id}")
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "WAITING_FOR_REVIEW"
+    assert result["current_stage"] == "GOLDTIER_SEARCH"
+    assert result["active_exceptions"][0]["stage"] == "GOLDTIER_SEARCH"
+    assert (
+        result["active_exceptions"][0]["blocker_code"]
+        == "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
+    )
+    assert result["interventions"][0]["title"] == "Possible existing customer found"
+    assert result["interventions"][0]["authorized_actions"] == []
+    assert len(result["interventions"][0]["candidate_summaries"]) == 2
+    pipeline = {item["node_id"]: item for item in result["processing_pipeline"]}
+    assert pipeline["GOLDTIER_SEARCH"]["status"] == "REVIEW_REQUIRED"
+    assert pipeline["ACRA_REGISTRY"]["status"] == "NOT_REACHED"
+    assert pipeline["ACRA_REGISTRY"]["safe_result"] == (
+        "Waiting for GoldTier customer identity resolution"
+    )
+    assert target.calls == ["search"]
+
+    retained = zero.attach_document(
+        case_id=created.case_id,
+        display_name="retained-profile.pdf",
+        content_type="application/pdf",
+        content=PDF,
+    )
+    assert retained.status == AutomationStatus.WAITING_FOR_REVIEW
+    assert retained.current_stage == AutomationStage.GOLDTIER_SEARCH
+    assert len(documents.list_documents(case_id=created.case_id)) == 1
+    assert target.calls == ["search"]
+
+
+def test_same_customer_can_have_distinct_cases_without_duplicate_shell() -> None:
+    connector = ExistingAfterFirstRecordingMockGoldTier()
+    _, zero, documents, target, _ = build_system(connector=connector)
+    case_a = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        team_id=TeamId.TEAM_A,
+    )
+    completed_a = zero.attach_document(
+        case_id=case_a.case_id,
+        display_name="case-a-profile.pdf",
+        content_type="application/pdf",
+        content=PDF,
+    )
+    verified_a = zero._cases.get_case(case_a.case_id)  # noqa: SLF001
+    assert verified_a is not None and verified_a.goldtier_result is not None
+    verified_a.goldtier_result = verified_a.goldtier_result.model_copy(
+        update={
+            "readback_party_id": verified_a.goldtier_result.party_id,
+            "readback_status": "VERIFIED",
+        }
+    )
+    zero._cases._repository.save(verified_a)  # type: ignore[attr-defined]  # noqa: SLF001
+    case_b = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        team_id=TeamId.TEAM_A,
+    )
+    completed_b = zero.attach_document(
+        case_id=case_b.case_id,
+        display_name="case-b-profile.pdf",
+        content_type="application/pdf",
+        content=PDF,
+    )
+
+    assert completed_a.status == AutomationStatus.COMPLETED
+    assert completed_b.status == AutomationStatus.COMPLETED, completed_b.technical_failure
+    assert case_a.case_id != case_b.case_id
+    domain_a = zero._cases.get_case(case_a.case_id)  # noqa: SLF001
+    domain_b = zero._cases.get_case(case_b.case_id)  # noqa: SLF001
+    assert domain_a is not None and domain_b is not None
+    assert domain_a.goldtier_result is not None and domain_b.goldtier_result is not None
+    assert domain_a.goldtier_result.party_id == domain_b.goldtier_result.party_id
+    assert domain_b.existing_target_state is not None
+    assert domain_b.existing_target_state.source_case_id == case_a.case_id
+    assert domain_b.registry_acquisition is None
+    assert [item.display_name for item in documents.list_documents(case_id=case_a.case_id)] == [
+        "case-a-profile.pdf"
+    ]
+    assert [item.display_name for item in documents.list_documents(case_id=case_b.case_id)] == [
+        "case-b-profile.pdf"
+    ]
+    reconciliation_a = zero._reconciliation.get(case_id=case_a.case_id)  # noqa: SLF001
+    reconciliation_b = zero._reconciliation.get(case_id=case_b.case_id)  # noqa: SLF001
+    assert reconciliation_a is not None and reconciliation_b is not None
+    assert reconciliation_a.reconciliation_id != reconciliation_b.reconciliation_id
+    assert {item.case_id for item in completed_a.events} == {case_a.case_id}
+    assert {item.case_id for item in completed_b.events} == {case_b.case_id}
+    assert target.calls.count("shell") == 1
+    assert target.calls.count("policy") == 1
+
+
+def test_exact_existing_customer_conflict_names_retained_baseline_not_registry() -> None:
+    connector = ExistingAfterFirstRecordingMockGoldTier()
+    _, zero, _, target, _ = build_system(connector=connector)
+    case_a = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        team_id=TeamId.TEAM_A,
+    )
+    completed_a = zero.attach_document(
+        case_id=case_a.case_id,
+        display_name="case-a-profile.pdf",
+        content_type="application/pdf",
+        content=PDF,
+    )
+    assert completed_a.status == AutomationStatus.COMPLETED
+    verified_a = zero._cases.get_case(case_a.case_id)  # noqa: SLF001
+    assert verified_a is not None and verified_a.goldtier_result is not None
+    verified_a.goldtier_result = verified_a.goldtier_result.model_copy(
+        update={
+            "readback_party_id": verified_a.goldtier_result.party_id,
+            "readback_status": "VERIFIED",
+        }
+    )
+    zero._cases._repository.save(verified_a)  # type: ignore[attr-defined]  # noqa: SLF001
+
+    case_b = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        team_id=TeamId.TEAM_A,
+    )
+    paused_b = zero.attach_document(
+        case_id=case_b.case_id,
+        display_name="case-b-conflicting-profile.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=AddressMismatchIdp(),
+    )
+
+    assert paused_b.status == AutomationStatus.WAITING_FOR_REVIEW
+    assert paused_b.current_stage == AutomationStage.DOCUMENT
+    conflict = next(
+        item
+        for item in paused_b.active_exceptions
+        if item.blocker_code == "DOCUMENT_SOURCE_CONFLICT"
+    )
+    assert "Retained existing-customer baseline" in conflict.explanation
+    assert "Registry" not in conflict.explanation
+    reconciliation = zero._reconciliation.get(case_id=case_b.case_id)  # noqa: SLF001
+    assert reconciliation is not None
+    address = next(
+        item for item in reconciliation.fields if item.field_name == "registered_address"
+    )
+    assert {item.source_kind.value for item in address.observations} == {
+        "EXISTING_CASE",
+        "DOCUMENT_IDP",
+    }
+    assert target.calls.count("shell") == 1
+    assert target.calls.count("policy") == 1
 
 
 def test_coi_missing_address_remains_registry_only_and_completes() -> None:
@@ -1246,6 +1476,26 @@ def test_registry_review_document_attach_does_not_publish_running_state() -> Non
     )
     assert current.status == "WAITING_FOR_REVIEW"
     assert current.current_stage == "REGISTRY"
+    assert all(event.event_type != "ONBOARDING_STARTED" for event in current.events)
+    assert target.calls == []
+
+
+def test_registry_expected_data_missing_retains_document_without_advancing() -> None:
+    _, zero, documents, target, _ = build_system()
+    created = zero.create_case(MISSING_OWNERSHIP_UEN)
+    assert created.status == AutomationStatus.WAITING_FOR_REVIEW
+    assert created.active_exceptions[0].blocker_code == "REGISTRY_EXPECTED_DATA_MISSING"
+
+    current = zero.attach_document(
+        case_id=created.case_id,
+        display_name="supporting-ownership.pdf",
+        content_type="application/pdf",
+        content=PDF,
+    )
+
+    assert current.status == AutomationStatus.WAITING_FOR_REVIEW
+    assert current.current_stage == AutomationStage.REGISTRY
+    assert len(documents.list_documents(case_id=created.case_id)) == 1
     assert all(event.event_type != "ONBOARDING_STARTED" for event in current.events)
     assert target.calls == []
 

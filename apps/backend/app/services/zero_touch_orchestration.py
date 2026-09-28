@@ -32,6 +32,7 @@ from app.domain.onboarding_intelligence import (
 )
 from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState
 from app.domain.reconciliation import (
+    CANONICAL_BASELINE_SOURCE_KINDS,
     ReconciliationCaseRecord,
     ReconciliationDecisionAction,
     ReconciliationDiscrepancy,
@@ -262,7 +263,7 @@ class ZeroTouchOrchestrator:
                 AutomationStage.DOCUMENT
                 if registry_ready and search_ready
                 else AutomationStage.GOLDTIER_SEARCH
-                if registry_ready
+                if search_review or search_failed or registry_ready
                 else AutomationStage.REGISTRY
             ),
             completed_stages=(
@@ -300,7 +301,7 @@ class ZeroTouchOrchestrator:
             code="ZERO_TOUCH_CASE_CREATED",
             message="Corporate onboarding case created.",
         )
-        if registry_ready:
+        if registry_ready and case.registry_acquisition is not None:
             record = self._append_event(
                 record,
                 event_type=AutomationEventType.REGISTRY_AUTOMATED,
@@ -308,46 +309,47 @@ class ZeroTouchOrchestrator:
                 code="REGISTRY_AUTOMATED",
                 message="Registry evidence was validated automatically.",
             )
-            if search_ready and search is not None:
-                target_stage = record.current_stage
-                record.current_stage = AutomationStage.GOLDTIER_SEARCH
-                record = self._append_event(
-                    record,
-                    event_type=AutomationEventType.GOLDTIER_SEARCH_COMPLETED,
-                    outcome=EventOutcome.SUCCEEDED,
-                    code=search.code,
-                    message=search.message,
-                )
-                record.current_stage = target_stage
-            elif search_review and search is not None:
-                record = self._append_event(
-                    record,
-                    event_type=AutomationEventType.GOLDTIER_SEARCH_REVIEW_REQUIRED,
-                    outcome=EventOutcome.REVIEW_REQUIRED,
-                    code=search.code,
-                    message=search.message,
-                )
-                record = self._add_exception(
-                    record,
-                    exception_type=BusinessExceptionType.ENTITY_RESOLUTION_REVIEW_REQUIRED,
-                    stage=AutomationStage.GOLDTIER_SEARCH,
-                    blocker_code=search.code or "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
-                    explanation=(
-                        "GoldTier candidates require identity review; all target mutations "
-                        "remain blocked."
-                    ),
-                    evidence_version=f"goldtier-search:{search.request_id}",
-                    evidence=(),
-                    actions=(),
-                )
-            elif search_failed and search is not None:
-                record = self._append_event(
-                    record,
-                    event_type=AutomationEventType.GOLDTIER_SEARCH_FAILED,
-                    outcome=EventOutcome.FAILED,
-                    code=search.code,
-                    message=search.message,
-                )
+        if search_ready and search is not None:
+            target_stage = record.current_stage
+            record.current_stage = AutomationStage.GOLDTIER_SEARCH
+            record = self._append_event(
+                record,
+                event_type=AutomationEventType.GOLDTIER_SEARCH_COMPLETED,
+                outcome=EventOutcome.SUCCEEDED,
+                code=search.code,
+                message=search.message,
+            )
+            record.current_stage = target_stage
+        elif search_review and search is not None:
+            record = self._append_event(
+                record,
+                event_type=AutomationEventType.GOLDTIER_SEARCH_REVIEW_REQUIRED,
+                outcome=EventOutcome.REVIEW_REQUIRED,
+                code=search.code,
+                message=search.message,
+            )
+            record = self._add_exception(
+                record,
+                exception_type=BusinessExceptionType.ENTITY_RESOLUTION_REVIEW_REQUIRED,
+                stage=AutomationStage.GOLDTIER_SEARCH,
+                blocker_code=search.code or "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
+                explanation=(
+                    "GoldTier candidates require identity review. This onboarding case "
+                    "remains valid and may retain case evidence, while Shell, target binding, "
+                    "and Amend remain blocked."
+                ),
+                evidence_version=f"goldtier-search:{search.request_id}",
+                evidence=(),
+                actions=(),
+            )
+        elif search_failed and search is not None:
+            record = self._append_event(
+                record,
+                event_type=AutomationEventType.GOLDTIER_SEARCH_FAILED,
+                outcome=EventOutcome.FAILED,
+                code=search.code,
+                message=search.message,
+            )
         elif registry_failed:
             record = self._append_event(
                 record,
@@ -441,6 +443,7 @@ class ZeroTouchOrchestrator:
             if (
                 record.status == AutomationStatus.WAITING_FOR_REVIEW
                 and record.current_stage == AutomationStage.REGISTRY
+                and not _allows_retained_evidence_intake(record)
             ):
                 return record
             if self._documents.list_documents(case_id=case_id):
@@ -505,7 +508,8 @@ class ZeroTouchOrchestrator:
 
         with self._cases.case_lock(case_id):
             record = self._require_record(case_id)
-            if record.status != AutomationStatus.PENDING_INPUTS:
+            retained_evidence_intake = _allows_retained_evidence_intake(record)
+            if record.status != AutomationStatus.PENDING_INPUTS and not retained_evidence_intake:
                 raise ZeroTouchRequestError(
                     code="ZERO_TOUCH_INTAKE_NOT_OPEN",
                     message="Document intake is not open for this case.",
@@ -600,11 +604,14 @@ class ZeroTouchOrchestrator:
                 and record.current_stage == AutomationStage.DOCUMENT
             ):
                 return self._refresh_document_checkpoint_locked(record)
+            retained_evidence_intake = _allows_retained_evidence_intake(record)
             if record.status in {
                 AutomationStatus.COMPLETED,
                 AutomationStatus.TECHNICAL_FAILURE,
-                AutomationStatus.WAITING_FOR_REVIEW,
-            }:
+            } or (
+                record.status == AutomationStatus.WAITING_FOR_REVIEW
+                and not retained_evidence_intake
+            ):
                 return record
             current_documents = self._current_documents(case_id)
             if not current_documents:
@@ -625,6 +632,8 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_INTAKE_INCOMPLETE",
                     message="A failed document must be replaced before intake can complete.",
                 )
+            if retained_evidence_intake:
+                return record
             if ownership_provider is not None:
                 binding_id = self._ownership_provider_bindings.register(
                     _constant_provider_factory(ownership_provider)
@@ -1784,13 +1793,19 @@ class ZeroTouchOrchestrator:
                     ReconciliationOutcome.INVALID: (BusinessExceptionType.RECONCILIATION_INVALID),
                 }[discrepancy.outcome]
             )
-            registry = next(
+            baseline = next(
                 (
                     item
                     for item in discrepancy.observations
-                    if item.source_kind == ReconciliationSourceKind.REGISTRY
+                    if item.source_kind in CANONICAL_BASELINE_SOURCE_KINDS
                 ),
                 None,
+            )
+            registry = (
+                baseline
+                if baseline is not None
+                and baseline.source_kind == ReconciliationSourceKind.REGISTRY
+                else None
             )
             document = next(
                 (
@@ -1809,8 +1824,8 @@ class ZeroTouchOrchestrator:
                 (
                     index
                     for index, item in enumerate(document_observations)
-                    if registry is None
-                    or item.normalized_value != registry.normalized_value
+                    if baseline is None
+                    or item.normalized_value != baseline.normalized_value
                     or item.validity.value != "VALID"
                 ),
                 0,
@@ -1835,8 +1850,14 @@ class ZeroTouchOrchestrator:
                 stage=AutomationStage.DOCUMENT,
                 blocker_code=code,
                 explanation=(
-                    "Registry and document observations disagree and require an explicit "
-                    "bounded decision."
+                    (
+                        "Retained existing-customer baseline and document observations "
+                        "disagree and require an explicit bounded decision."
+                        if baseline is not None
+                        and baseline.source_kind == ReconciliationSourceKind.EXISTING_CASE
+                        else "Registry and document observations disagree and require an "
+                        "explicit bounded decision."
+                    )
                     if discrepancy.outcome == ReconciliationOutcome.CONFLICT
                     else (
                         "Document evidence is not currently usable for deterministic "
@@ -1859,11 +1880,11 @@ class ZeroTouchOrchestrator:
         reconciliation: ReconciliationCaseRecord,
         discrepancy: ReconciliationDiscrepancy,
     ) -> str:
-        registry = next(
+        baseline = next(
             (
                 item
                 for item in discrepancy.observations
-                if item.source_kind == ReconciliationSourceKind.REGISTRY
+                if item.source_kind in CANONICAL_BASELINE_SOURCE_KINDS
             ),
             None,
         )
@@ -1876,8 +1897,8 @@ class ZeroTouchOrchestrator:
             (
                 index
                 for index, item in enumerate(document_observations)
-                if registry is None
-                or item.normalized_value != registry.normalized_value
+                if baseline is None
+                or item.normalized_value != baseline.normalized_value
                 or item.validity.value != "VALID"
             ),
             0,
@@ -2260,6 +2281,18 @@ class ZeroTouchOrchestrator:
                 message="The zero-touch onboarding case was not found.",
             )
         return record
+
+
+def _allows_retained_evidence_intake(record: ZeroTouchAutomationRecord) -> bool:
+    if record.status != AutomationStatus.WAITING_FOR_REVIEW:
+        return False
+    if record.current_stage == AutomationStage.GOLDTIER_SEARCH:
+        return True
+    return any(
+        item.stage == AutomationStage.REGISTRY
+        and item.blocker_code == "REGISTRY_EXPECTED_DATA_MISSING"
+        for item in record.active_exceptions
+    )
 
 
 def _next_stage(completed: tuple[AutomationStage, ...]) -> AutomationStage:

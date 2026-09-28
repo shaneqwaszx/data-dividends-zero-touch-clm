@@ -667,12 +667,28 @@ class ClmOrchestrationService:
                     if disposition == GoldTierSearchDisposition.EXACT_MATCH
                     else None
                 ),
-                code=f"GOLDTIER_FIRST_{disposition.value}",
-                message=(
-                    "Initial GoldTier Search found one exact verified customer."
-                    if disposition == GoldTierSearchDisposition.EXACT_MATCH
-                    else "Initial GoldTier Search found no customer."
-                ),
+                code={
+                    GoldTierSearchDisposition.EXACT_MATCH: "GOLDTIER_FIRST_EXACT_MATCH",
+                    GoldTierSearchDisposition.NO_MATCH: "GOLDTIER_FIRST_NO_MATCH",
+                    GoldTierSearchDisposition.REVIEW_REQUIRED: (
+                        "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
+                    ),
+                    GoldTierSearchDisposition.FAILED: "GT_SEARCH_FAILED",
+                }[disposition],
+                message={
+                    GoldTierSearchDisposition.EXACT_MATCH: (
+                        "Initial GoldTier Search found one exact verified customer."
+                    ),
+                    GoldTierSearchDisposition.NO_MATCH: (
+                        "Initial GoldTier Search found no customer."
+                    ),
+                    GoldTierSearchDisposition.REVIEW_REQUIRED: (
+                        "Initial GoldTier candidates require exact identity review."
+                    ),
+                    GoldTierSearchDisposition.FAILED: (
+                        "Initial GoldTier Search returned a controlled failure."
+                    ),
+                }[disposition],
                 searched_at=initial_search.searched_at,
             )
             record.target_search_checkpoint = checkpoint

@@ -111,8 +111,16 @@ export function isRegistryIntakeUnavailable(summary: ZeroTouchCaseSummary): bool
   const resolution = summary.case.jurisdiction_resolution;
   const route = summary.case.registry_route;
   const acquisition = summary.case.registry_acquisition;
+  const registryExceptions = summary.active_exceptions
+    .filter((exception) => exception.stage === "REGISTRY");
+  const evidenceIntakeCanContinue = registryExceptions.length > 0
+    && registryExceptions.every(
+      (exception) => exception.blocker_code === "REGISTRY_EXPECTED_DATA_MISSING",
+    );
   return (
-    summary.active_exceptions.some((exception) => exception.stage === "REGISTRY")
+    registryExceptions.some(
+      (exception) => exception.blocker_code !== "REGISTRY_EXPECTED_DATA_MISSING",
+    )
     || resolution?.status === "CONFLICT"
     || resolution?.status === "UNRESOLVED"
     || route?.status === "PROVIDER_NOT_IMPLEMENTED"
@@ -120,6 +128,7 @@ export function isRegistryIntakeUnavailable(summary: ZeroTouchCaseSummary): bool
     || (
       summary.current_stage === "REGISTRY"
       && (summary.status === "WAITING_FOR_REVIEW" || summary.status === "TECHNICAL_FAILURE")
+      && !evidenceIntakeCanContinue
     )
   );
 }

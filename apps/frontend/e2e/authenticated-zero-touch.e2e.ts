@@ -206,6 +206,21 @@ test("onboarding progress is visible while backend-authored stages advance", asy
 });
 
 test("Garden partial registry evidence is presented as incomplete, not unavailable", async ({ page }, testInfo) => {
+  let retainedPartialSummary: Record<string, any> | null = null;
+
+  await page.route("**/api/clm/zero-touch/cases/*/intake/complete", async (route) => {
+    if (route.request().method() !== "POST" || retainedPartialSummary === null) {
+      await route.fallback();
+      return;
+    }
+    const caseId = retainedPartialSummary.case.case_id as string;
+    if (!new URL(route.request().url()).pathname.includes(`/cases/${caseId}/`)) {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(retainedPartialSummary) });
+  });
+
   await page.route("**/api/clm/zero-touch/cases", async (route) => {
     if (route.request().method() !== "POST") {
       await route.fallback();
@@ -255,6 +270,7 @@ test("Garden partial registry evidence is presented as incomplete, not unavailab
         ? { ...node, status: "REVIEW_REQUIRED", blocker_code: "REGISTRY_EXPECTED_DATA_MISSING" }
         : node
     ));
+    retainedPartialSummary = payload;
     await route.fulfill({ response, json: payload });
   });
 

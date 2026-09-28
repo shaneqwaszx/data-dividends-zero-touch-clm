@@ -342,7 +342,14 @@ class ReconciliationService:
         self, case_id: UUID
     ) -> tuple[OnboardingCase, list[DocumentProcessingRecord]]:
         case = self._cases.get_case(case_id)
-        if case is None or case.entity is None or case.registry_acquisition is None:
+        if (
+            case is None
+            or case.entity is None
+            or (
+                case.registry_acquisition is None
+                and case.existing_target_state is None
+            )
+        ):
             raise ReconciliationRequestError(
                 code="RECONCILIATION_CASE_NOT_READY",
                 message="Registry evidence is not ready for reconciliation.",
@@ -365,12 +372,18 @@ class ReconciliationService:
         results: list[FieldReconciliationResult] = []
         discrepancies: list[ReconciliationDiscrepancy] = []
         base_fingerprint = self._evidence_fingerprint(case, documents)
-        registry_entity = case.registry_acquisition.entity_profile  # type: ignore[union-attr]
+        baseline_entity = (
+            case.registry_acquisition.entity_profile
+            if case.registry_acquisition is not None
+            else case.entity
+        )
+        if baseline_entity is None:
+            raise ValueError("canonical reconciliation baseline is unavailable")
         for field_name in ReconciliationField:
             document_required = self._document_field_required(documents, field_name)
             observations = self._observations_for_field(
                 case=case,
-                registry_entity=registry_entity,
+                baseline_entity=baseline_entity,
                 documents=documents,
                 field_name=field_name,
             )
@@ -420,20 +433,37 @@ class ReconciliationService:
         self,
         *,
         case: OnboardingCase,
-        registry_entity: CanonicalLegalEntity,
+        baseline_entity: CanonicalLegalEntity,
         documents: list[DocumentProcessingRecord],
         field_name: ReconciliationField,
     ) -> tuple[ReconciliationObservation, ...]:
         document_key = FIELD_TO_DOCUMENT[field_name]
         confidence_threshold = float(case.policy_snapshot.idp_review_confidence_threshold)
-        operation = case.registry_acquisition.operation_results[0]  # type: ignore[union-attr]
-        provenance = operation.provenance
-        if provenance is None:
-            raise ValueError("registry entity provenance is unavailable")
-        registry_value = canonical_value_for_field(registry_entity, document_key)
+        if case.registry_acquisition is not None:
+            operation = case.registry_acquisition.operation_results[0]
+            provenance = operation.provenance
+            if provenance is None:
+                raise ValueError("registry entity provenance is unavailable")
+            baseline_source_kind = ReconciliationSourceKind.REGISTRY
+            baseline_source_system = provenance.provider.value
+            baseline_environment: str | None = provenance.environment.value
+            baseline_observed_at = provenance.retrieved_at
+            baseline_evidence_reference = provenance.evidence_reference
+        elif case.existing_target_state is not None:
+            baseline_source_kind = ReconciliationSourceKind.EXISTING_CASE
+            baseline_source_system = "EXISTING_VERIFIED_TARGET_CASE"
+            baseline_environment = None
+            baseline_observed_at = case.existing_target_state.verified_at
+            baseline_evidence_reference = (
+                f"case:{case.existing_target_state.source_case_id}:"
+                f"target:{case.existing_target_state.target_party_id}"
+            )
+        else:
+            raise ValueError("canonical reconciliation baseline is unavailable")
+        baseline_value = canonical_value_for_field(baseline_entity, document_key)
         registry_normalized, registry_validity = self._normalize(
             field_name,
-            registry_value,
+            baseline_value,
             confidence=None,
             unavailable=False,
             confidence_threshold=confidence_threshold,
@@ -464,13 +494,13 @@ class ReconciliationService:
             ReconciliationObservation(
                 observation_id=self._uuid_factory(),
                 field_name=field_name,
-                raw_value=registry_value,
+                raw_value=baseline_value,
                 normalized_value=registry_normalized,
-                source_kind=ReconciliationSourceKind.REGISTRY,
-                source_system=provenance.provider.value,
-                environment=provenance.environment.value,
-                observed_at=provenance.retrieved_at,
-                evidence_reference=provenance.evidence_reference,
+                source_kind=baseline_source_kind,
+                source_system=baseline_source_system,
+                environment=baseline_environment,
+                observed_at=baseline_observed_at,
+                evidence_reference=baseline_evidence_reference,
                 validity=registry_validity,
             )
         )
@@ -596,7 +626,7 @@ class ReconciliationService:
         case: OnboardingCase, documents: list[DocumentProcessingRecord]
     ) -> str:
         payload = {
-            "domain": "phase-15b-reconciliation-evidence-v3",
+            "domain": "phase-15b-reconciliation-evidence-v4",
             "case_id": str(case.case_id),
             "requested_identifier": case.requested_uen,
             "current_canonical": (
@@ -605,6 +635,11 @@ class ReconciliationService:
             "registry": (
                 case.registry_acquisition.model_dump(mode="json")
                 if case.registry_acquisition is not None
+                else None
+            ),
+            "existing_target_state": (
+                case.existing_target_state.model_dump(mode="json")
+                if case.existing_target_state is not None
                 else None
             ),
             "documents": [item.model_dump(mode="json") for item in documents],

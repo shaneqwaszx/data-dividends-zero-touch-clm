@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-09-28-review-intervention-ux-publication",
+  "currentTodo": "Run exact-byte publication verification and independent merge-readiness QG",
+  "completedTodos": [
+    "Exact baseline preflight and upstream refresh",
+    "Complete A-H inventory with no unknown paths",
+    "PROJECT_STATE baseline/candidate metadata correction"
+  ],
+  "activeSlice": "publication-verification",
+  "evidenceRefs": [
+    "HEAD=origin/main=merge-base=b7cca1f8ae4dfe70d1b3cfe262c527c80f94c1a4",
+    "docs/PROJECT_STATE.md"
+  ],
+  "blockedOn": null,
+  "nextStep": "Freeze candidate identity, run required verification, and dispatch the read-only independent publication QG",
+  "updatedAt": "2026-09-28"
+}

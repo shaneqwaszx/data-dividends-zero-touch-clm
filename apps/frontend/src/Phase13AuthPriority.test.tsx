@@ -218,6 +218,23 @@ describe("Phase 13 authenticated frontend boundary", () => {
       resolved_at: null,
       resolution: null,
     }] as ZeroTouchCaseSummary["active_exceptions"];
+    created.interventions = [{
+      intervention_id: "00000000-0000-4000-8000-000000000099",
+      owning_stage: "DOCUMENT",
+      owning_stage_label: "Documents / reconciliation",
+      title: "Document or reconciliation review required",
+      blocker_code: "DOCUMENT_SOURCE_CONFLICT",
+      explanation: "Document evidence needs a bounded decision.",
+      required_evidence_or_input: ["Current document evidence."],
+      authorized_actions: [{
+        action: "KEEP_REGISTRY_VALUE",
+        label: "Keep registry value",
+        description: "Retain the current registry observation.",
+      }],
+      no_action_reason: null,
+      expected_next_step: "The owning service will re-evaluate retained evidence.",
+      candidate_summaries: [],
+    }];
 
     const markup = renderToStaticMarkup(
       <HomeOnboarding
@@ -247,7 +264,7 @@ describe("Phase 13 authenticated frontend boundary", () => {
       />,
     );
 
-    expect(markup).toContain("Keep registry values");
+    expect(markup).toContain("Keep registry value");
     expect(markup).not.toMatch(/Assign reviewer|Return for rework/);
   });
 

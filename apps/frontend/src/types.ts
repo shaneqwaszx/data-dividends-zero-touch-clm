@@ -162,6 +162,10 @@ export interface GoldTierSandboxStatus {
   max_response_bytes: number;
   last_diagnostic_at: string | null;
   blocker: string | null;
+  customer_operations: "AVAILABLE" | "PARTIAL";
+  related_party_operations: "BLOCKED_CONTRACT";
+  blocker_code: "BLOCKED_CHILD_ID_LIFECYCLE";
+  required_authority: "SPONSOR_CONFIRMATION";
   related_party_blocker: "BLOCKED_CHILD_ID_LIFECYCLE";
   vocabulary_version: string;
   kyc_customer_types: string[];
@@ -973,6 +977,30 @@ export interface ZeroTouchException {
   resolution: ExceptionResolutionAction | null;
 }
 
+export interface HumanInterventionProjection {
+  intervention_id: string;
+  owning_stage: AutomationStage;
+  owning_stage_label: string;
+  title: string;
+  blocker_code: string;
+  explanation: string;
+  required_evidence_or_input: string[];
+  authorized_actions: Array<{
+    action: ExceptionResolutionAction;
+    label: string;
+    description: string;
+  }>;
+  no_action_reason: string | null;
+  expected_next_step: string;
+  candidate_summaries: Array<{
+    party_id: string;
+    registration_number: string | null;
+    country: string | null;
+    legal_name: string | null;
+    legal_form: string | null;
+  }>;
+}
+
 export interface GoldTierTargetClassificationField {
   allowed_values: string[];
   selected_value: string | null;
@@ -996,6 +1024,7 @@ export interface ZeroTouchCaseSummary {
   current_stage: AutomationStage;
   completed_stages: AutomationStage[];
   active_exceptions: ZeroTouchException[];
+  interventions?: HumanInterventionProjection[];
   target_classification: GoldTierTargetClassification;
   reconciliation: ReconciliationSummary | null;
   technical_failure: { code: string; message: string } | null;

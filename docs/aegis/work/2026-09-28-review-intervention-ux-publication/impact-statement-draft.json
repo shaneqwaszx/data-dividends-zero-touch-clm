@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "affectedLayers": [
+    "backend",
+    "frontend",
+    "documentation"
+  ],
+  "owners": [
+    "Repository publication coordinator"
+  ],
+  "invariants": [
+    "GoldTier remains SANDBOX_PARTIAL; backend owns intervention authority; no external provider operation; no merge"
+  ],
+  "compatBoundary": "No persistence, architecture, provider transport, authentication, schema, or runtime composition change",
+  "nonGoals": [
+    "GoldTier Amend workaround",
+    "Related-party childId implementation or call",
+    "Production/Live or Phase-22 completion claim",
+    "PR merge"
+  ]
+}

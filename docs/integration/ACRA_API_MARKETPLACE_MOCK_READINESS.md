@@ -65,6 +65,18 @@ Strict operation observations were:
   share type. It is not the Garden or SIM LIM identity and therefore does not establish
   a denominator for either observed shareholder response.
 
+Use the official Mock sample identities only for the operation each one actually
+proves:
+
+- `11111999A` (Garden) proves the entity/basic-information success path. Its observed
+  shareholder collection is empty.
+- `111111111M` is the supplied shareholder-operation sample only. It does not prove a
+  usable basic-information entity or same-entity capital denominator.
+- `111111111K` is the supplied capital-operation sample only. It does not establish
+  Garden or SIM LIM ownership percentages.
+- `202400001A` and the other `20240000x` values are local synthetic fixtures. They are
+  not official ACRA API Marketplace Mock sample identities.
+
 The minimized operation receipt is
 `docs/evidence/acra_api_marketplace_mock_2026-09-26.json`, governed by
 `docs/contracts/acra_api_marketplace_mock_evidence.schema.json`. It contains no query

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "requestedOutcome": "Publish the independently verified review/intervention UX candidate as a separate checkpoint PR without merging",
+  "goal": "Publish the independently verified review/intervention UX candidate as a separate checkpoint PR without merging",
+  "successEvidence": [
+    "Fresh publication verification and independent QG PASS; explicit safe commits; clean pre-PR PASS; remote SHA equality; PR created; required CI terminal green"
+  ],
+  "stopCondition": "Done at green PR ready for human merge; blocked on upstream divergence, local/QG/CI defect, missing authority, or scope expansion",
+  "nonGoals": [
+    "GoldTier Amend workaround",
+    "Related-party childId implementation or call",
+    "Production/Live or Phase-22 completion claim",
+    "PR merge"
+  ],
+  "scope": "Candidate truth correction, publication verification, fresh independent merge-readiness QG, explicit commits, push, PR, and CI observation",
+  "changeKinds": [
+    "publication"
+  ],
+  "riskHints": [
+    "Misleading GoldTier status, reviewed-byte drift, secret/private staging, or accidental merge"
+  ]
+}

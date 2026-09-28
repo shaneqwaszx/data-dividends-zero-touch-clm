@@ -121,6 +121,12 @@ unowned port occupants are never killed. For recovery and expected outputs, use 
 6. Use `cycle-uen-clean.pdf` with `202400006F` for the independent ownership-cycle
    case, then `second-case-isolation.pdf` with `202400005E` for existing-party search.
 
+The `20240000x` values above are local synthetic fixtures, not official ACRA API
+Marketplace Mock samples. For the official Mock lane, use `11111999A` only for the
+Garden entity/basic success path (its shareholder result is empty), `111111111M` only
+for the supplied shareholder operation, and `111111111K` only for the supplied capital
+operation. Do not combine those operation-specific samples into one ownership case.
+
 Developer/Test Controls are fault-injection and regression tooling only. They do not
 select or alter the provider used by normal sponsor cases.
 

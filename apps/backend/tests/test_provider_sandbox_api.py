@@ -148,8 +148,13 @@ async def test_hr_status_search_and_dry_run_are_safe_and_bounded() -> None:
         )
 
     assert status_response.status_code == 200
-    assert status_response.json()["classification"] == "SANDBOX_PARTIAL"
-    assert status_response.json()["safe_host"] == "sandbox.goldtier.invalid"
+    status_projection = status_response.json()
+    assert status_projection["classification"] == "SANDBOX_PARTIAL"
+    assert status_projection["safe_host"] == "sandbox.goldtier.invalid"
+    assert status_projection["customer_operations"] == "PARTIAL"
+    assert status_projection["related_party_operations"] == "BLOCKED_CONTRACT"
+    assert status_projection["blocker_code"] == "BLOCKED_CHILD_ID_LIFECYCLE"
+    assert status_projection["required_authority"] == "SPONSOR_CONFIRMATION"
     assert "synthetic-user" not in status_response.text
     assert search_response.status_code == 200
     assert search_response.json()["entity_resolution"] == "REVIEW_REQUIRED"

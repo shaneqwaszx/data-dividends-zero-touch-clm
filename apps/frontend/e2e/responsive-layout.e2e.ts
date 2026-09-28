@@ -348,6 +348,18 @@ test("starting a fresh onboarding after a retained case binds the new case route
   await openWorkspaceTab(page, "New onboarding");
   const startFresh = page.getByRole("button", { name: "Start a new case" });
   await expect(startFresh).toBeVisible();
+  const [buttonBox, sidebarBox] = await Promise.all([
+    startFresh.boundingBox(),
+    page.locator(".side-panel").boundingBox(),
+  ]);
+  expect(buttonBox).not.toBeNull();
+  expect(sidebarBox).not.toBeNull();
+  expect(buttonBox!.height).toBeGreaterThanOrEqual(44);
+  expect(buttonBox!.width).toBeGreaterThanOrEqual(sidebarBox!.width - 56);
+  await startFresh.focus();
+  await expect(startFresh).toBeFocused();
+  expect(await startFresh.evaluate((element) => getComputedStyle(element).outlineStyle))
+    .not.toBe("none");
   await startFresh.click();
   await expect(page).toHaveURL(/\/new-onboarding$/);
 
@@ -369,7 +381,24 @@ test("responsive review case exposes only supported authoritative review control
   await login(page);
   const reviewCaseId = await openNewCase(page, lowConfidenceFixture);
   await waitForCaseStatus(page, reviewCaseId, ["WAITING_FOR_REVIEW"]);
+  const reviewSummaryResponse = await page.request.get(`/api/clm/zero-touch/cases/${reviewCaseId}`);
+  expect(reviewSummaryResponse.ok()).toBe(true);
+  const reviewSummary = await reviewSummaryResponse.json() as {
+    active_exceptions: Array<{ blocker_code: string }>;
+    interventions: Array<{ blocker_code: string }>;
+  };
+  expect(
+    reviewSummary.interventions.length,
+    JSON.stringify({
+      exception_codes: reviewSummary.active_exceptions.map((item) => item.blocker_code),
+      intervention_codes: reviewSummary.interventions.map((item) => item.blocker_code),
+    }),
+  ).toBeGreaterThan(0);
+  await page.reload();
   await expectAuthoritativeReviewReady(page, reviewCaseId);
+  await expect(page.getByRole("heading", { name: "Action required" })).toBeVisible();
+  await expect(page.getByText("No action available", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /replay|retry target/i })).toHaveCount(0);
 });
 
 test("responsive Relationship Manager controls contain policy and delete dialog", async ({ page }) => {

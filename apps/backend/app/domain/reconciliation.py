@@ -45,6 +45,10 @@ NON_BLOCKING_RECONCILIATION_OUTCOMES = frozenset(
     {ReconciliationOutcome.MATCH, ReconciliationOutcome.REGISTRY_ONLY}
 )
 
+CANONICAL_BASELINE_SOURCE_KINDS = frozenset(
+    {ReconciliationSourceKind.REGISTRY, ReconciliationSourceKind.EXISTING_CASE}
+)
+
 
 class DiscrepancyStatus(StrEnum):
     OPEN = "OPEN"
@@ -79,25 +83,27 @@ def derive_reconciliation_outcome(
         raise ValueError("reconciliation observations must identify one field")
     sources = {item.source_kind for item in observations}
     if (
-        ReconciliationSourceKind.REGISTRY not in sources
+        not sources.intersection(CANONICAL_BASELINE_SOURCE_KINDS)
         or ReconciliationSourceKind.DOCUMENT_IDP not in sources
     ):
-        raise ValueError("reconciliation requires Registry and Document observations")
+        raise ValueError(
+            "reconciliation requires canonical baseline and Document observations"
+        )
     if any(item.validity == ObservationValidity.INVALID for item in observations):
         return ReconciliationOutcome.INVALID
     if any(item.validity == ObservationValidity.UNVERIFIABLE for item in observations):
         return ReconciliationOutcome.UNVERIFIABLE
-    registry_observations = tuple(
+    baseline_observations = tuple(
         item
         for item in observations
-        if item.source_kind == ReconciliationSourceKind.REGISTRY
+        if item.source_kind in CANONICAL_BASELINE_SOURCE_KINDS
     )
     document_observations = tuple(
         item
         for item in observations
         if item.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
     )
-    if any(item.validity == ObservationValidity.MISSING for item in registry_observations):
+    if any(item.validity == ObservationValidity.MISSING for item in baseline_observations):
         return ReconciliationOutcome.MISSING_IN_SOURCE
     if not any(item.validity == ObservationValidity.VALID for item in document_observations):
         if not document_required and all(

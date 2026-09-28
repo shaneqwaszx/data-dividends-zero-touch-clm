@@ -159,9 +159,26 @@ export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile
             <div><dt>Timeout</dt><dd>{status.timeout_seconds}s</dd></div>
             <div><dt>Maximum response body</dt><dd>{status.max_response_bytes.toLocaleString()} bytes</dd></div>
             <div><dt>Last diagnostic</dt><dd>{status.last_diagnostic_at ? formatTimestamp(status.last_diagnostic_at) : "Not run"}</dd></div>
-            <div><dt>Related parties</dt><dd>{readable(status.related_party_blocker)}</dd></div>
             <div><dt>Vocabulary</dt><dd>{status.vocabulary_version}</dd></div>
           </dl>
+        )}
+        {status && (
+          <div className="provider-readiness" aria-label="Backend-authored GoldTier operation readiness">
+            <article className="ds-banner">
+              <strong>Customer operations</strong>
+              <span>{readable(status.customer_operations)} — Search and offline request validation remain independently available; customer writes stay case-ledger controlled.</span>
+            </article>
+            <article className="ds-banner ds-banner-warn">
+              <strong>Related-party operations</strong>
+              <span>Blocked — integration contract incomplete.</span>
+              <span>GoldTier related-party Policy and Amend require an existing childId, but the supplied contract does not define how that identity is created or retrieved.</span>
+              <span>Required before enabling: {readable(status.required_authority)} for the child-ID lifecycle and relationship semantics.</span>
+              <details>
+                <summary>Technical details</summary>
+                <code>{status.blocker_code}</code>
+              </details>
+            </article>
+          </div>
         )}
         {status && status.timeline.length > 0 && (
           <div className="table-scroll" tabIndex={0} aria-label="Safe Sandbox operation timeline">
