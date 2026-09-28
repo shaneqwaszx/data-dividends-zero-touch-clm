@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.domain.ownership import OwnershipPercent
@@ -104,6 +104,17 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @field_validator("acra_connector_mode", mode="before")
+    @classmethod
+    def validate_acra_connector_mode(cls, value: object) -> object:
+        supported = {"mock", "api_marketplace_mock", "sandbox"}
+        if not isinstance(value, str) or value not in supported:
+            raise ValueError(
+                "Unsupported ACRA connector mode. Current supported modes include "
+                "api_marketplace_mock for the official Marketplace Mock."
+            )
+        return value
 
     @model_validator(mode="after")
     def validate_registry_cache(self) -> "Settings":

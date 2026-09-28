@@ -165,6 +165,7 @@ async function openNewCase(page: Page, fixture: string): Promise<string> {
   if (await startFresh.isVisible()) await startFresh.click();
   await expect(page.getByRole("heading", { name: "Start onboarding" })).toBeVisible();
   await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Legal name").fill("MERLION CIRCULAR LABS PTE. LTD.");
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(fixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -351,6 +352,7 @@ test("starting a fresh onboarding after a retained case binds the new case route
   await expect(page).toHaveURL(/\/new-onboarding$/);
 
   await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Legal name").fill("MERLION CIRCULAR LABS PTE. LTD.");
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(cleanFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();

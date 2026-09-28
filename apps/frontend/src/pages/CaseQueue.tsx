@@ -9,7 +9,7 @@ import {
   casePortfolioQueryOptions,
   priorityMutationEffect,
 } from "../caseQueries";
-import { formatDateNoSeconds, formatDuration, formatTimestamp, stageProgressLabel, targetOutcomeLabel } from "../shared";
+import { formatDateNoSeconds, formatDuration, formatTimestamp, targetOutcomeLabel } from "../shared";
 import { paths } from "../navigation";
 import type { CaseRowView } from "../viewModels";
 import { mapZeroTouchCaseToCaseRow } from "../viewModels";
@@ -273,7 +273,7 @@ export default function CaseQueue({
                   </td>
                   <td>{item.client_scope_label ?? "Legacy unassigned"}</td>
                   <td>
-                    {stageProgressLabel(item.current_stage)}
+                    Current stage
                     <span className="cell-note">{item.final_outcome ? targetOutcomeLabel(item.final_outcome) : item.current_stage.replaceAll("_", " ")}</span>
                   </td>
                   <td>

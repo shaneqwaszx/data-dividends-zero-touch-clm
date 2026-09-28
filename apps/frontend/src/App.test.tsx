@@ -30,6 +30,7 @@ import App, {
   evidenceRevision,
   formatDocumentBytes,
   shouldPollAutomation,
+  shouldMaintainLiveProgress,
   automationStageState,
   runEvidenceMutation,
   selectedDocumentSummary,
@@ -1097,6 +1098,22 @@ function makeZeroTouch(
       ? ["REGISTRY", "DOCUMENT", "OWNERSHIP", "READINESS", "MOCK_GOLDTIER"]
       : ["REGISTRY"],
     active_exceptions: status === "WAITING_FOR_REVIEW" ? [reviewException] : [],
+    target_classification: {
+      vocabulary_version: "goldtier-openapi-1.0.0",
+      editable: false,
+      kyc_customer_type: {
+        allowed_values: ["Company - Private"],
+        selected_value: "Company - Private",
+        authority: "USER_AUTHORIZED_POC",
+        required: true,
+      },
+      client_segment: {
+        allowed_values: ["Corporate"],
+        selected_value: "Corporate",
+        authority: "USER_AUTHORIZED_POC",
+        required: true,
+      },
+    },
     reconciliation: null,
     technical_failure: status === "TECHNICAL_FAILURE"
       ? { code: "IDP_PROCESSING_FAILED", message: "Document processing stopped safely." }
@@ -1118,6 +1135,8 @@ function makeZeroTouch(
       recorded_total_duration_ms: status === "COMPLETED" ? 42 : null,
     },
     target_operations: [],
+    stage_order_version: 2,
+    processing_pipeline: [],
     timeline: [
       {
         sequence: 1,
@@ -1526,6 +1545,12 @@ describe("Phase 06 sponsor-facing zero-touch journey", () => {
     expect(shouldPollAutomation("WAITING_FOR_REVIEW")).toBe(false);
     expect(shouldPollAutomation("COMPLETED")).toBe(false);
     expect(shouldPollAutomation("TECHNICAL_FAILURE")).toBe(false);
+    expect(shouldMaintainLiveProgress("PENDING_INPUTS", true)).toBe(true);
+    expect(shouldMaintainLiveProgress("RUNNING", false)).toBe(true);
+    expect(shouldMaintainLiveProgress("RESUMING", false)).toBe(true);
+    expect(shouldMaintainLiveProgress("WAITING_FOR_REVIEW", false)).toBe(false);
+    expect(shouldMaintainLiveProgress("COMPLETED", false)).toBe(false);
+    expect(shouldMaintainLiveProgress("TECHNICAL_FAILURE", false)).toBe(false);
   });
 
   it("labels waiting, input, progressing, and failed stages truthfully", () => {

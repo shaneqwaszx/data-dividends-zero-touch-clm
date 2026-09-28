@@ -17,6 +17,7 @@ export type Capability =
   | "POLICY_MUTATE"
   | "CASE_ACCESS"
   | "CASE_GLOBAL"
+  | "TARGET_RECOVERY"
   | "IDENTITY_ADMIN"
   | "TEAM_ADMIN"
   | "PROVIDER_SANDBOX_TEST";
@@ -72,7 +73,9 @@ export type PolicyValue =
 
 export type PolicyAuthority =
   | "SPONSOR_SUPPLIED"
+  | "SPONSOR_EXAMPLE"
   | "SANDBOX_OBSERVED"
+  | "USER_AUTHORIZED_POC"
   | "PROJECT_DEFINED_PROVISIONAL"
   | "INDUSTRY_PRACTICE"
   | "TBD_SPONSOR";
@@ -135,6 +138,7 @@ export interface SimulationProfile {
   is_simulated: true;
   registry_system: "ACRA";
   registry_environment: "MOCK" | "SANDBOX";
+  registry_provider_mode?: "LOCAL_MOCK" | "API_MARKETPLACE_MOCK" | "GENERIC_SANDBOX";
   target_system: "GOLDTIER";
   target_environment: "MOCK" | "SANDBOX";
   target_provider_classification: "MOCK" | "SANDBOX_PARTIAL";
@@ -159,6 +163,9 @@ export interface GoldTierSandboxStatus {
   last_diagnostic_at: string | null;
   blocker: string | null;
   related_party_blocker: "BLOCKED_CHILD_ID_LIFECYCLE";
+  vocabulary_version: string;
+  kyc_customer_types: string[];
+  client_segments: string[];
   timeline: GoldTierSandboxDiagnosticEvent[];
 }
 
@@ -201,8 +208,8 @@ export interface GoldTierSandboxTestValues {
   registration_type: string;
   policy: string;
   booking_entity: string;
-  account_entity_type: string;
-  product_type: string;
+  account_entity_type?: string;
+  product_type?: string;
 }
 
 export interface GoldTierSandboxDryRunInput {
@@ -384,6 +391,8 @@ export interface OnboardingCase {
     policy_id: string | null;
     policy_status: string | null;
     amend_status: string | null;
+    readback_party_id?: string | null;
+    readback_status?: string | null;
   } | null;
   events: WorkflowEvent[];
   error: { code: string; message: string } | null;
@@ -656,7 +665,7 @@ export interface GoldTierRequestPreviewData {
   environment: "MOCK" | "SANDBOX";
   policy_version: number;
   operations: Array<{
-    operation: "SEARCH" | "SHELL" | "POLICY" | "AMEND";
+    operation: "SEARCH" | "SHELL" | "POLICY" | "AMEND" | "READBACK";
     fields: GoldTierPreviewField[];
     missing_fields: string[];
     validation: "VALID" | "MISSING" | "INVALID";
@@ -752,6 +761,32 @@ export type AutomationStage =
   | "COMPLETE";
 
 export type EventOutcome = "SUCCEEDED" | "PARTIAL" | "REVIEW_REQUIRED" | "FAILED";
+
+export type ProcessingNodeStatus =
+  | "COMPLETE"
+  | "IN_PROGRESS"
+  | "EMPTY"
+  | "SKIPPED"
+  | "REVIEW_REQUIRED"
+  | "BLOCKED"
+  | "FAILED"
+  | "NOT_REACHED";
+
+export interface ProcessingNode {
+  node_id: string;
+  label: string;
+  status: ProcessingNodeStatus;
+  provider?: string | null;
+  environment?: string | null;
+  operation?: string | null;
+  backend_stage?: AutomationStage | null;
+  timestamp?: string | null;
+  safe_result?: string | null;
+  record_count?: number | null;
+  blocker_code?: string | null;
+  retained_goldtier_id?: string | null;
+  children: ProcessingNode[];
+}
 
 export type CaseActivityAction =
   | "CREATED"
@@ -938,6 +973,20 @@ export interface ZeroTouchException {
   resolution: ExceptionResolutionAction | null;
 }
 
+export interface GoldTierTargetClassificationField {
+  allowed_values: string[];
+  selected_value: string | null;
+  authority: string | null;
+  required: true;
+}
+
+export interface GoldTierTargetClassification {
+  vocabulary_version: string;
+  editable: boolean;
+  kyc_customer_type: GoldTierTargetClassificationField;
+  client_segment: GoldTierTargetClassificationField;
+}
+
 export interface ZeroTouchCaseSummary {
   case: OnboardingCase;
   clm: ClmCaseSummary;
@@ -947,6 +996,7 @@ export interface ZeroTouchCaseSummary {
   current_stage: AutomationStage;
   completed_stages: AutomationStage[];
   active_exceptions: ZeroTouchException[];
+  target_classification: GoldTierTargetClassification;
   reconciliation: ReconciliationSummary | null;
   technical_failure: { code: string; message: string } | null;
   metrics: {
@@ -959,18 +1009,21 @@ export interface ZeroTouchCaseSummary {
     stage_durations_ms: Partial<Record<AutomationStage, number>>;
   };
   target_operations: Array<{
-    operation: "SEARCH" | "SHELL" | "POLICY" | "AMEND";
+    operation: "SEARCH" | "SHELL" | "POLICY" | "AMEND" | "READBACK";
     status:
       | "NOT_ATTEMPTED"
       | "IN_PROGRESS"
       | "NO_MATCH"
       | "MATCH_FOUND"
       | "SKIPPED"
+      | "RECOVERED"
       | "REVIEW_REQUIRED"
       | "CREATED"
       | "SUCCESS"
       | "FAILED";
   }>;
+  stage_order_version: 1 | 2;
+  processing_pipeline: ProcessingNode[];
   timeline: Array<{
     sequence: number;
     event_type: string;

@@ -114,7 +114,7 @@ def test_marketplace_mode_requires_dedicated_credentials() -> None:
 
 
 def test_retired_bizfile_mock_mode_is_invalid() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="Unsupported ACRA connector mode"):
         Settings.model_validate({"app_env": "test", "acra_connector_mode": "bizfile_mock"})
 
 

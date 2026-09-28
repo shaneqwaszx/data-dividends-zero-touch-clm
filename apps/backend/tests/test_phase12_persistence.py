@@ -50,7 +50,12 @@ from app.domain.target_submission import (
     GoldTierExecutionLedgerEntry,
     GoldTierExecutionLedgerState,
     GoldTierOperationMarker,
+    GoldTierProviderFailureStatus,
     GoldTierProviderMode,
+    GoldTierRecoveryOrigin,
+    GoldTierSearchResolution,
+    ProviderVerifiedFailure,
+    ProviderVerifiedRecovery,
 )
 from app.domain.zero_touch import (
     AUTOMATION_STAGE_ORDER_VERSION,
@@ -498,12 +503,12 @@ def test_schema_version_is_explicit_and_unknown_version_is_rejected() -> None:
         created_at=now,
         updated_at=now,
     )
-    assert snapshot.schema_version == 5
+    assert snapshot.schema_version == 6
 
     store = object.__new__(MongoCaseStore)
     raw = snapshot.model_dump(mode="json")
     raw["_id"] = str(snapshot.case_id)
-    raw["schema_version"] = 6
+    raw["schema_version"] = 7
     with pytest.raises(PersistenceSchemaUnsupportedError):
         store._decode(raw)  # noqa: SLF001 - direct corruption boundary test
 
@@ -883,6 +888,81 @@ def test_schema_v5_accepts_matching_plan_and_execution_provider(mode: GoldTierPr
     assert decoded.clm.submission_snapshot.target_input.provider_mode == mode
 
 
+def test_schema_v6_round_trips_provider_verified_amend_failure_without_completion() -> None:
+    snapshot = _provider_bound_snapshot(
+        plan_mode=GoldTierProviderMode.SANDBOX,
+        execution_mode=GoldTierProviderMode.SANDBOX,
+    )
+    original = snapshot.target_executions[0]
+    entity = original.submission_input.canonical_entity
+    now = datetime.now(UTC)
+    party_id = "RECOVERED-123"
+    shell = ProviderVerifiedRecovery(
+        origin=GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+        recovered_party_id=party_id,
+        legal_name=entity.legal_name,
+        registration_number=entity.registration_number,
+        country_of_incorporation=entity.country_of_incorporation,
+        actor_id="persistence-test",
+        verified_at=now,
+        candidate_count=1,
+    )
+    policy = ProviderVerifiedRecovery(
+        origin=GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+        operation=GoldTierOperationMarker.POLICY,
+        recovered_party_id=party_id,
+        legal_name=entity.legal_name,
+        registration_number=entity.registration_number,
+        country_of_incorporation=entity.country_of_incorporation,
+        actor_id="persistence-test",
+        verified_at=now,
+        candidate_count=1,
+        provider_policy="Singapore",
+        provider_policy_status="Requested",
+    )
+    failure = ProviderVerifiedFailure(
+        provider_status=GoldTierProviderFailureStatus.PROVIDER_VALIDATION_FAILED,
+        provider_status_evidence="Valdiation Failed",
+        recovered_party_id=party_id,
+        actor_id="persistence-test",
+        verified_at=now,
+    )
+    retained = GoldTierExecutionLedgerEntry(
+        submission_input=original.submission_input,
+        state=GoldTierExecutionLedgerState.IN_PROGRESS,
+        attempted_operations=(
+            GoldTierOperationMarker.SEARCH,
+            GoldTierOperationMarker.SHELL,
+            GoldTierOperationMarker.POLICY,
+            GoldTierOperationMarker.AMEND,
+        ),
+        completed_operations=(GoldTierOperationMarker.SEARCH,),
+        resolved_operations=(
+            GoldTierOperationMarker.SEARCH,
+            GoldTierOperationMarker.SHELL,
+            GoldTierOperationMarker.POLICY,
+        ),
+        provider_verified_recovery=shell,
+        provider_verified_policy_recovery=policy,
+        provider_verified_amend_failure=failure,
+        search_resolution=GoldTierSearchResolution.NO_MATCH,
+        resolved_party_id=party_id,
+        shell_status="PROVIDER_VERIFIED_RECOVERY",
+        policy_status="PROVIDER_VERIFIED_REQUESTED",
+    )
+    raw = snapshot.model_copy(
+        update={"target_executions": (retained,)}, deep=True
+    ).model_dump(mode="json")
+    raw["_id"] = str(snapshot.case_id)
+
+    decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
+
+    reloaded = decoded.target_executions[0]
+    assert reloaded.provider_verified_amend_failure == failure
+    assert GoldTierOperationMarker.AMEND not in reloaded.lifecycle_resolved_operations
+    assert GoldTierOperationMarker.AMEND not in reloaded.definitively_completed_operations
+
+
 @pytest.mark.parametrize(
     ("plan_mode", "execution_mode"),
     [
@@ -978,12 +1058,15 @@ def test_schema_v2_read_receives_legacy_policy_snapshot_without_rewrite() -> Non
     raw.pop("intelligence")
     raw["onboarding"].pop("policy_snapshot")
     raw["onboarding"].pop("registry_evidence_binding")
+    raw["onboarding"].pop("initial_identity")
+    raw["onboarding"].pop("initial_target_search")
+    raw["onboarding"].pop("existing_target_state")
     raw["_id"] = str(case.case_id)
     original = deepcopy(raw)
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 5
+    assert decoded.schema_version == 6
     assert decoded.onboarding.policy_snapshot.snapshot_label == "LEGACY_PHASE13_DEFAULTS_V1"
     assert decoded.onboarding.registry_evidence_binding is None
     assert str(decoded.onboarding.policy_snapshot.idp_review_confidence_threshold) == "0.85"
@@ -1005,12 +1088,15 @@ def test_schema_v3_read_has_absent_binding_without_rewrite() -> None:
     raw["schema_version"] = 3
     raw.pop("intelligence")
     raw["onboarding"].pop("registry_evidence_binding")
+    raw["onboarding"].pop("initial_identity")
+    raw["onboarding"].pop("initial_target_search")
+    raw["onboarding"].pop("existing_target_state")
     raw["_id"] = str(case.case_id)
     original = deepcopy(raw)
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 5
+    assert decoded.schema_version == 6
     assert decoded.onboarding.registry_evidence_binding is None
     assert raw == original
 
@@ -1030,12 +1116,15 @@ def test_schema_v4_read_has_no_intelligence_record_and_is_not_rewritten() -> Non
     raw["schema_version"] = 4
     raw.pop("intelligence")
     raw["onboarding"]["policy_snapshot"].pop("intelligence")
+    raw["onboarding"].pop("initial_identity")
+    raw["onboarding"].pop("initial_target_search")
+    raw["onboarding"].pop("existing_target_state")
     raw["_id"] = str(case.case_id)
     original = deepcopy(raw)
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 5
+    assert decoded.schema_version == 6
     assert decoded.intelligence is None
     assert decoded.onboarding.policy_snapshot.intelligence is None
     assert raw == original

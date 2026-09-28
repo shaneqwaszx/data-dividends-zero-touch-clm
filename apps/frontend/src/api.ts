@@ -141,6 +141,7 @@ export async function createZeroTouchCase(
   countryOfIncorporation?: "SG" | "AU" | "MY" | "HK",
   teamId?: TeamId,
   priority?: number | null,
+  legalName?: string,
 ): Promise<ZeroTouchCaseSummary> {
   const demo = demoScenario !== undefined;
   const response = await fetch(
@@ -153,6 +154,7 @@ export async function createZeroTouchCase(
         ...(countryOfIncorporation
           ? { country_of_incorporation: countryOfIncorporation }
           : {}),
+        ...(legalName ? { legal_name: legalName } : {}),
         ...(demo ? { scenario: demoScenario } : {}),
         ...(teamId ? { team_id: teamId } : {}),
         ...(priority !== undefined && priority !== null ? { priority } : {}),
@@ -480,6 +482,21 @@ export async function resumeZeroTouchCase(caseId: string): Promise<ZeroTouchCase
   const response = await fetch(
     `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/resume`,
     { method: "POST" },
+  );
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export async function updateGoldTierTargetClassification(
+  caseId: string,
+  input: { kyc_customer_type: string; client_segment: string },
+): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/target-classification`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
   );
   return parseResponse<ZeroTouchCaseSummary>(response);
 }

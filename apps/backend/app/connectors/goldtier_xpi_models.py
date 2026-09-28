@@ -17,10 +17,23 @@ def _safe_text(value: object) -> object:
     return normalized
 
 
+def _safe_optional_text(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    if value == "":
+        return value
+    return _safe_text(value)
+
+
 XpiText = Annotated[
     str,
     BeforeValidator(_safe_text),
     Field(min_length=1, max_length=240),
+]
+XpiOptionalText = Annotated[
+    str,
+    BeforeValidator(_safe_optional_text),
+    Field(max_length=240),
 ]
 XpiIdentifier = Annotated[
     str,
@@ -204,10 +217,12 @@ class XpiCreateCustomerPolicyRequest(XpiContractModel):
     booking_entity: XpiText = Field(
         validation_alias="bookingEntity", serialization_alias="bookingEntity"
     )
-    account_entity_type: XpiText = Field(
+    account_entity_type: XpiOptionalText = Field(
+        default="",
         validation_alias="accountEntityType", serialization_alias="accountEntityType"
     )
-    product_type: XpiText = Field(
+    product_type: XpiOptionalText = Field(
+        default="",
         validation_alias="productType", serialization_alias="productType"
     )
 

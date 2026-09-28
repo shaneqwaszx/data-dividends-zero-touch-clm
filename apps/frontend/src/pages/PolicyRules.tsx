@@ -5,7 +5,9 @@ import type { AuthenticatedProfile, PolicyAuthority, PolicyCatalogue, PolicyRule
 
 const policyAuthorities: PolicyAuthority[] = [
   "SPONSOR_SUPPLIED",
+  "SPONSOR_EXAMPLE",
   "SANDBOX_OBSERVED",
+  "USER_AUTHORIZED_POC",
   "PROJECT_DEFINED_PROVISIONAL",
   "INDUSTRY_PRACTICE",
   "TBD_SPONSOR",

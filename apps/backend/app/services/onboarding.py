@@ -20,6 +20,7 @@ from app.connectors.goldtier_models import (
     GoldTierRequestMetadata,
     GoldTierSearchOutcome,
     GoldTierSearchResult,
+    SearchPartyRequest,
 )
 from app.connectors.goldtier_xpi_models import XpiCustomerSearchRequest
 from app.connectors.registry import (
@@ -37,7 +38,10 @@ from app.domain.jurisdiction import (
 )
 from app.domain.models import (
     EventOutcome,
+    ExistingTargetStateProvenance,
     GoldTierResult,
+    InitialCustomerIdentity,
+    InitialGoldTierSearchEvidence,
     OnboardingCase,
     RegistryAcquisitionStatus,
     RegistryOperationStatus,
@@ -51,8 +55,12 @@ from app.domain.onboarding_intelligence import (
     EntityResolutionResult,
 )
 from app.domain.policy import (
+    GOLDTIER_CLIENT_SEGMENT_VALUES,
+    GOLDTIER_KYC_CUSTOMER_TYPE_VALUES,
+    AuthorityLabelledTargetValue,
     CasePolicySnapshot,
     IntelligencePolicySnapshot,
+    PolicyAuthority,
     legacy_phase13_policy_snapshot,
 )
 from app.domain.reconciliation import ReconciliationField
@@ -66,10 +74,14 @@ from app.domain.target_submission import (
     GoldTierExecutionResult,
     GoldTierIdempotencyBindings,
     GoldTierOperationMarker,
+    GoldTierProviderFailureStatus,
     GoldTierProviderMode,
+    GoldTierRecoveryOrigin,
     GoldTierSearchResolution,
     GoldTierSubmissionInput,
     GoldTierTargetOutcome,
+    ProviderVerifiedFailure,
+    ProviderVerifiedRecovery,
     SubmissionCanonicalEntity,
     SubmissionRegisteredAddress,
 )
@@ -149,6 +161,8 @@ def _map_execution_result(
         policy_id=outcome.policy_id,
         policy_status=outcome.policy_status,
         amend_status=outcome.amend_status,
+        readback_party_id=outcome.readback_party_id,
+        readback_status=outcome.readback_status,
     )
 
 
@@ -240,6 +254,84 @@ class OnboardingService:
     def target_provider_mode(self) -> GoldTierProviderMode:
         return self._goldtier_mapper.environment
 
+    def bind_goldtier_case_classification(
+        self,
+        *,
+        case_id: UUID,
+        kyc_customer_type: str,
+        client_segment: str,
+    ) -> OnboardingCase:
+        """Bind one validated operator decision into the case target snapshot."""
+
+        if kyc_customer_type not in GOLDTIER_KYC_CUSTOMER_TYPE_VALUES:
+            raise ValueError("GoldTier KYC customer type is not in the current vocabulary")
+        if client_segment not in GOLDTIER_CLIENT_SEGMENT_VALUES:
+            raise ValueError("GoldTier client segment is not in the current vocabulary")
+        with self.case_lock(case_id):
+            case = self._repository.get(case_id)
+            if case is None:
+                raise ValueError("Onboarding case was not found")
+            target = case.policy_snapshot.goldtier_target
+            if target is None:
+                raise ValueError("GoldTier target policy is unavailable for this case")
+            if case.goldtier_result is not None or case.state in {
+                WorkflowState.GT_SHELL_CREATED,
+                WorkflowState.GT_POLICY_CREATED,
+                WorkflowState.GT_ENRICHED,
+                WorkflowState.COMPLETED,
+            }:
+                raise ValueError("GoldTier target classification is already frozen")
+
+            already_bound = (
+                target.kyc_customer_type.authority != PolicyAuthority.TBD_SPONSOR
+                and target.client_segment.authority != PolicyAuthority.TBD_SPONSOR
+            )
+            if already_bound:
+                if (
+                    target.kyc_customer_type.value == kyc_customer_type
+                    and target.client_segment.value == client_segment
+                ):
+                    return case.model_copy(deep=True)
+                raise ValueError("GoldTier target classification is already frozen")
+
+            timestamp = self._clock()
+            selected_target = target.model_copy(
+                update={
+                    "kyc_customer_type": AuthorityLabelledTargetValue(
+                        value=kyc_customer_type,
+                        authority=PolicyAuthority.USER_AUTHORIZED_POC,
+                    ),
+                    "client_segment": AuthorityLabelledTargetValue(
+                        value=client_segment,
+                        authority=PolicyAuthority.USER_AUTHORIZED_POC,
+                    ),
+                },
+                deep=True,
+            )
+            updated = case.model_copy(deep=True)
+            updated.policy_snapshot = case.policy_snapshot.model_copy(
+                update={"goldtier_target": selected_target}, deep=True
+            )
+            updated.updated_at = timestamp
+            updated.events.append(
+                WorkflowEvent(
+                    sequence=len(updated.events) + 1,
+                    stage=updated.state,
+                    outcome=EventOutcome.SUCCEEDED,
+                    timestamp=timestamp,
+                    case_id=updated.case_id,
+                    correlation_id=updated.correlation_id,
+                    code="GOLDTIER_CASE_CLASSIFICATION_BOUND",
+                    message=(
+                        "Authorized case-specific GoldTier classifications were bound "
+                        "to the case policy snapshot."
+                    ),
+                )
+            )
+            validated = OnboardingCase.model_validate(updated)
+            self._repository.save(validated)
+            return validated.model_copy(deep=True)
+
     def search_sandbox_target(
         self,
         request: XpiCustomerSearchRequest,
@@ -286,13 +378,18 @@ class OnboardingService:
         uen: str,
         country_of_incorporation: JurisdictionCode | str | None = None,
         *,
+        legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
     ) -> OnboardingCase:
         """Preserve the Phase 01 API as staged intake plus Mock GoldTier submission."""
 
         case = self.create_staged_case(
-            uen, country_of_incorporation, team_id=team_id, priority=priority
+            uen,
+            country_of_incorporation,
+            legal_name=legal_name,
+            team_id=team_id,
+            priority=priority,
         )
         if case.state != WorkflowState.VALIDATED:
             return case
@@ -303,6 +400,7 @@ class OnboardingService:
         uen: str,
         country_of_incorporation: JurisdictionCode | str | None = None,
         *,
+        legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
     ) -> OnboardingCase:
@@ -314,6 +412,7 @@ class OnboardingService:
             correlation_id,
             uen,
             country_of_incorporation,
+            legal_name=legal_name,
             team_id=team_id,
             priority=priority,
         )
@@ -325,6 +424,7 @@ class OnboardingService:
         uen: str,
         country_of_incorporation: JurisdictionCode | str | None = None,
         *,
+        legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
     ) -> OnboardingCase:
@@ -336,6 +436,7 @@ class OnboardingService:
                 correlation_id,
                 uen,
                 country_of_incorporation,
+                legal_name=legal_name,
                 team_id=team_id,
                 priority=priority,
             )
@@ -347,6 +448,7 @@ class OnboardingService:
         uen: str,
         country_of_incorporation: JurisdictionCode | str | None,
         *,
+        legal_name: str | None,
         team_id: TeamId | None,
         priority: CasePriority | None,
     ) -> OnboardingCase:
@@ -389,6 +491,15 @@ class OnboardingService:
             source_case_id=source_case_id,
             correlation_id=correlation_id,
             requested_uen=normalised_uen,
+            initial_identity=(
+                InitialCustomerIdentity(
+                    legal_name=legal_name,
+                    registration_number=normalised_uen,
+                    country_of_incorporation=explicit_jurisdiction.value,
+                )
+                if legal_name is not None and explicit_jurisdiction is not None
+                else None
+            ),
             policy_snapshot=self._policy_snapshot_provider(),
             team_id=team_id,
             priority=priority,
@@ -404,6 +515,172 @@ class OnboardingService:
             "Case requested.",
             create=True,
         )
+
+        if legal_name is not None:
+            if explicit_jurisdiction is None:
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    "INITIAL_IDENTITY_INCOMPLETE",
+                    (
+                        "Legal name, registration number, and country are required for "
+                        "target-first identity."
+                    ),
+                )
+            if resolution.status == JurisdictionResolutionStatus.UNRESOLVED:
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    "JURISDICTION_UNRESOLVED",
+                    "Jurisdiction could not be resolved before target Search.",
+                )
+            if resolution.status == JurisdictionResolutionStatus.CONFLICT:
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    "JURISDICTION_CONFLICT",
+                    "Conflicting jurisdiction evidence blocks target Search.",
+                )
+            if (
+                resolution.resolved_jurisdiction != JurisdictionCode.SINGAPORE
+                or not is_eligible_singapore_uen(normalised_uen)
+            ):
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    "INITIAL_IDENTITY_NOT_ELIGIBLE",
+                    "The initial identity is not eligible for the implemented Singapore route.",
+                )
+            search_request_id = self._uuid_factory()
+            search_request = (
+                XpiCustomerSearchRequest(
+                    legal_name=legal_name,
+                    country_of_incorporation=explicit_jurisdiction.value,
+                )
+                if self.target_provider_mode == GoldTierProviderMode.SANDBOX
+                else SearchPartyRequest(registration_number=normalised_uen)
+            )
+            try:
+                result = validate_search_response(
+                    self._goldtier.search_party(
+                        search_request,
+                        GoldTierRequestMetadata(
+                            correlation_id=correlation_id,
+                            source_case_id=source_case_id,
+                            idempotency_key=search_request_id,
+                        ),
+                    )
+                )
+            except ConnectorError as exc:
+                public = public_connector_error(exc)
+                return self._terminate(
+                    case,
+                    WorkflowState.FAILED,
+                    EventOutcome.FAILED,
+                    public.code,
+                    public.message,
+                )
+            except InvalidTargetResponseError:
+                return self._terminate(
+                    case,
+                    WorkflowState.FAILED,
+                    EventOutcome.FAILED,
+                    "GT_MALFORMED_TARGET_RESPONSE",
+                    "GoldTier target returned an invalid response.",
+                )
+
+            disposition = "REVIEW_REQUIRED"
+            selected_party_id: str | None = None
+            if result.outcome == GoldTierSearchOutcome.NO_MATCH:
+                disposition = "NO_MATCH"
+            elif result.outcome == GoldTierSearchOutcome.FAILURE:
+                disposition = "FAILED"
+            elif (
+                result.outcome == GoldTierSearchOutcome.MATCH_FOUND
+                and len(result.candidates) == 1
+            ):
+                candidate = result.candidates[0]
+                prior = self._repository.find_verified_target_case(
+                    registration_number=normalised_uen,
+                    legal_name=legal_name,
+                    country_of_incorporation=explicit_jurisdiction.value,
+                    party_id=candidate.party_id,
+                )
+                if prior is not None and prior.entity is not None:
+                    def normalized(value: str) -> str:
+                        return " ".join(value.strip().split()).casefold()
+
+                    candidate_identity_matches = (
+                        candidate.legal_name is not None
+                        and normalized(candidate.legal_name) == normalized(legal_name)
+                    ) or (
+                        candidate.registration_number is not None
+                        and candidate.registration_number.strip().upper() == normalised_uen
+                        and candidate.country is not None
+                        and candidate.country.strip().upper() == explicit_jurisdiction.value
+                    )
+                    if candidate_identity_matches:
+                        disposition = "EXACT_MATCH"
+                        selected_party_id = candidate.party_id
+                        case.entity = prior.entity.model_copy(deep=True)
+                        case.existing_target_state = ExistingTargetStateProvenance(
+                            source_case_id=prior.case_id,
+                            target_party_id=candidate.party_id,
+                            verified_at=self._clock(),
+                        )
+            case.initial_target_search = InitialGoldTierSearchEvidence(
+                request_id=search_request_id,
+                disposition=disposition,
+                provider_outcome=result.outcome.value,
+                status_code=result.status_code,
+                candidate_count=len(result.candidates),
+                candidate_party_ids=tuple(item.party_id for item in result.candidates),
+                candidate_legal_names=tuple(item.legal_name for item in result.candidates),
+                selected_party_id=selected_party_id,
+                searched_at=self._clock(),
+            )
+            if disposition == "EXACT_MATCH":
+                self._record(
+                    case,
+                    WorkflowState.VALIDATED,
+                    EventOutcome.SUCCEEDED,
+                    (
+                        "Exact existing GoldTier target state was hydrated; ACRA and Shell "
+                        "are skipped."
+                    ),
+                    "GOLDTIER_FIRST_EXACT_MATCH",
+                )
+                return case.model_copy(deep=True)
+            if disposition == "REVIEW_REQUIRED":
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
+                    (
+                        "GoldTier candidates require exact identity review; ACRA and target "
+                        "writes are blocked."
+                    ),
+                )
+            if disposition == "FAILED":
+                return self._terminate(
+                    case,
+                    WorkflowState.FAILED,
+                    EventOutcome.FAILED,
+                    "GT_SEARCH_FAILED",
+                    "GoldTier party search returned a controlled failure.",
+                )
+            self._record(
+                case,
+                WorkflowState.GT_SEARCHED,
+                EventOutcome.SUCCEEDED,
+                "No GoldTier customer was found; ACRA acquisition may continue.",
+                "GOLDTIER_FIRST_NO_MATCH",
+            )
 
         if resolution.status == JurisdictionResolutionStatus.UNRESOLVED:
             return self._terminate(
@@ -700,7 +977,7 @@ class OnboardingService:
                 self._metadata(search_input, request_id),
             )
             result = validate_search_response(untrusted)
-            return TargetIdentitySearchEvidence(
+        return TargetIdentitySearchEvidence(
                 result=result,
                 resolution=self._resolve_target_candidates(
                     search_input,
@@ -891,16 +1168,28 @@ class OnboardingService:
                 return entry.receipt.model_copy(deep=True)
             if entry.target_outcome is not None:
                 return self._finalize_execution_receipt(submission_input, entry.target_outcome)
-            if entry.attempted_operations != entry.definitively_completed_operations:
+            if entry.provider_verified_amend_failure is not None:
+                raise ValueError(
+                    "Amend has a provider-verified failure and must not be replayed"
+                )
+            if entry.attempted_operations != entry.lifecycle_resolved_operations:
                 raise MutationOutcomeUncertainError
 
             party_id = entry.resolved_party_id
             if party_id is None:
                 return self._advance_shell(case, submission_input, entry)
-            if entry.policy_status is None:
+            if (
+                entry.policy_status is None
+                and entry.search_resolution != GoldTierSearchResolution.EXACT_MATCH
+            ):
                 return self._advance_policy(case, submission_input, entry, party_id)
             if entry.amend_status is None:
                 return self._advance_amend(case, submission_input, entry, party_id)
+            if (
+                submission_input.provider_mode == GoldTierProviderMode.SANDBOX
+                and entry.readback_status is None
+            ):
+                return self._advance_readback(case, submission_input, entry, party_id)
             raise RuntimeError("GoldTier target execution progress is inconsistent")
 
     def _start_incremental_execution(
@@ -923,6 +1212,7 @@ class OnboardingService:
             state=GoldTierExecutionLedgerState.IN_PROGRESS,
             attempted_operations=(GoldTierOperationMarker.SEARCH,),
             completed_operations=(GoldTierOperationMarker.SEARCH,),
+            resolved_operations=(GoldTierOperationMarker.SEARCH,),
             search_resolution=search_resolution,
             resolved_party_id=selected_party_id,
             shell_status=shell_status,
@@ -943,6 +1233,8 @@ class OnboardingService:
         policy_id: str | None = None,
         policy_status: str | None = None,
         amend_status: str | None = None,
+        readback_party_id: str | None = None,
+        readback_status: str | None = None,
     ) -> GoldTierExecutionLedgerEntry:
         with self._execution_ledger_guard:
             entry = self._target_executions.get(submission_input.submission_id)
@@ -955,19 +1247,28 @@ class OnboardingService:
             ):
                 raise ValueError("Target progress does not match an active operation")
             completed = (*entry.definitively_completed_operations, completed_operation)
-            if completed != entry.attempted_operations:
+            resolved = (*entry.lifecycle_resolved_operations, completed_operation)
+            if resolved != entry.attempted_operations:
                 raise ValueError("Target progress cannot skip an attempted operation")
             candidate = GoldTierExecutionLedgerEntry(
                 submission_input=entry.submission_input,
                 state=entry.state,
                 attempted_operations=entry.attempted_operations,
                 completed_operations=completed,
+                resolved_operations=resolved,
+                provider_verified_recovery=entry.provider_verified_recovery,
+                provider_verified_policy_recovery=(
+                    entry.provider_verified_policy_recovery
+                ),
+                provider_verified_amend_failure=entry.provider_verified_amend_failure,
                 search_resolution=entry.search_resolution,
                 resolved_party_id=resolved_party_id,
                 shell_status=shell_status,
                 policy_id=policy_id,
                 policy_status=policy_status,
                 amend_status=amend_status,
+                readback_party_id=readback_party_id,
+                readback_status=readback_status,
             )
             self._target_executions.replace(
                 candidate, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value
@@ -994,7 +1295,7 @@ class OnboardingService:
             self._record_fixed_failure_outcome(
                 submission_input,
                 completed_operations=(
-                    *entry.definitively_completed_operations,
+                    *entry.lifecycle_resolved_operations,
                     GoldTierOperationMarker.SHELL,
                 ),
                 code=public.code,
@@ -1010,7 +1311,7 @@ class OnboardingService:
             self._record_fixed_failure_outcome(
                 submission_input,
                 completed_operations=(
-                    *entry.definitively_completed_operations,
+                    *entry.lifecycle_resolved_operations,
                     GoldTierOperationMarker.SHELL,
                 ),
                 code=MALFORMED_TARGET_RESPONSE_CODE,
@@ -1024,7 +1325,7 @@ class OnboardingService:
                 MALFORMED_TARGET_RESPONSE_MESSAGE,
             )
             return self._finalize_recorded_outcome(submission_input)
-        completed = (*entry.definitively_completed_operations, GoldTierOperationMarker.SHELL)
+        completed = (*entry.lifecycle_resolved_operations, GoldTierOperationMarker.SHELL)
         if shell.outcome != GoldTierOutcome.SUCCESS or shell.party_id is None:
             code = _project_target_error_code(
                 shell.error_code,
@@ -1078,7 +1379,7 @@ class OnboardingService:
             self._record_fixed_failure_outcome(
                 submission_input,
                 completed_operations=(
-                    *entry.definitively_completed_operations,
+                    *entry.lifecycle_resolved_operations,
                     GoldTierOperationMarker.POLICY,
                 ),
                 code=public.code,
@@ -1094,7 +1395,7 @@ class OnboardingService:
             self._record_fixed_failure_outcome(
                 submission_input,
                 completed_operations=(
-                    *entry.definitively_completed_operations,
+                    *entry.lifecycle_resolved_operations,
                     GoldTierOperationMarker.POLICY,
                 ),
                 code=MALFORMED_TARGET_RESPONSE_CODE,
@@ -1108,7 +1409,7 @@ class OnboardingService:
                 MALFORMED_TARGET_RESPONSE_MESSAGE,
             )
             return self._finalize_recorded_outcome(submission_input)
-        completed = (*entry.definitively_completed_operations, GoldTierOperationMarker.POLICY)
+        completed = (*entry.lifecycle_resolved_operations, GoldTierOperationMarker.POLICY)
         if policy.outcome != GoldTierOutcome.SUCCESS:
             code = _project_target_error_code(
                 policy.error_code,
@@ -1159,7 +1460,7 @@ class OnboardingService:
         submission_input: GoldTierSubmissionInput,
         entry: GoldTierExecutionLedgerEntry,
         party_id: str,
-    ) -> GoldTierExecutionReceipt:
+    ) -> GoldTierExecutionReceipt | None:
         request = self._goldtier_mapper.build_amend_request(submission_input, party_id)
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.AMEND)
         try:
@@ -1175,7 +1476,7 @@ class OnboardingService:
             self._record_fixed_failure_outcome(
                 submission_input,
                 completed_operations=(
-                    *entry.definitively_completed_operations,
+                    *entry.lifecycle_resolved_operations,
                     GoldTierOperationMarker.AMEND,
                 ),
                 code=public.code,
@@ -1191,7 +1492,7 @@ class OnboardingService:
             self._record_fixed_failure_outcome(
                 submission_input,
                 completed_operations=(
-                    *entry.definitively_completed_operations,
+                    *entry.lifecycle_resolved_operations,
                     GoldTierOperationMarker.AMEND,
                 ),
                 code=MALFORMED_TARGET_RESPONSE_CODE,
@@ -1205,7 +1506,7 @@ class OnboardingService:
                 MALFORMED_TARGET_RESPONSE_MESSAGE,
             )
             return self._finalize_recorded_outcome(submission_input)
-        completed = (*entry.definitively_completed_operations, GoldTierOperationMarker.AMEND)
+        completed = (*entry.lifecycle_resolved_operations, GoldTierOperationMarker.AMEND)
         if amend.outcome == GoldTierOutcome.PARTIAL_SUCCESS:
             code = _project_target_error_code(
                 amend.error_code,
@@ -1268,6 +1569,28 @@ class OnboardingService:
             policy_status=entry.policy_status,
             amend_status=amend.status,
         )
+        if submission_input.provider_mode == GoldTierProviderMode.SANDBOX:
+            case.goldtier_result = GoldTierResult(
+                party_id=party_id,
+                shell_status=entry.shell_status or "EXISTING_PARTY_REUSED",
+                policy_id=entry.policy_id,
+                policy_status=entry.policy_status,
+                amend_status=amend.status,
+            )
+            existing_party = entry.search_resolution == GoldTierSearchResolution.EXACT_MATCH
+            self._record(
+                case,
+                WorkflowState.VALIDATED if existing_party else WorkflowState.GT_POLICY_CREATED,
+                EventOutcome.SUCCEEDED,
+                (
+                    "Existing GoldTier party amendment succeeded; read-back verification "
+                    "is pending."
+                    if existing_party
+                    else "GoldTier party amendment succeeded; read-back verification is pending."
+                ),
+                "GT_READBACK_PENDING",
+            )
+            return None
         self._record_target_outcome(
             submission_input,
             classification=GoldTierExecutionClassification.SUCCESS,
@@ -1291,6 +1614,141 @@ class OnboardingService:
             WorkflowState.GT_ENRICHED,
             EventOutcome.SUCCEEDED,
             "GoldTier party enriched.",
+        )
+        return self._finalize_recorded_outcome(submission_input)
+
+    def _advance_readback(
+        self,
+        case: OnboardingCase,
+        submission_input: GoldTierSubmissionInput,
+        entry: GoldTierExecutionLedgerEntry,
+        party_id: str,
+    ) -> GoldTierExecutionReceipt:
+        completed = (*entry.lifecycle_resolved_operations, GoldTierOperationMarker.READBACK)
+        self._mark_operation_attempted(submission_input, GoldTierOperationMarker.READBACK)
+        try:
+            untrusted = self._goldtier.search_party(
+                self._goldtier_mapper.build_readback_request(submission_input, party_id),
+                self._metadata(
+                    submission_input,
+                    submission_input.idempotency.amend,
+                ),
+            )
+        except ConnectorError as exc:
+            public = public_connector_error(exc)
+            self._record_target_outcome(
+                submission_input,
+                classification=GoldTierExecutionClassification.FAILED,
+                onboarding_state=WorkflowState.FAILED,
+                completed_operations=completed,
+                party_id=party_id,
+                shell_status=entry.shell_status,
+                policy_id=entry.policy_id,
+                policy_status=entry.policy_status,
+                amend_status=entry.amend_status,
+                error_code=public.code,
+                error_message=public.message,
+                infrastructure_failure=True,
+            )
+            self._terminate(
+                case, WorkflowState.FAILED, EventOutcome.FAILED, public.code, public.message
+            )
+            return self._finalize_recorded_outcome(submission_input)
+        try:
+            readback = validate_search_response(untrusted)
+        except InvalidTargetResponseError:
+            self._record_target_outcome(
+                submission_input,
+                classification=GoldTierExecutionClassification.FAILED,
+                onboarding_state=WorkflowState.FAILED,
+                completed_operations=completed,
+                party_id=party_id,
+                shell_status=entry.shell_status,
+                policy_id=entry.policy_id,
+                policy_status=entry.policy_status,
+                amend_status=entry.amend_status,
+                error_code=MALFORMED_TARGET_RESPONSE_CODE,
+                error_message=MALFORMED_TARGET_RESPONSE_MESSAGE,
+            )
+            self._terminate(
+                case,
+                WorkflowState.FAILED,
+                EventOutcome.FAILED,
+                MALFORMED_TARGET_RESPONSE_CODE,
+                MALFORMED_TARGET_RESPONSE_MESSAGE,
+            )
+            return self._finalize_recorded_outcome(submission_input)
+
+        verified = (
+            readback.outcome == GoldTierSearchOutcome.MATCH_FOUND
+            and len(readback.candidates) == 1
+            and readback.matched_party_id == party_id
+            and readback.candidates[0].party_id == party_id
+        )
+        if not verified:
+            code = "GT_READBACK_IDENTITY_REVIEW_REQUIRED"
+            message = "GoldTier read-back did not prove the retained customer identity."
+            self._record_target_outcome(
+                submission_input,
+                classification=GoldTierExecutionClassification.REVIEW_REQUIRED,
+                onboarding_state=WorkflowState.REVIEW_REQUIRED,
+                completed_operations=completed,
+                party_id=party_id,
+                shell_status=entry.shell_status,
+                policy_id=entry.policy_id,
+                policy_status=entry.policy_status,
+                amend_status=entry.amend_status,
+                error_code=code,
+                error_message=message,
+            )
+            self._terminate(
+                case,
+                WorkflowState.REVIEW_REQUIRED,
+                EventOutcome.REVIEW_REQUIRED,
+                code,
+                message,
+            )
+            return self._finalize_recorded_outcome(submission_input)
+
+        self._record_incremental_progress(
+            submission_input,
+            completed_operation=GoldTierOperationMarker.READBACK,
+            resolved_party_id=party_id,
+            shell_status=entry.shell_status,
+            policy_id=entry.policy_id,
+            policy_status=entry.policy_status,
+            amend_status=entry.amend_status,
+            readback_party_id=party_id,
+            readback_status="VERIFIED",
+        )
+        self._record_target_outcome(
+            submission_input,
+            classification=GoldTierExecutionClassification.SUCCESS,
+            onboarding_state=WorkflowState.GT_ENRICHED,
+            completed_operations=completed,
+            party_id=party_id,
+            shell_status=entry.shell_status,
+            policy_id=entry.policy_id,
+            policy_status=entry.policy_status,
+            amend_status=entry.amend_status,
+            readback_party_id=party_id,
+            readback_status="VERIFIED",
+        )
+        case.goldtier_result = GoldTierResult(
+            party_id=party_id,
+            shell_status=entry.shell_status or "EXISTING_PARTY_REUSED",
+            policy_id=entry.policy_id,
+            policy_status=entry.policy_status,
+            amend_status=entry.amend_status,
+            readback_party_id=party_id,
+            readback_status="VERIFIED",
+        )
+        self._record(
+            case,
+            WorkflowState.GT_ENRICHED,
+            EventOutcome.SUCCEEDED,
+            "GoldTier post-amendment read-back verified the retained customer identity.",
+            "GT_READBACK_VERIFIED",
         )
         return self._finalize_recorded_outcome(submission_input)
 
@@ -1357,7 +1815,7 @@ class OnboardingService:
             return bool(
                 stored is not None
                 and stored.state == GoldTierExecutionLedgerState.IN_PROGRESS
-                and stored.attempted_operations != stored.definitively_completed_operations
+                and stored.attempted_operations != stored.lifecycle_resolved_operations
                 and stored.target_outcome is None
                 and stored.receipt is None
             )
@@ -1406,12 +1864,20 @@ class OnboardingService:
                 state=GoldTierExecutionLedgerState.IN_PROGRESS,
                 attempted_operations=attempted,
                 completed_operations=entry.completed_operations,
+                resolved_operations=entry.resolved_operations,
+                provider_verified_recovery=entry.provider_verified_recovery,
+                provider_verified_policy_recovery=(
+                    entry.provider_verified_policy_recovery
+                ),
+                provider_verified_amend_failure=entry.provider_verified_amend_failure,
                 search_resolution=entry.search_resolution,
                 resolved_party_id=entry.resolved_party_id,
                 shell_status=entry.shell_status,
                 policy_id=entry.policy_id,
                 policy_status=entry.policy_status,
                 amend_status=entry.amend_status,
+                readback_party_id=entry.readback_party_id,
+                readback_status=entry.readback_status,
             )
             self._target_executions.replace(
                 candidate, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value
@@ -1445,6 +1911,8 @@ class OnboardingService:
         policy_id: str | None = None,
         policy_status: str | None = None,
         amend_status: str | None = None,
+        readback_party_id: str | None = None,
+        readback_status: str | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
         infrastructure_failure: bool = False,
@@ -1460,6 +1928,8 @@ class OnboardingService:
                 policy_id=policy_id,
                 policy_status=policy_status,
                 amend_status=amend_status,
+                readback_party_id=readback_party_id,
+                readback_status=readback_status,
                 error_code=error_code,
                 error_message=error_message,
                 infrastructure_failure=infrastructure_failure,
@@ -1486,6 +1956,8 @@ class OnboardingService:
         policy_id: str | None = None,
         policy_status: str | None = None,
         amend_status: str | None = None,
+        readback_party_id: str | None = None,
+        readback_status: str | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
         infrastructure_failure: bool = False,
@@ -1504,6 +1976,8 @@ class OnboardingService:
             policy_id=policy_id,
             policy_status=policy_status,
             amend_status=amend_status,
+            readback_party_id=readback_party_id,
+            readback_status=readback_status,
             error_code=error_code,
             error_message=error_message,
             infrastructure_failure=infrastructure_failure,
@@ -1545,17 +2019,33 @@ class OnboardingService:
                 if entry.target_outcome != outcome:
                     raise ValueError("Target execution produced conflicting outcomes")
                 return entry.target_outcome.model_copy(deep=True)
+            recovered_operations = {
+                recovery.operation for recovery in entry.provider_verified_recoveries
+            }
+            definitive = tuple(
+                operation
+                for operation in outcome.completed_operations
+                if operation not in recovered_operations
+            )
             candidate = GoldTierExecutionLedgerEntry(
                 submission_input=entry.submission_input,
                 state=GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED,
-                attempted_operations=outcome.completed_operations,
-                completed_operations=outcome.completed_operations,
+                attempted_operations=entry.attempted_operations,
+                completed_operations=definitive,
+                resolved_operations=outcome.completed_operations,
+                provider_verified_recovery=entry.provider_verified_recovery,
+                provider_verified_policy_recovery=(
+                    entry.provider_verified_policy_recovery
+                ),
+                provider_verified_amend_failure=entry.provider_verified_amend_failure,
                 search_resolution=entry.search_resolution,
                 resolved_party_id=outcome.party_id,
                 shell_status=outcome.shell_status,
                 policy_id=outcome.policy_id,
                 policy_status=outcome.policy_status,
                 amend_status=outcome.amend_status,
+                readback_party_id=outcome.readback_party_id,
+                readback_status=outcome.readback_status,
                 target_outcome=outcome,
             )
             self._target_executions.replace(
@@ -1580,14 +2070,22 @@ class OnboardingService:
             candidate = GoldTierExecutionLedgerEntry(
                 submission_input=entry.submission_input,
                 state=GoldTierExecutionLedgerState.FINALIZED,
-                attempted_operations=outcome.completed_operations,
-                completed_operations=outcome.completed_operations,
+                attempted_operations=entry.attempted_operations,
+                completed_operations=entry.completed_operations,
+                resolved_operations=entry.resolved_operations,
+                provider_verified_recovery=entry.provider_verified_recovery,
+                provider_verified_policy_recovery=(
+                    entry.provider_verified_policy_recovery
+                ),
+                provider_verified_amend_failure=entry.provider_verified_amend_failure,
                 search_resolution=entry.search_resolution,
                 resolved_party_id=outcome.party_id,
                 shell_status=outcome.shell_status,
                 policy_id=outcome.policy_id,
                 policy_status=outcome.policy_status,
                 amend_status=outcome.amend_status,
+                readback_party_id=outcome.readback_party_id,
+                readback_status=outcome.readback_status,
                 target_outcome=outcome,
                 receipt=receipt,
             )
@@ -1596,6 +2094,463 @@ class OnboardingService:
                 expected_state=GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED.value,
             )
         return receipt.model_copy(deep=True)
+
+    def recover_uncertain_shell_from_provider(
+        self,
+        *,
+        submission_input: GoldTierSubmissionInput,
+        recovered_party_id: str,
+        legal_name: str,
+        registration_number: str,
+        country_of_incorporation: str,
+        actor_id: str,
+        origin: GoldTierRecoveryOrigin,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> GoldTierExecutionLedgerEntry:
+        """Resolve one uncertain Shell from exact later provider evidence, never replay it."""
+
+        if self.target_provider_mode != GoldTierProviderMode.SANDBOX:
+            raise ValueError("Provider-verified recovery requires the GoldTier sandbox")
+        with self.case_lock(submission_input.case_id):
+            if reauthorize is not None:
+                reauthorize()
+            case = self._repository.get(submission_input.case_id)
+            if case is None or case.entity is None:
+                raise ValueError("Recovery requires the owning canonical case identity")
+            expected = submission_input.canonical_entity
+
+            def normalized(value: str) -> str:
+                return " ".join(value.strip().split()).casefold()
+
+            if (
+                normalized(legal_name) != normalized(expected.legal_name)
+                or registration_number.strip().upper()
+                != expected.registration_number.strip().upper()
+                or country_of_incorporation.strip().upper()
+                != expected.country_of_incorporation.strip().upper()
+                or case.requested_uen.strip().upper()
+                != expected.registration_number.strip().upper()
+            ):
+                raise ValueError("Recovery identity does not exactly match the owning case")
+
+            idempotent_recovery: GoldTierExecutionLedgerEntry | None = None
+            with self._execution_ledger_guard:
+                stored = self._target_executions.get(submission_input.submission_id)
+                if stored is not None and stored.submission_input != submission_input:
+                    raise ValueError("Recovery submission identity conflicts with retained input")
+                if stored is not None and stored.provider_verified_recovery is not None:
+                    recovery = stored.provider_verified_recovery
+                    if (
+                        recovery.recovered_party_id == recovered_party_id
+                        and normalized(recovery.legal_name) == normalized(legal_name)
+                        and recovery.registration_number.upper()
+                        == registration_number.strip().upper()
+                        and recovery.country_of_incorporation.upper()
+                        == country_of_incorporation.strip().upper()
+                        and recovery.origin == origin
+                    ):
+                        idempotent_recovery = stored.model_copy(deep=True)
+                    else:
+                        raise ValueError("A conflicting provider recovery is already retained")
+                if idempotent_recovery is None and stored is not None and (
+                    stored.state != GoldTierExecutionLedgerState.IN_PROGRESS
+                    or stored.attempted_operations
+                    != (GoldTierOperationMarker.SEARCH, GoldTierOperationMarker.SHELL)
+                    or stored.definitively_completed_operations
+                    not in {(), (GoldTierOperationMarker.SEARCH,)}
+                    or stored.search_resolution
+                    not in {None, GoldTierSearchResolution.NO_MATCH}
+                    or stored.resolved_party_id is not None
+                ):
+                    raise ValueError("Only one uncertain Shell may be provider-recovered")
+                if (
+                    idempotent_recovery is None
+                    and stored is None
+                    and origin != GoldTierRecoveryOrigin.HISTORICAL_LOCAL_LEDGER_LOST
+                ):
+                    raise ValueError("The retained uncertain ledger is unavailable")
+
+            if idempotent_recovery is not None:
+                self._retain_provider_recovered_shell_on_case(
+                    case,
+                    recovered_party_id=idempotent_recovery.resolved_party_id,
+                )
+                return idempotent_recovery
+
+            result = validate_search_response(
+                self._goldtier.search_party(
+                    XpiCustomerSearchRequest(goldtier_id=recovered_party_id),
+                    self._metadata(submission_input, submission_input.idempotency.search),
+                )
+            )
+            if (
+                result.outcome != GoldTierSearchOutcome.MATCH_FOUND
+                or len(result.candidates) != 1
+                or result.matched_party_id != recovered_party_id
+                or result.candidates[0].party_id != recovered_party_id
+                or result.candidates[0].legal_name is None
+                or normalized(result.candidates[0].legal_name) != normalized(legal_name)
+            ):
+                raise ValueError("Fresh provider evidence did not prove one exact target identity")
+
+            recovery = ProviderVerifiedRecovery(
+                origin=origin,
+                recovered_party_id=recovered_party_id,
+                legal_name=expected.legal_name,
+                registration_number=expected.registration_number,
+                country_of_incorporation=expected.country_of_incorporation,
+                actor_id=actor_id,
+                verified_at=self._clock(),
+                candidate_count=1,
+            )
+            candidate = GoldTierExecutionLedgerEntry(
+                submission_input=submission_input.model_copy(deep=True),
+                state=GoldTierExecutionLedgerState.IN_PROGRESS,
+                attempted_operations=(
+                    GoldTierOperationMarker.SEARCH,
+                    GoldTierOperationMarker.SHELL,
+                ),
+                completed_operations=(GoldTierOperationMarker.SEARCH,),
+                resolved_operations=(
+                    GoldTierOperationMarker.SEARCH,
+                    GoldTierOperationMarker.SHELL,
+                ),
+                provider_verified_recovery=recovery,
+                search_resolution=GoldTierSearchResolution.NO_MATCH,
+                resolved_party_id=recovered_party_id,
+                shell_status="PROVIDER_VERIFIED_RECOVERY",
+            )
+            with self._execution_ledger_guard:
+                try:
+                    if stored is None:
+                        self._target_executions.create(candidate)
+                    else:
+                        self._target_executions.replace(
+                            candidate,
+                            expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+                        )
+                except TargetExecutionRepositoryConflictError:
+                    latest = self._target_executions.get(submission_input.submission_id)
+                    if latest != candidate:
+                        raise RuntimeError(
+                            "Provider recovery lost durable ledger ownership"
+                        ) from None
+            self._retain_provider_recovered_shell_on_case(
+                case,
+                recovered_party_id=recovered_party_id,
+            )
+            return candidate.model_copy(deep=True)
+
+    def _retain_provider_recovered_shell_on_case(
+        self,
+        case: OnboardingCase,
+        *,
+        recovered_party_id: str | None,
+    ) -> None:
+        if recovered_party_id is None:
+            raise ValueError("Provider recovery requires a retained target identity")
+        result = case.goldtier_result
+        if result is not None:
+            if (
+                result.party_id == recovered_party_id
+                and result.shell_status == "PROVIDER_VERIFIED_RECOVERY"
+            ):
+                return
+            raise ValueError("Provider recovery conflicts with the retained case target")
+        case.goldtier_result = GoldTierResult(
+            party_id=recovered_party_id,
+            shell_status="PROVIDER_VERIFIED_RECOVERY",
+        )
+        self._record(
+            case,
+            WorkflowState.GT_SHELL_CREATED,
+            EventOutcome.SUCCEEDED,
+            (
+                "Shell outcome remained uncertain; the target identity was subsequently "
+                "recovered through exact provider verification without replay."
+            ),
+            "GT_SHELL_PROVIDER_VERIFIED_RECOVERY",
+        )
+
+    def recover_uncertain_policy_from_provider(
+        self,
+        *,
+        submission_input: GoldTierSubmissionInput,
+        recovered_party_id: str,
+        legal_name: str,
+        registration_number: str,
+        country_of_incorporation: str,
+        provider_policy: str,
+        provider_policy_status: str,
+        actor_id: str,
+        origin: GoldTierRecoveryOrigin,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> GoldTierExecutionLedgerEntry:
+        """Resolve one uncertain Policy from operator-verified provider evidence."""
+
+        if self.target_provider_mode != GoldTierProviderMode.SANDBOX:
+            raise ValueError("Provider-verified recovery requires the GoldTier sandbox")
+        if origin != GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER:
+            raise ValueError("Policy recovery requires the retained uncertain ledger")
+        with self.case_lock(submission_input.case_id):
+            if reauthorize is not None:
+                reauthorize()
+            case = self._repository.get(submission_input.case_id)
+            if case is None or case.entity is None:
+                raise ValueError("Recovery requires the owning canonical case identity")
+            expected = submission_input.canonical_entity
+
+            def normalized(value: str) -> str:
+                return " ".join(value.strip().split()).casefold()
+
+            if (
+                normalized(legal_name) != normalized(expected.legal_name)
+                or registration_number.strip().upper()
+                != expected.registration_number.strip().upper()
+                or country_of_incorporation.strip().upper()
+                != expected.country_of_incorporation.strip().upper()
+                or case.requested_uen.strip().upper()
+                != expected.registration_number.strip().upper()
+                or recovered_party_id.strip()
+                != (case.goldtier_result.party_id if case.goldtier_result else None)
+            ):
+                raise ValueError("Recovery identity does not exactly match the owning case")
+            target_policy = submission_input.target_policy
+            if target_policy is None or provider_policy != target_policy.policy.value:
+                raise ValueError("Provider Policy evidence does not match the case policy")
+            if provider_policy_status != "Requested":
+                raise ValueError("Provider Policy recovery requires Requested status")
+
+            idempotent_recovery: GoldTierExecutionLedgerEntry | None = None
+            with self._execution_ledger_guard:
+                stored = self._target_executions.get(submission_input.submission_id)
+                if stored is None or stored.submission_input != submission_input:
+                    raise ValueError("The retained uncertain Policy ledger is unavailable")
+                existing = stored.provider_verified_policy_recovery
+                if existing is not None:
+                    if (
+                        existing.recovered_party_id == recovered_party_id
+                        and normalized(existing.legal_name) == normalized(legal_name)
+                        and existing.registration_number.upper()
+                        == registration_number.strip().upper()
+                        and existing.country_of_incorporation.upper()
+                        == country_of_incorporation.strip().upper()
+                        and existing.origin == origin
+                        and existing.provider_policy == provider_policy
+                        and existing.provider_policy_status == provider_policy_status
+                    ):
+                        idempotent_recovery = stored.model_copy(deep=True)
+                    else:
+                        raise ValueError(
+                            "A conflicting provider Policy recovery is already retained"
+                        )
+                if idempotent_recovery is None and (
+                    stored.state != GoldTierExecutionLedgerState.IN_PROGRESS
+                    or stored.attempted_operations
+                    != (
+                        GoldTierOperationMarker.SEARCH,
+                        GoldTierOperationMarker.SHELL,
+                        GoldTierOperationMarker.POLICY,
+                    )
+                    or stored.definitively_completed_operations
+                    != (GoldTierOperationMarker.SEARCH,)
+                    or stored.lifecycle_resolved_operations
+                    != (GoldTierOperationMarker.SEARCH, GoldTierOperationMarker.SHELL)
+                    or stored.provider_verified_recovery is None
+                    or stored.provider_verified_recovery.operation
+                    != GoldTierOperationMarker.SHELL
+                    or stored.search_resolution != GoldTierSearchResolution.NO_MATCH
+                    or stored.resolved_party_id != recovered_party_id
+                    or stored.policy_id is not None
+                    or stored.policy_status is not None
+                    or GoldTierOperationMarker.AMEND in stored.attempted_operations
+                ):
+                    raise ValueError("Only one uncertain Policy may be provider-recovered")
+
+            if idempotent_recovery is not None:
+                self._retain_provider_recovered_policy_on_case(
+                    case,
+                    recovered_party_id=recovered_party_id,
+                    provider_policy=provider_policy,
+                    provider_policy_status=provider_policy_status,
+                )
+                return idempotent_recovery
+
+            recovery = ProviderVerifiedRecovery(
+                origin=origin,
+                operation=GoldTierOperationMarker.POLICY,
+                recovered_party_id=recovered_party_id,
+                legal_name=expected.legal_name,
+                registration_number=expected.registration_number,
+                country_of_incorporation=expected.country_of_incorporation,
+                actor_id=actor_id,
+                verified_at=self._clock(),
+                candidate_count=1,
+                provider_policy=provider_policy,
+                provider_policy_status=provider_policy_status,
+            )
+            candidate = GoldTierExecutionLedgerEntry(
+                submission_input=stored.submission_input,
+                state=GoldTierExecutionLedgerState.IN_PROGRESS,
+                attempted_operations=stored.attempted_operations,
+                completed_operations=stored.completed_operations,
+                resolved_operations=(
+                    GoldTierOperationMarker.SEARCH,
+                    GoldTierOperationMarker.SHELL,
+                    GoldTierOperationMarker.POLICY,
+                ),
+                provider_verified_recovery=stored.provider_verified_recovery,
+                provider_verified_policy_recovery=recovery,
+                search_resolution=stored.search_resolution,
+                resolved_party_id=stored.resolved_party_id,
+                shell_status=stored.shell_status,
+                policy_status="PROVIDER_VERIFIED_REQUESTED",
+            )
+            with self._execution_ledger_guard:
+                try:
+                    self._target_executions.replace(
+                        candidate,
+                        expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+                    )
+                except TargetExecutionRepositoryConflictError:
+                    latest = self._target_executions.get(submission_input.submission_id)
+                    if latest != candidate:
+                        raise RuntimeError(
+                            "Provider Policy recovery lost durable ledger ownership"
+                        ) from None
+            self._retain_provider_recovered_policy_on_case(
+                case,
+                recovered_party_id=recovered_party_id,
+                provider_policy=provider_policy,
+                provider_policy_status=provider_policy_status,
+            )
+            return candidate.model_copy(deep=True)
+
+    def recover_uncertain_amend_failure_from_provider(
+        self,
+        *,
+        submission_input: GoldTierSubmissionInput,
+        recovered_party_id: str,
+        provider_status: GoldTierProviderFailureStatus,
+        provider_status_evidence: str,
+        actor_id: str,
+        origin: GoldTierRecoveryOrigin,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> GoldTierExecutionLedgerEntry:
+        """Retain provider proof that one uncertain Amend failed, without replay."""
+
+        if self.target_provider_mode != GoldTierProviderMode.SANDBOX:
+            raise ValueError("Provider-verified failure requires the GoldTier sandbox")
+        if origin != GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER:
+            raise ValueError("Amend failure recovery requires the retained uncertain ledger")
+        with self.case_lock(submission_input.case_id):
+            if reauthorize is not None:
+                reauthorize()
+            case = self._repository.get(submission_input.case_id)
+            if (
+                case is None
+                or case.entity is None
+                or case.goldtier_result is None
+                or case.goldtier_result.party_id != recovered_party_id
+            ):
+                raise ValueError("Provider failure identity does not match the owning case")
+
+            with self._execution_ledger_guard:
+                stored = self._target_executions.get(submission_input.submission_id)
+                if stored is None or stored.submission_input != submission_input:
+                    raise ValueError("The retained uncertain Amend ledger is unavailable")
+                existing = stored.provider_verified_amend_failure
+                if existing is not None:
+                    if (
+                        existing.recovered_party_id == recovered_party_id
+                        and existing.provider_status == provider_status
+                        and existing.provider_status_evidence == provider_status_evidence
+                        and existing.origin == origin
+                    ):
+                        return stored.model_copy(deep=True)
+                    raise ValueError(
+                        "A conflicting provider Amend failure is already retained"
+                    )
+                if (
+                    stored.state != GoldTierExecutionLedgerState.IN_PROGRESS
+                    or stored.attempted_operations
+                    != (
+                        GoldTierOperationMarker.SEARCH,
+                        GoldTierOperationMarker.SHELL,
+                        GoldTierOperationMarker.POLICY,
+                        GoldTierOperationMarker.AMEND,
+                    )
+                    or stored.definitively_completed_operations
+                    != (GoldTierOperationMarker.SEARCH,)
+                    or stored.lifecycle_resolved_operations
+                    != (
+                        GoldTierOperationMarker.SEARCH,
+                        GoldTierOperationMarker.SHELL,
+                        GoldTierOperationMarker.POLICY,
+                    )
+                    or stored.provider_verified_recovery is None
+                    or stored.provider_verified_policy_recovery is None
+                    or stored.resolved_party_id != recovered_party_id
+                    or stored.amend_status is not None
+                ):
+                    raise ValueError(
+                        "Only the single retained uncertain Amend may be provider-reconciled"
+                    )
+
+                failure = ProviderVerifiedFailure(
+                    origin=origin,
+                    provider_status=provider_status,
+                    provider_status_evidence=provider_status_evidence,
+                    recovered_party_id=recovered_party_id,
+                    actor_id=actor_id,
+                    verified_at=self._clock(),
+                )
+                candidate = GoldTierExecutionLedgerEntry.model_validate(
+                    {
+                        **stored.model_dump(mode="python"),
+                        "provider_verified_amend_failure": failure,
+                    }
+                )
+                try:
+                    self._target_executions.replace(
+                        candidate,
+                        expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value,
+                    )
+                except TargetExecutionRepositoryConflictError:
+                    latest = self._target_executions.get(submission_input.submission_id)
+                    if latest != candidate:
+                        raise RuntimeError(
+                            "Provider Amend failure lost durable ledger ownership"
+                        ) from None
+                return candidate.model_copy(deep=True)
+
+    def _retain_provider_recovered_policy_on_case(
+        self,
+        case: OnboardingCase,
+        *,
+        recovered_party_id: str,
+        provider_policy: str,
+        provider_policy_status: str,
+    ) -> None:
+        result = case.goldtier_result
+        if result is None or result.party_id != recovered_party_id:
+            raise ValueError("Policy recovery conflicts with the retained case target")
+        if result.policy_status == "PROVIDER_VERIFIED_REQUESTED":
+            return
+        if result.policy_status is not None or result.policy_id is not None:
+            raise ValueError("Policy recovery conflicts with retained Policy progress")
+        result.policy_status = "PROVIDER_VERIFIED_REQUESTED"
+        self._record(
+            case,
+            WorkflowState.GT_POLICY_CREATED,
+            EventOutcome.SUCCEEDED,
+            (
+                f"The {provider_policy} Policy transport outcome remained uncertain; "
+                f"provider verification later confirmed one {provider_policy_status} "
+                "request without replay."
+            ),
+            "GT_POLICY_PROVIDER_VERIFIED_RECOVERY",
+        )
 
     def _submit_to_goldtier(
         self,
@@ -1627,6 +2582,7 @@ class OnboardingService:
                 ),
             ),
         )
+
         try:
             search = validate_search_response(untrusted_search)
         except InvalidTargetResponseError:
@@ -1823,72 +2779,79 @@ class OnboardingService:
             shell_status=shell_status,
         )
 
-        completed_operations.append(GoldTierOperationMarker.POLICY)
-        self._mark_operation_attempted(submission_input, GoldTierOperationMarker.POLICY)
-        untrusted_policy = self._run_required_stage(
-            case,
-            code="GT_POLICY_UNEXPECTED_FAILURE",
-            message="GoldTier policy creation could not be completed.",
-            on_failure=lambda code, message: self._record_target_outcome(
-                submission_input,
-                classification=GoldTierExecutionClassification.FAILED,
-                onboarding_state=WorkflowState.FAILED,
-                completed_operations=tuple(completed_operations),
-                party_id=party_id,
-                shell_status=shell_status,
-                error_code=code,
-                error_message=message,
-                infrastructure_failure=True,
-            ),
-            operation=lambda: self._goldtier.create_policy(
-                self._goldtier_mapper.build_policy_request(submission_input, party_id),
-                self._metadata(
-                    submission_input,
-                    submission_input.idempotency.policy,
-                ),
-            ),
-        )
-        try:
-            policy = validate_policy_response(untrusted_policy, expected_party_id=party_id)
-        except InvalidTargetResponseError:
-            return self._malformed_target_response(
+        policy_id: str | None = None
+        policy_status: str | None = None
+        if shell_status != "EXISTING_PARTY_REUSED":
+            completed_operations.append(GoldTierOperationMarker.POLICY)
+            self._mark_operation_attempted(submission_input, GoldTierOperationMarker.POLICY)
+            untrusted_policy = self._run_required_stage(
                 case,
-                submission_input,
-                completed_operations=tuple(completed_operations),
-            )
-        if policy.outcome != GoldTierOutcome.SUCCESS:
-            code = _project_target_error_code(
-                policy.error_code,
-                allowed=frozenset(
-                    {
-                        "GT_POLICY_EXTERNAL_REFERENCE_REQUIRED",
-                        "GT_POLICY_VALIDATION_FAILED",
-                    }
+                code="GT_POLICY_UNEXPECTED_FAILURE",
+                message="GoldTier policy creation could not be completed.",
+                on_failure=lambda code, message: self._record_target_outcome(
+                    submission_input,
+                    classification=GoldTierExecutionClassification.FAILED,
+                    onboarding_state=WorkflowState.FAILED,
+                    completed_operations=tuple(completed_operations),
+                    party_id=party_id,
+                    shell_status=shell_status,
+                    error_code=code,
+                    error_message=message,
+                    infrastructure_failure=True,
                 ),
-                fallback="GT_OPERATION_FAILED",
+                operation=lambda: self._goldtier.create_policy(
+                    self._goldtier_mapper.build_policy_request(submission_input, party_id),
+                    self._metadata(
+                        submission_input,
+                        submission_input.idempotency.policy,
+                    ),
+                ),
             )
-            message = _controlled_target_failure_message(code)
-            self._record_target_outcome(
-                submission_input,
-                classification=GoldTierExecutionClassification.FAILED,
-                onboarding_state=WorkflowState.FAILED,
-                completed_operations=tuple(completed_operations),
-                party_id=party_id,
-                shell_status=shell_status,
-                policy_status=policy.status,
-                error_code=code,
-                error_message=message,
+            try:
+                policy = validate_policy_response(
+                    untrusted_policy, expected_party_id=party_id
+                )
+            except InvalidTargetResponseError:
+                return self._malformed_target_response(
+                    case,
+                    submission_input,
+                    completed_operations=tuple(completed_operations),
+                )
+            if policy.outcome != GoldTierOutcome.SUCCESS:
+                code = _project_target_error_code(
+                    policy.error_code,
+                    allowed=frozenset(
+                        {
+                            "GT_POLICY_EXTERNAL_REFERENCE_REQUIRED",
+                            "GT_POLICY_VALIDATION_FAILED",
+                        }
+                    ),
+                    fallback="GT_OPERATION_FAILED",
+                )
+                message = _controlled_target_failure_message(code)
+                self._record_target_outcome(
+                    submission_input,
+                    classification=GoldTierExecutionClassification.FAILED,
+                    onboarding_state=WorkflowState.FAILED,
+                    completed_operations=tuple(completed_operations),
+                    party_id=party_id,
+                    shell_status=shell_status,
+                    policy_status=policy.status,
+                    error_code=code,
+                    error_message=message,
+                )
+                case.goldtier_result.policy_status = policy.status
+                return self._goldtier_failure(case, code, message)
+            policy_id = policy.policy_id
+            policy_status = policy.status
+            case.goldtier_result.policy_id = policy_id
+            case.goldtier_result.policy_status = policy_status
+            self._record(
+                case,
+                WorkflowState.GT_POLICY_CREATED,
+                EventOutcome.SUCCEEDED,
+                "GoldTier customer policy created.",
             )
-            case.goldtier_result.policy_status = policy.status
-            return self._goldtier_failure(case, code, message)
-        case.goldtier_result.policy_id = policy.policy_id
-        case.goldtier_result.policy_status = policy.status
-        self._record(
-            case,
-            WorkflowState.GT_POLICY_CREATED,
-            EventOutcome.SUCCEEDED,
-            "GoldTier customer policy created.",
-        )
 
         completed_operations.append(GoldTierOperationMarker.AMEND)
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.AMEND)
@@ -1903,8 +2866,8 @@ class OnboardingService:
                 completed_operations=tuple(completed_operations),
                 party_id=party_id,
                 shell_status=shell_status,
-                policy_id=policy.policy_id,
-                policy_status=policy.status,
+                policy_id=policy_id,
+                policy_status=policy_status,
                 error_code=code,
                 error_message=message,
                 infrastructure_failure=True,
@@ -1940,8 +2903,8 @@ class OnboardingService:
                 completed_operations=tuple(completed_operations),
                 party_id=party_id,
                 shell_status=shell_status,
-                policy_id=policy.policy_id,
-                policy_status=policy.status,
+                policy_id=policy_id,
+                policy_status=policy_status,
                 amend_status=amend.status,
                 error_code=code,
                 error_message=message,
@@ -1975,14 +2938,87 @@ class OnboardingService:
                 completed_operations=tuple(completed_operations),
                 party_id=party_id,
                 shell_status=shell_status,
-                policy_id=policy.policy_id,
-                policy_status=policy.status,
+                policy_id=policy_id,
+                policy_status=policy_status,
                 amend_status=amend.status,
                 error_code=code,
                 error_message=message,
             )
             case.goldtier_result.amend_status = amend.status
             return self._goldtier_failure(case, code, message)
+        readback_party_id: str | None = None
+        readback_status: str | None = None
+        if submission_input.provider_mode == GoldTierProviderMode.SANDBOX:
+            completed_operations.append(GoldTierOperationMarker.READBACK)
+            self._mark_operation_attempted(submission_input, GoldTierOperationMarker.READBACK)
+            untrusted_readback = self._run_required_stage(
+                case,
+                code="GT_READBACK_UNEXPECTED_FAILURE",
+                message="GoldTier customer read-back could not be completed.",
+                on_failure=lambda code, message: self._record_target_outcome(
+                    submission_input,
+                    classification=GoldTierExecutionClassification.FAILED,
+                    onboarding_state=WorkflowState.FAILED,
+                    completed_operations=tuple(completed_operations),
+                    party_id=party_id,
+                    shell_status=shell_status,
+                    policy_id=policy_id,
+                    policy_status=policy_status,
+                    amend_status=amend.status,
+                    error_code=code,
+                    error_message=message,
+                    infrastructure_failure=True,
+                ),
+                operation=lambda: self._goldtier.search_party(
+                    self._goldtier_mapper.build_readback_request(
+                        submission_input, party_id
+                    ),
+                    self._metadata(
+                        submission_input,
+                        submission_input.idempotency.amend,
+                    ),
+                ),
+            )
+            try:
+                readback = validate_search_response(untrusted_readback)
+            except InvalidTargetResponseError:
+                return self._malformed_target_response(
+                    case,
+                    submission_input,
+                    completed_operations=tuple(completed_operations),
+                )
+            verified = (
+                readback.outcome == GoldTierSearchOutcome.MATCH_FOUND
+                and len(readback.candidates) == 1
+                and readback.matched_party_id == party_id
+                and readback.candidates[0].party_id == party_id
+            )
+            if not verified:
+                code = "GT_READBACK_IDENTITY_REVIEW_REQUIRED"
+                message = "GoldTier read-back did not prove the retained customer identity."
+                self._record_target_outcome(
+                    submission_input,
+                    classification=GoldTierExecutionClassification.REVIEW_REQUIRED,
+                    onboarding_state=WorkflowState.REVIEW_REQUIRED,
+                    completed_operations=tuple(completed_operations),
+                    party_id=party_id,
+                    shell_status=shell_status,
+                    policy_id=policy_id,
+                    policy_status=policy_status,
+                    amend_status=amend.status,
+                    error_code=code,
+                    error_message=message,
+                )
+                case.goldtier_result.amend_status = amend.status
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    code,
+                    message,
+                )
+            readback_party_id = party_id
+            readback_status = "VERIFIED"
         self._record_target_outcome(
             submission_input,
             classification=GoldTierExecutionClassification.SUCCESS,
@@ -1992,11 +3028,15 @@ class OnboardingService:
             completed_operations=tuple(completed_operations),
             party_id=party_id,
             shell_status=shell_status,
-            policy_id=policy.policy_id,
-            policy_status=policy.status,
+            policy_id=policy_id,
+            policy_status=policy_status,
             amend_status=amend.status,
+            readback_party_id=readback_party_id,
+            readback_status=readback_status,
         )
         case.goldtier_result.amend_status = amend.status
+        case.goldtier_result.readback_party_id = readback_party_id
+        case.goldtier_result.readback_status = readback_status
         self._record(
             case,
             WorkflowState.GT_ENRICHED,

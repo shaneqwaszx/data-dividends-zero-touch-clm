@@ -3,11 +3,13 @@
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from app.api_models import BrowserTargetOperationEvidence, project_processing_pipeline
 from app.config import Settings
 from app.connectors.garden_business import (
     GARDEN_BUSINESS_UEN,
@@ -19,8 +21,10 @@ from app.connectors.garden_business import (
 from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.registry_ownership import RegistryAcquisitionOwnershipProvider
+from app.domain.clm import GoldTierSearchDisposition
 from app.domain.models import RegistryAcquisitionStatus
 from app.domain.ownership import OwnershipAnalysisState, OwnershipCandidateClassification
+from app.domain.zero_touch import AutomationStage, AutomationStatus
 from app.main import create_app
 from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
@@ -169,7 +173,16 @@ def test_garden_mock_acquisition_feeds_the_existing_decimal_engine() -> None:
 
 
 def test_garden_reaches_normal_mock_completion_without_external_network() -> None:
-    client = TestClient(create_app(Settings(app_env="test", idp_connector_mode="local_pdf_text")))
+    client = TestClient(
+        create_app(
+            Settings(
+                app_env="test",
+                acra_connector_mode="mock",
+                goldtier_connector_mode="mock",
+                idp_connector_mode="local_pdf_text",
+            )
+        )
+    )
     created = client.post("/api/clm/zero-touch/cases", json={"uen": GARDEN_BUSINESS_UEN})
     assert created.status_code == 201
     created_payload = created.json()
@@ -209,6 +222,253 @@ def test_garden_reaches_normal_mock_completion_without_external_network() -> Non
         "CREATED",
         "CREATED",
         "SUCCESS",
+    ]
+    assert payload["stage_order_version"] == 2
+    pipeline = payload["processing_pipeline"]
+    assert [item["node_id"] for item in pipeline] == [
+        "CASE_START",
+        "JURISDICTION",
+        "ACRA_REGISTRY",
+        "GOLDTIER_SEARCH",
+        "DOCUMENT_IDP",
+        "RECONCILIATION",
+        "OWNERSHIP_UBO",
+        "ADVISORY",
+        "READINESS",
+        "GOLDTIER_TARGET",
+        "HUMAN_APPROVAL",
+    ]
+    assert [item["node_id"] for item in pipeline[2]["children"]] == [
+        "ACRA_ENTITY_PROFILE",
+        "ACRA_OFFICERS",
+        "ACRA_OWNERSHIP_PARTIES",
+        "ACRA_RELATIONSHIPS",
+    ]
+    assert [item["status"] for item in pipeline[3]["children"]] == [
+        "SKIPPED",
+        "COMPLETE",
+        "SKIPPED",
+    ]
+    assert pipeline[3]["retained_goldtier_id"] is None
+    assert [item["status"] for item in pipeline[9]["children"]] == [
+        "COMPLETE",
+        "COMPLETE",
+        "COMPLETE",
+        "COMPLETE",
+    ]
+    assert pipeline[9]["children"][-1]["node_id"] == "GOLDTIER_COMPLETED"
+    assert pipeline[9]["retained_goldtier_id"]
+    assert pipeline[-1]["node_id"] == "HUMAN_APPROVAL"
+    assert pipeline[-1]["status"] == "REVIEW_REQUIRED"
+    assert pipeline[-1]["blocker_code"] == "READY_FOR_APPROVAL_NOT_IMPLEMENTED"
+
+
+def test_processing_pipeline_preserves_historical_v1_order_and_target_search() -> None:
+    automation = SimpleNamespace(
+        active_exceptions=(),
+        completed_at=NOW,
+        completed_stages=(
+            AutomationStage.REGISTRY,
+            AutomationStage.DOCUMENT,
+            AutomationStage.OWNERSHIP,
+            AutomationStage.READINESS,
+            AutomationStage.MOCK_GOLDTIER,
+        ),
+        created_at=NOW,
+        current_stage=AutomationStage.COMPLETE,
+        events=(),
+        stage_order_version=1,
+        status=AutomationStatus.COMPLETED,
+    )
+    readiness_item = SimpleNamespace(status=SimpleNamespace(value="READY"))
+    clm = SimpleNamespace(
+        events=(),
+        readiness=SimpleNamespace(
+            blockers=(),
+            document=readiness_item,
+            evaluated_at=NOW,
+            ownership=readiness_item,
+        ),
+        submission_plan=SimpleNamespace(environment=SimpleNamespace(value="MOCK")),
+        target_search_checkpoint=None,
+    )
+    pipeline = project_processing_pipeline(
+        automation=automation,
+        clm=clm,
+        case=SimpleNamespace(jurisdiction_resolution=None, registry_acquisition=None),
+        reconciliation=None,
+        target_operations=(
+            BrowserTargetOperationEvidence(operation="SEARCH", status="NO_MATCH"),
+            BrowserTargetOperationEvidence(operation="SHELL", status="CREATED"),
+            BrowserTargetOperationEvidence(operation="POLICY", status="CREATED"),
+            BrowserTargetOperationEvidence(operation="AMEND", status="SUCCESS"),
+        ),
+        retained_goldtier_id="synthetic-test-id",
+    )
+
+    assert [item.node_id for item in pipeline] == [
+        "CASE_START",
+        "JURISDICTION",
+        "ACRA_REGISTRY",
+        "DOCUMENT_IDP",
+        "RECONCILIATION",
+        "OWNERSHIP_UBO",
+        "ADVISORY",
+        "READINESS",
+        "GOLDTIER_TARGET",
+        "HUMAN_APPROVAL",
+    ]
+    assert [item.node_id for item in pipeline[-2].children] == [
+        "GOLDTIER_SEARCH",
+        "GOLDTIER_SHELL",
+        "GOLDTIER_POLICY",
+        "GOLDTIER_AMEND",
+        "GOLDTIER_COMPLETED",
+    ]
+    assert pipeline[-1].status == "REVIEW_REQUIRED"
+
+
+@pytest.mark.parametrize(
+    ("automation_status", "expected_status", "expected_result"),
+    [
+        (AutomationStatus.RUNNING, "IN_PROGRESS", "Search in progress"),
+        (
+            AutomationStatus.WAITING_FOR_REVIEW,
+            "REVIEW_REQUIRED",
+            "Search requires review",
+        ),
+        (AutomationStatus.RECOVERY_PENDING, "BLOCKED", "Search blocked"),
+        (AutomationStatus.TECHNICAL_FAILURE, "FAILED", "Search failed"),
+    ],
+)
+def test_processing_pipeline_uses_active_stage_status_before_search_checkpoint(
+    automation_status: AutomationStatus,
+    expected_status: str,
+    expected_result: str,
+) -> None:
+    automation = SimpleNamespace(
+        active_exceptions=(),
+        completed_at=None,
+        completed_stages=(AutomationStage.REGISTRY,),
+        created_at=NOW,
+        current_stage=AutomationStage.GOLDTIER_SEARCH,
+        events=(),
+        stage_order_version=2,
+        status=automation_status,
+    )
+    pending_item = SimpleNamespace(status=SimpleNamespace(value="NOT_SUBMITTED"))
+    clm = SimpleNamespace(
+        events=(
+            SimpleNamespace(
+                event_type=SimpleNamespace(value="GOLDTIER_SEARCH_STARTED"),
+                timestamp=NOW,
+            ),
+        ),
+        readiness=SimpleNamespace(
+            blockers=(),
+            document=pending_item,
+            evaluated_at=NOW,
+            ownership=pending_item,
+        ),
+        submission_plan=SimpleNamespace(environment=SimpleNamespace(value="SANDBOX")),
+        target_search_checkpoint=None,
+    )
+    pipeline = project_processing_pipeline(
+        automation=automation,
+        clm=clm,
+        case=SimpleNamespace(jurisdiction_resolution=None, registry_acquisition=None),
+        reconciliation=None,
+        target_operations=(
+            BrowserTargetOperationEvidence(operation="SEARCH", status="NOT_ATTEMPTED"),
+        ),
+        retained_goldtier_id=None,
+    )
+
+    search = next(item for item in pipeline if item.node_id == "GOLDTIER_SEARCH")
+    assert search.status == expected_status
+    assert search.safe_result == expected_result
+    assert search.timestamp == NOW
+    assert all(item.status == "NOT_REACHED" for item in search.children)
+
+
+def test_processing_pipeline_projects_exact_existing_customer_branch() -> None:
+    automation = SimpleNamespace(
+        active_exceptions=(),
+        completed_at=NOW,
+        completed_stages=(
+            AutomationStage.GOLDTIER_SEARCH,
+            AutomationStage.DOCUMENT,
+            AutomationStage.OWNERSHIP,
+            AutomationStage.READINESS,
+            AutomationStage.MOCK_GOLDTIER,
+        ),
+        created_at=NOW,
+        current_stage=AutomationStage.COMPLETE,
+        events=(),
+        stage_order_version=2,
+        status=AutomationStatus.COMPLETED,
+    )
+    ready_item = SimpleNamespace(status=SimpleNamespace(value="READY"))
+    checkpoint = SimpleNamespace(
+        candidate_count=1,
+        code=None,
+        disposition=GoldTierSearchDisposition.EXACT_MATCH,
+        searched_at=NOW,
+    )
+    clm = SimpleNamespace(
+        events=(),
+        readiness=SimpleNamespace(
+            blockers=(),
+            document=ready_item,
+            evaluated_at=NOW,
+            ownership=ready_item,
+        ),
+        submission_plan=SimpleNamespace(environment=SimpleNamespace(value="SANDBOX")),
+        target_search_checkpoint=checkpoint,
+    )
+    case = SimpleNamespace(
+        created_at=NOW,
+        events=(),
+        existing_target_state=SimpleNamespace(target_party_id="143878"),
+        initial_identity=SimpleNamespace(),
+        initial_target_search=SimpleNamespace(),
+        jurisdiction_resolution=None,
+        policy_snapshot=None,
+        registry_acquisition=None,
+    )
+
+    pipeline = project_processing_pipeline(
+        automation=automation,
+        clm=clm,
+        case=case,
+        reconciliation=None,
+        target_operations=(
+            BrowserTargetOperationEvidence(operation="SEARCH", status="MATCH_FOUND"),
+            BrowserTargetOperationEvidence(operation="SHELL", status="SKIPPED"),
+            BrowserTargetOperationEvidence(operation="POLICY", status="SKIPPED"),
+            BrowserTargetOperationEvidence(operation="AMEND", status="SUCCESS"),
+            BrowserTargetOperationEvidence(operation="READBACK", status="SUCCESS"),
+        ),
+        retained_goldtier_id="143878",
+    )
+
+    assert [item.node_id for item in pipeline[:6]] == [
+        "CASE_START",
+        "INITIAL_IDENTITY",
+        "JURISDICTION",
+        "GOLDTIER_SEARCH",
+        "ACRA_REGISTRY",
+        "EXISTING_TARGET_STATE",
+    ]
+    assert pipeline[3].retained_goldtier_id == "143878"
+    assert pipeline[4].status == "SKIPPED"
+    assert pipeline[5].retained_goldtier_id == "143878"
+    target = next(item for item in pipeline if item.node_id == "GOLDTIER_TARGET")
+    assert [(item.node_id, item.status) for item in target.children[:-1]] == [
+        ("GOLDTIER_SHELL", "SKIPPED"),
+        ("GOLDTIER_POLICY", "SKIPPED"),
+        ("GOLDTIER_AMEND", "COMPLETE"),
+        ("GOLDTIER_READBACK", "COMPLETE"),
     ]
 
 

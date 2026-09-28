@@ -8,9 +8,9 @@ It is not a sponsor contract, phase report, or substitute for current source and
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 5,
-  "verified_date": "2026-09-25",
-  "verified_main_sha": "ac7518be43437b0f475e0334660689c15ba93c51",
+  "case_envelope_schema_version": 6,
+  "verified_date": "2026-09-28",
+  "verified_main_sha": "463ecdcb4357bb44618cdd5b277671766543dbfc",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -102,31 +102,60 @@ Major implemented phases are:
 - The same pre-Phase 22 candidate adds an explicit GoldTier XPI sandbox lane behind the
   existing connector/mapper/ledger owners. Mock remains the default. XPI is
   `SANDBOX_PARTIAL`, uses a backend-only `user_id` header and TLS-1.3-only bounded
-  transport and exposes a safe case request preview. `accountEntityType` now has one
-  user-authorized provisional POC placeholder, while the other seven target defaults
-  remain `TBD_SPONSOR` and continue to block ordinary mutation. No synthetic customer
-  write was used as acceptance evidence because that authority prerequisite remains unsatisfied;
-  related-party dispatch remains blocked on child-ID lifecycle evidence.
+  transport and exposes a safe case request preview. The corrected OpenAPI 1.0.0 owns
+  exact KYC/Client Segment vocabularies (17/23). Singapore fixes
+  `registrationType=ACRA`, `customerExternalSystem=DSD`, `policy=Singapore`, and
+  `bookingEntity=ANZBGL (Singapore Branch)`; KYC type and segment are validated,
+  write-once case decisions rather than global defaults. Related-party dispatch remains
+  blocked on child-ID lifecycle evidence.
+- The final Pre-Phase-22 completion candidate makes the collection-observed empty
+  `accountEntityType` and `productType` values compatible without treating either as
+  sponsor vocabulary, and adds one backend-authored safe pipeline projection consumed
+  by the optional visual inspector. On 2026-09-27, configured application-connector
+  Searches reached the real `anz-nutmeg` XPI sandbox and returned no match, including
+  a fresh Search for the official-Mock Garden Singapore identity. No mutation had been
+  sent at that checkpoint. The final candidate adds case-bound classification, fixed
+  Singapore policy values, and a strict post-Amend read-back checkpoint; external
+  acceptance evidence remains distinct from implementation evidence.
 - The candidate freezes GoldTier provider identity in the retained CLM submission plan.
   Submission input derives from that plan; the mapper and connector are checked only
   for compatibility before ledger/network activity. Mock/Sandbox drift fails closed,
-  and schema-v5 rejects contradictory plan/input/matching-ledger combinations without
-  introducing schema v6. Plan-only and historical schema reads remain supported.
-- This Pre-Phase-22 provider-orchestration candidate runs read-only GoldTier Search
-  immediately after canonical Registry identity. Exact existing customers retain their
-  target ID and skip Shell; no-match cases continue to readiness before Shell; ambiguous
-  candidates block all target writes. Shell, Policy, and Amend then advance through
-  separate durable checkpoints under the same target ledger and uncertain mutations are
-  not replayed.
+  and schema-v6 rejects contradictory plan/input/matching-ledger combinations. Exact
+  schema-v1 through schema-v5 reads remain supported without rewrite.
+- The current completion candidate moves the first read-only GoldTier Search ahead of
+  ACRA bootstrap by retaining bounded initial legal-name/UEN/country identity. Exact
+  existing customers reuse only a prior same-ID verified canonical target state and skip
+  ACRA/Shell/new-policy creation before same-ID Amend/read-back; no-match cases alone
+  acquire ACRA and may later create Shell then Policy; ambiguous candidates stop before
+  ACRA and all mutation. Provider-verified recovery retains the
+  original uncertain Shell attempt and later exact provider identity as separate durable
+  facts; it never represents the recovered ID as a Shell response. Shell, Policy, Amend,
+  and read-back remain under the one target ledger and uncertain mutations are not
+  automatically replayed.
+- In the bounded Garden acceptance on 2026-09-28, the uncertain Policy attempt was
+  provider-verified read-only as one `Singapore / Requested` request on ID `143878` and
+  retained without replay. Both Shell and Policy recoveries survived a separate-process
+  Mongo reload. Exactly one later Amend was attempted through the ledger; its transport
+  result was uncertain, and portal audit showed `Created` followed by `Valdiation Failed`.
+  The same ledger now durably retains that later evidence as
+  `PROVIDER_VERIFIED_FAILURE / PROVIDER_VALIDATION_FAILED`, with the original uncertain
+  transport chronology and `replayed=false`; Amend remains non-complete and non-resolved.
+  The reconstructed request contained only `goldTierId=143878` and `policy=Singapore`.
+  Portal detail exposed no failed field or rule, so diagnosis is
+  `E. INSUFFICIENT_EVIDENCE`. No second Garden external onboarding, successful same-ID
+  read-back, Live claim, or final acceptance PASS follows from this evidence.
 - The main demo document now defaults to the project-defined COI profile: legal name,
   registration number, and jurisdiction are required, while address is optional and
-  remains Registry evidence if absent. `accountEntityType` has one editable provisional
-  POC placeholder; the other seven institution-specific target defaults remain
-  `TBD_SPONSOR`.
+  remains Registry evidence if absent. The target catalogue preserves the fixed SG POC
+  values, exact current vocabularies, case-bound KYC/segment decisions, and
+  empty-compatible optional account/product fields.
 - HR alone has `PROVIDER_SANDBOX_TEST` and still has no `CASE_ACCESS`. The HR console
   exposes safe GoldTier status, bounded read-only Search, offline request preview/dry
   run, and a process-local safe timeline. Standalone writes are blocked by the existing
   case-ledger boundary; related-party dispatch remains blocked on child-ID lifecycle.
+- The backend-authored pipeline inspector now ends with an explicit unresolved human-
+  approval boundary after technical completion. Its technical event table renders only
+  fixed event codes/types, never retained free-text event messages.
 - The official ACRA API Marketplace Mock has the explicit opt-in mode
   `api_marketplace_mock`, distinct from local `mock` and generic `sandbox`. Authorized
   bounded Mock observations prove the exact token response shape plus strict entity and
@@ -173,19 +202,21 @@ authenticated browser/API request
   -> current process-local session, profile, team and capabilities
   -> backend authorization and creation/portfolio scope
   -> immutable case policy snapshot
-  -> jurisdiction observations and resolver
-  -> closed registry router (resolved SG only)
-  -> optional exact-key synthetic Mock snapshot cache (disabled by default)
-  -> configured synthetic Mock, official API Marketplace Mock, or generic sandbox-shaped acquisition on cache bypass/miss/stale
-  -> canonical legal entity and normalized registry evidence
-  -> early read-only GoldTier Search and existing-customer resolution
+  -> bounded initial identity plus jurisdiction observations and resolver
+  -> early read-only GoldTier Search
+     -> exact verified prior target: hydrate existing state; skip ACRA/Shell/new Policy
+     -> no match: closed SG registry router and optional exact-key Mock cache
+        -> configured synthetic Mock, official API Marketplace Mock, or generic sandbox-shaped acquisition
+        -> canonical legal entity and normalized registry evidence
+     -> ambiguous/failed: controlled stop before ACRA or target mutation
   -> bounded document intake and local deterministic extraction
   -> source-neutral reconciliation and review/resume where required
   -> registry-fed deterministic Decimal ownership graph analysis
   -> versioned advisory entity resolution, UBO assistance, and mock risk
   -> readiness and immutable target snapshot
-  -> incremental GoldTier Mock-default or explicit XPI-sandbox Shell/Policy/Amend
-     checkpoints with the same retained no-replay recovery ledger
+  -> incremental GoldTier Mock-default or explicit XPI-sandbox target checkpoints:
+     Shell/Policy/Amend for new customers, Amend for exact existing customers, then
+     same-ID read-back, all with the same retained no-replay recovery ledger
   -> authorized bounded case portfolio/dashboard/activity and detailed evidence views
 ```
 
@@ -205,7 +236,7 @@ boundaries.
 | IDP/OCR | `local_pdf_text` | Mock fault/demo provider | Local POC / Mock | Deterministic extraction from supported synthetic documents |
 | Ownership | registry evidence into local engine | Mock fault/demo provider | Local / Mock support | Deterministic Decimal graph analysis, not an external service |
 | GoldTier | `mock` default | XPI `sandbox` mode | Mock active; sandbox partial | Ordered target behavior through one retained recovery ledger |
-| GoldTier XPI sandbox | none | explicit `sandbox` mode | Partial | Supplied-route Search/customer mutation adapter, early Search orchestration, strict safe projection, target-policy blocking, and no-replay semantics; no customer write evidence and not Live |
+| GoldTier XPI sandbox | none | explicit `sandbox` mode | Partial | Supplied-route Search/customer mutation adapter, early Search orchestration, strict safe projection, target-policy blocking, and no-replay semantics; one bounded Garden sequence recovered Shell/Policy without replay and retained a failed Amend validation, but no successful customer lifecycle/read-back or Live interoperability is proved |
 | PingFed | none | future placeholders only | Not implemented | No token retrieval or authenticated target connection |
 | MongoDB | memory by default | explicit `mongo` mode | Optional local infrastructure | Single-instance durable POC behavior when configured |
 | Camunda | none | none | Not implemented | No runtime workflow-engine integration |
@@ -239,8 +270,8 @@ unknown or blocked.
   clears them.
 - `mongo` is explicit. Missing/invalid configuration, startup validation, reads, or
   writes fail closed and never fall back to memory.
-- One schema-versioned case envelope (current schema v5) owns durable case state. Strict
-  v1/v2/v3/v4 reads preserve absent historical fields, including v4
+- One schema-versioned case envelope (current schema v6) owns durable case state. Strict
+  v1/v2/v3/v4/v5 reads preserve absent historical fields, including v4
   `intelligence = null`, without a read-only persistence rewrite. Automation records
   persist a separate stage-order version: a missing value is the pre-Search v1 order,
   while newly authored records use v2. A safe non-terminal v1 continuation is rebased in
@@ -248,7 +279,11 @@ unknown or blocked.
   it is never labelled Search-complete during decode or recovery. Historical terminal
   outcomes remain terminal, while historical in-flight target attempts remain uncertain
   and non-replayable. Early Search and incremental ledger fields therefore remain
-  schema-v5 compatible without hiding the stage-order semantic change.
+  explicit schema-v6 fields without hiding the stage-order semantic change. Schema v6
+  adds bounded initial identity/Search evidence, existing-target provenance, lifecycle-
+  resolved operation markers, provider-verified recovery evidence, and an optional
+  provider-verified Amend-failure fact; it does not add another repository or mutation
+  owner.
   Repository adapters preserve revision compare-and-set, insert-only creation,
   update-only mutation, strict identity binding, and replay-aware recovery.
 - The optional Mock registry cache has a separate schema-v1 repository/collection and

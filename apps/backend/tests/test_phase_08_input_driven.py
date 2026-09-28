@@ -241,7 +241,7 @@ def test_uen_drives_independent_ownership_and_target_outcomes() -> None:
     assert existing_party["target_operations"] == [
         {"operation": "SEARCH", "status": "MATCH_FOUND"},
         {"operation": "SHELL", "status": "SKIPPED"},
-        {"operation": "POLICY", "status": "CREATED"},
+        {"operation": "POLICY", "status": "SKIPPED"},
         {"operation": "AMEND", "status": "SUCCESS"},
     ]
 

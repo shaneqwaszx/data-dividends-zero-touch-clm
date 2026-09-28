@@ -89,6 +89,38 @@ class MongoOnboardingCaseRepository:
         snapshot = self._store.get(case_id)
         return snapshot.onboarding.model_copy(deep=True) if snapshot is not None else None
 
+    def find_verified_target_case(
+        self,
+        *,
+        registration_number: str,
+        legal_name: str,
+        country_of_incorporation: str,
+        party_id: str,
+    ) -> OnboardingCase | None:
+        def normalized(value: str) -> str:
+            return " ".join(value.strip().split()).casefold()
+
+        for snapshot in self._store.list():
+            case = snapshot.onboarding
+            entity = case.entity
+            result = case.goldtier_result
+            if (
+                entity is not None
+                and result is not None
+                and result.party_id == party_id
+                and result.readback_party_id == party_id
+                and result.readback_status is not None
+                and entity.registration_number is not None
+                and entity.legal_name is not None
+                and entity.country_of_incorporation is not None
+                and entity.registration_number.upper() == registration_number.upper()
+                and normalized(entity.legal_name) == normalized(legal_name)
+                and entity.country_of_incorporation.upper()
+                == country_of_incorporation.upper()
+            ):
+                return case.model_copy(deep=True)
+        return None
+
     def transaction_snapshot(self, case_id: UUID) -> OnboardingCase | None:
         return self.get(case_id)
 

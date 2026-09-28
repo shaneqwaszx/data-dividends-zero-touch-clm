@@ -55,7 +55,7 @@ const READINESS_STATUSES = new Set<ReadinessStageStatus>([
   "SUBMITTED",
 ]);
 
-const TARGET_OPERATIONS = new Set(["SEARCH", "SHELL", "POLICY", "AMEND"]);
+const TARGET_OPERATIONS = new Set(["SEARCH", "SHELL", "POLICY", "AMEND", "READBACK"]);
 const TARGET_OPERATION_STATUSES = new Set([
   "NOT_ATTEMPTED",
   "IN_PROGRESS",

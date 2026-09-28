@@ -101,8 +101,36 @@ def _policy_field(
     )
 
 
+def _optional_policy_field(
+    name: str, item: AuthorityLabelledTargetValue
+) -> GoldTierPreviewField:
+    explicit = item.authority in {
+        PolicyAuthority.SPONSOR_SUPPLIED,
+        PolicyAuthority.SANDBOX_OBSERVED,
+    }
+    usable = explicit and is_usable_policy_text(item.value)
+    return GoldTierPreviewField(
+        target_field=name,
+        value=item.value if usable else "",
+        provenance=TargetValueProvenance.POLICY,
+        authority=_authority(item.authority),
+        required=False,
+        missing=False,
+        validation=TargetFieldValidation.VALID,
+    )
+
+
+def _optional_policy_value(item: AuthorityLabelledTargetValue) -> str:
+    if item.authority in {
+        PolicyAuthority.SPONSOR_SUPPLIED,
+        PolicyAuthority.SANDBOX_OBSERVED,
+    } and is_usable_policy_text(item.value):
+        return item.value
+    return ""
+
+
 def _operation(
-    name: Literal["SEARCH", "SHELL", "POLICY", "AMEND"],
+    name: Literal["SEARCH", "SHELL", "POLICY", "AMEND", "READBACK"],
     fields: tuple[GoldTierPreviewField, ...],
 ) -> GoldTierOperationPreview:
     missing = tuple(item.target_field for item in fields if item.missing)
@@ -157,6 +185,12 @@ class GoldTierXpiRequestMapper:
             country_of_incorporation=entity.country_of_incorporation,
         )
 
+    def build_readback_request(
+        self, submission: GoldTierSubmissionInput, party_id: str
+    ) -> XpiCustomerSearchRequest:
+        self._validate_submission(submission)
+        return XpiCustomerSearchRequest(goldtier_id=party_id)
+
     def build_shell_request(
         self, submission: GoldTierSubmissionInput
     ) -> XpiCreateCustomerRequest:
@@ -203,8 +237,8 @@ class GoldTierXpiRequestMapper:
             goldtier_id=party_id,
             policy=policy.policy.value,
             booking_entity=policy.booking_entity.value,
-            account_entity_type=policy.account_entity_type.value,
-            product_type=policy.product_type.value,
+            account_entity_type=_optional_policy_value(policy.account_entity_type),
+            product_type=_optional_policy_value(policy.product_type),
         )
 
     def build_amend_request(
@@ -277,8 +311,8 @@ class GoldTierXpiRequestMapper:
                 _derived_field("goldTierId", "BOUND_FROM_SEARCH_OR_SHELL"),
                 _policy_field("policy", policy.policy),
                 _policy_field("bookingEntity", policy.booking_entity),
-                _policy_field("accountEntityType", policy.account_entity_type),
-                _policy_field("productType", policy.product_type),
+                _optional_policy_field("accountEntityType", policy.account_entity_type),
+                _optional_policy_field("productType", policy.product_type),
             ),
         )
         amend = _operation(
@@ -288,7 +322,11 @@ class GoldTierXpiRequestMapper:
                 _policy_field("policy", policy.policy),
             ),
         )
-        operations = (search, shell, policy_operation, amend)
+        readback = _operation(
+            "READBACK",
+            (_derived_field("goldTierID", "BOUND_FROM_SEARCH_OR_SHELL"),),
+        )
+        operations = (search, shell, policy_operation, amend, readback)
         return GoldTierRequestPreview(
             environment="SANDBOX",
             policy_version=submission.policy_catalogue_version,
@@ -306,3 +344,4 @@ class GoldTierXpiRequestMapper:
         self.build_shell_request(submission)
         self.build_policy_request(submission, validation_party_id)
         self.build_amend_request(submission, validation_party_id)
+        self.build_readback_request(submission, validation_party_id)

@@ -16,8 +16,10 @@ Q-001/Q-006/Q-007/Q-009/Q-010/Q-011/Q-018, or authorize a Live claim. Example va
 are supporting `SPONSOR_SUPPLIED` sandbox inputs only; they are not copied into this
 matrix or treated as production business policy.
 
-Status vocabulary: `DIRECT`, `DERIVED`, `SPONSOR_SUPPLIED`, `SANDBOX_OBSERVED`,
-`TARGET_POLICY`, `MANUAL_ENRICHMENT`, `PROJECT_DEFINED_PROVISIONAL`,
+Status vocabulary: `ACRA_PROVIDER_EVIDENCE`, `SPONSOR_EXAMPLE`,
+`USER_AUTHORIZED_POC`, `PROJECT_DEFINED_POC`, `PROVIDER_OBSERVED`, `DIRECT`,
+`DERIVED`, `SPONSOR_SUPPLIED`, `SANDBOX_OBSERVED`, `TARGET_POLICY`,
+`MANUAL_ENRICHMENT`, `PROJECT_DEFINED_PROVISIONAL`,
 `INDUSTRY_PRACTICE`, `TBD_SPONSOR`, `UNSUPPORTED`, `CONFLICT`.
 
 ## Contract differences from the historical Mock dialect
@@ -51,13 +53,59 @@ reconciliation. The 24 September closure overlay is authoritative for current co
 - Legal name, registration identity, incorporation country, represented registered-
   address components, and a case-bound synthetic external key are mapped directly or
   system-derived. Contact, group-company, address type, and ANZSIC are omitted.
-- Eight target values are implemented as editable, authority-labelled, immutable
-  per-case policy fields. `accountEntityType` defaults to the user-authorized
-  `PROJECT_DEFINED_PROVISIONAL` POC placeholder; the other seven defaults remain
-  `TBD_SPONSOR`, so ordinary sandbox mutation is blocked before ledger/network until
-  legitimate values and authority are supplied.
+- Eight target values are implemented as authority-labelled, immutable per-case policy
+  fields. `registrationType=ACRA`, `customerExternalSystem=DSD`, `policy=Singapore`,
+  and `bookingEntity=ANZBGL (Singapore Branch)` are fixed for this bounded POC. KYC
+  Customer Type and Client Segment are write-once per-case selections from the exact
+  corrected OpenAPI 1.0.0 vocabularies. The collection sends `accountEntityType` and
+  `productType` as empty;
+  unresolved placeholders for those two fields therefore serialize as explicit empty
+  strings for this bounded sandbox dialect and do not become inferred vocabulary.
 - Related-party strict DTOs are implemented locally. External RP dispatch remains
   blocked on `childId` lifecycle and relationship-value authority.
+
+## Current Singapore POC value classification
+
+| Resulting target field | Current value/source | Classification | Dispatch treatment |
+|---|---|---|---|
+| `legalName` | Canonical legal name from the official ACRA Marketplace Mock entity profile | `ACRA_PROVIDER_EVIDENCE` | Required; no sample substitution |
+| `registration.registrationNumber` | Canonical Singapore UEN, unchanged | `ACRA_PROVIDER_EVIDENCE` | Required; never converted to ABN |
+| `countryOfIncorporation`, `registration.countryIso2` | Canonical Singapore jurisdiction `SG` | `ACRA_PROVIDER_EVIDENCE` | Required |
+| `registration.registrationType` | `ACRA` | `USER_AUTHORIZED_POC` | Required for this bounded POC; UEN remains the unchanged registration number and ABN is prohibited |
+| `legalRegisteredAddress` | Canonical ACRA registered address when available | `ACRA_PROVIDER_EVIDENCE` | Required by the current local canonical minimum |
+| `customerExternalSystem` | `DSD` | `SPONSOR_DOCUMENTED` | Fixed for this bounded sandbox POC; not ACRA evidence |
+| `kycCustomerType` | One exact corrected OpenAPI 1.0.0 value selected per case | `USER_AUTHORIZED_POC` | Blocks Shell while unresolved; no global default |
+| `clientSegment` | One exact corrected OpenAPI 1.0.0 value selected per case | `USER_AUTHORIZED_POC` | Blocks Shell while unresolved; no global default |
+| `policy` | `Singapore` | `SPONSOR_DOCUMENTED` | Fixed for this bounded POC and Amend |
+| `bookingEntity` | `ANZBGL (Singapore Branch)` | `USER_AUTHORIZED_POC` | Fixed bounded POC choice; not universal future policy |
+| `accountEntityType`, `productType` | Explicit empty collection example | `SPONSOR_EXAMPLE` | Serialize empty for this sandbox dialect only |
+| Search `NO_MATCH / 0` for the intended SG identity | Real `anz-nutmeg` XPI response | `PROVIDER_OBSERVED` | Permits the Shell branch only after all other prerequisites are satisfied |
+
+### Corrected OpenAPI 1.0.0 machine vocabularies
+
+The current Client Segment vocabulary has 23 values:
+
+`Corporate`; `DI - Diversified Industrials`; `DI - Education and Defence`;
+`DI - Food, Beverage, and Agribusiness`; `DI - Government`;
+`DI - Telecom, Media, Entertainment, and Technology`; `DI - Transport and Logistics`;
+`FIG - Banks`; `FIG - Diversified Financials`; `FIG - Funds`; `FIG - Insurance`;
+`FIG - OSU`; `Global Subsidiary Group`; `Private Wealth`; `Property and Health`;
+`Resource, Energy, and Infrastructure`; `Retail`;
+`Commercial BB (Business Banking)`; `Commercial RBB (Regional Business Banking)`;
+`Commercial SBB (Small Business Banking)`; `Corporate Finance`;
+`Diversified & Specialist Industries`; `Personal`.
+
+The current KYC Customer Type vocabulary has 17 values:
+
+`Association - Incorporated`; `Association - Unincorporated`; `Co-Operative`;
+`Company - Private`; `Company - Public`; `Government`; `Individual`; `Managed Fund`;
+`Partnership - Regulated`; `Partnership - Unregulated`;
+`Regulated Financial Institution`; `Regulated Fund Manager - ANZ Approved`;
+`Regulated Fund Manager - Non-ANZ Approved`; `Sole Trader`; `Trust - Regulated`;
+`Trust - Unregulated`; `Unregulated Fund Manager`.
+
+The older DD18 list is historical and conflicting: its additional values are not merged
+into either current list. Contradictory examples remain `INVALID / QUARANTINED`.
 
 | Current owner | Current field | Input/source field | Canonical field | XPI operation | XPI field | Transformation | Required? | Source authority | Default/policy | Validation | Sandbox observation | Initial implementation status | Status | Remaining question / blocker |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -67,30 +115,30 @@ reconciliation. The 24 September closure overlay is authoritative for current co
 | Canonical entity | `country_of_incorporation` | reconciled Registry/Document evidence | `country_of_incorporation` | Customer Search | `countryOfIncorporation` | Canonical jurisdiction to ISO-2 text | Any one search field | Sponsor guide + collection; ACRA canonical mapping | None | Exactly two ASCII letters | HTTP 200 empty array in combination with synthetic `legalName` | Adapter DTO/mapping required | `SANDBOX_OBSERVED` | Other valid multi-field combinations |
 | Canonical entity | `registration_number` | ACRA/reconciled registration identity | `registration_number` | Customer Search | No enabled collection parameter | No dispatch mapping | Not documented | Supplied collection | None | N/A | Not executed: ignored-parameter risk could expose broad data | Deliberately omitted | `UNSUPPORTED` | Does XPI support registration-number search? |
 | Canonical entity | `legal_name` | reconciled Registry/Document evidence | `legal_name` | Shell Record | `legalName` | Preserve canonical value | Guide minimum | Sponsor guide + collection; current canonical owner | None | Nonblank, bounded, control-free | Pending | Mapper required | `DIRECT` | None once DTO bounds are confirmed locally |
-| Existing policy owner | target enrichment rule | explicit target policy | None | Shell Record | `kycCustomerType` | Copy case-bound enrichment value | Guide minimum | Sponsor guide + collection | Editable, versioned; no invented source default | Nonblank, bounded; block sentinel/missing | Pending | Snapshot/rule required | `TARGET_POLICY` | Sponsor-approved vocabulary/production meaning |
-| Existing policy owner | target enrichment rule | explicit target policy | None | Shell Record | `clientSegment` | Copy case-bound enrichment value | Guide minimum | Sponsor guide + collection | Editable, versioned; no invented source default | Nonblank, bounded; block sentinel/missing | Pending | Snapshot/rule required | `TARGET_POLICY` | Sponsor-approved vocabulary/production meaning |
+| Existing policy/snapshot owner | target classification | authorized case selection | None | Shell Record | `kycCustomerType` | Copy the write-once case value | Guide minimum | Corrected OpenAPI 1.0.0 vocabulary | No global default | Exact 17-value membership; block unresolved/frozen changes | Pending external lifecycle | Case endpoint/snapshot implemented | `USER_AUTHORIZED_POC` | Production selection authority/automatic mapping |
+| Existing policy/snapshot owner | target classification | authorized case selection | None | Shell Record | `clientSegment` | Copy the write-once case value | Guide minimum | Corrected OpenAPI 1.0.0 vocabulary | No global default | Exact 23-value membership; block unresolved/frozen changes | Pending external lifecycle | Case endpoint/snapshot implemented | `USER_AUTHORIZED_POC` | Production selection authority/automatic mapping |
 | Existing policy owner | target enrichment rule | explicit target policy | None | Shell Record | `globalRelationshipManagerEmail` | Copy only explicit enrichment | Collection example only | Collection supporting evidence | No implicit default | Email syntax, bounded, control-free | Pending | Optional preparation field | `TBD_SPONSOR` | Requiredness and approved source |
-| Target preparation | external-system name | case-bound target policy | None | Shell Record | `systemReference.customerExternalSystem` | Copy explicit target-system label | Guide minimum as part of external-system details | Sponsor guide + collection | Editable, versioned | Nonblank, bounded, control-free | Pending | Snapshot/rule required | `TARGET_POLICY` | Production value/owner |
+| Target preparation | external-system name | case-bound target policy | None | Shell Record | `systemReference.customerExternalSystem` | Copy fixed target-system label | Guide minimum as part of external-system details | Sponsor material | Fixed `DSD` | Exact closed value | Sponsor documented | Snapshot/rule implemented | `SPONSOR_DOCUMENTED` | Production value/owner; never claim ACRA supplied it |
 | Canonical entity | `registration_number` | ACRA/reconciled registration identity | `registration_number` | Shell Record | `systemReference.customerExternalSystemKey` | Use the case's canonical registration identifier or an explicit unique synthetic key for diagnostic execution | Guide minimum | Sponsor guide + collection + current identity owner | No generated business default | Nonblank, bounded, control-free; bind to case | Pending | Mapper required | `DERIVED` | Whether production requires a different external key |
 | Canonical entity | registered address | reconciled canonical address | `registered_address` | Shell Record | `legalRegisteredAddress.street1/city/state/zip/countryIso2` | Map only represented canonical components; omit unsupported empty optional lines | Collection example only | Collection supporting evidence; current canonical owner | None | Country ISO-2; bounded control-free text | Pending | Mapper required | `DIRECT` | Requiredness and address-type vocabulary |
 | Target enrichment | address usage/type | explicit target policy/manual value | None | Shell Record | `legalRegisteredAddress.type` | Copy only explicit value | Collection example only | Collection supporting evidence | No implicit default | Nonblank when present | Pending | Optional preparation field | `TBD_SPONSOR` | Approved vocabulary |
-| Target enrichment | registration type | explicit target policy/manual value | None | Shell Record | `registration.registrationType` | Copy only explicit value | Registration details are a guide minimum; this subfield's requiredness is not explicit | Sponsor guide + collection | Editable, versioned | Nonblank, bounded, control-free | Pending | Snapshot/rule required for dispatch | `TARGET_POLICY` | Approved value and whether mandatory |
+| Target enrichment | registration type | explicit bounded POC authority | None | Shell Record | `registration.registrationType` | For SG only, emit exact `ACRA`; never substitute ABN | Registration details are a guide minimum; this subfield's requiredness is not explicit | Corrected OpenAPI 1.0.0 + explicit POC authority | Fixed `ACRA` | Exact closed value | Awaiting provider mutation validation | Snapshot/rule implemented | `USER_AUTHORIZED_POC` | Production applicability remains open |
 | Canonical entity | `country_of_incorporation` | reconciled Registry/Document evidence | `country_of_incorporation` | Shell Record | `registration.countryIso2` | Canonical jurisdiction to ISO-2 text | Registration details are a guide minimum | Sponsor guide + collection; ACRA canonical mapping | None | Exactly two ASCII letters | Pending | Mapper required | `DIRECT` | None for current SG route |
 | Canonical entity | `registration_number` | ACRA/reconciled registration identity | `registration_number` | Shell Record | `registration.registrationNumber` | Preserve canonical identifier | Registration details are a guide minimum | Sponsor guide + collection; ACRA canonical mapping | None | Nonblank, bounded, control-free | Pending | Mapper required | `DIRECT` | None |
 | Target enrichment | contact | explicit synthetic/manual contact | None | Shell Record | `contact.*` | Omit unless an authorized synthetic/manual value is supplied | Collection example only | Collection supporting evidence | No implicit default | Type-specific bounded fields; never real customer data in diagnostic | Pending | Optional DTO field | `MANUAL_ENRICHMENT` | Requiredness, privacy and approved source |
 | Canonical entity | `country_of_incorporation` | reconciled Registry/Document evidence | `country_of_incorporation` | Shell Record | `countryOfIncorporation` | Canonical jurisdiction to ISO-2 text | Guide minimum | Sponsor guide + collection; ACRA canonical mapping | None | Exactly two ASCII letters | Pending | Mapper required | `DIRECT` | None for current SG route |
 | Target enrichment | group-company value | explicit user/policy input only | None | Shell Record | `groupCompanyName` | Omit unless explicitly supplied | Collection example only | Collection supporting evidence | No implicit default | Nonblank when present | Pending | Optional DTO field | `MANUAL_ENRICHMENT` | Requiredness and source |
 | Target ledger | Shell result | Shell response | target party identity | Create Customer Policy | `goldTierId` | Bind exact decoded Shell ID | Guide required | Sponsor guide + collection | None | Nonblank, bounded; bind to Shell result | Pending | Mapper/decoder required | `SANDBOX_OBSERVED` | Response envelope and ID field spelling/type |
-| Target preparation | external-system name | case-bound target policy | None | Create Customer Policy | `customerExternalSystem` | Copy explicit target-system label | Guide: optional depending on scenario; present in collection | Sponsor guide + collection | Editable, versioned | Nonblank when present | Pending | Snapshot/rule required for exact collection shape | `TARGET_POLICY` | Sandbox/production requiredness |
+| Target preparation | external-system name | case-bound target policy | None | Create Customer Policy | `customerExternalSystem` | Reuse the Shell source-system label | Guide: optional depending on scenario; present in collection | Sponsor material | Fixed `DSD` | Exact closed value | Sponsor documented | Snapshot/rule implemented | `SPONSOR_DOCUMENTED` | Production requiredness |
 | Canonical entity | `registration_number` | ACRA/reconciled registration identity | `registration_number` | Create Customer Policy | `customerExternalSystemKey` | Bind to the same case external key used for Shell | Guide: optional depending on scenario; present in collection | Sponsor guide + collection | None | Nonblank, bounded, case-bound | Pending | Mapper required | `DERIVED` | Sandbox/production requiredness |
-| Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `policy` | Copy case-bound enrichment | Guide required | Sponsor guide + collection | Editable, versioned | Nonblank; block sentinel/missing | Pending | Snapshot/rule required | `TARGET_POLICY` | Approved policy vocabulary |
-| Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `bookingEntity` | Copy case-bound enrichment | Guide required | Sponsor guide + collection | Editable, versioned | Nonblank; block sentinel/missing | Pending | Snapshot/rule required | `TARGET_POLICY` | Approved booking-entity vocabulary |
-| Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `accountEntityType` | Copy case-bound enrichment | User-authorized bounded POC placeholder; collection shape is supporting evidence only | User direction / project policy | Editable, versioned; default `PROJECT_DEFINED_PROVISIONAL` | Nonblank and contract-valid; never promote to sponsor vocabulary | Pending | Snapshot/rule required | `USER_AUTHORIZED_POC / PROJECT_DEFINED_PROVISIONAL` | Requiredness and sponsor-approved vocabulary |
-| Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `productType` | Copy case-bound enrichment | Collection example only | Collection supporting evidence | Editable, versioned | Nonblank for exact collection shape | Pending | Snapshot/rule required | `SPONSOR_SUPPLIED` | Requiredness and approved vocabulary |
-| Target ledger | Shell/Search result | decoded target result | target party identity | Amend Customer | `goldTierId` | Bind exact target ID | Guide required | Sponsor guide + collection | None | Nonblank, bounded, identity-bound | Pending | Mapper/decoder required | `SANDBOX_OBSERVED` | Response envelope and ID type |
-| Existing policy owner | target enrichment rule | explicit target policy | None | Amend Customer | `policy` | Reuse the case-bound policy value | Guide required | Sponsor guide + collection | Editable, versioned | Nonblank; exact match to case snapshot | Pending | Snapshot/rule required | `TARGET_POLICY` | Approved vocabulary |
-| No authoritative source | None | no current ACRA-to-ANZSIC mapping | None | Amend Customer | `anzsic` | Omit; require explicit manual/policy enrichment if sandbox proves mandatory | Optional/as required | Sponsor guide + collection | No default | Reject invented/blank value | Pending | Omitted by default | `TBD_SPONSOR` | Authoritative mapping/value and requiredness |
-| Target enrichment | group-company value | explicit user/policy input only | None | Amend Customer | `groupCompanyName` | Omit unless explicitly supplied | Optional/as required | Sponsor guide + collection | No implicit default | Nonblank when present | Pending | Optional DTO field | `MANUAL_ENRICHMENT` | Requiredness and source |
+| Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `policy` | Copy fixed case snapshot value | Guide required | Sponsor material | Fixed `Singapore` | Exact closed value | Sponsor documented | Snapshot/rule implemented | `SPONSOR_DOCUMENTED` | Production applicability |
+| Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `bookingEntity` | Copy fixed bounded POC value | Guide required | Sponsor allowed value + explicit POC authority | Fixed `ANZBGL (Singapore Branch)` | Exact closed value | Awaiting lifecycle acceptance | Snapshot/rule implemented | `USER_AUTHORIZED_POC` | Universal future Singapore policy |
+| Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `accountEntityType` | Copy an explicit sponsor/observed value; otherwise serialize empty | Collection sends explicit empty string; guide does not list it as a minimum | Sponsor collection supporting evidence | Editable, versioned; default placeholder is never dispatched as vocabulary | Empty or bounded control-free text | Pending | Optional sandbox request field | `USER_AUTHORIZED_POC / COLLECTION_OBSERVED` | Production requiredness and sponsor-approved vocabulary |
+| Existing policy owner | target enrichment rule | explicit target policy | None | Create Customer Policy | `productType` | Copy an explicit sponsor/observed value; otherwise serialize empty | Collection sends explicit empty string; guide does not list it as a minimum | Sponsor collection supporting evidence | Editable, versioned; default `TBD_SPONSOR` is never dispatched as vocabulary | Empty or bounded control-free text | Pending | Optional sandbox request field | `USER_AUTHORIZED_POC / COLLECTION_OBSERVED` | Production requiredness and approved vocabulary |
+| Target ledger | Shell/Search result | decoded target result | target party identity | Amend Customer | `goldTierId` | Bind exact target ID | Guide required | Sponsor guide + collection | None | Nonblank, bounded, identity-bound | Sent once as `143878`; task audit ended `Valdiation Failed` without a failed-field reason | Mapper/decoder implemented | `SANDBOX_OBSERVED` | Provider validation cause and response envelope |
+| Existing policy owner | target enrichment rule | fixed case snapshot | None | Amend Customer | `policy` | Reuse exact `Singapore` value | Guide required | Sponsor material | Fixed `Singapore` | Exact match to case snapshot | Sent once as `Singapore`; task audit does not identify Policy or `Requested` state as the cause | Snapshot/rule implemented | `SPONSOR_DOCUMENTED` | Production applicability and provider validation cause |
+| No authoritative source | None | no current ACRA-to-ANZSIC mapping | None | Amend Customer | `anzsic` | Omit; require explicit manual/policy enrichment if sandbox proves mandatory | Optional/as required | Sponsor guide + collection | No default | Reject invented/blank value | Omitted in failed request; provider exposed no ANZSIC-specific reason | Omitted by default | `TBD_SPONSOR` | Authoritative SG SSIC/ANZSIC mapping, value and requiredness |
+| Target enrichment | group-company value | explicit user/policy input only | None | Amend Customer | `groupCompanyName` | Omit unless explicitly supplied | Optional/as required | Sponsor guide + collection | No implicit default | Nonblank when present | Omitted in failed request; provider exposed no group-company-specific reason | Optional DTO field | `MANUAL_ENRICHMENT` | Requiredness and source |
 | Target ledger | parent result | decoded customer identity | target parent identity | Create RP Policy | `goldTierId` | Bind exact parent GoldTier ID | Guide required | Sponsor guide + collection | None | Nonblank, bounded, identity-bound | Pending | Mapper required | `DIRECT` | None after customer response is proved |
 | No current owner | None | unknown target child lifecycle | None | Create RP Policy | `childId` | No derivation | Guide required | Sponsor guide + collection | None | Must be a proved existing target child ID | Pending | External execution blocked | `TBD_SPONSOR` | How a new related party is created and obtains `childId` |
 | Canonical related party | incorporation country | Registry/ownership evidence when applicable | related-party country | Create RP Policy | `countryOfIncorporation` | Map only when authoritative for that related party | Guide/collection field | Sponsor guide + collection; current evidence owner | None | ISO-2; identity-bound | Pending | Local transformation permitted | `DIRECT` | Requiredness for individual/corporate child types |
@@ -114,6 +162,10 @@ reconciliation. The 24 September closure overlay is authoritative for current co
   ledger ownership, and any required managed external-mutation approval.
 - Customer Policy and Amend may run only with the exact Shell result and the same
   immutable preparation snapshot. An uncertain write is never replayed.
+- Sandbox Amend success must be followed by a ledger-owned Search using exact
+  `goldTierID`. Only one returned candidate whose ID equals the retained Shell/Search
+  identity completes the target path; no match, a different ID, or multiple candidates
+  requires review and never causes mutation replay.
 - Related-party request models may be validated locally. External RP execution remains
   `BLOCKED_CONTRACT / childId lifecycle` unless the supplied evidence plus safe sandbox
   observation conclusively establish the lifecycle and all relationship values have

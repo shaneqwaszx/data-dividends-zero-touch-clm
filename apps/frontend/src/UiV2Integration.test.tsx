@@ -299,7 +299,8 @@ describe("UI v2 backend integration adapters", () => {
       expect(markup).toContain(operation);
     }
     expect(markup).toContain("ACRA MOCK");
-    expect(markup).toContain("Q-012");
+    expect(markup).toContain("Provider classification follows the configured backend execution profile");
+    expect(markup).not.toContain("Q-012");
   });
 
   it.each(["MATCH", "REGISTRY_ONLY", "MISSING_IN_SOURCE", "CONFLICT", "UNVERIFIABLE", "INVALID"] as const)(
@@ -399,7 +400,7 @@ describe("UI v2 backend integration adapters", () => {
     expect(intake).not.toHaveBeenCalled();
     expect(isRegistryIntakeUnavailable(registryStop)).toBe(true);
     const markup = renderToStaticMarkup(<RegistryStatePanel summary={registryStop} />);
-    expect(markup).toContain("Registry unavailable");
+    expect(markup).toContain("Registry review required");
     expect(markup).not.toContain("Targeted retry required");
   });
 

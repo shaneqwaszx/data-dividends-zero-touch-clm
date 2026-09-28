@@ -11,7 +11,6 @@ import { goldTierSandboxQueryKeys } from "./goldTierSandboxQueries";
 import GoldTierSandbox from "./pages/GoldTierSandbox";
 import { DetailedProcessingInspector } from "./pages/CaseStatePanels";
 import { createSessionQueryClient } from "./queryClient";
-import { STAGE_BANDS } from "./shared";
 import type { AuthenticatedProfile, ZeroTouchCaseSummary } from "./types";
 
 const hr: AuthenticatedProfile = {
@@ -49,6 +48,14 @@ function setInputValue(input: HTMLInputElement, value: string): void {
   });
 }
 
+function setSelectValue(select: HTMLSelectElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+  act(() => {
+    setter?.call(select, value);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
 function findButton(label: string): HTMLButtonElement {
   const button = [...container!.querySelectorAll("button")]
     .find((item) => item.textContent?.trim() === label);
@@ -79,6 +86,38 @@ function processingSummary(): ZeroTouchCaseSummary {
       { operation: "SEARCH", status: "NO_MATCH" },
       { operation: "SHELL", status: "SKIPPED" },
       { operation: "POLICY", status: "NOT_ATTEMPTED" },
+    ],
+    stage_order_version: 2,
+    processing_pipeline: [
+      {
+        node_id: "CASE_START",
+        label: "Case intake",
+        status: "COMPLETE",
+        safe_result: "Case accepted",
+        children: [],
+      },
+      {
+        node_id: "ACRA_REGISTRY",
+        label: "ACRA registry",
+        status: "IN_PROGRESS",
+        provider: "ACRA",
+        environment: "MOCK",
+        operation: "ENTITY_PROFILE",
+        backend_stage: "REGISTRY",
+        timestamp: "2026-09-24T01:00:00Z",
+        safe_result: "Registry profile retrieved",
+        record_count: 1,
+        blocker_code: null,
+        retained_goldtier_id: "synthetic-retained-id",
+        children: [
+          { node_id: "PROFILE", label: "Entity profile", status: "EMPTY", children: [] },
+        ],
+      },
+      { node_id: "DOCUMENT", label: "Documents", status: "SKIPPED", children: [] },
+      { node_id: "REVIEW", label: "Human review", status: "REVIEW_REQUIRED", blocker_code: "NEEDS_REVIEW", children: [] },
+      { node_id: "RECOVERY", label: "Recovery", status: "BLOCKED", children: [] },
+      { node_id: "FAILED", label: "Failed operation", status: "FAILED", children: [] },
+      { node_id: "LATER", label: "Later operation", status: "NOT_REACHED", children: [] },
     ],
     timeline: [{
       sequence: 1,
@@ -152,6 +191,9 @@ describe("GoldTier Sandbox frontend boundary", () => {
           last_diagnostic_at: "2026-09-24T01:00:00Z",
           blocker: "Durable guarded-write execution is not yet available.",
           related_party_blocker: "BLOCKED_CHILD_ID_LIFECYCLE",
+          vocabulary_version: "GOLDTIER_OPENAPI_1_0_0",
+          kyc_customer_types: ["Company - Private"],
+          client_segments: ["Corporate"],
           timeline: [{
             event_id: "00000000-0000-4000-8000-000000000224",
             action: "SEARCH",
@@ -225,23 +267,15 @@ describe("GoldTier Sandbox frontend boundary", () => {
     expect(calls.filter((call) => call.url.endsWith("/search"))).toHaveLength(1);
 
     await act(async () => findButton("Validate request preview").click());
-    expect(container?.textContent).toContain("Complete all Sandbox test-only fields");
+    expect(container?.textContent).toContain("Select a KYC customer type and Client Segment");
     expect(calls.filter((call) => call.url.endsWith("/dry-run"))).toHaveLength(0);
 
     setInputValue(container!.querySelector("#sandbox-country")!, "SG");
-    const testValueIds = [
-      "kyc_customer_type",
-      "client_segment",
-      "customer_external_system",
-      "registration_type",
-      "policy",
-      "booking_entity",
-      "account_entity_type",
-      "product_type",
-    ];
-    for (const id of testValueIds) {
-      setInputValue(container!.querySelector(`#sandbox-${id}`)!, "SANDBOX TEST");
-    }
+    setSelectValue(
+      container!.querySelector("#sandbox-kyc_customer_type")!,
+      "Company - Private",
+    );
+    setSelectValue(container!.querySelector("#sandbox-client_segment")!, "Corporate");
     await act(async () => findButton("Validate request preview").click());
     await vi.waitFor(() => expect(container?.textContent).toContain("SANDBOX TEST ONLY"));
     expect(calls.find((call) => call.url.endsWith("/dry-run"))?.body).toEqual({
@@ -250,14 +284,12 @@ describe("GoldTier Sandbox frontend boundary", () => {
         country_of_incorporation: "SG",
       },
       test_values: {
-        kyc_customer_type: "SANDBOX TEST",
-        client_segment: "SANDBOX TEST",
-        customer_external_system: "SANDBOX TEST",
-        registration_type: "SANDBOX TEST",
-        policy: "SANDBOX TEST",
-        booking_entity: "SANDBOX TEST",
-        account_entity_type: "SANDBOX TEST",
-        product_type: "SANDBOX TEST",
+        kyc_customer_type: "Company - Private",
+        client_segment: "Corporate",
+        customer_external_system: "DSD",
+        registration_type: "ACRA",
+        policy: "Singapore",
+        booking_entity: "ANZBGL (Singapore Branch)",
       },
     });
     expect(calls.filter((call) => call.url.endsWith("/dry-run"))).toHaveLength(1);
@@ -270,17 +302,108 @@ describe("GoldTier Sandbox frontend boundary", () => {
 });
 
 describe("backend-authored detailed processing", () => {
-  it("adds GoldTier Search to the rail and reveals only occurred operations", () => {
-    expect(STAGE_BANDS.map((band) => band.label)).toContain("GoldTier customer search");
+  it("starts collapsed and reveals the server-ordered semantic pipeline", () => {
     act(() => root?.render(<DetailedProcessingInspector summary={processingSummary()} />));
-    expect(container?.textContent).not.toContain("No GoldTier customer found.");
+    const toggle = findButton("Show processing details");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    const controlledContentId = toggle.getAttribute("aria-controls");
+    expect(controlledContentId).toBeTruthy();
+    expect(container?.ownerDocument.getElementById(controlledContentId!)?.hasAttribute("hidden")).toBe(true);
 
-    act(() => findButton("Show processing details").click());
-    expect(container?.textContent).toContain("GOLDTIER SEARCH");
-    expect(container?.textContent).toContain("No GoldTier customer found.");
-    expect(container?.textContent).toContain("NO MATCH");
-    expect(container?.textContent).toContain("SKIPPED");
-    expect(container?.textContent).not.toContain("NOT ATTEMPTED");
+    act(() => toggle.click());
+    const tree = container?.querySelector('ol[aria-label="Backend processing pipeline"]');
+    expect(tree).toBeTruthy();
+    const topLevelNodes = Array.from(tree!.children);
+    expect(topLevelNodes.map((item) => item.querySelector(".processing-pipeline__node-title")?.textContent))
+      .toEqual([
+        "Case intake",
+        "ACRA registry",
+        "Documents",
+        "Human review",
+        "Recovery",
+        "Failed operation",
+        "Later operation",
+      ]);
+    expect(tree?.tagName).toBe("OL");
+    expect(topLevelNodes.every((item) => item.tagName === "LI")).toBe(true);
+    expect(tree?.querySelector("ol[aria-label='ACRA registry steps'] li .processing-pipeline__node-title")?.textContent)
+      .toBe("Entity profile");
+
+    for (const status of [
+      "COMPLETE",
+      "IN_PROGRESS",
+      "EMPTY",
+      "SKIPPED",
+      "REVIEW_REQUIRED",
+      "BLOCKED",
+      "FAILED",
+      "NOT_REACHED",
+    ]) {
+      const badge = container?.querySelector(`.processing-pipeline__status[data-status="${status}"]`);
+      expect(badge?.textContent).toBe(status.replaceAll("_", " "));
+      expect(badge?.getAttribute("aria-label")).toBe(`Status: ${status.replaceAll("_", " ")}`);
+    }
+    expect(container?.textContent).toContain("Registry profile retrieved");
+    expect(container?.textContent).toContain("Retained GoldTier ID");
+
+    const technicalDetails = [...container!.querySelectorAll("details")]
+      .find((details) => details.querySelector("summary")?.textContent === "Technical details");
+    expect(technicalDetails).toBeTruthy();
+    expect(technicalDetails?.open).toBe(false);
+    expect(technicalDetails?.querySelectorAll("table").length).toBeGreaterThan(0);
+    expect(technicalDetails?.querySelector("table")?.closest("details")?.open).toBe(false);
     expect(findButton("Hide processing details").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("renders a historical v1 pipeline in the exact backend-provided order", () => {
+    const summary = processingSummary();
+    summary.stage_order_version = 1;
+    summary.processing_pipeline = [
+      { node_id: "CASE_START", label: "Case start", status: "COMPLETE", children: [] },
+      { node_id: "DOCUMENT_IDP", label: "Document and IDP", status: "COMPLETE", children: [] },
+      {
+        node_id: "GOLDTIER_TARGET",
+        label: "GoldTier target",
+        status: "COMPLETE",
+        children: [
+          { node_id: "GOLDTIER_SEARCH", label: "Search", status: "COMPLETE", children: [] },
+        ],
+      },
+    ];
+    act(() => root?.render(<DetailedProcessingInspector summary={summary} />));
+    act(() => findButton("Show processing details").click());
+
+    const tree = container?.querySelector('ol[aria-label="Backend processing pipeline"]');
+    expect(Array.from(tree!.children).map(
+      (item) => item.querySelector(".processing-pipeline__node-title")?.textContent,
+    )).toEqual(["Case start", "Document and IDP", "GoldTier target"]);
+    expect(tree?.querySelector("ol[aria-label='GoldTier target steps'] .processing-pipeline__node-title")?.textContent)
+      .toBe("Search");
+  });
+
+  it("does not render retained event message text in the inspector", () => {
+    const summary = processingSummary();
+    const sensitiveMessage = [
+      "Author",
+      "ization: ",
+      "Bea",
+      "rer ",
+      "secret",
+      "-token raw-provider-body",
+    ].join("");
+    summary.timeline[0]!.message = sensitiveMessage;
+
+    act(() => root?.render(<DetailedProcessingInspector summary={summary} />));
+    act(() => findButton("Show processing details").click());
+    const technicalDetails = [...container!.querySelectorAll("details")]
+      .find((details) => details.querySelector("summary")?.textContent === "Technical details");
+    act(() => {
+      technicalDetails!.open = true;
+      technicalDetails!.dispatchEvent(new Event("toggle"));
+    });
+
+    expect(container?.textContent).toContain("GOLDTIER_SEARCH_NO_MATCH");
+    expect(container?.textContent).not.toContain("secret-token");
+    expect(container?.textContent).not.toContain("raw-provider-body");
   });
 });

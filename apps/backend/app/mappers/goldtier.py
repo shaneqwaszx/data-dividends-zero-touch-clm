@@ -141,6 +141,12 @@ class MockGoldTierRequestMapper:
     def build_search_request(self, submission: GoldTierSubmissionInput) -> SearchPartyRequest:
         return build_search_request(submission.canonical_entity)
 
+    def build_readback_request(
+        self, submission: GoldTierSubmissionInput, party_id: str
+    ) -> SearchPartyRequest:
+        del party_id
+        return build_search_request(submission.canonical_entity)
+
     def build_shell_request(
         self, submission: GoldTierSubmissionInput
     ) -> CreateShellCustomerRequest:

@@ -48,6 +48,7 @@ class Capability(StrEnum):
     IDENTITY_ADMIN = "IDENTITY_ADMIN"
     TEAM_ADMIN = "TEAM_ADMIN"
     PROVIDER_SANDBOX_TEST = "PROVIDER_SANDBOX_TEST"
+    TARGET_RECOVERY = "TARGET_RECOVERY"
 
 
 ROLE_CAPABILITIES: dict[Role, frozenset[Capability]] = {
@@ -61,6 +62,7 @@ ROLE_CAPABILITIES: dict[Role, frozenset[Capability]] = {
             Capability.POLICY_MUTATE,
             Capability.CASE_ACCESS,
             Capability.CASE_GLOBAL,
+            Capability.TARGET_RECOVERY,
         }
     ),
     Role.HR: frozenset(

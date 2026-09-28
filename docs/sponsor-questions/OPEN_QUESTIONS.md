@@ -244,6 +244,15 @@ automatically inferred and not a confirmed data contract. Please confirm Singapo
 entity-specific conditional fields, values, proof-category codes, and ACRA mappings
 before they become implementation assertions.
 
+The 2026-09-28 XPI Garden Amend sent only the guideline minimum
+`goldTierId=143878` and `policy=Singapore`; the provider task audit ended
+`Valdiation Failed` without a failed-field reason. Please confirm whether XPI customer
+Amend conditionally requires ANZSIC, group-company data, a later Policy state, or another
+field; whether Singapore SSIC is supported when industry classification is required;
+and the exact safe retry/idempotency and atomic no-application semantics after a
+provider-verified validation failure. No ANZSIC/SSIC or group-company value will be
+invented while this remains unanswered.
+
 Phase 04 synthetic party/relationship fields and `SHARE_OWNERSHIP` basis are source-
 neutral POC concepts only and do not resolve or pre-empt these GoldTier mappings.
 
@@ -329,9 +338,13 @@ GoldTier questions. Please additionally confirm:
   backend-only `user_id` and `noauth` metadata are sandbox observations, not production
   authority (Q-008/Q-018).
 
-Until those points are resolved, customer mutation remains blocked by `TBD_SPONSOR`
-target policy, related-party dispatch remains blocked, and Sandbox/Partial must not be
-presented as Live.
+The 2026-09-27 bounded POC clarification and corrected OpenAPI resolve the implemented
+Singapore request values to `ACRA`, unchanged UEN, `SG`, `DSD`, `Singapore`, and
+`ANZBGL (Singapore Branch)`, plus exact current KYC/Client Segment vocabularies. KYC
+and segment remain case decisions unless an approved deterministic mapping is later
+provided. This does not establish production vocabulary, automatic SSIC mapping,
+related-party lifecycle, or Live status; Q-006/Q-007/Q-009/Q-010 remain open at that
+broader authority boundary.
 
 ## D. PHASE 06 ZERO-TOUCH CONFIRMATIONS
 

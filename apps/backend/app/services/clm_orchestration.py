@@ -115,6 +115,7 @@ class ClmOrchestrationService:
         uen: str,
         country_of_incorporation: str | None = None,
         *,
+        legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
     ) -> ClmOrchestrationRecord:
@@ -126,6 +127,7 @@ class ClmOrchestrationService:
             correlation_id,
             uen,
             country_of_incorporation,
+            legal_name=legal_name,
             team_id=team_id,
             priority=priority,
         )
@@ -137,6 +139,7 @@ class ClmOrchestrationService:
         uen: str,
         country_of_incorporation: str | None = None,
         *,
+        legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
     ) -> ClmOrchestrationRecord:
@@ -148,6 +151,7 @@ class ClmOrchestrationService:
                 correlation_id,
                 uen,
                 country_of_incorporation,
+                legal_name=legal_name,
                 team_id=team_id,
                 priority=priority,
             )
@@ -188,6 +192,34 @@ class ClmOrchestrationService:
             },
             deep=True,
         )
+
+    def refresh_target_classification(self, *, case_id: UUID) -> ClmOrchestrationRecord:
+        """Refresh the case-bound target preview before any submission is frozen."""
+
+        with self._lock_for(case_id):
+            record = self._require_record(case_id)
+            if record.submission_snapshot is not None:
+                raise ClmRequestError(
+                    code="CLM_TARGET_CLASSIFICATION_FROZEN",
+                    message="Target classification is already frozen for submission.",
+                )
+            case = self._require_case(case_id)
+            readiness = self._evaluate_current(
+                case, search_checkpoint=record.target_search_checkpoint
+            )
+            candidate = record.model_copy(deep=True)
+            candidate.submission_plan = self._build_submission_plan(case)
+            candidate.readiness = readiness
+            candidate.status = _status_for_readiness(case, readiness)
+            candidate.error = None
+            return self._record_event(
+                record,
+                candidate,
+                event_type=ClmEventType.TARGET_CLASSIFICATION_BOUND,
+                outcome=EventOutcome.SUCCEEDED,
+                code="TARGET_CLASSIFICATION_BOUND",
+                message="Case-specific GoldTier target classifications were retained.",
+            )
 
     def attempted_target_operations(self, *, case_id: UUID) -> tuple[str, ...]:
         """Expose safe operation names for sponsor UAT evidence, never payloads."""
@@ -459,6 +491,9 @@ class ClmOrchestrationService:
                     if self._reconciliation is not None
                     else False
                 ),
+                require_target_classification=(
+                    record.submission_plan.environment == GoldTierProviderMode.SANDBOX
+                ),
                 now=self._clock(),
             ),
             record.target_search_checkpoint,
@@ -570,6 +605,7 @@ class ClmOrchestrationService:
                     "customers/create if NO_MATCH",
                     "customers/createPolicy",
                     "customers/amendCustomer",
+                    "customers/search by retained GoldTier ID",
                 ),
                 match_found_behavior="EXACT_MATCH_REUSE_ELSE_REVIEW_NO_WRITES",
                 related_party_integration="BLOCKED_CHILD_ID_LIFECYCLE",
@@ -593,6 +629,55 @@ class ClmOrchestrationService:
             created_at=now,
             updated_at=now,
         )
+        initial_search = case.initial_target_search
+        if initial_search is not None:
+            disposition = GoldTierSearchDisposition(initial_search.disposition)
+            checkpoint_status = (
+                GoldTierSearchCheckpointStatus.COMPLETED
+                if disposition
+                in {
+                    GoldTierSearchDisposition.NO_MATCH,
+                    GoldTierSearchDisposition.EXACT_MATCH,
+                }
+                else GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+                if disposition == GoldTierSearchDisposition.REVIEW_REQUIRED
+                else GoldTierSearchCheckpointStatus.FAILED
+            )
+            checkpoint = GoldTierSearchCheckpoint(
+                request_id=initial_search.request_id,
+                identity_fingerprint=_initial_or_canonical_identity_fingerprint(case),
+                provider_mode=record.submission_plan.environment,
+                provider_classification=record.submission_plan.provider_classification,
+                status=checkpoint_status,
+                disposition=disposition,
+                provider_outcome=initial_search.provider_outcome,
+                status_code=initial_search.status_code,
+                candidate_count=initial_search.candidate_count,
+                candidates=tuple(
+                    RetainedGoldTierCandidate(party_id=party_id, legal_name=legal_name)
+                    for party_id, legal_name in zip(
+                        initial_search.candidate_party_ids,
+                        initial_search.candidate_legal_names,
+                        strict=True,
+                    )
+                ),
+                selected_party_id=initial_search.selected_party_id,
+                resolution_outcome=(
+                    "EXACT_MATCH"
+                    if disposition == GoldTierSearchDisposition.EXACT_MATCH
+                    else None
+                ),
+                code=f"GOLDTIER_FIRST_{disposition.value}",
+                message=(
+                    "Initial GoldTier Search found one exact verified customer."
+                    if disposition == GoldTierSearchDisposition.EXACT_MATCH
+                    else "Initial GoldTier Search found no customer."
+                ),
+                searched_at=initial_search.searched_at,
+            )
+            record.target_search_checkpoint = checkpoint
+            record.readiness = _readiness_with_search(record.readiness, checkpoint)
+            record.status = _status_for_readiness(case, record.readiness)
         record.events.append(
             ClmWorkflowEvent(
                 sequence=1,
@@ -643,7 +728,10 @@ class ClmOrchestrationService:
                 code="CLM_CASE_ALREADY_EXISTS",
                 message="A CLM orchestration record already exists for this case.",
             ) from None
-        if readiness.registry.status == ReadinessStageStatus.READY:
+        if (
+            readiness.registry.status == ReadinessStageStatus.READY
+            and saved.target_search_checkpoint is None
+        ):
             return self._perform_early_search(saved, case)
         return saved
 
@@ -865,6 +953,9 @@ class ClmOrchestrationService:
                     if self._reconciliation is not None
                     else False
                 ),
+                require_target_classification=(
+                    self._cases.target_provider_mode == GoldTierProviderMode.SANDBOX
+                ),
                 now=now or self._clock(),
             ),
             search_checkpoint,
@@ -1001,6 +1092,7 @@ def _evaluate_readiness(
     document_confidence_threshold: float,
     now: datetime,
     reconciliation_cleared: bool = False,
+    require_target_classification: bool = False,
 ) -> ClmReadinessAssessment:
     blockers: list[ClmBlockerCode] = []
 
@@ -1091,8 +1183,19 @@ def _evaluate_readiness(
         ownership_stage = StageReadiness(status=ReadinessStageStatus.IN_PROGRESS)
         block(ClmBlockerCode.OWNERSHIP_ANALYSIS_INCOMPLETE)
 
+    target_policy = case.policy_snapshot.goldtier_target
+    if require_target_classification and (
+        target_policy is None or not target_policy.dispatch_ready
+    ):
+        block(ClmBlockerCode.GOLDTIER_CLASSIFICATION_REQUIRED)
     goldtier = StageReadiness(
-        status=(ReadinessStageStatus.READY if not blockers else ReadinessStageStatus.BLOCKED)
+        status=(
+            ReadinessStageStatus.READY
+            if not blockers
+            else ReadinessStageStatus.REVIEW_REQUIRED
+            if ClmBlockerCode.GOLDTIER_CLASSIFICATION_REQUIRED in blockers
+            else ReadinessStageStatus.BLOCKED
+        )
     )
     return ClmReadinessAssessment(
         registry=registry,
@@ -1160,6 +1263,22 @@ def _target_identity_fingerprint(case: OnboardingCase) -> str:
     return sha256(value.encode("utf-8")).hexdigest()
 
 
+def _initial_or_canonical_identity_fingerprint(case: OnboardingCase) -> str:
+    if case.entity is not None:
+        return _target_identity_fingerprint(case)
+    identity = case.initial_identity
+    if identity is None:
+        raise ValueError("Initial identity is unavailable")
+    value = "|".join(
+        (
+            identity.registration_number.strip().upper(),
+            " ".join(identity.legal_name.split()).casefold(),
+            identity.country_of_incorporation.strip().upper(),
+        )
+    )
+    return sha256(value.encode("utf-8")).hexdigest()
+
+
 def _status_for_readiness(case: OnboardingCase, readiness: ClmReadinessAssessment) -> ClmStatus:
     if case.state == WorkflowState.FAILED:
         return ClmStatus.FAILED
@@ -1176,6 +1295,7 @@ def _status_for_readiness(case: OnboardingCase, readiness: ClmReadinessAssessmen
         ClmBlockerCode.OWNERSHIP_REVIEW_REQUIRED,
         ClmBlockerCode.OWNERSHIP_ANALYSIS_FAILED,
         ClmBlockerCode.GOLDTIER_SEARCH_REVIEW_REQUIRED,
+        ClmBlockerCode.GOLDTIER_CLASSIFICATION_REQUIRED,
     }
     if review_codes.intersection(readiness.blockers):
         return ClmStatus.REVIEW_REQUIRED

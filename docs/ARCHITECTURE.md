@@ -19,18 +19,20 @@ classifications in `docs/PROJECT_STATE.md`.
 flowchart LR
     A[Authenticated request] --> B[Actor, team and capability]
     B --> C[Immutable case policy snapshot]
-    C --> D[Jurisdiction resolution]
-    D -->|Resolved SG| E[Registry provider boundary]
+    C --> D[Bounded initial identity and jurisdiction resolution]
+    D -->|Resolved SG| GS[Early read-only GoldTier Search]
     D -->|Unresolved/conflict/unsupported| R[Controlled review or stop]
+    GS -->|No match| E[Registry provider boundary]
     E --> F[Canonical entity and registry evidence]
-    F --> GS[Early read-only GoldTier Search]
-    GS -->|Exact or no match| G[Document intake and extraction]
+    F --> G[Document intake and extraction]
+    GS -->|Exact verified prior target| ES[Hydrated existing target state]
+    ES --> G
     GS -->|Ambiguous or failed| R
     G --> H[Reconciliation]
     H --> I[Decimal ownership and UBO analysis]
     I --> IA[Case-bound advisory intelligence]
     IA --> J[Readiness snapshot]
-    J --> K[Incremental GoldTier Shell, Policy and Amend under one execution ledger]
+    J --> K[Ledger-owned new or existing GoldTier target sequence]
     K --> L[Portfolio, dashboard and evidence UI]
 ```
 
@@ -215,16 +217,19 @@ post-acceptance response, or cancellation leaves the attempted execution `IN_PRO
 for human reconciliation. Mock or sandbox target submission is not sponsor approval,
 customer approval, or Live interoperability.
 
-The CLM aggregate owns one immutable, safe early-Search checkpoint bound to a canonical
-registry-identity fingerprint. It runs after Singapore registry identity exists and
-before document, reconciliation, or ownership work. Bounded candidates are evaluated
-only by the existing entity-resolution owner. An exact match retains the GoldTier party
-ID and seeds the existing execution ledger with Search complete and Shell skipped. A
-no-match checkpoint permits Shell only after the ordinary readiness prerequisites. Any
-ambiguous, conflicting, failed, stale, or uncertain state blocks target mutation.
-Policy and Amend each advance through separate durable ledger checkpoints; an attempted
-operation without a definitive result is never replayed automatically. No second target
-ledger, search resolver, or provider-specific workflow owner is introduced.
+The CLM aggregate owns one immutable, safe early-Search checkpoint bound to the bounded
+initial legal-name, registration and jurisdiction identity. It runs after fail-closed
+Singapore eligibility validation and before optional ACRA bootstrap, document,
+reconciliation, or ownership work. Bounded candidates are evaluated only by the
+existing entity-resolution owner. An exact match is reusable only when it binds to a
+prior same-ID verified case; it retains the GoldTier party ID, hydrates verified target
+state, and skips ACRA, Shell and new-policy creation. A no-match checkpoint alone
+permits ACRA bootstrap and, after ordinary readiness prerequisites, Shell then Policy.
+Both branches may Amend and perform same-ID read-back. Any ambiguous, conflicting,
+failed, stale, or uncertain state blocks target mutation. Every mutation advances
+through the same durable ledger; an attempted operation without a definitive result is
+never replayed automatically. No second target ledger, search resolver, or
+provider-specific workflow owner is introduced.
 
 ## 10. Authentication, RBAC, team and admin architecture
 
@@ -245,12 +250,19 @@ rules affect new cases. On case creation, version, thresholds, comparator and bi
 time are copied into an immutable `CasePolicySnapshot`. Later policy changes never
 reinterpret existing cases. Custom showcase rules are non-executable and non-runtime.
 Eight GoldTier target-preparation values additionally carry explicit authority labels.
-The editable `accountEntityType` POC placeholder is
-`PROJECT_DEFINED_PROVISIONAL`; the other seven defaults remain `TBD_SPONSOR`.
-`TBD_SPONSOR` values are visible in the preview and block sandbox mutations before the
-target ledger or network; a value without its authority label is never inferred ready.
+The bounded Singapore POC fixes `registrationType=ACRA`,
+`customerExternalSystem=DSD`, `policy=Singapore`, and
+`bookingEntity=ANZBGL (Singapore Branch)` with explicit POC/sponsor-document authority.
+The corrected standalone GoldTier OpenAPI 1.0.0 owns the exact 17-value KYC Customer
+Type and 23-value Client Segment vocabularies. KYC type and segment have no global
+default: an authorized operator selects one value per case, the backend validates and
+retains it as `USER_AUTHORIZED_POC`, and the snapshot becomes immutable before target
+dispatch. The collection sends `accountEntityType` and `productType` as explicit empty
+strings, so those fields are optional for this bounded XPI sandbox request only.
 The HR-only provider console may construct ephemeral `SANDBOX_TEST_ONLY` previews, but
 it cannot mutate the global catalogue or bypass the case-bound target ledger.
+Sandbox success additionally requires a ledger-owned post-Amend Search by retained
+`goldTierID`; only one exact candidate with that same ID is accepted as verified.
 
 ## 12. Persistence and concurrency architecture
 
@@ -270,13 +282,13 @@ repositories remain separate; no cross-collection transaction is claimed. A succ
 cache write can survive a later case-persistence failure, while an incomplete/failed
 refresh can never replace a complete entry.
 
-The same schema-v5 envelope uses additive optional fields for GoldTier provider mode,
+The schema-v5 envelope uses additive optional fields for GoldTier provider mode,
 authority-labelled target policy, and request-plan preview. Existing schema-v5 records
 without those fields read as Mock/no-target-enrichment and are not rewritten. No second
 case schema or persistence owner is introduced. When a schema-v5 CLM submission
 snapshot exists, its provider mode and any matching target-ledger input must agree with
-the retained plan. Contradictory persisted combinations are invalid; a plan without a
-submission snapshot remains valid, and no schema-v6 migration is introduced.
+the retained plan. Contradictory persisted combinations are invalid and a plan without a
+submission snapshot remains valid.
 
 The early Search checkpoint and incremental attempted/completed operation evidence are
 also additive schema-v5 fields. Historical terminal ledger rows infer completion only
@@ -289,6 +301,23 @@ and then performs Search before re-evaluating later deterministic stages. Histor
 terminal records are not retroactively relabelled. Restart recovery treats attempted-but-
 not-completed mutations as uncertain, does not upgrade that state, and preserves the
 existing no-replay stop.
+
+Schema v6 is the current case envelope. It adds bounded initial-customer identity and
+GoldTier-first Search evidence, verified existing-target provenance, separate definitive
+and lifecycle-resolved operation markers, and an explicit provider-verified recovery
+fact. Exact schema-v1 through schema-v5 readers remain supported without rewrite. The
+target ledger remains the sole mutation/replay owner: recovery can resolve an uncertain
+Shell only after exact case/provider identity validation and records that the original
+outcome was uncertain and no replay occurred. A recovered ID is never represented as a
+Shell response. Mongo persists the recovery fact and recovered ID before downstream
+Policy or Amend can proceed.
+
+Case bootstrap begins with a backend-owned legal-name, registration-number and country
+identity. Eligible Singapore identity is searched against GoldTier before ACRA. Exact
+match is accepted only when one provider candidate binds to a prior durable same-ID
+post-Amend read-back; that case hydrates verified canonical target state, skips ACRA and
+Shell, then continues document reconciliation against the same target ID. No-match alone
+uses the ACRA bootstrap path. Ambiguous or failed Search stops before ACRA or mutation.
 
 Create is insert-only, updates are update-only, and mutations use expected revision/CAS.
 Case deletion re-authorizes inside the canonical case lock, physically deletes the

@@ -351,6 +351,7 @@ def test_authenticated_profile_projects_canonical_team_metadata(
         "CASE_GLOBAL",
         "POLICY_MUTATE",
         "POLICY_VIEW",
+        "TARGET_RECOVERY",
     ]
 
 
@@ -1086,13 +1087,13 @@ def test_every_current_application_route_is_deliberately_classified(
     counts = Counter(policy.access for policy in ROUTE_POLICIES)
 
     assert actual == expected
-    assert len(expected) == len(ROUTE_POLICIES) == 65
+    assert len(expected) == len(ROUTE_POLICIES) == 67
     assert counts == {
         RouteAccess.PUBLIC: 2,
         RouteAccess.ACTOR_ONLY: 21,
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
-        RouteAccess.CASE_SCOPED: 33,
+        RouteAccess.CASE_SCOPED: 35,
     }
 
 

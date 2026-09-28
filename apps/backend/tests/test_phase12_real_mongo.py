@@ -50,6 +50,9 @@ from app.domain.target_submission import (
     GoldTierExecutionLedgerEntry,
     GoldTierExecutionLedgerState,
     GoldTierOperationMarker,
+    GoldTierRecoveryOrigin,
+    GoldTierSearchResolution,
+    ProviderVerifiedRecovery,
 )
 from app.domain.zero_touch import AutomationStage, AutomationStatus
 from app.main import create_app
@@ -976,6 +979,92 @@ def test_real_mongo_uncertain_target_restart_and_resume_never_replay(
         assert detail.json()["status"] == "RECOVERY_PENDING"
         assert all(item.json()["status"] == "RECOVERY_PENDING" for item in resumed)
     assert counters == before_restart
+
+
+def test_real_mongo_shell_and_policy_recovery_facts_survive_restart_with_amend_next(
+    isolated_mongo_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = isolated_mongo_settings
+    _install_counting_connectors(monkeypatch)
+    with TestClient(create_app(settings)) as first:
+        case_id = _create_case(first)
+        _upload_text(first, case_id, TEXT_PROFILE, name="Profile.txt")
+        completed = _complete_intake(first, case_id, expected_count=1)
+        assert completed["status"] == "COMPLETED"
+
+    store = _open_store(settings)
+    snapshot = store.get(case_id)
+    assert snapshot is not None and snapshot.target_executions
+    original = snapshot.target_executions[0]
+    entity = original.submission_input.canonical_entity
+    assert original.submission_input.target_policy is not None
+    policy = original.submission_input.target_policy.policy.value
+    verified_at = datetime.now(UTC)
+    recovered = GoldTierExecutionLedgerEntry(
+        submission_input=original.submission_input,
+        state=GoldTierExecutionLedgerState.IN_PROGRESS,
+        attempted_operations=(
+            GoldTierOperationMarker.SEARCH,
+            GoldTierOperationMarker.SHELL,
+            GoldTierOperationMarker.POLICY,
+        ),
+        completed_operations=(GoldTierOperationMarker.SEARCH,),
+        resolved_operations=(
+            GoldTierOperationMarker.SEARCH,
+            GoldTierOperationMarker.SHELL,
+            GoldTierOperationMarker.POLICY,
+        ),
+        provider_verified_recovery=ProviderVerifiedRecovery(
+            origin=GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+            recovered_party_id="RECOVERED-123",
+            legal_name=entity.legal_name,
+            registration_number=entity.registration_number,
+            country_of_incorporation=entity.country_of_incorporation,
+            actor_id="mongo-restart-test",
+            verified_at=verified_at,
+            candidate_count=1,
+        ),
+        provider_verified_policy_recovery=ProviderVerifiedRecovery(
+            origin=GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER,
+            operation=GoldTierOperationMarker.POLICY,
+            recovered_party_id="RECOVERED-123",
+            legal_name=entity.legal_name,
+            registration_number=entity.registration_number,
+            country_of_incorporation=entity.country_of_incorporation,
+            actor_id="mongo-restart-test",
+            verified_at=verified_at,
+            candidate_count=1,
+            provider_policy=policy,
+            provider_policy_status="Requested",
+        ),
+        search_resolution=GoldTierSearchResolution.NO_MATCH,
+        resolved_party_id="RECOVERED-123",
+        shell_status="PROVIDER_VERIFIED_RECOVERY",
+        policy_status="PROVIDER_VERIFIED_REQUESTED",
+    )
+    store.replace(
+        snapshot.model_copy(update={"target_executions": (recovered,)}, deep=True),
+        expected_revision=snapshot.revision,
+    )
+    store.close()
+
+    restarted = _open_store(settings)
+    try:
+        after = restarted.get(case_id)
+        assert after is not None
+        assert after.target_executions == (recovered,)
+        assert after.target_executions[0].resolved_party_id == "RECOVERED-123"
+        assert after.target_executions[0].provider_verified_recovery is not None
+        assert after.target_executions[0].provider_verified_recovery.replayed is False
+        policy_recovery = after.target_executions[0].provider_verified_policy_recovery
+        assert policy_recovery is not None
+        assert policy_recovery.provider_policy == policy
+        assert policy_recovery.provider_policy_status == "Requested"
+        assert policy_recovery.replayed is False
+        assert GoldTierOperationMarker.AMEND not in after.target_executions[0].attempted_operations
+    finally:
+        restarted.close()
 
 
 def test_real_mongo_replacement_restart_preserves_history_and_stales_old_decision(

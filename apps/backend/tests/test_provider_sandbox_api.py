@@ -18,6 +18,7 @@ from app.connectors.goldtier_models import (
 from app.connectors.goldtier_xpi_models import XpiCustomerSearchRequest
 from app.domain.access import AuthenticatedActor, Role, TeamId, UserProfile
 from app.domain.onboarding_intelligence import EntityIdentity
+from app.domain.target_submission import GoldTierProviderMode
 from app.services.onboarding import TargetIdentitySearchEvidence
 from app.services.onboarding_intelligence import OnboardingIntelligenceService
 
@@ -25,6 +26,10 @@ from app.services.onboarding_intelligence import OnboardingIntelligenceService
 class RecordingSandboxSearch:
     def __init__(self) -> None:
         self.calls: list[XpiCustomerSearchRequest] = []
+
+    @property
+    def target_provider_mode(self) -> GoldTierProviderMode:
+        return GoldTierProviderMode.SANDBOX
 
     def search_sandbox_target(
         self,
@@ -116,14 +121,14 @@ async def test_hr_status_search_and_dry_run_are_safe_and_bounded() -> None:
     service = RecordingSandboxSearch()
     transport = httpx.ASGITransport(app=_app(service, Role.HR))
     test_values = {
-        "kyc_customer_type": "SANDBOX TEST",
-        "client_segment": "SANDBOX TEST",
-        "customer_external_system": "SANDBOX TEST",
-        "registration_type": "SANDBOX TEST",
-        "policy": "SANDBOX TEST",
-        "booking_entity": "SANDBOX TEST",
-        "account_entity_type": "SANDBOX TEST",
-        "product_type": "SANDBOX TEST",
+        "kyc_customer_type": "Company - Private",
+        "client_segment": "Corporate",
+        "customer_external_system": "DSD",
+        "registration_type": "ACRA",
+        "policy": "Singapore",
+        "booking_entity": "ANZBGL (Singapore Branch)",
+        "account_entity_type": "",
+        "product_type": "",
     }
     async with RawAsyncClient(transport=transport, base_url="http://test") as client:
         status_response = await client.get("/api/admin/goldtier-sandbox/status")

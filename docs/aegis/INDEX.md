@@ -61,3 +61,8 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-09-26 | work | docs/aegis/work/2026-09-26-acra-marketplace-mock-runtime/20-checkpoint.md | ACRA API Marketplace Mock runtime checkpoint |
 | 2026-09-26 | work | docs/aegis/work/2026-09-26-acra-marketplace-mock-runtime/90-evidence.md | ACRA API Marketplace Mock runtime evidence |
 | 2026-09-26 | work | docs/aegis/work/2026-09-26-acra-marketplace-mock-runtime/99-reflection.md | ACRA API Marketplace Mock runtime reflection |
+| 2026-09-27 | work | docs/aegis/work/2026-09-27-goldtier-sandbox-pipeline-inspector/10-intent.md | GoldTier sandbox pipeline inspector intent |
+| 2026-09-27 | work | docs/aegis/work/2026-09-27-goldtier-sandbox-pipeline-inspector/20-checkpoint.md | GoldTier sandbox pipeline inspector checkpoint |
+| 2026-09-27 | work | docs/aegis/work/2026-09-27-goldtier-sandbox-pipeline-inspector/90-evidence.md | GoldTier sandbox pipeline inspector evidence |
+| 2026-09-27 | work | docs/aegis/work/2026-09-27-goldtier-sandbox-pipeline-inspector/99-reflection.md | GoldTier sandbox pipeline inspector reflection |
+| 2026-09-27 | plan | docs/aegis/plans/2026-09-27-goldtier-first-provider-verified-recovery.md | GoldTier-first provider-verified recovery implementation plan |

@@ -20,6 +20,7 @@ def enforce_ordinary_test_environment() -> None:
     os.environ["MONGO_URI"] = LOOPBACK_NON_SERVICE_URI
     os.environ["MONGO_DATABASE"] = ORDINARY_TEST_DATABASE
     os.environ["ACRA_CONNECTOR_MODE"] = "mock"
+    os.environ["GOLDTIER_CONNECTOR_MODE"] = "mock"
     os.environ["PHASE13_BROWSER_ORIGIN"] = ORDINARY_TEST_BROWSER_ORIGIN
 
 
@@ -36,6 +37,7 @@ def ordinary_test_settings(**overrides: Any) -> Settings:
         "mongo_uri": None,
         "mongo_database": ORDINARY_TEST_DATABASE,
         "acra_connector_mode": "mock",
+        "goldtier_connector_mode": "mock",
         "phase13_browser_origin": ORDINARY_TEST_BROWSER_ORIGIN,
     }
     values.update(overrides)

@@ -53,6 +53,7 @@ import { paths, requiredCapabilityForPath, WorkspaceRoutes, WorkspaceTabs } from
 import {
   formatTimestamp,
   goldTierJourneyLabel,
+  shouldMaintainLiveProgress,
   shouldPollAutomation,
   targetOutcomeLabel,
 } from "./shared";
@@ -265,7 +266,7 @@ export async function runEvidenceMutation<T>(
   }
 }
 
-export { formatTimestamp, shouldPollAutomation };
+export { formatTimestamp, shouldMaintainLiveProgress, shouldPollAutomation };
 
 function formatAddress(caseData: OnboardingCase): string {
   const address = caseData.entity?.registered_address;
@@ -341,7 +342,13 @@ function blockerExplanation(blockerCode: string): string {
 
 export function SimulationBanner({ profile }: { profile: SimulationProfile | null }) {
   const sourceLabel = profile
-    ? `${profile.registry_system} ${titleCaseEnvironment(profile.registry_environment)}`
+    ? profile.registry_provider_mode === "API_MARKETPLACE_MOCK"
+      ? "ACRA API Marketplace Mock"
+      : profile.registry_provider_mode === "LOCAL_MOCK"
+        ? "ACRA Local Mock"
+        : profile.registry_provider_mode === "GENERIC_SANDBOX"
+          ? "ACRA Sandbox"
+          : `${profile.registry_system} ${titleCaseEnvironment(profile.registry_environment)}`
     : null;
   const fullLabel = profile
     ? `${sourceLabel} | GoldTier ${titleCaseEnvironment(profile.target_environment)}${profile.target_environment === "SANDBOX" ? ` (${profile.target_provider_classification})` : ""} | IDP ${titleCaseEnvironment(profile.idp_environment)} (${profile.idp_provider}) | Ownership Mock | External access is backend-managed`
@@ -1769,6 +1776,7 @@ export default function App({
   const [caseQueuePresentation, setCaseQueuePresentation] =
     useState<CaseQueuePresentationState>(DEFAULT_CASE_QUEUE_PRESENTATION);
   const [uen, setUen] = useState(DEFAULT_UEN);
+  const [legalName, setLegalName] = useState("");
   const [countryOfIncorporation, setCountryOfIncorporation] =
     useState<JurisdictionSelection>("");
   const [documentFiles, setDocumentFiles] = useState<File[]>([]);
@@ -1827,6 +1835,7 @@ export default function App({
     setSummary(null);
     setRetainedCreatedSummary(null);
     setDocumentFiles([]);
+    setLegalName("");
     setRequestError(null);
     setPollingWarning(null);
     setIntakeProgress(null);
@@ -1856,7 +1865,8 @@ export default function App({
   }, [actor.role, location.pathname, routeCanLoadWorkspace]);
 
   useEffect(() => {
-    if (!summary || !shouldPollAutomation(summary.status)) return;
+    const intakeActive = isSubmitting && Boolean(intakeCaseRef.current?.caseId);
+    if (!summary || !shouldMaintainLiveProgress(summary.status, intakeActive)) return;
     const generation = journeyGeneration.current;
     const activeCaseId = summary.case.case_id;
     return startAutomationPolling({
@@ -1869,9 +1879,9 @@ export default function App({
         caseSummaryMutationEffect(queryClient, actor.user_id, latest);
       },
       onWarning: setPollingWarning,
-      shouldContinue: shouldPollAutomation,
+      shouldContinue: (status) => shouldMaintainLiveProgress(status, intakeActive),
     });
-  }, [actor.user_id, queryClient, summary?.case.case_id, summary?.status, summary?.version]);
+  }, [actor.user_id, isSubmitting, queryClient, summary?.case.case_id, summary?.status, summary?.version]);
 
   async function beginJourney(demoScenario?: ZeroTouchDemoScenario) {
     if (resolutionActive.current) return;
@@ -1956,6 +1966,7 @@ export default function App({
             countryOfIncorporation || undefined,
             actor.role === "DIRECTOR" ? directorTeamId || undefined : undefined,
             casePriority === "" ? undefined : casePriority,
+            legalName || undefined,
           ),
           onCreated: (created) => {
             if (!isCurrentIntakeOperation(operation)) return;
@@ -1965,6 +1976,7 @@ export default function App({
             };
             intakeCaseRef.current = retainedOperation;
             caseCreatedEffect(queryClient, actor.user_id, created);
+            setSummary(created);
             setRetainedCreatedSummary(created);
             if (locationPathname.current === paths.newOnboarding) {
               navigate(paths.retainedIntake(created.case.case_id), { replace: true });
@@ -2141,6 +2153,7 @@ export default function App({
       clearResolving: () => setIsResolving(false),
     });
     setCasePriority("");
+    setLegalName("");
     intakeCaseRef.current = null;
     successfulIntakeFilesRef.current.clear();
     failedIntakeDocumentsRef.current.clear();
@@ -2201,6 +2214,8 @@ export default function App({
         summary={summary}
         uen={uen}
         onUenChange={setUen}
+        legalName={legalName}
+        onLegalNameChange={setLegalName}
         countryOfIncorporation={countryOfIncorporation}
         onCountryChange={setCountryOfIncorporation}
         documentFiles={documentFiles}
@@ -2226,6 +2241,8 @@ export default function App({
         onStartNewCase={handleStartNewCase}
         onViewOnboarded={(caseId) => navigate(paths.onboardedDetail(caseId))}
         onViewAudit={(caseId) => navigate(paths.auditCase(caseId))}
+        registryProviderMode={simulationProfile?.registry_provider_mode}
+        onRetryIntake={() => void beginJourney()}
       />
       {demoControlsEnabled && !summary && (
         <section className="ds-root ds-page" aria-label="Demo/Test Controls">
@@ -2285,6 +2302,7 @@ export default function App({
               onBack={() => navigate(paths.cases)}
               onViewOnboarded={(completedCaseId) => navigate(paths.onboardedDetail(completedCaseId))}
               onViewAudit={(auditCaseId) => navigate(paths.auditCase(auditCaseId))}
+              registryProviderMode={simulationProfile?.registry_provider_mode}
             />
           )}
           onboarded={<OnboardedClients actor={actor} />}

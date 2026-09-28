@@ -35,6 +35,7 @@ from app.api_models import (
     OwnershipAnalysisResponse,
     ZeroTouchCaseListItemResponse,
     ZeroTouchCaseSummaryResponse,
+    project_processing_pipeline,
 )
 from app.api_policies import build_policy_router
 from app.api_provider_sandbox import build_provider_sandbox_router
@@ -54,6 +55,7 @@ from app.composition import (
     build_zero_touch_orchestrator,
 )
 from app.config import Settings, get_settings
+from app.connectors.errors import ConnectorError, public_connector_error
 from app.connectors.idp import IdpProvider
 from app.connectors.ownership import OwnershipProvider
 from app.demo.idp_control import MockIdpDemoControl
@@ -66,7 +68,7 @@ from app.demo.scenarios import (
 )
 from app.demo.uat_evidence import UatEvidenceExport, build_uat_evidence
 from app.demo.zero_touch_control import ZeroTouchDemoControl, ZeroTouchDemoScenario
-from app.domain.access import AuthenticatedActor, CasePriority, TeamId
+from app.domain.access import AuthenticatedActor, Capability, CasePriority, TeamId
 from app.domain.case_management import (
     CaseActivityAction,
     CaseActivityPage,
@@ -87,6 +89,7 @@ from app.domain.reconciliation import ReconciliationDecisionAction
 from app.domain.target_submission import (
     GoldTierExecutionLedgerEntry,
     GoldTierOperationMarker,
+    GoldTierRecoveryOrigin,
     GoldTierTargetOutcome,
 )
 from app.domain.zero_touch import (
@@ -210,6 +213,7 @@ class StartOnboardingRequest(BaseModel):
         Field(min_length=1, max_length=32, pattern=r"^[A-Z0-9-]+$"),
     ]
     country_of_incorporation: JurisdictionCode | None = None
+    legal_name: str | None = Field(default=None, min_length=1, max_length=160)
     team_id: TeamId | None = None
 
     @field_validator("uen", mode="before")
@@ -237,6 +241,46 @@ class UpdateCasePriorityRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     priority: CasePriority | None
+
+
+class TargetClassificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kyc_customer_type: str = Field(min_length=1, max_length=80)
+    client_segment: str = Field(min_length=1, max_length=80)
+
+
+class TargetRecoveryRequest(BaseModel):
+    """Untrusted browser attestation checked against case and fresh provider evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    recovered_party_id: str = Field(min_length=1, max_length=96)
+    legal_name: str = Field(min_length=1, max_length=160)
+    registration_number: str = Field(min_length=1, max_length=32)
+    country_of_incorporation: str = Field(min_length=2, max_length=3)
+    origin: GoldTierRecoveryOrigin
+    operation: Literal["SHELL", "POLICY"] = "SHELL"
+    provider_policy: str | None = Field(default=None, min_length=1, max_length=80)
+    provider_policy_status: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class TargetRecoveryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: UUID
+    submission_id: UUID
+    recovered_party_id: str
+    operation: Literal["SHELL", "POLICY"]
+    authority: Literal["PROVIDER_VERIFIED_RECOVERY"]
+    origin: GoldTierRecoveryOrigin
+    original_outcome_uncertain: Literal[True]
+    replayed: Literal[False]
+    provider_policy: str | None
+    provider_policy_status: str | None
+    attempted_operations: tuple[str, ...]
+    definitively_completed_operations: tuple[str, ...]
+    lifecycle_resolved_operations: tuple[str, ...]
 
 
 class InfrastructureFailureDetail(BaseModel):
@@ -663,12 +707,14 @@ def create_app(
 
         orchestration = ClmOrchestrationRecord.model_validate(clm_record)
 
-        order = (
+        order: tuple[GoldTierOperationMarker, ...] = (
             GoldTierOperationMarker.SEARCH,
             GoldTierOperationMarker.SHELL,
             GoldTierOperationMarker.POLICY,
             GoldTierOperationMarker.AMEND,
         )
+        if orchestration.submission_plan.environment.value == "SANDBOX":
+            order = (*order, GoldTierOperationMarker.READBACK)
         checkpoint = orchestration.target_search_checkpoint
         attempted = (
             entry.attempted_operations
@@ -680,7 +726,7 @@ def create_app(
             else ()
         )
         completed = (
-            entry.definitively_completed_operations
+            entry.lifecycle_resolved_operations
             if entry is not None
             else outcome.completed_operations
             if outcome is not None
@@ -695,6 +741,7 @@ def create_app(
                 "NO_MATCH",
                 "MATCH_FOUND",
                 "SKIPPED",
+                "RECOVERED",
                 "REVIEW_REQUIRED",
                 "CREATED",
                 "SUCCESS",
@@ -711,13 +758,28 @@ def create_app(
                     else "FAILED"
                 )
             elif (
-                operation == GoldTierOperationMarker.SHELL
+                operation
+                in {
+                    GoldTierOperationMarker.SHELL,
+                    GoldTierOperationMarker.POLICY,
+                }
                 and checkpoint is not None
                 and checkpoint.disposition == GoldTierSearchDisposition.EXACT_MATCH
             ):
                 operation_status = "SKIPPED"
             elif operation in attempted:
-                if operation not in completed:
+                if (
+                    entry is not None
+                    and entry.provider_recovery_for(operation) is not None
+                ):
+                    operation_status = "RECOVERED"
+                elif (
+                    entry is not None
+                    and entry.provider_verified_amend_failure is not None
+                    and operation == GoldTierOperationMarker.AMEND
+                ):
+                    operation_status = "FAILED"
+                elif operation not in completed:
                     operation_status = "IN_PROGRESS"
                 elif (
                     outcome is not None
@@ -752,6 +814,15 @@ def create_app(
             else None
         )
         target_outcome = target_entry.target_outcome if target_entry is not None else None
+        target_operations = target_operation_evidence(clm_record, target_entry, target_outcome)
+        reconciliation_record = reconciliation.get(case_id=automation.case_id)
+        retained_goldtier_id = (
+            str(target_entry.resolved_party_id)
+            if target_entry is not None and target_entry.resolved_party_id is not None
+            else str(target_outcome.party_id)
+            if target_outcome is not None and target_outcome.party_id is not None
+            else None
+        )
         observed_at = active_clock()
         try:
             timing = project_case_timing(
@@ -778,8 +849,16 @@ def create_app(
                 **timing.model_dump(),
                 observed_at=observed_at,
             ),
-            reconciliation=reconciliation.get(case_id=automation.case_id),
-            target_operations=target_operation_evidence(clm_record, target_entry, target_outcome),
+            reconciliation=reconciliation_record,
+            target_operations=target_operations,
+            processing_pipeline=project_processing_pipeline(
+                automation=automation,
+                clm=clm_record,
+                case=case,
+                reconciliation=reconciliation_record,
+                target_operations=target_operations,
+                retained_goldtier_id=retained_goldtier_id,
+            ),
             team=administration.directory.get(case.team_id),
         )
 
@@ -893,6 +972,7 @@ def create_app(
             created_case = active_service.create_case(
                 request.uen,
                 request.country_of_incorporation,
+                legal_name=request.legal_name,
                 team_id=creation_team(request, actor),
             )
             return OnboardingCaseResponse.from_domain(
@@ -940,6 +1020,7 @@ def create_app(
                 active_clm.create_case(
                     request.uen,
                     request.country_of_incorporation,
+                    legal_name=request.legal_name,
                     team_id=creation_team(request, actor),
                 )
             )
@@ -1343,6 +1424,7 @@ def create_app(
                 active_zero_touch.create_case(
                     request.uen,
                     request.country_of_incorporation,
+                    legal_name=request.legal_name,
                     team_id=creation_team(request, actor),
                     priority=request.priority,
                 )
@@ -1665,6 +1747,145 @@ def create_app(
             case_query.update_priority(actor, case_id, request.priority)
         )
 
+    @application.put(
+        "/api/clm/zero-touch/cases/{case_id}/target-classification",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    def bind_target_classification(
+        case_id: UUID,
+        classification: TargetClassificationRequest,
+        request: Request,
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+    ) -> ZeroTouchCaseSummaryResponse:
+        try:
+            record = active_zero_touch.bind_target_classification(
+                case_id=case_id,
+                kyc_customer_type=classification.kyc_customer_type,
+                client_segment=classification.client_segment,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id
+                ),
+            )
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        return zero_touch_response(record)
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/target-recovery",
+        response_model=TargetRecoveryResponse,
+        tags=["zero-touch"],
+    )
+    def recover_uncertain_target_operation(
+        case_id: UUID,
+        recovery_request: TargetRecoveryRequest,
+        request: Request,
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+    ) -> TargetRecoveryResponse:
+        record = clm.get(case_id=case_id)
+        if record is None or record.submission_snapshot is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "TARGET_RECOVERY_INPUT_UNAVAILABLE",
+                    "message": "The durable target submission input is unavailable.",
+                },
+            )
+        try:
+            reauthorize = build_case_reauthorizer(
+                request,
+                authentication,
+                access_policy,
+                service,
+                case_id,
+                Capability.TARGET_RECOVERY,
+            )
+            if recovery_request.operation == "POLICY":
+                if (
+                    recovery_request.provider_policy is None
+                    or recovery_request.provider_policy_status is None
+                ):
+                    raise ValueError("Policy recovery evidence is incomplete")
+                entry = service.recover_uncertain_policy_from_provider(
+                    submission_input=record.submission_snapshot.target_input,
+                    recovered_party_id=recovery_request.recovered_party_id,
+                    legal_name=recovery_request.legal_name,
+                    registration_number=recovery_request.registration_number,
+                    country_of_incorporation=(
+                        recovery_request.country_of_incorporation
+                    ),
+                    provider_policy=recovery_request.provider_policy,
+                    provider_policy_status=recovery_request.provider_policy_status,
+                    actor_id=actor.profile.user_id,
+                    origin=recovery_request.origin,
+                    reauthorize=reauthorize,
+                )
+            else:
+                if (
+                    recovery_request.provider_policy is not None
+                    or recovery_request.provider_policy_status is not None
+                ):
+                    raise ValueError("Shell recovery cannot contain Policy evidence")
+                entry = service.recover_uncertain_shell_from_provider(
+                    submission_input=record.submission_snapshot.target_input,
+                    recovered_party_id=recovery_request.recovered_party_id,
+                    legal_name=recovery_request.legal_name,
+                    registration_number=recovery_request.registration_number,
+                    country_of_incorporation=(
+                        recovery_request.country_of_incorporation
+                    ),
+                    actor_id=actor.profile.user_id,
+                    origin=recovery_request.origin,
+                    reauthorize=reauthorize,
+                )
+        except ConnectorError as exc:
+            public = public_connector_error(exc)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={"code": public.code, "message": public.message},
+            ) from None
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "TARGET_RECOVERY_REJECTED",
+                    "message": str(exc),
+                },
+            ) from None
+        except RuntimeError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "TARGET_RECOVERY_CONFLICT",
+                    "message": "Target recovery could not retain durable ledger ownership.",
+                },
+            ) from None
+        operation = GoldTierOperationMarker(recovery_request.operation)
+        recovery = entry.provider_recovery_for(operation)
+        if recovery is None:
+            raise RuntimeError("Recovery endpoint did not retain recovery evidence")
+        return TargetRecoveryResponse(
+            case_id=case_id,
+            submission_id=entry.submission_input.submission_id,
+            recovered_party_id=recovery.recovered_party_id,
+            operation=recovery.operation.value,
+            authority=recovery.authority.value,
+            origin=recovery.origin,
+            original_outcome_uncertain=True,
+            replayed=False,
+            provider_policy=recovery.provider_policy,
+            provider_policy_status=recovery.provider_policy_status,
+            attempted_operations=tuple(item.value for item in entry.attempted_operations),
+            definitively_completed_operations=tuple(
+                item.value for item in entry.definitively_completed_operations
+            ),
+            lifecycle_resolved_operations=tuple(
+                item.value for item in entry.lifecycle_resolved_operations
+            ),
+        )
+
     @application.post(
         "/api/demo/clm/zero-touch/cases",
         response_model=ZeroTouchCaseSummaryResponse,
@@ -1682,6 +1903,7 @@ def create_app(
             record = active_zero_touch.create_case(
                 uen,
                 request.country_of_incorporation,
+                legal_name=request.legal_name,
                 team_id=creation_team(request, actor),
                 priority=request.priority,
                 establishment_action=lambda case_id: zero_touch_demo.register(
@@ -2368,6 +2590,7 @@ def _zero_touch_http_error(exc: ZeroTouchRequestError) -> HTTPException:
     elif exc.code in {
         "ZERO_TOUCH_RESOLUTION_NOT_ALLOWED",
         "ZERO_TOUCH_REPLACEMENT_EVIDENCE_REQUIRED",
+        "ZERO_TOUCH_TARGET_CLASSIFICATION_INVALID",
     }:
         status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     detail = ZeroTouchFailureDetail(code=exc.code, message=exc.public_message)

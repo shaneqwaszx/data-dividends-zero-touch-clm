@@ -67,13 +67,17 @@ and BizFile remains Dormant.
 
 ### GoldTier and PingFed
 
-The sponsor-supplied XPI dialect is currently `SANDBOX_PARTIAL`: bounded read-only
-Search observations and an explicit opt-in adapter exist, while Mock remains the
-default. Customer mutation was not executed because seven target-policy defaults remain
-`TBD_SPONSOR`; only the user-authorized `accountEntityType` POC placeholder is
-`PROJECT_DEFINED_PROVISIONAL`. Related-party mutation remains blocked by child-ID
-lifecycle and relationship-authority gaps. The adapter is not PingFed or production
-authentication.
+The sponsor-supplied XPI dialect is `SANDBOX_PARTIAL`. The bounded Singapore path uses
+`registrationType=ACRA`, unchanged UEN, both country fields `SG`,
+`customerExternalSystem=DSD`, `policy=Singapore`, and
+`bookingEntity=ANZBGL (Singapore Branch)`. The corrected standalone OpenAPI 1.0.0 is
+the current machine-vocabulary authority for the exact 17 KYC Customer Types and 23
+Client Segments; older conflicting lists are quarantined rather than unioned. KYC type
+and segment are validated write-once case selections with `USER_AUTHORIZED_POC`
+authority. Optional unconfirmed `accountEntityType` and `productType` serialize empty.
+Sandbox completion requires a post-Amend Search by retained GoldTier ID and exact ID
+equality. Related-party mutation remains blocked by child-ID lifecycle and
+relationship-authority gaps. The adapter is not PingFed or production authentication.
 
 Promotion beyond this bounded state remains: unresolved contract and business authority
 → approved secret delivery → complete Singapore mappings and exact operations →
