@@ -190,6 +190,10 @@ describe("GoldTier Sandbox frontend boundary", () => {
           max_response_bytes: 65536,
           last_diagnostic_at: "2026-09-24T01:00:00Z",
           blocker: "Durable guarded-write execution is not yet available.",
+          customer_operations: "PARTIAL",
+          related_party_operations: "BLOCKED_CONTRACT",
+          blocker_code: "BLOCKED_CHILD_ID_LIFECYCLE",
+          required_authority: "SPONSOR_CONFIRMATION",
           related_party_blocker: "BLOCKED_CHILD_ID_LIFECYCLE",
           vocabulary_version: "GOLDTIER_OPENAPI_1_0_0",
           kyc_customer_types: ["Company - Private"],
@@ -248,7 +252,10 @@ describe("GoldTier Sandbox frontend boundary", () => {
     });
     await vi.waitFor(() => expect(container?.textContent).toContain("sandbox.example.test"));
     expect(container?.textContent).toContain("GOLDTIER_SANDBOX_SEARCH_NO_MATCH");
-    expect(container?.textContent).toContain("BLOCKED CHILD ID LIFECYCLE");
+    expect(container?.textContent).toContain("integration contract incomplete");
+    expect(container?.textContent).toContain("childId");
+    expect(container?.textContent).toContain("SPONSOR CONFIRMATION");
+    expect(container?.textContent).toContain("BLOCKED_CHILD_ID_LIFECYCLE");
 
     await act(async () => container?.querySelector("form")?.dispatchEvent(
       new Event("submit", { bubbles: true, cancelable: true }),

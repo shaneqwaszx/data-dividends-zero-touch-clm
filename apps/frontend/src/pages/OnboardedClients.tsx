@@ -67,8 +67,10 @@ export default function OnboardedClients({
     <div className="ds-root ds-page">
       <h1>Onboarded</h1>
       <p className="text-muted">
-        Completed POC workflow cases from the backend are shown here. This POC does not
-        provide a production client master, risk rating, scheduler, or periodic review date.
+        Completed POC workflow cases form this completed-case projection: every accessible
+        COMPLETED case appears when no filters are active. Cases remain workflow history, so
+        multiple cases may represent the same customer. This is not a deduplicated production
+        client master.
       </p>
 
       <div className="ds-toolbar">

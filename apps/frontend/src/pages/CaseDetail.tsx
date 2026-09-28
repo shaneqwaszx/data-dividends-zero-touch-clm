@@ -10,7 +10,6 @@ import {
   fetchZeroTouchCase,
   replaceZeroTouchDocument,
   reviewDocument,
-  resolveReconciliationDiscrepancy,
   resolveZeroTouchException,
   resumeZeroTouchCase,
   retryZeroTouchIntakeDocument,
@@ -32,11 +31,9 @@ import { formatTimestamp, shouldPollAutomation, targetOutcomeLabel } from "../sh
 import type {
   DocumentProcessingRecord,
   AuthenticatedProfile,
-  ExceptionResolutionAction,
   OwnershipAnalysisRecord,
   SimulationProfile,
   ZeroTouchCaseSummary,
-  ZeroTouchException,
 } from "../types";
 import {
   CompletedOverview,
@@ -56,12 +53,7 @@ import IntelligencePanel from "./IntelligencePanel";
 import GoldTierRequestPreview from "./GoldTierRequestPreview";
 import RegistryProvenancePanel from "./RegistryProvenancePanel";
 import TargetClassificationPanel from "./TargetClassificationPanel";
-
-const ACTION_LABELS: Record<ExceptionResolutionAction, string> = {
-  KEEP_REGISTRY_VALUE: "Keep registry values",
-  USE_DOCUMENT_VALUE: "Use document value",
-  REQUEST_ADDITIONAL_INFORMATION: "Request additional information",
-};
+import HumanInterventionPanel from "./HumanInterventionPanel";
 
 const EVIDENCE_TARGET_IDS: Record<EvidenceFocusTarget, string> = {
   registry: "case-evidence-registry",
@@ -505,15 +497,18 @@ export default function CaseDetail({
 
         <OnboardingProgressPanel summary={summary} />
 
-        {summary.active_exceptions.filter((exception) => exception.stage !== "REGISTRY").map((exception) => (
-          <div className="ds-banner ds-banner-warn" key={exception.exception_id} style={{ marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}><h3 style={{ margin: 0 }}>{exception.exception_type.replaceAll("_", " ")}</h3><span className="text-muted" style={{ fontSize: 11 }}>{formatTimestamp(exception.created_at)}</span></div>
-            <p style={{ marginTop: 8, fontSize: 12.5 }}>{exception.explanation}</p>
-            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-              {exception.available_actions.map((action) => <button key={action} type="button" className="btn btn-primary" disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resolveZeroTouchException(summary, exception.exception_id, action, exception.evidence_version))}>{ACTION_LABELS[action]}</button>)}
-            </div>
-          </div>
-        ))}
+        <HumanInterventionPanel
+          summary={summary}
+          isBusy={isBusy || mutationBlocked}
+          onResolve={(exception, action) => void runMutation(
+            () => resolveZeroTouchException(
+              summary,
+              exception.exception_id,
+              action,
+              exception.evidence_version,
+            ),
+          )}
+        />
 
         {summary.status === "RECOVERY_PENDING" && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
         {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
@@ -535,7 +530,7 @@ export default function CaseDetail({
         </div>
         {summary.reconciliation && summary.current_stage === "DOCUMENT" && (
           <div key={`${evidenceIdentity}:reconciliation`} id={EVIDENCE_TARGET_IDS.reconciliation} className="evidence-focus-target" tabIndex={-1}>
-            <ConfirmDetailsPanel summary={summary} isBusy={isBusy || mutationBlocked} onResolve={(discrepancy, action) => void runMutation(() => resolveReconciliationDiscrepancy(summary, discrepancy.discrepancy_id, action, summary.reconciliation!.version, discrepancy.evidence_fingerprint))} />
+            <ConfirmDetailsPanel summary={summary} isBusy={isBusy || mutationBlocked} />
           </div>
         )}
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />

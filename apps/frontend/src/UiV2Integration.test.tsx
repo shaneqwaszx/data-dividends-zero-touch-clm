@@ -32,6 +32,8 @@ import {
 import OnboardedClients, { OnboardedActionColumnHeader } from "./pages/OnboardedClients";
 import { PolicyClassificationBadge } from "./pages/PolicyRules";
 import { isDocumentReuploadRequired } from "./pages/DocumentEvidencePanel";
+import HomeOnboarding from "./pages/HomeOnboarding";
+import HumanInterventionPanel from "./pages/HumanInterventionPanel";
 import { createSessionQueryClient } from "./queryClient";
 import type { AuthenticatedProfile, DocumentProcessingRecord, ReconciliationSummary, SimulationProfile, ZeroTouchCaseListItem, ZeroTouchCaseSummary } from "./types";
 import {
@@ -402,6 +404,192 @@ describe("UI v2 backend integration adapters", () => {
     const markup = renderToStaticMarkup(<RegistryStatePanel summary={registryStop} />);
     expect(markup).toContain("Registry review required");
     expect(markup).not.toContain("Targeted retry required");
+  });
+
+  it("retains documents when GoldTier customer identity requires review before ACRA", async () => {
+    const identityReview = {
+      ...makePanelSummary("MATCH"),
+      status: "WAITING_FOR_REVIEW" as const,
+      current_stage: "GOLDTIER_SEARCH" as const,
+      active_exceptions: [{
+        exception_id: "identity-review-1",
+        exception_type: "ENTITY_RESOLUTION_REVIEW_REQUIRED",
+        stage: "GOLDTIER_SEARCH",
+        blocker_code: "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
+        explanation: "Two retained candidates require exact identity review.",
+        evidence_version: "goldtier-search:1",
+        available_actions: [],
+      }],
+    } as unknown as ZeroTouchCaseSummary;
+    const retained = vi.fn();
+    const routed = vi.fn();
+    const intake = vi.fn().mockResolvedValue(undefined);
+
+    await expect(createRetainedCaseBeforeDocumentIntake({
+      createCase: async () => identityReview,
+      onCreated: retained,
+      onRegistryStop: routed,
+      onDocumentIntake: intake,
+    })).resolves.toMatchObject({ created: identityReview, intakeAttempted: true });
+    expect(isRegistryIntakeUnavailable(identityReview)).toBe(false);
+    expect(intake).toHaveBeenCalledWith(identityReview);
+    expect(routed).not.toHaveBeenCalled();
+  });
+
+  it("keeps document intake open for retained registry expected-data gaps", async () => {
+    const registryEvidenceGap = {
+      ...makePanelSummary("MATCH"),
+      status: "WAITING_FOR_REVIEW" as const,
+      current_stage: "REGISTRY" as const,
+      active_exceptions: [{
+        exception_id: "registry-gap-1",
+        exception_type: "REGISTRY_REVIEW_REQUIRED",
+        stage: "REGISTRY",
+        blocker_code: "REGISTRY_EXPECTED_DATA_MISSING",
+        explanation: "Expected ownership evidence was not returned.",
+        evidence_version: "case:1",
+        available_actions: [],
+      }],
+      case: {
+        ...makePanelSummary("MATCH").case,
+        registry_acquisition: {
+          ...makePanelSummary("MATCH").case.registry_acquisition!,
+          status: "PARTIAL" as const,
+        },
+      },
+    } as unknown as ZeroTouchCaseSummary;
+    const intake = vi.fn().mockResolvedValue(undefined);
+
+    await expect(createRetainedCaseBeforeDocumentIntake({
+      createCase: async () => registryEvidenceGap,
+      onCreated: () => undefined,
+      onRegistryStop: () => undefined,
+      onDocumentIntake: intake,
+    })).resolves.toMatchObject({ intakeAttempted: true });
+    expect(isRegistryIntakeUnavailable(registryEvidenceGap)).toBe(false);
+    expect(intake).toHaveBeenCalledWith(registryEvidenceGap);
+  });
+
+  it("renders only backend-authored intervention actions and safe candidate summaries", () => {
+    const exception = {
+      exception_id: "identity-review-1",
+      exception_type: "ENTITY_RESOLUTION_REVIEW_REQUIRED",
+      stage: "GOLDTIER_SEARCH",
+      blocker_code: "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
+      explanation: "Two retained candidates require exact identity review.",
+      evidence_version: "goldtier-search:1",
+      available_actions: [],
+    } as const;
+    const interventionSummary = {
+      ...makePanelSummary("MATCH"),
+      active_exceptions: [exception],
+      interventions: [{
+        intervention_id: exception.exception_id,
+        owning_stage: "GOLDTIER_SEARCH",
+        owning_stage_label: "GoldTier Search / customer identity",
+        title: "Possible existing customer found",
+        blocker_code: exception.blocker_code,
+        explanation: exception.explanation,
+        required_evidence_or_input: ["Additional identity evidence."],
+        authorized_actions: [],
+        no_action_reason: "Candidate selection is not authorized.",
+        expected_next_step: "Retain documents while target writes remain blocked.",
+        candidate_summaries: [{
+          party_id: "GT-SAFE-1",
+          registration_number: "202400001A",
+          country: "SG",
+          legal_name: "SYNTHETIC COMPANY PTE. LTD.",
+          legal_form: null,
+        }],
+      }],
+    } as unknown as ZeroTouchCaseSummary;
+
+    const markup = renderToStaticMarkup(
+      <HumanInterventionPanel
+        summary={interventionSummary}
+        isBusy={false}
+        onResolve={() => undefined}
+      />,
+    );
+    expect(markup).toContain("Possible existing customer found");
+    expect(markup).toContain("GT-SAFE-1");
+    expect(markup).toContain("No action available");
+    expect(markup).not.toContain("Confirm candidate");
+  });
+
+  it("renders a registry-stage authorized action once through the shared panel", () => {
+    const registryActionSummary = {
+      ...makePanelSummary("MATCH"),
+      active_exceptions: [{
+        exception_id: "registry-action-1",
+        exception_type: "REGISTRY_REVIEW_REQUIRED",
+        stage: "REGISTRY",
+        blocker_code: "REGISTRY_SOURCE_CONFLICT",
+        explanation: "Registry evidence requires a bounded decision.",
+        evidence_version: "case:1",
+        available_actions: ["KEEP_REGISTRY_VALUE"],
+      }],
+      interventions: [{
+        intervention_id: "registry-action-1",
+        owning_stage: "REGISTRY",
+        owning_stage_label: "ACRA registry",
+        title: "Action required — ACRA registry",
+        blocker_code: "REGISTRY_SOURCE_CONFLICT",
+        explanation: "Registry evidence requires a bounded decision.",
+        required_evidence_or_input: ["Review retained evidence."],
+        authorized_actions: [{
+          action: "KEEP_REGISTRY_VALUE",
+          label: "Keep registry value",
+          description: "Retain the observed registry value.",
+        }],
+        no_action_reason: null,
+        expected_next_step: "The backend will re-evaluate the case.",
+        candidate_summaries: [],
+      }],
+    } as unknown as ZeroTouchCaseSummary;
+
+    const markup = renderToStaticMarkup(
+      <HumanInterventionPanel
+        summary={registryActionSummary}
+        isBusy={false}
+        onResolve={() => undefined}
+      />,
+    );
+    expect(markup.match(/Keep registry value/g)).toHaveLength(1);
+    expect(markup).toContain("Backend-authorized actions");
+  });
+
+  it("renders the prominent new-case action with a stable accessible name", () => {
+    const markup = renderToStaticMarkup(
+      <HomeOnboarding
+        summary={makePanelSummary("MATCH", "COMPLETED")}
+        uen="202400001A"
+        onUenChange={() => undefined}
+        countryOfIncorporation="SG"
+        onCountryChange={() => undefined}
+        documentFiles={[]}
+        onDocumentFilesChange={() => undefined}
+        caseTeamDisplayName="DBS Corporate Onboarding"
+        priority=""
+        onPriorityChange={() => undefined}
+        isSubmitting={false}
+        isResolving={false}
+        requestError={null}
+        pollingWarning={null}
+        intakeProgress={null}
+        onStart={() => undefined}
+        onResolve={() => undefined}
+        onReconcile={() => undefined}
+        onReplace={() => undefined}
+        onRecovery={() => undefined}
+        onStartNewCase={() => undefined}
+        onViewOnboarded={() => undefined}
+        onViewAudit={() => undefined}
+      />,
+    );
+    expect(markup).toContain('aria-label="Start a new case"');
+    expect(markup).toContain("+ Start a new case");
+    expect(markup).toContain("new-case-cta");
   });
 
   it("continues normal document intake after retaining an intake-open case", async () => {

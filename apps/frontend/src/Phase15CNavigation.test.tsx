@@ -41,6 +41,7 @@ import AuditTrail from "./pages/AuditTrail";
 import CaseDetail from "./pages/CaseDetail";
 import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION } from "./pages/CaseQueue";
 import LoginPage from "./pages/LoginPage";
+import OnboardedClients from "./pages/OnboardedClients";
 import RetainedIntakeRecovery from "./pages/RetainedIntakeRecovery";
 import { clearSessionQueries, createSessionQueryClient } from "./queryClient";
 import type {
@@ -542,6 +543,73 @@ describe("Phase 15C canonical route ownership", () => {
     expect(open?.closest("tr")?.getAttribute("role")).toBeNull();
   });
 
+  it("shows every accessible completed case by default and applies active Onboarded filters", async () => {
+    const completedA = {
+      ...listItem,
+      status: "COMPLETED" as const,
+      current_stage: "COMPLETE" as const,
+      completed_at: NOW,
+      final_outcome: "MOCK_GOLDTIER_SUBMITTED",
+      mock_goldtier_party_id: "GT-CUSTOMER-A",
+    };
+    const completedB = {
+      ...completedA,
+      case_id: CASE_B,
+      requested_uen: "202400002B",
+      legal_name: "SYNTHETIC AUSTRALIA PTY LTD",
+      resolved_jurisdiction: "AU",
+      mock_goldtier_party_id: "GT-CUSTOMER-B",
+    };
+    const queryClient = testClient();
+    queryClient.setQueryData(
+      caseQueryKeys.caseList(
+        actor.user_id,
+        "COMPLETED",
+        "all",
+        "highest_first",
+        "all",
+        undefined,
+      ),
+      [completedA, completedB],
+    );
+
+    await act(async () => root?.render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <OnboardedClients actor={actor} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    ));
+
+    expect(container?.textContent).toContain(CASE_A);
+    expect(container?.textContent).toContain(CASE_B);
+    const jurisdiction = Array.from(container?.querySelectorAll<HTMLSelectElement>("select") ?? [])
+      .find((select) => select.options[0]?.textContent === "Jurisdiction: All")!;
+    await act(async () => {
+      jurisdiction.value = "AU";
+      jurisdiction.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container?.textContent).not.toContain(CASE_A);
+    expect(container?.textContent).toContain(CASE_B);
+
+    const search = container?.querySelector<HTMLInputElement>(
+      'input[placeholder="Search client, UEN / ACN, or company…"]',
+    )!;
+    await act(async () => {
+      jurisdiction.value = "";
+      jurisdiction.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+        search,
+        "202400001A",
+      );
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container?.textContent).toContain(CASE_A);
+    expect(container?.textContent).not.toContain(CASE_B);
+  });
+
   it("P15C-NAV-05 keeps unknown, malformed, and capability-unavailable routes generic and inert", async () => {
     const request = vi.spyOn(globalThis, "fetch");
     for (const path of ["/unknown/private-value", "/cases/not-a-case-id", paths.adminUsers, paths.goldtierSandbox]) {
@@ -560,6 +628,106 @@ describe("Phase 15C canonical route ownership", () => {
 });
 
 describe("Phase 15C case-bound action lifetime", () => {
+  it("renders each reconciliation action once through the shared intervention panel", async () => {
+    const summary = caseDetailFixture(CASE_A, "CASE A");
+    const exception = {
+      ...summary.active_exceptions[0],
+      blocker_code: "DOCUMENT_SOURCE_CONFLICT",
+      available_actions: ["KEEP_REGISTRY_VALUE"],
+      evidence_version: "reconciliation:1:1:synthetic",
+    } as ZeroTouchException;
+    const observation = {
+      observation_id: "observation-registry",
+      field_name: "legal_name",
+      normalized_value: "CASE A",
+      source_kind: "REGISTRY",
+      source_system: "ACRA",
+      environment: "MOCK",
+      observed_at: NOW,
+      evidence_reference: "safe:registry",
+      document_id: null,
+      document_display_name: null,
+      confidence: null,
+      validity: "VALID",
+    } as const;
+    const reviewSummary = {
+      ...summary,
+      active_exceptions: [exception],
+      interventions: [{
+        intervention_id: exception.exception_id,
+        owning_stage: "DOCUMENT",
+        owning_stage_label: "Documents / reconciliation",
+        title: "Document or reconciliation review required",
+        blocker_code: exception.blocker_code,
+        explanation: exception.explanation,
+        required_evidence_or_input: ["Current document evidence."],
+        authorized_actions: [{
+          action: "KEEP_REGISTRY_VALUE",
+          label: "Keep registry value",
+          description: "Retain the current registry observation.",
+        }],
+        no_action_reason: null,
+        expected_next_step: "The owning service will re-evaluate retained evidence.",
+        candidate_summaries: [],
+      }],
+      reconciliation: {
+        reconciliation_id: "reconciliation-1",
+        version: 1,
+        status: "REVIEW_REQUIRED",
+        source_document_ids: [documentFixture(CASE_A).document_id],
+        source_document_event_counts: [0],
+        fields: [{
+          field_name: "legal_name",
+          observations: [observation],
+          outcome: "CONFLICT",
+          document_required: true,
+          discrepancy_id: exception.exception_id,
+        }],
+        discrepancies: [{
+          discrepancy_id: exception.exception_id,
+          field_name: "legal_name",
+          outcome: "CONFLICT",
+          observations: [observation],
+          status: "OPEN",
+          allowed_actions: ["KEEP_REGISTRY_VALUE"],
+          evidence_fingerprint: "a".repeat(64),
+          decision: null,
+        }],
+        updated_at: NOW,
+      },
+    } as unknown as ZeroTouchCaseSummary;
+    const queryClient = testClient();
+    queryClient.setQueryData(
+      caseQueryKeys.detail(relationshipActor.user_id, CASE_A),
+      reviewSummary,
+    );
+    queryClient.setQueryData(
+      caseQueryKeys.documents(relationshipActor.user_id, CASE_A),
+      [documentFixture(CASE_A)],
+    );
+    queryClient.setQueryData(caseQueryKeys.ownership(relationshipActor.user_id, CASE_A), null);
+    queryClient.setQueryData(caseQueryKeys.intelligence(relationshipActor.user_id, CASE_A), null);
+
+    await act(async () => root?.render(
+      <QueryClientProvider client={queryClient}>
+        <CaseDetail
+          caseId={CASE_A}
+          actor={relationshipActor}
+          onBack={() => undefined}
+          onViewOnboarded={() => undefined}
+          onViewAudit={() => undefined}
+        />
+      </QueryClientProvider>,
+    ));
+
+    const actions = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .filter((button) => button.textContent === "Keep registry value");
+    expect(actions).toHaveLength(1);
+    expect(container?.textContent).toContain(
+      "Use the backend-authorized Action required panel to record this decision.",
+    );
+  });
+
   it("closes A delete and correction state when the routed identity changes to B and omits unsupported actions", async () => {
     const request = vi.spyOn(globalThis, "fetch");
     const queryClient = testClient();

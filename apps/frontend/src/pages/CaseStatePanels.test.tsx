@@ -252,4 +252,30 @@ describe("registry presentation taxonomy", () => {
 
     expect(registryPresentation(summary).heading).toBe(expectedHeading);
   });
+
+  it("shows ACRA as not reached while initial GoldTier identity is ambiguous", () => {
+    const summary = summaryWithPipeline([
+      processingNode("INITIAL_IDENTITY", "Initial identity", "COMPLETE"),
+      {
+        ...processingNode("GOLDTIER_SEARCH", "GoldTier search", "REVIEW_REQUIRED"),
+        blocker_code: "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
+      },
+      {
+        ...processingNode("ACRA_REGISTRY", "ACRA registry", "NOT_REACHED"),
+        safe_result: "Waiting for GoldTier customer identity resolution",
+        blocker_code: "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
+      },
+    ]);
+    summary.status = "WAITING_FOR_REVIEW";
+    summary.current_stage = "GOLDTIER_SEARCH";
+    summary.completed_stages = [];
+
+    const presentation = registryPresentation(summary);
+    const markup = renderToStaticMarkup(<RegistryStatePanel summary={summary} />);
+
+    expect(presentation.heading).toBe("ACRA not reached");
+    expect(presentation.connection).toBe("No ACRA call occurred");
+    expect(markup).toContain("Waiting for GoldTier customer identity resolution");
+    expect(markup).not.toContain("Registry unavailable");
+  });
 });
