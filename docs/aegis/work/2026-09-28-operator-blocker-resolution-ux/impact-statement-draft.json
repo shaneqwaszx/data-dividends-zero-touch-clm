@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "affectedLayers": [
+    "frontend UI/cache; backend domain/API; auth/RBAC; external-provider projection"
+  ],
+  "owners": [
+    "existing onboarding, CLM, zero-touch, API projection, React Query, and frontend view owners"
+  ],
+  "invariants": [
+    "Backend authority, safe 404, explicit Director team, target-ledger no-replay, Search failure != no-match, and no target mutation while identity unresolved."
+  ],
+  "compatBoundary": "Reuse existing DELETE endpoint/dialog, team authorization, provider ports, target ledger, and HumanInterventionPanel action ownership.",
+  "nonGoals": [
+    "No external ACRA/GoldTier call; no Amend retry; no related-party childId; no schema/repository change unless proven necessary; no commit/push/PR/merge."
+  ]
+}

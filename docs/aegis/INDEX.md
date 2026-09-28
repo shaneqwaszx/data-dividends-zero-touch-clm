@@ -78,3 +78,14 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-09-28 | artifact | docs/aegis/work/2026-09-28-review-intervention-ux-publication/drift-check-draft.json | Review/intervention UX publication drift check draft |
 | 2026-09-28 | artifact | docs/aegis/work/2026-09-28-review-intervention-ux-publication/resume-state-hint.json | 2026-09-28-review-intervention-ux-publication resume state hint |
 | 2026-09-28 | artifact | docs/aegis/work/2026-09-28-review-intervention-ux-publication/evidence-bundle-draft-publication-verification.json | 2026-09-28-review-intervention-ux-publication evidence publication-verification |
+| 2026-09-28 | work | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/10-intent.md | Operator blocker resolution UX intent |
+| 2026-09-28 | work | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/20-checkpoint.md | Operator blocker resolution UX checkpoint |
+| 2026-09-28 | work | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/90-evidence.md | Operator blocker resolution UX evidence |
+| 2026-09-28 | work | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/99-reflection.md | Operator blocker resolution UX reflection |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/task-intent-draft.json | Operator blocker resolution UX task intent draft |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/baseline-read-set-hint.json | Operator blocker resolution UX baseline read-set hint |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/baseline-usage-draft.json | Operator blocker resolution UX baseline usage draft |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/impact-statement-draft.json | Operator blocker resolution UX impact statement draft |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/todo-checkpoint-draft.json | Operator blocker resolution UX todo checkpoint draft |
+| 2026-09-28 | artifact | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/drift-check-draft.json | Operator blocker resolution UX drift check draft |
+| 2026-09-28 | plan | docs/aegis/plans/2026-09-28-operator-blocker-resolution-ux.md | Operator Blocker Resolution UX Implementation Plan |

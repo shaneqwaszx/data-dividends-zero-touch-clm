@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "candidateDocs": [
+    "AGENTS.md; docs/DEVELOPMENT_WORKFLOW.md; docs/PROJECT_STATE.md; docs/ARCHITECTURE.md; ADR-005; ADR-006; PR #61 accepted behavior"
+  ],
+  "whyRelevant": "These sources own workflow, provider, authorization, cache, and target-ledger invariants.",
+  "missingAuthority": []
+}

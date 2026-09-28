@@ -23,11 +23,12 @@ flowchart LR
     D -->|Resolved SG| GS[Early read-only GoldTier Search]
     D -->|Unresolved/conflict/unsupported| R[Controlled review or stop]
     GS -->|No match| E[Registry provider boundary]
+    GS -->|Technical failure| E
     E --> F[Canonical entity and registry evidence]
     F --> G[Document intake and extraction]
     GS -->|Exact verified prior target| ES[Hydrated existing target state]
     ES --> G
-    GS -->|Ambiguous or failed| R
+    GS -->|Ambiguous candidates| R
     G --> H[Reconciliation]
     H --> I[Decimal ownership and UBO analysis]
     I --> IA[Case-bound advisory intelligence]
@@ -226,7 +227,12 @@ prior same-ID verified case; it retains the GoldTier party ID, hydrates verified
 state, and skips ACRA, Shell and new-policy creation. A no-match checkpoint alone
 permits ACRA bootstrap and, after ordinary readiness prerequisites, Shell then Policy.
 Both branches may Amend and perform same-ID read-back. Any ambiguous, conflicting,
-failed, stale, or uncertain state blocks target mutation. Every mutation advances
+failed, stale, or uncertain state blocks target mutation. A failed Search does not mean
+no-match: it may continue through independent ACRA, document, reconciliation and
+ownership evidence while target identity remains unresolved and every target mutation
+is blocked. After that independent evidence path completes, the automation terminates
+as a technical failure at GoldTier Search rather than creating reviewer work. Every
+mutation advances
 through the same durable ledger; an attempted operation without a definitive result is
 never replayed automatically. No second target ledger, search resolver, or
 provider-specific workflow owner is introduced.
@@ -317,7 +323,10 @@ identity. Eligible Singapore identity is searched against GoldTier before ACRA. 
 match is accepted only when one provider candidate binds to a prior durable same-ID
 post-Amend read-back; that case hydrates verified canonical target state, skips ACRA and
 Shell, then continues document reconciliation against the same target ID. No-match alone
-uses the ACRA bootstrap path. Ambiguous or failed Search stops before ACRA or mutation.
+uses the ACRA bootstrap path. Ambiguous Search stops before ACRA and mutation. Failed
+Search retains a typed failure and may continue independent ACRA and case-evidence
+collection, then terminates as a technical failure at GoldTier Search; it cannot call
+Shell, Policy, Amend or any other target mutation.
 
 Create is insert-only, updates are update-only, and mutations use expected revision/CAS.
 Case deletion re-authorizes inside the canonical case lock, physically deletes the

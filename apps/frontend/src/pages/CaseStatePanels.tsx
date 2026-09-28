@@ -218,14 +218,100 @@ const PROGRESS_STATUS_SYMBOLS: Record<ProcessingNodeStatus, string> = {
 };
 
 function currentProcessingNode(nodes: ProcessingNode[]): ProcessingNode | undefined {
-  for (const status of ["IN_PROGRESS", "REVIEW_REQUIRED", "BLOCKED", "FAILED"] as const) {
-    const node = nodes.find((item) => item.status === status);
-    if (node) return node;
-  }
+  const node = nodes.find((item) =>
+    ["IN_PROGRESS", "REVIEW_REQUIRED", "BLOCKED", "FAILED"].includes(item.status)
+  );
+  if (node) return node;
   return nodes.find((item) => item.status === "NOT_REACHED") ?? nodes.at(-1);
 }
 
-export function OnboardingProgressPanel({ summary }: { summary: ZeroTouchCaseSummary }) {
+const NAVIGABLE_PROCESSING_STATUSES = new Set<ProcessingNodeStatus>([
+  "REVIEW_REQUIRED",
+  "BLOCKED",
+  "FAILED",
+]);
+
+export function processingNodeFocusTarget(node: ProcessingNode): string | null {
+  if (!NAVIGABLE_PROCESSING_STATUSES.has(node.status)) return null;
+  const nodeId = node.node_id;
+  if (nodeId === "ACRA_REGISTRY" || nodeId.startsWith("ACRA_")) return "case-evidence-registry";
+  if (nodeId === "DOCUMENT_IDP") return "case-evidence-documents";
+  if (nodeId === "RECONCILIATION") return "case-evidence-reconciliation";
+  if (nodeId === "OWNERSHIP_UBO") return "case-evidence-ownership";
+  if (nodeId === "TARGET_CLASSIFICATION" || nodeId.startsWith("TARGET_CLASSIFICATION_")) return "case-target-classification";
+  if (nodeId === "GOLDTIER_SEARCH" || nodeId.startsWith("GOLDTIER_SEARCH_")) return "case-search-diagnostic";
+  if (nodeId === "GOLDTIER_TARGET" || nodeId.startsWith("GOLDTIER_")) return "case-target-blocker";
+  if (nodeId === "HUMAN_APPROVAL") return "case-human-approval-boundary";
+  return null;
+}
+
+export function findProcessingNode(nodes: ProcessingNode[], nodeId: string): ProcessingNode | null {
+  for (const node of nodes) {
+    if (node.node_id === nodeId) return node;
+    const nested = findProcessingNode(node.children, nodeId);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function ProcessingExplanation({ node, children }: { node: ProcessingNode; children: string }) {
+  return (
+    <>
+      <p><strong>Status:</strong> {PROGRESS_STATUS_LABELS[node.status]}</p>
+      {node.blocker_code && <p><strong>Safe blocker code:</strong> {node.blocker_code}</p>}
+      {node.safe_result && <p>{node.safe_result}</p>}
+      <p className="control-help">{children}</p>
+    </>
+  );
+}
+
+export function ProcessingBlockerPanels({ summary }: { summary: ZeroTouchCaseSummary }) {
+  const pipeline = summary.processing_pipeline ?? [];
+  const search = findProcessingNode(pipeline, "GOLDTIER_SEARCH");
+  const target = findProcessingNode(pipeline, "GOLDTIER_TARGET");
+  const approval = findProcessingNode(pipeline, "HUMAN_APPROVAL");
+  return (
+    <>
+      {search && NAVIGABLE_PROCESSING_STATUSES.has(search.status) && (
+        <section id="case-search-diagnostic" className="card evidence-focus-target" tabIndex={-1} aria-labelledby="case-search-diagnostic-heading">
+          <p className="card-kicker">Read-only diagnostic</p>
+          <h2 id="case-search-diagnostic-heading">GoldTier Search</h2>
+          <ProcessingExplanation node={search}>
+            A failed Search does not prove that the customer is absent. Target identity remains unresolved, so no target mutation or browser retry is available.
+          </ProcessingExplanation>
+        </section>
+      )}
+      {target && NAVIGABLE_PROCESSING_STATUSES.has(target.status) && (
+        <section id="case-target-blocker" className="card evidence-focus-target" tabIndex={-1} aria-labelledby="case-target-blocker-heading">
+          <p className="card-kicker">Target safety boundary</p>
+          <h2 id="case-target-blocker-heading">GoldTier target operations</h2>
+          <ProcessingExplanation node={target}>
+            The server has blocked Shell, Policy, Amend, and downstream target work. This explanation does not provide a bypass or replay action.
+          </ProcessingExplanation>
+        </section>
+      )}
+      {approval && NAVIGABLE_PROCESSING_STATUSES.has(approval.status) && (
+        <section id="case-human-approval-boundary" className="card evidence-focus-target" tabIndex={-1} aria-labelledby="case-human-approval-heading">
+          <p className="card-kicker">POC boundary</p>
+          <h2 id="case-human-approval-heading">Human approval</h2>
+          <ProcessingExplanation node={approval}>
+            Final approval is unresolved and remains outside this POC. Any available case action is shown separately from this read-only boundary.
+          </ProcessingExplanation>
+        </section>
+      )}
+    </>
+  );
+}
+
+export function OnboardingProgressPanel({
+  summary,
+  onStageActivate,
+  availableFocusTargets,
+}: {
+  summary: ZeroTouchCaseSummary;
+  onStageActivate?: (node: ProcessingNode) => void;
+  availableFocusTargets?: ReadonlySet<string>;
+}) {
   const pipeline = summary.processing_pipeline ?? [];
   const completed = pipeline.filter((node) =>
     node.status === "COMPLETE" || node.status === "EMPTY" || node.status === "SKIPPED"
@@ -262,13 +348,28 @@ export function OnboardingProgressPanel({ summary }: { summary: ZeroTouchCaseSum
       <p className="onboarding-progress__current"><strong>Current:</strong> {currentText}</p>
       {pipeline.length > 0 ? (
         <ol className="onboarding-progress__stages" aria-label="Onboarding stages">
-          {pipeline.map((node) => (
-            <li key={node.node_id} data-status={node.status}>
+          {pipeline.map((node) => {
+            const target = processingNodeFocusTarget(node);
+            const navigable = Boolean(
+              onStageActivate
+              && target
+              && (!availableFocusTargets || availableFocusTargets.has(target)),
+            );
+            const content = <>
               <span className="onboarding-progress__symbol" aria-hidden="true">{PROGRESS_STATUS_SYMBOLS[node.status]}</span>
               <span className="onboarding-progress__stage-label">{node.label}</span>
               <span className="onboarding-progress__stage-status">{PROGRESS_STATUS_LABELS[node.status]}</span>
-            </li>
-          ))}
+            </>;
+            return (
+              <li key={node.node_id} data-status={node.status}>
+                {navigable ? (
+                  <button type="button" onClick={() => onStageActivate?.(node)} aria-label={`Open details for ${node.label}`}>
+                    {content}
+                  </button>
+                ) : content}
+              </li>
+            );
+          })}
         </ol>
       ) : (
         <p className="empty-copy">The backend has not reported a processing route yet.</p>

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "requestedOutcome": "Correct Director case control and team selection, continue safe case evidence after unresolved GoldTier Search, project truthful pipeline state, and add accessible stage-to-resolution navigation.",
+  "goal": "Correct Director case control and team selection, continue safe case evidence after unresolved GoldTier Search, project truthful pipeline state, and add accessible stage-to-resolution navigation.",
+  "successEvidence": [],
+  "stopCondition": "Stop when success evidence is satisfied or a blocker/risk requires pause.",
+  "nonGoals": [
+    "No external ACRA/GoldTier call; no Amend retry; no related-party childId; no schema/repository change unless proven necessary; no commit/push/PR/merge."
+  ],
+  "scope": "Bounded local implementation on feat/operator-blocker-resolution-ux; no external provider calls, no target mutation retry, no childId invention, no publication.",
+  "changeKinds": [
+    "feature"
+  ],
+  "riskHints": [
+    "Cross-backend/frontend workflow semantics, provider failure truth, authorization, cache deletion, and no-replay safety."
+  ]
+}

@@ -26,6 +26,10 @@ export function ClientRecordActions() {
   );
 }
 
+export function ClientCaseControls({ caseId }: { caseId: string }) {
+  return <Link className="btn btn-secondary" to={paths.caseDetail(caseId)}>Open full case</Link>;
+}
+
 export default function ClientDetail({
   clientId,
   actor,
@@ -88,6 +92,7 @@ export default function ClientDetail({
         </div>
         <hr className="hr" />
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          <ClientCaseControls caseId={client.case_id} />
           <Link className="btn btn-ghost" style={{ justifyContent: "flex-start", paddingLeft: 0 }} to={paths.auditCase(client.case_id)}>Audit trail</Link>
           <Link className="btn btn-ghost" style={{ justifyContent: "flex-start", paddingLeft: 0 }} to={paths.onboarded}>Back to Onboarded</Link>
         </div>

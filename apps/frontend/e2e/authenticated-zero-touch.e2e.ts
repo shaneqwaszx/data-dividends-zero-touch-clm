@@ -205,6 +205,157 @@ test("onboarding progress is visible while backend-authored stages advance", asy
   });
 });
 
+test("Director explicitly selects either team and journey or actor reset clears the choice", async ({ page }) => {
+  await page.goto("/");
+  await login(page, "olivia-koh");
+  await openFreshOnboarding(page);
+
+  const team = page.getByLabel("Owning team *", { exact: true });
+  const create = page.getByRole("button", { name: "Create onboarding" });
+  await expect(team).toHaveValue("");
+  await expect(create).toBeDisabled();
+  await expect(team.locator("option:checked")).toHaveText("Select a team");
+
+  await team.selectOption("TEAM_A");
+  await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Registration ID / UEN").fill("202400001A");
+  await page.locator("#home-document").setInputFiles(cleanFixture);
+  const alphaResponse = page.waitForResponse((response) => (
+    response.request().method() === "POST"
+      && new URL(response.url()).pathname === "/api/clm/zero-touch/cases"
+  ));
+  await create.click();
+  expect((await alphaResponse).request().postDataJSON()).toMatchObject({ team_id: "TEAM_A" });
+  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(page.getByRole("button", { name: "Delete case" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Start a new case" }).click();
+  await expect(page).toHaveURL("/new-onboarding");
+  await expect(team).toHaveValue("");
+  await expect(create).toBeDisabled();
+
+  await team.selectOption("TEAM_B");
+  await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Registration ID / UEN").fill("202400001A");
+  await page.locator("#home-document").setInputFiles(cleanFixture);
+  const betaResponse = page.waitForResponse((response) => (
+    response.request().method() === "POST"
+      && new URL(response.url()).pathname === "/api/clm/zero-touch/cases"
+  ));
+  await create.click();
+  expect((await betaResponse).request().postDataJSON()).toMatchObject({ team_id: "TEAM_B" });
+  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+
+  const deleteResponse = page.waitForResponse((response) => (
+    response.request().method() === "DELETE"
+      && /^\/api\/clm\/zero-touch\/cases\/[0-9a-f-]{36}$/i.test(new URL(response.url()).pathname)
+  ));
+  await page.getByRole("button", { name: "Delete case" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete case" }).click();
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(page).toHaveURL("/new-onboarding");
+  await expect(team).toHaveValue("");
+  await expect(create).toBeDisabled();
+
+  await team.selectOption("TEAM_A");
+  await page.locator(".operator-account__button").click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await login(page, "maya-lim");
+  await page.locator(".operator-account__button").click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await login(page, "olivia-koh");
+  await openFreshOnboarding(page);
+  await expect(page.getByLabel("Owning team *", { exact: true })).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Create onboarding" })).toBeDisabled();
+});
+
+test("problem pipeline stages preserve intent and keyboard-focus real diagnostic panels", async ({ page }) => {
+  await page.goto("/");
+  await login(page);
+  await openFreshOnboarding(page);
+  await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Registration ID / UEN").fill("202400001A");
+  await page.locator("#home-document").setInputFiles(cleanFixture);
+  await page.getByRole("button", { name: "Create onboarding" }).click();
+  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  const caseId = /\/new-onboarding\/([0-9a-f-]{36})$/i.exec(page.url())?.[1];
+  expect(caseId).toBeTruthy();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  let interceptedDetailReads = 0;
+  await page.route("**/api/clm/zero-touch/cases/*", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (route.request().method() !== "GET" || !/^\/api\/clm\/zero-touch\/cases\/[0-9a-f-]{36}$/i.test(pathname)) {
+      await route.fallback();
+      return;
+    }
+    interceptedDetailReads += 1;
+    const response = await route.fetch();
+    const body = await response.json();
+    body.processing_pipeline = body.processing_pipeline.map((node: Record<string, unknown>) => {
+      if (node.node_id === "GOLDTIER_SEARCH") return { ...node, status: "FAILED", blocker_code: "SEARCH_TIMEOUT", safe_result: "Customer existence remains unresolved." };
+      if (node.node_id === "TARGET_CLASSIFICATION") return { ...node, status: "REVIEW_REQUIRED" };
+      if (node.node_id === "GOLDTIER_TARGET") return { ...node, status: "BLOCKED", blocker_code: "GOLDTIER_SEARCH_FAILED" };
+      if (node.node_id === "HUMAN_APPROVAL") return { ...node, status: "REVIEW_REQUIRED" };
+      return node;
+    });
+    if (!body.processing_pipeline.some((node: Record<string, unknown>) => node.node_id === "TARGET_CLASSIFICATION")) {
+      body.processing_pipeline.splice(-2, 0, {
+        node_id: "TARGET_CLASSIFICATION",
+        label: "Target classification",
+        status: "REVIEW_REQUIRED",
+        blocker_code: "GOLDTIER_CLASSIFICATION_REQUIRED",
+        children: [],
+      });
+    }
+    body.target_classification = {
+      vocabulary_version: "goldtier-openapi-1.0.0",
+      editable: false,
+      kyc_customer_type: {
+        allowed_values: ["Company - Private"],
+        selected_value: "Company - Private",
+        authority: "USER_AUTHORIZED_POC",
+        required: true,
+      },
+      client_segment: {
+        allowed_values: ["Corporate"],
+        selected_value: "Corporate",
+        authority: "USER_AUTHORIZED_POC",
+        required: true,
+      },
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(`/cases/${caseId}?focus=GOLDTIER_SEARCH`);
+  await expect.poll(() => interceptedDetailReads).toBeGreaterThan(0);
+  const progress = page.getByRole("region", { name: "Onboarding progress" });
+  await expect(progress).toContainText("GoldTier search");
+  await expect(progress).toContainText("Failed");
+
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}\?focus=GOLDTIER_SEARCH$/i);
+  await expect(page.getByRole("button", { name: "Back to Cases" })).toBeVisible();
+  await expect(page.locator("#case-search-diagnostic")).toBeFocused();
+  await expect(page.locator("#case-search-diagnostic")).toContainText("does not prove that the customer is absent");
+
+  await expect(page.getByRole("button", { name: "Open details for ACRA registry" })).toHaveCount(0);
+  const classificationStage = page.getByRole("button", { name: "Open details for Target classification" });
+  await classificationStage.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#case-target-classification")).toBeFocused();
+
+  const targetStage = page.getByRole("button", { name: "Open details for GoldTier target" });
+  await targetStage.focus();
+  await page.keyboard.press("Space");
+  await expect(page.locator("#case-target-blocker")).toBeFocused();
+
+  const approvalStage = page.getByRole("button", { name: "Open details for Human approval (unresolved)" });
+  await approvalStage.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#case-human-approval-boundary")).toBeFocused();
+});
+
 test("Garden partial registry evidence is presented as incomplete, not unavailable", async ({ page }, testInfo) => {
   let retainedPartialSummary: Record<string, any> | null = null;
 

@@ -32,6 +32,7 @@ import type {
   DocumentProcessingRecord,
   AuthenticatedProfile,
   OwnershipAnalysisRecord,
+  ProcessingNode,
   SimulationProfile,
   ZeroTouchCaseSummary,
 } from "../types";
@@ -39,9 +40,12 @@ import {
   CompletedOverview,
   ConfirmDetailsPanel,
   DetailedProcessingInspector,
+  findProcessingNode,
   OnboardingProgressPanel,
   OperationalTiming,
   PipelineRail,
+  ProcessingBlockerPanels,
+  processingNodeFocusTarget,
   RegistryStatePanel,
 } from "./CaseStatePanels";
 import CaseStateExplanationPanel, { type EvidenceFocusTarget } from "./CaseStateExplanationPanel";
@@ -85,6 +89,7 @@ export default function CaseDetail({
   onViewOnboarded,
   onViewAudit,
   registryProviderMode,
+  initialFocusNodeId,
 }: {
   caseId: string;
   actor: AuthenticatedProfile;
@@ -92,6 +97,7 @@ export default function CaseDetail({
   onViewOnboarded: (caseId: string) => void;
   onViewAudit: (caseId: string) => void;
   registryProviderMode?: SimulationProfile["registry_provider_mode"];
+  initialFocusNodeId?: string;
 }) {
   const queryClient = useQueryClient();
   const evidenceIdentity = `${actor.user_id}:${caseId}`;
@@ -113,6 +119,7 @@ export default function CaseDetail({
   const generation = useRef(0);
   const mounted = useRef(false);
   const mutationPending = useRef<CaseActionIdentity | null>(null);
+  const lastNavigationFocus = useRef<string | null>(null);
   const activeIdentity = useRef({ caseId, actorUserId: actor.user_id });
   activeIdentity.current = { caseId, actorUserId: actor.user_id };
 
@@ -247,6 +254,18 @@ export default function CaseDetail({
       shouldContinue: shouldPollAutomation,
     });
   }, [actor.user_id, caseId, queryClient, summary?.status, summary?.version]);
+
+  useEffect(() => {
+    if (!summary) return;
+    const requestedNodeId = initialFocusNodeId;
+    if (!requestedNodeId) return;
+    const focusIdentity = `${evidenceIdentity}:${requestedNodeId}`;
+    if (lastNavigationFocus.current === focusIdentity) return;
+    const node = findProcessingNode(summary.processing_pipeline ?? [], requestedNodeId);
+    if (!node || !processingNodeFocusTarget(node)) return;
+    lastNavigationFocus.current = focusIdentity;
+    focusProcessingNode(node);
+  }, [evidenceIdentity, initialFocusNodeId, summary?.version]);
 
   async function runMutation(operation: () => Promise<ZeroTouchCaseSummary>, label = "Saving case action…") {
     const action = captureCaseAction();
@@ -443,7 +462,31 @@ export default function CaseDetail({
     }
     setEvidenceFocusNotice(null);
     section.focus({ preventScroll: true });
-    section.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    section.scrollIntoView?.({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
+  }
+
+  function focusProcessingNode(node: ProcessingNode): void {
+    const targetId = processingNodeFocusTarget(node);
+    const section = targetId ? document.getElementById(targetId) : null;
+    if (!section) {
+      setEvidenceFocusNotice({
+        identity: evidenceIdentity,
+        message: `${node.label} details are not available for this case.`,
+      });
+      return;
+    }
+    setEvidenceFocusNotice(null);
+    window.setTimeout(() => {
+      const currentSection = document.getElementById(targetId!);
+      if (!currentSection) return;
+      currentSection.focus({ preventScroll: true });
+      const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      currentSection.scrollIntoView?.({
+        block: "start",
+        behavior: reducedMotion ? "auto" : "smooth",
+      });
+    }, 50);
   }
 
   async function deleteCase(action: CaseActionIdentity): Promise<void> {
@@ -478,6 +521,18 @@ export default function CaseDetail({
 
   const entity = summary.case.entity;
   const acquisition = summary.case.registry_acquisition;
+  const availableFocusTargets = new Set([
+    EVIDENCE_TARGET_IDS.registry,
+    EVIDENCE_TARGET_IDS.documents,
+    EVIDENCE_TARGET_IDS.ownership,
+    "case-search-diagnostic",
+    "case-target-blocker",
+    "case-human-approval-boundary",
+    ...(summary.reconciliation && summary.current_stage === "DOCUMENT"
+      ? [EVIDENCE_TARGET_IDS.reconciliation]
+      : []),
+    ...(summary.target_classification ? ["case-target-classification"] : []),
+  ]);
 
   return (
     <div className="ds-root detail-layout">
@@ -495,7 +550,13 @@ export default function CaseDetail({
         <div className="ds-page-header"><div><p className="card-kicker">{summary.case.requested_uen} · {summary.case.jurisdiction_resolution?.resolved_jurisdiction ?? "—"} · {summary.case.client_scope_label ?? "Legacy unassigned"}</p><h1>{entity?.legal_name ?? summary.case.requested_uen}</h1></div><div className="case-header-actions"><PriorityBadge priority={summary.case.priority} /><PriorityControl priority={summary.case.priority} disabled={isBusy || mutationBlocked} onSave={runPriorityMutation} />{(actor.role === "DIRECTOR" || actor.role === "RELATIONSHIP_MANAGER") && <button type="button" className="btn btn-danger" disabled={isBusy || mutationBlocked} onClick={() => { if (!mutationPending.current && !mutationBlocked) setDeleteDialogOpen(captureCaseAction()); }}>Delete case</button>}<span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span></div></div>
         {error && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{error}</div>}
 
-        <OnboardingProgressPanel summary={summary} />
+        <OnboardingProgressPanel
+          summary={summary}
+          onStageActivate={focusProcessingNode}
+          availableFocusTargets={availableFocusTargets}
+        />
+
+        <ProcessingBlockerPanels summary={summary} />
 
         <HumanInterventionPanel
           summary={summary}
@@ -513,6 +574,7 @@ export default function CaseDetail({
         {summary.status === "RECOVERY_PENDING" && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
         {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
         {summary.target_classification && (
+          <div id="case-target-classification" className="evidence-focus-target" tabIndex={-1}>
           <TargetClassificationPanel
             key={`${summary.case.case_id}:${summary.target_classification.vocabulary_version}:${summary.target_classification.kyc_customer_type.selected_value ?? "unresolved"}:${summary.target_classification.client_segment.selected_value ?? "unresolved"}`}
             classification={summary.target_classification}
@@ -522,6 +584,7 @@ export default function CaseDetail({
               "Saving GoldTier target classification…",
             )}
           />
+          </div>
         )}
         <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
         <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} />

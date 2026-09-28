@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-09-28-operator-blocker-resolution-ux",
+  "requiredBaselineRefs": [
+    "AGENTS.md; docs/DEVELOPMENT_WORKFLOW.md; docs/PROJECT_STATE.md; docs/ARCHITECTURE.md; ADR-005; ADR-006; PR #61 accepted behavior"
+  ],
+  "deliveredContextRefs": [],
+  "acknowledgedBeforePlanRefs": [],
+  "citedInPlanRefs": [],
+  "missingRefs": [
+    "AGENTS.md; docs/DEVELOPMENT_WORKFLOW.md; docs/PROJECT_STATE.md; docs/ARCHITECTURE.md; ADR-005; ADR-006; PR #61 accepted behavior"
+  ],
+  "decision": "needs-baseline-readback"
+}

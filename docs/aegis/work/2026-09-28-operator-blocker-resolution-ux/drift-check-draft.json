@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-09-28-operator-blocker-resolution-ux",
+  "taskIntentRef": "docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/task-intent-draft.json",
+  "baselineRefs": [
+    "AGENTS.md; docs/DEVELOPMENT_WORKFLOW.md; docs/PROJECT_STATE.md; docs/ARCHITECTURE.md; ADR-005; ADR-006; PR #61 accepted behavior"
+  ],
+  "scopeStatus": "not-yet-verified",
+  "compatStatus": "not-yet-verified",
+  "retirementStatus": "not-yet-verified",
+  "newRiskSignals": [
+    "Cross-backend/frontend workflow semantics, provider failure truth, authorization, cache deletion, and no-replay safety."
+  ],
+  "decision": "needs-baseline-readback"
+}

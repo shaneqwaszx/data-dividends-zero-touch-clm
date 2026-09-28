@@ -26,11 +26,13 @@ import {
   submitClmCase,
   uploadDocument,
   createZeroTouchCase,
+  deleteZeroTouchCase,
   fetchTeamOptions,
 } from "./api";
 import { startAutomationPolling } from "./automationPolling";
 import {
   caseCreatedEffect,
+  caseDeletedEffect,
   caseSummaryMutationEffect,
   caseSupportingMutationEffect,
   executionProfileQueryOptions,
@@ -42,6 +44,7 @@ import type { CaseQueuePresentationState } from "./pages/CaseQueue";
 import ClientDetail from "./pages/ClientDetail";
 import Dashboard from "./pages/Dashboard";
 import HomeOnboarding from "./pages/HomeOnboarding";
+import DeleteCaseDialog from "./pages/DeleteCaseDialog";
 import GoldTierRequestPreview from "./pages/GoldTierRequestPreview";
 import OnboardedClients from "./pages/OnboardedClients";
 import PolicyRules from "./pages/PolicyRules";
@@ -1793,6 +1796,7 @@ export default function App({
   const [directorTeamId, setDirectorTeamId] = useState<TeamId | "">("");
   const [teamOptions, setTeamOptions] = useState<AuthenticatedTeam[]>([]);
   const [casePriority, setCasePriority] = useState<number | "">("");
+  const [deleteCurrentCaseOpen, setDeleteCurrentCaseOpen] = useState(false);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1845,6 +1849,9 @@ export default function App({
     setRetainedCreatedSummary(null);
     setDocumentFiles([]);
     setLegalName("");
+    setDirectorTeamId("");
+    setTeamOptions([]);
+    setDeleteCurrentCaseOpen(false);
     setRequestError(null);
     setPollingWarning(null);
     setIntakeProgress(null);
@@ -1871,7 +1878,7 @@ export default function App({
     ) {
       void fetchTeamOptions().then(setTeamOptions).catch(() => setTeamOptions([]));
     }
-  }, [actor.role, location.pathname, routeCanLoadWorkspace]);
+  }, [actor.role, actor.user_id, location.pathname, routeCanLoadWorkspace]);
 
   useEffect(() => {
     const intakeActive = isSubmitting && Boolean(intakeCaseRef.current?.caseId);
@@ -2163,10 +2170,23 @@ export default function App({
     });
     setCasePriority("");
     setLegalName("");
+    setDirectorTeamId("");
+    setDeleteCurrentCaseOpen(false);
     intakeCaseRef.current = null;
     successfulIntakeFilesRef.current.clear();
     failedIntakeDocumentsRef.current.clear();
     navigate(paths.newOnboarding, { replace: true });
+  }
+
+  async function handleDeleteCurrentCase() {
+    if (!summary) return;
+    const caseId = summary.case.case_id;
+    const generation = ++journeyGeneration.current;
+    await deleteZeroTouchCase(caseId);
+    if (!mounted.current || generation !== journeyGeneration.current) return;
+    await caseDeletedEffect(queryClient, actor.user_id, caseId);
+    if (!mounted.current || generation !== journeyGeneration.current) return;
+    handleStartNewCase();
   }
 
   function handleDocumentFilesChange(files: File[]) {
@@ -2201,7 +2221,7 @@ export default function App({
     <>
       {actor.role === "DIRECTOR" && !summary && (
         <section className="ds-root ds-page director-team-scope" aria-label="New case team scope">
-          <label htmlFor="director-team-id">Create case for team</label>
+          <label htmlFor="director-team-id">Owning team *</label>
           <select
             id="director-team-id"
             className="input"
@@ -2239,6 +2259,7 @@ export default function App({
         onPriorityChange={setCasePriority}
         isSubmitting={isSubmitting}
         isResolving={isResolving}
+        creationDisabled={actor.role === "DIRECTOR" && !directorTeamId}
         requestError={requestError}
         pollingWarning={pollingWarning}
         intakeProgress={intakeProgress}
@@ -2248,6 +2269,13 @@ export default function App({
         onReplace={(documentId, eventCount, file) => void handleReplacement(documentId, eventCount, file)}
         onRecovery={() => void handleRecovery()}
         onStartNewCase={handleStartNewCase}
+        onOpenCaseDetail={(caseId, focusNodeId) => navigate(
+          focusNodeId
+            ? `${paths.caseDetail(caseId)}?focus=${encodeURIComponent(focusNodeId)}`
+            : paths.caseDetail(caseId),
+        )}
+        canDeleteCurrentCase={actor.role === "DIRECTOR" || actor.role === "RELATIONSHIP_MANAGER"}
+        onDeleteCurrentCase={() => setDeleteCurrentCaseOpen(true)}
         onViewOnboarded={(caseId) => navigate(paths.onboardedDetail(caseId))}
         onViewAudit={(caseId) => navigate(paths.auditCase(caseId))}
         registryProviderMode={simulationProfile?.registry_provider_mode}
@@ -2268,9 +2296,19 @@ export default function App({
               <option value="RECOVERY">Recovery</option>
               <option value="TECHNICAL_FAILURE">Technical failure</option>
             </select>
-            <button type="button" className="btn btn-secondary" disabled={isSubmitting} onClick={() => void beginJourney(demoScenario)}>Run selected demo</button>
+            <button type="button" className="btn btn-secondary" disabled={isSubmitting || (actor.role === "DIRECTOR" && !directorTeamId)} onClick={() => void beginJourney(demoScenario)}>Run selected demo</button>
           </div>
         </section>
+      )}
+      {deleteCurrentCaseOpen && summary && (
+        <DeleteCaseDialog
+          caseId={summary.case.case_id}
+          companyName={summary.case.entity?.legal_name ?? summary.case.requested_uen}
+          requestedUen={summary.case.requested_uen}
+          mutationDisabled={isSubmitting || isResolving}
+          onCancel={() => setDeleteCurrentCaseOpen(false)}
+          onConfirm={handleDeleteCurrentCase}
+        />
       )}
     </>
   );
@@ -2312,6 +2350,7 @@ export default function App({
               onViewOnboarded={(completedCaseId) => navigate(paths.onboardedDetail(completedCaseId))}
               onViewAudit={(auditCaseId) => navigate(paths.auditCase(auditCaseId))}
               registryProviderMode={simulationProfile?.registry_provider_mode}
+              initialFocusNodeId={new URLSearchParams(location.search).get("focus") ?? undefined}
             />
           )}
           onboarded={<OnboardedClients actor={actor} />}

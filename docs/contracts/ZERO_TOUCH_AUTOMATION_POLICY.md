@@ -95,6 +95,14 @@ target calls. Repeated typed recovery persists nonterminal `RECOVERY_PENDING` ra
 than consuming the ordinary progression loop guard. A later start delegates to Phase 05
 again and reconciles its actual success, match, failure, or partial-amend outcome.
 
+An initial GoldTier Search technical failure is retained as a safe typed failure and is
+not a no-match or reviewer decision. Independent ACRA, document, reconciliation, and
+ownership evidence may continue while the aggregate is still collecting evidence. Once
+that safe evidence path is complete, the automation terminates as `TECHNICAL_FAILURE`
+at `GOLDTIER_SEARCH`; Shell, Policy, Amend, and every other target mutation remain
+blocked. No browser or operator retry is exposed until a safe late exact-match
+transition is proved.
+
 The case lock and composed review/reconciliation transitions are single-process POC
 guarantees. Mongo envelope revision CAS detects stale durable writes, and the target
 ledger prevents known replay paths; distributed transaction or exactly-once claims are

@@ -136,6 +136,27 @@ class AmbiguousRecordingMockGoldTier(RecordingMockGoldTier):
         )
 
 
+class FailedSearchRecordingMockGoldTier(RecordingMockGoldTier):
+    def __init__(
+        self,
+        error_code: str = "GT_XPI_SERVICE_UNAVAILABLE",
+        status_code: int = 503,
+    ) -> None:
+        super().__init__()
+        self.error_code = error_code
+        self.status_code = status_code
+
+    def search_party(self, request: Any, metadata: Any) -> GoldTierSearchResult:
+        del request, metadata
+        self.calls.append("search")
+        return GoldTierSearchResult(
+            outcome=GoldTierSearchOutcome.FAILURE,
+            status_code=self.status_code,
+            error_code=self.error_code,
+            message="Synthetic provider detail must not be projected.",
+        )
+
+
 class ExistingAfterFirstRecordingMockGoldTier(RecordingMockGoldTier):
     def __init__(self) -> None:
         super().__init__()
@@ -307,6 +328,10 @@ def test_straight_through_reaches_mock_target_with_zero_human_interventions() ->
         "MOCK_GOLDTIER",
     ]
     assert result["metrics"]["human_interventions"] == 0
+    pipeline = {item["node_id"]: item for item in result["processing_pipeline"]}
+    assert pipeline["GOLDTIER_SEARCH"]["safe_result"] == (
+        "No existing customer found. Continuing as a new customer."
+    )
     assert target.calls == ["search", "shell", "policy", "amend"]
     case_id = UUID(result["case"]["case_id"])
     document = documents.list_documents(case_id=case_id)[0]
@@ -356,6 +381,103 @@ def test_ambiguous_initial_goldtier_identity_is_not_reported_as_acra_failure() -
     assert len(documents.list_documents(case_id=created.case_id)) == 1
     assert target.calls == ["search"]
 
+
+def test_failed_initial_search_keeps_case_evidence_flow_and_blocks_target_mutations() -> None:
+    connector = FailedSearchRecordingMockGoldTier()
+    client, zero, documents, target, _ = build_system(connector=connector)
+
+    created = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="SYNTHETIC COMPANY PTE. LTD.",
+        team_id=TeamId.TEAM_A,
+    )
+    initial = client.get(f"/api/clm/zero-touch/cases/{created.case_id}").json()
+
+    assert initial["status"] == "PENDING_INPUTS"
+    assert initial["current_stage"] == "DOCUMENT"
+    assert initial["case"]["state"] == "VALIDATED"
+    assert initial["clm"]["status"] == "COLLECTING_EVIDENCE"
+    pipeline = {item["node_id"]: item for item in initial["processing_pipeline"]}
+    assert pipeline["GOLDTIER_SEARCH"]["status"] == "FAILED"
+    assert "does not mean the customer does not exist" in pipeline["GOLDTIER_SEARCH"][
+        "safe_result"
+    ]
+    assert pipeline["ACRA_REGISTRY"]["status"] == "COMPLETE"
+    assert pipeline["GOLDTIER_TARGET"]["status"] == "BLOCKED"
+    assert target.calls == ["search"]
+
+    retained = zero.attach_document(
+        case_id=created.case_id,
+        display_name="retained-profile.pdf",
+        content_type="application/pdf",
+        content=PDF,
+    )
+    assert retained.status == AutomationStatus.TECHNICAL_FAILURE
+    assert retained.current_stage == AutomationStage.GOLDTIER_SEARCH
+    assert retained.active_exceptions == []
+    assert retained.technical_failure is not None
+    assert retained.technical_failure.code == "SEARCH_SERVICE_UNAVAILABLE"
+    assert "Customer existence remains unresolved" in retained.technical_failure.message
+    assert len(documents.list_documents(case_id=created.case_id)) == 1
+    assert target.calls == ["search"]
+    terminal = client.get(f"/api/clm/zero-touch/cases/{created.case_id}").json()
+    assert [
+        (node["node_id"], node["status"])
+        for node in terminal["processing_pipeline"]
+    ] == [
+        ("CASE_START", "COMPLETE"),
+        ("INITIAL_IDENTITY", "COMPLETE"),
+        ("JURISDICTION", "COMPLETE"),
+        ("GOLDTIER_SEARCH", "FAILED"),
+        ("ACRA_REGISTRY", "COMPLETE"),
+        ("DOCUMENT_IDP", "COMPLETE"),
+        ("RECONCILIATION", "COMPLETE"),
+        ("OWNERSHIP_UBO", "COMPLETE"),
+        ("ADVISORY", "NOT_REACHED"),
+        ("READINESS", "BLOCKED"),
+        ("GOLDTIER_TARGET", "BLOCKED"),
+        ("HUMAN_APPROVAL", "NOT_REACHED"),
+    ]
+    readiness = next(
+        node for node in terminal["processing_pipeline"] if node["node_id"] == "READINESS"
+    )
+    assert readiness["blocker_code"] == "GOLDTIER_SEARCH_FAILED"
+
+
+@pytest.mark.parametrize(
+    ("provider_code", "status_code", "safe_code"),
+    [
+        ("GT_XPI_SEARCH_INVALID", 400, "SEARCH_REQUEST_REJECTED"),
+        ("GT_XPI_TIMEOUT", 504, "SEARCH_TIMEOUT"),
+        ("GT_XPI_SERVICE_UNAVAILABLE", 503, "SEARCH_SERVICE_UNAVAILABLE"),
+        ("GT_XPI_CONFIGURATION_ERROR", 503, "SEARCH_SERVICE_UNAVAILABLE"),
+        ("GT_XPI_MALFORMED_RESPONSE", 502, "SEARCH_MALFORMED_RESPONSE"),
+        ("UNRECOGNISED_PRIVATE_CODE", 500, "SEARCH_SERVICE_UNAVAILABLE"),
+    ],
+)
+def test_initial_search_failure_projects_only_bounded_safe_categories(
+    provider_code: str,
+    status_code: int,
+    safe_code: str,
+) -> None:
+    connector = FailedSearchRecordingMockGoldTier(provider_code, status_code)
+    client, zero, _, target, _ = build_system(connector=connector)
+
+    created = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="SYNTHETIC COMPANY PTE. LTD.",
+        team_id=TeamId.TEAM_A,
+    )
+    result = client.get(f"/api/clm/zero-touch/cases/{created.case_id}").json()
+    pipeline = {item["node_id"]: item for item in result["processing_pipeline"]}
+
+    assert result["status"] == "PENDING_INPUTS"
+    assert pipeline["GOLDTIER_SEARCH"]["status"] == "FAILED"
+    assert pipeline["GOLDTIER_SEARCH"]["blocker_code"] == safe_code
+    assert provider_code not in pipeline["GOLDTIER_SEARCH"]["safe_result"]
+    assert target.calls == ["search"]
 
 def test_same_customer_can_have_distinct_cases_without_duplicate_shell() -> None:
     connector = ExistingAfterFirstRecordingMockGoldTier()
