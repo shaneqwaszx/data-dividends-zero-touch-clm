@@ -110,6 +110,21 @@ forced refresh, sandbox/live caching, or case-deletion cascade.
 The URI, credentials, database internals, and raw PyMongo error are never included in
 health, execution-profile, case responses, or normal logs. No TTL/purge is configured.
 
+Run the sanitized preflight before starting a teammate profile:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\dev_preflight.py
+.\.venv\Scripts\python.exe scripts\dev_preflight.py --persistence-mode memory
+.\.venv\Scripts\python.exe scripts\dev_preflight.py --persistence-mode mongo
+```
+
+The command loads normal settings validation but prints no setting values for secrets,
+URIs, authorization headers, or provider payloads. It reports the selected persistence
+mode, whether Mongo is required/reachable, the configured ACRA mode, dedicated official
+Mock credential presence, composed connector class, bounded timeout, and GoldTier mode.
+Memory mode never pings Mongo. Mongo failure output is deliberately reduced to a safe
+unreachable/missing-configuration statement.
+
 ## Future/unconsumed placeholders
 
 `GOLDTIER_BASE_URL`, `PINGFED_TOKEN_URL`, `GOLDTIER_CLIENT_ID`,

@@ -159,11 +159,14 @@ The current sponsor-readable ACRA field/operation profile is
 ## Environment and configuration
 
 Safe normal sponsor defaults are ACRA `MOCK`, IDP `LOCAL_PDF_TEXT` (Local POC),
-registry-acquired Mock ownership evidence, and GoldTier `MOCK`.
-ACRA also has a sandbox-shaped adapter behind `ACRA_CONNECTOR_MODE=sandbox`; Q-012 still
-blocks exact live binding and verification. Its entity-profile seam remains available,
-but the Phase 10 expanded sandbox operations fail closed rather than fabricate a
-contract. No connector is labeled `LIVE`.
+registry-acquired Mock ownership evidence, and GoldTier `MOCK`. The official
+non-production ACRA API Marketplace Mock is selected only with
+`ACRA_CONNECTOR_MODE=api_marketplace_mock` and the dedicated backend-only
+`ACRA_API_MARKETPLACE_MOCK_CLIENT_ID` and `ACRA_API_MARKETPLACE_MOCK_SECRET_KEY`
+settings. It has no fallback to the synthetic local Mock. Its observed entity-basic and
+shareholder operations are bounded Mock interoperability evidence; they are not a
+Production/Live ACRA integration. The separate generic `sandbox` seam remains
+fail-closed where its contract is unresolved. No connector is labelled `LIVE`.
 
 `DEMO_CONTROLS_ENABLED` gates backend demo APIs and
 `VITE_DEMO_CONTROLS_ENABLED` controls browser visibility; both default false. Frontend
@@ -176,6 +179,21 @@ structured envelope per case in `MONGO_DATABASE` / `MONGO_CASE_COLLECTION`. Mong
 fails closed at startup and during writes; it never silently falls back to memory.
 Database names, URIs, credentials, raw uploads, complete extracted text, and raw
 Registry payloads are not exposed through the execution profile or case APIs.
+
+Before local startup, inspect the selected composition without printing secrets or
+connection strings:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\dev_preflight.py
+# Diagnose an explicit teammate profile without changing .env:
+.\.venv\Scripts\python.exe scripts\dev_preflight.py --persistence-mode memory
+.\.venv\Scripts\python.exe scripts\dev_preflight.py --persistence-mode mongo
+```
+
+Memory mode deliberately skips Mongo connectivity. Mongo mode reports only whether the
+configured service is required and reachable; a missing URI or unreachable service
+fails the diagnostic without exposing the URI or driver error. The report similarly
+shows only ACRA credential presence and the composed connector class.
 
 Synthetic Mock ACRA snapshot reuse is separately opt-in with
 `REGISTRY_CACHE_MODE=mock` and the exact provisional POC setting

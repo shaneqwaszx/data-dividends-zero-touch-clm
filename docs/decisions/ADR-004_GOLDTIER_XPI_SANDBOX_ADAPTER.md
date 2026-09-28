@@ -68,7 +68,19 @@ typed sanitized failure and never switches dialects.
   policy, identity and persistence owners remain singular.
 - Target-specific required values must be populated through authority-labelled policy
   rules and frozen into each new case. Missing or sentinel values block before network
-  dispatch.
+  dispatch. For the bounded Singapore POC, `registrationType=ACRA`,
+  `customerExternalSystem=DSD`, `policy=Singapore`, and
+  `bookingEntity=ANZBGL (Singapore Branch)` are fixed with explicit authority. KYC
+  Customer Type and Client Segment are validated case-bound selections from the
+  corrected OpenAPI 1.0.0 vocabularies and are never global defaults.
+  `accountEntityType` and `productType`
+  are the bounded exception for the XPI
+  customer-policy request: the sponsor collection supplies both fields as explicit
+  empty strings, so unresolved placeholders serialize as empty and do not block this
+  sandbox-only operation. No non-empty vocabulary is inferred.
+- Sandbox Amend is not terminal success. The same ledger records a final read-only
+  Search by retained `goldTierID`; no match, multiple matches, or a different ID routes
+  to review, while connector/malformed failures fail closed without replaying mutation.
 - Request preview can reuse the case-scoped CLM plan surface and the same preparation
   result used for dispatch; it makes no provider call.
 - The XPI adapter must tolerate no more than the bounded response envelopes supported

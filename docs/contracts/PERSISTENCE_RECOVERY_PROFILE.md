@@ -12,7 +12,7 @@ The execution profile exposes only `Process-local` or `Mongo-backed durable POC`
 
 ## Durable contract
 
-One case envelope (currently schema v5) contains revision, onboarding and Registry evidence,
+One case envelope (currently schema v6) contains revision, onboarding and Registry evidence,
 ordered document records and supersession links, reconciliation outcomes/decisions,
 ownership evidence, CLM and automation checkpoints, target execution ledger, safe demo
 scenario metadata, an optional immutable case-bound advisory-intelligence projection,
@@ -20,9 +20,12 @@ and timestamps. Every nested case/submission/intelligence identity must agree.
 Mongo `_id` must be the canonical UUID string equal to the envelope `case_id`. Missing,
 non-string, malformed, noncanonical, or mismatched keys are invalid persisted data on
 every read path and during startup. Unknown versions or invalid nested aggregates are
-not interpreted, repaired, or automatically migrated. Strict v1-v4 reads migrate only
+not interpreted, repaired, or automatically migrated. Strict v1-v5 reads migrate only
 in memory to the current type; schema-v4 cases retain `intelligence = null`, are not
-recomputed from current policy, and are not rewritten by a read.
+recomputed from current policy, and are not rewritten by a read. Schema v6 additionally
+retains bounded initial identity/Search, existing-target provenance, lifecycle-resolved
+operations, separate Shell/Policy provider-verified recovery facts, and an optional
+provider-verified Amend-failure fact in the same envelope.
 
 ## Operation safety
 
@@ -32,6 +35,22 @@ with `IN_PROGRESS` plus an attempted operation means the outcome is uncertain; a
 replay is prohibited. A recorded outcome permits only receipt/finalisation recovery.
 Deterministic idempotency identifiers are retained, but no external idempotency support
 or exactly-once guarantee is claimed.
+
+Provider-verified recovery does not rewrite an uncertain response. It retains the
+attempted-but-not-definitive mutation, appends exact later provider evidence, marks the
+operation lifecycle-resolved, and records `replayed=false`. The recovered ID is not
+described as a mutation response. For the bounded Garden continuation, a second recovery
+fact may resolve the retained uncertain Policy only when provider evidence binds ID
+`143878`, Policy `Singapore`, and status `Requested`; the status proves a provider-side
+request, not approval/completion/activation. Shell and Policy recovery facts must survive
+restart together before Amend is eligible, and neither operation becomes replayable.
+If the one retained uncertain Amend is later proved failed by sanitized provider audit,
+the same ledger may retain `PROVIDER_VERIFIED_FAILURE`, normalized status
+`PROVIDER_VALIDATION_FAILED`, the original provider status spelling, and
+`replayed=false`. Amend remains attempted but neither definitively complete nor
+lifecycle-resolved; read-back stays blocked, while the current outcome is no longer
+reported as merely transport-uncertain.
+Real external acceptance uses Mongo; unit tests may continue to use memory repositories.
 
 ## Excluded data
 
