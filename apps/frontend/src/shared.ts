@@ -1,4 +1,4 @@
-import type { AutomationStage, ZeroTouchCaseSummary } from "./types";
+import type { ZeroTouchCaseSummary } from "./types";
 
 export function formatTimestamp(value: string): string {
   return new Intl.DateTimeFormat("en-SG", {
@@ -34,6 +34,13 @@ export function shouldPollAutomation(status: ZeroTouchCaseSummary["status"]): bo
   return status === "RUNNING" || status === "RESUMING";
 }
 
+export function shouldMaintainLiveProgress(
+  status: ZeroTouchCaseSummary["status"],
+  intakeMutationActive: boolean,
+): boolean {
+  return intakeMutationActive || shouldPollAutomation(status);
+}
+
 export function goldTierJourneyLabel(environment: "MOCK" | "SANDBOX"): string {
   return environment === "MOCK" ? "Mock GoldTier" : "GoldTier Sandbox";
 }
@@ -49,20 +56,4 @@ export function targetOutcomeLabel(
       : "GoldTier target submitted";
   }
   return outcome.replaceAll("_", " ");
-}
-
-/** The wireframe pipeline grouped around backend-authored stages. */
-export const STAGE_BANDS: Array<{ label: string; stages: AutomationStage[] }> = [
-  { label: "Registry verification", stages: ["REGISTRY"] },
-  { label: "GoldTier customer search", stages: ["GOLDTIER_SEARCH"] },
-  { label: "Document and data check", stages: ["DOCUMENT"] },
-  { label: "Ownership analysis", stages: ["OWNERSHIP"] },
-  { label: "Readiness and GoldTier target", stages: ["READINESS", "MOCK_GOLDTIER", "COMPLETE"] },
-];
-
-/** Progress label for a case queue row, based on its current backend stage. */
-export function stageProgressLabel(currentStage: AutomationStage): string {
-  if (currentStage === "COMPLETE") return `${STAGE_BANDS.length} of ${STAGE_BANDS.length}`;
-  const index = STAGE_BANDS.findIndex((band) => band.stages.includes(currentStage));
-  return `${index === -1 ? 1 : index + 1} of ${STAGE_BANDS.length}`;
 }

@@ -15,6 +15,7 @@ import {
   resumeZeroTouchCase,
   retryZeroTouchIntakeDocument,
   updateCasePriority,
+  updateGoldTierTargetClassification,
 } from "../api";
 import { startAutomationPolling } from "../automationPolling";
 import {
@@ -33,6 +34,7 @@ import type {
   AuthenticatedProfile,
   ExceptionResolutionAction,
   OwnershipAnalysisRecord,
+  SimulationProfile,
   ZeroTouchCaseSummary,
   ZeroTouchException,
 } from "../types";
@@ -40,6 +42,7 @@ import {
   CompletedOverview,
   ConfirmDetailsPanel,
   DetailedProcessingInspector,
+  OnboardingProgressPanel,
   OperationalTiming,
   PipelineRail,
   RegistryStatePanel,
@@ -52,6 +55,7 @@ import OwnershipPathExplorer from "./OwnershipPathExplorer";
 import IntelligencePanel from "./IntelligencePanel";
 import GoldTierRequestPreview from "./GoldTierRequestPreview";
 import RegistryProvenancePanel from "./RegistryProvenancePanel";
+import TargetClassificationPanel from "./TargetClassificationPanel";
 
 const ACTION_LABELS: Record<ExceptionResolutionAction, string> = {
   KEEP_REGISTRY_VALUE: "Keep registry values",
@@ -88,12 +92,14 @@ export default function CaseDetail({
   onBack,
   onViewOnboarded,
   onViewAudit,
+  registryProviderMode,
 }: {
   caseId: string;
   actor: AuthenticatedProfile;
   onBack: () => void;
   onViewOnboarded: (caseId: string) => void;
   onViewAudit: (caseId: string) => void;
+  registryProviderMode?: SimulationProfile["registry_provider_mode"];
 }) {
   const queryClient = useQueryClient();
   const evidenceIdentity = `${actor.user_id}:${caseId}`;
@@ -497,6 +503,8 @@ export default function CaseDetail({
         <div className="ds-page-header"><div><p className="card-kicker">{summary.case.requested_uen} · {summary.case.jurisdiction_resolution?.resolved_jurisdiction ?? "—"} · {summary.case.client_scope_label ?? "Legacy unassigned"}</p><h1>{entity?.legal_name ?? summary.case.requested_uen}</h1></div><div className="case-header-actions"><PriorityBadge priority={summary.case.priority} /><PriorityControl priority={summary.case.priority} disabled={isBusy || mutationBlocked} onSave={runPriorityMutation} />{(actor.role === "DIRECTOR" || actor.role === "RELATIONSHIP_MANAGER") && <button type="button" className="btn btn-danger" disabled={isBusy || mutationBlocked} onClick={() => { if (!mutationPending.current && !mutationBlocked) setDeleteDialogOpen(captureCaseAction()); }}>Delete case</button>}<span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span></div></div>
         {error && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{error}</div>}
 
+        <OnboardingProgressPanel summary={summary} />
+
         {summary.active_exceptions.filter((exception) => exception.stage !== "REGISTRY").map((exception) => (
           <div className="ds-banner ds-banner-warn" key={exception.exception_id} style={{ marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}><h3 style={{ margin: 0 }}>{exception.exception_type.replaceAll("_", " ")}</h3><span className="text-muted" style={{ fontSize: 11 }}>{formatTimestamp(exception.created_at)}</span></div>
@@ -509,8 +517,19 @@ export default function CaseDetail({
 
         {summary.status === "RECOVERY_PENDING" && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
         {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
+        {summary.target_classification && (
+          <TargetClassificationPanel
+            key={`${summary.case.case_id}:${summary.target_classification.vocabulary_version}:${summary.target_classification.kyc_customer_type.selected_value ?? "unresolved"}:${summary.target_classification.client_segment.selected_value ?? "unresolved"}`}
+            classification={summary.target_classification}
+            disabled={isBusy || mutationBlocked}
+            onSubmit={(input) => runMutation(
+              () => updateGoldTierTargetClassification(caseId, input),
+              "Saving GoldTier target classification…",
+            )}
+          />
+        )}
         <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
-        <RegistryStatePanel summary={summary} />
+        <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} />
         <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>
           <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} />
         </div>

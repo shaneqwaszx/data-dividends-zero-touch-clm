@@ -25,10 +25,10 @@ const EMPTY_SEARCH: Required<GoldTierSandboxSearchInput> = {
 const EMPTY_TEST_VALUES: Required<GoldTierSandboxTestValues> = {
   kyc_customer_type: "",
   client_segment: "",
-  customer_external_system: "",
-  registration_type: "",
-  policy: "",
-  booking_entity: "",
+  customer_external_system: "DSD",
+  registration_type: "ACRA",
+  policy: "Singapore",
+  booking_entity: "ANZBGL (Singapore Branch)",
   account_entity_type: "",
   product_type: "",
 };
@@ -113,8 +113,8 @@ export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile
       return;
     }
     const compactTestValues = compactValues(testValues);
-    if (Object.keys(compactTestValues).length !== TEST_VALUE_LABELS.length) {
-      setDryRunValidationError("Complete all Sandbox test-only fields before validating a preview.");
+    if (!testValues.kyc_customer_type || !testValues.client_segment) {
+      setDryRunValidationError("Select a KYC customer type and Client Segment before validating a preview.");
       return;
     }
     setDryRunValidationError(null);
@@ -160,6 +160,7 @@ export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile
             <div><dt>Maximum response body</dt><dd>{status.max_response_bytes.toLocaleString()} bytes</dd></div>
             <div><dt>Last diagnostic</dt><dd>{status.last_diagnostic_at ? formatTimestamp(status.last_diagnostic_at) : "Not run"}</dd></div>
             <div><dt>Related parties</dt><dd>{readable(status.related_party_blocker)}</dd></div>
+            <div><dt>Vocabulary</dt><dd>{status.vocabulary_version}</dd></div>
           </dl>
         )}
         {status && status.timeline.length > 0 && (
@@ -250,18 +251,39 @@ export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile
           {TEST_VALUE_LABELS.map(([key, label]) => (
             <div className="field" key={key}>
               <label htmlFor={`sandbox-${key}`}>{label}</label>
-              <input
-                id={`sandbox-${key}`}
-                className="input"
-                maxLength={160}
-                required
-                value={testValues[key]}
-                onChange={(event) => {
-                  setTestValues((current) => ({ ...current, [key]: event.target.value }));
-                  setDryRunValidationError(null);
-                  dryRunMutation.reset();
-                }}
-              />
+              {key === "kyc_customer_type" || key === "client_segment" ? (
+                <select
+                  id={`sandbox-${key}`}
+                  className="input"
+                  required
+                  value={testValues[key]}
+                  onChange={(event) => {
+                    setTestValues((current) => ({ ...current, [key]: event.target.value }));
+                    setDryRunValidationError(null);
+                    dryRunMutation.reset();
+                  }}
+                >
+                  <option value="">Select a sponsor-documented value</option>
+                  {(key === "kyc_customer_type"
+                    ? status?.kyc_customer_types ?? []
+                    : status?.client_segments ?? []).map((value) => (
+                    <option key={value} value={value}>{value}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  id={`sandbox-${key}`}
+                  className="input"
+                  maxLength={160}
+                  readOnly={!["account_entity_type", "product_type"].includes(key)}
+                  value={testValues[key]}
+                  onChange={(event) => {
+                    setTestValues((current) => ({ ...current, [key]: event.target.value }));
+                    setDryRunValidationError(null);
+                    dryRunMutation.reset();
+                  }}
+                />
+              )}
             </div>
           ))}
         </div>

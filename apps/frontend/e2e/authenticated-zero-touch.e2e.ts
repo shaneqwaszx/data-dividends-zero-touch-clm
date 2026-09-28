@@ -26,6 +26,12 @@ const ownershipCycleFixture = path.resolve(
   "../../backend/tests/fixtures/uat/cycle-uen-clean.pdf",
 );
 
+function legalNameForUen(uen: string): string {
+  return uen === "202400006F"
+    ? "CYCLIC HARBOUR HOLDINGS PTE. LTD."
+    : "MERLION CIRCULAR LABS PTE. LTD.";
+}
+
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -116,6 +122,161 @@ test("protected workspace requires a real login before navigation", async ({ pag
   await expect(page.getByRole("heading", { name: "Start onboarding" })).toBeVisible();
 });
 
+test("onboarding progress is visible while backend-authored stages advance", async ({ page }, testInfo) => {
+  let caseReadCount = 0;
+  await page.route("**/api/clm/zero-touch/cases/*/intake/documents", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3_500));
+    await route.fallback();
+  });
+  await page.route("**/api/clm/zero-touch/cases/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (
+      route.request().method() !== "GET"
+      || !/^\/api\/clm\/zero-touch\/cases\/[0-9a-f-]{36}$/i.test(url.pathname)
+    ) {
+      await route.fallback();
+      return;
+    }
+    const response = await route.fetch();
+    const payload = await response.json() as Record<string, unknown> & {
+      processing_pipeline: Array<Record<string, unknown>>;
+      version: number;
+    };
+    caseReadCount += 1;
+    const activeNode = caseReadCount === 1 ? "DOCUMENT_IDP" : "OWNERSHIP_UBO";
+    const completedNodes = new Set(
+      caseReadCount === 1
+        ? ["CASE_START", "INITIAL_IDENTITY", "JURISDICTION", "GOLDTIER_SEARCH", "ACRA_REGISTRY"]
+        : ["CASE_START", "INITIAL_IDENTITY", "JURISDICTION", "GOLDTIER_SEARCH", "ACRA_REGISTRY", "DOCUMENT_IDP", "RECONCILIATION"],
+    );
+    payload.status = "RUNNING";
+    payload.current_stage = caseReadCount === 1 ? "DOCUMENT" : "OWNERSHIP";
+    payload.version += caseReadCount;
+    payload.updated_at = caseReadCount === 1
+      ? "2026-09-28T04:00:01Z"
+      : "2026-09-28T04:00:02Z";
+    payload.processing_pipeline = payload.processing_pipeline.map((node) => ({
+      ...node,
+      status: node.node_id === activeNode
+        ? "IN_PROGRESS"
+        : completedNodes.has(String(node.node_id))
+          ? "COMPLETE"
+          : "NOT_REACHED",
+    }));
+    await route.fulfill({ response, json: payload });
+  });
+
+  await page.goto("/");
+  await login(page);
+  await openFreshOnboarding(page);
+  await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Registration ID / UEN").fill("202400001A");
+  await page.locator("#home-document").setInputFiles(cleanFixture);
+  await page.getByRole("button", { name: "Create onboarding" }).click();
+
+  const progress = page.getByRole("region", { name: "Onboarding progress" });
+  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  await expect(progress).toBeVisible();
+  await expect(progress.getByRole("progressbar")).toHaveAttribute("aria-valuenow");
+  await testInfo.attach("progress-immediately-after-case-start", {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  });
+
+  await expect(progress.getByText("Document and IDP", { exact: true })).toBeVisible();
+  await expect(progress.getByText("Current:").locator("..")).toContainText("Document and IDP — In progress");
+  await expect.poll(() => caseReadCount).toBeGreaterThanOrEqual(1);
+  await testInfo.attach("progress-document-stage-active", {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  });
+
+  await expect(progress.getByText("Current:").locator("..")).toContainText("Ownership and UBO — In progress");
+  await expect.poll(() => caseReadCount).toBeGreaterThanOrEqual(2);
+  await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
+  await testInfo.attach("progress-completed-endpoint", {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  });
+});
+
+test("Garden partial registry evidence is presented as incomplete, not unavailable", async ({ page }, testInfo) => {
+  await page.route("**/api/clm/zero-touch/cases", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    const requestBody = route.request().postDataJSON() as { uen?: string };
+    if (requestBody.uen !== "11111999A") {
+      await route.fallback();
+      return;
+    }
+    const response = await route.fetch();
+    const payload = await response.json() as Record<string, any>;
+    const caseId = payload.case.case_id as string;
+    payload.status = "WAITING_FOR_REVIEW";
+    payload.current_stage = "REGISTRY";
+    payload.case.registry_acquisition.status = "PARTIAL";
+    payload.case.registry_acquisition.ownership_parties = [];
+    payload.case.registry_acquisition.relationships = [];
+    payload.case.registry_acquisition.operation_results = payload.case.registry_acquisition.operation_results.map(
+      (operation: Record<string, unknown>) => operation.operation === "OWNERSHIP_PARTIES"
+        ? { ...operation, status: "EMPTY", record_count: 0 }
+        : operation,
+    );
+    payload.case.registry_acquisition.issues = [{
+      code: "REGISTRY_EXPECTED_DATA_MISSING",
+      message: "Expected registry ownership evidence was not returned.",
+    }];
+    payload.active_exceptions = [{
+      exception_id: "00000000-0000-4000-8000-000000000090",
+      case_id: caseId,
+      exception_type: "REGISTRY_REVIEW_REQUIRED",
+      stage: "REGISTRY",
+      status: "OPEN",
+      blocker_code: "REGISTRY_EXPECTED_DATA_MISSING",
+      blocker_codes: ["REGISTRY_EXPECTED_DATA_MISSING"],
+      explanation: "Expected registry ownership evidence was not returned.",
+      evidence_version: "registry:1",
+      automation_version: payload.version,
+      evidence: [],
+      available_actions: [],
+      created_at: payload.updated_at,
+      resolved_at: null,
+      resolution: null,
+    }];
+    payload.processing_pipeline = payload.processing_pipeline.map((node: Record<string, unknown>) => (
+      node.node_id === "ACRA_REGISTRY"
+        ? { ...node, status: "REVIEW_REQUIRED", blocker_code: "REGISTRY_EXPECTED_DATA_MISSING" }
+        : node
+    ));
+    await route.fulfill({ response, json: payload });
+  });
+
+  await page.goto("/");
+  await login(page);
+  await openFreshOnboarding(page);
+  await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Legal name").fill("GARDEN BUSINESS");
+  await page.getByLabel("Registration ID / UEN").fill("11111999A");
+  await page.locator("#home-document").setInputFiles(cleanFixture);
+  await page.getByRole("button", { name: "Create onboarding" }).click();
+
+  await expect(page.getByRole("heading", { name: "Registry data incomplete" })).toBeVisible();
+  await expect(page.getByText("Successful / data retrieved", { exact: true })).toBeVisible();
+  await expect(page.getByText("Ownership evidence incomplete", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Registry unavailable" })).toHaveCount(0);
+  await testInfo.attach("garden-partial-registry-state", {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  });
+});
+
 test("Singapore clean fixture completes the truthful Mock target path", async ({ page }) => {
   await page.goto("/");
   await login(page);
@@ -124,6 +285,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await newOnboardingLink.click();
 
   await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(cleanFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -268,6 +430,7 @@ test("review-ready actions render after authoritative current document evidence 
   await login(page);
   await page.getByRole("link", { name: "New onboarding" }).click();
   await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(lowConfidenceFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -311,6 +474,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await login(page);
   await page.getByRole("link", { name: "New onboarding" }).click();
   await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(mismatchFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -444,6 +608,7 @@ test("Cases filters exact open business-exception types without hiding other att
   async function createPausedCase(uen: string, fixture: string): Promise<string> {
     await openFreshOnboarding(page);
     await page.getByLabel("Jurisdiction").selectOption("SG");
+    await page.getByLabel("Legal name").fill(legalNameForUen(uen));
     await page.getByLabel("Registration ID / UEN").fill(uen);
     await page.locator("#home-document").setInputFiles(fixture);
     await page.getByRole("button", { name: "Create onboarding" }).click();

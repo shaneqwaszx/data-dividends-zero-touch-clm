@@ -5,10 +5,11 @@ import type {
   ExceptionResolutionAction,
   ReconciliationDecisionAction,
   ReconciliationDiscrepancy,
+  SimulationProfile,
   ZeroTouchCaseSummary,
   ZeroTouchException,
 } from "../types";
-import { CompletedOverview, ConfirmDetailsPanel, DetailedProcessingInspector, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
+import { CompletedOverview, ConfirmDetailsPanel, DetailedProcessingInspector, OnboardingProgressPanel, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
 import { PriorityBadge } from "./PriorityControl";
 
 export type JurisdictionSelection = "" | "SG" | "AU" | "MY" | "HK";
@@ -50,6 +51,8 @@ export default function HomeOnboarding({
   summary,
   uen,
   onUenChange,
+  legalName = "",
+  onLegalNameChange = () => undefined,
   countryOfIncorporation,
   onCountryChange,
   documentFiles,
@@ -70,10 +73,14 @@ export default function HomeOnboarding({
   onStartNewCase,
   onViewOnboarded,
   onViewAudit,
+  registryProviderMode,
+  onRetryIntake = () => undefined,
 }: {
   summary: ZeroTouchCaseSummary | null;
   uen: string;
   onUenChange: (value: string) => void;
+  legalName?: string;
+  onLegalNameChange?: (value: string) => void;
   countryOfIncorporation: JurisdictionSelection;
   onCountryChange: (value: JurisdictionSelection) => void;
   documentFiles: File[];
@@ -94,6 +101,8 @@ export default function HomeOnboarding({
   onStartNewCase: () => void;
   onViewOnboarded: (caseId: string) => void;
   onViewAudit: (caseId: string) => void;
+  registryProviderMode?: SimulationProfile["registry_provider_mode"];
+  onRetryIntake?: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -149,6 +158,17 @@ export default function HomeOnboarding({
                 <p className="text-muted" style={{ fontSize: 11, marginTop: 4 }}>
                   Singapore routes to ACRA. Other recognised jurisdictions stop safely in this POC.
                 </p>
+              </div>
+              <div className="field">
+                <label htmlFor="home-legal-name">Legal name</label>
+                <input
+                  id="home-legal-name"
+                  className="input"
+                  value={legalName}
+                  onChange={(event) => onLegalNameChange(event.target.value)}
+                  maxLength={160}
+                  required
+                />
               </div>
               <div className="field">
                 <label htmlFor="home-uen">Registration ID / UEN</label>
@@ -310,9 +330,24 @@ export default function HomeOnboarding({
         {requestError && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{requestError}</div>}
         {pollingWarning && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{pollingWarning}</div>}
 
+        {documentFiles.length > 0 && (
+          <section className="card" aria-label="Retained intake package" style={{ marginBottom: 16 }}>
+            <p className="card-kicker">Retained intake package</p>
+            {documentFiles.map((file) => <p key={`${file.name}:${file.size}:${file.lastModified}`}>{file.name}</p>)}
+          </section>
+        )}
+
+        {requestError && summary.status === "PENDING_INPUTS" && !isSubmitting && (
+          <button type="button" className="btn btn-primary" style={{ marginBottom: 16 }} onClick={onRetryIntake}>
+            Retry retained intake
+          </button>
+        )}
+
+        <OnboardingProgressPanel summary={summary} />
+
         <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
 
-        <RegistryStatePanel summary={summary} />
+        <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} />
         <ConfirmDetailsPanel summary={summary} isBusy={isResolving} onResolve={onReconcile} />
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
 
