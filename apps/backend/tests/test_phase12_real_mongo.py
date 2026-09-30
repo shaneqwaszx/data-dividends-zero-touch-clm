@@ -475,10 +475,11 @@ def test_real_mongo_failed_replacement_restart_requires_retry_without_replay(
         )
         assert after_retry_by_id[retried_document_id]["superseded_by_document_id"] is None
         assert counters == {"registry": 4, "idp": 3, "ownership": 0, "goldtier": 1}
-        completed = _complete_intake(second, case_id, expected_count=1)
+        pending = _complete_intake(second, case_id, expected_count=1)
+        completed = _confirm_target_dispatch(second, case_id, pending)
         assert completed["status"] == "COMPLETED"
 
-    assert counters == {"registry": 4, "idp": 3, "ownership": 1, "goldtier": 4}
+    assert counters == {"registry": 4, "idp": 3, "ownership": 1, "goldtier": 5}
 
 
 def _install_counting_connectors(
@@ -566,6 +567,36 @@ def _complete_intake(client: TestClient, case_id: UUID, *, expected_count: int) 
     )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def _confirm_target_dispatch(
+    client: Any,
+    case_id: UUID | str,
+    pending: dict[str, Any],
+    *,
+    csrf_token: str | None = None,
+) -> dict[str, Any]:
+    """Complete a happy-path fixture through the real guarded confirmation API."""
+
+    assert pending["status"] == "WAITING_FOR_REVIEW"
+    assert any(
+        item["exception_type"] == "TARGET_CONFIRMATION_REQUIRED"
+        for item in pending["active_exceptions"]
+    )
+    assert pending["case"]["target_dispatch_confirmation"] is None
+    response = client.post(
+        f"/api/clm/zero-touch/cases/{case_id}/target-confirmation",
+        json={
+            "expected_automation_version": pending["version"],
+            "expected_clm_version": pending["clm"]["version"],
+            "expected_case_event_count": len(pending["case"]["events"]),
+        },
+        headers={"X-CSRF-Token": csrf_token} if csrf_token else {},
+    )
+    assert response.status_code == 200, response.text
+    confirmed: dict[str, Any] = response.json()
+    assert confirmed["case"]["target_dispatch_confirmation"] is not None
+    return confirmed
 
 
 def _build_mongo_reconciliation_service(
@@ -683,7 +714,8 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
                 json={"expected_document_count": 3},
             )
             assert done.status_code == 200, done.text
-            assert done.json()["status"] == "COMPLETED"
+            confirmed = _confirm_target_dispatch(first, completed_id, done.json())
+            assert confirmed["status"] == "COMPLETED"
             first_intelligence = first.get(
                 f"/api/clm/zero-touch/cases/{completed_id}/intelligence"
             )
@@ -705,7 +737,7 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
             "registry": 8,
             "idp": 3,
             "ownership": 1,
-            "goldtier": 5,
+            "goldtier": 6,
         }
 
         with TestClient(create_app(settings)) as second:
@@ -933,7 +965,8 @@ def test_real_mongo_uncertain_target_restart_and_resume_never_replay(
     with TestClient(create_app(settings)) as first:
         case_id = _create_case(first)
         _upload_text(first, case_id, TEXT_PROFILE, name="Profile.txt")
-        completed = _complete_intake(first, case_id, expected_count=1)
+        pending = _complete_intake(first, case_id, expected_count=1)
+        completed = _confirm_target_dispatch(first, case_id, pending)
         assert completed["status"] == "COMPLETED"
 
     store = _open_store(settings)
@@ -990,7 +1023,8 @@ def test_real_mongo_shell_and_policy_recovery_facts_survive_restart_with_amend_n
     with TestClient(create_app(settings)) as first:
         case_id = _create_case(first)
         _upload_text(first, case_id, TEXT_PROFILE, name="Profile.txt")
-        completed = _complete_intake(first, case_id, expected_count=1)
+        pending = _complete_intake(first, case_id, expected_count=1)
+        completed = _confirm_target_dispatch(first, case_id, pending)
         assert completed["status"] == "COMPLETED"
 
     store = _open_store(settings)
@@ -1095,7 +1129,8 @@ def test_real_mongo_replacement_restart_preserves_history_and_stales_old_decisio
             content=TEXT_PROFILE.encode(),
         )
         assert replacement.status_code == 200, replacement.text
-        assert replacement.json()["status"] == "COMPLETED"
+        confirmed = _confirm_target_dispatch(first, case_id, replacement.json())
+        assert confirmed["status"] == "COMPLETED"
 
     before_restart = counters.copy()
     with TestClient(create_app(settings)) as second:

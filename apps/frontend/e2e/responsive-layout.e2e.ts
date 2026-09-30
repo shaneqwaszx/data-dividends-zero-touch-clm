@@ -221,6 +221,19 @@ async function openNewCase(page: Page, fixture: string): Promise<string> {
   return page.url().split("/").at(-1)!;
 }
 
+async function confirmMockTarget(page: Page) {
+  await page.getByRole("button", { name: "Open full case" }).click();
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
+  const confirmation = page.getByRole("button", { name: "Confirm and send to Mock GoldTier" });
+  await expect(confirmation).toBeEnabled({ timeout: 120_000 });
+  const response = page.waitForResponse((result) => (
+    result.request().method() === "POST"
+      && new URL(result.url()).pathname.endsWith("/target-confirmation")
+  ));
+  await confirmation.click();
+  expect((await response).status()).toBe(200);
+}
+
 async function waitForCaseStatus(page: Page, caseId: string, accepted: string[]) {
   await expect.poll(async () => {
     const response = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
@@ -337,6 +350,7 @@ test("responsive cases and representative routes preserve tables, priorities, an
   await page.setViewportSize({ width: 1024, height: 900 });
   await login(page);
   const completedCaseId = await openNewCase(page, cleanFixture);
+  await confirmMockTarget(page);
   await waitForCaseStatus(page, completedCaseId, ["COMPLETED"]);
 
   for (const width of REPRESENTATIVE_VIEWPORTS) {
@@ -455,6 +469,7 @@ test("responsive Relationship Manager controls contain policy and delete dialog"
   await openWorkspaceTab(page, "Policy");
   await expectPolicyMutationControls(page, true);
   const completedCaseId = await openNewCase(page, cleanFixture);
+  await confirmMockTarget(page);
   await waitForCaseStatus(page, completedCaseId, ["COMPLETED"]);
   await page.goto(`/cases/${completedCaseId}`);
   const deleteButton = page.getByRole("button", { name: "Delete case" });

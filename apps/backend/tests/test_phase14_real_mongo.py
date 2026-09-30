@@ -15,7 +15,10 @@ from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
     generate_ephemeral_mongo_database,
 )
-from test_phase12_real_mongo import _install_counting_connectors
+from test_phase12_real_mongo import (
+    _confirm_target_dispatch,
+    _install_counting_connectors,
+)
 
 from app.config import Settings
 from app.main import create_app
@@ -78,7 +81,10 @@ def _create_completed_case(client: RawTestClient, *, csrf_token: str) -> str:
         headers={"X-CSRF-Token": csrf_token},
     )
     assert completed.status_code == 200
-    assert completed.json()["status"] == "COMPLETED"
+    confirmed = _confirm_target_dispatch(
+        client, case_id, completed.json(), csrf_token=csrf_token
+    )
+    assert confirmed["status"] == "COMPLETED"
     return case_id
 
 

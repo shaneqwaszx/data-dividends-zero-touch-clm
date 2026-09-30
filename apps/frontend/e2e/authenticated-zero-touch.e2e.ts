@@ -88,6 +88,21 @@ async function openFreshOnboarding(page: Page) {
   await expect(landing).toBeVisible();
 }
 
+async function confirmMockTarget(page: Page) {
+  if (new URL(page.url()).pathname.startsWith("/new-onboarding/")) {
+    await page.getByRole("button", { name: "Open full case" }).click();
+    await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
+  }
+  const confirmation = page.getByRole("button", { name: "Confirm and send to Mock GoldTier" });
+  await expect(confirmation).toBeEnabled({ timeout: 120_000 });
+  const response = page.waitForResponse((result) => (
+    result.request().method() === "POST"
+      && new URL(result.url()).pathname.endsWith("/target-confirmation")
+  ));
+  await confirmation.click();
+  expect((await response).status()).toBe(200);
+}
+
 async function expectDocumentContained(page: Page) {
   const layout = await page.evaluate(() => {
     const viewportWidth = document.documentElement.clientWidth;
@@ -275,6 +290,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.mouse.move(0, 0);
     await actionableStage.scrollIntoViewIfNeeded();
+    await expectDocumentContained(page);
     await actionableStage.screenshot({
       path: path.join(operatorRouteArtifactDirectory, `${width}-long-label-default.png`),
     });
@@ -466,7 +482,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await expect(page.locator("#case-evidence-documents")).toBeFocused();
 
   const printButton = review.getByRole("button", { name: "Print / save PDF" });
-  for (const width of [360, 768, 1280, 1440, 1920] as const) {
+  for (const width of [320, 360, 768, 1280, 1440, 1920] as const) {
     await page.setViewportSize({ width, height: 1000 });
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.mouse.move(0, 0);
@@ -474,16 +490,20 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
     await expectDocumentContained(page);
     await review.screenshot({ path: path.join(operatorRouteArtifactDirectory, `${width}-review-default.png`) });
     await printButton.hover();
+    await expectDocumentContained(page);
     await review.screenshot({ path: path.join(operatorRouteArtifactDirectory, `${width}-review-hover.png`) });
     await printButton.focus();
     await expect(printButton).toBeFocused();
+    await expectDocumentContained(page);
     await review.screenshot({ path: path.join(operatorRouteArtifactDirectory, `${width}-review-focus.png`) });
   }
   await page.setViewportSize({ width: 320, height: 1000 });
   await review.screenshot({ path: path.join(operatorRouteArtifactDirectory, "320-review-reflow.png") });
+  await expectDocumentContained(page);
   await expectReviewContained(page, review);
   await page.setViewportSize({ width: 640, height: 1000 });
   await page.evaluate(() => { document.documentElement.style.zoom = "2"; });
+  await expectDocumentContained(page);
   await expectReviewContained(page, review);
   await review.screenshot({ path: path.join(operatorRouteArtifactDirectory, "200-percent-review-reflow.png") });
   await page.evaluate(() => { document.documentElement.style.zoom = ""; });
@@ -586,6 +606,7 @@ test("authorized manual ownership action focuses the real evidence form and next
 
 test("onboarding progress is visible while backend-authored stages advance", async ({ page }, testInfo) => {
   let caseReadCount = 0;
+  let showObservedProgress = true;
   await page.route("**/api/clm/zero-touch/cases/*/intake/documents", async (route) => {
     if (route.request().method() !== "POST") {
       await route.fallback();
@@ -608,6 +629,10 @@ test("onboarding progress is visible while backend-authored stages advance", asy
       processing_pipeline: Array<Record<string, unknown>>;
       version: number;
     };
+    if (!showObservedProgress) {
+      await route.fulfill({ response, json: payload });
+      return;
+    }
     caseReadCount += 1;
     const activeNode = caseReadCount === 1 ? "DOCUMENT_IDP" : "OWNERSHIP_UBO";
     const completedNodes = new Set(
@@ -660,6 +685,8 @@ test("onboarding progress is visible while backend-authored stages advance", asy
 
   await expect(progress.getByText("Current:").locator("..")).toContainText("Ownership and UBO — In progress");
   await expect.poll(() => caseReadCount).toBeGreaterThanOrEqual(2);
+  showObservedProgress = false;
+  await confirmMockTarget(page);
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
   await testInfo.attach("progress-completed-endpoint", {
     body: await page.screenshot(),
@@ -921,6 +948,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
 
   await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
   const caseId = page.url().split("/").at(-1)!;
+  await confirmMockTarget(page);
   await expect.poll(async () => {
     const response = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
     if (!response.ok()) return null;
@@ -1200,6 +1228,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await replacementInput.focus();
   await expect(replacementInput).toBeFocused();
   await replacementInput.setInputFiles(cleanFixture);
+  await confirmMockTarget(page);
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
   await expect.poll(async () => {
     const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
