@@ -19,4 +19,3 @@
 - Stop conditions: target replay risk, unsafe schema compatibility, unresolvable
   sponsor-controlled external mapping, protected input required but absent, or required
   physical/browser evidence unavailable for its dependent claim.
-

@@ -2780,23 +2780,23 @@ dd {
     .blockers-grid {
       grid-template-columns: 1fr;
     }
-  
+
     .evidence-grid {
       grid-template-columns: 1fr;
     }
-  
+
     .exception-actions {
       flex-direction: column;
     }
-  
+
     .exception-actions button {
       width: 100%;
     }
-  
+
     .ownership-row {
       grid-template-columns: 1fr;
     }
-  
+
     .parties-row {
       flex-direction: column;
     }

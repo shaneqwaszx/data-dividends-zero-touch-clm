@@ -617,29 +617,29 @@ export function SimpleOwnershipGraph({ record }: { record: OwnershipAnalysisReco
   const parties = new Map(record.parties.map((party) => [party.party_id, party]));
   const root = record.root_party_id ? parties.get(record.root_party_id) : null;
   const isNaturalPerson = (partyId: string) => parties.get(partyId)?.party_type === "NATURAL_PERSON";
-  
+
   // Simple grid layout for ownership visualization
   const rows: string[][] = [];
   const visited = new Set<string>();
   const queue: [string, number][] = record.root_party_id ? [[record.root_party_id, 0]] : [];
-  
+
   while (queue.length > 0) {
     const [partyId, depth] = queue.shift()!;
     if (visited.has(partyId)) continue;
     visited.add(partyId);
-    
+
     if (!rows[depth]) rows[depth] = [];
     rows[depth].push(partyId);
-    
+
     const children = record.relationships
       .filter(r => r.parent_party_id === partyId)
       .map(r => r.child_party_id);
-    
+
     for (const child of children) {
       queue.push([child, depth + 1]);
     }
   }
-  
+
   return (
     <div className="ownership-graph-viz">
       <p className="section-label">Ownership structure visualization</p>
@@ -652,7 +652,7 @@ export function SimpleOwnershipGraph({ record }: { record: OwnershipAnalysisReco
                 const party = parties.get(partyId);
                 const isUbo = record.candidates.some(c => c.party.party_id === partyId && c.classification === "PROVISIONAL_UBO_CANDIDATE");
                 const ownedBy = record.relationships.filter(r => r.parent_party_id === partyId);
-                
+
                 return (
                   <article key={partyId} className={`graph-party ${isNaturalPerson(partyId) ? 'natural-person' : 'legal-entity'} ${isUbo ? 'is-ubo' : ''}`}>
                     <h4>{party?.display_name ?? partyId}</h4>
@@ -725,7 +725,7 @@ export function OwnershipSummary({ record }: { record: OwnershipAnalysisRecord }
       {record.relationships.length > 0 && (
         <>
           <SimpleOwnershipGraph record={record} />
-          
+
           <div className="ownership-relationships">
             <h4>Detailed ownership structure</h4>
             <div className="ownership-table" role="table" aria-label="Ownership relationships">
@@ -1558,14 +1558,14 @@ export function HumanReviewPanel({
     && typeof documentId === "string"
     && Number.isSafeInteger(eventCount)
     && eventCount > 0;
-  
+
   return (
     <section className="human-review-card" aria-labelledby="review-required-heading">
       <div className="review-header">
         <p className="section-label">⚠️ Human review required</p>
         <h2 id="review-required-heading">{exception.stage.replaceAll("_", " ")} Stage</h2>
       </div>
-      
+
       <div className="blocker-detail-section">
         <h3>Current issues</h3>
         <div className="blockers-grid">
@@ -1578,7 +1578,7 @@ export function HumanReviewPanel({
           ))}
         </div>
       </div>
-      
+
       {exception.evidence.length > 0 && (
         <div className="evidence-section">
           <h3>Evidence details</h3>
@@ -1618,7 +1618,7 @@ export function HumanReviewPanel({
           </div>
         </div>
       )}
-      
+
       <div className="exception-actions">
         {exception.available_actions.map((action) => (
           <button key={action} type="button" disabled={isResolving} className="button-primary" onClick={() => onResolve(action)}>
@@ -1633,7 +1633,7 @@ export function HumanReviewPanel({
           </p>
         )}
       </div>
-      
+
       {replacementAvailable && (
         <div className="replacement-section">
           <h3>Upload corrected document</h3>

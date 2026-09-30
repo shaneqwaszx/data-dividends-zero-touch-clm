@@ -266,4 +266,3 @@ No commit, push, PR, merge, provider write, or database reset is authorized.
   only after each slice is verified.
 - User confirmation required: no for local implementation and authorized read-only
   diagnostics; yes later for any case-specific external write, which is outside this task.
-
