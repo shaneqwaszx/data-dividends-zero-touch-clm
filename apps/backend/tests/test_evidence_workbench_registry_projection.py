@@ -72,7 +72,6 @@ FORBIDDEN_CACHE_KEYS = {
     "provider_effective_at",
     "provider_identity",
     "raw_payload",
-    "revision",
     "source_reference",
     "written_at",
 }
@@ -188,7 +187,22 @@ def _complete_demo_case(client: TestClient) -> dict[str, Any]:
         content=PDF,
     )
     assert completed.status_code == 200
-    return completed.json()
+    result = completed.json()
+    if any(
+        item["exception_type"] == "TARGET_CONFIRMATION_REQUIRED"
+        for item in result["active_exceptions"]
+    ):
+        confirmed = client.post(
+            f"/api/clm/zero-touch/cases/{case_id}/target-confirmation",
+            json={
+                "expected_automation_version": result["version"],
+                "expected_clm_version": result["clm"]["version"],
+                "expected_case_event_count": len(result["case"]["events"]),
+            },
+        )
+        assert confirmed.status_code == 200
+        return confirmed.json()
+    return result
 
 
 def test_provider_fetch_and_cache_hit_project_exact_public_values() -> None:

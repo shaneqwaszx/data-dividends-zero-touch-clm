@@ -1,12 +1,15 @@
 """Synchronous onboarding across configured ACRA and Mock GoldTier boundaries."""
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from threading import Lock, RLock
-from typing import Never, Protocol, TypeVar
+from typing import Literal, Never, Protocol, TypeVar
 from uuid import UUID, uuid4
+
+from pydantic import ValidationError
 
 from app.connectors.acra import AcraConnector
 from app.connectors.errors import (
@@ -40,12 +43,15 @@ from app.domain.models import (
     EventOutcome,
     ExistingTargetStateProvenance,
     GoldTierResult,
+    IdentityCorrectionEvidence,
     InitialCustomerIdentity,
+    InitialGoldTierSearchAttempt,
     InitialGoldTierSearchEvidence,
     OnboardingCase,
     RegistryAcquisitionStatus,
     RegistryOperationStatus,
     SafeError,
+    TargetDispatchConfirmation,
     WorkflowEvent,
     WorkflowState,
 )
@@ -55,10 +61,16 @@ from app.domain.onboarding_intelligence import (
     EntityResolutionResult,
 )
 from app.domain.policy import (
+    GOLDTIER_BOOKING_ENTITY_POC_VALUE,
     GOLDTIER_CLIENT_SEGMENT_VALUES,
+    GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_POC_VALUE,
     GOLDTIER_KYC_CUSTOMER_TYPE_VALUES,
+    GOLDTIER_POLICY_POC_VALUE,
+    GOLDTIER_REGISTRATION_TYPE_POC_VALUE,
     AuthorityLabelledTargetValue,
+    CasePolicyRebindAudit,
     CasePolicySnapshot,
+    GoldTierTargetPolicySnapshot,
     IntelligencePolicySnapshot,
     PolicyAuthority,
     legacy_phase13_policy_snapshot,
@@ -236,6 +248,56 @@ def _project_target_error_code(code: str | None, *, allowed: frozenset[str], fal
     return code if code in allowed else fallback
 
 
+def _validate_sg_policy_rebind_identity(case: OnboardingCase) -> None:
+    requested = case.requested_uen.strip().upper()
+    if not is_eligible_singapore_uen(requested):
+        raise ValueError("Case is not eligible for the Singapore policy rebind")
+    if case.initial_identity is not None and (
+        case.initial_identity.registration_number.strip().upper() != requested
+        or case.initial_identity.country_of_incorporation.strip().upper()
+        != JurisdictionCode.SINGAPORE.value
+    ):
+        raise ValueError("Initial identity does not match the Singapore case UEN")
+    if case.entity is not None and (
+        case.entity.registration_number.strip().upper() != requested
+        or (case.entity.country_of_incorporation or "").strip().upper()
+        != JurisdictionCode.SINGAPORE.value
+    ):
+        raise ValueError("Canonical identity does not match the Singapore case UEN")
+    if case.initial_identity is None and case.entity is None:
+        raise ValueError("Case has no canonical or initial Singapore identity")
+
+
+def _validated_current_sg_target_policy(
+    snapshot: CasePolicySnapshot,
+) -> GoldTierTargetPolicySnapshot:
+    target = snapshot.goldtier_target
+    expected = {
+        "customer_external_system": (
+            GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_POC_VALUE,
+            PolicyAuthority.SPONSOR_DOCUMENTED,
+        ),
+        "registration_type": (
+            GOLDTIER_REGISTRATION_TYPE_POC_VALUE,
+            PolicyAuthority.USER_AUTHORIZED_POC,
+        ),
+        "policy": (GOLDTIER_POLICY_POC_VALUE, PolicyAuthority.SPONSOR_DOCUMENTED),
+        "booking_entity": (
+            GOLDTIER_BOOKING_ENTITY_POC_VALUE,
+            PolicyAuthority.USER_AUTHORIZED_POC,
+        ),
+    }
+    if target is None or snapshot.catalogue_version < 1:
+        raise ValueError("Current catalogue has no accepted SG target policy")
+    if any(
+        getattr(target, field).value != value
+        or getattr(target, field).authority != authority
+        for field, (value, authority) in expected.items()
+    ):
+        raise ValueError("Current catalogue contradicts the accepted SG target policy")
+    return target
+
+
 class OnboardingService:
     """Run the minimal complete flow while preserving terminal failure semantics."""
 
@@ -294,14 +356,484 @@ class OnboardingService:
     def target_provider_mode(self) -> GoldTierProviderMode:
         return self._goldtier_mapper.environment
 
+    def confirm_target_dispatch(
+        self,
+        *,
+        case_id: UUID,
+        actor_id: str,
+        expected_case_event_count: int,
+        clm_version: int | None,
+        destination: Literal["GOLDTIER_MOCK", "GOLDTIER_XPI_SANDBOX"],
+        warnings: tuple[str, ...] = (),
+        reauthorize: Callable[[], None] | None = None,
+    ) -> OnboardingCase:
+        """Durably confirm one frozen local-POC review before target mutation."""
+
+        with self.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            case = self._repository.get(case_id)
+            if case is None:
+                raise ValueError("Onboarding case was not found")
+            expected_destination = self._target_destination(self.target_provider_mode)
+            if destination != expected_destination:
+                raise ValueError("Target destination does not match the configured provider")
+            if case.state != WorkflowState.VALIDATED or case.entity is None:
+                raise ValueError("Onboarding case is not ready for target confirmation")
+            preview = self.build_request_preview(case, provider_mode=self.target_provider_mode)
+            if not preview.dispatch_ready:
+                raise ValueError("Required GoldTier target enrichment is unavailable.")
+
+            digest = self._target_review_digest(case, preview)
+            existing = case.target_dispatch_confirmation
+            if (
+                existing is not None
+                and existing.actor_id == actor_id
+                and existing.clm_version == clm_version
+                and existing.destination == destination
+                and existing.warnings == warnings
+                and existing.review_digest == digest
+                and existing.case_event_count == expected_case_event_count
+            ):
+                return case.model_copy(deep=True)
+            if len(case.events) != expected_case_event_count:
+                raise ValueError("Onboarding case changed before target confirmation")
+
+            timestamp = self._clock()
+            updated = case.model_copy(deep=True)
+            updated.target_dispatch_confirmation = TargetDispatchConfirmation(
+                confirmation_id=self._uuid_factory(),
+                actor_id=actor_id,
+                confirmed_at=timestamp,
+                case_event_count=expected_case_event_count,
+                clm_version=clm_version,
+                destination=destination,
+                warnings=warnings,
+                review_digest=digest,
+            )
+            updated.updated_at = timestamp
+            updated.events.append(
+                WorkflowEvent(
+                    sequence=len(updated.events) + 1,
+                    stage=updated.state,
+                    outcome=EventOutcome.SUCCEEDED,
+                    timestamp=timestamp,
+                    case_id=updated.case_id,
+                    correlation_id=updated.correlation_id,
+                    code="TARGET_DISPATCH_CONFIRMED",
+                    message=(
+                        "A local-POC operator confirmed the frozen target review; "
+                        "this is not approval."
+                    ),
+                )
+            )
+            validated = OnboardingCase.model_validate(updated)
+            self._repository.save(validated)
+            return validated.model_copy(deep=True)
+
+    def has_valid_target_dispatch_confirmation(
+        self, case: OnboardingCase, *, clm_version: int | None = None
+    ) -> bool:
+        confirmation = case.target_dispatch_confirmation
+        try:
+            preview = self.build_request_preview(
+                case,
+                provider_mode=self.target_provider_mode,
+            )
+        except ValueError:
+            return False
+        return bool(
+            confirmation is not None
+            and confirmation.destination == self._target_destination(self.target_provider_mode)
+            and (clm_version is None or confirmation.clm_version == clm_version)
+            and confirmation.review_digest == self._target_review_digest(case, preview)
+        )
+
+    @staticmethod
+    def _target_destination(
+        provider_mode: GoldTierProviderMode,
+    ) -> Literal["GOLDTIER_MOCK", "GOLDTIER_XPI_SANDBOX"]:
+        return (
+            "GOLDTIER_XPI_SANDBOX"
+            if provider_mode == GoldTierProviderMode.SANDBOX
+            else "GOLDTIER_MOCK"
+        )
+
+    @staticmethod
+    def _target_review_digest(
+        case: OnboardingCase,
+        preview: GoldTierRequestPreview,
+    ) -> str:
+        material_preview = {
+            "environment": preview.environment,
+            "policy_version": preview.policy_version,
+            "dispatch_ready": preview.dispatch_ready,
+            "operations": [
+                {
+                    "operation": operation.operation,
+                    "missing_fields": operation.missing_fields,
+                    "validation": operation.validation.value,
+                    "fields": [
+                        field.model_dump(mode="json")
+                        for field in operation.fields
+                    ],
+                }
+                for operation in preview.operations
+            ],
+        }
+        frozen_review = {
+            "case_id": str(case.case_id),
+            "source_case_id": case.source_case_id,
+            "requested_uen": case.requested_uen,
+            "initial_identity": (
+                case.initial_identity.model_dump(mode="json")
+                if case.initial_identity is not None
+                else None
+            ),
+            "initial_target_search": (
+                case.initial_target_search.model_dump(mode="json")
+                if case.initial_target_search is not None
+                else None
+            ),
+            "existing_target_state": (
+                case.existing_target_state.model_dump(mode="json")
+                if case.existing_target_state is not None
+                else None
+            ),
+            "policy_snapshot": case.policy_snapshot.model_dump(mode="json"),
+            "entity": case.entity.model_dump(mode="json") if case.entity is not None else None,
+            "registry_acquisition": (
+                case.registry_acquisition.model_dump(mode="json")
+                if case.registry_acquisition is not None
+                else None
+            ),
+            "registry_evidence_binding": (
+                case.registry_evidence_binding.model_dump(mode="json")
+                if case.registry_evidence_binding is not None
+                else None
+            ),
+            "target_request_preview": material_preview,
+        }
+        return sha256(
+            json.dumps(frozen_review, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+    def repair_initial_identity_and_recheck(
+        self,
+        *,
+        case_id: UUID,
+        actor_id: str,
+        legal_name: str,
+        registration_number: str,
+        country_of_incorporation: str,
+        expected_case_event_count: int,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> OnboardingCase:
+        """Correct pre-submission identity and run one durable read-only Search recheck."""
+
+        identity = InitialCustomerIdentity(
+            legal_name=" ".join(legal_name.strip().split()),
+            registration_number=registration_number.strip().upper(),
+            country_of_incorporation=country_of_incorporation.strip().upper(),
+        )
+        if (
+            identity.country_of_incorporation != JurisdictionCode.SINGAPORE.value
+            or not is_eligible_singapore_uen(identity.registration_number)
+        ):
+            raise ValueError("Corrected identity is not eligible for the Singapore route")
+        with self.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            case = self._repository.get(case_id)
+            if case is None:
+                raise ValueError("Onboarding case was not found")
+            previous_search = case.initial_target_search
+            previous_identity = case.initial_identity
+            if previous_identity is None and case.entity is not None:
+                previous_identity = InitialCustomerIdentity(
+                    legal_name=case.entity.legal_name,
+                    registration_number=case.entity.registration_number,
+                    country_of_incorporation=case.entity.country_of_incorporation or "",
+                )
+            missing_identity_repair = bool(
+                previous_search is None
+                and case.initial_identity is None
+                and case.error is not None
+                and case.error.code == "INITIAL_IDENTITY_INCOMPLETE"
+            )
+            if not missing_identity_repair and (
+                previous_identity is None
+                or (
+                    previous_search is not None
+                    and previous_search.disposition
+                    not in {"FAILED", "REVIEW_REQUIRED", "NO_MATCH", "EXACT_MATCH"}
+                )
+            ):
+                raise ValueError("Identity is not editable in the current pre-submission state")
+            if len(case.events) != expected_case_event_count:
+                raise ValueError("Onboarding case changed before identity repair")
+            if case.target_dispatch_confirmation is not None or case.goldtier_result is not None:
+                raise ValueError("Target execution state is already frozen")
+
+            changed_identity = previous_identity != identity
+            request_id = self._uuid_factory()
+            requested_at = self._clock()
+            requested = case.model_copy(deep=True)
+            if changed_identity:
+                requested.identity_corrections = (
+                    *requested.identity_corrections,
+                    IdentityCorrectionEvidence(
+                        correction_id=self._uuid_factory(),
+                        actor_id=actor_id,
+                        previous_identity=previous_identity,
+                        corrected_identity=identity,
+                        previous_search_request_id=(
+                            previous_search.request_id if previous_search is not None else None
+                        ),
+                        corrected_at=requested_at,
+                    ),
+                )
+            requested.initial_identity = identity
+            requested.requested_uen = identity.registration_number
+            requested.existing_target_state = None
+            requested.target_dispatch_confirmation = None
+            requested.goldtier_result = None
+            if changed_identity:
+                requested.entity = None
+                requested.registry_acquisition = None
+                requested.registry_evidence_binding = None
+                requested.registry_route = None
+            requested.initial_target_search_attempts = (
+                *requested.initial_target_search_attempts,
+                InitialGoldTierSearchAttempt(
+                    request_id=request_id,
+                    actor_id=actor_id,
+                    identity=identity,
+                    status="REQUESTED",
+                    requested_at=requested_at,
+                ),
+            )
+            requested.updated_at = requested_at
+            requested.events.append(
+                WorkflowEvent(
+                    sequence=len(requested.events) + 1,
+                    stage=requested.state,
+                    outcome=EventOutcome.SUCCEEDED,
+                    timestamp=requested_at,
+                    case_id=requested.case_id,
+                    correlation_id=requested.correlation_id,
+                    code="GOLDTIER_SEARCH_RECHECK_REQUESTED",
+                    message="An authorized read-only GoldTier Search recheck was requested.",
+                )
+            )
+            self._repository.save(OnboardingCase.model_validate(requested))
+
+            evidence, reused_case = self._run_initial_identity_search(
+                requested,
+                identity=identity,
+                request_id=request_id,
+            )
+            completed_at = self._clock()
+            completed = requested.model_copy(deep=True)
+            completed.initial_target_search = evidence
+            completed.initial_target_search_attempts = (
+                *completed.initial_target_search_attempts[:-1],
+                completed.initial_target_search_attempts[-1].model_copy(
+                    update={
+                        "status": "COMPLETED",
+                        "completed_at": completed_at,
+                        "result": evidence,
+                    }
+                ),
+            )
+            completed.error = None
+            if reused_case is not None and reused_case.entity is not None:
+                completed.entity = reused_case.entity.model_copy(deep=True)
+                completed.existing_target_state = ExistingTargetStateProvenance(
+                    source_case_id=reused_case.case_id,
+                    target_party_id=evidence.selected_party_id or "",
+                    verified_at=completed_at,
+                )
+                final_state = WorkflowState.VALIDATED
+                outcome = EventOutcome.SUCCEEDED
+                code = "GOLDTIER_SEARCH_RECHECK_EXACT_MATCH"
+            elif evidence.disposition == "NO_MATCH":
+                final_state = (
+                    WorkflowState.VALIDATED
+                    if completed.entity is not None
+                    else WorkflowState.GT_SEARCHED
+                )
+                outcome = EventOutcome.SUCCEEDED
+                code = "GOLDTIER_SEARCH_RECHECK_NO_MATCH"
+            else:
+                final_state = WorkflowState.REVIEW_REQUIRED
+                outcome = (
+                    EventOutcome.FAILED
+                    if evidence.disposition == "FAILED"
+                    else EventOutcome.REVIEW_REQUIRED
+                )
+                code = (
+                    evidence.provider_outcome
+                    if evidence.disposition == "FAILED"
+                    else "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
+                )
+            completed.state = final_state
+            completed.updated_at = completed_at
+            completed.events.append(
+                WorkflowEvent(
+                    sequence=len(completed.events) + 1,
+                    stage=final_state,
+                    outcome=outcome,
+                    timestamp=completed_at,
+                    case_id=completed.case_id,
+                    correlation_id=completed.correlation_id,
+                    code=code,
+                    message="Authorized read-only GoldTier Search recheck completed.",
+                )
+            )
+            validated = OnboardingCase.model_validate(completed)
+            self._repository.save(validated)
+            if evidence.disposition == "NO_MATCH" and validated.entity is None:
+                return self._acquire_registry_after_identity_recheck(validated, identity)
+            return validated.model_copy(deep=True)
+
+    def _run_initial_identity_search(
+        self,
+        case: OnboardingCase,
+        *,
+        identity: InitialCustomerIdentity,
+        request_id: UUID,
+    ) -> tuple[InitialGoldTierSearchEvidence, OnboardingCase | None]:
+        request = (
+            XpiCustomerSearchRequest(
+                legal_name=identity.legal_name,
+                country_of_incorporation=identity.country_of_incorporation,
+            )
+            if self.target_provider_mode == GoldTierProviderMode.SANDBOX
+            else SearchPartyRequest(registration_number=identity.registration_number)
+        )
+        try:
+            result = validate_search_response(
+                self._goldtier.search_party(
+                    request,
+                    GoldTierRequestMetadata(
+                        correlation_id=case.correlation_id,
+                        source_case_id=case.source_case_id,
+                        idempotency_key=request_id,
+                    ),
+                )
+            )
+        except ConnectorError as exc:
+            result = _initial_search_failure(exc.code)
+        except InvalidTargetResponseError:
+            result = _initial_search_failure("GT_XPI_MALFORMED_RESPONSE")
+
+        disposition: Literal["NO_MATCH", "EXACT_MATCH", "REVIEW_REQUIRED", "FAILED"] = (
+            "REVIEW_REQUIRED"
+        )
+        selected_party_id: str | None = None
+        reused_case: OnboardingCase | None = None
+        if result.outcome == GoldTierSearchOutcome.NO_MATCH:
+            disposition = "NO_MATCH"
+        elif result.outcome == GoldTierSearchOutcome.FAILURE:
+            result = _initial_search_failure(result.error_code, status_code=result.status_code)
+            disposition = "FAILED"
+        elif result.outcome == GoldTierSearchOutcome.MATCH_FOUND and len(result.candidates) == 1:
+            candidate = result.candidates[0]
+            reused_case = self._repository.find_verified_target_case(
+                registration_number=identity.registration_number,
+                legal_name=identity.legal_name,
+                country_of_incorporation=identity.country_of_incorporation,
+                party_id=candidate.party_id,
+            )
+            if reused_case is not None and reused_case.entity is not None:
+                disposition = "EXACT_MATCH"
+                selected_party_id = candidate.party_id
+            else:
+                reused_case = None
+        evidence = InitialGoldTierSearchEvidence(
+            request_id=request_id,
+            disposition=disposition,
+            provider_outcome=(
+                result.error_code
+                if disposition == "FAILED" and result.error_code is not None
+                else result.outcome.value
+            ),
+            status_code=result.status_code,
+            candidate_count=len(result.candidates),
+            candidate_party_ids=tuple(item.party_id for item in result.candidates),
+            candidate_legal_names=tuple(item.legal_name for item in result.candidates),
+            selected_party_id=selected_party_id,
+            searched_at=self._clock(),
+        )
+        return evidence, reused_case
+
+    def _acquire_registry_after_identity_recheck(
+        self, case: OnboardingCase, identity: InitialCustomerIdentity
+    ) -> OnboardingCase:
+        resolution = self._jurisdiction_resolver.resolve(
+            (
+                JurisdictionObservation(
+                    jurisdiction=JurisdictionCode.SINGAPORE,
+                    source=JurisdictionObservationSource.USER_INPUT,
+                    observed_at=self._clock(),
+                    source_reference="identity-correction.country_of_incorporation",
+                ),
+            ),
+            resolved_at=self._clock(),
+        )
+        route, provider = self._registry_router.route(
+            JurisdictionCode.SINGAPORE, decided_at=self._clock()
+        )
+        if provider is None:
+            raise ValueError("Singapore registry provider is unavailable")
+        coordinated = (
+            self._registry_acquisition_coordinator.acquire(
+                provider, identity.registration_number
+            )
+            if self._registry_acquisition_coordinator is not None
+            else None
+        )
+        acquisition = (
+            coordinated.acquisition
+            if coordinated is not None
+            else provider.retrieve_acquisition(identity.registration_number)
+        )
+        if acquisition is None or acquisition.status != RegistryAcquisitionStatus.COMPLETE:
+            return self._terminate(
+                case,
+                WorkflowState.REVIEW_REQUIRED,
+                EventOutcome.REVIEW_REQUIRED,
+                "REGISTRY_RECHECK_INCOMPLETE",
+                "Registry evidence could not be completed after identity correction.",
+            )
+        updated = case.model_copy(deep=True)
+        updated.jurisdiction_resolution = resolution
+        updated.registry_route = route
+        updated.registry_acquisition = acquisition
+        updated.registry_evidence_binding = (
+            coordinated.binding if coordinated is not None else None
+        )
+        updated.entity = acquisition.entity_profile
+        updated.error = None
+        self._record(
+            updated,
+            WorkflowState.VALIDATED,
+            EventOutcome.SUCCEEDED,
+            "Registry evidence was reacquired after identity correction.",
+            "IDENTITY_CORRECTION_REGISTRY_REACQUIRED",
+        )
+        return updated.model_copy(deep=True)
+
     def bind_goldtier_case_classification(
         self,
         *,
         case_id: UUID,
         kyc_customer_type: str,
         client_segment: str,
+        expected_case_event_count: int | None = None,
     ) -> OnboardingCase:
-        """Bind one validated operator decision into the case target snapshot."""
+        """Bind or edit one pre-dispatch local-POC target classification."""
 
         if kyc_customer_type not in GOLDTIER_KYC_CUSTOMER_TYPE_VALUES:
             raise ValueError("GoldTier KYC customer type is not in the current vocabulary")
@@ -311,28 +843,37 @@ class OnboardingService:
             case = self._repository.get(case_id)
             if case is None:
                 raise ValueError("Onboarding case was not found")
+            if (
+                expected_case_event_count is not None
+                and len(case.events) != expected_case_event_count
+            ):
+                raise ValueError("Onboarding case changed before target classification")
             target = case.policy_snapshot.goldtier_target
             if target is None:
                 raise ValueError("GoldTier target policy is unavailable for this case")
-            if case.goldtier_result is not None or case.state in {
-                WorkflowState.GT_SHELL_CREATED,
-                WorkflowState.GT_POLICY_CREATED,
-                WorkflowState.GT_ENRICHED,
-                WorkflowState.COMPLETED,
-            }:
+            if (
+                case.target_dispatch_confirmation is not None
+                or case.goldtier_result is not None
+                or case.state
+                in {
+                    WorkflowState.GT_SHELL_CREATED,
+                    WorkflowState.GT_POLICY_CREATED,
+                    WorkflowState.GT_ENRICHED,
+                    WorkflowState.COMPLETED,
+                }
+            ):
                 raise ValueError("GoldTier target classification is already frozen")
 
             already_bound = (
                 target.kyc_customer_type.authority != PolicyAuthority.TBD_SPONSOR
                 and target.client_segment.authority != PolicyAuthority.TBD_SPONSOR
             )
-            if already_bound:
-                if (
-                    target.kyc_customer_type.value == kyc_customer_type
-                    and target.client_segment.value == client_segment
-                ):
-                    return case.model_copy(deep=True)
-                raise ValueError("GoldTier target classification is already frozen")
+            if (
+                already_bound
+                and target.kyc_customer_type.value == kyc_customer_type
+                and target.client_segment.value == client_segment
+            ):
+                return case.model_copy(deep=True)
 
             timestamp = self._clock()
             selected_target = target.model_copy(
@@ -352,6 +893,7 @@ class OnboardingService:
             updated.policy_snapshot = case.policy_snapshot.model_copy(
                 update={"goldtier_target": selected_target}, deep=True
             )
+            updated.target_dispatch_confirmation = None
             updated.updated_at = timestamp
             updated.events.append(
                 WorkflowEvent(
@@ -361,11 +903,162 @@ class OnboardingService:
                     timestamp=timestamp,
                     case_id=updated.case_id,
                     correlation_id=updated.correlation_id,
-                    code="GOLDTIER_CASE_CLASSIFICATION_BOUND",
+                    code=(
+                        "GOLDTIER_CASE_CLASSIFICATION_EDITED"
+                        if already_bound
+                        else "GOLDTIER_CASE_CLASSIFICATION_BOUND"
+                    ),
                     message=(
                         "Authorized case-specific GoldTier classifications were bound "
                         "to the case policy snapshot."
                     ),
+                )
+            )
+            validated = OnboardingCase.model_validate(updated)
+            self._repository.save(validated)
+            return validated.model_copy(deep=True)
+
+    def rebind_case_policy_snapshot(
+        self,
+        *,
+        case_id: UUID,
+        actor_id: str,
+        rationale: str,
+        expected_case_event_count: int,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> OnboardingCase:
+        """Rebind only accepted SG target constants while retaining case-owned policy choices."""
+
+        with self.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            case = self._repository.get(case_id)
+            if case is None:
+                raise ValueError("Onboarding case was not found")
+            if len(case.events) != expected_case_event_count:
+                raise ValueError("Onboarding case changed before policy rebind")
+            if (
+                case.target_dispatch_confirmation is not None
+                or case.goldtier_result is not None
+                or case.state
+                in {
+                    WorkflowState.GT_SHELL_CREATED,
+                    WorkflowState.GT_POLICY_CREATED,
+                    WorkflowState.GT_ENRICHED,
+                    WorkflowState.COMPLETED,
+                }
+            ):
+                raise ValueError("Case policy is frozen after target execution begins")
+            _validate_sg_policy_rebind_identity(case)
+
+            current_catalogue = self._policy_snapshot_provider()
+            current_target = _validated_current_sg_target_policy(current_catalogue)
+            previous = case.policy_snapshot
+            previous_target = previous.goldtier_target
+            retained_target = previous_target or current_target
+
+            def retained_operator_choice(
+                old: AuthorityLabelledTargetValue,
+                current: AuthorityLabelledTargetValue,
+                allowed: tuple[str, ...],
+            ) -> AuthorityLabelledTargetValue:
+                if old.authority == PolicyAuthority.USER_AUTHORIZED_POC and old.value in allowed:
+                    return old
+                return current
+
+            rebound_target = GoldTierTargetPolicySnapshot(
+                kyc_customer_type=retained_operator_choice(
+                    retained_target.kyc_customer_type,
+                    current_target.kyc_customer_type,
+                    GOLDTIER_KYC_CUSTOMER_TYPE_VALUES,
+                ),
+                client_segment=retained_operator_choice(
+                    retained_target.client_segment,
+                    current_target.client_segment,
+                    GOLDTIER_CLIENT_SEGMENT_VALUES,
+                ),
+                customer_external_system=current_target.customer_external_system,
+                registration_type=current_target.registration_type,
+                policy=current_target.policy,
+                booking_entity=current_target.booking_entity,
+                account_entity_type=retained_target.account_entity_type,
+                product_type=retained_target.product_type,
+            )
+            fixed_fields: tuple[
+                tuple[
+                    Literal[
+                        "customerExternalSystem",
+                        "registrationType",
+                        "policy",
+                        "bookingEntity",
+                    ],
+                    Literal[
+                        "customer_external_system",
+                        "registration_type",
+                        "policy",
+                        "booking_entity",
+                    ],
+                ],
+                ...,
+            ] = (
+                ("customerExternalSystem", "customer_external_system"),
+                ("registrationType", "registration_type"),
+                ("policy", "policy"),
+                ("bookingEntity", "booking_entity"),
+            )
+            changed_fields = tuple(
+                browser_name
+                for browser_name, attribute in fixed_fields
+                if previous_target is None
+                or getattr(previous_target, attribute) != getattr(rebound_target, attribute)
+            )
+            if not changed_fields:
+                return case.model_copy(deep=True)
+            if len(case.policy_rebind_history) >= 8:
+                raise ValueError("Case policy rebind history capacity is exhausted")
+
+            now = self._clock()
+            next_revision = case.policy_snapshot_revision + 1
+            try:
+                audit = CasePolicyRebindAudit(
+                    previous_revision=case.policy_snapshot_revision,
+                    resulting_revision=next_revision,
+                    previous_snapshot=previous,
+                    actor_id=actor_id,
+                    rebound_at=now,
+                    rationale=rationale,
+                    changed_fields=changed_fields,
+                    source_catalogue_version=current_catalogue.catalogue_version,
+                )
+            except ValidationError:
+                raise ValueError("Policy rebind audit metadata is invalid") from None
+            rebound_snapshot = previous.model_copy(
+                update={
+                    "snapshot_label": (
+                        f"SG_POC_POLICY_REBIND_V{current_catalogue.catalogue_version}"
+                    ),
+                    "catalogue_version": current_catalogue.catalogue_version,
+                    "goldtier_target": rebound_target,
+                    "bound_at": now,
+                },
+                deep=True,
+            )
+            updated = case.model_copy(deep=True)
+            updated.policy_snapshot = CasePolicySnapshot.model_validate(rebound_snapshot)
+            updated.policy_snapshot_revision = next_revision
+            updated.policy_rebind_history = (*case.policy_rebind_history, audit)
+            updated.target_dispatch_confirmation = None
+            updated.updated_at = now
+            updated.events.append(
+                WorkflowEvent(
+                    sequence=len(updated.events) + 1,
+                    stage=updated.state,
+                    outcome=EventOutcome.SUCCEEDED,
+                    timestamp=now,
+                    case_id=updated.case_id,
+                    correlation_id=updated.correlation_id,
+                    code="SG_POC_POLICY_SNAPSHOT_REBOUND",
+                    message="Accepted SG POC target constants were rebound to the case.",
                 )
             )
             validated = OnboardingCase.model_validate(updated)
@@ -422,7 +1115,7 @@ class OnboardingService:
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
     ) -> OnboardingCase:
-        """Preserve the Phase 01 API as staged intake plus Mock GoldTier submission."""
+        """Preserve the legacy intake route while stopping before target mutation."""
 
         case = self.create_staged_case(
             uen,
@@ -431,9 +1124,7 @@ class OnboardingService:
             team_id=team_id,
             priority=priority,
         )
-        if case.state != WorkflowState.VALIDATED:
-            return case
-        return self.submit_staged_case(case.case_id, complete_legacy_flow=True)
+        return case
 
     def create_staged_case(
         self,
@@ -620,7 +1311,9 @@ class OnboardingService:
             except InvalidTargetResponseError:
                 result = _initial_search_failure("GT_XPI_MALFORMED_RESPONSE")
 
-            disposition = "REVIEW_REQUIRED"
+            disposition: Literal[
+                "NO_MATCH", "EXACT_MATCH", "REVIEW_REQUIRED", "FAILED"
+            ] = "REVIEW_REQUIRED"
             selected_party_id: str | None = None
             if result.outcome == GoldTierSearchOutcome.NO_MATCH:
                 disposition = "NO_MATCH"
@@ -691,15 +1384,15 @@ class OnboardingService:
                 )
                 return case.model_copy(deep=True)
             if disposition == "REVIEW_REQUIRED":
-                return self._terminate(
+                self._record(
                     case,
-                    WorkflowState.REVIEW_REQUIRED,
+                    WorkflowState.GT_SEARCHED,
                     EventOutcome.REVIEW_REQUIRED,
-                    "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
                     (
-                        "GoldTier candidates require exact identity review; ACRA and target "
-                        "writes are blocked."
+                        "GoldTier candidates require exact identity review; independent "
+                        "registry evidence may continue while target writes remain blocked."
                     ),
+                    "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
                 )
             if disposition == "FAILED":
                 self._record(
@@ -709,7 +1402,7 @@ class OnboardingService:
                     result.message,
                     result.error_code or "SEARCH_SERVICE_UNAVAILABLE",
                 )
-            else:
+            elif disposition == "NO_MATCH":
                 self._record(
                     case,
                     WorkflowState.GT_SEARCHED,
@@ -965,7 +1658,7 @@ class OnboardingService:
             case,
             submission_id=case.case_id,
             correlation_id=case.correlation_id,
-            accepted_at=case.updated_at,
+            accepted_at=case.created_at,
             idempotency=preview_bindings,
             provider_mode=provider_mode,
         )
@@ -1127,6 +1820,9 @@ class OnboardingService:
             except ValueError:
                 raise ValueError("Required GoldTier target preparation is invalid.") from None
 
+            if not self.has_valid_target_dispatch_confirmation(case):
+                raise ValueError("Target dispatch requires a current frozen-review confirmation")
+
             self._start_execution(submission_input)
             outcome_uncertain = False
             try:
@@ -1189,6 +1885,9 @@ class OnboardingService:
             preview = self._goldtier_mapper.build_preview(submission_input)
             if not preview.dispatch_ready:
                 raise ValueError("Required GoldTier target enrichment is unavailable.")
+
+            if not self.has_valid_target_dispatch_confirmation(case):
+                raise ValueError("Target dispatch requires a current frozen-review confirmation")
 
             entry = self._stored_execution_entry(submission_input)
             if entry is None:

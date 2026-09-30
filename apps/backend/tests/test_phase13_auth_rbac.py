@@ -1078,6 +1078,73 @@ def test_review_reauthorizes_inside_case_lock_before_mutation(
     assert after_automation["version"] == paused.json()["version"]
 
 
+@pytest.mark.parametrize(("mode", "expected_status"), [("revoked", 401), ("cross_team", 404)])
+def test_identity_recheck_reauthorizes_inside_case_lock_before_search(
+    runtime_credentials: tuple[str, dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    expected_status: int,
+) -> None:
+    password, hashes = runtime_credentials
+    client, authentication = _raw_client(hashes)
+    csrf = _login(client, "maya-lim", password)
+    created_response = client.post(
+        "/api/clm/zero-touch/cases",
+        json={
+            "uen": "202400005E",
+            "country_of_incorporation": "SG",
+            "legal_name": "LION CITY EXISTING CUSTOMER PTE. LTD.",
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert created_response.status_code == 201
+    created = created_response.json()
+    assert created["current_stage"] == "GOLDTIER_SEARCH"
+    case_id = created["case"]["case_id"]
+    original_authenticate = authentication.authenticate_session
+    cross_team_session = (
+        authentication.login("sophia-ng", password).record if mode == "cross_team" else None
+    )
+    calls = 0
+
+    def authenticate_with_mid_request_change(token: str | None):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return original_authenticate(token)
+        if cross_team_session is not None:
+            return cross_team_session
+        raise AuthenticationError
+
+    monkeypatch.setattr(
+        authentication, "authenticate_session", authenticate_with_mid_request_change
+    )
+    denied = client.post(
+        f"/api/clm/zero-touch/cases/{case_id}/identity-search-recheck",
+        json={
+            "legal_name": "LION CITY EXISTING CUSTOMER PTE. LTD.",
+            "registration_number": "202400005E",
+            "country_of_incorporation": "SG",
+            "expected_automation_version": created["version"],
+            "expected_clm_version": created["clm"]["version"],
+            "expected_case_event_count": len(created["case"]["events"]),
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    monkeypatch.setattr(authentication, "authenticate_session", original_authenticate)
+    after = client.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+
+    assert denied.status_code == expected_status
+    assert denied.json()["detail"]["code"] == (
+        "AUTHENTICATION_REQUIRED" if mode == "revoked" else "CASE_NOT_FOUND"
+    )
+    assert after["version"] == created["version"]
+    assert after["case"]["events"] == created["case"]["events"]
+    assert after["case"]["initial_identity"] == created["case"]["initial_identity"]
+    assert after["case"]["identity_corrections"] == []
+    assert after["clm"]["version"] == created["clm"]["version"]
+
+
 def test_every_current_application_route_is_deliberately_classified(
     runtime_credentials: tuple[str, dict[str, str]],
 ) -> None:
@@ -1088,13 +1155,13 @@ def test_every_current_application_route_is_deliberately_classified(
     counts = Counter(policy.access for policy in ROUTE_POLICIES)
 
     assert actual == expected
-    assert len(expected) == len(ROUTE_POLICIES) == 67
+    assert len(expected) == len(ROUTE_POLICIES) == 74
     assert counts == {
         RouteAccess.PUBLIC: 2,
-        RouteAccess.ACTOR_ONLY: 21,
+        RouteAccess.ACTOR_ONLY: 23,
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
-        RouteAccess.CASE_SCOPED: 35,
+        RouteAccess.CASE_SCOPED: 40,
     }
 
 

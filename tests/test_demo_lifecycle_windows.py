@@ -1486,12 +1486,23 @@ $roles = @(
             probe_completed_at: dict[str, float] = {}
             for name, url in endpoints.items():
                 probe_started_at = monotonic()
+                remaining_probe_budget = deadline - probe_started_at
+                if remaining_probe_budget <= 0:
+                    self.fail(
+                        "Post-rejection endpoints did not recover before the monotonic "
+                        f"deadline: attempts={attempts}, endpoints={last_endpoint_status}, "
+                        f"probes={json.dumps(endpoint_observations, sort_keys=True)}, "
+                        "identity_observations="
+                        f"{json.dumps(identity_observations, sort_keys=True)}"
+                    )
                 try:
                     if use_structured_probe:
                         observation = self.probe_endpoint_health(
                             name,
                             url,
-                            timeout=min(timeout, 0.5),
+                            # Keep the overall deadline; do not discard healthy
+                            # responses through an unrelated fixed per-request cap.
+                            timeout=remaining_probe_budget,
                             monotonic=monotonic,
                         )
                     else:
@@ -1983,6 +1994,46 @@ $roles = @(
                 {"backend": [False, True], "frontend": [True, True]}
             )
             self.assertEqual(calls, {"backend": 2, "frontend": 2})
+
+        with self.subTest(post_rejection_probe="healthy_response_within_remaining_budget"):
+            now = [0.0]
+            supplied_budgets: list[float] = []
+
+            def bounded_slow_response(
+                name: str,
+                _url: str,
+                *,
+                timeout: float,
+                monotonic: Callable[[], float],
+            ) -> dict[str, Any]:
+                supplied_budgets.append(timeout)
+                response_duration = 0.75 if name == "frontend" else 0.0
+                now[0] += min(response_duration, timeout)
+                healthy = response_duration <= timeout
+                return {
+                    "role": name,
+                    "http_status": 200 if healthy else None,
+                    "headers_completed": healthy,
+                    "body_completed": healthy,
+                    "failure_category": "healthy" if healthy else "timeout",
+                    "elapsed_ms": round(min(response_duration, timeout) * 1000),
+                }
+
+            def measured_identity(process_id: int) -> dict[str, str | int] | None:
+                now[0] += 0.2
+                return stable_identities.get(process_id)
+
+            with patch.object(self, "probe_endpoint_health", side_effect=bounded_slow_response):
+                self.assert_owned_endpoints_healthy_within(
+                    expected_state,
+                    timeout=5.0,
+                    identity_probe=measured_identity,
+                    monotonic=lambda: now[0],
+                    wait=lambda seconds: now.__setitem__(0, now[0] + seconds),
+                )
+            self.assertEqual(len(supplied_budgets), 2)
+            self.assertGreaterEqual(supplied_budgets[1], 0.75)
+            self.assertLessEqual(now[0], 5.8)
 
         started = self.run_lifecycle("start_demo_windows.bat")
         self.assertEqual(started.returncode, 0)

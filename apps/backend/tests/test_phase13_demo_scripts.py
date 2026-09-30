@@ -306,11 +306,26 @@ class ApplicationSeedApi:
             },
         )
         assert response.status_code == 200
-        assert response.json()["status"] == "COMPLETED", (
-            response.json()["case"]["requested_uen"],
-            response.json()["active_exceptions"],
+        staged = response.json()
+        assert staged["status"] == "WAITING_FOR_REVIEW"
+        assert [item["exception_type"] for item in staged["active_exceptions"]] == [
+            "TARGET_CONFIRMATION_REQUIRED"
+        ]
+        confirmed = self.client.post(
+            f"/api/clm/zero-touch/cases/{case_id}/target-confirmation",
+            json={
+                "expected_automation_version": staged["version"],
+                "expected_clm_version": staged["clm"]["version"],
+                "expected_case_event_count": len(staged["case"]["events"]),
+            },
+            headers={"X-CSRF-Token": self.csrf},
         )
-        assert response.json()["clm"]["status"] == "MOCK_GOLDTIER_SUBMITTED"
+        assert confirmed.status_code == 200
+        assert confirmed.json()["status"] == "COMPLETED", (
+            confirmed.json()["case"]["requested_uen"],
+            confirmed.json()["active_exceptions"],
+        )
+        assert confirmed.json()["clm"]["status"] == "MOCK_GOLDTIER_SUBMITTED"
 
     def set_priority(self, case_id: str, priority: int | None) -> None:
         response = self.client.patch(
@@ -327,6 +342,47 @@ class ApplicationSeedApi:
         )
         assert response.status_code == 204
 
+
+class ConfirmingHttpSeedApi(HttpSeedApi):
+    """Test adapter that completes the production client's new confirmation step."""
+
+    def complete_case(self, case_id: str) -> None:
+        staged = self._request(
+            "POST",
+            f"/api/demo/clm/zero-touch/cases/{case_id}/documents",
+            data=_synthetic_pdf(),
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/pdf",
+                "X-Document-Name": "phase13-synthetic-profile.pdf",
+            },
+        )
+        assert isinstance(staged, dict)
+        assert staged.get("status") == "WAITING_FOR_REVIEW"
+        blockers = staged.get("active_exceptions")
+        assert isinstance(blockers, list)
+        assert [item.get("exception_type") for item in blockers] == [
+            "TARGET_CONFIRMATION_REQUIRED"
+        ]
+        clm = staged.get("clm")
+        case = staged.get("case")
+        assert isinstance(clm, dict) and isinstance(case, dict)
+        events = case.get("events")
+        assert isinstance(events, list)
+        confirmed = self._json_request(
+            "POST",
+            f"/api/clm/zero-touch/cases/{case_id}/target-confirmation",
+            {
+                "expected_automation_version": staged.get("version"),
+                "expected_clm_version": clm.get("version"),
+                "expected_case_event_count": len(events),
+            },
+        )
+        assert isinstance(confirmed, dict)
+        confirmed_clm = confirmed.get("clm")
+        assert confirmed.get("status") == "COMPLETED"
+        assert isinstance(confirmed_clm, dict)
+        assert confirmed_clm.get("status") == "MOCK_GOLDTIER_SUBMITTED"
 
 def test_memory_mode_seed_twice_produces_genuine_shared_team_portfolios() -> None:
     credential = secrets.token_urlsafe(24)
@@ -407,7 +463,7 @@ def test_http_seeder_runs_twice_against_one_live_memory_backend() -> None:
         time.sleep(0.01)
     assert server.started
     try:
-        api = HttpSeedApi(f"http://127.0.0.1:{port}")
+        api = ConfirmingHttpSeedApi(f"http://127.0.0.1:{port}")
         first = seed_demo(api, credential)
         second = seed_demo(api, credential)
         assert first == type(first)(created=10, reused=0, prioritised=10)

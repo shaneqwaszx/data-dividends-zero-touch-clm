@@ -1,6 +1,7 @@
 import type { AutomationStage, AutomationStatus, ReadinessStageStatus, ZeroTouchCaseSummary } from "../types";
+import BlockerDecisionDetails from "./BlockerDecisionDetails";
 
-export type EvidenceFocusTarget = "registry" | "documents" | "reconciliation" | "ownership" | "recovery";
+export type EvidenceFocusTarget = "identity" | "registry" | "documents" | "reconciliation" | "ownership" | "classification" | "policy" | "recovery";
 
 const STATUS_WORDING: Record<AutomationStatus, string> = {
   PENDING_INPUTS: "The workflow is waiting for required inputs.",
@@ -30,6 +31,7 @@ const STAGE_TARGET: Partial<Record<AutomationStage, EvidenceFocusTarget>> = {
 };
 
 const CODE_TARGET: Record<string, EvidenceFocusTarget> = {
+  INITIAL_IDENTITY_INCOMPLETE: "identity",
   DOCUMENT_SOURCE_CONFLICT: "reconciliation",
   DOCUMENT_LOW_CONFIDENCE: "documents",
   DOCUMENT_REQUIRED_FIELD_MISSING: "documents",
@@ -39,6 +41,7 @@ const CODE_TARGET: Record<string, EvidenceFocusTarget> = {
   OWNERSHIP_CYCLE: "ownership",
   OWNERSHIP_INCOMPLETE: "ownership",
   OWNERSHIP_REVIEW_REQUIRED: "ownership",
+  GOLDTIER_CLASSIFICATION_REQUIRED: "classification",
   MOCK_FINALIZATION_RECOVERY_PENDING: "recovery",
   TARGET_OPERATION_RECOVERY_PENDING: "recovery",
   CLM_TARGET_OUTCOME_UNCERTAIN: "recovery",
@@ -97,13 +100,14 @@ export default function CaseStateExplanationPanel({
 }) {
   const stageTarget = STAGE_TARGET[summary.current_stage];
   const stageReadiness = summary.clm.readiness;
+  const interventionIds = new Set((summary.interventions ?? []).map((item) => item.intervention_id));
   return (
     <section className="evidence-section-block" aria-labelledby="case-state-explanation-heading">
       <p className="card-kicker">Observed workflow evidence · read only</p>
       <h4 id="case-state-explanation-heading">Why this case is in its current state</h4>
       <p><strong>{summary.status}</strong> — {wording(summary.status, STATUS_WORDING, "automation state")}</p>
       <p><strong>{summary.current_stage}</strong> — {wording(summary.current_stage, STAGE_WORDING, "automation stage")}</p>
-      <button type="button" className="btn btn-secondary" onClick={() => onNavigate("registry")}>Focus registry evidence</button>
+      {stageTarget !== "registry" && <button type="button" className="btn btn-secondary" onClick={() => onNavigate("registry")}>Focus registry evidence</button>}
       {stageTarget && <button type="button" className="btn btn-secondary" onClick={() => onNavigate(stageTarget)}>Focus {stageTarget} evidence</button>}
 
       <h5>Stage readiness</h5>
@@ -121,7 +125,14 @@ export default function CaseStateExplanationPanel({
 
       {summary.active_exceptions.length > 0 && <div><h5>Retained exception context</h5>{summary.active_exceptions.map((exception) => {
         const target = CODE_TARGET[exception.blocker_code] ?? STAGE_TARGET[exception.stage];
-        return <article key={exception.exception_id}><p><strong>{exception.stage} · {exception.blocker_code}</strong></p><p>{exception.explanation}</p>{target ? <button type="button" className="btn btn-ghost" onClick={() => onNavigate(target)}>Focus evidence for {exception.blocker_code}</button> : <p className="text-muted">No fixed evidence destination is available for this retained exception.</p>}</article>;
+        const detailedIntervention = interventionIds.has(exception.exception_id);
+        return <article key={exception.exception_id}>
+          <p><strong>{exception.stage} · {exception.blocker_code}</strong></p>
+          {detailedIntervention
+            ? <p className="text-muted">The explanation and retained decision policy are shown once in Action required.</p>
+            : <><p>{exception.explanation}</p><BlockerDecisionDetails decisions={exception.decisions ?? []} /></>}
+          {target ? <button type="button" className="btn btn-ghost" onClick={() => onNavigate(target)}>Focus evidence for {exception.blocker_code}</button> : <p className="text-muted">No fixed evidence destination is available for this retained exception.</p>}
+        </article>;
       })}</div>}
 
       <h5>Target operations in retained order</h5>

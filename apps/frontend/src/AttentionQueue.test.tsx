@@ -109,6 +109,8 @@ describe("blocker-aware attention queue contract", () => {
       "MOCK_RISK_REVIEW_REQUIRED",
       "EXISTING_PARTY_REVIEW_REQUIRED",
       "TARGET_PARTIAL_REVIEW_REQUIRED",
+      "TARGET_CLASSIFICATION_REQUIRED",
+      "TARGET_CONFIRMATION_REQUIRED",
     ]);
     expect(Object.keys(BUSINESS_EXCEPTION_TYPE_LABELS)).toEqual(BUSINESS_EXCEPTION_TYPES);
     expect(Object.values(BUSINESS_EXCEPTION_TYPE_LABELS).every(Boolean)).toBe(true);

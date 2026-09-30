@@ -8,11 +8,13 @@ BACKEND = ROOT / "apps" / "backend" / "app"
 
 
 class Phase05ClmContractTests(unittest.TestCase):
-    def test_staged_and_legacy_paths_share_one_onboarding_implementation(self) -> None:
+    def test_staged_and_legacy_paths_share_one_confirmation_guarded_implementation(self) -> None:
         source = (BACKEND / "services" / "onboarding.py").read_text(encoding="utf-8")
         self.assertIn("create_staged_case", source)
         self.assertIn("submit_staged_case", source)
-        self.assertIn("complete_legacy_flow=True", source)
+        self.assertIn("complete_legacy_flow: bool = False", source)
+        self.assertIn("if not self.has_valid_target_dispatch_confirmation(case):", source)
+        self.assertNotIn("complete_legacy_flow=True", source)
 
     def test_clm_runtime_has_no_real_http_or_pingfed_dependency(self) -> None:
         source = (BACKEND / "services" / "clm_orchestration.py").read_text(

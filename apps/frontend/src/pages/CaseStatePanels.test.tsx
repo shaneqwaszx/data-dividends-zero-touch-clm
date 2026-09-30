@@ -124,15 +124,73 @@ describe("OnboardingProgressPanel", () => {
     expect(markup).toContain('aria-label="Open details for GoldTier search"');
     expect(markup).toContain('aria-label="Open details for Target classification"');
     expect(markup).not.toContain('aria-label="Open details for ACRA registry"');
+    expect(markup.match(/onboarding-progress__title-row/g)).toHaveLength(3);
+    expect(markup.match(/onboarding-progress__stage-status/g)).toHaveLength(3);
+    expect(markup.match(/onboarding-progress__stage-action/g)).toHaveLength(2);
+    expect(markup.match(/>Review details</g)).toHaveLength(2);
     expect(markup.match(/<button/g)).toHaveLength(2);
   });
 
+  it("keeps a long actionable title intact and labels navigation as non-mutating review", () => {
+    const summary = summaryWithPipeline([
+      processingNode(
+        "TARGET_CLASSIFICATION_CLIENT_SEGMENT",
+        "Target classification and client segment verification",
+        "REVIEW_REQUIRED",
+      ),
+    ]);
+
+    const markup = renderToStaticMarkup(
+      <OnboardingProgressPanel summary={summary} onStageActivate={() => undefined} />,
+    );
+
+    expect(markup).toContain("Target classification and client segment verification");
+    expect(markup).toContain('aria-label="Open details for Target classification and client segment verification"');
+    expect(markup).toContain(">Review details<");
+    expect(markup).not.toContain("Resolve");
+  });
+
+  it("derives one actionable legacy identity tile from the retained blocker when the pipeline omitted it", () => {
+    const summary = summaryWithPipeline([processingNode("DOCUMENT_IDP", "Document and IDP", "NOT_REACHED")]);
+    summary.active_exceptions = [{
+      exception_id: "legacy-identity",
+      blocker_code: "INITIAL_IDENTITY_INCOMPLETE",
+    }] as ZeroTouchCaseSummary["active_exceptions"];
+
+    const markup = renderToStaticMarkup(
+      <OnboardingProgressPanel
+        summary={summary}
+        onStageActivate={() => undefined}
+        availableFocusTargets={new Set(["case-identity-correction"])}
+      />,
+    );
+
+    expect(markup).toContain("Initial identity correction required for a retained Singapore case");
+    expect(markup).toContain('aria-label="Open details for Initial identity correction required for a retained Singapore case"');
+    expect(markup.match(/INITIAL_IDENTITY_INCOMPLETE/g) ?? []).toHaveLength(0);
+  });
+
   it("maps only actionable stable backend nodes to specific existing panels", () => {
+    expect(processingNodeFocusTarget(processingNode("INITIAL_IDENTITY", "Identity", "REVIEW_REQUIRED"))).toBe(
+      "case-identity-correction",
+    );
+    expect(processingNodeFocusTarget(processingNode("INITIAL_IDENTITY", "Identity", "NOT_REACHED"))).toBe(
+      "case-identity-correction",
+    );
     expect(processingNodeFocusTarget(processingNode("GOLDTIER_SEARCH", "Search", "FAILED"))).toBe("case-search-diagnostic");
     expect(processingNodeFocusTarget(processingNode("ACRA_REGISTRY", "ACRA", "REVIEW_REQUIRED"))).toBe("case-evidence-registry");
     expect(processingNodeFocusTarget(processingNode("DOCUMENT_IDP", "Document", "BLOCKED"))).toBe("case-evidence-documents");
     expect(processingNodeFocusTarget(processingNode("TARGET_CLASSIFICATION_CLIENT_SEGMENT", "Classification", "REVIEW_REQUIRED"))).toBe(
       "case-target-classification",
+    );
+    expect(processingNodeFocusTarget(processingNode("TARGET_CLASSIFICATION_KYC_CUSTOMER_TYPE", "KYC", "REVIEW_REQUIRED"))).toBe(
+      "case-target-classification",
+    );
+    expect(processingNodeFocusTarget(processingNode("TARGET_CLASSIFICATION_REGISTRATION_TYPE", "Registration type", "REVIEW_REQUIRED"))).toBe(
+      "case-policy-rebind",
+    );
+    expect(processingNodeFocusTarget(processingNode("TARGET_CLASSIFICATION_CUSTOMER_EXTERNAL_SYSTEM", "External system", "REVIEW_REQUIRED"))).toBe(
+      "case-policy-rebind",
     );
     expect(processingNodeFocusTarget(processingNode("GOLDTIER_TARGET", "Target", "BLOCKED"))).toBe("case-target-blocker");
     expect(processingNodeFocusTarget(processingNode("HUMAN_APPROVAL", "Approval", "REVIEW_REQUIRED"))).toBe("case-human-approval-boundary");

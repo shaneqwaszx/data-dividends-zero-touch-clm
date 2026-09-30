@@ -93,6 +93,7 @@ from app.services.onboarding_intelligence_repository import (
     InMemoryOnboardingIntelligenceRepository,
     OnboardingIntelligenceRepositoryConflictError,
 )
+from app.services.zero_touch_orchestration import ZeroTouchOrchestrator
 from app.services.zero_touch_repository import InMemoryZeroTouchAutomationRepository
 
 TEXT_PROFILE = """Legal Name: MERLION CIRCULAR LABS PTE. LTD.
@@ -357,7 +358,31 @@ def test_automation_repository_equal_timestamp_order_matches_across_modes() -> N
         assert [item.case_id for item in mongo_repository.list_records()] == expected
 
 
-def _durable_adapter_app(store: MemoryEnvelopeStore) -> object:
+class ConfirmingPersistenceTestOrchestrator(ZeroTouchOrchestrator):
+    """Run the explicit confirmation step in legacy persistence journeys."""
+
+    def _advance_locked(self, *, case_id: UUID) -> ZeroTouchAutomationRecord:
+        record = super()._advance_locked(case_id=case_id)
+        if not any(
+            item.exception_type.value == "TARGET_CONFIRMATION_REQUIRED"
+            for item in record.active_exceptions
+        ):
+            return record
+        case = self._cases.get_case(case_id)  # noqa: SLF001
+        clm_record = self._clm.get(case_id=case_id)  # noqa: SLF001
+        assert case is not None and clm_record is not None
+        return self.confirm_target_dispatch(
+            case_id=case_id,
+            actor_id="test-operator",
+            expected_automation_version=record.version,
+            expected_clm_version=clm_record.version,
+            expected_case_event_count=len(case.events),
+        )
+
+
+def _durable_adapter_app(
+    store: MemoryEnvelopeStore, *, require_confirmation: bool = False
+) -> object:
     settings = Settings(_env_file=None, app_env="test")
     onboarding = build_onboarding_service(
         settings=settings,
@@ -398,6 +423,8 @@ def _durable_adapter_app(store: MemoryEnvelopeStore) -> object:
         repository=MongoZeroTouchAutomationRepository(store),  # type: ignore[arg-type]
         durable_provider_bindings=True,
     )
+    if not require_confirmation:
+        zero_touch.__class__ = ConfirmingPersistenceTestOrchestrator
     demo = build_zero_touch_demo_control(
         MongoDemoScenarioRepository(store)  # type: ignore[arg-type]
     )
@@ -503,14 +530,45 @@ def test_schema_version_is_explicit_and_unknown_version_is_rejected() -> None:
         created_at=now,
         updated_at=now,
     )
-    assert snapshot.schema_version == 6
+    assert snapshot.schema_version == 7
 
     store = object.__new__(MongoCaseStore)
     raw = snapshot.model_dump(mode="json")
     raw["_id"] = str(snapshot.case_id)
-    raw["schema_version"] = 7
+    raw["schema_version"] = 8
     with pytest.raises(PersistenceSchemaUnsupportedError):
         store._decode(raw)  # noqa: SLF001 - direct corruption boundary test
+
+
+def test_schema_v6_decodes_to_v7_with_recovery_fields_absent() -> None:
+    onboarding = build_onboarding_service(settings=Settings(_env_file=None))
+    case = onboarding.create_staged_case("202400001A")
+    now = datetime.now(UTC)
+    snapshot = DurableCaseSnapshot(
+        case_id=case.case_id,
+        revision=4,
+        onboarding=case,
+        created_at=now,
+        updated_at=now,
+    )
+    raw = snapshot.model_dump(mode="json")
+    raw["schema_version"] = 6
+    raw["onboarding"].pop("identity_corrections")
+    raw["onboarding"].pop("initial_target_search_attempts")
+    raw["onboarding"].pop("target_dispatch_confirmation")
+    raw["onboarding"].pop("policy_snapshot_revision")
+    raw["onboarding"].pop("policy_rebind_history")
+    raw["_id"] = str(case.case_id)
+
+    decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
+
+    assert decoded.schema_version == 7
+    assert decoded.revision == 4
+    assert decoded.onboarding.identity_corrections == ()
+    assert decoded.onboarding.initial_target_search_attempts == ()
+    assert decoded.onboarding.target_dispatch_confirmation is None
+    assert decoded.onboarding.policy_snapshot_revision == 1
+    assert decoded.onboarding.policy_rebind_history == ()
 
 
 def test_schema_v5_round_trip_preserves_registry_only_search_restart_checkpoint() -> None:
@@ -691,7 +749,7 @@ def test_base_schema_v5_pending_restart_runs_search_before_later_stages(
     assert completed.status_code == 200
     assert completed.json()["status"] == AutomationStatus.COMPLETED.value
     assert goldtier_calls == {
-        "search": calls_before_restart["search"] + 1,
+        "search": calls_before_restart["search"] + 2,
         "shell": calls_before_restart["shell"] + 1,
         "policy": calls_before_restart["policy"] + 1,
         "amend": calls_before_restart["amend"] + 1,
@@ -757,7 +815,7 @@ def test_base_schema_v5_review_resolution_rebases_before_target_writes(
     assert resumed.status_code == 200
     assert resumed.json()["status"] == AutomationStatus.COMPLETED.value
     assert goldtier_calls == {
-        "search": calls_before_restart["search"] + 1,
+        "search": calls_before_restart["search"] + 2,
         "shell": calls_before_restart["shell"] + 1,
         "policy": calls_before_restart["policy"] + 1,
         "amend": calls_before_restart["amend"] + 1,
@@ -1061,12 +1119,17 @@ def test_schema_v2_read_receives_legacy_policy_snapshot_without_rewrite() -> Non
     raw["onboarding"].pop("initial_identity")
     raw["onboarding"].pop("initial_target_search")
     raw["onboarding"].pop("existing_target_state")
+    raw["onboarding"].pop("identity_corrections")
+    raw["onboarding"].pop("initial_target_search_attempts")
+    raw["onboarding"].pop("target_dispatch_confirmation")
+    raw["onboarding"].pop("policy_snapshot_revision")
+    raw["onboarding"].pop("policy_rebind_history")
     raw["_id"] = str(case.case_id)
     original = deepcopy(raw)
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 6
+    assert decoded.schema_version == 7
     assert decoded.onboarding.policy_snapshot.snapshot_label == "LEGACY_PHASE13_DEFAULTS_V1"
     assert decoded.onboarding.registry_evidence_binding is None
     assert str(decoded.onboarding.policy_snapshot.idp_review_confidence_threshold) == "0.85"
@@ -1091,12 +1154,17 @@ def test_schema_v3_read_has_absent_binding_without_rewrite() -> None:
     raw["onboarding"].pop("initial_identity")
     raw["onboarding"].pop("initial_target_search")
     raw["onboarding"].pop("existing_target_state")
+    raw["onboarding"].pop("identity_corrections")
+    raw["onboarding"].pop("initial_target_search_attempts")
+    raw["onboarding"].pop("target_dispatch_confirmation")
+    raw["onboarding"].pop("policy_snapshot_revision")
+    raw["onboarding"].pop("policy_rebind_history")
     raw["_id"] = str(case.case_id)
     original = deepcopy(raw)
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 6
+    assert decoded.schema_version == 7
     assert decoded.onboarding.registry_evidence_binding is None
     assert raw == original
 
@@ -1119,12 +1187,17 @@ def test_schema_v4_read_has_no_intelligence_record_and_is_not_rewritten() -> Non
     raw["onboarding"].pop("initial_identity")
     raw["onboarding"].pop("initial_target_search")
     raw["onboarding"].pop("existing_target_state")
+    raw["onboarding"].pop("identity_corrections")
+    raw["onboarding"].pop("initial_target_search_attempts")
+    raw["onboarding"].pop("target_dispatch_confirmation")
+    raw["onboarding"].pop("policy_snapshot_revision")
+    raw["onboarding"].pop("policy_rebind_history")
     raw["_id"] = str(case.case_id)
     original = deepcopy(raw)
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 6
+    assert decoded.schema_version == 7
     assert decoded.intelligence is None
     assert decoded.onboarding.policy_snapshot.intelligence is None
     assert raw == original
@@ -1928,8 +2001,18 @@ def test_memory_mode_preserves_safe_pending_and_completed_resume_behavior(
         )
         assert uploaded.status_code == 201
         assert terminal.status_code == 200
+        paused = terminal.json()
+        terminal = client.post(
+            f"/api/clm/zero-touch/cases/{completed_id}/target-confirmation",
+            json={
+                "expected_automation_version": paused["version"],
+                "expected_clm_version": paused["clm"]["version"],
+                "expected_case_event_count": len(paused["case"]["events"]),
+            },
+        )
+        assert terminal.status_code == 200
         assert terminal.json()["status"] == "COMPLETED"
-        assert goldtier_calls == {"search": 2, "shell": 1, "policy": 1, "amend": 1}
+        assert goldtier_calls == {"search": 3, "shell": 1, "policy": 1, "amend": 1}
         calls_before_completed_resume = goldtier_calls.copy()
 
         completed_resume = client.post(f"/api/clm/zero-touch/cases/{completed_id}/resume")

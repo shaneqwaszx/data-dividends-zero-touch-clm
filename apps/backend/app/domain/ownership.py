@@ -1,9 +1,9 @@
 """Source-neutral ownership graph and provisional ownership-based UBO models."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 from unicodedata import category
 from uuid import UUID
 
@@ -111,6 +111,7 @@ class OwnershipRelationshipType(StrEnum):
 
 class OwnershipBasis(StrEnum):
     SHARE_OWNERSHIP = "SHARE_OWNERSHIP"
+    ECONOMIC_INTEREST = "ECONOMIC_INTEREST"
 
 
 class OwnershipEnvironment(StrEnum):
@@ -136,6 +137,7 @@ class OwnershipEventType(StrEnum):
     OWNERSHIP_ANALYSIS_COMPLETED = "OWNERSHIP_ANALYSIS_COMPLETED"
     OWNERSHIP_REVIEW_REQUIRED = "OWNERSHIP_REVIEW_REQUIRED"
     OWNERSHIP_ANALYSIS_FAILED = "OWNERSHIP_ANALYSIS_FAILED"
+    OWNERSHIP_SOURCE_REPLACED = "OWNERSHIP_SOURCE_REPLACED"
 
 
 class OwnershipIssueCode(StrEnum):
@@ -280,6 +282,64 @@ class OwnershipWorkflowEvent(BaseModel):
     candidate_count: int | None = Field(default=None, ge=0)
 
 
+class ManualOwnershipReviewReceipt(BaseModel):
+    """Immutable safe receipt for one reviewed local manual declaration."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    case_id: UUID
+    actor_id: Annotated[
+        str,
+        BeforeValidator(_normalize_safe_text),
+        StringConstraints(pattern=r"^[a-z][a-z0-9-]{2,31}$"),
+    ]
+    reviewed_at: datetime
+    rationale: Annotated[
+        str,
+        BeforeValidator(_normalize_safe_text),
+        StringConstraints(min_length=10, max_length=240),
+    ]
+    evidence_document_id: UUID
+    evidence_document_version: int = Field(ge=1)
+    evidence_reference: str = Field(pattern=r"^MANUAL_DOC_[a-f0-9]{32}_V[1-9][0-9]*$")
+    source_type: Literal["USER_SUPPLIED_DECLARATION"] = "USER_SUPPLIED_DECLARATION"
+    provider_name: Literal["MANUAL_DECLARATION_POC"] = "MANUAL_DECLARATION_POC"
+    provider_environment: Literal["LOCAL"] = "LOCAL"
+    as_of_date: date
+
+    @field_validator("reviewed_at")
+    @classmethod
+    def reviewed_at_must_be_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("manual ownership review timestamp must be UTC")
+        return value
+
+
+class PriorOwnershipAnalysisSnapshot(BaseModel):
+    """Immutable bounded copy of a replaced terminal analysis."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    version: int = Field(ge=1)
+    analysis_id: UUID
+    correlation_id: UUID
+    root_party_id: SafePartyId | None = None
+    provider_name: SafeProviderName | None = None
+    provider_environment: OwnershipEnvironment | None = None
+    state: OwnershipAnalysisState
+    parties: tuple[Party, ...] = Field(default_factory=tuple, max_length=100)
+    relationships: tuple[OwnershipRelationship, ...] = Field(default_factory=tuple, max_length=200)
+    candidates: tuple[OwnershipCandidate, ...] = Field(default_factory=tuple, max_length=100)
+    issues: tuple[OwnershipAnalysisIssue, ...] = Field(default_factory=tuple, max_length=100)
+    threshold_percent: OwnershipPercent
+    events: tuple[OwnershipWorkflowEvent, ...] = Field(default_factory=tuple, max_length=128)
+    error: SafeError | None = None
+    created_at: datetime
+    loaded_at: datetime | None = None
+    analyzed_at: datetime | None = None
+    updated_at: datetime
+
+
 class OwnershipAnalysisRecord(BaseModel):
     """Case-linked ownership record isolated from onboarding and document aggregates."""
 
@@ -300,6 +360,10 @@ class OwnershipAnalysisRecord(BaseModel):
     threshold_percent: OwnershipPercent
     threshold_comparator: str = Field(default="GREATER_THAN_OR_EQUAL_TO")
     events: list[OwnershipWorkflowEvent] = Field(default_factory=list)
+    prior_analyses: tuple[PriorOwnershipAnalysisSnapshot, ...] = Field(
+        default_factory=tuple, max_length=4
+    )
+    manual_review_receipt: ManualOwnershipReviewReceipt | None = None
     error: SafeError | None = None
     created_at: datetime
     loaded_at: datetime | None = None

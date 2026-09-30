@@ -3,12 +3,16 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   ApiError,
+  confirmZeroTouchTargetDispatch,
   deleteZeroTouchCase,
   fetchDocuments,
   fetchIntelligence,
   fetchOwnership,
   fetchZeroTouchCase,
   replaceZeroTouchDocument,
+  recheckZeroTouchIdentitySearch,
+  rebindZeroTouchPolicy,
+  submitManualOwnershipEvidence,
   reviewDocument,
   resolveZeroTouchException,
   resumeZeroTouchCase,
@@ -24,8 +28,12 @@ import {
   caseSupportingMutationEffect,
   documentQueryOptions,
   intelligenceQueryOptions,
+  identitySearchRecheckMutationEffect,
+  manualOwnershipMutationEffect,
   ownershipQueryOptions,
+  policyRebindMutationEffect,
   priorityMutationEffect,
+  targetConfirmationMutationEffect,
 } from "../caseQueries";
 import { formatTimestamp, shouldPollAutomation, targetOutcomeLabel } from "../shared";
 import type {
@@ -58,14 +66,22 @@ import GoldTierRequestPreview from "./GoldTierRequestPreview";
 import RegistryProvenancePanel from "./RegistryProvenancePanel";
 import TargetClassificationPanel from "./TargetClassificationPanel";
 import HumanInterventionPanel from "./HumanInterventionPanel";
+import ReviewAndSend from "./ReviewAndSend";
+import IdentityCorrectionForm from "./IdentityCorrectionForm";
+import ManualOwnershipEvidenceForm, { shouldShowManualOwnershipEvidence } from "./ManualOwnershipEvidenceForm";
+import PolicyRebindPanel from "./PolicyRebindPanel";
 
 const EVIDENCE_TARGET_IDS: Record<EvidenceFocusTarget, string> = {
+  identity: "case-identity-correction",
   registry: "case-evidence-registry",
   documents: "case-evidence-documents",
   reconciliation: "case-evidence-reconciliation",
   ownership: "case-evidence-ownership",
+  classification: "case-target-classification",
+  policy: "case-policy-rebind",
   recovery: "case-evidence-recovery",
 };
+const MANUAL_OWNERSHIP_TARGET_ID = "case-manual-ownership-evidence";
 
 interface CaseActionIdentity {
   readonly generation: number;
@@ -267,7 +283,11 @@ export default function CaseDetail({
     focusProcessingNode(node);
   }, [evidenceIdentity, initialFocusNodeId, summary?.version]);
 
-  async function runMutation(operation: () => Promise<ZeroTouchCaseSummary>, label = "Saving case action…") {
+  async function runMutation(
+    operation: () => Promise<ZeroTouchCaseSummary>,
+    label = "Saving case action…",
+    effect: "supporting" | "target-confirmation" | "identity-recheck" | "manual-ownership" | "policy-rebind" = "supporting",
+  ) {
     const action = captureCaseAction();
     if (mutationPending.current || mutationBlocked) return;
     mutationPending.current = action;
@@ -277,7 +297,17 @@ export default function CaseDetail({
     try {
       const updated = await operation();
       if (!isCurrentCaseAction(action)) return;
-      await caseSupportingMutationEffect(queryClient, action.actorUserId, updated);
+      if (effect === "target-confirmation") {
+        targetConfirmationMutationEffect(queryClient, action.actorUserId, updated);
+      } else if (effect === "identity-recheck") {
+        identitySearchRecheckMutationEffect(queryClient, action.actorUserId, updated);
+      } else if (effect === "manual-ownership") {
+        await manualOwnershipMutationEffect(queryClient, action.actorUserId, updated);
+      } else if (effect === "policy-rebind") {
+        policyRebindMutationEffect(queryClient, action.actorUserId, updated);
+      } else {
+        await caseSupportingMutationEffect(queryClient, action.actorUserId, updated);
+      }
     } catch (mutationError) {
       if (!isCurrentCaseAction(action)) return;
       if (shouldRefreshAfterMutationError(mutationError)) {
@@ -466,6 +496,21 @@ export default function CaseDetail({
     section.scrollIntoView?.({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
   }
 
+  function focusManualOwnership(): void {
+    const section = document.getElementById(MANUAL_OWNERSHIP_TARGET_ID);
+    if (!section) {
+      setEvidenceFocusNotice({
+        identity: evidenceIdentity,
+        message: "Manual ownership evidence is not authorized for the current case state.",
+      });
+      return;
+    }
+    setEvidenceFocusNotice(null);
+    section.focus({ preventScroll: true });
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    section.scrollIntoView?.({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
+  }
+
   function focusProcessingNode(node: ProcessingNode): void {
     const targetId = processingNodeFocusTarget(node);
     const section = targetId ? document.getElementById(targetId) : null;
@@ -521,6 +566,13 @@ export default function CaseDetail({
 
   const entity = summary.case.entity;
   const acquisition = summary.case.registry_acquisition;
+  const ownershipRecovery = summary.ownership_recovery;
+  const identityIncomplete = summary.active_exceptions.some(
+    (exception) => exception.blocker_code === "INITIAL_IDENTITY_INCOMPLETE",
+  );
+  const identityEditable = actor.capabilities.includes("CASE_ACCESS")
+    && !summary.case.target_dispatch_confirmation
+    && !summary.clm.submission;
   const availableFocusTargets = new Set([
     EVIDENCE_TARGET_IDS.registry,
     EVIDENCE_TARGET_IDS.documents,
@@ -528,10 +580,12 @@ export default function CaseDetail({
     "case-search-diagnostic",
     "case-target-blocker",
     "case-human-approval-boundary",
+    ...(identityIncomplete || identityEditable ? [EVIDENCE_TARGET_IDS.identity] : []),
     ...(summary.reconciliation && summary.current_stage === "DOCUMENT"
       ? [EVIDENCE_TARGET_IDS.reconciliation]
       : []),
     ...(summary.target_classification ? ["case-target-classification"] : []),
+    ...(summary.case.policy_rebind ? [EVIDENCE_TARGET_IDS.policy] : []),
   ]);
 
   return (
@@ -558,6 +612,30 @@ export default function CaseDetail({
 
         <ProcessingBlockerPanels summary={summary} />
 
+        {(identityIncomplete || identityEditable) && (
+          <div
+            key={`${evidenceIdentity}:identity:${summary.version}`}
+            id={EVIDENCE_TARGET_IDS.identity}
+            className="evidence-focus-target"
+            tabIndex={-1}
+          >
+            <IdentityCorrectionForm
+              onboardingCase={summary.case}
+              disabled={isBusy || mutationBlocked}
+              onSubmit={(values) => void runMutation(
+                () => recheckZeroTouchIdentitySearch(caseId, {
+                  ...values,
+                  expected_automation_version: summary.version,
+                  expected_clm_version: summary.clm.version,
+                  expected_case_event_count: summary.case.events.length,
+                }),
+                "Saving company details and rechecking Search…",
+                "identity-recheck",
+              )}
+            />
+          </div>
+        )}
+
         <HumanInterventionPanel
           summary={summary}
           isBusy={isBusy || mutationBlocked}
@@ -573,6 +651,24 @@ export default function CaseDetail({
 
         {summary.status === "RECOVERY_PENDING" && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
         {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
+        {summary.case.policy_rebind && (
+          <PolicyRebindPanel
+            metadata={summary.case.policy_rebind}
+            registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen}
+            disabled={isBusy || mutationBlocked}
+            onFocusClassification={() => focusEvidence("classification")}
+            onSubmit={(rationale) => void runMutation(
+              () => rebindZeroTouchPolicy(caseId, {
+                rationale,
+                expected_automation_version: summary.version,
+                expected_clm_version: summary.clm.version,
+                expected_case_event_count: summary.case.events.length,
+              }),
+              "Rebinding accepted Singapore POC configuration…",
+              "policy-rebind",
+            )}
+          />
+        )}
         {summary.target_classification && (
           <div id="case-target-classification" className="evidence-focus-target" tabIndex={-1}>
           <TargetClassificationPanel
@@ -580,12 +676,88 @@ export default function CaseDetail({
             classification={summary.target_classification}
             disabled={isBusy || mutationBlocked}
             onSubmit={(input) => runMutation(
-              () => updateGoldTierTargetClassification(caseId, input),
+              () => updateGoldTierTargetClassification(caseId, {
+                ...input,
+                expected_automation_version: summary.version,
+                expected_case_event_count: summary.case.events.length,
+              }),
               "Saving GoldTier target classification…",
             )}
           />
           </div>
         )}
+        {ownershipRecovery && shouldShowManualOwnershipEvidence(ownershipRecovery.manual_evidence_action) && (
+          <div id={MANUAL_OWNERSHIP_TARGET_ID} className="evidence-focus-target" tabIndex={-1}>
+            <ManualOwnershipEvidenceForm
+              key={`${summary.case.case_id}:${ownershipRecovery.analysis_id}:${ownershipRecovery.version}`}
+              canonicalRootUen={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen}
+              initialRootLegalName={summary.case.entity?.legal_name ?? summary.case.initial_identity?.legal_name ?? ""}
+              documents={documents}
+              disabled={isBusy || mutationBlocked}
+              onSubmit={(values) => void runMutation(
+                () => submitManualOwnershipEvidence(caseId, {
+                  root_registration_number: summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen,
+                  evidence_document_id: values.evidence_document_id,
+                  evidence_document_version: values.evidence_document_version,
+                  as_of_date: values.as_of_date,
+                  rationale: values.rationale,
+                  root_party_id: values.root_party_id,
+                  parties: [
+                    {
+                      party_id: values.root_party_id,
+                      display_name: values.root_display_name,
+                      party_type: "LEGAL_ENTITY",
+                      registration_number: summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen,
+                      country: "SG",
+                    },
+                    ...values.owners.map((owner) => ({
+                      party_id: owner.party_id,
+                      display_name: owner.display_name,
+                      party_type: owner.party_type,
+                      registration_number: owner.registration_number || null,
+                      country: owner.country || null,
+                    })),
+                  ],
+                  relationships: values.owners.map((owner) => ({
+                    relationship_id: owner.relationship_id,
+                    parent_party_id: values.root_party_id,
+                    child_party_id: owner.party_id,
+                    ownership_percent: owner.ownership_percent,
+                    relationship_type: "DIRECT_ECONOMIC_INTEREST",
+                  })),
+                  expected_automation_version: summary.version,
+                  expected_ownership_version: ownershipRecovery.version,
+                  expected_case_event_count: summary.case.events.length,
+                }),
+                "Submitting reviewed ownership declaration…",
+                "manual-ownership",
+              )}
+            />
+          </div>
+        )}
+        <ReviewAndSend
+          summary={summary}
+          documents={documents}
+          ownership={ownership}
+          actor={actor}
+          busy={isBusy || mutationBlocked}
+          error={error}
+          onConfirm={() => void runMutation(
+            () => confirmZeroTouchTargetDispatch(caseId, {
+              expected_automation_version: summary.version,
+              expected_clm_version: summary.clm.version,
+              expected_case_event_count: summary.case.events.length,
+            }),
+            "Confirming reviewed target dispatch…",
+            "target-confirmation",
+          )}
+          onSaveDraft={onBack}
+          onReviewOutstanding={() => focusEvidence("recovery")}
+          onEditIdentity={() => focusEvidence("identity")}
+          onEditClassification={() => focusEvidence("classification")}
+          onEditDocuments={() => focusEvidence("documents")}
+          onEditOwnership={focusManualOwnership}
+        />
         <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
         <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} />
         <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>

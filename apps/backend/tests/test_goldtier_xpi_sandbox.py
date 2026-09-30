@@ -339,6 +339,20 @@ def _run_sandbox_case(transport: FakeXpiTransport) -> tuple[object, object, obje
         content_type="application/pdf",
         content=PDF,
     )
+    if any(
+        item.exception_type == "TARGET_CONFIRMATION_REQUIRED"
+        for item in terminal.active_exceptions
+    ):
+        case = orchestrator._cases.get_case(created.case_id)  # noqa: SLF001
+        pending_clm = orchestrator._clm.get(case_id=created.case_id)  # noqa: SLF001
+        assert case is not None and pending_clm is not None
+        terminal = orchestrator.confirm_target_dispatch(
+            case_id=created.case_id,
+            actor_id="sandbox-test-operator",
+            expected_automation_version=terminal.version,
+            expected_clm_version=pending_clm.version,
+            expected_case_event_count=len(case.events),
+        )
     clm = orchestrator._clm.get(case_id=created.case_id)  # noqa: SLF001
     assert clm is not None
     return orchestrator, documents, ownership, terminal
@@ -355,6 +369,7 @@ def test_sandbox_success_retains_provider_truthful_clm_and_activity_messages() -
     module = importlib.import_module("app.connectors.goldtier_xpi")
     transport = FakeXpiTransport(
         [
+            module.GoldTierXpiHttpResponse(status_code=200, body=[]),
             module.GoldTierXpiHttpResponse(status_code=200, body=[]),
             module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
             module.GoldTierXpiHttpResponse(status_code=200, body={}),
@@ -451,6 +466,7 @@ def test_sandbox_malformed_target_response_is_provider_truthful() -> None:
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
 
+    _confirm_service_submission(service, submission)
     receipt = service.execute_submission_input(submission)
     current = service.get_case(case.case_id)
 
@@ -715,7 +731,7 @@ def test_legacy_case_without_goldtier_target_does_not_offer_editable_classificat
     assert classification.client_segment.selected_value is None
 
 
-def test_case_target_classification_is_validated_bound_once_and_serialized_exactly() -> None:
+def test_case_target_classification_is_editable_until_confirmation_and_serialized_exactly() -> None:
     composition = importlib.import_module("app.composition")
     policy = importlib.import_module("app.domain.policy")
     policy_service = PolicyManagementService(InMemoryPolicyRepository())
@@ -756,10 +772,25 @@ def test_case_target_classification_is_validated_bound_once_and_serialized_exact
     assert target.policy.value == "Singapore"
     assert target.booking_entity.value == "ANZBGL (Singapore Branch)"
     assert target.dispatch_ready is True
+    edited = service.bind_goldtier_case_classification(
+        case_id=case.case_id,
+        kyc_customer_type="Company - Public",
+        client_segment="Corporate",
+    )
+    assert edited.policy_snapshot.goldtier_target.kyc_customer_type.value == (
+        "Company - Public"
+    )
+    service.confirm_target_dispatch(
+        case_id=case.case_id,
+        actor_id="sandbox-test-operator",
+        expected_case_event_count=len(edited.events),
+        clm_version=None,
+        destination="GOLDTIER_XPI_SANDBOX",
+    )
     with pytest.raises(ValueError, match="already frozen"):
         service.bind_goldtier_case_classification(
             case_id=case.case_id,
-            kyc_customer_type="Company - Public",
+            kyc_customer_type="Company - Private",
             client_segment="Corporate",
         )
 
@@ -1081,6 +1112,18 @@ def _xpi_onboarding_service(
     )
 
 
+def _confirm_service_submission(service: object, submission: object) -> None:
+    case = service.get_case(submission.case_id)
+    assert case is not None
+    service.confirm_target_dispatch(
+        case_id=case.case_id,
+        actor_id="sandbox-test-operator",
+        expected_case_event_count=len(case.events),
+        clm_version=None,
+        destination="GOLDTIER_XPI_SANDBOX",
+    )
+
+
 def test_xpi_connection_builds_exact_paths_and_query_encoding() -> None:
     module = importlib.import_module("app.connectors.goldtier_xpi")
     models = _xpi_models()
@@ -1267,6 +1310,7 @@ def test_no_match_executes_customer_path_once_through_the_existing_target_ledger
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
 
+    _confirm_service_submission(service, submission)
     receipt = service.execute_submission_input(submission)
     repeated = service.execute_submission_input(submission)
 
@@ -1310,6 +1354,7 @@ def test_post_amend_readback_requires_one_exact_retained_customer(
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
 
+    _confirm_service_submission(service, submission)
     receipt = service.execute_submission_input(submission)
     repeated = service.execute_submission_input(submission)
 
@@ -1350,6 +1395,7 @@ def test_unique_exact_match_uses_existing_party_path_without_shell() -> None:
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
 
+    _confirm_service_submission(service, submission)
     receipt = service.execute_submission_input(submission)
 
     assert receipt.classification == "SUCCESS"
@@ -1408,6 +1454,7 @@ def test_non_exact_candidates_require_review_with_zero_shell_calls(
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
 
+    _confirm_service_submission(service, submission)
     receipt = service.execute_submission_input(submission)
 
     assert receipt.classification == "REVIEW_REQUIRED"
@@ -1519,6 +1566,7 @@ def test_uncertain_shell_attempt_remains_in_progress_and_cannot_replay() -> None
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
 
+    _confirm_service_submission(service, submission)
     with pytest.raises(Exception, match="uncertain"):
         service.execute_submission_input(submission)
     call_count = len(transport.calls)
@@ -1544,6 +1592,7 @@ def test_provider_verified_recovery_resolves_uncertain_shell_without_replay() ->
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
 
+    _confirm_service_submission(service, submission)
     with pytest.raises(Exception, match="uncertain"):
         service.advance_incremental_submission_input(
             submission,
@@ -1648,6 +1697,7 @@ def _uncertain_policy_fixture() -> tuple[object, object, object, FakeXpiTranspor
     service = _xpi_onboarding_service(transport)
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
+    _confirm_service_submission(service, submission)
     with pytest.raises(errors.MutationOutcomeUncertainError):
         service.advance_incremental_submission_input(
             submission,
@@ -1983,6 +2033,7 @@ def test_provider_verified_recovery_rejects_definitively_failed_shell() -> None:
     service = _xpi_onboarding_service(transport)
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
+    _confirm_service_submission(service, submission)
     receipt = service.advance_incremental_submission_input(
         submission,
         search_resolution=target.GoldTierSearchResolution.NO_MATCH,
@@ -2055,6 +2106,7 @@ def test_goldtier_first_exact_match_reuses_verified_target_state_and_skips_shell
     service = _xpi_onboarding_service(transport)
     first = service.create_staged_case("202400001A")
     first_submission = service.build_submission_input(first, provider_mode="SANDBOX")
+    _confirm_service_submission(service, first_submission)
     assert service.execute_submission_input(first_submission).classification == "SUCCESS"
 
     second = service.create_staged_case_with_identity(
@@ -2072,6 +2124,7 @@ def test_goldtier_first_exact_match_reuses_verified_target_state_and_skips_shell
     assert second.initial_target_search is not None
     assert second.initial_target_search.disposition == "EXACT_MATCH"
     second_submission = service.build_submission_input(second, provider_mode="SANDBOX")
+    _confirm_service_submission(service, second_submission)
     assert (
         service.advance_incremental_submission_input(
             second_submission,
@@ -2112,8 +2165,8 @@ def test_goldtier_first_exact_match_reuses_verified_target_state_and_skips_shell
                 {"goldTierId": 12345, "legalName": "GARDEN BUSINESS"},
                 {"goldTierId": 67890, "legalName": "GARDEN BUSINESS"},
             ],
-            "REVIEW_REQUIRED",
-            0,
+            "VALIDATED",
+            4,
         ),
     ],
     ids=["no-match-acra", "ambiguous-no-acra"],
@@ -2163,6 +2216,9 @@ def test_goldtier_first_branch_controls_acra_bootstrap(
 
     assert case.state == expected_state
     assert acra.calls == expected_acra_calls
+    if len(search_body) > 1:
+        assert case.initial_target_search is not None
+        assert case.initial_target_search.disposition == "REVIEW_REQUIRED"
     assert [call["method"] for call in transport.calls] == ["GET"]
     if expected_state == "REVIEW_REQUIRED":
         assert service.get_attempted_target_operations(case.case_id) == ()
@@ -2211,6 +2267,7 @@ def test_oversized_post_dispatch_mutation_response_is_uncertain_and_non_replayab
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
 
+    _confirm_service_submission(service, submission)
     with pytest.raises(Exception, match="uncertain"):
         service.execute_submission_input(submission)
     call_count = len(transport.calls)
@@ -2238,6 +2295,7 @@ def test_ambiguous_shell_response_identifier_is_uncertain_and_non_replayable() -
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
 
+    _confirm_service_submission(service, submission)
     with pytest.raises(Exception, match="uncertain"):
         service.execute_submission_input(submission)
     call_count = len(transport.calls)

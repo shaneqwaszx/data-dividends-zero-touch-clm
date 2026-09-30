@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     registry_cache_freshness_seconds: int | None = None
     acra_base_url: str = ""
     acra_company_path_template: str = ""
-    acra_timeout_seconds: float = 10.0
+    acra_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
     acra_auth_header_name: str = ""
     acra_auth_header_value: SecretStr | None = None
     acra_api_marketplace_mock_client_id: SecretStr | None = None

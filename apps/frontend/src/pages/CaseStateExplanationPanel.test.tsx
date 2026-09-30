@@ -46,6 +46,32 @@ describe("CaseStateExplanationPanel", () => {
     expect(onNavigate.mock.calls).toEqual([["registry"], ["documents"], ["reconciliation"], ["recovery"]]);
   });
 
+  it("renders the registry focus action once when registry is the current stage", () => {
+    const registrySummary = { ...summary(), current_stage: "REGISTRY" } as ZeroTouchCaseSummary;
+    const { view, onNavigate } = render(registrySummary);
+    const registryActions = [...view.querySelectorAll<HTMLButtonElement>("button")]
+      .filter((button) => button.textContent === "Focus registry evidence");
+
+    expect(registryActions).toHaveLength(1);
+    act(() => registryActions[0].click());
+    expect(onNavigate).toHaveBeenCalledOnce();
+    expect(onNavigate).toHaveBeenCalledWith("registry");
+  });
+
+  it("routes incomplete initial identity to the real correction surface", () => {
+    const incomplete = {
+      ...summary(),
+      active_exceptions: [{
+        ...summary().active_exceptions[0],
+        blocker_code: "INITIAL_IDENTITY_INCOMPLETE",
+        explanation: "Complete the retained initial identity.",
+      }],
+    } as ZeroTouchCaseSummary;
+    const { onNavigate } = render(incomplete);
+    click("Focus evidence for INITIAL_IDENTITY_INCOMPLETE");
+    expect(onNavigate).toHaveBeenCalledWith("identity");
+  });
+
   it("uses visible uncertainty fallbacks for unknown runtime values", () => {
     const unknown = {
       ...summary(),

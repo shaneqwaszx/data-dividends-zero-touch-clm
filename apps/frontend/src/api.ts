@@ -38,6 +38,9 @@ import type {
   GoldTierSandboxSearchResult,
   GoldTierSandboxDryRunInput,
   GoldTierSandboxDryRunResult,
+  AcraDiagnosticOperation,
+  AcraDiagnosticResult,
+  AcraDiagnosticStatus,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -488,12 +491,145 @@ export async function resumeZeroTouchCase(caseId: string): Promise<ZeroTouchCase
 
 export async function updateGoldTierTargetClassification(
   caseId: string,
-  input: { kyc_customer_type: string; client_segment: string },
+  input: {
+    kyc_customer_type: string;
+    client_segment: string;
+    expected_automation_version: number;
+    expected_case_event_count: number;
+  },
 ): Promise<ZeroTouchCaseSummary> {
   const response = await fetch(
     `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/target-classification`,
     {
       method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export async function fetchAcraDiagnosticStatus(
+  signal?: AbortSignal,
+): Promise<AcraDiagnosticStatus> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/acra/status`, { signal });
+  return parseResponse<AcraDiagnosticStatus>(response);
+}
+
+export async function lookupAcraDiagnostic(
+  input: { uen: string; operation: AcraDiagnosticOperation },
+  signal?: AbortSignal,
+): Promise<AcraDiagnosticResult> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/acra/lookup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal,
+  });
+  return parseResponse<AcraDiagnosticResult>(response);
+}
+
+export interface TargetDispatchConfirmationInput {
+  expected_automation_version: number;
+  expected_clm_version: number;
+  expected_case_event_count: number;
+}
+
+export async function confirmZeroTouchTargetDispatch(
+  caseId: string,
+  input: TargetDispatchConfirmationInput,
+): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/target-confirmation`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export interface IdentitySearchRecheckInput {
+  legal_name: string;
+  registration_number: string;
+  country_of_incorporation: "SG";
+  expected_automation_version: number;
+  expected_clm_version: number;
+  expected_case_event_count: number;
+}
+
+export async function recheckZeroTouchIdentitySearch(
+  caseId: string,
+  input: IdentitySearchRecheckInput,
+): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/identity-search-recheck`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export interface ManualOwnershipEvidenceInput {
+  root_registration_number: string;
+  evidence_document_id: string;
+  evidence_document_version: number;
+  as_of_date: string;
+  rationale: string;
+  root_party_id: string;
+  parties: Array<{
+    party_id: string;
+    display_name: string;
+    party_type: "LEGAL_ENTITY" | "NATURAL_PERSON";
+    registration_number: string | null;
+    country: string | null;
+  }>;
+  relationships: Array<{
+    relationship_id: string;
+    parent_party_id: string;
+    child_party_id: string;
+    ownership_percent: string;
+    relationship_type: "DIRECT_ECONOMIC_INTEREST";
+  }>;
+  expected_automation_version: number;
+  expected_ownership_version: number;
+  expected_case_event_count: number;
+}
+
+export async function submitManualOwnershipEvidence(
+  caseId: string,
+  input: ManualOwnershipEvidenceInput,
+): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/manual-ownership-evidence`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
+export interface PolicyRebindInput {
+  rationale: string;
+  expected_automation_version: number;
+  expected_clm_version: number;
+  expected_case_event_count: number;
+}
+
+export async function rebindZeroTouchPolicy(
+  caseId: string,
+  input: PolicyRebindInput,
+): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/policy-rebind`,
+    {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     },

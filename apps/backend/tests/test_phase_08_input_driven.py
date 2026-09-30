@@ -164,7 +164,29 @@ def start(
         content=synthetic_pdf(fields),
     )
     assert response.status_code == 200
-    return response.json()
+    return confirm_if_ready(client, response.json())
+
+
+def confirm_if_ready(client: TestClient, result: dict[str, object]) -> dict[str, object]:
+    exceptions = result["active_exceptions"]
+    assert isinstance(exceptions, list)
+    if not any(
+        item["exception_type"] == "TARGET_CONFIRMATION_REQUIRED" for item in exceptions
+    ):
+        return result
+    case = result["case"]
+    clm = result["clm"]
+    assert isinstance(case, dict) and isinstance(clm, dict)
+    confirmed = client.post(
+        f"/api/clm/zero-touch/cases/{case['case_id']}/target-confirmation",
+        json={
+            "expected_automation_version": result["version"],
+            "expected_clm_version": clm["version"],
+            "expected_case_event_count": len(case["events"]),
+        },
+    )
+    assert confirmed.status_code == 200
+    return confirmed.json()
 
 
 def test_sponsor_mode_is_pdf_and_uen_driven_with_replacement_auto_resume() -> None:
@@ -187,7 +209,8 @@ def test_sponsor_mode_is_pdf_and_uen_driven_with_replacement_auto_resume() -> No
         content=synthetic_pdf(matching_fields()),
     )
     assert resumed.status_code == 200
-    assert resumed.json()["status"] == "COMPLETED"
+    terminal = confirm_if_ready(client, resumed.json())
+    assert terminal["status"] == "COMPLETED"
     documents = client.get(f"/api/onboarding/cases/{paused['case']['case_id']}/documents").json()
     assert documents[0]["superseded_by_document_id"] == documents[1]["document_id"]
     assert documents[1]["supersedes_document_id"] == documents[0]["document_id"]

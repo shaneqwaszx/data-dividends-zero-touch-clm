@@ -20,6 +20,7 @@ const lowConfidenceFixture = path.resolve(
 
 const VIEWPORTS = [360, 390, 480, 768, 1024, 1280, 1440] as const;
 const REPRESENTATIVE_VIEWPORTS = [360, 768, 1440] as const;
+const TILE_VIEWPORTS = [320, 360, 768, 1280, 1440, 1920] as const;
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -159,6 +160,51 @@ async function expectShellContained(page: Page) {
   await expectBoxContained(page, page.locator(".operator-account__button"));
 }
 
+async function expectActionableStageTiles(page: Page) {
+  const actionable = page.locator(".onboarding-progress__stage--actionable > button").first();
+  await expect(actionable).toBeVisible();
+
+  for (const width of TILE_VIEWPORTS) {
+    await page.setViewportSize({ width, height: 900 });
+    await expectDocumentContained(page);
+    await expectBoxContained(page, page.locator(".onboarding-progress__stages"));
+    await expectBoxContained(page, actionable);
+    const tile = await actionable.evaluate((button) => {
+      const bounds = button.getBoundingClientRect();
+      const label = button.querySelector<HTMLElement>(".onboarding-progress__stage-label")!;
+      const status = button.querySelector<HTMLElement>(".onboarding-progress__stage-status")!;
+      const action = button.querySelector<HTMLElement>(".onboarding-progress__stage-action")!;
+      const labelStyle = getComputedStyle(label);
+      return {
+        actionText: action.textContent,
+        height: bounds.height,
+        labelOverflowWrap: labelStyle.overflowWrap,
+        labelWordBreak: labelStyle.wordBreak,
+        statusTop: status.getBoundingClientRect().top,
+        titleBottom: label.getBoundingClientRect().bottom,
+        actionTop: action.getBoundingClientRect().top,
+      };
+    });
+    expect(tile.height).toBeGreaterThanOrEqual(44);
+    expect(tile.labelOverflowWrap).toBe("break-word");
+    expect(tile.labelWordBreak).toBe("normal");
+    expect(tile.statusTop).toBeGreaterThanOrEqual(tile.titleBottom - 1);
+    expect(tile.actionTop).toBeGreaterThanOrEqual(tile.statusTop);
+    expect(tile.actionText).toBe("Review details");
+  }
+
+  await actionable.hover();
+  const hover = await actionable.evaluate((button) => {
+    const style = getComputedStyle(button);
+    return { background: style.backgroundColor, color: style.color };
+  });
+  expect(hover.background).toBe("rgb(243, 234, 219)");
+  expect(hover.color).toBe("rgb(32, 31, 29)");
+  await actionable.focus();
+  await expect(actionable).toBeFocused();
+  expect(await actionable.evaluate((button) => getComputedStyle(button).outlineStyle)).not.toBe("none");
+}
+
 async function openNewCase(page: Page, fixture: string): Promise<string> {
   await openWorkspaceTab(page, "New onboarding");
   const startFresh = page.getByRole("button", { name: "Start a new case" });
@@ -173,6 +219,19 @@ async function openNewCase(page: Page, fixture: string): Promise<string> {
     timeout: 30_000,
   });
   return page.url().split("/").at(-1)!;
+}
+
+async function confirmMockTarget(page: Page) {
+  await page.getByRole("button", { name: "Open full case" }).click();
+  await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}$/i);
+  const confirmation = page.getByRole("button", { name: "Confirm and send to Mock GoldTier" });
+  await expect(confirmation).toBeEnabled({ timeout: 120_000 });
+  const response = page.waitForResponse((result) => (
+    result.request().method() === "POST"
+      && new URL(result.url()).pathname.endsWith("/target-confirmation")
+  ));
+  await confirmation.click();
+  expect((await response).status()).toBe(200);
 }
 
 async function waitForCaseStatus(page: Page, caseId: string, accepted: string[]) {
@@ -291,6 +350,7 @@ test("responsive cases and representative routes preserve tables, priorities, an
   await page.setViewportSize({ width: 1024, height: 900 });
   await login(page);
   const completedCaseId = await openNewCase(page, cleanFixture);
+  await confirmMockTarget(page);
   await waitForCaseStatus(page, completedCaseId, ["COMPLETED"]);
 
   for (const width of REPRESENTATIVE_VIEWPORTS) {
@@ -396,6 +456,7 @@ test("responsive review case exposes only supported authoritative review control
   ).toBeGreaterThan(0);
   await page.reload();
   await expectAuthoritativeReviewReady(page, reviewCaseId);
+  await expectActionableStageTiles(page);
   await expect(page.getByRole("heading", { name: "Action required" })).toBeVisible();
   await expect(page.getByText("No action available", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /replay|retry target/i })).toHaveCount(0);
@@ -408,6 +469,7 @@ test("responsive Relationship Manager controls contain policy and delete dialog"
   await openWorkspaceTab(page, "Policy");
   await expectPolicyMutationControls(page, true);
   const completedCaseId = await openNewCase(page, cleanFixture);
+  await confirmMockTarget(page);
   await waitForCaseStatus(page, completedCaseId, ["COMPLETED"]);
   await page.goto(`/cases/${completedCaseId}`);
   const deleteButton = page.getByRole("button", { name: "Delete case" });

@@ -28,7 +28,7 @@ export default function TargetClassificationPanel({
   );
   const unresolved = classification.kyc_customer_type.selected_value === null
     || classification.client_segment.selected_value === null;
-  const canEdit = classification.editable && unresolved;
+  const canEdit = classification.editable;
 
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -51,6 +51,11 @@ export default function TargetClassificationPanel({
 
       {canEdit ? (
         <form onSubmit={submit}>
+          {!unresolved && (
+            <p className="control-help">
+              The retained selections remain editable before target dispatch confirmation.
+            </p>
+          )}
           <div className="ds-two-col">
             <label style={{ flex: 1 }}>
               KYC customer type

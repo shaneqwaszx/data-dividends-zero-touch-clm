@@ -232,12 +232,19 @@ const NAVIGABLE_PROCESSING_STATUSES = new Set<ProcessingNodeStatus>([
 ]);
 
 export function processingNodeFocusTarget(node: ProcessingNode): string | null {
-  if (!NAVIGABLE_PROCESSING_STATUSES.has(node.status)) return null;
   const nodeId = node.node_id;
+  if (nodeId === "INITIAL_IDENTITY") return "case-identity-correction";
+  if (!NAVIGABLE_PROCESSING_STATUSES.has(node.status)) return null;
   if (nodeId === "ACRA_REGISTRY" || nodeId.startsWith("ACRA_")) return "case-evidence-registry";
   if (nodeId === "DOCUMENT_IDP") return "case-evidence-documents";
   if (nodeId === "RECONCILIATION") return "case-evidence-reconciliation";
   if (nodeId === "OWNERSHIP_UBO") return "case-evidence-ownership";
+  if ([
+    "TARGET_CLASSIFICATION_REGISTRATION_TYPE",
+    "TARGET_CLASSIFICATION_CUSTOMER_EXTERNAL_SYSTEM",
+    "TARGET_CLASSIFICATION_POLICY",
+    "TARGET_CLASSIFICATION_BOOKING_ENTITY",
+  ].includes(nodeId)) return "case-policy-rebind";
   if (nodeId === "TARGET_CLASSIFICATION" || nodeId.startsWith("TARGET_CLASSIFICATION_")) return "case-target-classification";
   if (nodeId === "GOLDTIER_SEARCH" || nodeId.startsWith("GOLDTIER_SEARCH_")) return "case-search-diagnostic";
   if (nodeId === "GOLDTIER_TARGET" || nodeId.startsWith("GOLDTIER_")) return "case-target-blocker";
@@ -312,7 +319,30 @@ export function OnboardingProgressPanel({
   onStageActivate?: (node: ProcessingNode) => void;
   availableFocusTargets?: ReadonlySet<string>;
 }) {
-  const pipeline = summary.processing_pipeline ?? [];
+  const retainedPipeline = summary.processing_pipeline ?? [];
+  const identityIncomplete = summary.active_exceptions.some(
+    (exception) => exception.blocker_code === "INITIAL_IDENTITY_INCOMPLETE",
+  );
+  const hasTopLevelIdentity = retainedPipeline.some((node) => node.node_id === "INITIAL_IDENTITY");
+  const identityCorrectionNode: ProcessingNode = {
+        node_id: "INITIAL_IDENTITY",
+        label: "Initial identity correction required for a retained Singapore case",
+        status: "REVIEW_REQUIRED",
+        backend_stage: null,
+        timestamp: summary.updated_at,
+        safe_result: "Complete legal name, Singapore UEN, and jurisdiction before Search resumes.",
+        blocker_code: "INITIAL_IDENTITY_INCOMPLETE",
+        children: [],
+      };
+  const pipeline: ProcessingNode[] = identityIncomplete
+    ? hasTopLevelIdentity
+      ? retainedPipeline.map((node) => (
+          node.node_id === "INITIAL_IDENTITY"
+            ? { ...node, ...identityCorrectionNode }
+            : node
+        ))
+      : [identityCorrectionNode, ...retainedPipeline]
+    : retainedPipeline;
   const completed = pipeline.filter((node) =>
     node.status === "COMPLETE" || node.status === "EMPTY" || node.status === "SKIPPED"
   ).length;
@@ -356,17 +386,24 @@ export function OnboardingProgressPanel({
               && (!availableFocusTargets || availableFocusTargets.has(target)),
             );
             const content = <>
-              <span className="onboarding-progress__symbol" aria-hidden="true">{PROGRESS_STATUS_SYMBOLS[node.status]}</span>
-              <span className="onboarding-progress__stage-label">{node.label}</span>
+              <span className="onboarding-progress__title-row">
+                <span className="onboarding-progress__symbol" aria-hidden="true">{PROGRESS_STATUS_SYMBOLS[node.status]}</span>
+                <span className="onboarding-progress__stage-label">{node.label}</span>
+              </span>
               <span className="onboarding-progress__stage-status">{PROGRESS_STATUS_LABELS[node.status]}</span>
+              {navigable && <span className="onboarding-progress__stage-action">Review details</span>}
             </>;
             return (
-              <li key={node.node_id} data-status={node.status}>
+              <li
+                key={node.node_id}
+                className={navigable ? "onboarding-progress__stage onboarding-progress__stage--actionable" : "onboarding-progress__stage"}
+                data-status={node.status}
+              >
                 {navigable ? (
                   <button type="button" onClick={() => onStageActivate?.(node)} aria-label={`Open details for ${node.label}`}>
                     {content}
                   </button>
-                ) : content}
+                ) : <div className="onboarding-progress__stage-content">{content}</div>}
               </li>
             );
           })}

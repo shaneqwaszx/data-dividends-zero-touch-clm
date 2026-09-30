@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -46,6 +46,8 @@ from app.domain.jurisdiction import (
 from app.domain.models import (
     EventOutcome,
     GoldTierResult,
+    IdentityCorrectionEvidence,
+    InitialCustomerIdentity,
     OnboardingCase,
     RegisteredAddress,
     RegistryAcquisitionIssue,
@@ -58,10 +60,16 @@ from app.domain.models import (
     SafeError,
     SourceEnvironment,
     SourceSystem,
+    TargetDispatchConfirmation,
     WorkflowEvent,
     WorkflowState,
 )
+from app.domain.onboarding_intelligence import (
+    ClassificationConsistencyAdvisory,
+    assess_classification_consistency,
+)
 from app.domain.ownership import (
+    ManualOwnershipReviewReceipt,
     OwnershipAnalysisIssue,
     OwnershipAnalysisRecord,
     OwnershipAnalysisState,
@@ -73,8 +81,12 @@ from app.domain.ownership import (
     Party,
 )
 from app.domain.policy import (
+    GOLDTIER_BOOKING_ENTITY_POC_VALUE,
     GOLDTIER_CLIENT_SEGMENT_VALUES,
+    GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_POC_VALUE,
     GOLDTIER_KYC_CUSTOMER_TYPE_VALUES,
+    GOLDTIER_POLICY_POC_VALUE,
+    GOLDTIER_REGISTRATION_TYPE_POC_VALUE,
     CasePolicySnapshot,
     PolicyAuthority,
 )
@@ -96,6 +108,7 @@ from app.domain.zero_touch import (
     AutomationMetrics,
     AutomationStage,
     AutomationStatus,
+    BlockerDecisionMetadata,
     BusinessExceptionStatus,
     BusinessExceptionType,
     ExceptionResolutionAction,
@@ -249,6 +262,82 @@ class BrowserRegistryEvidenceBinding(BaseModel):
     freshness_comparator: Literal["EVALUATION_NOW_LT_EXPIRES_AT"]
 
 
+class BrowserPolicyRebindMetadata(BaseModel):
+    """Safe policy authority categories and latest case-owned rebind receipt."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    revision: int = Field(ge=1)
+    configuration_status: Literal["CURRENT_ACCEPTED_POC", "REQUIRES_REBIND"]
+    accepted_poc_fields: tuple[str, ...]
+    editable_fields: tuple[str, ...] = ("kycCustomerType", "clientSegment")
+    upstream_fields: tuple[str, ...] = ("registrationNumber",)
+    unavailable_fields: tuple[str, ...]
+    last_rebound_by: str | None = None
+    last_rebound_at: datetime | None = None
+    last_rationale: str | None = None
+    last_changed_fields: tuple[str, ...] = ()
+
+    @classmethod
+    def from_domain(cls, case: OnboardingCase) -> "BrowserPolicyRebindMetadata":
+        target = case.policy_snapshot.goldtier_target
+        expected = {
+            "customerExternalSystem": (
+                "customer_external_system",
+                GOLDTIER_CUSTOMER_EXTERNAL_SYSTEM_POC_VALUE,
+                PolicyAuthority.SPONSOR_DOCUMENTED,
+            ),
+            "registrationType": (
+                "registration_type",
+                GOLDTIER_REGISTRATION_TYPE_POC_VALUE,
+                PolicyAuthority.USER_AUTHORIZED_POC,
+            ),
+            "policy": (
+                "policy",
+                GOLDTIER_POLICY_POC_VALUE,
+                PolicyAuthority.SPONSOR_DOCUMENTED,
+            ),
+            "bookingEntity": (
+                "booking_entity",
+                GOLDTIER_BOOKING_ENTITY_POC_VALUE,
+                PolicyAuthority.USER_AUTHORIZED_POC,
+            ),
+        }
+        accepted = tuple(
+            name
+            for name, (attribute, value, authority) in expected.items()
+            if target is not None
+            and getattr(target, attribute).value == value
+            and getattr(target, attribute).authority == authority
+        )
+        unavailable = tuple(
+            name
+            for name, attribute in (
+                ("accountEntityType", "account_entity_type"),
+                ("productType", "product_type"),
+            )
+            if target is None
+            or getattr(target, attribute).authority
+            in {PolicyAuthority.TBD_SPONSOR, PolicyAuthority.PROJECT_DEFINED_PROVISIONAL}
+            or getattr(target, attribute).value == "TBD_SPONSOR"
+        )
+        latest = case.policy_rebind_history[-1] if case.policy_rebind_history else None
+        return cls(
+            revision=case.policy_snapshot_revision,
+            configuration_status=(
+                "CURRENT_ACCEPTED_POC"
+                if len(accepted) == len(expected)
+                else "REQUIRES_REBIND"
+            ),
+            accepted_poc_fields=accepted,
+            unavailable_fields=unavailable,
+            last_rebound_by=latest.actor_id if latest is not None else None,
+            last_rebound_at=latest.rebound_at if latest is not None else None,
+            last_rationale=latest.rationale if latest is not None else None,
+            last_changed_fields=latest.changed_fields if latest is not None else (),
+        )
+
+
 class OnboardingCaseResponse(BaseModel):
     """Application case response with internal proof metadata minimized."""
 
@@ -258,7 +347,12 @@ class OnboardingCaseResponse(BaseModel):
     source_case_id: str
     correlation_id: UUID
     requested_uen: str
+    initial_identity: InitialCustomerIdentity | None = None
+    identity_corrections: tuple[IdentityCorrectionEvidence, ...] = ()
+    target_dispatch_confirmation: TargetDispatchConfirmation | None = None
     policy_snapshot: CasePolicySnapshot
+    policy_snapshot_revision: int
+    policy_rebind: BrowserPolicyRebindMetadata
     team_id: TeamId | None = None
     priority: CasePriority | None = None
     client_scope_label: str | None = None
@@ -302,13 +396,15 @@ class OnboardingCaseResponse(BaseModel):
         projected_values = {
             name: getattr(case, name)
             for name in cls.model_fields
-            if name not in {"client_scope_label", "registry_evidence_binding"}
+            if name
+            not in {"client_scope_label", "registry_evidence_binding", "policy_rebind"}
         }
         return cls.model_validate(
             {
                 **projected_values,
                 "client_scope_label": (team.client_scope_label if team is not None else None),
                 "registry_evidence_binding": browser_binding,
+                "policy_rebind": BrowserPolicyRebindMetadata.from_domain(case),
             }
         )
 
@@ -378,6 +474,7 @@ class OwnershipAnalysisResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
     case_id: UUID
+    version: int
     analysis_id: UUID
     correlation_id: UUID
     root_party_id: str | None
@@ -392,6 +489,7 @@ class OwnershipAnalysisResponse(BaseModel):
     threshold_comparator: str
     events: list[OwnershipWorkflowEvent]
     error: SafeError | None = None
+    manual_review_receipt: ManualOwnershipReviewReceipt | None = None
     created_at: datetime
     loaded_at: datetime | None = None
     analyzed_at: datetime | None = None
@@ -502,6 +600,22 @@ class ClmCaseSummaryResponse(BaseModel):
         )
 
 
+class BrowserBlockerDecision(BaseModel):
+    """Safe immutable decision metadata; it grants no browser-side authority."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid", frozen=True)
+
+    decision_id: UUID
+    case_id: UUID
+    exception_id: UUID | None
+    evidence_version: str
+    automation_version: int
+    recorded_at: datetime
+    metadata: BlockerDecisionMetadata
+    actor_id: str | None
+    reviewer_id: str | None
+
+
 class BusinessExceptionResponse(BaseModel):
     """Browser-safe exception projection; server authority digests never leave the API."""
 
@@ -519,6 +633,7 @@ class BusinessExceptionResponse(BaseModel):
     automation_version: int
     evidence: tuple[SafeExceptionEvidence, ...]
     available_actions: tuple[ExceptionResolutionAction, ...]
+    decisions: tuple[BrowserBlockerDecision, ...]
     created_at: datetime
     resolved_at: datetime | None
     resolution: ExceptionResolutionAction | None
@@ -566,6 +681,8 @@ class BrowserHumanIntervention(BaseModel):
     candidate_summaries: tuple[BrowserGoldTierCandidateSummary, ...] = Field(
         default_factory=tuple, max_length=4
     )
+    identity_correction_action: Literal["IDENTITY_SEARCH_RECHECK"] | None = None
+    decisions: tuple[BrowserBlockerDecision, ...] = Field(default_factory=tuple, max_length=8)
 
 
 _INTERVENTION_STAGE_LABELS: dict[AutomationStage, str] = {
@@ -600,11 +717,43 @@ def project_human_interventions(
     *,
     automation: ZeroTouchAutomationRecord,
     clm: ClmOrchestrationRecord,
+    case: OnboardingCase,
 ) -> tuple[BrowserHumanIntervention, ...]:
     """Project current blockers and only actions already authorized by their owners."""
 
     checkpoint = clm.target_search_checkpoint
     projections: list[BrowserHumanIntervention] = []
+    if case.initial_identity is None and not any(
+        item.blocker_code == "INITIAL_IDENTITY_INCOMPLETE"
+        for item in automation.active_exceptions
+    ):
+        projections.append(
+            BrowserHumanIntervention(
+                intervention_id=uuid5(
+                    NAMESPACE_URL,
+                    f"initial-identity-incomplete:{case.case_id}",
+                ),
+                owning_stage=AutomationStage.REGISTRY,
+                owning_stage_label=_INTERVENTION_STAGE_LABELS[AutomationStage.REGISTRY],
+                title="Initial identity incomplete",
+                blocker_code="INITIAL_IDENTITY_INCOMPLETE",
+                explanation=(
+                    "The retained case is missing an initial legal name, registration ID, "
+                    "or country value required for target identity Search."
+                ),
+                required_evidence_or_input=(
+                    "The missing legal name, registration ID, or country field.",
+                ),
+                authorized_actions=(),
+                no_action_reason=None,
+                expected_next_step=(
+                    "Correct the identity and run the authorized read-only Search recheck on "
+                    "this retained case before any target mutation."
+                ),
+                identity_correction_action="IDENTITY_SEARCH_RECHECK",
+                decisions=(),
+            )
+        )
     for exception in automation.active_exceptions:
         required: tuple[str, ...] = (
             "Review the retained evidence identified by the blocker.",
@@ -614,11 +763,12 @@ def project_human_interventions(
             "Use only a backend-authorized action below. The owning service will "
             "re-evaluate retained evidence after it accepts the decision."
         )
-        no_action = (
+        no_action: str | None = (
             "No safe resolution action is authorized for this retained blocker. "
             "The workflow remains fail-closed."
         )
         candidates: tuple[BrowserGoldTierCandidateSummary, ...] = ()
+        identity_correction_action: Literal["IDENTITY_SEARCH_RECHECK"] | None = None
 
         if exception.blocker_code == "GT_SEARCH_IDENTITY_REVIEW_REQUIRED":
             title = "Possible existing customer found"
@@ -633,6 +783,7 @@ def project_human_interventions(
                 "The backend has not authorized candidate confirmation, manual GoldTier-ID entry, "
                 "or a new-customer Shell while identity is ambiguous."
             )
+            identity_correction_action = "IDENTITY_SEARCH_RECHECK"
             if checkpoint is not None:
                 candidates = tuple(
                     BrowserGoldTierCandidateSummary(
@@ -662,9 +813,11 @@ def project_human_interventions(
             title = "Initial identity incomplete"
             required = ("The missing legal name, registration ID, or country field.",)
             expected = (
-                "Correct the identity through an existing backend-supported intake path; this "
-                "retained case cannot be advanced with incomplete identity."
+                "Correct the identity and run the authorized read-only Search recheck on this "
+                "retained case before any target mutation."
             )
+            no_action = None
+            identity_correction_action = "IDENTITY_SEARCH_RECHECK"
         elif exception.blocker_code in {
             "UNCERTAIN_TARGET_MUTATION",
             "TARGET_OPERATION_OUTCOME_UNCERTAIN",
@@ -712,6 +865,10 @@ def project_human_interventions(
                 no_action_reason=None if actions else no_action,
                 expected_next_step=expected,
                 candidate_summaries=candidates,
+                identity_correction_action=identity_correction_action,
+                decisions=tuple(
+                    BrowserBlockerDecision.model_validate(item) for item in exception.decisions
+                ),
             )
         )
     return tuple(projections)
@@ -901,18 +1058,19 @@ class BrowserTargetClassification(BaseModel):
 
         kyc_value, kyc_authority = selected(target.kyc_customer_type if target else None)
         segment_value, segment_authority = selected(target.client_segment if target else None)
-        frozen = case.goldtier_result is not None or case.state in {
-            WorkflowState.GT_SHELL_CREATED,
-            WorkflowState.GT_POLICY_CREATED,
-            WorkflowState.GT_ENRICHED,
-            WorkflowState.COMPLETED,
-        }
+        frozen = (
+            case.target_dispatch_confirmation is not None
+            or case.goldtier_result is not None
+            or case.state
+            in {
+                WorkflowState.GT_SHELL_CREATED,
+                WorkflowState.GT_POLICY_CREATED,
+                WorkflowState.GT_ENRICHED,
+                WorkflowState.COMPLETED,
+            }
+        )
         return cls(
-            editable=(
-                target is not None
-                and not frozen
-                and (kyc_value is None or segment_value is None)
-            ),
+            editable=target is not None and not frozen,
             kyc_customer_type=BrowserTargetClassificationField(
                 allowed_values=GOLDTIER_KYC_CUSTOMER_TYPE_VALUES,
                 selected_value=kyc_value,
@@ -924,6 +1082,18 @@ class BrowserTargetClassification(BaseModel):
                 authority=segment_authority,
             ),
         )
+
+
+class BrowserOwnershipRecovery(BaseModel):
+    """Safe current ownership action metadata and optional manual review receipt."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    analysis_id: UUID
+    version: int = Field(ge=1)
+    state: OwnershipAnalysisState
+    manual_evidence_action: Literal["MANUAL_OWNERSHIP_EVIDENCE"] | None = None
+    review_receipt: ManualOwnershipReviewReceipt | None = None
 
 
 class ZeroTouchCaseSummaryResponse(BaseModel):
@@ -939,6 +1109,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     current_stage: AutomationStage
     completed_stages: tuple[AutomationStage, ...]
     active_exceptions: list[BusinessExceptionResponse]
+    non_blocking_decisions: tuple[BrowserBlockerDecision, ...]
     interventions: tuple[BrowserHumanIntervention, ...]
     reconciliation: ReconciliationResponse | None
     technical_failure: SafeError | None
@@ -947,6 +1118,8 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     stage_order_version: Literal[1, 2]
     processing_pipeline: tuple[BrowserProcessingNode, ...]
     target_classification: BrowserTargetClassification
+    classification_consistency: ClassificationConsistencyAdvisory
+    ownership_recovery: BrowserOwnershipRecovery | None
     timeline: list[AutomationEvent]
     created_at: datetime
     updated_at: datetime
@@ -963,7 +1136,9 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         target_operations: tuple["BrowserTargetOperationEvidence", ...] = (),
         processing_pipeline: tuple[BrowserProcessingNode, ...] = (),
         team: TeamRecord | None = None,
+        ownership: OwnershipAnalysisRecord | None = None,
     ) -> "ZeroTouchCaseSummaryResponse":
+        target_classification = BrowserTargetClassification.from_case(case)
         return cls(
             case=OnboardingCaseResponse.from_domain(case, team),
             clm=ClmCaseSummaryResponse.from_domain(clm_record, case, team),
@@ -975,7 +1150,15 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
             active_exceptions=[
                 BusinessExceptionResponse.model_validate(item) for item in record.active_exceptions
             ],
-            interventions=project_human_interventions(automation=record, clm=clm_record),
+            non_blocking_decisions=tuple(
+                BrowserBlockerDecision.model_validate(item)
+                for item in record.non_blocking_decisions
+            ),
+            interventions=project_human_interventions(
+                automation=record,
+                clm=clm_record,
+                case=case,
+            ),
             reconciliation=(
                 ReconciliationResponse.from_domain(reconciliation)
                 if reconciliation is not None
@@ -986,7 +1169,27 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
             target_operations=target_operations,
             stage_order_version=record.stage_order_version,
             processing_pipeline=processing_pipeline,
-            target_classification=BrowserTargetClassification.from_case(case),
+            target_classification=target_classification,
+            classification_consistency=assess_classification_consistency(
+                legal_form=case.entity.party_type if case.entity is not None else None,
+                kyc_customer_type=target_classification.kyc_customer_type.selected_value,
+            ),
+            ownership_recovery=(
+                BrowserOwnershipRecovery(
+                    analysis_id=ownership.analysis_id,
+                    version=ownership.version,
+                    state=ownership.state,
+                    manual_evidence_action=(
+                        "MANUAL_OWNERSHIP_EVIDENCE"
+                        if ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
+                        and record.current_stage == AutomationStage.OWNERSHIP
+                        else None
+                    ),
+                    review_receipt=ownership.manual_review_receipt,
+                )
+                if ownership is not None
+                else None
+            ),
             timeline=record.events,
             created_at=record.created_at,
             updated_at=record.updated_at,
@@ -1261,6 +1464,7 @@ def project_processing_pipeline(
 
     acquisition = case.registry_acquisition
     existing_target_state = getattr(case, "existing_target_state", None)
+    initial_identity = getattr(case, "initial_identity", None)
     initial_target_search = getattr(case, "initial_target_search", None)
     initial_search_disposition = getattr(initial_target_search, "disposition", None)
     registry_children: tuple[BrowserProcessingNode, ...] = ()
@@ -1317,9 +1521,7 @@ def project_processing_pipeline(
         }[acquisition.status.value]  # type: ignore[assignment]
     elif existing_target_state is not None:
         registry_status = "SKIPPED"
-    elif (
-        initial_search_disposition == "REVIEW_REQUIRED"
-    ):
+    elif initial_search_disposition == "REVIEW_REQUIRED" or initial_identity is None:
         registry_status = "NOT_REACHED"
 
     target_by_name = {item.operation: item for item in target_operations}
@@ -1334,6 +1536,8 @@ def project_processing_pipeline(
         and automation.current_stage == AutomationStage.GOLDTIER_SEARCH
     ):
         search_status = stage_status(AutomationStage.GOLDTIER_SEARCH)
+    elif checkpoint is None and initial_identity is None:
+        search_status = "BLOCKED"
     search_event_timestamps = [
         item.timestamp
         for item in clm.events
@@ -1690,17 +1894,17 @@ def project_processing_pipeline(
         ),
         children=search_children,
     )
-    initial_identity = getattr(case, "initial_identity", None)
     initial_identity_node = BrowserProcessingNode(
         node_id="INITIAL_IDENTITY",
         label="Initial identity",
-        status="COMPLETE" if initial_identity is not None else "NOT_REACHED",
+        status="COMPLETE" if initial_identity is not None else "REVIEW_REQUIRED",
         timestamp=getattr(case, "created_at", None) if initial_identity is not None else None,
         safe_result=(
             "Legal name, registration ID, and country retained"
             if initial_identity is not None
             else "Initial identity not supplied"
         ),
+        blocker_code=(None if initial_identity is not None else "INITIAL_IDENTITY_INCOMPLETE"),
     )
     existing_target_node = BrowserProcessingNode(
         node_id="EXISTING_TARGET_STATE",
@@ -1814,18 +2018,16 @@ def project_processing_pipeline(
     )
     if automation.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION:
         return (*common_prefix, *common_suffix)
-    if initial_target_search is not None:
-        prefix: tuple[BrowserProcessingNode, ...] = (
-            common_prefix[0],
-            initial_identity_node,
-            common_prefix[1],
-            early_search,
-            common_prefix[2],
-        )
-        if existing_target_state is not None:
-            prefix = (*prefix, existing_target_node)
-        return (*prefix, *common_suffix)
-    return (*common_prefix, early_search, *common_suffix)
+    prefix: tuple[BrowserProcessingNode, ...] = (
+        common_prefix[0],
+        initial_identity_node,
+        common_prefix[1],
+        early_search,
+        common_prefix[2],
+    )
+    if existing_target_state is not None:
+        prefix = (*prefix, existing_target_node)
+    return (*prefix, *common_suffix)
 
 
 ZeroTouchCaseSummaryResponse.model_rebuild()

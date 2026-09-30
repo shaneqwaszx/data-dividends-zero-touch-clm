@@ -25,6 +25,77 @@ class EntityResolutionOutcome(StrEnum):
     CONFLICT = "CONFLICT"
 
 
+class ClassificationConsistencyStatus(StrEnum):
+    """Advisory-only comparison of source legal form and operator KYC selection."""
+
+    COMPATIBLE = "COMPATIBLE"
+    OPERATOR_REVIEW = "OPERATOR_REVIEW"
+    UNKNOWN_LEGAL_FORM = "UNKNOWN_LEGAL_FORM"
+
+
+class ClassificationConsistencyAdvisory(BaseModel):
+    """Browser-safe advisory that never claims sponsor or regulatory policy."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: ClassificationConsistencyStatus
+    title: Annotated[str, Field(min_length=1, max_length=120)]
+    explanation: Annotated[str, Field(min_length=1, max_length=320)]
+    blocking: Literal[False] = False
+    authority: Literal["PROJECT_ADVISORY_ONLY"] = "PROJECT_ADVISORY_ONLY"
+
+
+def assess_classification_consistency(
+    *, legal_form: str | None, kyc_customer_type: str | None
+) -> ClassificationConsistencyAdvisory:
+    """Flag plain-language semantic mismatches without inventing policy authority."""
+
+    normalized_form = " ".join((legal_form or "").casefold().split())
+    normalized_kyc = " ".join((kyc_customer_type or "").casefold().split())
+    unknown_forms = {"", "unknown", "organisation", "organization", "not available"}
+    if normalized_form in unknown_forms:
+        return ClassificationConsistencyAdvisory(
+            status=ClassificationConsistencyStatus.UNKNOWN_LEGAL_FORM,
+            title="Legal form needs operator review",
+            explanation=(
+                "The available legal form is not specific enough to compare with the "
+                "selected KYC customer type; review the classification before sending."
+            ),
+        )
+
+    company_form = any(
+        marker in normalized_form
+        for marker in ("company", "limited by shares", "private limited", "public limited")
+    )
+    if company_form and normalized_kyc.startswith("company -"):
+        return ClassificationConsistencyAdvisory(
+            status=ClassificationConsistencyStatus.COMPATIBLE,
+            title="Legal form and KYC selection are consistent",
+            explanation=(
+                "The source legal form and selected KYC customer type use the same "
+                "company category."
+            ),
+        )
+    if company_form and normalized_kyc.startswith("association -"):
+        return ClassificationConsistencyAdvisory(
+            status=ClassificationConsistencyStatus.OPERATOR_REVIEW,
+            title="Review legal form and KYC customer type",
+            explanation=(
+                "The legal form describes a company, while the selected KYC customer "
+                "type describes an association; confirm or correct the KYC selection "
+                "before sending."
+            ),
+        )
+    return ClassificationConsistencyAdvisory(
+        status=ClassificationConsistencyStatus.OPERATOR_REVIEW,
+        title="Review legal form and KYC customer type",
+        explanation=(
+            "The current project authority does not define this legal-form and KYC "
+            "combination; review the classification before sending."
+        ),
+    )
+
+
 class ResolutionFeatureName(StrEnum):
     REGISTRATION_NUMBER_AND_COUNTRY = "REGISTRATION_NUMBER_AND_COUNTRY"
     LEGAL_NAME_SIMILARITY = "LEGAL_NAME_SIMILARITY"

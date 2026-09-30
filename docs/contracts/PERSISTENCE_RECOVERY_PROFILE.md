@@ -12,7 +12,7 @@ The execution profile exposes only `Process-local` or `Mongo-backed durable POC`
 
 ## Durable contract
 
-One case envelope (currently schema v6) contains revision, onboarding and Registry evidence,
+One case envelope (currently schema v7) contains revision, onboarding and Registry evidence,
 ordered document records and supersession links, reconciliation outcomes/decisions,
 ownership evidence, CLM and automation checkpoints, target execution ledger, safe demo
 scenario metadata, an optional immutable case-bound advisory-intelligence projection,
@@ -20,12 +20,17 @@ and timestamps. Every nested case/submission/intelligence identity must agree.
 Mongo `_id` must be the canonical UUID string equal to the envelope `case_id`. Missing,
 non-string, malformed, noncanonical, or mismatched keys are invalid persisted data on
 every read path and during startup. Unknown versions or invalid nested aggregates are
-not interpreted, repaired, or automatically migrated. Strict v1-v5 reads migrate only
+not interpreted, repaired, or automatically migrated. Strict v1-v6 reads migrate only
 in memory to the current type; schema-v4 cases retain `intelligence = null`, are not
 recomputed from current policy, and are not rewritten by a read. Schema v6 additionally
 retains bounded initial identity/Search, existing-target provenance, lifecycle-resolved
 operations, separate Shell/Policy provider-verified recovery facts, and an optional
-provider-verified Amend-failure fact in the same envelope.
+provider-verified Amend-failure fact in the same envelope. Schema v7 additionally
+retains bounded identity-correction/Search-recheck attempts, policy-rebind history,
+manual local ownership-review evidence and prior terminal analysis history, immutable
+blocker-decision metadata, and the exact target-dispatch confirmation. These are
+additive facts inside the same envelope, not new persistence, ownership, authorization,
+or replay authorities.
 
 ## Operation safety
 
@@ -35,6 +40,17 @@ with `IN_PROGRESS` plus an attempted operation means the outcome is uncertain; a
 replay is prohibited. A recorded outcome permits only receipt/finalisation recovery.
 Deterministic idempotency identifiers are retained, but no external idempotency support
 or exactly-once guarantee is claimed.
+
+Before the ledger can dispatch Shell, Policy, or Amend, schema v7 requires a current
+target confirmation bound to the reviewed server projection, actor, event/CLM versions,
+destination, warnings, provider classification, and digest. Relevant case, evidence,
+classification, or policy change invalidates the confirmation. Every write path
+reauthorizes and revalidates it within the case lock/CAS boundary; restart does not
+weaken the gate. Confirmation performs a forced read-only Search recheck first; a
+material result change leaves the refreshed plan unconfirmed and records no target
+mutation intent. The reviewed mapper projection and retained dispatch snapshot share the
+stable case-acceptance timestamp for `sourceContext.acceptedAt`, and every transmitted
+preview field is included in the confirmation digest.
 
 Provider-verified recovery does not rewrite an uncertain response. It retains the
 attempted-but-not-definitive mutation, appends exact later provider evidence, marks the

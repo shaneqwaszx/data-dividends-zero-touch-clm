@@ -3,6 +3,7 @@
 import ssl
 from collections.abc import Callable
 from datetime import datetime
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from app.config import Settings, get_settings
@@ -13,6 +14,8 @@ from app.connectors.acra_api_marketplace_auth import (
     AcraMarketplaceTokenTransport,
 )
 from app.connectors.acra_api_marketplace_mock import (
+    ACRA_API_MARKETPLACE_MOCK_BASE_URL,
+    ACRA_API_MARKETPLACE_MOCK_RESPONSE_MAX_BYTES,
     AcraApiMarketplaceMockConnection,
     AcraApiMarketplaceMockConnector,
 )
@@ -59,6 +62,10 @@ from app.domain.onboarding_intelligence import OnboardingIntelligenceRecord
 from app.domain.policy import CasePolicySnapshot
 from app.mappers.goldtier import MockGoldTierRequestMapper
 from app.mappers.goldtier_xpi import GoldTierXpiRequestMapper
+from app.services.acra_diagnostics import (
+    AcraDiagnosticConfiguration,
+    AcraDiagnosticService,
+)
 from app.services.admin_repository import ProfileRepository, TeamRepository
 from app.services.authentication import AuthenticationService
 from app.services.clm_orchestration import ClmOrchestrationService
@@ -260,6 +267,52 @@ def build_acra_connector(
         authorizer=active_authorizer,
         decoder=decoder or ProjectAcraResponseDecoder(),
     )
+
+
+def build_acra_diagnostic_service(
+    connector: AcraConnector,
+    settings: Settings,
+) -> AcraDiagnosticService:
+    """Bind safe diagnostic metadata to the exact composed read-only connector."""
+
+    mode = settings.acra_connector_mode
+    safe_host = (
+        urlsplit(ACRA_API_MARKETPLACE_MOCK_BASE_URL).hostname
+        if mode == "api_marketplace_mock"
+        else urlsplit(settings.acra_base_url).hostname
+        if mode == "sandbox"
+        else None
+    )
+    client_id_present = settings.acra_api_marketplace_mock_client_id is not None
+    secret_key_present = settings.acra_api_marketplace_mock_secret_key is not None
+    generic_auth_present = bool(
+        settings.acra_auth_header_name and settings.acra_auth_header_value is not None
+    )
+    configuration = AcraDiagnosticConfiguration(
+        provider=(
+            "ACRA_API_MARKETPLACE_MOCK"
+            if mode == "api_marketplace_mock"
+            else "ACRA_GENERIC_SANDBOX"
+            if mode == "sandbox"
+            else "ACRA_MOCK"
+        ),
+        mode=mode,
+        classification="PARTIAL" if mode == "sandbox" else "MOCK",
+        configured=(
+            client_id_present and secret_key_present
+            if mode == "api_marketplace_mock"
+            else generic_auth_present
+            if mode == "sandbox"
+            else True
+        ),
+        safe_host=safe_host,
+        client_id_present=client_id_present,
+        secret_key_present=secret_key_present,
+        generic_auth_present=generic_auth_present,
+        timeout_seconds=settings.acra_timeout_seconds,
+        max_response_bytes=ACRA_API_MARKETPLACE_MOCK_RESPONSE_MAX_BYTES,
+    )
+    return AcraDiagnosticService(connector=connector, configuration=configuration)
 
 
 def build_document_processing_service(

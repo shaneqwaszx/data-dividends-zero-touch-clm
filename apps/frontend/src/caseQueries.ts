@@ -233,6 +233,38 @@ export function caseSummaryMutationEffect(
   });
 }
 
+export function targetConfirmationMutationEffect(
+  queryClient: QueryClient,
+  userId: string,
+  summary: ZeroTouchCaseSummary,
+): void {
+  caseSummaryMutationEffect(queryClient, userId, summary);
+}
+
+export function identitySearchRecheckMutationEffect(
+  queryClient: QueryClient,
+  userId: string,
+  summary: ZeroTouchCaseSummary,
+): void {
+  caseSummaryMutationEffect(queryClient, userId, summary);
+}
+
+export async function manualOwnershipMutationEffect(
+  queryClient: QueryClient,
+  userId: string,
+  summary: ZeroTouchCaseSummary,
+): Promise<void> {
+  await caseSupportingMutationEffect(queryClient, userId, summary);
+}
+
+export function policyRebindMutationEffect(
+  queryClient: QueryClient,
+  userId: string,
+  summary: ZeroTouchCaseSummary,
+): void {
+  caseSummaryMutationEffect(queryClient, userId, summary);
+}
+
 export async function caseSupportingMutationEffect(
   queryClient: QueryClient,
   userId: string,
