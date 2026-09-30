@@ -284,7 +284,7 @@ def test_all_fields_match_and_formatting_only_legal_name_match() -> None:
     assert result.status == "COMPLETED"
     assert reconciliation is not None and reconciliation.status == "MATCHED"
     assert [field.outcome for field in reconciliation.fields] == [ReconciliationOutcome.MATCH] * 4
-    assert target.calls == ["search", "shell", "policy", "amend"]
+    assert target.calls == ["search", "search", "shell", "policy", "amend"]
 
 
 def test_safe_review_correction_is_effective_and_preserves_original_evidence() -> None:
@@ -475,7 +475,11 @@ def test_registry_only_invalid_and_unverifiable_are_distinct() -> None:
             next(item for item in reconciliation.fields if item.field_name == field_name).outcome
             == expected
         )
-        assert target.calls == expected_calls
+        assert target.calls == (
+            ["search", "search", "shell", "policy", "amend"]
+            if expected_calls == ["search", "shell", "policy", "amend"]
+            else expected_calls
+        )
 
 
 def test_multiple_conflicts_resolve_one_stays_blocked_then_all_resume_once() -> None:
@@ -520,10 +524,10 @@ def test_multiple_conflicts_resolve_one_stays_blocked_then_all_resume_once() -> 
         evidence_version=active.evidence_version,
     )
     assert completed.status == "COMPLETED"
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ["search", "search", "search", "shell", "policy", "amend"]
     version = completed.version
     assert zero.start(case_id=created.case_id).version == version
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ["search", "search", "search", "shell", "policy", "amend"]
 
 
 def test_use_document_legal_name_updates_canonical_only_through_service() -> None:
@@ -561,7 +565,7 @@ def test_use_document_legal_name_updates_canonical_only_through_service() -> Non
     assert len(record.discrepancies[0].observations) == 2
     assert record.discrepancies[0].decision is not None
     assert record.discrepancies[0].decision.action == "USE_DOCUMENT_VALUE"
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ["search", "search", "search", "shell", "policy", "amend"]
 
 
 def test_unadvertised_use_document_action_is_rejected_for_address() -> None:
@@ -687,7 +691,7 @@ def test_replacement_document_cancels_old_discrepancy_and_resumes() -> None:
     assert completed.status == "COMPLETED"
     assert reconciliation is not None and reconciliation.status == "MATCHED"
     assert any(item.status == "CANCELLED" for item in reconciliation.discrepancies)
-    assert target.calls == ["search", "shell", "policy", "amend"]
+    assert target.calls == ["search", "search", "shell", "policy", "amend"]
 
 
 def test_api_exposes_normalized_safe_state_and_explicit_resolution_endpoint() -> None:
@@ -728,4 +732,4 @@ def test_api_exposes_normalized_safe_state_and_explicit_resolution_endpoint() ->
         resolved.json()["reconciliation"]["discrepancies"][0]["decision"]["action"]
         == "KEEP_REGISTRY_VALUE"
     )
-    assert target.calls == ["search", "shell", "policy", "amend"]
+    assert target.calls == ["search", "search", "shell", "policy", "amend"]

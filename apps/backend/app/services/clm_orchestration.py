@@ -4,7 +4,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
 from threading import RLock
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from app.connectors.errors import ConnectorError, public_connector_error
@@ -221,6 +221,99 @@ class ClmOrchestrationService:
                 message="Case-specific GoldTier target classifications were retained.",
             )
 
+    def refresh_initial_search_after_recheck(
+        self, *, case_id: UUID, expected_clm_version: int
+    ) -> ClmOrchestrationRecord:
+        """Rebind one authorized initial Search result before submission is frozen."""
+
+        with self._lock_for(case_id):
+            record = self._require_record(case_id)
+            if record.version != expected_clm_version:
+                raise ClmRequestError(
+                    code="CLM_IDENTITY_RECHECK_STALE",
+                    message="The CLM case changed before identity recheck.",
+                )
+            if record.submission_snapshot is not None:
+                raise ClmRequestError(
+                    code="CLM_IDENTITY_RECHECK_FROZEN",
+                    message="Identity Search is already frozen for submission.",
+                )
+            case = self._require_case(case_id)
+            search = case.initial_target_search
+            if search is None:
+                raise ClmRequestError(
+                    code="CLM_TARGET_SEARCH_NOT_AVAILABLE",
+                    message="Initial target Search evidence is unavailable.",
+                )
+            disposition = GoldTierSearchDisposition(search.disposition)
+            status = (
+                GoldTierSearchCheckpointStatus.COMPLETED
+                if disposition
+                in {GoldTierSearchDisposition.NO_MATCH, GoldTierSearchDisposition.EXACT_MATCH}
+                else GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+                if disposition == GoldTierSearchDisposition.REVIEW_REQUIRED
+                else GoldTierSearchCheckpointStatus.FAILED
+            )
+            checkpoint = GoldTierSearchCheckpoint(
+                request_id=search.request_id,
+                identity_fingerprint=_initial_or_canonical_identity_fingerprint(case),
+                provider_mode=record.submission_plan.environment,
+                provider_classification=record.submission_plan.provider_classification,
+                status=status,
+                disposition=disposition,
+                provider_outcome=search.provider_outcome,
+                status_code=search.status_code,
+                candidate_count=search.candidate_count,
+                candidates=tuple(
+                    RetainedGoldTierCandidate(party_id=party_id, legal_name=legal_name)
+                    for party_id, legal_name in zip(
+                        search.candidate_party_ids,
+                        search.candidate_legal_names,
+                        strict=True,
+                    )
+                ),
+                selected_party_id=search.selected_party_id,
+                resolution_outcome=(
+                    "EXACT_MATCH"
+                    if disposition == GoldTierSearchDisposition.EXACT_MATCH
+                    else None
+                ),
+                code=(
+                    "GOLDTIER_SEARCH_RECHECK_COMPLETED"
+                    if status == GoldTierSearchCheckpointStatus.COMPLETED
+                    else search.provider_outcome
+                ),
+                message="Authorized read-only GoldTier Search recheck was retained.",
+                searched_at=search.searched_at,
+            )
+            readiness = self._evaluate_current(case, search_checkpoint=checkpoint)
+            candidate = record.model_copy(deep=True)
+            candidate.target_search_checkpoint = checkpoint
+            candidate.submission_plan = self._build_submission_plan(case)
+            candidate.readiness = readiness
+            candidate.status = _status_for_readiness(case, readiness)
+            candidate.error = None
+            return self._record_event(
+                record,
+                candidate,
+                event_type=(
+                    ClmEventType.GOLDTIER_SEARCH_COMPLETED
+                    if status == GoldTierSearchCheckpointStatus.COMPLETED
+                    else ClmEventType.GOLDTIER_SEARCH_REVIEW_REQUIRED
+                    if status == GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+                    else ClmEventType.GOLDTIER_SEARCH_FAILED
+                ),
+                outcome=(
+                    EventOutcome.SUCCEEDED
+                    if status == GoldTierSearchCheckpointStatus.COMPLETED
+                    else EventOutcome.REVIEW_REQUIRED
+                    if status == GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+                    else EventOutcome.FAILED
+                ),
+                code=checkpoint.code,
+                message=checkpoint.message,
+            )
+
     def attempted_target_operations(self, *, case_id: UUID) -> tuple[str, ...]:
         """Expose safe operation names for sponsor UAT evidence, never payloads."""
 
@@ -279,10 +372,78 @@ class ClmOrchestrationService:
     def submission_plan(self, *, case_id: UUID) -> GoldTierSubmissionPlan:
         return self._require_record(case_id).submission_plan.model_copy(deep=True)
 
-    def submit(self, *, case_id: UUID, single_checkpoint: bool = False) -> ClmOrchestrationRecord:
+    def confirm_target_dispatch(
+        self,
+        *,
+        case_id: UUID,
+        actor_id: str,
+        expected_clm_version: int,
+        expected_case_event_count: int,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> ClmOrchestrationRecord:
+        """Freeze the current submission review and retain local-POC confirmation."""
+
+        with self._lock_for(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            record = self._require_record(case_id)
+            if record.version != expected_clm_version:
+                raise ClmRequestError(
+                    code="CLM_TARGET_CONFIRMATION_STALE",
+                    message="The CLM case changed before target confirmation.",
+                )
+            case = self._require_case(case_id)
+            existing_confirmation = case.target_dispatch_confirmation
+            if existing_confirmation is None and record.submission_snapshot is None:
+                previous_search = record.target_search_checkpoint
+                record = self._perform_early_search(record, case, force=True)
+                current_search = record.target_search_checkpoint
+                if not _materially_equivalent_search(previous_search, current_search):
+                    # A fresh read changed the proposed target path.  Retain the new
+                    # evidence and return it for review; no confirmation or target
+                    # mutation is allowed from the superseded summary.
+                    return record.model_copy(deep=True)
+            if record.submission_snapshot is None:
+                record = self._start_submission(record)
+            snapshot = record.submission_snapshot
+            if snapshot is None:
+                raise ClmRequestError(
+                    code="CLM_SNAPSHOT_NOT_AVAILABLE",
+                    message="Submission evidence is incomplete.",
+                )
+            destination: Literal["GOLDTIER_MOCK", "GOLDTIER_XPI_SANDBOX"] = (
+                "GOLDTIER_XPI_SANDBOX"
+                if record.submission_plan.environment == GoldTierProviderMode.SANDBOX
+                else "GOLDTIER_MOCK"
+            )
+            try:
+                self._cases.confirm_target_dispatch(
+                    case_id=case_id,
+                    actor_id=actor_id,
+                    expected_case_event_count=expected_case_event_count,
+                    clm_version=record.version,
+                    destination=destination,
+                    warnings=tuple(item.value for item in record.readiness.warnings),
+                )
+            except ValueError as exc:
+                raise ClmRequestError(
+                    code="CLM_TARGET_CONFIRMATION_INVALID",
+                    message=str(exc),
+                ) from None
+            return record.model_copy(deep=True)
+
+    def submit(
+        self,
+        *,
+        case_id: UUID,
+        single_checkpoint: bool = False,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> ClmOrchestrationRecord:
         """Advance durable target checkpoints; callers may stop after one mutation."""
 
         with self._lock_for(case_id):
+            if reauthorize is not None:
+                reauthorize()
             record = self._require_record(case_id)
             snapshot = record.submission_snapshot
             if snapshot is not None and self._cases.is_execution_outcome_uncertain(
@@ -303,12 +464,41 @@ class ClmOrchestrationService:
                 return record
 
             if record.submission_snapshot is None:
-                record = self._start_submission(record)
+                record = self.evaluate(case_id=case_id)
+                if record.readiness.blockers:
+                    raise ClmRequestError(
+                        code="CLM_NOT_READY",
+                        message="The case is not ready for GoldTier target submission.",
+                    )
+                raise ClmRequestError(
+                    code="CLM_TARGET_CONFIRMATION_REQUIRED",
+                    message="A current frozen-review confirmation is required.",
+                )
             snapshot = record.submission_snapshot
             if snapshot is None:
                 raise ClmRequestError(
                     code="CLM_SNAPSHOT_NOT_AVAILABLE",
                     message="Submission evidence is incomplete.",
+                )
+
+            if snapshot.target_input.provider_mode != self._cases.target_provider_mode:
+                raise ClmRequestError(
+                    code="CLM_TARGET_PROVIDER_CONTEXT_MISMATCH",
+                    message="Target provider context changed; submission cannot continue safely.",
+                )
+
+            if (
+                self._cases.get_execution_state(snapshot.submission_id)
+                == GoldTierExecutionLedgerState.NOT_STARTED
+            ) and (
+                not self._submission_snapshot_is_current(record)
+                or not self._cases.has_valid_target_dispatch_confirmation(
+                    self._require_case(case_id), clm_version=record.version
+                )
+            ):
+                raise ClmRequestError(
+                    code="CLM_TARGET_CONFIRMATION_REQUIRED",
+                    message="A current frozen-review confirmation is required.",
                 )
 
             receipt = record.execution_receipt
@@ -463,6 +653,58 @@ class ClmOrchestrationService:
                     ),
                 ) from None
             return completed
+
+    def _submission_snapshot_is_current(self, record: ClmOrchestrationRecord) -> bool:
+        snapshot = record.submission_snapshot
+        if snapshot is None:
+            return False
+        case = self._require_case(record.case_id)
+        try:
+            current_input = self._cases.build_submission_input(
+                case,
+                provider_mode=snapshot.target_input.provider_mode,
+            )
+        except ValueError:
+            return False
+        if (
+            current_input.canonical_entity != snapshot.target_input.canonical_entity
+            or current_input.policy_catalogue_version
+            != snapshot.target_input.policy_catalogue_version
+            or current_input.target_policy != snapshot.target_input.target_policy
+        ):
+            return False
+        reconciliation_cleared = (
+            self._reconciliation.is_currently_cleared(case_id=record.case_id)
+            if self._reconciliation is not None
+            else False
+        )
+        documents = tuple(
+            EvidenceReference(
+                reference_id=item.document_id,
+                version=len(item.events),
+                status=(
+                    item.state.value
+                    if item.state == DocumentProcessingState.REVIEWED
+                    else "RECONCILIATION_RESOLVED"
+                ),
+                updated_at=item.updated_at,
+            )
+            for item in self._documents.list_documents(case_id=record.case_id)
+            if item.is_current_evidence
+            and (item.state == DocumentProcessingState.REVIEWED or reconciliation_cleared)
+        )
+        ownership = self._ownership.get(case_id=record.case_id)
+        return bool(
+            documents == snapshot.document_references
+            and ownership is not None
+            and EvidenceReference(
+                reference_id=ownership.analysis_id,
+                version=ownership.version,
+                status=ownership.state.value,
+                updated_at=ownership.updated_at,
+            )
+            == snapshot.ownership_reference
+        )
 
     def _start_submission(self, record: ClmOrchestrationRecord) -> ClmOrchestrationRecord:
         case = self._require_case(record.case_id)
@@ -755,13 +997,16 @@ class ClmOrchestrationService:
         self,
         record: ClmOrchestrationRecord,
         case: OnboardingCase,
+        *,
+        force: bool = False,
     ) -> ClmOrchestrationRecord:
         """Persist intent, call read-only Search once, and retain only safe evidence."""
 
         identity_fingerprint = _target_identity_fingerprint(case)
         current = record.target_search_checkpoint
         if (
-            current is not None
+            not force
+            and current is not None
             and current.identity_fingerprint == identity_fingerprint
             and current.status != GoldTierSearchCheckpointStatus.STALE
         ):
@@ -1001,7 +1246,7 @@ class ClmOrchestrationService:
             case,
             submission_id=self._uuid_factory(),
             correlation_id=self._uuid_factory(),
-            accepted_at=self._clock(),
+            accepted_at=case.created_at,
             provider_mode=submission_plan.environment,
         )
         snapshot = ClmSubmissionSnapshot(
@@ -1277,6 +1522,32 @@ def _target_identity_fingerprint(case: OnboardingCase) -> str:
         )
     )
     return sha256(value.encode("utf-8")).hexdigest()
+
+
+def _materially_equivalent_search(
+    previous: GoldTierSearchCheckpoint | None,
+    current: GoldTierSearchCheckpoint | None,
+) -> bool:
+    """Compare only evidence that can change the proposed target dispatch path."""
+
+    if previous is None or current is None:
+        return False
+    common = (
+        previous.identity_fingerprint == current.identity_fingerprint
+        and previous.provider_mode == current.provider_mode
+        and previous.provider_classification == current.provider_classification
+        and previous.status == current.status
+        and previous.disposition == current.disposition
+        and previous.provider_outcome == current.provider_outcome
+        and previous.status_code == current.status_code
+        and previous.selected_party_id == current.selected_party_id
+        and previous.resolution_outcome == current.resolution_outcome
+    )
+    if not common:
+        return False
+    if current.disposition == GoldTierSearchDisposition.REVIEW_REQUIRED:
+        return previous.candidates == current.candidates
+    return True
 
 
 def _initial_or_canonical_identity_fingerprint(case: OnboardingCase) -> str:

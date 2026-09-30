@@ -51,6 +51,7 @@ import PolicyRules from "./pages/PolicyRules";
 import AdminTeams from "./pages/AdminTeams";
 import AdminUsers from "./pages/AdminUsers";
 import GoldTierSandbox from "./pages/GoldTierSandbox";
+import AcraDiagnostics from "./pages/AcraDiagnostics";
 import RetainedIntakeRecovery from "./pages/RetainedIntakeRecovery";
 import { paths, requiredCapabilityForPath, WorkspaceRoutes, WorkspaceTabs } from "./navigation";
 import {
@@ -2360,6 +2361,7 @@ export default function App({
           adminUsers={<AdminUsers />}
           adminTeams={<AdminTeams />}
           goldtierSandbox={<GoldTierSandbox key={actor.user_id} actor={actor} />}
+          acraDiagnostics={<AcraDiagnostics key={actor.user_id} actor={actor} />}
         />
       </div>
     </main>

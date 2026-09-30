@@ -11,6 +11,7 @@ from phase13_test_settings import ordinary_test_settings
 from pydantic import ValidationError
 
 from app.domain.onboarding_intelligence import (
+    ClassificationConsistencyStatus,
     EntityCandidateEvidence,
     EntityIdentity,
     EntityResolutionOutcome,
@@ -23,6 +24,7 @@ from app.domain.onboarding_intelligence import (
     ResolutionFeatureName,
     UboAdviceLabel,
     UboAdviceResult,
+    assess_classification_consistency,
 )
 from app.domain.ownership import (
     OwnershipCandidate,
@@ -701,3 +703,36 @@ def test_sme_ambiguous_entity_scenario_stops_before_target_with_explainable_revi
         "AMBIGUOUS_TOP_CANDIDATES"
     ]
     assert intelligence["mock_risk"]["disclaimer"] == "NOT_COMPLIANCE_DECISION"
+@pytest.mark.parametrize(
+    ("legal_form", "kyc_customer_type", "expected"),
+    [
+        (
+            "Private company limited by shares",
+            "Company - Private",
+            ClassificationConsistencyStatus.COMPATIBLE,
+        ),
+        (
+            "Private company limited by shares",
+            "Association - Incorporated",
+            ClassificationConsistencyStatus.OPERATOR_REVIEW,
+        ),
+        (
+            "UNKNOWN",
+            "Association - Incorporated",
+            ClassificationConsistencyStatus.UNKNOWN_LEGAL_FORM,
+        ),
+    ],
+)
+def test_classification_consistency_is_advisory_without_inventing_policy(
+    legal_form: str,
+    kyc_customer_type: str,
+    expected: ClassificationConsistencyStatus,
+) -> None:
+    advisory = assess_classification_consistency(
+        legal_form=legal_form,
+        kyc_customer_type=kyc_customer_type,
+    )
+
+    assert advisory.status == expected
+    assert advisory.blocking is False
+    assert advisory.authority == "PROJECT_ADVISORY_ONLY"

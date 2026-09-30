@@ -2,10 +2,10 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.domain.models import EventOutcome, SafeError
 
@@ -68,6 +68,7 @@ class BusinessExceptionType(StrEnum):
     EXISTING_PARTY_REVIEW_REQUIRED = "EXISTING_PARTY_REVIEW_REQUIRED"
     TARGET_PARTIAL_REVIEW_REQUIRED = "TARGET_PARTIAL_REVIEW_REQUIRED"
     TARGET_CLASSIFICATION_REQUIRED = "TARGET_CLASSIFICATION_REQUIRED"
+    TARGET_CONFIRMATION_REQUIRED = "TARGET_CONFIRMATION_REQUIRED"
 
 
 class BusinessExceptionStatus(StrEnum):
@@ -80,6 +81,180 @@ class ExceptionResolutionAction(StrEnum):
     KEEP_REGISTRY_VALUE = "KEEP_REGISTRY_VALUE"
     USE_DOCUMENT_VALUE = "USE_DOCUMENT_VALUE"
     REQUEST_ADDITIONAL_INFORMATION = "REQUEST_ADDITIONAL_INFORMATION"
+
+
+class BlockerDecisionClassification(StrEnum):
+    AUTO_RESOLVED_WITH_NOTE = "AUTO_RESOLVED_WITH_NOTE"
+    CONTINUE_WITH_WARNING = "CONTINUE_WITH_WARNING"
+    USER_ACTION_REQUIRED = "USER_ACTION_REQUIRED"
+    EXTERNAL_DEPENDENCY = "EXTERNAL_DEPENDENCY"
+    HARD_STOP = "HARD_STOP"
+
+
+class BlockerDecisionOwner(StrEnum):
+    CASE_OPERATOR = "CASE_OPERATOR"
+    DOCUMENT_REVIEW_OWNER = "DOCUMENT_REVIEW_OWNER"
+    IDENTITY_REVIEW_OWNER = "IDENTITY_REVIEW_OWNER"
+    REGISTRY_INTEGRATION_OWNER = "REGISTRY_INTEGRATION_OWNER"
+    OWNERSHIP_REVIEW_OWNER = "OWNERSHIP_REVIEW_OWNER"
+    POLICY_OWNER = "POLICY_OWNER"
+    TARGET_OPERATIONS_OWNER = "TARGET_OPERATIONS_OWNER"
+    TARGET_PROVIDER_OWNER = "TARGET_PROVIDER_OWNER"
+
+
+class BlockerDecisionAction(StrEnum):
+    ESCALATE_TO_OWNER = "ESCALATE_TO_OWNER"
+    CORRECT_INITIAL_IDENTITY = "CORRECT_INITIAL_IDENTITY"
+    RESOLVE_JURISDICTION_EVIDENCE = "RESOLVE_JURISDICTION_EVIDENCE"
+    RUN_READ_ONLY_SEARCH_RECHECK = "RUN_READ_ONLY_SEARCH_RECHECK"
+    REVIEW_ENTITY_IDENTITY = "REVIEW_ENTITY_IDENTITY"
+    PROVIDE_REGISTRY_EVIDENCE = "PROVIDE_REGISTRY_EVIDENCE"
+    ENABLE_SUPPORTED_REGISTRY_PROVIDER = "ENABLE_SUPPORTED_REGISTRY_PROVIDER"
+    UPLOAD_DOCUMENT = "UPLOAD_DOCUMENT"
+    UPLOAD_REPLACEMENT_DOCUMENT = "UPLOAD_REPLACEMENT_DOCUMENT"
+    COMPLETE_DOCUMENT_REVIEW = "COMPLETE_DOCUMENT_REVIEW"
+    KEEP_REGISTRY_VALUE = "KEEP_REGISTRY_VALUE"
+    USE_DOCUMENT_VALUE = "USE_DOCUMENT_VALUE"
+    REQUEST_ADDITIONAL_INFORMATION = "REQUEST_ADDITIONAL_INFORMATION"
+    PROVIDE_CORRECTED_OWNERSHIP_EVIDENCE = "PROVIDE_CORRECTED_OWNERSHIP_EVIDENCE"
+    RERUN_OWNERSHIP_ANALYSIS = "RERUN_OWNERSHIP_ANALYSIS"
+    REVIEW_MOCK_RISK = "REVIEW_MOCK_RISK"
+    SELECT_TARGET_CLASSIFICATION = "SELECT_TARGET_CLASSIFICATION"
+    CONFIRM_FROZEN_TARGET_SUBMISSION = "CONFIRM_FROZEN_TARGET_SUBMISSION"
+    VERIFY_TARGET_OUTCOME_WITHOUT_REPLAY = "VERIFY_TARGET_OUTCOME_WITHOUT_REPLAY"
+    DIAGNOSE_PROVIDER_VALIDATION = "DIAGNOSE_PROVIDER_VALIDATION"
+    FINALIZE_RETAINED_TARGET_OUTCOME = "FINALIZE_RETAINED_TARGET_OUTCOME"
+    WAIT_FOR_CURRENT_PROCESSING = "WAIT_FOR_CURRENT_PROCESSING"
+    RETAIN_INDEPENDENT_EVIDENCE_ONLY = "RETAIN_INDEPENDENT_EVIDENCE_ONLY"
+    RETAIN_SUPERSESSION_NOTE = "RETAIN_SUPERSESSION_NOTE"
+    RETAIN_READINESS_WARNING = "RETAIN_READINESS_WARNING"
+    RETAIN_AUTO_CONFIRM_NOTE = "RETAIN_AUTO_CONFIRM_NOTE"
+
+
+class BlockerMinimumInput(StrEnum):
+    CURRENT_CASE_VERSION = "CURRENT_CASE_VERSION"
+    CURRENT_EXCEPTION_VERSION = "CURRENT_EXCEPTION_VERSION"
+    CURRENT_CANONICAL_IDENTITY = "CURRENT_CANONICAL_IDENTITY"
+    CORRECTED_IDENTITY_WITH_RATIONALE = "CORRECTED_IDENTITY_WITH_RATIONALE"
+    CURRENT_JURISDICTION_EVIDENCE = "CURRENT_JURISDICTION_EVIDENCE"
+    CURRENT_SEARCH_CHECKPOINT = "CURRENT_SEARCH_CHECKPOINT"
+    CURRENT_REGISTRY_EVIDENCE = "CURRENT_REGISTRY_EVIDENCE"
+    CURRENT_DOCUMENT_EVIDENCE = "CURRENT_DOCUMENT_EVIDENCE"
+    CURRENT_DOCUMENT_REVIEW = "CURRENT_DOCUMENT_REVIEW"
+    CURRENT_RECONCILIATION_EVIDENCE = "CURRENT_RECONCILIATION_EVIDENCE"
+    AUTHORIZED_RECONCILIATION_ACTION = "AUTHORIZED_RECONCILIATION_ACTION"
+    CURRENT_OWNERSHIP_EVIDENCE = "CURRENT_OWNERSHIP_EVIDENCE"
+    CORRECTED_OWNERSHIP_EVIDENCE = "CORRECTED_OWNERSHIP_EVIDENCE"
+    CURRENT_ENTITY_RESOLUTION_EVIDENCE = "CURRENT_ENTITY_RESOLUTION_EVIDENCE"
+    CURRENT_MOCK_RISK_EVIDENCE = "CURRENT_MOCK_RISK_EVIDENCE"
+    CURRENT_TARGET_CLASSIFICATION = "CURRENT_TARGET_CLASSIFICATION"
+    CURRENT_FROZEN_TARGET_REVIEW = "CURRENT_FROZEN_TARGET_REVIEW"
+    CURRENT_TARGET_LEDGER = "CURRENT_TARGET_LEDGER"
+    PROVIDER_VERIFICATION = "PROVIDER_VERIFICATION"
+    PROVIDER_DIAGNOSIS = "PROVIDER_DIAGNOSIS"
+    CURRENT_REPLACEMENT_DOCUMENT = "CURRENT_REPLACEMENT_DOCUMENT"
+    CANCELLED_SUPERSEDED_EXCEPTION = "CANCELLED_SUPERSEDED_EXCEPTION"
+    RETAINED_SEARCH_FAILURE = "RETAINED_SEARCH_FAILURE"
+    INDEPENDENT_EVIDENCE_AUTHORIZED = "INDEPENDENT_EVIDENCE_AUTHORIZED"
+    CURRENT_READINESS_WARNING = "CURRENT_READINESS_WARNING"
+    EQUIVALENT_NORMALIZED_VALUES = "EQUIVALENT_NORMALIZED_VALUES"
+
+
+class InvalidatedDependency(StrEnum):
+    CUSTOMER_IDENTITY = "CUSTOMER_IDENTITY"
+    SEARCH_CHECKPOINT = "SEARCH_CHECKPOINT"
+    REGISTRY_EVIDENCE = "REGISTRY_EVIDENCE"
+    DOCUMENT_RECONCILIATION = "DOCUMENT_RECONCILIATION"
+    OWNERSHIP_ANALYSIS = "OWNERSHIP_ANALYSIS"
+    ADVISORY_INTELLIGENCE = "ADVISORY_INTELLIGENCE"
+    READINESS_SNAPSHOT = "READINESS_SNAPSHOT"
+    TARGET_CLASSIFICATION = "TARGET_CLASSIFICATION"
+    TARGET_CONFIRMATION = "TARGET_CONFIRMATION"
+    TARGET_PLAN = "TARGET_PLAN"
+    TARGET_MUTATIONS = "TARGET_MUTATIONS"
+
+
+class ResumeTransition(StrEnum):
+    NO_AUTOMATIC_RESUME = "NO_AUTOMATIC_RESUME"
+    RECHECK_FROM_STAGE = "RECHECK_FROM_STAGE"
+    REPLACE_EVIDENCE_AND_RECHECK = "REPLACE_EVIDENCE_AND_RECHECK"
+    APPLY_AUTHORIZED_DECISION_AND_RECHECK = "APPLY_AUTHORIZED_DECISION_AND_RECHECK"
+    VERIFY_WITHOUT_REPLAY = "VERIFY_WITHOUT_REPLAY"
+    CONTINUE_INDEPENDENT_EVIDENCE_ONLY = "CONTINUE_INDEPENDENT_EVIDENCE_ONLY"
+    RETAIN_NOTE_WITHOUT_WORKFLOW_CHANGE = "RETAIN_NOTE_WITHOUT_WORKFLOW_CHANGE"
+
+
+SafeBlockerCode = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=64, pattern=r"^[A-Z][A-Z0-9_]*$"),
+]
+SafeRuleVersion = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=64, pattern=r"^[A-Z0-9][A-Z0-9_.-]*$"),
+]
+
+
+class BlockerDecisionMetadata(BaseModel):
+    """Immutable policy output without workflow-transition authority."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    blocker_code: SafeBlockerCode
+    exception_type: BusinessExceptionType | None = None
+    classification: BlockerDecisionClassification
+    policy_version: str = Field(pattern=r"^BLOCKER_DECISION_POC_V[1-9][0-9]*$")
+    rule_version: SafeRuleVersion
+    owner: BlockerDecisionOwner
+    minimum_inputs: tuple[BlockerMinimumInput, ...] = Field(max_length=16)
+    permitted_actions: tuple[BlockerDecisionAction, ...] = Field(max_length=8)
+    currently_available_actions: tuple[BlockerDecisionAction, ...] = Field(max_length=8)
+    resume_stage: AutomationStage | None
+    resume_transition: ResumeTransition
+    resume_ready: bool
+    invalidated_dependencies: tuple[InvalidatedDependency, ...] = Field(max_length=12)
+    explanation: str = Field(min_length=1, max_length=300)
+    unknowns: tuple[SafeBlockerCode, ...] = Field(default_factory=tuple, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_non_authoritative_shape(self) -> "BlockerDecisionMetadata":
+        non_blocking = self.classification in {
+            BlockerDecisionClassification.AUTO_RESOLVED_WITH_NOTE,
+            BlockerDecisionClassification.CONTINUE_WITH_WARNING,
+        }
+        if non_blocking == (self.exception_type is not None):
+            raise ValueError("non-blocking metadata cannot classify an existing exception")
+        if self.classification == BlockerDecisionClassification.AUTO_RESOLVED_WITH_NOTE and (
+            self.resume_stage is not None
+            or self.resume_transition != ResumeTransition.RETAIN_NOTE_WITHOUT_WORKFLOW_CHANGE
+        ):
+            raise ValueError("auto-resolved metadata cannot advance workflow state")
+        return self
+
+
+class BlockerDecisionRecord(BaseModel):
+    """Durable evidence-bound decision metadata; never an authorization grant."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    decision_id: UUID
+    case_id: UUID
+    exception_id: UUID | None = None
+    evidence_version: str = Field(min_length=1, max_length=128)
+    automation_version: int = Field(ge=1)
+    recorded_at: datetime
+    metadata: BlockerDecisionMetadata
+    actor_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,95}$")
+    reviewer_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,95}$")
+
+    @model_validator(mode="after")
+    def validate_exception_binding(self) -> "BlockerDecisionRecord":
+        is_blocking = self.metadata.classification not in {
+            BlockerDecisionClassification.AUTO_RESOLVED_WITH_NOTE,
+            BlockerDecisionClassification.CONTINUE_WITH_WARNING,
+        }
+        if is_blocking != (self.exception_id is not None):
+            raise ValueError("blocking decision metadata must bind exactly one exception")
+        return self
 
 
 class AutomationEventType(StrEnum):
@@ -100,6 +275,8 @@ class AutomationEventType(StrEnum):
     INTELLIGENCE_EVALUATED = "INTELLIGENCE_EVALUATED"
     READINESS_AUTOMATED = "READINESS_AUTOMATED"
     TARGET_CLASSIFICATION_RECORDED = "TARGET_CLASSIFICATION_RECORDED"
+    POLICY_SNAPSHOT_REBOUND = "POLICY_SNAPSHOT_REBOUND"
+    TARGET_DISPATCH_CONFIRMED = "TARGET_DISPATCH_CONFIRMED"
     MOCK_SUBMISSION_STARTED = "MOCK_SUBMISSION_STARTED"
     MOCK_FINALIZATION_RECOVERY_PENDING = "MOCK_FINALIZATION_RECOVERY_PENDING"
     TARGET_OPERATION_RECOVERY_PENDING = "TARGET_OPERATION_RECOVERY_PENDING"
@@ -147,9 +324,26 @@ class BusinessException(BaseModel):
     available_actions: tuple[ExceptionResolutionAction, ...] = Field(
         default_factory=tuple, max_length=4
     )
+    decisions: tuple[BlockerDecisionRecord, ...] = Field(default_factory=tuple, max_length=8)
     created_at: datetime
     resolved_at: datetime | None = None
     resolution: ExceptionResolutionAction | None = None
+
+    @model_validator(mode="after")
+    def validate_decision_bindings(self) -> "BusinessException":
+        if len({item.decision_id for item in self.decisions}) != len(self.decisions):
+            raise ValueError("exception decision identifiers must be unique")
+        for item in self.decisions:
+            if (
+                item.case_id != self.case_id
+                or item.exception_id != self.exception_id
+                or item.evidence_version != self.evidence_version
+                or item.automation_version != self.automation_version
+                or item.metadata.exception_type != self.exception_type
+                or item.metadata.blocker_code not in self.blocker_codes
+            ):
+                raise ValueError("exception decision metadata binding is inconsistent")
+        return self
 
 
 class AutomationMetrics(BaseModel):
@@ -193,6 +387,9 @@ class ZeroTouchAutomationRecord(BaseModel):
     current_stage: AutomationStage
     completed_stages: tuple[AutomationStage, ...] = Field(default_factory=tuple, max_length=6)
     exceptions: list[BusinessException] = Field(default_factory=list)
+    non_blocking_decisions: list[BlockerDecisionRecord] = Field(
+        default_factory=list, max_length=64
+    )
     technical_failure: SafeError | None = None
     metrics: AutomationMetrics = Field(default_factory=AutomationMetrics)
     events: list[AutomationEvent] = Field(default_factory=list)
@@ -200,6 +397,24 @@ class ZeroTouchAutomationRecord(BaseModel):
     completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_decision_history(self) -> "ZeroTouchAutomationRecord":
+        if len({item.decision_id for item in self.non_blocking_decisions}) != len(
+            self.non_blocking_decisions
+        ):
+            raise ValueError("non-blocking decision identifiers must be unique")
+        if any(
+            item.case_id != self.case_id
+            or item.metadata.classification
+            not in {
+                BlockerDecisionClassification.AUTO_RESOLVED_WITH_NOTE,
+                BlockerDecisionClassification.CONTINUE_WITH_WARNING,
+            }
+            for item in self.non_blocking_decisions
+        ):
+            raise ValueError("non-blocking decision history binding is inconsistent")
+        return self
 
     @property
     def active_exceptions(self) -> list[BusinessException]:
@@ -211,12 +426,14 @@ LEGAL_AUTOMATION_TRANSITIONS: dict[AutomationStatus, frozenset[AutomationStatus]
         {
             AutomationStatus.PENDING_INPUTS,
             AutomationStatus.RUNNING,
+            AutomationStatus.RESUMING,
             AutomationStatus.WAITING_FOR_REVIEW,
             AutomationStatus.TECHNICAL_FAILURE,
         }
     ),
     AutomationStatus.RUNNING: frozenset(
         {
+            AutomationStatus.PENDING_INPUTS,
             AutomationStatus.RUNNING,
             AutomationStatus.WAITING_FOR_REVIEW,
             AutomationStatus.RECOVERY_PENDING,
@@ -250,7 +467,9 @@ LEGAL_AUTOMATION_TRANSITIONS: dict[AutomationStatus, frozenset[AutomationStatus]
         }
     ),
     AutomationStatus.COMPLETED: frozenset({AutomationStatus.COMPLETED}),
-    AutomationStatus.TECHNICAL_FAILURE: frozenset({AutomationStatus.TECHNICAL_FAILURE}),
+    AutomationStatus.TECHNICAL_FAILURE: frozenset(
+        {AutomationStatus.TECHNICAL_FAILURE, AutomationStatus.RESUMING}
+    ),
 }
 
 
@@ -318,8 +537,12 @@ def validate_automation_record(record: ZeroTouchAutomationRecord) -> None:
     elif record.status == AutomationStatus.WAITING_FOR_REVIEW:
         if not open_exceptions or record.technical_failure is not None:
             raise ValueError("review-wait automation record is inconsistent")
-        if any(item.stage != record.current_stage for item in open_exceptions):
-            raise ValueError("open exceptions must match the current review stage")
+        earliest_open_stage = min(
+            (item.stage for item in open_exceptions),
+            key=expected_prefix.index,
+        )
+        if record.current_stage != earliest_open_stage:
+            raise ValueError("current review stage must be the earliest open blocker")
     elif record.status in {AutomationStatus.RUNNING, AutomationStatus.RESUMING}:
         if (
             open_exceptions

@@ -1324,3 +1324,95 @@ def test_real_mongo_phase11_precommit_failure_changes_neither_atomic_half(
         assert durable.reconciliation == before.reconciliation
     finally:
         store.close()
+
+
+def test_real_mongo_schema_v7_restart_preserves_identity_repair_and_pending_confirmation_guard(
+    isolated_mongo_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exact v7 bytes retain recovery/audit facts and cannot bypass confirmation."""
+
+    target_calls: list[str] = []
+
+    class CountingGoldTier(MockGoldTierConnector):
+        def search_party(self, request: object, metadata: object) -> object:
+            target_calls.append("search")
+            return super().search_party(request, metadata)  # type: ignore[arg-type]
+
+        def create_shell_customer(self, request: object, metadata: object) -> object:
+            target_calls.append("shell")
+            return super().create_shell_customer(request, metadata)  # type: ignore[arg-type]
+
+        def create_policy(self, request: object, metadata: object) -> object:
+            target_calls.append("policy")
+            return super().create_policy(request, metadata)  # type: ignore[arg-type]
+
+        def amend_party(self, party_id: str, request: object, metadata: object) -> object:
+            target_calls.append("amend")
+            return super().amend_party(party_id, request, metadata)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(composition, "MockGoldTierConnector", CountingGoldTier)
+    settings = isolated_mongo_settings
+    with TestClient(create_app(settings)) as first:
+        created = first.post(
+            "/api/clm/zero-touch/cases",
+            json={
+                "uen": "202400001A",
+                "legal_name": "MERLION CIRCULAR LABS PTE. LTD.",
+            },
+        )
+        assert created.status_code == 201
+        before = created.json()
+        case_id = UUID(before["case"]["case_id"])
+        assert before["case"]["initial_identity"] is None
+
+        repaired = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/identity-search-recheck",
+            json={
+                "legal_name": "MERLION CIRCULAR LABS PTE. LTD.",
+                "registration_number": "202400001A",
+                "country_of_incorporation": "SG",
+                "expected_automation_version": before["version"],
+                "expected_clm_version": before["clm"]["version"],
+                "expected_case_event_count": len(before["case"]["events"]),
+            },
+        )
+        assert repaired.status_code == 200, repaired.text
+        _upload_text(first, case_id, TEXT_PROFILE, name="Recovered-identity.txt")
+        pending = _complete_intake(first, case_id, expected_count=1)
+        assert pending["status"] == "WAITING_FOR_REVIEW"
+        assert pending["case"]["target_dispatch_confirmation"] is None
+        confirmation = next(
+            item
+            for item in pending["active_exceptions"]
+            if item["blocker_code"] == "TARGET_CONFIRMATION_REQUIRED"
+        )
+        assert confirmation["decisions"][0]["metadata"]["classification"] == (
+            "USER_ACTION_REQUIRED"
+        )
+
+    store = _open_store(settings, initialize=False)
+    try:
+        retained = store.get(case_id)
+        assert retained is not None and retained.automation is not None
+        assert retained.onboarding.identity_corrections
+        assert retained.onboarding.initial_target_search_attempts
+        assert retained.onboarding.initial_target_search_attempts[-1].status == "COMPLETED"
+        assert retained.onboarding.target_dispatch_confirmation is None
+        assert retained.automation.active_exceptions[0].decisions
+        raw = store._collection.find_one({"_id": str(case_id)})  # noqa: SLF001
+        assert raw is not None and raw["schema_version"] == 7
+    finally:
+        store.close()
+
+    calls_before_restart_guard = target_calls.copy()
+    with TestClient(create_app(settings)) as restarted:
+        detail = restarted.get(f"/api/clm/zero-touch/cases/{case_id}")
+        blocked = restarted.post(f"/api/clm/cases/{case_id}/submit")
+
+    assert detail.status_code == 200
+    assert detail.json()["case"]["identity_corrections"]
+    assert detail.json()["case"]["target_dispatch_confirmation"] is None
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "CLM_TARGET_CONFIRMATION_REQUIRED"
+    assert target_calls == calls_before_restart_guard == ["search"]

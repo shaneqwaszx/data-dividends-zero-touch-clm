@@ -1,6 +1,7 @@
 """Map canonical entities into the provisional GoldTier Phase 01 DTO subset."""
 
 from datetime import datetime
+from typing import Literal
 
 from app.connectors.goldtier_models import (
     AmendAddress,
@@ -121,14 +122,73 @@ def build_amend_request(
     )
 
 
-def _mock_preview_field(name: str, value: str) -> GoldTierPreviewField:
+def _flatten_mock_request(
+    value: object,
+    *,
+    prefix: str = "",
+) -> tuple[tuple[str, str | None], ...]:
+    if isinstance(value, dict):
+        flattened: list[tuple[str, str | None]] = []
+        for key, item in value.items():
+            field = f"{prefix}.{key}" if prefix else str(key)
+            flattened.extend(_flatten_mock_request(item, prefix=field))
+        return tuple(flattened)
+    if isinstance(value, list):
+        flattened = []
+        for index, item in enumerate(value):
+            flattened.extend(_flatten_mock_request(item, prefix=f"{prefix}[{index}]"))
+        return tuple(flattened)
+    if value is None or isinstance(value, str):
+        return ((prefix, value),)
+    raise MappingError("Mock target request contains an unsupported preview value")
+
+
+def _mock_preview_field(
+    name: str,
+    value: str | None,
+    *,
+    canonical: bool,
+    required: bool,
+) -> GoldTierPreviewField:
     return GoldTierPreviewField(
         target_field=name,
         value=value,
-        provenance=TargetValueProvenance.REGISTRY,
-        authority=TargetFieldAuthority.PROJECT_DEFINED_PROVISIONAL,
-        required=True,
+        provenance=(
+            TargetValueProvenance.REGISTRY
+            if canonical
+            else TargetValueProvenance.SYSTEM_DERIVED
+        ),
+        authority=(
+            TargetFieldAuthority.CANONICAL_EVIDENCE
+            if canonical
+            else TargetFieldAuthority.PROJECT_DEFINED_PROVISIONAL
+        ),
+        required=required,
         missing=False,
+        validation=TargetFieldValidation.VALID,
+    )
+
+
+def _mock_operation_preview(
+    operation: Literal["SEARCH", "SHELL", "POLICY", "AMEND"],
+    payload: dict[str, object],
+    *,
+    canonical_fields: frozenset[str],
+    optional_fields: frozenset[str] = frozenset(),
+) -> GoldTierOperationPreview:
+    fields = tuple(
+        _mock_preview_field(
+            name,
+            value,
+            canonical=name in canonical_fields,
+            required=name not in optional_fields,
+        )
+        for name, value in _flatten_mock_request(payload)
+    )
+    return GoldTierOperationPreview(
+        operation=operation,
+        fields=fields,
+        missing_fields=(),
         validation=TargetFieldValidation.VALID,
     )
 
@@ -177,15 +237,45 @@ class MockGoldTierRequestMapper:
         )
 
     def build_preview(self, submission: GoldTierSubmissionInput) -> GoldTierRequestPreview:
-        entity = submission.canonical_entity
+        validation_party_id = "BOUND_FROM_SEARCH_OR_SHELL"
+        search = self.build_search_request(submission)
+        shell = self.build_shell_request(submission)
+        policy = self.build_policy_request(submission, validation_party_id)
+        amend = self.build_amend_request(submission, validation_party_id)
         operations = (
-            GoldTierOperationPreview(
+            _mock_operation_preview(
                 operation="SEARCH",
-                fields=(
-                    _mock_preview_field("registrationNumber", entity.registration_number),
+                payload=search.model_dump(mode="json", by_alias=True),
+                canonical_fields=frozenset({"registrationNumber"}),
+            ),
+            _mock_operation_preview(
+                operation="SHELL",
+                payload=shell.model_dump(mode="json", by_alias=True),
+                canonical_fields=frozenset(
+                    {
+                        "party.names.legalName",
+                        "party.nonIndividualProfile.countryOfIncorporation",
+                    }
                 ),
-                missing_fields=(),
-                validation=TargetFieldValidation.VALID,
+            ),
+            _mock_operation_preview(
+                operation="POLICY",
+                payload=policy.model_dump(mode="json", by_alias=True),
+                canonical_fields=frozenset({"customerExternalSystemKey"}),
+            ),
+            _mock_operation_preview(
+                operation="AMEND",
+                payload=amend.model_dump(mode="json", by_alias=True),
+                canonical_fields=frozenset(
+                    {
+                        "party.names.legalName",
+                        "party.addresses[0].addressLine1",
+                        "party.addresses[0].addressLine2",
+                        "party.addresses[0].postalCode",
+                        "party.addresses[0].country",
+                    }
+                ),
+                optional_fields=frozenset({"party.addresses[0].addressLine2"}),
             ),
         )
         return GoldTierRequestPreview(

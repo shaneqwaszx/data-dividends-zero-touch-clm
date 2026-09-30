@@ -1,7 +1,8 @@
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   createBrowserNetworkPolicy,
   handleBrowserRoute,
@@ -24,6 +25,10 @@ const lowConfidenceFixture = path.resolve(
 const ownershipCycleFixture = path.resolve(
   currentDirectory,
   "../../backend/tests/fixtures/uat/cycle-uen-clean.pdf",
+);
+const operatorRouteArtifactDirectory = path.resolve(
+  currentDirectory,
+  "../test-artifacts/operator-route",
 );
 
 function legalNameForUen(uen: string): string {
@@ -83,6 +88,44 @@ async function openFreshOnboarding(page: Page) {
   await expect(landing).toBeVisible();
 }
 
+async function expectDocumentContained(page: Page) {
+  const layout = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    return {
+      bodyClientWidth: document.body.clientWidth,
+      bodyScrollWidth: document.body.scrollWidth,
+      viewportWidth,
+      visibleOverflow: Array.from(document.querySelectorAll<HTMLElement>("body *"))
+        .filter((element) => element.getBoundingClientRect().right > viewportWidth + 1)
+        .slice(0, 12)
+        .map((element) => ({
+          tag: element.tagName,
+          className: element.className,
+          right: Math.round(element.getBoundingClientRect().right),
+          width: Math.round(element.getBoundingClientRect().width),
+        })),
+    };
+  });
+  expect(layout.bodyScrollWidth, JSON.stringify(layout.visibleOverflow)).toBeLessThanOrEqual(layout.bodyClientWidth + 1);
+  expect(layout.bodyClientWidth).toBeLessThanOrEqual(layout.viewportWidth + 1);
+}
+
+async function expectReviewContained(page: Page, review: Locator) {
+  const layout = await review.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      left: bounds.left,
+      right: bounds.right,
+      viewportWidth: document.documentElement.clientWidth,
+    };
+  });
+  expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
+  expect(layout.left).toBeGreaterThanOrEqual(-1);
+  expect(layout.right).toBeLessThanOrEqual(layout.viewportWidth + 1);
+}
+
 test.describe.configure({ mode: "serial" });
 
 let networkGuard: NetworkGuard | undefined;
@@ -120,6 +163,425 @@ test("protected workspace requires a real login before navigation", async ({ pag
   await expect(newOnboardingLink).toHaveAttribute("href", "/new-onboarding");
   await newOnboardingLink.click();
   await expect(page.getByRole("heading", { name: "Start onboarding" })).toBeVisible();
+});
+
+test("ordinary RM repairs same-case identity, resolves evidence, and reviews without target writes", async ({ page }) => {
+  test.setTimeout(240_000);
+  const mutationRequests: Array<{ method: string; path: string }> = [];
+  page.on("request", (request) => {
+    if (request.method() !== "GET") {
+      mutationRequests.push({ method: request.method(), path: new URL(request.url()).pathname });
+    }
+  });
+
+  await mkdir(operatorRouteArtifactDirectory, { recursive: true });
+  await page.goto("/");
+  await login(page, "maya-lim");
+
+  // Setup only: seed a retained legacy case before the reviewer journey begins.
+  // The browser then uses Cases, the blocker tile, and every corrective mutation.
+  const sessionResponse = await page.request.get("/api/auth/me");
+  expect(sessionResponse.status()).toBe(200);
+  const session = await sessionResponse.json() as { csrf_token: string };
+  const mutationHeaders = { "X-CSRF-Token": session.csrf_token };
+  const createResponse = await page.request.post("/api/clm/zero-touch/cases", {
+    data: {
+      uen: "202400001A",
+      legal_name: legalNameForUen("202400001A"),
+    },
+    headers: mutationHeaders,
+  });
+  expect(createResponse.status()).toBe(201);
+  const created = await createResponse.json() as { case: { case_id: string } };
+  const caseId = created.case.case_id;
+  const initialResponse = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
+  expect(initialResponse.status()).toBe(200);
+  const initialProjection = await initialResponse.json() as {
+    active_exceptions: Array<{ blocker_code: string }>;
+    stage_order_version: number;
+    processing_pipeline: Array<{
+      node_id: string;
+      status: string;
+      children: Array<any>;
+    }>;
+  };
+  expect(initialProjection.active_exceptions)
+    .toEqual(expect.arrayContaining([expect.objectContaining({ blocker_code: "INITIAL_IDENTITY_INCOMPLETE" })]));
+  expect(initialProjection.stage_order_version).toBe(2);
+  const flattenedPipeline = (nodes: typeof initialProjection.processing_pipeline): typeof initialProjection.processing_pipeline => (
+    nodes.flatMap((node) => [node, ...flattenedPipeline(node.children)])
+  );
+  const initialNodes = flattenedPipeline(initialProjection.processing_pipeline);
+  const searchIndex = initialNodes.findIndex((node) => node.node_id === "GOLDTIER_SEARCH");
+  const registryIndex = initialNodes.findIndex((node) => node.node_id === "ACRA_REGISTRY");
+  expect(searchIndex).toBeGreaterThanOrEqual(0);
+  expect(registryIndex).toBeGreaterThan(searchIndex);
+  expect(initialNodes[registryIndex]?.status).toBe("NOT_REACHED");
+  const evidenceBytes = await readFile(lowConfidenceFixture);
+  const seededEvidence = (async () => {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const documentResponse = await page.request.post(
+        `/api/clm/zero-touch/cases/${caseId}/intake/documents`,
+        {
+          data: evidenceBytes,
+          headers: {
+            ...mutationHeaders,
+            "Content-Type": "application/pdf",
+            "X-Document-Name": "low-confidence.pdf",
+          },
+        },
+      );
+      if (documentResponse.status() === 201) {
+        const completeResponse = await page.request.post(
+          `/api/clm/zero-touch/cases/${caseId}/intake/complete`,
+          {
+            data: { expected_document_count: 1 },
+            headers: mutationHeaders,
+          },
+        );
+        expect(completeResponse.status()).toBe(200);
+        return;
+      }
+      expect(documentResponse.status()).toBe(409);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error("Seeded evidence did not become attachable after identity correction.");
+  })();
+
+  await openWorkspaceTab(page, "Cases");
+  await page.getByLabel("Search cases").fill(caseId);
+  const caseLink = page.locator(`a[href="/cases/${caseId}"]`).first();
+  await expect(caseLink).toBeVisible();
+  await caseLink.click();
+  await expect(page).toHaveURL(`/cases/${caseId}`);
+  await expect(page.getByRole("heading", { name: "Action required" })).toBeVisible();
+  await expect(page.getByText(/INITIAL_IDENTITY_INCOMPLETE/).first()).toBeVisible();
+  const identityStage = page.locator(".onboarding-progress__stage--actionable > button").filter({
+    hasText: "Initial identity",
+  });
+  await expect(identityStage).toBeVisible();
+  await identityStage.click();
+  const identityCorrection = page.locator("#case-identity-correction");
+  await expect(identityCorrection).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Complete company details" })).toBeVisible();
+
+  const actionableStage = identityStage;
+  await expect(actionableStage).toBeVisible();
+  await expect(actionableStage.locator(".onboarding-progress__stage-label")).toHaveText(
+    "Initial identity correction required for a retained Singapore case",
+  );
+  for (const width of [320, 360] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.mouse.move(0, 0);
+    await actionableStage.scrollIntoViewIfNeeded();
+    await actionableStage.screenshot({
+      path: path.join(operatorRouteArtifactDirectory, `${width}-long-label-default.png`),
+    });
+    await actionableStage.hover();
+    await actionableStage.screenshot({
+      path: path.join(operatorRouteArtifactDirectory, `${width}-long-label-hover.png`),
+    });
+    await page.mouse.move(0, 0);
+    await actionableStage.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await expect(actionableStage).toBeFocused();
+    const focusStyle = await actionableStage.evaluate((button) => {
+      const style = getComputedStyle(button);
+      return {
+        color: style.outlineColor,
+        offset: style.outlineOffset,
+        width: style.outlineWidth,
+      };
+    });
+    expect(focusStyle).toEqual({ color: "rgb(54, 86, 165)", offset: "2px", width: "3px" });
+    await actionableStage.screenshot({
+      path: path.join(operatorRouteArtifactDirectory, `${width}-long-label-focus.png`),
+    });
+    await page.locator(".onboarding-progress").screenshot({
+      path: path.join(operatorRouteArtifactDirectory, `${width}-long-label-focus-context.png`),
+    });
+  }
+
+  await page.getByLabel("Legal company name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Singapore UEN").fill("202400001A");
+  const identityResponse = page.waitForResponse((response) => (
+    response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/clm/zero-touch/cases/${caseId}/identity-search-recheck`
+  ));
+  await page.getByRole("button", { name: "Save details and recheck Search" }).click();
+  expect((await identityResponse).status()).toBe(200);
+  await seededEvidence;
+  await page.reload();
+  await expect(page).toHaveURL(`/cases/${caseId}`);
+  await expect(page.getByText("INITIAL_IDENTITY_INCOMPLETE", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+
+  for (const field of ["registration number", "legal name", "registered address", "country of incorporation"]) {
+    const action = page.getByRole("button", { name: `Accept ${field} suggestion` });
+    await expect(action).toBeVisible();
+    const reviewResponse = page.waitForResponse((response) => (
+      response.request().method() === "POST" && response.url().endsWith("/reviews")
+    ));
+    await action.click();
+    expect((await reviewResponse).status()).toBe(200);
+  }
+
+  const replacementInput = page.getByLabel("Replace current document");
+  await expect(replacementInput).toBeEnabled();
+  const replacementResponse = page.waitForResponse((response) => (
+    response.request().method() === "POST"
+      && new URL(response.url()).pathname.endsWith("/replacement")
+  ));
+  await replacementInput.setInputFiles(cleanFixture);
+  expect((await replacementResponse).status()).toBe(200);
+
+  const classification = page.getByRole("heading", { name: "Target classification" });
+  await expect(classification).toBeVisible({ timeout: 120_000 });
+  const kyc = page.getByLabel("KYC customer type");
+  const segment = page.getByLabel("Client segment");
+  await expect(kyc).toBeEnabled();
+  await expect(segment).toBeEnabled();
+  const selectDifferentAllowedValue = async (select: typeof kyc): Promise<string> => {
+    const current = await select.inputValue();
+    const allowedValues = await select.locator("option").evaluateAll((options) => (
+      options.map((option) => (option as HTMLOptionElement).value).filter(Boolean)
+    ));
+    const next = allowedValues.find((value) => value !== current);
+    expect(next, "an allowed value different from the retained selection").toBeDefined();
+    await select.selectOption(next!);
+    return next!;
+  };
+  const selectedKyc = await selectDifferentAllowedValue(kyc);
+  const selectedSegment = await selectDifferentAllowedValue(segment);
+  const saveClassification = page.getByRole("button", { name: "Save target classification" });
+  await expect(saveClassification).toBeEnabled();
+  const classificationResponse = page.waitForResponse((response) => (
+    response.request().method() === "PUT"
+      && new URL(response.url()).pathname === `/api/clm/zero-touch/cases/${caseId}/target-classification`
+  ));
+  await saveClassification.click();
+  const classificationResult = await classificationResponse;
+  expect(classificationResult.status()).toBe(200);
+  const classificationProjection = await classificationResult.json() as {
+    clm: {
+      submission_plan: {
+        request_preview: {
+          operations: Array<{ operation: string; fields: Array<{ target_field: string }> }>;
+        } | null;
+      };
+    };
+  };
+  const expectedOperationFields: Record<string, string[]> = {
+    SEARCH: ["registrationNumber"],
+    SHELL: [
+      "party.partyRole",
+      "party.partyType",
+      "party.names.legalName",
+      "party.nonIndividualProfile.countryOfIncorporation",
+      "sourceContext.sourceSystem",
+      "sourceContext.sourceCaseId",
+      "sourceContext.acceptedBy",
+      "sourceContext.acceptedAt",
+      "sourceContext.sourceChannel",
+    ],
+    POLICY: [
+      "goldTierId",
+      "customerExternalSystem",
+      "customerExternalSystemKey",
+      "policyDetails.policy",
+      "sourceContext.sourceSystem",
+      "sourceContext.sourceCaseId",
+      "sourceContext.acceptedBy",
+      "sourceContext.acceptedAt",
+      "sourceContext.sourceChannel",
+    ],
+    AMEND: [
+      "partyType",
+      "policy",
+      "party.names.legalName",
+      "party.addresses[0].addressLine1",
+      "party.addresses[0].addressLine2",
+      "party.addresses[0].postalCode",
+      "party.addresses[0].country",
+      "sourceContext.sourceSystem",
+      "sourceContext.sourceCaseId",
+      "sourceContext.acceptedBy",
+      "sourceContext.acceptedAt",
+      "sourceContext.sourceChannel",
+    ],
+  };
+  const projectedOperations = classificationProjection.clm.submission_plan.request_preview?.operations;
+  expect(projectedOperations?.map((operation) => operation.operation)).toEqual([
+    "SEARCH",
+    "SHELL",
+    "POLICY",
+    "AMEND",
+  ]);
+  expect(Object.fromEntries(
+    (projectedOperations ?? []).map((operation) => [
+      operation.operation,
+      operation.fields.map((field) => field.target_field),
+    ]),
+  )).toEqual(expectedOperationFields);
+  const review = page.locator(".review-and-send");
+  await expect(review.getByRole("heading", { name: "Review and send" })).toBeVisible();
+  const exactLabel = (value: string) => new RegExp(
+    `^${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+    "i",
+  );
+  await expect(review.getByText(exactLabel(selectedKyc))).toBeVisible({ timeout: 30_000 });
+  await expect(review.getByText(exactLabel(selectedSegment))).toBeVisible();
+  await expect(review.getByText("Legal form", { exact: true })).toBeVisible();
+  await expect(review.getByText("Owning team", { exact: true })).toBeVisible();
+  await expect(review.getByRole("button", { name: "Edit company details" })).toBeVisible();
+  await expect(review.getByRole("button", { name: "Edit classification" })).toBeVisible();
+  await expect(review.getByRole("button", { name: "Edit documents" })).toBeVisible();
+  await expect(review.getByRole("button", { name: "Edit ownership" })).toHaveCount(0);
+  await expect(review.getByText("Ownership source is review-only; no correction action is currently authorized.")).toBeVisible();
+  const presentedFieldLabel = (value: string) => value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/^./, (letter) => letter.toUpperCase());
+  for (const [operationName, fields] of Object.entries(expectedOperationFields)) {
+    const operation = review.locator(".review-and-send__operation").filter({
+      has: page.getByRole("heading", { name: `${presentedFieldLabel(operationName)} - Valid` }),
+    });
+    await expect(operation).toBeVisible();
+    expect(await operation.locator("dt").allTextContents()).toEqual(fields.map(presentedFieldLabel));
+  }
+  await expect(review.getByText("Document review incomplete", { exact: true })).toHaveCount(0);
+  await expect(review.getByText("Ownership required", { exact: true })).toHaveCount(0);
+  const confirm = review.getByRole("button", { name: "Confirm and send to Mock GoldTier" });
+  await expect(confirm).toBeEnabled();
+
+  await review.getByRole("button", { name: "Edit company details" }).click();
+  await expect(page.locator("#case-identity-correction")).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Complete company details" })).toBeVisible();
+  await review.getByRole("button", { name: "Edit classification" }).click();
+  await expect(page.locator("#case-target-classification")).toBeFocused();
+  await review.getByRole("button", { name: "Edit documents" }).click();
+  await expect(page.locator("#case-evidence-documents")).toBeFocused();
+
+  const printButton = review.getByRole("button", { name: "Print / save PDF" });
+  for (const width of [360, 768, 1280, 1440, 1920] as const) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.mouse.move(0, 0);
+    await review.scrollIntoViewIfNeeded();
+    await expectDocumentContained(page);
+    await review.screenshot({ path: path.join(operatorRouteArtifactDirectory, `${width}-review-default.png`) });
+    await printButton.hover();
+    await review.screenshot({ path: path.join(operatorRouteArtifactDirectory, `${width}-review-hover.png`) });
+    await printButton.focus();
+    await expect(printButton).toBeFocused();
+    await review.screenshot({ path: path.join(operatorRouteArtifactDirectory, `${width}-review-focus.png`) });
+  }
+  await page.setViewportSize({ width: 320, height: 1000 });
+  await review.screenshot({ path: path.join(operatorRouteArtifactDirectory, "320-review-reflow.png") });
+  await expectReviewContained(page, review);
+  await page.setViewportSize({ width: 640, height: 1000 });
+  await page.evaluate(() => { document.documentElement.style.zoom = "2"; });
+  await expectReviewContained(page, review);
+  await review.screenshot({ path: path.join(operatorRouteArtifactDirectory, "200-percent-review-reflow.png") });
+  await page.evaluate(() => { document.documentElement.style.zoom = ""; });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: path.join(operatorRouteArtifactDirectory, "1440-final-review.png"), fullPage: true });
+  await review.screenshot({ path: path.join(operatorRouteArtifactDirectory, "1440-review-and-send.png") });
+
+  await page.emulateMedia({ media: "print" });
+  await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")));
+  await expect(review).toHaveCSS("position", "static");
+  await expect(review).toHaveCSS("border-top-width", "0px");
+  await expect(review.locator(".review-and-send__print")).toHaveCSS("display", "none");
+  await expect(review.locator(".review-and-send__actions")).toHaveCSS("display", "none");
+  await expect(review.locator(".review-and-send__technical-content")).toBeVisible();
+  const hasA4PageRule = await page.evaluate(() => {
+    const containsA4Page = (rules: CSSRuleList): boolean => Array.from(rules).some((rule) => {
+      const cssText = rule.cssText.toLowerCase();
+      if (cssText.includes("@page") && cssText.includes("size: a4")) return true;
+      return "cssRules" in rule && containsA4Page((rule as CSSGroupingRule).cssRules);
+    });
+    return Array.from(document.styleSheets).some((sheet) => {
+      try {
+        return containsA4Page(sheet.cssRules);
+      } catch {
+        return false;
+      }
+    });
+  });
+  expect(hasA4PageRule).toBe(true);
+  await page.pdf({
+    path: path.join(operatorRouteArtifactDirectory, "review-and-send-a4.pdf"),
+    format: "A4",
+    printBackground: true,
+    preferCSSPageSize: true,
+    displayHeaderFooter: true,
+    headerTemplate: "<span></span>",
+    footerTemplate: '<div style="box-sizing:border-box;width:100%;padding:0 14mm;font-size:8px;text-align:right;color:#444">Page <span class="pageNumber"></span></div>',
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+
+  expect(mutationRequests).toContainEqual({
+    method: "POST",
+    path: `/api/clm/zero-touch/cases/${caseId}/identity-search-recheck`,
+  });
+  expect(mutationRequests).toContainEqual({
+    method: "PUT",
+    path: `/api/clm/zero-touch/cases/${caseId}/target-classification`,
+  });
+  expect(mutationRequests).not.toContainEqual({
+    method: "POST",
+    path: `/api/clm/zero-touch/cases/${caseId}/target-confirmation`,
+  });
+  expect(mutationRequests).not.toContainEqual({
+    method: "POST",
+    path: `/api/clm/zero-touch/cases/${caseId}/target-recovery`,
+  });
+});
+
+test("authorized manual ownership action focuses the real evidence form and next action", async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto("/");
+  await login(page);
+
+  await openFreshOnboarding(page);
+  await page.getByLabel("Jurisdiction").selectOption("SG");
+  await page.getByLabel("Legal name").fill(legalNameForUen("202400006F"));
+  await page.getByLabel("Registration ID / UEN").fill("202400006F");
+  await page.locator("#home-document").setInputFiles(ownershipCycleFixture);
+  await page.getByRole("button", { name: "Create onboarding" }).click();
+  await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
+  const caseId = page.url().split("/").at(-1)!;
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
+    if (!response.ok()) return null;
+    const summary = await response.json() as {
+      ownership_recovery?: { manual_evidence_action: string | null } | null;
+    };
+    return summary.ownership_recovery?.manual_evidence_action ?? null;
+  }, { timeout: 120_000 }).toBe("MANUAL_OWNERSHIP_EVIDENCE");
+  const summaryResponse = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
+  const summaryBody = await summaryResponse.json() as {
+    target_operations: Array<{ operation: string; status: string }>;
+  };
+  expect(Object.fromEntries(summaryBody.target_operations.map((item) => [item.operation, item.status]))).toEqual({
+    SEARCH: "NO_MATCH",
+    SHELL: "NOT_ATTEMPTED",
+    POLICY: "NOT_ATTEMPTED",
+    AMEND: "NOT_ATTEMPTED",
+  });
+
+  await page.goto(`/cases/${caseId}`);
+  const review = page.locator(".review-and-send");
+  await expect(review.getByRole("button", { name: "Edit ownership" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Provide reviewed ownership declaration" })).toBeVisible();
+  await review.getByRole("button", { name: "Edit ownership" }).click();
+  await expect(page.locator("#case-manual-ownership-evidence")).toBeFocused();
+  await expect(page.getByRole("button", { name: "Submit manual ownership evidence" })).toBeVisible();
 });
 
 test("onboarding progress is visible while backend-authored stages advance", async ({ page }, testInfo) => {

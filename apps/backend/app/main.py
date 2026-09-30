@@ -5,7 +5,7 @@ import os
 import re
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.api_acra_diagnostics import build_acra_diagnostic_router
 from app.api_admin import build_admin_router
 from app.api_auth import (
     BrowserOriginPolicy,
@@ -43,6 +44,7 @@ from app.composition import (
     build_acra_connector as build_acra_connector,
 )
 from app.composition import (
+    build_acra_diagnostic_service,
     build_authentication_service,
     build_clm_orchestration_service,
     build_document_processing_service,
@@ -55,6 +57,7 @@ from app.composition import (
     build_zero_touch_orchestrator,
 )
 from app.config import Settings, get_settings
+from app.connectors.acra import AcraConnector
 from app.connectors.errors import ConnectorError, public_connector_error
 from app.connectors.idp import IdpProvider
 from app.connectors.ownership import OwnershipProvider
@@ -84,7 +87,7 @@ from app.domain.dashboard import DashboardSnapshot
 from app.domain.documents import DocumentFieldKey, ReviewDecision
 from app.domain.jurisdiction import JurisdictionCode
 from app.domain.models import EventOutcome
-from app.domain.ownership import OwnershipCandidate
+from app.domain.ownership import OwnershipCandidate, Party, SafePartyId
 from app.domain.reconciliation import ReconciliationDecisionAction
 from app.domain.target_submission import (
     GoldTierExecutionLedgerEntry,
@@ -105,6 +108,7 @@ from app.persistence.errors import (
     PersistenceSchemaUnsupportedError,
     PersistenceUnavailableError,
 )
+from app.services.acra_diagnostics import AcraDiagnosticService
 from app.services.activity_export import render_case_activity_csv
 from app.services.administration import AdministrationService, AdministrationValidationError
 from app.services.authentication import AuthenticationConfigurationError, AuthenticationService
@@ -137,6 +141,12 @@ from app.services.document_errors import (
 )
 from app.services.document_processing import DocumentProcessingService
 from app.services.errors import OnboardingInfrastructureError
+from app.services.manual_ownership_evidence import (
+    CanonicalUen,
+    ManualEconomicInterest,
+    ManualOwnershipDeclaration,
+    SafeReviewText,
+)
 from app.services.onboarding import OnboardingService
 from app.services.onboarding_intelligence import OnboardingIntelligenceProjectionService
 from app.services.ownership_analysis import OwnershipAnalysisService
@@ -248,6 +258,31 @@ class TargetClassificationRequest(BaseModel):
 
     kyc_customer_type: str = Field(min_length=1, max_length=80)
     client_segment: str = Field(min_length=1, max_length=80)
+    expected_automation_version: int = Field(ge=1)
+    expected_case_event_count: int = Field(ge=1)
+
+
+class TargetDispatchConfirmationRequest(BaseModel):
+    """CAS-bound local-POC confirmation; destination and warnings are server-owned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_clm_version: int = Field(ge=0)
+    expected_case_event_count: int = Field(ge=1)
+    expected_automation_version: int = Field(default=0, ge=0)
+
+
+class IdentitySearchRecheckRequest(BaseModel):
+    """CAS-bound same-case identity correction and read-only Search recheck."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    legal_name: str = Field(min_length=1, max_length=160)
+    registration_number: str = Field(min_length=1, max_length=32)
+    country_of_incorporation: Literal["SG"]
+    expected_automation_version: int = Field(ge=1)
+    expected_clm_version: int = Field(ge=0)
+    expected_case_event_count: int = Field(ge=1)
 
 
 class TargetRecoveryRequest(BaseModel):
@@ -351,6 +386,70 @@ class ZeroTouchExceptionResolutionRequest(BaseModel):
     evidence_version: str = Field(min_length=1, max_length=128)
 
 
+class ManualOwnershipEvidenceRequest(BaseModel):
+    """Typed reviewed declaration; actor identity is always supplied by the server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    root_registration_number: CanonicalUen
+    evidence_document_id: UUID
+    evidence_document_version: int = Field(ge=1)
+    as_of_date: date
+    rationale: SafeReviewText
+    root_party_id: SafePartyId
+    parties: tuple[Party, ...] = Field(min_length=2, max_length=100)
+    relationships: tuple[ManualEconomicInterest, ...] = Field(
+        min_length=1, max_length=200
+    )
+    expected_automation_version: int = Field(ge=1)
+    expected_ownership_version: int = Field(ge=1)
+    expected_case_event_count: int = Field(ge=1)
+
+    def declaration_for(self, case_id: UUID) -> ManualOwnershipDeclaration:
+        return ManualOwnershipDeclaration(
+            case_id=case_id,
+            root_registration_number=self.root_registration_number,
+            evidence_document_id=self.evidence_document_id,
+            evidence_document_version=self.evidence_document_version,
+            as_of_date=self.as_of_date,
+            rationale=self.rationale,
+            root_party_id=self.root_party_id,
+            parties=self.parties,
+            relationships=self.relationships,
+        )
+
+
+class PolicySnapshotRebindRequest(BaseModel):
+    """Case-bound CAS request; actor identity is supplied by the authenticated session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rationale: str = Field(min_length=10, max_length=240)
+    expected_automation_version: int = Field(ge=1)
+    expected_clm_version: int = Field(ge=1)
+    expected_case_event_count: int = Field(ge=1)
+
+    @field_validator("rationale")
+    @classmethod
+    def safe_rationale(cls, value: str) -> str:
+        normalized = value.strip()
+        prohibited = (
+            "ignore previous",
+            "ignore prior",
+            "system prompt",
+            "developer message",
+            "<script",
+            "javascript:",
+        )
+        if (
+            not normalized
+            or any(ord(character) < 32 for character in normalized)
+            or any(marker in normalized.casefold() for marker in prohibited)
+        ):
+            raise ValueError("policy rebind rationale is invalid")
+        return normalized
+
+
 class ReconciliationResolutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -380,6 +479,7 @@ def create_app(
     zero_touch_demo_control: ZeroTouchDemoControl | None = None,
     scenario_catalogue: MockScenarioCatalogue | None = None,
     authentication_service: AuthenticationService | None = None,
+    acra_diagnostic_service: AcraDiagnosticService | None = None,
     e2e_portfolio_seed_count: int = 0,
     clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
@@ -400,18 +500,29 @@ def create_app(
     zero_touch_demo = zero_touch_demo_control or build_zero_touch_demo_control(
         persistence.demo_scenarios
     )
-    service = onboarding_service or build_onboarding_service(
-        catalogue,
-        active_settings,
-        target_finalization_fault=(
-            zero_touch_demo.should_fail_target_finalization
-            if active_settings.demo_controls_enabled
-            else None
-        ),
-        repository=persistence.onboarding,
-        target_execution_repository=persistence.target_executions,
-        policy_snapshot_provider=policy_management.case_snapshot,
-        registry_snapshot_repository=persistence.registry_snapshots,
+    active_acra_connector: AcraConnector | None = None
+    if onboarding_service is None:
+        active_acra_connector = build_acra_connector(active_settings)
+        service = build_onboarding_service(
+            catalogue,
+            active_settings,
+            acra_connector=active_acra_connector,
+            target_finalization_fault=(
+                zero_touch_demo.should_fail_target_finalization
+                if active_settings.demo_controls_enabled
+                else None
+            ),
+            repository=persistence.onboarding,
+            target_execution_repository=persistence.target_executions,
+            policy_snapshot_provider=policy_management.case_snapshot,
+            registry_snapshot_repository=persistence.registry_snapshots,
+        )
+    else:
+        service = onboarding_service
+    active_acra_diagnostics = acra_diagnostic_service or (
+        build_acra_diagnostic_service(active_acra_connector, active_settings)
+        if active_acra_connector is not None
+        else None
     )
     documents = document_processing_service or build_document_processing_service(
         service, active_settings, repository=persistence.documents
@@ -511,6 +622,8 @@ def create_app(
     )
     application.include_router(build_admin_router(administration))
     application.include_router(build_provider_sandbox_router(service, active_settings))
+    if active_acra_diagnostics is not None:
+        application.include_router(build_acra_diagnostic_router(active_acra_diagnostics))
     application.include_router(build_policy_router(policy_management))
     application.include_router(
         build_intelligence_router(
@@ -630,6 +743,24 @@ def create_app(
             zero_detail = ZeroTouchFailureDetail(
                 code="ZERO_TOUCH_RESOLUTION_INVALID",
                 message="The exception resolution request is invalid.",
+            )
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                content={"detail": zero_detail.model_dump(mode="json", exclude_none=True)},
+            )
+        if request.url.path.endswith("/manual-ownership-evidence"):
+            zero_detail = ZeroTouchFailureDetail(
+                code="ZERO_TOUCH_MANUAL_OWNERSHIP_INVALID",
+                message="The manual ownership evidence request is invalid.",
+            )
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                content={"detail": zero_detail.model_dump(mode="json", exclude_none=True)},
+            )
+        if request.url.path.endswith("/policy-rebind"):
+            zero_detail = ZeroTouchFailureDetail(
+                code="ZERO_TOUCH_POLICY_REBIND_INVALID",
+                message="The policy rebind request is invalid.",
             )
             return JSONResponse(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -816,6 +947,7 @@ def create_app(
         target_outcome = target_entry.target_outcome if target_entry is not None else None
         target_operations = target_operation_evidence(clm_record, target_entry, target_outcome)
         reconciliation_record = reconciliation.get(case_id=automation.case_id)
+        ownership_record = ownership.get(case_id=automation.case_id)
         retained_goldtier_id = (
             str(target_entry.resolved_party_id)
             if target_entry is not None and target_entry.resolved_party_id is not None
@@ -860,6 +992,7 @@ def create_app(
                 retained_goldtier_id=retained_goldtier_id,
             ),
             team=administration.directory.get(case.team_id),
+            ownership=ownership_record,
         )
 
     def load_ownership_request(
@@ -1087,16 +1220,51 @@ def create_app(
             raise _clm_http_error(exc) from None
 
     @application.post(
+        "/api/clm/cases/{case_id}/target-confirmation",
+        response_model=ClmCaseSummaryResponse,
+        tags=["clm"],
+    )
+    def confirm_clm_target_dispatch(
+        case_id: UUID,
+        confirmation: TargetDispatchConfirmationRequest,
+        request: Request,
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+        active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
+    ) -> ClmCaseSummaryResponse:
+        try:
+            return clm_response(
+                active_clm.confirm_target_dispatch(
+                    case_id=case_id,
+                    actor_id=actor.profile.user_id,
+                    expected_clm_version=confirmation.expected_clm_version,
+                    expected_case_event_count=confirmation.expected_case_event_count,
+                    reauthorize=build_case_reauthorizer(
+                        request, authentication, access_policy, service, case_id
+                    ),
+                )
+            )
+        except ClmRequestError as exc:
+            raise _clm_http_error(exc) from None
+
+    @application.post(
         "/api/clm/cases/{case_id}/submit",
         response_model=ClmCaseSummaryResponse,
         tags=["clm"],
     )
     def submit_clm_case(
         case_id: UUID,
+        request: Request,
         active_clm: Annotated[ClmOrchestrationService, Depends(get_clm_orchestration_service)],
     ) -> ClmCaseSummaryResponse:
         try:
-            return clm_response(active_clm.submit(case_id=case_id))
+            return clm_response(
+                active_clm.submit(
+                    case_id=case_id,
+                    reauthorize=build_case_reauthorizer(
+                        request, authentication, access_policy, service, case_id
+                    ),
+                )
+            )
         except ClmRequestError as exc:
             raise _clm_http_error(exc) from None
         except ClmInfrastructureError as exc:
@@ -1765,6 +1933,129 @@ def create_app(
                 case_id=case_id,
                 kyc_customer_type=classification.kyc_customer_type,
                 client_segment=classification.client_segment,
+                expected_automation_version=classification.expected_automation_version,
+                expected_case_event_count=classification.expected_case_event_count,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id
+                ),
+            )
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        return zero_touch_response(record)
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/policy-rebind",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    def rebind_zero_touch_policy_snapshot(
+        case_id: UUID,
+        rebind: PolicySnapshotRebindRequest,
+        request: Request,
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+    ) -> ZeroTouchCaseSummaryResponse:
+        try:
+            record = active_zero_touch.rebind_case_policy_snapshot(
+                case_id=case_id,
+                actor_id=actor.profile.user_id,
+                rationale=rebind.rationale,
+                expected_automation_version=rebind.expected_automation_version,
+                expected_clm_version=rebind.expected_clm_version,
+                expected_case_event_count=rebind.expected_case_event_count,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id
+                ),
+            )
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        return zero_touch_response(record)
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/target-confirmation",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    def confirm_zero_touch_target_dispatch(
+        case_id: UUID,
+        confirmation: TargetDispatchConfirmationRequest,
+        request: Request,
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+    ) -> ZeroTouchCaseSummaryResponse:
+        try:
+            record = active_zero_touch.confirm_target_dispatch(
+                case_id=case_id,
+                actor_id=actor.profile.user_id,
+                expected_automation_version=confirmation.expected_automation_version,
+                expected_clm_version=confirmation.expected_clm_version,
+                expected_case_event_count=confirmation.expected_case_event_count,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id
+                ),
+            )
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        return zero_touch_response(record)
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/identity-search-recheck",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    def repair_identity_and_recheck_search(
+        case_id: UUID,
+        correction: IdentitySearchRecheckRequest,
+        request: Request,
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+    ) -> ZeroTouchCaseSummaryResponse:
+        try:
+            record = active_zero_touch.repair_initial_identity_and_recheck(
+                case_id=case_id,
+                actor_id=actor.profile.user_id,
+                legal_name=correction.legal_name,
+                registration_number=correction.registration_number,
+                country_of_incorporation=correction.country_of_incorporation,
+                expected_automation_version=correction.expected_automation_version,
+                expected_clm_version=correction.expected_clm_version,
+                expected_case_event_count=correction.expected_case_event_count,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id
+                ),
+            )
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        return zero_touch_response(record)
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/manual-ownership-evidence",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    def submit_manual_ownership_evidence(
+        case_id: UUID,
+        evidence: ManualOwnershipEvidenceRequest,
+        request: Request,
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+        active_zero_touch: Annotated[
+            ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)
+        ],
+    ) -> ZeroTouchCaseSummaryResponse:
+        try:
+            record = active_zero_touch.submit_manual_ownership_evidence(
+                case_id=case_id,
+                actor_id=actor.profile.user_id,
+                declaration=evidence.declaration_for(case_id),
+                expected_automation_version=evidence.expected_automation_version,
+                expected_ownership_version=evidence.expected_ownership_version,
+                expected_case_event_count=evidence.expected_case_event_count,
                 reauthorize=build_case_reauthorizer(
                     request, authentication, access_policy, service, case_id
                 ),
@@ -1870,7 +2161,7 @@ def create_app(
             case_id=case_id,
             submission_id=entry.submission_input.submission_id,
             recovered_party_id=recovery.recovered_party_id,
-            operation=recovery.operation.value,
+            operation=recovery_request.operation,
             authority=recovery.authority.value,
             origin=recovery.origin,
             original_outcome_uncertain=True,

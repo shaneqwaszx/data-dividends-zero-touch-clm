@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Literal
+from uuid import UUID
 
 import httpx
 import pytest
@@ -25,11 +26,12 @@ from app.demo.scenarios import (
     INCOMPLETE_ENTITY_UEN,
     VALID_SME_UEN,
 )
-from app.domain.models import WorkflowState
+from app.domain.models import OnboardingCase, WorkflowState
 from app.domain.target_submission import GoldTierProviderMode
 from app.main import create_app
 from app.mappers.errors import MappingError
 from app.mappers.goldtier import build_amend_request, build_shell_request
+from app.services.errors import OnboardingInfrastructureError
 from app.services.onboarding import OnboardingService
 from app.services.repository import InMemoryOnboardingCaseRepository
 
@@ -194,6 +196,25 @@ def assert_safe_terminal_failure(response: httpx.Response) -> str:
     return detail["case_id"]
 
 
+def confirm_target_dispatch(service: OnboardingService, case_id: UUID) -> None:
+    case = service.get_case(case_id)
+    assert case is not None
+    assert case.state == WorkflowState.VALIDATED
+    assert case.target_dispatch_confirmation is None
+    service.confirm_target_dispatch(
+        case_id=case_id,
+        actor_id="onboarding-resilience-operator",
+        expected_case_event_count=len(case.events),
+        clm_version=None,
+        destination="GOLDTIER_MOCK",
+    )
+
+
+def run_confirmed_target_flow(service: OnboardingService, case_id: UUID) -> OnboardingCase:
+    confirm_target_dispatch(service, case_id)
+    return service.submit_staged_case(case_id, complete_legacy_flow=True)
+
+
 @pytest.mark.anyio
 async def test_acra_exception_persists_retrievable_failed_case_and_stops() -> None:
     acra = RaisingAcraConnector()
@@ -286,19 +307,28 @@ async def test_goldtier_exception_terminalizes_and_prevents_later_calls(
     service = build_recording_service(goldtier)
 
     response, client = await post_case(service)
-    case_id = assert_safe_terminal_failure(response)
+    assert response.status_code == 201
+    assert response.json()["state"] == "VALIDATED"
+    case_id = UUID(response.json()["case_id"])
+    confirm_target_dispatch(service, case_id)
+    with pytest.raises(OnboardingInfrastructureError) as caught:
+        service.submit_staged_case(case_id, complete_legacy_flow=True)
     retrieved = await client.get(f"/api/onboarding/cases/{case_id}")
     await client.aclose()
 
     body = retrieved.json()
     assert goldtier.calls == expected_calls
-    assert response.json()["detail"]["code"] == expected_code
+    assert caught.value.code == expected_code
+    assert INTERNAL_SENTINEL not in caught.value.public_message
     assert body["state"] == "FAILED"
     assert body["error"]["code"] == expected_code
     assert body["events"][-1]["stage"] == "FAILED"
     assert body["events"][-1]["outcome"] == "FAILED"
     assert body["events"][-1]["code"] == expected_code
     assert "COMPLETED" not in [event["stage"] for event in body["events"]]
+    with pytest.raises(ValueError, match="not eligible"):
+        service.submit_staged_case(case_id, complete_legacy_flow=True)
+    assert goldtier.calls == expected_calls
 
 
 @pytest.mark.anyio
@@ -307,11 +337,17 @@ async def test_match_found_requires_review_without_duplicate_shell() -> None:
     service = build_recording_service(goldtier)
 
     response, client = await post_case(service)
+    case_id = UUID(response.json()["case_id"])
+    result = run_confirmed_target_flow(service, case_id)
     await client.aclose()
 
     assert response.status_code == 201
-    assert response.json()["state"] == "REVIEW_REQUIRED"
-    assert response.json()["error"]["code"] == "GT_EXISTING_PARTY_REVIEW_REQUIRED"
+    assert result.state == WorkflowState.REVIEW_REQUIRED
+    assert result.error is not None
+    assert result.error.code == "GT_EXISTING_PARTY_REVIEW_REQUIRED"
+    assert goldtier.calls == ["search"]
+    with pytest.raises(ValueError, match="not eligible"):
+        service.submit_staged_case(case_id, complete_legacy_flow=True)
     assert goldtier.calls == ["search"]
 
 
@@ -321,10 +357,15 @@ async def test_no_match_allows_shell_and_full_happy_path() -> None:
     service = build_recording_service(goldtier)
 
     response, client = await post_case(service)
+    case_id = UUID(response.json()["case_id"])
+    result = run_confirmed_target_flow(service, case_id)
     await client.aclose()
 
     assert response.status_code == 201
-    assert response.json()["state"] == "COMPLETED"
+    assert result.state == WorkflowState.COMPLETED
+    assert goldtier.calls == ["search", "shell", "policy", "amend"]
+    with pytest.raises(ValueError, match="not eligible"):
+        service.submit_staged_case(case_id, complete_legacy_flow=True)
     assert goldtier.calls == ["search", "shell", "policy", "amend"]
 
 
@@ -334,11 +375,17 @@ async def test_modeled_search_failure_is_failed_without_shell_or_5xx() -> None:
     service = build_recording_service(goldtier)
 
     response, client = await post_case(service)
+    case_id = UUID(response.json()["case_id"])
+    result = run_confirmed_target_flow(service, case_id)
     await client.aclose()
 
     assert response.status_code == 201
-    assert response.json()["state"] == "FAILED"
-    assert response.json()["error"]["code"] == "GT_SEARCH_FAILED"
+    assert result.state == WorkflowState.FAILED
+    assert result.error is not None
+    assert result.error.code == "GT_SEARCH_FAILED"
+    assert goldtier.calls == ["search"]
+    with pytest.raises(ValueError, match="not eligible"):
+        service.submit_staged_case(case_id, complete_legacy_flow=True)
     assert goldtier.calls == ["search"]
 
 
@@ -346,13 +393,26 @@ def test_multiple_cases_are_isolated_and_events_obey_terminal_invariants() -> No
     from app.main import build_onboarding_service
 
     service = build_onboarding_service()
-    cases = [
-        service.create_case(VALID_SME_UEN),
-        service.create_case(INCOMPLETE_ENTITY_UEN),
-        service.create_case(GOLDTIER_FAILURE_UEN),
-        service.create_case(GOLDTIER_PARTIAL_UEN),
-        service.create_case("999999999Z"),
-    ]
+    cases = []
+    for uen in (
+        VALID_SME_UEN,
+        INCOMPLETE_ENTITY_UEN,
+        GOLDTIER_FAILURE_UEN,
+        GOLDTIER_PARTIAL_UEN,
+        "999999999Z",
+    ):
+        case = service.create_case(uen)
+        if case.state == WorkflowState.VALIDATED:
+            confirm_target_dispatch(service, case.case_id)
+            try:
+                case = service.submit_staged_case(
+                    case.case_id, complete_legacy_flow=True
+                )
+            except OnboardingInfrastructureError:
+                retained = service.get_case(case.case_id)
+                assert retained is not None
+                case = retained
+        cases.append(case)
 
     assert [case.state for case in cases] == [
         WorkflowState.COMPLETED,

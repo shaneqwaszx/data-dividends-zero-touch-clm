@@ -37,7 +37,10 @@ from app.services.clm_repository import ClmRepositoryConflictError
 from app.services.onboarding_intelligence_repository import (
     OnboardingIntelligenceRepositoryConflictError,
 )
-from app.services.ownership_repository import OwnershipRepositoryConflictError
+from app.services.ownership_repository import (
+    OwnershipRepositoryConflictError,
+    _is_valid_review_replacement,
+)
 from app.services.reconciliation_repository import (
     ReconciliationRepositoryConflictError,
     ReconciliationUnitOfWorkError,
@@ -259,6 +262,29 @@ class MongoOwnershipAnalysisRepository:
                     raise OwnershipRepositoryConflictError
                 next_version = expected_version + 1
             persisted = validated.model_copy(update={"version": next_version}, deep=True)
+            candidate = snapshot.model_copy(update={"ownership": persisted}, deep=True)
+            try:
+                self._store.replace(candidate, expected_revision=snapshot.revision)
+            except PersistenceConflictError:
+                raise OwnershipRepositoryConflictError from None
+            return persisted.model_copy(deep=True)
+
+    def replace_review_required(
+        self,
+        record: OwnershipAnalysisRecord,
+        *,
+        expected_version: int,
+    ) -> OwnershipAnalysisRecord:
+        validated = OwnershipAnalysisRecord.model_validate(record)
+        with self._store.locked():
+            snapshot = self._store.get(validated.case_id)
+            if snapshot is None or not _is_valid_review_replacement(
+                snapshot.ownership, validated, expected_version
+            ):
+                raise OwnershipRepositoryConflictError
+            persisted = validated.model_copy(
+                update={"version": expected_version + 1}, deep=True
+            )
             candidate = snapshot.model_copy(update={"ownership": persisted}, deep=True)
             try:
                 self._store.replace(candidate, expected_revision=snapshot.revision)

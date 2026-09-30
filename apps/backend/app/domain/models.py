@@ -12,7 +12,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.domain.access import CasePriority, TeamId
 from app.domain.jurisdiction import JurisdictionResolution, RegistryRoutingDecision
-from app.domain.policy import CasePolicySnapshot, legacy_phase13_policy_snapshot
+from app.domain.policy import (
+    CasePolicyRebindAudit,
+    CasePolicySnapshot,
+    legacy_phase13_policy_snapshot,
+)
 
 
 class WorkflowState(StrEnum):
@@ -670,6 +674,59 @@ class InitialGoldTierSearchEvidence(BaseModel):
         return self
 
 
+class IdentityCorrectionEvidence(BaseModel):
+    """Audit-safe local-POC evidence for one same-case identity repair."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    correction_id: UUID
+    actor_id: str = Field(min_length=3, max_length=32, pattern=r"^[a-z][a-z0-9-]{2,31}$")
+    evidence_type: Literal[
+        "OPERATOR_VERIFIED_SOURCE", "USER_SUPPLIED_CORRECTION_POC"
+    ] = "USER_SUPPLIED_CORRECTION_POC"
+    previous_identity: InitialCustomerIdentity | None = None
+    corrected_identity: InitialCustomerIdentity
+    previous_search_request_id: UUID | None = None
+    corrected_at: datetime
+
+
+class InitialGoldTierSearchAttempt(BaseModel):
+    """Durable intent/result for one authorized read-only Search recheck."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    request_id: UUID
+    actor_id: str = Field(min_length=3, max_length=32, pattern=r"^[a-z][a-z0-9-]{2,31}$")
+    identity: InitialCustomerIdentity
+    status: Literal["REQUESTED", "COMPLETED"]
+    requested_at: datetime
+    completed_at: datetime | None = None
+    result: InitialGoldTierSearchEvidence | None = None
+
+    @model_validator(mode="after")
+    def validate_completion(self) -> "InitialGoldTierSearchAttempt":
+        completed = self.status == "COMPLETED"
+        if completed != (self.completed_at is not None and self.result is not None):
+            raise ValueError("Completed Search recheck requires retained result and time")
+        return self
+
+
+class TargetDispatchConfirmation(BaseModel):
+    """Local-POC confirmation of one frozen target review, never approval."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    confirmation_id: UUID
+    actor_id: str = Field(min_length=3, max_length=32, pattern=r"^[a-z][a-z0-9-]{2,31}$")
+    confirmed_at: datetime
+    case_event_count: int = Field(ge=1)
+    clm_version: int | None = Field(default=None, ge=1)
+    destination: Literal["GOLDTIER_MOCK", "GOLDTIER_XPI_SANDBOX"]
+    warnings: tuple[str, ...] = Field(default=(), max_length=16)
+    review_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    classification: Literal["USER_AUTHORIZED_POC"] = "USER_AUTHORIZED_POC"
+
+
 class SafeError(BaseModel):
     """Sanitised application error safe for API and history responses."""
 
@@ -686,8 +743,19 @@ class OnboardingCase(BaseModel):
     requested_uen: str
     initial_identity: InitialCustomerIdentity | None = None
     initial_target_search: InitialGoldTierSearchEvidence | None = None
+    identity_corrections: tuple[IdentityCorrectionEvidence, ...] = Field(
+        default=(), max_length=16
+    )
+    initial_target_search_attempts: tuple[InitialGoldTierSearchAttempt, ...] = Field(
+        default=(), max_length=16
+    )
     existing_target_state: ExistingTargetStateProvenance | None = None
+    target_dispatch_confirmation: TargetDispatchConfirmation | None = None
     policy_snapshot: CasePolicySnapshot = Field(default_factory=legacy_phase13_policy_snapshot)
+    policy_snapshot_revision: int = Field(default=1, ge=1)
+    policy_rebind_history: tuple[CasePolicyRebindAudit, ...] = Field(
+        default=(), max_length=8
+    )
     team_id: TeamId | None = None
     priority: CasePriority | None = None
     jurisdiction_resolution: JurisdictionResolution | None = None

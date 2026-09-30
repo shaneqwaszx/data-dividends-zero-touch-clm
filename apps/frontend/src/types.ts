@@ -244,6 +244,115 @@ export interface GoldTierSandboxDryRunResult {
   blocker: string | null;
 }
 
+export type AcraDiagnosticOperation =
+  | "ENTITY_PROFILE"
+  | "OFFICERS"
+  | "SHAREHOLDERS"
+  | "LLP_HIGHLIGHTS"
+  | "CAPITAL_DETAILS"
+  | "RELATIONSHIPS";
+
+export type AcraDiagnosticOutcome =
+  | "COMPLETE"
+  | "EMPTY"
+  | "PARTIAL"
+  | "NOT_FOUND"
+  | "FAILED"
+  | "UNSUPPORTED"
+  | "INVALID_REQUEST"
+  | "CANCELLED"
+  | "RATE_LIMITED";
+
+export interface AcraDiagnosticReceipt {
+  diagnostic_id: string;
+  provider: "ACRA_MOCK" | "ACRA_API_MARKETPLACE_MOCK" | "ACRA_GENERIC_SANDBOX";
+  classification: "MOCK" | "PARTIAL";
+  operation: AcraDiagnosticOperation;
+  request_reference: string;
+  started_at: string;
+  completed_at: string;
+  outcome: AcraDiagnosticOutcome;
+  code: string;
+  provider_called: boolean;
+  record_count: number;
+}
+
+export interface AcraDiagnosticStatus {
+  configuration: {
+    provider: AcraDiagnosticReceipt["provider"];
+    mode: "mock" | "api_marketplace_mock" | "sandbox";
+    classification: "MOCK" | "PARTIAL";
+    configured: boolean;
+    safe_host: string | null;
+    client_id_present: boolean;
+    secret_key_present: boolean;
+    generic_auth_present: boolean;
+    timeout_seconds: number;
+    max_response_bytes: number;
+  };
+  connectivity: "NOT_CHECKED" | "LAST_CHECK_SUCCEEDED" | "LAST_CHECK_FAILED";
+  last_actual_check_at: string | null;
+  cancellation_semantics: "PRE_DISPATCH_ONLY_IN_FLIGHT_USES_TIMEOUT";
+  coverage: Array<{
+    operation: AcraDiagnosticOperation;
+    availability: "SUPPORTED" | "UNSUPPORTED";
+    reason_code: string;
+  }>;
+  samples: Array<{
+    uen: string;
+    legal_name: string;
+    classification: "PROFILE_VERIFIED" | "DOCUMENTED_SAMPLE_CANDIDATE";
+    operations: AcraDiagnosticOperation[];
+    limitation_codes: string[];
+  }>;
+  timeline: AcraDiagnosticReceipt[];
+}
+
+export interface AcraDiagnosticResult {
+  requested_uen: string | null;
+  operation: AcraDiagnosticOperation;
+  outcome: AcraDiagnosticOutcome;
+  code: string;
+  message: string;
+  missing_fields: string[];
+  company: {
+    uen: string;
+    legal_name: string;
+    country_code: string;
+    entity_type: string;
+    registration_date: string | null;
+    entity_status: string | null;
+    registered_address: {
+      address_line_1: string;
+      address_line_2: string | null;
+      postal_code: string;
+      country_code: string;
+    } | null;
+    source_environment: "MOCK" | "SANDBOX";
+    retrieved_at: string;
+  } | null;
+  officers: Array<{
+    officer_id: string;
+    name: string;
+    role: string;
+    appointment_date: string | null;
+    cessation_date: string | null;
+    country: string | null;
+  }>;
+  shareholders: Array<{
+    party_id: string;
+    party_type: "NATURAL_PERSON" | "LEGAL_ENTITY";
+    name: string;
+    registration_identifier: string | null;
+    country: string | null;
+    source_category: string | null;
+    source_status: string | null;
+    share_allotted: string | null;
+    ownership_percentage: string | null;
+  }>;
+  receipt: AcraDiagnosticReceipt;
+}
+
 export interface MockScenarioDiscovery {
   simulation: SimulationProfile;
   scenarios: MockScenario[];
@@ -354,6 +463,41 @@ export interface OnboardingCase {
   source_case_id: string;
   correlation_id: string;
   requested_uen: string;
+  initial_identity?: {
+    legal_name: string;
+    registration_number: string;
+    country_of_incorporation: string;
+  } | null;
+  identity_corrections?: Array<{
+    correction_id: string;
+    actor_id: string;
+    evidence_type: "OPERATOR_VERIFIED_SOURCE" | "USER_SUPPLIED_CORRECTION_POC";
+    previous_identity: {
+      legal_name: string;
+      registration_number: string;
+      country_of_incorporation: string;
+    } | null;
+    corrected_identity: {
+      legal_name: string;
+      registration_number: string;
+      country_of_incorporation: string;
+    };
+    previous_search_request_id: string | null;
+    corrected_at: string;
+  }>;
+  target_dispatch_confirmation?: {
+    confirmation_id: string;
+    actor_id: string;
+    confirmed_at: string;
+    case_event_count: number;
+    clm_version: number | null;
+    destination: "GOLDTIER_MOCK" | "GOLDTIER_XPI_SANDBOX";
+    warnings: string[];
+    review_digest: string;
+    classification: "USER_AUTHORIZED_POC";
+  } | null;
+  policy_snapshot_revision?: number;
+  policy_rebind?: PolicyRebindMetadata;
   policy_snapshot?: {
     snapshot_label: string;
     catalogue_version: number;
@@ -621,6 +765,41 @@ export interface OwnershipAnalysisRecord {
   updated_at: string;
 }
 
+export interface PolicyRebindMetadata {
+  revision: number;
+  configuration_status: "CURRENT_ACCEPTED_POC" | "REQUIRES_REBIND";
+  accepted_poc_fields: string[];
+  editable_fields: string[];
+  upstream_fields: string[];
+  unavailable_fields: string[];
+  last_rebound_by: string | null;
+  last_rebound_at: string | null;
+  last_rationale: string | null;
+  last_changed_fields: string[];
+}
+
+export interface ManualOwnershipReviewReceipt {
+  case_id: string;
+  actor_id: string;
+  reviewed_at: string;
+  rationale: string;
+  evidence_document_id: string;
+  evidence_document_version: number;
+  evidence_reference: string;
+  source_type: "USER_SUPPLIED_DECLARATION";
+  provider_name: "MANUAL_DECLARATION_POC";
+  provider_environment: "LOCAL";
+  as_of_date: string;
+}
+
+export interface OwnershipRecoveryProjection {
+  analysis_id: string;
+  version: number;
+  state: OwnershipAnalysisState;
+  manual_evidence_action: "MANUAL_OWNERSHIP_EVIDENCE" | null;
+  review_receipt: ManualOwnershipReviewReceipt | null;
+}
+
 export type ClmStatus =
   | "COLLECTING_EVIDENCE"
   | "REVIEW_REQUIRED"
@@ -704,6 +883,30 @@ export interface ClmCaseSummary {
     evaluated_at: string;
   };
   submission_plan: GoldTierSubmissionPlan;
+  target_search_checkpoint?: {
+    request_id: string;
+    identity_fingerprint: string;
+    provider_mode: "MOCK" | "SANDBOX";
+    provider_classification: "MOCK" | "SANDBOX_PARTIAL";
+    status: "COMPLETED" | "REVIEW_REQUIRED" | "FAILED" | "STALE";
+    disposition: "NO_MATCH" | "EXACT_MATCH" | "REVIEW_REQUIRED" | "FAILED";
+    provider_outcome: string;
+    status_code: number;
+    candidate_count: number;
+    candidates: Array<{
+      party_id: string;
+      registration_number: string | null;
+      country: string | null;
+      legal_name: string | null;
+      legal_form: string | null;
+      registered_address: string | null;
+    }>;
+    selected_party_id: string | null;
+    resolution_outcome: string | null;
+    code: string | null;
+    message: string;
+    searched_at: string;
+  } | null;
   related_party_preparation: {
     provisional_candidate_count: number;
     internal_party_ids: string[];
@@ -840,6 +1043,8 @@ export const BUSINESS_EXCEPTION_TYPES = [
   "MOCK_RISK_REVIEW_REQUIRED",
   "EXISTING_PARTY_REVIEW_REQUIRED",
   "TARGET_PARTIAL_REVIEW_REQUIRED",
+  "TARGET_CLASSIFICATION_REQUIRED",
+  "TARGET_CONFIRMATION_REQUIRED",
 ] as const;
 
 export type BusinessExceptionType = (typeof BUSINESS_EXCEPTION_TYPES)[number];
@@ -862,6 +1067,8 @@ export const BUSINESS_EXCEPTION_TYPE_LABELS: Record<BusinessExceptionType, strin
   MOCK_RISK_REVIEW_REQUIRED: "Mock advisory risk review required",
   EXISTING_PARTY_REVIEW_REQUIRED: "Existing party review required",
   TARGET_PARTIAL_REVIEW_REQUIRED: "Target partial review required",
+  TARGET_CLASSIFICATION_REQUIRED: "Target classification required",
+  TARGET_CONFIRMATION_REQUIRED: "Target confirmation required",
 };
 
 export type ZeroTouchDemoScenario =
@@ -972,6 +1179,7 @@ export interface ZeroTouchException {
     evidence_reference?: string | null;
   }>;
   available_actions: ExceptionResolutionAction[];
+  decisions?: BlockerDecisionRecord[];
   created_at: string;
   resolved_at: string | null;
   resolution: ExceptionResolutionAction | null;
@@ -999,6 +1207,61 @@ export interface HumanInterventionProjection {
     legal_name: string | null;
     legal_form: string | null;
   }>;
+  decisions?: BlockerDecisionRecord[];
+}
+
+export type BlockerDecisionClassification =
+  | "AUTO_RESOLVED_WITH_NOTE"
+  | "CONTINUE_WITH_WARNING"
+  | "USER_ACTION_REQUIRED"
+  | "EXTERNAL_DEPENDENCY"
+  | "HARD_STOP";
+
+export type BlockerDecisionOwner =
+  | "CASE_OPERATOR"
+  | "DOCUMENT_REVIEW_OWNER"
+  | "IDENTITY_REVIEW_OWNER"
+  | "REGISTRY_INTEGRATION_OWNER"
+  | "OWNERSHIP_REVIEW_OWNER"
+  | "POLICY_OWNER"
+  | "TARGET_OPERATIONS_OWNER"
+  | "TARGET_PROVIDER_OWNER";
+
+export type ResumeTransition =
+  | "NO_AUTOMATIC_RESUME"
+  | "RECHECK_FROM_STAGE"
+  | "REPLACE_EVIDENCE_AND_RECHECK"
+  | "APPLY_AUTHORIZED_DECISION_AND_RECHECK"
+  | "VERIFY_WITHOUT_REPLAY"
+  | "CONTINUE_INDEPENDENT_EVIDENCE_ONLY"
+  | "RETAIN_NOTE_WITHOUT_WORKFLOW_CHANGE";
+
+export interface BlockerDecisionRecord {
+  decision_id: string;
+  case_id: string;
+  exception_id: string | null;
+  evidence_version: string;
+  automation_version: number;
+  recorded_at: string;
+  metadata: {
+    blocker_code: string;
+    exception_type: BusinessExceptionType | null;
+    classification: BlockerDecisionClassification;
+    policy_version: string;
+    rule_version: string;
+    owner: BlockerDecisionOwner;
+    minimum_inputs: string[];
+    permitted_actions: string[];
+    currently_available_actions: string[];
+    resume_stage: AutomationStage | null;
+    resume_transition: ResumeTransition;
+    resume_ready: boolean;
+    invalidated_dependencies: string[];
+    explanation: string;
+    unknowns: string[];
+  };
+  actor_id: string | null;
+  reviewer_id: string | null;
 }
 
 export interface GoldTierTargetClassificationField {
@@ -1015,6 +1278,14 @@ export interface GoldTierTargetClassification {
   client_segment: GoldTierTargetClassificationField;
 }
 
+export interface ClassificationConsistencyAdvisory {
+  status: "COMPATIBLE" | "OPERATOR_REVIEW" | "UNKNOWN_LEGAL_FORM";
+  title: string;
+  explanation: string;
+  blocking: false;
+  authority: "PROJECT_ADVISORY_ONLY";
+}
+
 export interface ZeroTouchCaseSummary {
   case: OnboardingCase;
   clm: ClmCaseSummary;
@@ -1024,8 +1295,11 @@ export interface ZeroTouchCaseSummary {
   current_stage: AutomationStage;
   completed_stages: AutomationStage[];
   active_exceptions: ZeroTouchException[];
+  non_blocking_decisions?: BlockerDecisionRecord[];
   interventions?: HumanInterventionProjection[];
   target_classification: GoldTierTargetClassification;
+  classification_consistency?: ClassificationConsistencyAdvisory;
+  ownership_recovery?: OwnershipRecoveryProjection | null;
   reconciliation: ReconciliationSummary | null;
   technical_failure: { code: string; message: string } | null;
   metrics: {

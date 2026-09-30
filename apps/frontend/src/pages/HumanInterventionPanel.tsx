@@ -4,6 +4,7 @@ import type {
   ZeroTouchCaseSummary,
   ZeroTouchException,
 } from "../types";
+import BlockerDecisionDetails from "./BlockerDecisionDetails";
 
 export default function HumanInterventionPanel({
   summary,
@@ -53,6 +54,9 @@ function InterventionCard({
   isBusy: boolean;
   onResolve: (exception: ZeroTouchException, action: ExceptionResolutionAction) => void;
 }) {
+  const decisions = intervention.decisions?.length
+    ? intervention.decisions
+    : exception?.decisions ?? [];
   return (
     <article className="card intervention-card" aria-labelledby={`intervention-${intervention.intervention_id}`}>
       <div className="intervention-card__heading">
@@ -93,6 +97,8 @@ function InterventionCard({
           <dd>{intervention.expected_next_step}</dd>
         </div>
       </dl>
+
+      <BlockerDecisionDetails decisions={decisions} />
 
       {intervention.authorized_actions.length > 0 ? (
         <div className="intervention-card__actions" aria-label="Backend-authorized actions">

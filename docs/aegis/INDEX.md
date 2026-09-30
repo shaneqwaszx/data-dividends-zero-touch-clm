@@ -89,3 +89,5 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-09-28 | artifact | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/todo-checkpoint-draft.json | Operator blocker resolution UX todo checkpoint draft |
 | 2026-09-28 | artifact | docs/aegis/work/2026-09-28-operator-blocker-resolution-ux/drift-check-draft.json | Operator blocker resolution UX drift check draft |
 | 2026-09-28 | plan | docs/aegis/plans/2026-09-28-operator-blocker-resolution-ux.md | Operator Blocker Resolution UX Implementation Plan |
+| 2026-09-29 | plan | docs/aegis/plans/2026-09-29-recoverable-onboarding-final-review.md | Recoverable Onboarding and Final Review Implementation Plan |
+| 2026-09-29 | work | docs/aegis/work/2026-09-29-recoverable-onboarding-final-review/10-intent.md | Recoverable onboarding and final review work record |

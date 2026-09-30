@@ -1,0 +1,388 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient } from "@tanstack/react-query";
+import { describe, expect, it, vi } from "vitest";
+
+import { confirmZeroTouchTargetDispatch } from "../api";
+import { caseQueryKeys, targetConfirmationMutationEffect } from "../caseQueries";
+import type { AuthenticatedProfile, BlockerDecisionRecord, ZeroTouchCaseSummary } from "../types";
+import ReviewAndSend from "./ReviewAndSend";
+
+function summaryFixture(environment: "MOCK" | "SANDBOX" = "SANDBOX"): ZeroTouchCaseSummary {
+  return {
+    version: 7,
+    case: {
+      case_id: "case-1",
+      team_id: "TEAM_A",
+      requested_uen: "201900001A",
+      initial_identity: { legal_name: "Example Pte Ltd", registration_number: "201900001A", country_of_incorporation: "SG" },
+      identity_corrections: [],
+      target_dispatch_confirmation: null,
+      entity: {
+        legal_name: "Example Pte Ltd",
+        registration_number: "201900001A",
+        country_of_incorporation: "SG",
+        party_type: "Organisation",
+        source: { source_system: "ACRA", environment: "SANDBOX", retrieved_at: "2026-09-29T00:00:00Z" },
+      },
+      events: [{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }],
+    },
+    clm: {
+      version: 4,
+      submission_plan: {
+        environment,
+        provider_classification: environment === "SANDBOX" ? "SANDBOX_PARTIAL" : "MOCK",
+        request_preview: {
+          dispatch_ready: true,
+          environment,
+          policy_version: 2,
+          operations: [{
+            operation: "SHELL",
+            validation: "VALID",
+            missing_fields: [],
+            fields: [{ target_field: "legal_name", value: "Example Pte Ltd", provenance: "REGISTRY", authority: "CANONICAL_EVIDENCE", required: true, missing: false, validation: "VALID" }],
+          }],
+        },
+      },
+      target_search_checkpoint: { status: "COMPLETED", disposition: "NO_MATCH", selected_party_id: null },
+      readiness: { warnings: ["SANDBOX_PARTIAL"], blockers: [] },
+      submission: null,
+    },
+    target_classification: {
+      vocabulary_version: "v1",
+      editable: true,
+      kyc_customer_type: { selected_value: "CORPORATE" },
+      client_segment: { selected_value: "SME" },
+    },
+    classification_consistency: {
+      status: "COMPATIBLE",
+      title: "Legal form and KYC selection are consistent",
+      explanation: "The source legal form and selected KYC customer type use the same company category.",
+      blocking: false,
+      authority: "PROJECT_ADVISORY_ONLY",
+    },
+    active_exceptions: [{ exception_type: "TARGET_CONFIRMATION_REQUIRED" }],
+  } as unknown as ZeroTouchCaseSummary;
+}
+
+const actor: AuthenticatedProfile = {
+  user_id: "case-user",
+  display_name: "Case User",
+  role: "CLIENT_ONBOARDER",
+  team_id: "team-1",
+  team_display_name: "Team 1",
+  team_type: "CLIENT",
+  team_description: "",
+  client_scope_label: "Clients",
+  capabilities: ["CASE_ACCESS"],
+};
+
+function render(summary = summaryFixture(), profile = actor): string {
+  return renderToStaticMarkup(
+    <ReviewAndSend
+      summary={summary}
+      documents={[]}
+      ownership={null}
+      actor={profile}
+      busy={false}
+      onConfirm={() => undefined}
+      onSaveDraft={() => undefined}
+      onReviewOutstanding={() => undefined}
+      onEditIdentity={() => undefined}
+      onEditClassification={() => undefined}
+      onEditDocuments={() => undefined}
+      onEditOwnership={() => undefined}
+    />,
+  );
+}
+
+describe("ReviewAndSend", () => {
+  it("renders the current mapping, truthful sandbox boundary, and print control", () => {
+    const markup = render();
+    expect(markup).toContain("Review and send");
+    expect(markup).toContain("GoldTier Sandbox");
+    expect(markup).toContain("Classification");
+    expect(markup).toContain("Sandbox Partial");
+    expect(markup).not.toContain("Verified existing customer");
+    expect(markup).toContain("New customer");
+    expect(markup).toContain("Shell - Valid");
+    expect(markup).toContain("Example Pte Ltd");
+    expect(markup).toContain("Legal form");
+    expect(markup).toContain("Organisation");
+    expect(markup).toContain("Owning team");
+    expect(markup).toContain("TEAM_A");
+    expect(markup).toContain("Edit company details");
+    expect(markup).toContain("Edit classification");
+    expect(markup).toContain("Edit documents");
+    expect(markup).not.toContain("Edit ownership");
+    expect(markup).toContain("Ownership source is review-only; no correction action is currently authorized.");
+    expect(markup).toContain("Print / save PDF");
+    expect(markup).toContain("review-and-send");
+    expect(markup).toContain("Confirm and send to GoldTier sandbox");
+    expect(markup).toContain("Current server review projection");
+    expect(markup).not.toContain("Frozen server review projection");
+    expect(markup).toContain("What will be sent");
+    expect(markup).toContain("GoldTier approval status is outside this POC");
+    expect(markup).not.toContain("Ready-for-Approval");
+  });
+
+  it("uses truthful Mock wording and withholds confirmation without CASE_ACCESS", () => {
+    const mockMarkup = render(summaryFixture("MOCK"));
+    expect(mockMarkup).toContain("Destination");
+    expect(mockMarkup).toContain("Mock GoldTier (local POC)");
+    expect(mockMarkup).toContain("Confirm and send to Mock GoldTier");
+    const markup = render(summaryFixture(), { ...actor, capabilities: [] });
+    expect(markup).not.toContain("Confirm and send to GoldTier sandbox");
+    expect(markup).toContain("do not have the case capability");
+  });
+
+  it("labels same-case identity corrections as local user input rather than verified provider identity", () => {
+    const summary = summaryFixture();
+    summary.case.identity_corrections = [{
+      correction_id: "33333333-3333-4333-8333-333333333333",
+      actor_id: "case-user",
+      evidence_type: "USER_SUPPLIED_CORRECTION_POC",
+      previous_identity: null,
+      corrected_identity: {
+        legal_name: "Example Pte Ltd",
+        registration_number: "201900001A",
+        country_of_incorporation: "SG",
+      },
+      previous_search_request_id: null,
+      corrected_at: "2026-09-29T04:00:00Z",
+    }];
+
+    const markup = render(summary);
+    expect(markup).toContain("user-supplied same-case correction");
+    expect(markup).toContain("not provider verified");
+    expect(markup).not.toContain("operator-verified source");
+  });
+
+  it("shows draft and outstanding-item actions before eligibility and exposes stale/error state", () => {
+    const summary = summaryFixture();
+    summary.active_exceptions = [];
+    summary.clm.target_search_checkpoint!.status = "STALE";
+    const markup = renderToStaticMarkup(
+      <ReviewAndSend
+        summary={summary}
+        documents={[]}
+        ownership={null}
+        actor={actor}
+        busy={false}
+        error="The reviewed version is stale."
+        onConfirm={() => undefined}
+        onSaveDraft={() => undefined}
+        onReviewOutstanding={() => undefined}
+        onEditIdentity={() => undefined}
+        onEditClassification={() => undefined}
+        onEditDocuments={() => undefined}
+        onEditOwnership={() => undefined}
+      />,
+    );
+    expect(markup).toContain("Save draft");
+    expect(markup).toContain("Review outstanding items");
+    expect(markup).toContain("Target search evidence is Stale");
+    expect(markup).toContain("The reviewed version is stale.");
+  });
+
+  it("labels a retained manual declaration as local and unverified while preserving independent blockers", () => {
+    const summary = summaryFixture();
+    summary.ownership_recovery = {
+      analysis_id: "22222222-2222-4222-8222-222222222222",
+      version: 5,
+      state: "ANALYZED",
+      manual_evidence_action: null,
+      review_receipt: {
+        case_id: "case-1",
+        actor_id: "case-user",
+        reviewed_at: "2026-09-29T03:00:00Z",
+        rationale: "Reviewed against the signed declaration.",
+        evidence_document_id: "11111111-1111-4111-8111-111111111111",
+        evidence_document_version: 3,
+        evidence_reference: "MANUAL_DOC_11111111_V3",
+        source_type: "USER_SUPPLIED_DECLARATION",
+        provider_name: "MANUAL_DECLARATION_POC",
+        provider_environment: "LOCAL",
+        as_of_date: "2026-09-28",
+      },
+    };
+    summary.clm.readiness!.warnings = ["TARGET_CONFIRMATION_REQUIRED"];
+    const markup = render(summary);
+    expect(markup).toContain("user-supplied declaration retained locally");
+    expect(markup).toContain("not ACRA or verified ownership evidence");
+    expect(markup).toContain("Manual ownership reviewed by case-user");
+    expect(markup).toContain("MANUAL_DOC_11111111_V3");
+    expect(markup).toContain("TARGET_CONFIRMATION_REQUIRED");
+    expect(markup).toContain("Confirm and send to GoldTier sandbox");
+  });
+
+  it("offers ownership editing only when the backend authorizes manual evidence", () => {
+    const summary = summaryFixture();
+    summary.ownership_recovery = {
+      analysis_id: "22222222-2222-4222-8222-222222222222",
+      version: 5,
+      state: "REVIEW_REQUIRED",
+      manual_evidence_action: "MANUAL_OWNERSHIP_EVIDENCE",
+      review_receipt: null,
+    };
+
+    const markup = render(summary);
+    expect(markup).toContain("Edit ownership");
+    expect(markup).not.toContain("Ownership source is review-only; no correction action is currently authorized.");
+  });
+
+  it("calls the projection frozen only after confirmation and displays the retaining actor", () => {
+    const summary = summaryFixture();
+    summary.case.target_dispatch_confirmation = {
+      confirmation_id: "confirmation-1",
+      actor_id: "case-user",
+      confirmed_at: "2026-09-29T04:00:00Z",
+      case_event_count: 3,
+      clm_version: 4,
+      destination: "GOLDTIER_XPI_SANDBOX",
+      warnings: [],
+      review_digest: "a".repeat(64),
+      classification: "USER_AUTHORIZED_POC",
+    };
+    const markup = render(summary);
+    expect(markup).toContain("Frozen server review projection");
+    expect(markup).toContain("Confirmed by case-user");
+    expect(markup).not.toContain("Current server review projection");
+    expect(markup).not.toContain("Edit company details");
+    expect(markup).not.toContain("Edit classification");
+    expect(markup).not.toContain("Edit documents");
+    expect(markup).not.toContain("Edit ownership");
+  });
+
+  it("retains accepted configuration revision, unavailable fields, and rebind actor provenance", () => {
+    const summary = summaryFixture();
+    summary.case.policy_rebind = {
+      revision: 2,
+      configuration_status: "CURRENT_ACCEPTED_POC",
+      accepted_poc_fields: ["customerExternalSystem", "registrationType", "policy", "bookingEntity"],
+      editable_fields: ["kycCustomerType", "clientSegment"],
+      upstream_fields: ["registrationNumber"],
+      unavailable_fields: ["accountEntityType", "productType"],
+      last_rebound_by: "case-user",
+      last_rebound_at: "2026-09-29T02:00:00Z",
+      last_rationale: "Replace superseded SG POC target constants.",
+      last_changed_fields: ["customerExternalSystem", "registrationType", "policy", "bookingEntity"],
+    };
+    const markup = render(summary);
+    expect(markup).toContain("Account entity type: Saved in this case; not transmitted to GoldTier");
+    expect(markup).toContain("Product type: Saved in this case; not transmitted to GoldTier");
+    expect(markup).toContain("POC configuration revision 2 - CURRENT_ACCEPTED_POC");
+    expect(markup).toContain("Configuration rebound by case-user");
+  });
+
+  it("renders retained CONTINUE_WITH_WARNING history without inventing AUTO_RESOLVED", () => {
+    const summary = summaryFixture();
+    const retainedWarning: BlockerDecisionRecord = {
+      decision_id: "decision-warning-1",
+      case_id: "case-1",
+      exception_id: null,
+      evidence_version: "readiness:4",
+      automation_version: 7,
+      recorded_at: "2026-09-29T02:00:00Z",
+      metadata: {
+        blocker_code: "RELATED_PARTY_WRITE_NOT_EXECUTED",
+        exception_type: null,
+        classification: "CONTINUE_WITH_WARNING",
+        policy_version: "BLOCKER_DECISION_POC_V1",
+        rule_version: "RELATED_PARTY_WARNING_V1",
+        owner: "POLICY_OWNER",
+        minimum_inputs: ["CURRENT_READINESS_WARNING"],
+        permitted_actions: ["RETAIN_READINESS_WARNING"],
+        currently_available_actions: ["RETAIN_READINESS_WARNING"],
+        resume_stage: null,
+        resume_transition: "RETAIN_NOTE_WITHOUT_WORKFLOW_CHANGE",
+        resume_ready: false,
+        invalidated_dependencies: ["TARGET_PLAN", "TARGET_PLAN"],
+        explanation: "Related-party writes remain unsupported and the warning is retained.",
+        unknowns: [],
+      },
+      actor_id: null,
+      reviewer_id: null,
+    };
+    summary.non_blocking_decisions = [retainedWarning, retainedWarning];
+    const markup = render(summary);
+    expect(markup).toContain("Important notes before sending");
+    expect(markup).toContain("Related-party submission is not included");
+    expect(markup).toContain("Non-blocking");
+    expect(markup).toContain("Technical details and audit appendix");
+    expect(markup).toContain("Continue with warning decision decision-warning-1 - BLOCKER_DECISION_POC_V1 - rule RELATED_PARTY_WARNING_V1");
+    expect(markup.match(/RELATED_PARTY_WRITE_NOT_EXECUTED/g)).toHaveLength(1);
+    expect(markup.match(/Target plan/g)).toHaveLength(1);
+    expect(markup).not.toContain("Auto resolved");
+  });
+
+  it.each([
+    ["OPERATOR_REVIEW", "Review legal form and KYC customer type", true],
+    ["UNKNOWN_LEGAL_FORM", "Legal form needs operator review", true],
+    ["COMPATIBLE", "Legal form and KYC selection are consistent", false],
+  ] as const)("renders %s classification advice with a direct KYC edit control", (status, title, visible) => {
+    const summary = summaryFixture();
+    summary.classification_consistency = {
+      status,
+      title,
+      explanation: visible ? "Review the classification before sending." : "The categories are consistent.",
+      blocking: false,
+      authority: "PROJECT_ADVISORY_ONLY",
+    };
+    const markup = render(summary);
+    expect(markup.includes(title)).toBe(visible);
+    expect(markup.includes("Review KYC classification")).toBe(visible);
+    if (visible) expect(markup).toContain("no sponsor or regulatory incompatibility rule is claimed");
+  });
+
+  it("translates retained codes once and keeps raw evidence in the technical appendix", () => {
+    const summary = summaryFixture();
+    summary.clm.readiness!.warnings = [
+      "IDP_PROFILE_PROVISIONAL",
+      "UBO_POLICY_NOT_SPONSOR_CONFIRMED",
+      "RELATED_PARTY_MAPPING_PENDING",
+    ];
+    const markup = render(summary);
+    expect(markup.match(/Document extraction uses the current POC parser/g)).toHaveLength(1);
+    expect(markup.match(/Ownership threshold remains provisional for this POC/g)).toHaveLength(1);
+    expect(markup.match(/Related-party submission is not included/g)).toHaveLength(1);
+    expect(markup).not.toContain("Continue with warning</strong>");
+    expect(markup).toContain("IDP_PROFILE_PROVISIONAL, UBO_POLICY_NOT_SPONSOR_CONFIRMED, RELATED_PARTY_MAPPING_PENDING");
+  });
+});
+
+describe("confirmZeroTouchTargetDispatch", () => {
+  it("posts the three expected versions once to confirmation and never a submit endpoint", async () => {
+    const response = summaryFixture();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await confirmZeroTouchTargetDispatch("case-1", {
+      expected_automation_version: 7,
+      expected_clm_version: 4,
+      expected_case_event_count: 3,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/api/clm/zero-touch/cases/case-1/target-confirmation");
+    expect(url).not.toContain("submit");
+    expect(JSON.parse(String(init.body))).toEqual({ expected_automation_version: 7, expected_clm_version: 4, expected_case_event_count: 3 });
+  });
+});
+
+describe("targetConfirmationMutationEffect", () => {
+  it("publishes the case and invalidates only the confirming user's scopes", () => {
+    const client = new QueryClient();
+    const summary = summaryFixture();
+    client.setQueryData(caseQueryKeys.detail("other-user", "case-1"), { marker: "untouched" });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const remove = vi.spyOn(client, "removeQueries");
+
+    targetConfirmationMutationEffect(client, "case-user", summary);
+
+    expect(client.getQueryData(caseQueryKeys.detail("case-user", "case-1"))).toBe(summary);
+    expect(client.getQueryData(caseQueryKeys.detail("other-user", "case-1"))).toEqual({ marker: "untouched" });
+    expect(invalidate.mock.calls.every(([filters]) => JSON.stringify(filters?.queryKey).includes("case-user"))).toBe(true);
+    expect(remove.mock.calls.every(([filters]) => JSON.stringify(filters?.queryKey).includes("case-user"))).toBe(true);
+  });
+});

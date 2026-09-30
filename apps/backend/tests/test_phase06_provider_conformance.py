@@ -453,6 +453,21 @@ def _assert_registry_contract_failure(payload: object, expected_code: str) -> No
     assert target.calls == []
 
 
+def _confirm_target_dispatch(
+    zero: ZeroTouchOrchestrator, waiting: object
+) -> object:
+    case = zero._cases.get_case(waiting.case_id)  # noqa: SLF001
+    clm = zero._clm.get(case_id=waiting.case_id)  # noqa: SLF001
+    assert case is not None and clm is not None
+    return zero.confirm_target_dispatch(
+        case_id=waiting.case_id,
+        actor_id="provider-conformance-operator",
+        expected_automation_version=waiting.version,
+        expected_clm_version=clm.version,
+        expected_case_event_count=len(case.events),
+    )
+
+
 ACRA_TEXT_FIELD_PATHS = (
     ("uen",),
     ("entity_name",),
@@ -551,17 +566,20 @@ def test_P06_QG_009_R2_ORDINARY_SPACES_NORMALIZE_AND_COMPLETE() -> None:
     zero, target = _build_local_zero(StaticRegistryAdapter(typed))
 
     created = zero.create_case("202400001A")
-    completed = zero.attach_document(
+    waiting = zero.attach_document(
         case_id=created.case_id,
         display_name="spaces.pdf",
         content_type="application/pdf",
         content=PDF,
     )
+    assert waiting.status == "WAITING_FOR_REVIEW"
+    assert target.calls == ["search"]
+    completed = _confirm_target_dispatch(zero, waiting)
 
     assert created.status == "PENDING_INPUTS"
     assert completed.status == "COMPLETED"
-    assert completed.metrics.human_interventions == 0
-    assert target.calls == ["search", "shell", "policy", "amend"]
+    assert completed.metrics.human_interventions == 1
+    assert target.calls == ["search", "search", "shell", "policy", "amend"]
 
 
 def test_P06_QG_009_WRONG_RETURNED_UEN() -> None:
@@ -658,15 +676,18 @@ def test_alternate_local_adapters_complete_the_full_zero_touch_path() -> None:
         repository=InMemoryZeroTouchAutomationRepository(),
     )
     created = zero.create_case("202400001A")
-    completed = zero.attach_document(
+    waiting = zero.attach_document(
         case_id=created.case_id,
         display_name="local.pdf",
         content_type="application/pdf",
         content=PDF,
     )
+    assert waiting.status == "WAITING_FOR_REVIEW"
+    assert target.calls == ["search"]
+    completed = _confirm_target_dispatch(zero, waiting)
     assert completed.status == "COMPLETED"
-    assert completed.metrics.human_interventions == 0
-    assert target.calls == ["search", "shell", "policy", "amend"]
+    assert completed.metrics.human_interventions == 1
+    assert target.calls == ["search", "search", "shell", "policy", "amend"]
     assert documents.list_documents(case_id=created.case_id)[0].provider_environment == "SANDBOX"
     analyzed = ownership.get(case_id=created.case_id)
     assert analyzed is not None and analyzed.provider_environment == "SANDBOX"

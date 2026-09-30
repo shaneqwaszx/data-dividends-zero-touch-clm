@@ -180,7 +180,7 @@ def test_expanded_mock_operations_do_not_fabricate_sandbox_contracts() -> None:
         acra_authorizer=SafeFakeAuthorizer(),
     ).create_case(VALID_SME_UEN)
 
-    assert mock_case.state == WorkflowState.COMPLETED
+    assert mock_case.state == WorkflowState.VALIDATED
     assert sandbox_case.state == WorkflowState.FAILED
     assert mock_case.entity is not None
     assert sandbox_case.entity is not None

@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { GoldTierTargetClassification } from "../types";
+import { updateGoldTierTargetClassification } from "../api";
 import TargetClassificationPanel from "./TargetClassificationPanel";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -34,6 +35,8 @@ afterEach(() => {
   container?.remove();
   root = null;
   container = null;
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function render(
@@ -85,8 +88,8 @@ describe("TargetClassificationPanel", () => {
     });
   });
 
-  it("renders retained values and provenance without edit controls once resolved", () => {
-    const { view } = render({
+  it("keeps retained selections editable while the backend says editable", async () => {
+    const { view, onSubmit } = render({
       ...unresolved,
       kyc_customer_type: {
         ...unresolved.kyc_customer_type,
@@ -100,9 +103,44 @@ describe("TargetClassificationPanel", () => {
       },
     });
 
-    expect(view.querySelector("form, select, input, textarea")).toBeNull();
-    expect(view.textContent).toContain("Company - Private · USER AUTHORIZED POC");
-    expect(view.textContent).toContain("Corporate · USER AUTHORIZED POC");
+    expect(view.querySelector("form")).not.toBeNull();
+    expect((view.querySelector('[aria-label="KYC customer type"]') as HTMLSelectElement).value).toBe("Company - Private");
+    expect((view.querySelector('[aria-label="Client segment"]') as HTMLSelectElement).value).toBe("Corporate");
+    expect(view.textContent).toContain("remain editable before target dispatch confirmation");
+
+    choose("Client segment", "Commercial BB (Business Banking)");
+    await act(async () => {
+      view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    expect(onSubmit).toHaveBeenCalledWith({
+      kyc_customer_type: "Company - Private",
+      client_segment: "Commercial BB (Business Banking)",
+    });
+  });
+
+  it("sends CAS values once and surfaces a stale response without retry", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      detail: { code: "ZERO_TOUCH_TARGET_CLASSIFICATION_STALE", message: "The case changed." },
+    }), { status: 409, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(updateGoldTierTargetClassification("case-1", {
+      kyc_customer_type: "Company - Private",
+      client_segment: "Corporate",
+      expected_automation_version: 8,
+      expected_case_event_count: 6,
+    })).rejects.toMatchObject({ status: 409, code: "ZERO_TOUCH_TARGET_CLASSIFICATION_STALE" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/api/clm/zero-touch/cases/case-1/target-classification");
+    expect(JSON.parse(String(init.body))).toEqual({
+      kyc_customer_type: "Company - Private",
+      client_segment: "Corporate",
+      expected_automation_version: 8,
+      expected_case_event_count: 6,
+    });
   });
 
   it("does not expose an edit form when the backend marks an unresolved case non-editable", () => {

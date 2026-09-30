@@ -467,6 +467,63 @@ class CasePolicySnapshot(BaseModel):
     bound_at: datetime
 
 
+class CasePolicyRebindAudit(BaseModel):
+    """Immutable bounded audit entry retaining the complete replaced snapshot."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    previous_revision: Annotated[int, Field(ge=1)]
+    resulting_revision: Annotated[int, Field(ge=2)]
+    previous_snapshot: CasePolicySnapshot
+    actor_id: Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{2,31}$")]
+    rebound_at: datetime
+    rationale: Annotated[str, Field(min_length=10, max_length=240)]
+    changed_fields: Annotated[
+        tuple[
+            Literal[
+                "customerExternalSystem",
+                "registrationType",
+                "policy",
+                "bookingEntity",
+            ],
+            ...,
+        ],
+        Field(min_length=1, max_length=4),
+    ]
+    source_catalogue_version: Annotated[int, Field(ge=1)]
+
+    @field_validator("rebound_at")
+    @classmethod
+    def rebound_at_must_be_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("policy rebind timestamp must be UTC")
+        return value
+
+    @field_validator("rationale")
+    @classmethod
+    def rationale_must_be_safe(cls, value: str) -> str:
+        normalized = normalize_safe_policy_text(value)
+        prohibited = (
+            "ignore previous",
+            "ignore prior",
+            "system prompt",
+            "developer message",
+            "<script",
+            "javascript:",
+        )
+        if any(marker in normalized.casefold() for marker in prohibited):
+            raise ValueError("policy rebind rationale contains a prohibited marker")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_revision(self) -> CasePolicyRebindAudit:
+        if self.resulting_revision != self.previous_revision + 1:
+            raise ValueError("policy rebind revision must increment exactly once")
+        if len(set(self.changed_fields)) != len(self.changed_fields):
+            raise ValueError("policy rebind changed fields must be unique")
+        return self
+
+
 def legacy_phase13_policy_snapshot(bound_at: datetime | None = None) -> CasePolicySnapshot:
     return CasePolicySnapshot(
         snapshot_label="LEGACY_PHASE13_DEFAULTS_V1",

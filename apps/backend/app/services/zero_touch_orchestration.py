@@ -5,14 +5,16 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from app.connectors.idp import IdpProvider
 from app.connectors.ownership import OwnershipProvider
 from app.domain.access import CasePriority, TeamId
 from app.domain.clm import (
     ClmBlockerCode,
+    ClmOrchestrationRecord,
     ClmStatus,
+    ClmWarningCode,
     GoldTierSearchCheckpointStatus,
     GoldTierSearchDisposition,
 )
@@ -41,19 +43,32 @@ from app.domain.reconciliation import (
     ReconciliationStatus,
 )
 from app.domain.zero_touch import (
+    AUTOMATION_STAGE_ORDER,
     AUTOMATION_STAGE_ORDER_VERSION,
+    LEGACY_AUTOMATION_STAGE_ORDER,
     LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
     AutomationEvent,
     AutomationEventType,
     AutomationMetrics,
     AutomationStage,
     AutomationStatus,
+    BlockerDecisionAction,
+    BlockerDecisionRecord,
+    BlockerMinimumInput,
     BusinessException,
     BusinessExceptionStatus,
     BusinessExceptionType,
     ExceptionResolutionAction,
     SafeExceptionEvidence,
     ZeroTouchAutomationRecord,
+)
+from app.services.blocker_decision_policy import (
+    AutoResolvedDecisionInput,
+    AutoResolvedRule,
+    BlockerDecisionPolicy,
+    ContinueWithWarningDecisionInput,
+    ContinueWithWarningRule,
+    OpenBlockerDecisionInput,
 )
 from app.services.clm_errors import ClmInfrastructureError, ClmRequestError
 from app.services.clm_orchestration import ClmOrchestrationService
@@ -62,6 +77,11 @@ from app.services.document_errors import (
     DocumentRequestError,
 )
 from app.services.document_processing import DocumentProcessingService
+from app.services.manual_ownership_evidence import (
+    ManualOwnershipDeclaration,
+    ManualOwnershipEvidenceError,
+    ManualOwnershipEvidenceProvider,
+)
 from app.services.onboarding import OnboardingService
 from app.services.ownership_analysis import OwnershipAnalysisService
 from app.services.ownership_errors import OwnershipInfrastructureError, OwnershipRequestError
@@ -83,6 +103,19 @@ from app.services.zero_touch_repository import (
     ZeroTouchAutomationRepository,
     ZeroTouchRepositoryConflictError,
 )
+
+
+class _CaseDocumentReader:
+    """Bind the document service's case-aware lookup to the manual provider protocol."""
+
+    def __init__(
+        self, documents: DocumentProcessingService, case_id: UUID
+    ) -> None:
+        self._documents = documents
+        self._case_id = case_id
+
+    def get(self, document_id: UUID) -> DocumentProcessingRecord | None:
+        return self._documents.get_document(case_id=self._case_id, document_id=document_id)
 
 
 class ZeroTouchOrchestrator:
@@ -126,6 +159,7 @@ class ZeroTouchOrchestrator:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._intelligence_evaluator = intelligence_evaluator
         self._uuid_factory = uuid_factory or uuid4
+        self._blocker_decision_policy = BlockerDecisionPolicy()
 
     def release_provider_binding(self, binding_id: str) -> None:
         """Release process-local provider state only after physical deletion succeeds."""
@@ -786,12 +820,151 @@ class ZeroTouchOrchestrator:
     def get(self, *, case_id: UUID) -> ZeroTouchAutomationRecord | None:
         return self._repository.get_for_case(case_id)
 
+    def submit_manual_ownership_evidence(
+        self,
+        *,
+        case_id: UUID,
+        actor_id: str,
+        declaration: ManualOwnershipDeclaration,
+        expected_automation_version: int,
+        expected_ownership_version: int,
+        expected_case_event_count: int,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> ZeroTouchAutomationRecord:
+        """Replace a blocked ownership source with reviewed, case-bound manual evidence."""
+
+        with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            record = self._require_record(case_id)
+            case = self._cases.get_case(case_id)
+            clm_record = self._clm.get(case_id=case_id)
+            current_ownership = self._ownership.get(case_id=case_id)
+            if record.version != expected_automation_version:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_MANUAL_OWNERSHIP_STALE",
+                    message="The onboarding case changed before manual evidence was accepted.",
+                )
+            if case is None or clm_record is None or current_ownership is None:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_MANUAL_OWNERSHIP_NOT_AVAILABLE",
+                    message="The current ownership review is unavailable.",
+                )
+            if len(case.events) != expected_case_event_count:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_MANUAL_OWNERSHIP_STALE",
+                    message="The onboarding case changed before manual evidence was accepted.",
+                )
+            if current_ownership.version != expected_ownership_version:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_MANUAL_OWNERSHIP_STALE",
+                    message="The ownership analysis changed before manual evidence was accepted.",
+                )
+            ownership_blockers = [
+                item
+                for item in record.active_exceptions
+                if item.stage == AutomationStage.OWNERSHIP
+            ]
+            if (
+                declaration.case_id != case_id
+                or record.status != AutomationStatus.WAITING_FOR_REVIEW
+                or record.current_stage != AutomationStage.OWNERSHIP
+                or not ownership_blockers
+                or current_ownership.state != OwnershipAnalysisState.REVIEW_REQUIRED
+                or case.target_dispatch_confirmation is not None
+                or case.goldtier_result is not None
+                or clm_record.submission_snapshot is not None
+                or clm_record.status == ClmStatus.SUBMITTING
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_MANUAL_OWNERSHIP_NOT_ALLOWED",
+                    message=(
+                        "Manual ownership evidence is accepted only for the current "
+                        "pre-confirmation ownership review."
+                    ),
+                )
+
+            try:
+                provider = ManualOwnershipEvidenceProvider(
+                    declaration=declaration,
+                    reviewed_by_actor_id=actor_id,
+                    cases=self._cases,
+                    documents=_CaseDocumentReader(self._documents, case_id),
+                    clock=self._clock,
+                )
+                replacement = self._ownership.replace_review_required_source(
+                    case_id=case_id,
+                    provider=provider,
+                    review_receipt=provider.review_receipt,
+                    expected_version=expected_ownership_version,
+                )
+            except ManualOwnershipEvidenceError as exc:
+                raise ZeroTouchRequestError(code=exc.code, message=exc.message) from None
+            except OwnershipRequestError as exc:
+                code = (
+                    "ZERO_TOUCH_MANUAL_OWNERSHIP_STALE"
+                    if exc.code == "OWNERSHIP_MANUAL_REPLACEMENT_STALE"
+                    else exc.code
+                )
+                raise ZeroTouchRequestError(code=code, message=exc.public_message) from None
+            except OwnershipInfrastructureError as exc:
+                raise ZeroTouchInfrastructureError(
+                    case_id=case_id,
+                    automation_id=record.automation_id,
+                    code=exc.code,
+                    message=exc.public_message,
+                ) from None
+            if replacement.state != OwnershipAnalysisState.ANALYZED:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_MANUAL_OWNERSHIP_REVIEW_REQUIRED",
+                    message="The replacement ownership evidence still requires review.",
+                )
+
+            candidate = record.model_copy(deep=True)
+            resolved_at = self._clock()
+            for item in candidate.active_exceptions:
+                if item.stage == AutomationStage.OWNERSHIP:
+                    item.status = BusinessExceptionStatus.RESOLVED
+                    item.resolved_at = resolved_at
+            candidate.completed_stages = tuple(
+                stage
+                for stage in candidate.completed_stages
+                if stage
+                in {
+                    AutomationStage.REGISTRY,
+                    AutomationStage.GOLDTIER_SEARCH,
+                    AutomationStage.DOCUMENT,
+                }
+            )
+            candidate.metrics.human_interventions += 1
+            candidate.metrics.exceptions_resolved += len(ownership_blockers)
+            remaining_blockers = candidate.active_exceptions
+            if remaining_blockers:
+                candidate.status = AutomationStatus.WAITING_FOR_REVIEW
+                candidate.current_stage = remaining_blockers[0].stage
+            else:
+                candidate.status = AutomationStatus.RESUMING
+                candidate.current_stage = AutomationStage.OWNERSHIP
+            candidate = self._append_event(
+                candidate,
+                event_type=AutomationEventType.BUSINESS_EXCEPTION_RESOLVED,
+                outcome=EventOutcome.SUCCEEDED,
+                code="MANUAL_OWNERSHIP_EVIDENCE_ACCEPTED",
+                message="Reviewed manual ownership evidence replaced the blocked source.",
+            )
+            saved = self._save(record, candidate)
+            if saved.active_exceptions:
+                return saved
+            return self._advance_locked(case_id=case_id)
+
     def bind_target_classification(
         self,
         *,
         case_id: UUID,
         kyc_customer_type: str,
         client_segment: str,
+        expected_automation_version: int | None = None,
+        expected_case_event_count: int | None = None,
         reauthorize: Callable[[], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Bind a case-only target decision and resume only its waiting checkpoint."""
@@ -800,6 +973,14 @@ class ZeroTouchOrchestrator:
             if reauthorize is not None:
                 reauthorize()
             record = self._require_record(case_id)
+            if (
+                expected_automation_version is not None
+                and record.version != expected_automation_version
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_TARGET_CLASSIFICATION_STALE",
+                    message="The onboarding case changed before target classification.",
+                )
             clm_record = self._clm.get(case_id=case_id)
             if clm_record is None or clm_record.submission_snapshot is not None:
                 raise ZeroTouchRequestError(
@@ -811,6 +992,7 @@ class ZeroTouchOrchestrator:
                     case_id=case_id,
                     kyc_customer_type=kyc_customer_type,
                     client_segment=client_segment,
+                    expected_case_event_count=expected_case_event_count,
                 )
                 self._clm.refresh_target_classification(case_id=case_id)
             except (ValueError, ClmRequestError) as exc:
@@ -852,6 +1034,415 @@ class ZeroTouchOrchestrator:
             )
             saved = self._save(record, candidate)
             if saved.active_exceptions or saved.current_stage != AutomationStage.READINESS:
+                return saved
+            return self._advance_locked(case_id=case_id)
+
+    def rebind_case_policy_snapshot(
+        self,
+        *,
+        case_id: UUID,
+        actor_id: str,
+        rationale: str,
+        expected_automation_version: int,
+        expected_clm_version: int,
+        expected_case_event_count: int,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> ZeroTouchAutomationRecord:
+        """Rebind accepted SG POC constants and resume only the readiness dependency."""
+
+        with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            record = self._require_record(case_id)
+            case = self._cases.get_case(case_id)
+            clm_record = self._clm.get(case_id=case_id)
+            if (
+                record.version != expected_automation_version
+                or case is None
+                or len(case.events) != expected_case_event_count
+                or clm_record is None
+                or clm_record.version != expected_clm_version
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_POLICY_REBIND_STALE",
+                    message="The onboarding case changed before policy rebind.",
+                )
+            if (
+                record.status != AutomationStatus.WAITING_FOR_REVIEW
+                or record.current_stage != AutomationStage.READINESS
+                or clm_record.submission_snapshot is not None
+                or clm_record.execution_receipt is not None
+                or case.target_dispatch_confirmation is not None
+                or case.goldtier_result is not None
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_POLICY_REBIND_NOT_ALLOWED",
+                    message="Policy rebind is accepted only for a pre-submission readiness case.",
+                )
+            previous_revision = case.policy_snapshot_revision
+            try:
+                rebound_case = self._cases.rebind_case_policy_snapshot(
+                    case_id=case_id,
+                    actor_id=actor_id,
+                    rationale=rationale,
+                    expected_case_event_count=expected_case_event_count,
+                )
+            except ValueError as exc:
+                message = str(exc)
+                code = (
+                    "ZERO_TOUCH_POLICY_REBIND_STALE"
+                    if "changed before" in message
+                    else "ZERO_TOUCH_POLICY_REBIND_NOT_ALLOWED"
+                )
+                raise ZeroTouchRequestError(code=code, message=message) from None
+            if rebound_case.policy_snapshot_revision == previous_revision:
+                return record
+            try:
+                self._clm.refresh_target_classification(case_id=case_id)
+            except ClmRequestError as exc:
+                raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
+
+            candidate = record.model_copy(deep=True)
+            affected_types = {
+                BusinessExceptionType.TARGET_CLASSIFICATION_REQUIRED,
+                BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED,
+            }
+            resolved_at = self._clock()
+            affected_count = 0
+            for item in candidate.active_exceptions:
+                if item.exception_type in affected_types:
+                    item.status = BusinessExceptionStatus.RESOLVED
+                    item.resolved_at = resolved_at
+                    affected_count += 1
+            remaining = candidate.active_exceptions
+            candidate.metrics.human_interventions += 1
+            candidate.metrics.exceptions_resolved += affected_count
+            if remaining:
+                candidate.status = AutomationStatus.WAITING_FOR_REVIEW
+                candidate.current_stage = remaining[0].stage
+            else:
+                candidate.status = AutomationStatus.RESUMING
+                candidate.current_stage = AutomationStage.READINESS
+            candidate = self._append_event(
+                candidate,
+                event_type=AutomationEventType.POLICY_SNAPSHOT_REBOUND,
+                outcome=EventOutcome.SUCCEEDED,
+                code="SG_POC_POLICY_SNAPSHOT_REBOUND",
+                message="Accepted SG POC target constants were rebound to the case.",
+            )
+            saved = self._save(record, candidate)
+            if saved.active_exceptions:
+                return saved
+            return self._advance_locked(case_id=case_id)
+
+    def confirm_target_dispatch(
+        self,
+        *,
+        case_id: UUID,
+        actor_id: str,
+        expected_automation_version: int,
+        expected_clm_version: int,
+        expected_case_event_count: int,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> ZeroTouchAutomationRecord:
+        """Confirm the frozen review and resume the same case from readiness."""
+
+        with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            record = self._require_record(case_id)
+            if record.version != expected_automation_version:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_TARGET_CONFIRMATION_STALE",
+                    message="The onboarding case changed before target confirmation.",
+                )
+            confirmation_exceptions = [
+                item
+                for item in record.active_exceptions
+                if item.exception_type == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
+            ]
+            if not confirmation_exceptions or record.current_stage != AutomationStage.READINESS:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_TARGET_CONFIRMATION_NOT_ALLOWED",
+                    message="Target confirmation is not accepted at the current stage.",
+                )
+            try:
+                rechecked_clm = self._clm.confirm_target_dispatch(
+                    case_id=case_id,
+                    actor_id=actor_id,
+                    expected_clm_version=expected_clm_version,
+                    expected_case_event_count=expected_case_event_count,
+                )
+            except ClmRequestError as exc:
+                raise ZeroTouchRequestError(
+                    code=exc.code,
+                    message=exc.public_message,
+                ) from None
+            confirmed_case = self._cases.get_case(case_id)
+            if (
+                confirmed_case is None
+                or confirmed_case.target_dispatch_confirmation is None
+            ):
+                return self._retain_revised_confirmation_review(record, rechecked_clm)
+
+            candidate = record.model_copy(deep=True)
+            resolved_at = self._clock()
+            for item in candidate.active_exceptions:
+                if item.exception_type == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED:
+                    item.status = BusinessExceptionStatus.RESOLVED
+                    item.resolved_at = resolved_at
+            candidate.status = AutomationStatus.RESUMING
+            candidate.metrics.human_interventions += 1
+            candidate.metrics.exceptions_resolved += len(confirmation_exceptions)
+            candidate = self._append_event(
+                candidate,
+                event_type=AutomationEventType.TARGET_DISPATCH_CONFIRMED,
+                outcome=EventOutcome.SUCCEEDED,
+                code="TARGET_DISPATCH_CONFIRMED",
+                message="A local-POC operator confirmed the frozen target review.",
+            )
+            saved = self._save(record, candidate)
+            completed = self._complete_stage(
+                saved,
+                stage=AutomationStage.READINESS,
+                event_type=AutomationEventType.READINESS_AUTOMATED,
+                code="READINESS_CONFIRMED",
+                message="Authoritative readiness was confirmed for target dispatch.",
+                started_at=resolved_at,
+            )
+            return self._advance_locked(case_id=completed.case_id)
+
+    def _retain_revised_confirmation_review(
+        self,
+        record: ZeroTouchAutomationRecord,
+        clm_record: ClmOrchestrationRecord,
+    ) -> ZeroTouchAutomationRecord:
+        """Replace a superseded confirmation action with the fresh Search truth."""
+
+        candidate = record.model_copy(deep=True)
+        now = self._clock()
+        for item in candidate.active_exceptions:
+            if item.exception_type == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED:
+                item.status = BusinessExceptionStatus.CANCELLED
+                item.resolved_at = now
+        checkpoint = clm_record.target_search_checkpoint
+        candidate.status = AutomationStatus.WAITING_FOR_REVIEW
+        candidate.current_stage = AutomationStage.GOLDTIER_SEARCH
+        candidate = self._append_event(
+            candidate,
+            event_type=(
+                AutomationEventType.GOLDTIER_SEARCH_REVIEW_REQUIRED
+                if checkpoint is not None
+                and checkpoint.status == GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+                else AutomationEventType.GOLDTIER_SEARCH_FAILED
+                if checkpoint is not None
+                and checkpoint.status == GoldTierSearchCheckpointStatus.FAILED
+                else AutomationEventType.GOLDTIER_SEARCH_COMPLETED
+            ),
+            outcome=(
+                EventOutcome.REVIEW_REQUIRED
+                if checkpoint is not None
+                and checkpoint.status == GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+                else EventOutcome.FAILED
+                if checkpoint is not None
+                and checkpoint.status == GoldTierSearchCheckpointStatus.FAILED
+                else EventOutcome.SUCCEEDED
+            ),
+            code=(checkpoint.code if checkpoint is not None else "GOLDTIER_SEARCH_REVISED"),
+            message="Confirmation-time Search changed the proposed target path.",
+        )
+        if checkpoint is None:
+            return self._technical_failure(
+                candidate,
+                stage=AutomationStage.GOLDTIER_SEARCH,
+                code="GOLDTIER_SEARCH_FAILED",
+                message="Confirmation-time Search produced no retained checkpoint.",
+            )
+        if checkpoint.status == GoldTierSearchCheckpointStatus.REVIEW_REQUIRED:
+            return self._add_exception(
+                candidate,
+                exception_type=BusinessExceptionType.ENTITY_RESOLUTION_REVIEW_REQUIRED,
+                stage=AutomationStage.GOLDTIER_SEARCH,
+                blocker_code=checkpoint.code or "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
+                explanation=(
+                    "Confirmation-time Search changed the proposed target identity; "
+                    "all target mutations remain blocked."
+                ),
+                evidence_version=f"goldtier-search:{checkpoint.request_id}",
+                evidence=(),
+                actions=(),
+            )
+        if checkpoint.status == GoldTierSearchCheckpointStatus.FAILED:
+            return self._technical_failure(
+                candidate,
+                stage=AutomationStage.GOLDTIER_SEARCH,
+                code=checkpoint.code or "GOLDTIER_SEARCH_FAILED",
+                message="Confirmation-time Search failed; target mutations remain blocked.",
+            )
+        return self._add_exception(
+            candidate,
+            exception_type=BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED,
+            stage=AutomationStage.READINESS,
+            blocker_code="TARGET_CONFIRMATION_REQUIRED",
+            explanation=(
+                "Confirmation-time Search changed the frozen target review; the revised "
+                "operation plan requires confirmation."
+            ),
+            evidence_version=f"target-confirmation:{clm_record.version}",
+            evidence=(),
+            actions=(),
+        )
+
+    def repair_initial_identity_and_recheck(
+        self,
+        *,
+        case_id: UUID,
+        actor_id: str,
+        legal_name: str,
+        registration_number: str,
+        country_of_incorporation: str,
+        expected_automation_version: int,
+        expected_clm_version: int,
+        expected_case_event_count: int,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> ZeroTouchAutomationRecord:
+        """Repair/recheck the same pre-submission case without target mutation."""
+
+        with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            record = self._require_record(case_id)
+            if record.version != expected_automation_version:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_IDENTITY_RECHECK_STALE",
+                    message="The onboarding case changed before identity recheck.",
+                )
+            clm_record = self._clm.get(case_id=case_id)
+            if clm_record is None or clm_record.version != expected_clm_version:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_IDENTITY_RECHECK_STALE",
+                    message="The CLM case changed before identity recheck.",
+                )
+            if clm_record.submission_snapshot is not None:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_IDENTITY_RECHECK_FROZEN",
+                    message="Identity Search is already frozen for submission.",
+                )
+            checkpoint = clm_record.target_search_checkpoint
+            current_case = self._cases.get_case(case_id)
+            missing_identity_repair = bool(
+                checkpoint is None
+                and current_case is not None
+                and current_case.initial_identity is None
+                and current_case.error is not None
+                and current_case.error.code == "INITIAL_IDENTITY_INCOMPLETE"
+            )
+            if not missing_identity_repair and (
+                checkpoint is None
+                or checkpoint.status
+                not in {
+                    GoldTierSearchCheckpointStatus.COMPLETED,
+                    GoldTierSearchCheckpointStatus.FAILED,
+                    GoldTierSearchCheckpointStatus.REVIEW_REQUIRED,
+                }
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_IDENTITY_RECHECK_NOT_ALLOWED",
+                    message="Identity editing is not accepted at the current stage.",
+                )
+            try:
+                self._cases.repair_initial_identity_and_recheck(
+                    case_id=case_id,
+                    actor_id=actor_id,
+                    legal_name=legal_name,
+                    registration_number=registration_number,
+                    country_of_incorporation=country_of_incorporation,
+                    expected_case_event_count=expected_case_event_count,
+                )
+                refreshed = self._clm.refresh_initial_search_after_recheck(
+                    case_id=case_id,
+                    expected_clm_version=expected_clm_version,
+                )
+            except (ValueError, ClmRequestError) as exc:
+                raise ZeroTouchRequestError(
+                    code=(
+                        exc.code
+                        if isinstance(exc, ClmRequestError)
+                        else "ZERO_TOUCH_IDENTITY_RECHECK_INVALID"
+                    ),
+                    message=(exc.public_message if isinstance(exc, ClmRequestError) else str(exc)),
+                ) from None
+
+            candidate = record.model_copy(deep=True)
+            for item in candidate.active_exceptions:
+                if (
+                    item.stage == AutomationStage.GOLDTIER_SEARCH
+                    or item.blocker_code == "INITIAL_IDENTITY_INCOMPLETE"
+                    or item.exception_type
+                    == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
+                ):
+                    item.status = BusinessExceptionStatus.CANCELLED
+                    item.resolved_at = self._clock()
+            repaired_case = self._cases.get_case(case_id)
+            search_completed = bool(
+                refreshed.target_search_checkpoint is not None
+                and refreshed.target_search_checkpoint.status
+                == GoldTierSearchCheckpointStatus.COMPLETED
+                and repaired_case is not None
+                and repaired_case.state == WorkflowState.VALIDATED
+                and repaired_case.entity is not None
+            )
+            registry_completed = bool(
+                repaired_case is not None
+                and repaired_case.state == WorkflowState.VALIDATED
+                and repaired_case.entity is not None
+            )
+            candidate.completed_stages = (
+                (AutomationStage.REGISTRY,) if registry_completed else ()
+            )
+            remaining_exceptions = candidate.active_exceptions
+            if remaining_exceptions and search_completed:
+                candidate.completed_stages = (
+                    AutomationStage.REGISTRY,
+                    AutomationStage.GOLDTIER_SEARCH,
+                )
+                candidate.metrics.automated_stages_completed = len(
+                    candidate.completed_stages
+                )
+            candidate.status = (
+                AutomationStatus.WAITING_FOR_REVIEW
+                if remaining_exceptions
+                else AutomationStatus.RESUMING
+            )
+            candidate.current_stage = (
+                remaining_exceptions[0].stage
+                if remaining_exceptions
+                else AutomationStage.GOLDTIER_SEARCH
+            )
+            candidate.started_at = candidate.started_at or self._clock()
+            candidate.technical_failure = None
+            candidate.metrics.final_outcome = None
+            candidate = self._append_event(
+                candidate,
+                event_type=AutomationEventType.AUTOMATION_RESUMING,
+                outcome=EventOutcome.SUCCEEDED,
+                code="IDENTITY_RECHECK_RETAINED",
+                message="Authorized identity repair and read-only Search recheck were retained.",
+            )
+            saved = self._save(record, candidate)
+            if remaining_exceptions:
+                return saved
+            if search_completed:
+                completed = self._complete_stage(
+                    saved,
+                    stage=AutomationStage.GOLDTIER_SEARCH,
+                    event_type=AutomationEventType.GOLDTIER_SEARCH_COMPLETED,
+                    code="GOLDTIER_SEARCH_RECHECK_COMPLETED",
+                    message="Authorized read-only GoldTier Search recheck completed.",
+                    started_at=self._clock(),
+                )
+                return self._advance_locked(case_id=completed.case_id)
+            if refreshed.target_search_checkpoint is None:
                 return saved
             return self._advance_locked(case_id=case_id)
 
@@ -1154,15 +1745,14 @@ class ZeroTouchOrchestrator:
             for item in record.active_exceptions
             if item.stage == AutomationStage.DOCUMENT
         }
-        if (
-            record.status == AutomationStatus.WAITING_FOR_REVIEW
-            and actual_versions == expected_versions
-            and len(actual_versions) == len(record.active_exceptions)
+        if record.status == AutomationStatus.WAITING_FOR_REVIEW and (
+            actual_versions == expected_versions
         ):
             return record
         candidate = record.model_copy(deep=True)
         for item in candidate.active_exceptions:
-            item.status = BusinessExceptionStatus.CANCELLED
+            if item.stage == AutomationStage.DOCUMENT:
+                item.status = BusinessExceptionStatus.CANCELLED
         candidate.status = AutomationStatus.RESUMING
         candidate.current_stage = AutomationStage.DOCUMENT
         candidate = self._append_event(
@@ -1172,6 +1762,12 @@ class ZeroTouchOrchestrator:
             code="DOCUMENT_REVIEW_UPDATED",
             message="Current document review evidence is being re-evaluated.",
         )
+        if reconciliation.status == ReconciliationStatus.REVIEW_REQUIRED:
+            return self._raise_reconciliation_exceptions(candidate, reconciliation)
+        if candidate.active_exceptions:
+            candidate.status = AutomationStatus.WAITING_FOR_REVIEW
+            candidate.current_stage = candidate.active_exceptions[0].stage
+            return self._save(record, candidate)
         self._save(record, candidate)
         return self._advance_locked(case_id=record.case_id)
 
@@ -1355,6 +1951,10 @@ class ZeroTouchOrchestrator:
                     ReconciliationStatus.MATCHED,
                     ReconciliationStatus.RESOLVED,
                 }:
+                    record = self._record_equivalent_normalization_decisions(
+                        record,
+                        reconciliation=reconciliation,
+                    )
                     record = self._complete_stage(
                         record,
                         stage=AutomationStage.DOCUMENT,
@@ -1531,17 +2131,35 @@ class ZeroTouchOrchestrator:
                         code="AUTOMATION_READINESS_INCONSISTENT",
                         message="Authoritative readiness changed before automatic submission.",
                     )
-                record = self._complete_stage(
+                record = self._record_readiness_warning_decisions(
                     record,
-                    stage=AutomationStage.READINESS,
-                    event_type=AutomationEventType.READINESS_AUTOMATED,
-                    code="READINESS_AUTOMATED",
-                    message=(
-                        "Authoritative target-submission readiness was evaluated automatically."
-                    ),
-                    started_at=started_at,
+                    warnings=tuple(clm_record.readiness.warnings),
+                    clm_version=clm_record.version,
                 )
-                continue
+                confirmation_case = self._cases.get_case(case_id)
+                if confirmation_case is None:
+                    return self._technical_failure(
+                        record,
+                        stage=AutomationStage.READINESS,
+                        code="ZERO_TOUCH_CASE_NOT_FOUND",
+                        message="The onboarding case is unavailable.",
+                    )
+                return self._add_exception(
+                    record,
+                    exception_type=BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED,
+                    stage=AutomationStage.READINESS,
+                    blocker_code="TARGET_CONFIRMATION_REQUIRED",
+                    explanation=(
+                        "A local-POC operator must confirm the frozen destination, warnings, "
+                        "and review digest before any target mutation."
+                    ),
+                    evidence_version=(
+                        f"target-confirmation:{clm_record.version}:"
+                        f"{len(confirmation_case.events)}"
+                    ),
+                    evidence=(),
+                    actions=(),
+                )
 
             if next_stage == AutomationStage.MOCK_GOLDTIER:
                 started_at = self._clock()
@@ -2022,6 +2640,180 @@ class ZeroTouchOrchestrator:
             actions=(),
         )
 
+    def _record_readiness_warning_decisions(
+        self,
+        record: ZeroTouchAutomationRecord,
+        *,
+        warnings: tuple[ClmWarningCode, ...],
+        clm_version: int,
+    ) -> ZeroTouchAutomationRecord:
+        """Retain warnings the readiness owner already allowed; never authorize progress."""
+
+        if not warnings:
+            return record
+        candidate = record.model_copy(deep=True)
+        changed = False
+        for warning in warnings:
+            evidence_version = f"readiness:{clm_version}:{warning.value}"
+            if any(
+                item.evidence_version == evidence_version
+                and item.metadata.blocker_code == warning.value
+                for item in candidate.non_blocking_decisions
+            ):
+                continue
+            if len(candidate.non_blocking_decisions) >= 64:
+                break
+            metadata = self._blocker_decision_policy.continue_with_warning(
+                ContinueWithWarningDecisionInput(
+                    rule=ContinueWithWarningRule(warning.value),
+                    available_inputs=frozenset(
+                        {BlockerMinimumInput.CURRENT_READINESS_WARNING}
+                    ),
+                )
+            )
+            candidate.non_blocking_decisions.append(
+                BlockerDecisionRecord(
+                    decision_id=uuid5(
+                        NAMESPACE_URL,
+                        f"blocker-decision:{record.case_id}:{evidence_version}",
+                    ),
+                    case_id=record.case_id,
+                    evidence_version=evidence_version,
+                    automation_version=record.version + 1,
+                    recorded_at=self._clock(),
+                    metadata=metadata,
+                )
+            )
+            changed = True
+        # The caller folds these metadata-only records into the next existing
+        # authoritative transition; metadata never creates its own transition.
+        return candidate if changed else record
+
+    def _record_equivalent_normalization_decisions(
+        self,
+        record: ZeroTouchAutomationRecord,
+        *,
+        reconciliation: ReconciliationCaseRecord,
+    ) -> ZeroTouchAutomationRecord:
+        """Retain notes only where current source values normalize equivalently."""
+
+        candidate = record.model_copy(deep=True)
+        changed = False
+        for field in reconciliation.fields:
+            valid = tuple(
+                item
+                for item in field.observations
+                if item.validity.value == "VALID" and item.normalized_value is not None
+            )
+            if (
+                field.outcome != ReconciliationOutcome.MATCH
+                or not any(
+                    item.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
+                    for item in valid
+                )
+                or len({item.normalized_value for item in valid}) != 1
+                or len({item.raw_value for item in valid}) < 2
+            ):
+                continue
+            evidence_version = (
+                f"reconciliation:{reconciliation.version}:"
+                f"{field.field_name.value}:normalized-equivalent"
+            )
+            if any(
+                item.evidence_version == evidence_version
+                for item in candidate.non_blocking_decisions
+            ):
+                continue
+            if len(candidate.non_blocking_decisions) >= 64:
+                break
+            metadata = self._blocker_decision_policy.auto_resolved_note(
+                AutoResolvedDecisionInput(
+                    rule=AutoResolvedRule.EQUIVALENT_DOCUMENT_VALUES_AUTO_CONFIRMED,
+                    available_inputs=frozenset(
+                        {
+                            BlockerMinimumInput.CURRENT_DOCUMENT_EVIDENCE,
+                            BlockerMinimumInput.EQUIVALENT_NORMALIZED_VALUES,
+                        }
+                    ),
+                )
+            )
+            candidate.non_blocking_decisions.append(
+                BlockerDecisionRecord(
+                    decision_id=uuid5(
+                        NAMESPACE_URL,
+                        f"blocker-decision:{record.case_id}:{evidence_version}",
+                    ),
+                    case_id=record.case_id,
+                    evidence_version=evidence_version,
+                    automation_version=record.version + 1,
+                    recorded_at=self._clock(),
+                    metadata=metadata,
+                )
+            )
+            changed = True
+        return candidate if changed else record
+
+    @staticmethod
+    def _decision_inputs_for_exception(
+        *,
+        stage: AutomationStage,
+        blocker_codes: tuple[str, ...],
+        actions: tuple[ExceptionResolutionAction, ...],
+    ) -> frozenset[BlockerMinimumInput]:
+        inputs = {
+            BlockerMinimumInput.CURRENT_CASE_VERSION,
+            BlockerMinimumInput.CURRENT_EXCEPTION_VERSION,
+        }
+        if stage == AutomationStage.GOLDTIER_SEARCH:
+            inputs.add(BlockerMinimumInput.CURRENT_SEARCH_CHECKPOINT)
+        elif stage == AutomationStage.DOCUMENT:
+            inputs.add(BlockerMinimumInput.CURRENT_DOCUMENT_EVIDENCE)
+        elif stage == AutomationStage.OWNERSHIP:
+            inputs.add(BlockerMinimumInput.CURRENT_OWNERSHIP_EVIDENCE)
+        elif stage == AutomationStage.MOCK_GOLDTIER:
+            inputs.add(BlockerMinimumInput.CURRENT_TARGET_LEDGER)
+        if any("RECONCILIATION" in code or "SOURCE_CONFLICT" in code for code in blocker_codes):
+            inputs.add(BlockerMinimumInput.CURRENT_RECONCILIATION_EVIDENCE)
+            if actions:
+                inputs.add(BlockerMinimumInput.AUTHORIZED_RECONCILIATION_ACTION)
+        if "TARGET_CONFIRMATION_REQUIRED" in blocker_codes:
+            inputs.add(BlockerMinimumInput.CURRENT_FROZEN_TARGET_REVIEW)
+        if "MOCK_RISK_REVIEW_REQUIRED" in blocker_codes:
+            inputs.add(BlockerMinimumInput.CURRENT_MOCK_RISK_EVIDENCE)
+        if "ENTITY_RESOLUTION_REVIEW_REQUIRED" in blocker_codes:
+            inputs.add(BlockerMinimumInput.CURRENT_ENTITY_RESOLUTION_EVIDENCE)
+        return frozenset(inputs)
+
+    @staticmethod
+    def _decision_actions_for_code(blocker_code: str) -> frozenset[BlockerDecisionAction]:
+        supported = {
+            "INITIAL_IDENTITY_INCOMPLETE": BlockerDecisionAction.CORRECT_INITIAL_IDENTITY,
+            "GT_SEARCH_IDENTITY_REVIEW_REQUIRED": (
+                BlockerDecisionAction.RUN_READ_ONLY_SEARCH_RECHECK
+            ),
+            "DOCUMENT_TEXT_UNAVAILABLE": BlockerDecisionAction.UPLOAD_REPLACEMENT_DOCUMENT,
+            "DOCUMENT_REQUIRED_FIELD_MISSING": (
+                BlockerDecisionAction.UPLOAD_REPLACEMENT_DOCUMENT
+            ),
+            "DOCUMENT_LOW_CONFIDENCE": BlockerDecisionAction.COMPLETE_DOCUMENT_REVIEW,
+            "DOCUMENT_REVIEW_REQUIRED": BlockerDecisionAction.COMPLETE_DOCUMENT_REVIEW,
+            "OWNERSHIP_CYCLE": BlockerDecisionAction.PROVIDE_CORRECTED_OWNERSHIP_EVIDENCE,
+            "OWNERSHIP_INCOMPLETE": (
+                BlockerDecisionAction.PROVIDE_CORRECTED_OWNERSHIP_EVIDENCE
+            ),
+            "OWNERSHIP_REVIEW_REQUIRED": (
+                BlockerDecisionAction.PROVIDE_CORRECTED_OWNERSHIP_EVIDENCE
+            ),
+            "GOLDTIER_CLASSIFICATION_REQUIRED": (
+                BlockerDecisionAction.SELECT_TARGET_CLASSIFICATION
+            ),
+            "TARGET_CONFIRMATION_REQUIRED": (
+                BlockerDecisionAction.CONFIRM_FROZEN_TARGET_SUBMISSION
+            ),
+        }
+        action = supported.get(blocker_code)
+        return frozenset() if action is None else frozenset({action})
+
     def _add_exception(
         self,
         record: ZeroTouchAutomationRecord,
@@ -2045,27 +2837,75 @@ class ZeroTouchOrchestrator:
         candidate = record.model_copy(deep=True)
         candidate.status = AutomationStatus.WAITING_FOR_REVIEW
         candidate.current_stage = stage
+        bound_codes = blocker_codes or (blocker_code,)
+        bound_exception_id = exception_id or self._uuid_factory()
+        created_at = self._clock()
+        decision_metadata = self._blocker_decision_policy.evaluate_open_exception(
+            OpenBlockerDecisionInput(
+                exception_type=exception_type,
+                blocker_codes=bound_codes,
+                available_inputs=self._decision_inputs_for_exception(
+                    stage=stage,
+                    blocker_codes=bound_codes,
+                    actions=actions,
+                ),
+                available_actions=frozenset(
+                    action
+                    for code in bound_codes
+                    for action in self._decision_actions_for_code(code)
+                ),
+                available_resolution_actions=frozenset(actions),
+            )
+        )
+        decisions = tuple(
+            BlockerDecisionRecord(
+                decision_id=uuid5(
+                    NAMESPACE_URL,
+                    f"blocker-decision:{bound_exception_id}:{metadata.blocker_code}",
+                ),
+                case_id=record.case_id,
+                exception_id=bound_exception_id,
+                evidence_version=evidence_version,
+                automation_version=record.version + 1,
+                recorded_at=created_at,
+                metadata=metadata,
+            )
+            for metadata in decision_metadata
+        )
         candidate.exceptions.append(
             BusinessException(
-                exception_id=exception_id or self._uuid_factory(),
+                exception_id=bound_exception_id,
                 case_id=record.case_id,
                 exception_type=exception_type,
                 stage=stage,
                 blocker_code=blocker_code,
-                blocker_codes=blocker_codes or (blocker_code,),
+                blocker_codes=bound_codes,
                 explanation=explanation,
                 evidence_version=evidence_version,
                 authoritative_evidence_digest=self._authoritative_evidence_digest(
                     case_id=record.case_id,
                     exception_type=exception_type,
                     evidence_version=evidence_version,
-                    blocker_codes=blocker_codes or (blocker_code,),
+                    blocker_codes=bound_codes,
                 ),
                 automation_version=record.version + 1,
                 evidence=evidence,
                 available_actions=actions,
-                created_at=self._clock(),
+                decisions=decisions,
+                created_at=created_at,
             )
+        )
+        stage_order = tuple(
+            AutomationStage(value)
+            for value in (
+                LEGACY_AUTOMATION_STAGE_ORDER
+                if candidate.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+                else AUTOMATION_STAGE_ORDER
+            )
+        )
+        candidate.current_stage = min(
+            (item.stage for item in candidate.active_exceptions),
+            key=stage_order.index,
         )
         candidate.metrics.exceptions_raised += 1
         candidate = self._append_event(
@@ -2301,7 +3141,8 @@ def _allows_retained_evidence_intake(record: ZeroTouchAutomationRecord) -> bool:
         return True
     return any(
         item.stage == AutomationStage.REGISTRY
-        and item.blocker_code == "REGISTRY_EXPECTED_DATA_MISSING"
+        and item.blocker_code
+        in {"REGISTRY_EXPECTED_DATA_MISSING", "INITIAL_IDENTITY_INCOMPLETE"}
         for item in record.active_exceptions
     )
 

@@ -53,6 +53,8 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("POST", "/api/admin/goldtier-sandbox/search", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/admin/goldtier-sandbox/dry-run", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/admin/goldtier-sandbox/write", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/admin/acra/status", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/admin/acra/lookup", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/system/execution-profile", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/onboarding/mock-scenarios", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/clm/zero-touch/cases", RouteAccess.CASE_PORTFOLIO),
@@ -72,6 +74,11 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
         RouteAccess.CASE_SCOPED,
     ),
     RoutePolicy("GET", "/api/clm/cases/{case_id}/submission-plan", RouteAccess.CASE_SCOPED),
+    RoutePolicy(
+        "POST",
+        "/api/clm/cases/{case_id}/target-confirmation",
+        RouteAccess.CASE_SCOPED,
+    ),
     RoutePolicy("POST", "/api/clm/cases/{case_id}/submit", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "POST",
@@ -155,6 +162,26 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy(
         "POST",
         "/api/clm/zero-touch/cases/{case_id}/target-recovery",
+        RouteAccess.CASE_SCOPED,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/clm/zero-touch/cases/{case_id}/target-confirmation",
+        RouteAccess.CASE_SCOPED,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/clm/zero-touch/cases/{case_id}/identity-search-recheck",
+        RouteAccess.CASE_SCOPED,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/clm/zero-touch/cases/{case_id}/manual-ownership-evidence",
+        RouteAccess.CASE_SCOPED,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/clm/zero-touch/cases/{case_id}/policy-rebind",
         RouteAccess.CASE_SCOPED,
     ),
     RoutePolicy("POST", "/api/onboarding/cases/{case_id}/ownership/load", RouteAccess.CASE_SCOPED),

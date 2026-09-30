@@ -17,6 +17,7 @@ from app.domain.models import (
     WorkflowState,
 )
 from app.mappers.acra import map_acra_company
+from app.services.errors import OnboardingInfrastructureError
 from app.services.onboarding import OnboardingService
 from app.services.repository import InMemoryOnboardingCaseRepository
 
@@ -40,6 +41,25 @@ def stages(case_state: OnboardingCase) -> list[WorkflowState]:
     return [event.stage for event in case_state.events]
 
 
+def run_confirmed_target_flow(service: OnboardingService, uen: str) -> OnboardingCase:
+    case = service.create_case(uen)
+    if case.state != WorkflowState.VALIDATED:
+        return case
+    service.confirm_target_dispatch(
+        case_id=case.case_id,
+        actor_id="onboarding-test-operator",
+        expected_case_event_count=len(case.events),
+        clm_version=None,
+        destination="GOLDTIER_MOCK",
+    )
+    try:
+        return service.submit_staged_case(case.case_id, complete_legacy_flow=True)
+    except OnboardingInfrastructureError:
+        retained = service.get_case(case.case_id)
+        assert retained is not None
+        return retained
+
+
 def test_mock_acra_payload_maps_to_minimum_canonical_entity() -> None:
     payload = MockAcraConnector(clock=lambda: FIXED_TIME).fetch_company(VALID_SME_UEN)
 
@@ -58,12 +78,13 @@ def test_mock_acra_payload_maps_to_minimum_canonical_entity() -> None:
 def test_happy_path_progresses_in_order_and_is_persisted() -> None:
     service = build_service()
 
-    case = service.create_case(VALID_SME_UEN)
+    case = run_confirmed_target_flow(service, VALID_SME_UEN)
 
     assert case.state == WorkflowState.COMPLETED
     assert stages(case) == [
         WorkflowState.REQUESTED,
         WorkflowState.REGISTRY_FETCHED,
+        WorkflowState.VALIDATED,
         WorkflowState.VALIDATED,
         WorkflowState.GT_SEARCHED,
         WorkflowState.GT_SHELL_CREATED,
@@ -101,7 +122,8 @@ def test_incomplete_entity_requires_review_before_goldtier() -> None:
 
 
 def test_goldtier_validation_failure_never_reports_completion() -> None:
-    case = build_service().create_case(GOLDTIER_FAILURE_UEN)
+    service = build_service()
+    case = run_confirmed_target_flow(service, GOLDTIER_FAILURE_UEN)
 
     assert case.state == WorkflowState.FAILED
     assert case.error is not None
@@ -112,7 +134,8 @@ def test_goldtier_validation_failure_never_reports_completion() -> None:
 
 
 def test_partial_amend_is_recorded_and_requires_review() -> None:
-    case = build_service().create_case(GOLDTIER_PARTIAL_UEN)
+    service = build_service()
+    case = run_confirmed_target_flow(service, GOLDTIER_PARTIAL_UEN)
 
     assert case.state == WorkflowState.REVIEW_REQUIRED
     assert case.goldtier_result is not None

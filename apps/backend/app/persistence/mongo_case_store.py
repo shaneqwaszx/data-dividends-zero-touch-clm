@@ -65,6 +65,7 @@ from app.persistence.models import (
     DurableCaseSnapshotV3,
     DurableCaseSnapshotV4,
     DurableCaseSnapshotV5,
+    DurableCaseSnapshotV6,
     _validate_case_bindings,
 )
 
@@ -489,7 +490,7 @@ class MongoCaseStore:
             raise PersistenceDataInvalidError
         automation_value = value.get("automation")
         if (
-            schema_version in {1, 2, 3, 4, 5, CASE_SNAPSHOT_SCHEMA_VERSION}
+            schema_version in {1, 2, 3, 4, 5, 6, CASE_SNAPSHOT_SCHEMA_VERSION}
             and isinstance(automation_value, dict)
             and "stage_order_version" not in automation_value
         ):
@@ -518,6 +519,10 @@ class MongoCaseStore:
                 legacy_v5 = DurableCaseSnapshotV5.model_validate(value)
                 _reject_unknown_model_fields(value, legacy_v5)
                 snapshot = legacy_v5.to_current()
+            elif schema_version == 6:
+                legacy_v6 = DurableCaseSnapshotV6.model_validate(value)
+                _reject_unknown_model_fields(value, legacy_v6)
+                snapshot = legacy_v6.to_current()
             elif schema_version == CASE_SNAPSHOT_SCHEMA_VERSION:
                 snapshot = DurableCaseSnapshot.model_validate(value)
                 _reject_unknown_model_fields(value, snapshot)
@@ -552,7 +557,7 @@ class MongoCaseStore:
             revision = raw["revision"]
             if type(schema_version) is not int or type(revision) is not int or revision < 0:
                 raise PersistenceDataInvalidError
-            if schema_version not in {1, 2, 3, 4, 5, CASE_SNAPSHOT_SCHEMA_VERSION}:
+            if schema_version not in {1, 2, 3, 4, 5, 6, CASE_SNAPSHOT_SCHEMA_VERSION}:
                 raise PersistenceSchemaUnsupportedError
             envelope_id = _canonical_uuid(raw["_id"])
             if _canonical_uuid(raw["case_id"]) != envelope_id:
@@ -1157,7 +1162,7 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
     return {
         "$and": [
             {"$in": [schema_type, ["int", "long"]]},
-            {"$in": ["$schema_version", [1, 2, 3, 4, 5, CASE_SNAPSHOT_SCHEMA_VERSION]]},
+            {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},
             {"$gte": ["$revision", 0]},
             _mongo_canonical_uuid("$_id"),
@@ -1440,7 +1445,7 @@ def _activity_candidate_valid_expression() -> dict[str, Any]:
     return {
         "$and": [
             {"$in": [schema_type, ["int", "long"]]},
-            {"$in": ["$schema_version", [1, 2, 3, 4, 5, CASE_SNAPSHOT_SCHEMA_VERSION]]},
+            {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},
             {"$gte": ["$revision", 0]},
             _mongo_canonical_uuid("$_id"),

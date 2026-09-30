@@ -8,7 +8,7 @@ It is not a sponsor contract, phase report, or substitute for current source and
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 6,
+  "case_envelope_schema_version": 7,
   "verified_date": "2026-09-29",
   "verified_main_sha": "d23d7b7335ba402b071191821c35e4f5e879ed7c",
   "verification_status": "verified-against-main",
@@ -179,6 +179,26 @@ Major implemented phases are:
   and do not add a late Search retry, editable final review, or pre-write GoldTier
   confirmation.
 
+The 2026-09-29 working candidate on
+`feat/recoverable-onboarding-final-review` implements the bounded D-061 package on top
+of that accepted main baseline. It adds same-case identity correction and read-only
+Search recheck; independent evidence continuation for ambiguous as well as failed
+Search; fixed D-056 policy rebind; pre-confirm KYC/segment editing; reviewed local
+manual economic-interest evidence; versioned explanatory blocker-decision metadata;
+and an exact server-authored final review whose durable confirmation is enforced under
+lock before every target write path. HR gains a read-only ACRA diagnostic surface using
+the same composed connector and no case access. This is an implementation candidate
+pending an independent quality gate, not an accepted-main, provider-write, Live,
+approval, or sponsor-policy claim.
+The working candidate's final review includes legal form, owning team, and section-level
+routes to the existing identity, classification, and document owners. It routes to the
+manual-ownership evidence owner only when the server's typed recovery projection
+authorizes `MANUAL_OWNERSHIP_EVIDENCE`; otherwise it truthfully labels ownership as
+review-only. Before confirmation, identity correction remains same-case and
+backend-validated; it cancels stale confirmation state, performs only a read-only Search
+recheck, and invalidates dependent evidence. Confirmed or submitted projections cannot
+expose those edit actions.
+
 Post-merge main CI run `36452914032` for this SHA passed on its second attempt. The
 initial Windows demo-lifecycle attempt failed because local lifecycle ports were
 already occupied; after the ports were freed, the exact local 23/23 lifecycle suite
@@ -295,8 +315,8 @@ unknown or blocked.
   clears them.
 - `mongo` is explicit. Missing/invalid configuration, startup validation, reads, or
   writes fail closed and never fall back to memory.
-- One schema-versioned case envelope (current schema v6) owns durable case state. Strict
-  v1/v2/v3/v4/v5 reads preserve absent historical fields, including v4
+- One schema-versioned case envelope (working-candidate schema v7) owns durable case
+  state. Strict v1/v2/v3/v4/v5/v6 reads preserve absent historical fields, including v4
   `intelligence = null`, without a read-only persistence rewrite. Automation records
   persist a separate stage-order version: a missing value is the pre-Search v1 order,
   while newly authored records use v2. A safe non-terminal v1 continuation is rebased in
@@ -307,8 +327,9 @@ unknown or blocked.
   explicit schema-v6 fields without hiding the stage-order semantic change. Schema v6
   adds bounded initial identity/Search evidence, existing-target provenance, lifecycle-
   resolved operation markers, provider-verified recovery evidence, and an optional
-  provider-verified Amend-failure fact; it does not add another repository or mutation
-  owner.
+  provider-verified Amend-failure fact. Schema v7 adds bounded correction/recheck,
+  policy-rebind, manual-ownership, blocker-decision, and target-confirmation facts; it
+  does not add another repository, policy, authorization, or mutation owner.
   Repository adapters preserve revision compare-and-set, insert-only creation,
   update-only mutation, strict identity binding, and replay-aware recovery.
 - The optional Mock registry cache has a separate schema-v1 repository/collection and
@@ -358,10 +379,16 @@ unknown or blocked.
 - Explainable source-neutral entity resolution, ML-assisted UBO advice, and bounded mock
   advisory risk, all with permanent non-authority labels and synthetic model cards.
 - Ordered Mock target execution with no-replay recovery states.
-- Operator blocker recovery controls: explicit Director team choice and backend-
-  authorized case deletion, truthful failed/blocked/not-reached/review-required stage
-  projections, and accessible problem-stage navigation to existing owners. This does
-  not provide general blocker rectification or final GoldTier confirmation.
+- Working-candidate operator recovery controls: same-case identity correction and
+  read-only Search recheck, bounded policy rebind, pre-confirm classification edits,
+  reviewed local ownership evidence, truthful decision metadata, and accessible
+  problem-stage navigation to the existing owners.
+- Working-candidate final review and durable target confirmation, revalidated under the
+  case lock before every Shell, Policy, or Amend dispatch. Exact preview/snapshot parity
+  includes the stable case-acceptance `sourceContext.acceptedAt`, and all transmitted
+  preview fields are digest-bound.
+- HR-only safe ACRA status and bounded read-only lookup using the exact composed
+  connector, with no case access or provider mutation.
 - Memory/Mongo repository parity, case deletion, portfolio projection, dashboard, team
   filtering, priority, retained-event activity, bounded authorized CSV activity export,
   advisory projection persistence, and session-scoped query caching.
@@ -380,10 +407,9 @@ unknown or blocked.
 - No `createRelationship` or multi-level hierarchy creation through GoldTier.
 - No sponsor-approved final UBO, document, source-authority, RBAC, retention, deletion,
   review, or Ready-for-Approval policy.
-- No fully recoverable onboarding flow: ordinary blocker rectification, retained-case
-  identity correction/resume, safe GoldTier Search recheck, editable final review,
-  explicit confirmation before the first GoldTier business mutation, expanded human
-  intervention, or HR ACRA testing console remain unimplemented.
+- No arbitrary blocker override, free-form canonical editing, general provider-recovery
+  attestation, automatic Search retry, autonomous approval, or complete human exception
+  workbench. The candidate recovery actions are only the explicit typed D-061 paths.
 - No autonomous approval, production risk/compliance engine, legal UBO determination, production
   audit repository, distributed workflow, or multi-instance exactly-once guarantee.
 - No full analytics/MIS platform or full Exception Workbench.
@@ -503,21 +529,18 @@ Consult `docs/sponsor-questions/OPEN_QUESTIONS.md` for exact wording and current
 
 These are candidates, not authorization to implement:
 
-1. **Recoverable onboarding + final review/confirmation** (next bounded product package;
-   not implemented): retained-case identity correction/resume; real user rectification
-   for ordinary blockers; safe GoldTier read-only recheck; editable pre-submission
-   fields; an RM-focused final review summary; explicit confirmation before the first
-   GoldTier business mutation; human intervention for edge cases; an HR ACRA testing
-   console; improved blocker-tile usability/accessibility; and validated Garden plus
-   additional official-Mock demo samples.
+1. **Recoverable onboarding + final review/confirmation independent quality gate and
+   bounded remediation.** The D-061 implementation is a working candidate, not accepted
+   main. Official-Mock demo-pack completeness remains evidence-dependent: no absent
+   supplied fixture, screenshot, declaration, README, or validation artefact may be
+   invented.
 2. Sponsor contract/access reconciliation for ACRA and GoldTier/PingFed.
-3. Independent governance-context quality gate and any bounded remediation.
-4. Sponsor-confirmed Ready-for-Approval/reviewer/retention policy design.
-5. Authoritative external-provider work only after contract, security and credential
+3. Sponsor-confirmed Ready-for-Approval/reviewer/retention policy design.
+4. Authoritative external-provider work only after contract, security and credential
    prerequisites are satisfied.
-6. Camunda runtime integration remains a separate optional, requirements-dependent
+5. Camunda runtime integration remains a separate optional, requirements-dependent
    package and is not implemented.
-7. Measured hotspot or production-scale portfolio/activity work if evidence shows need.
+6. Measured hotspot or production-scale portfolio/activity work if evidence shows need.
 
 Every new package requires a bounded planner handoff, change classification, relevant
 skill, proportional verification, and independent quality gate.

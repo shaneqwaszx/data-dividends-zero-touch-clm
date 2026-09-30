@@ -227,12 +227,12 @@ prior same-ID verified case; it retains the GoldTier party ID, hydrates verified
 state, and skips ACRA, Shell and new-policy creation. A no-match checkpoint alone
 permits ACRA bootstrap and, after ordinary readiness prerequisites, Shell then Policy.
 Both branches may Amend and perform same-ID read-back. Any ambiguous, conflicting,
-failed, stale, or uncertain state blocks target mutation. A failed Search does not mean
-no-match: it may continue through independent ACRA, document, reconciliation and
-ownership evidence while target identity remains unresolved and every target mutation
-is blocked. After that independent evidence path completes, the automation terminates
-as a technical failure at GoldTier Search rather than creating reviewer work. Every
-mutation advances
+failed, stale, or uncertain state blocks target mutation. Neither ambiguous nor failed
+Search means no-match: both may continue through independent eligible ACRA, document,
+reconciliation and ownership evidence while target identity remains unresolved and
+every target mutation is blocked. A same-case identity correction invalidates dependent
+evidence only when identity changes; every read-only Search recheck retains its own
+request and outcome history. Every mutation advances
 through the same durable ledger; an attempted operation without a definitive result is
 never replayed automatically. No second target ledger, search resolver, or
 provider-specific workflow owner is introduced.
@@ -308,10 +308,13 @@ terminal records are not retroactively relabelled. Restart recovery treats attem
 not-completed mutations as uncertain, does not upgrade that state, and preserves the
 existing no-replay stop.
 
-Schema v6 is the current case envelope. It adds bounded initial-customer identity and
+Schema v7 is the current case envelope. Schema v6 added bounded initial-customer identity and
 GoldTier-first Search evidence, verified existing-target provenance, separate definitive
 and lifecycle-resolved operation markers, and an explicit provider-verified recovery
-fact. Exact schema-v1 through schema-v5 readers remain supported without rewrite. The
+fact. Schema v7 adds bounded identity-correction/Search-recheck attempts, policy-rebind
+history, manual-ownership-review evidence and prior terminal analysis history, immutable
+blocker-decision metadata, and exact target-dispatch confirmation. Exact schema-v1
+through schema-v6 readers remain supported without rewrite. The
 target ledger remains the sole mutation/replay owner: recovery can resolve an uncertain
 Shell only after exact case/provider identity validation and records that the original
 outcome was uncertain and no replay occurred. A recovered ID is never represented as a
@@ -322,11 +325,43 @@ Case bootstrap begins with a backend-owned legal-name, registration-number and c
 identity. Eligible Singapore identity is searched against GoldTier before ACRA. Exact
 match is accepted only when one provider candidate binds to a prior durable same-ID
 post-Amend read-back; that case hydrates verified canonical target state, skips ACRA and
-Shell, then continues document reconciliation against the same target ID. No-match alone
-uses the ACRA bootstrap path. Ambiguous Search stops before ACRA and mutation. Failed
-Search retains a typed failure and may continue independent ACRA and case-evidence
-collection, then terminates as a technical failure at GoldTier Search; it cannot call
-Shell, Policy, Amend or any other target mutation.
+Shell, then continues document reconciliation against the same target ID. No-match uses
+the ordinary ACRA bootstrap path. Ambiguous and failed Search retain their true typed
+dispositions and may continue independent eligible ACRA and case-evidence collection,
+but cannot call Shell, Policy, Amend, or any other target mutation.
+
+Bounded repair actions remain inside existing owners and the case lock/CAS boundary.
+D-056 policy rebind preserves case-selected KYC/segment and retains the superseded
+snapshot. Reviewed local economic-interest evidence uses the one Decimal ownership
+engine, remains explicitly non-ACRA, and retains the prior terminal analysis. Blocker
+decision metadata explains classification, inputs, actions, dependencies, and resume
+conditions but cannot authorize or advance workflow. Unknown decisions fail closed.
+Meaning-preserving normalized document equivalence may retain an auto-resolved note
+only after the document owner proves it; a warning record may only reflect an existing
+readiness-authorized warning.
+
+The current server-authored target projection must be explicitly confirmed before any
+business mutation. The schema-v7 confirmation binds actor/time, event and CLM versions,
+destination, warnings, provider classification, and a digest of the reviewed projection.
+The exact mapper preview and immutable dispatch snapshot share the stable case-acceptance
+timestamp for target `sourceContext.acceptedAt`; the digest includes every transmitted
+preview field rather than excluding time-varying data.
+The final review includes legal form and owning team and routes identity,
+classification, and document edits to their existing backend-validated owners. An
+ownership edit is exposed only when the server's typed recovery projection authorizes
+`MANUAL_OWNERSHIP_EVIDENCE`; otherwise the review states that ownership is review-only.
+A pre-confirmation identity edit cancels stale confirmation state, reruns only read-only
+Search, and invalidates dependent evidence; edit controls are absent once the projection
+is frozen.
+Confirmation forces one bounded read-only Search recheck; a material result change
+retains the refreshed unconfirmed summary and dispatches nothing. Relevant evidence or
+policy change invalidates it. Every Shell, Policy, and Amend path,
+including direct submission, reauthorizes and checks that binding inside the owning lock
+before the target ledger may dispatch.
+
+The HR ACRA diagnostic surface uses the same composed connector under the existing
+provider-test capability. It exposes bounded safe status and read-only lookup evidence,
+has no case access, and cannot mutate a case or provider.
 
 Create is insert-only, updates are update-only, and mutations use expected revision/CAS.
 Case deletion re-authorizes inside the canonical case lock, physically deletes the

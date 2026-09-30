@@ -191,6 +191,45 @@ def upload(
     return response.json()
 
 
+def confirm_api_target_if_ready(
+    client: TestClient, result: dict[str, object]
+) -> dict[str, object]:
+    exceptions = result["active_exceptions"]
+    assert isinstance(exceptions, list)
+    if not any(
+        item["exception_type"] == "TARGET_CONFIRMATION_REQUIRED" for item in exceptions
+    ):
+        return result
+    case = result["case"]
+    clm = result["clm"]
+    assert isinstance(case, dict) and isinstance(clm, dict)
+    response = client.post(
+        f"/api/clm/zero-touch/cases/{case['case_id']}/target-confirmation",
+        json={
+            "expected_automation_version": result["version"],
+            "expected_clm_version": clm["version"],
+            "expected_case_event_count": len(case["events"]),
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def confirm_orchestrator_target(
+    zero_touch: ZeroTouchOrchestrator, waiting: ZeroTouchAutomationRecord
+) -> ZeroTouchAutomationRecord:
+    case = zero_touch._cases.get_case(waiting.case_id)  # noqa: SLF001
+    clm = zero_touch._clm.get(case_id=waiting.case_id)  # noqa: SLF001
+    assert case is not None and clm is not None
+    return zero_touch.confirm_target_dispatch(
+        case_id=waiting.case_id,
+        actor_id="multi-document-test-operator",
+        expected_automation_version=waiting.version,
+        expected_clm_version=clm.version,
+        expected_case_event_count=len(case.events),
+    )
+
+
 def pending_automation_record(case_id: UUID, *, updated_at: datetime) -> ZeroTouchAutomationRecord:
     return ZeroTouchAutomationRecord(
         case_id=case_id,
@@ -317,7 +356,7 @@ def test_pdf_docx_and_txt_are_independently_processed_before_intake_completion()
         json={"expected_document_count": 3},
     )
     assert completed.status_code == 200, completed.text
-    result = completed.json()
+    result = confirm_api_target_if_ready(client, completed.json())
     assert result["status"] == "COMPLETED"
     assert result["reconciliation"]["source_document_ids"] == [
         item["document_id"] for item in records
@@ -369,7 +408,9 @@ def test_three_document_call_counts_and_read_only_listing_do_not_trigger_work() 
     assert zero_touch.list_cases(status=AutomationStatus.WAITING_FOR_REVIEW) == []
     assert (acra.calls, idp.calls, ownership.calls) == before_listing
 
-    completed = zero_touch.start(case_id=created.case_id, expected_document_count=3)
+    waiting = zero_touch.start(case_id=created.case_id, expected_document_count=3)
+    assert waiting.status == AutomationStatus.WAITING_FOR_REVIEW
+    completed = confirm_orchestrator_target(zero_touch, waiting)
     assert completed.status == AutomationStatus.COMPLETED
     assert acra.calls == {key: 1 for key in acra.calls}
     assert idp.calls == 3
@@ -419,7 +460,7 @@ def test_field_missing_from_one_document_does_not_create_false_missing_blocker()
         json={"expected_document_count": 2},
     )
     assert completed.status_code == 200
-    assert completed.json()["status"] == "COMPLETED"
+    assert confirm_api_target_if_ready(client, completed.json())["status"] == "COMPLETED"
     legal_name = next(
         field
         for field in completed.json()["reconciliation"]["fields"]
@@ -668,7 +709,7 @@ def test_upload_failure_keeps_case_and_successes_then_retry_uses_same_case() -> 
         json={"expected_document_count": 2},
     )
     assert completed.status_code == 200
-    assert completed.json()["status"] == "COMPLETED"
+    assert confirm_api_target_if_ready(client, completed.json())["status"] == "COMPLETED"
     assert {
         item["document_id"]
         for item in client.get(f"/api/onboarding/cases/{case_id}/documents").json()
@@ -704,7 +745,7 @@ def test_replacing_one_of_two_documents_preserves_other_and_rebuilds_reconciliat
         content=TEXT_PROFILE.encode(),
     )
     assert replacement.status_code == 200, replacement.text
-    assert replacement.json()["status"] == "COMPLETED"
+    assert confirm_api_target_if_ready(client, replacement.json())["status"] == "COMPLETED"
     after = client.get(f"/api/onboarding/cases/{case_id}/documents").json()
     original_a = next(item for item in after if item["document_id"] == first["document_id"])
     original_b = next(item for item in after if item["document_id"] == second["document_id"])
@@ -748,7 +789,7 @@ def test_two_review_cases_are_listed_and_resolving_one_does_not_mutate_the_other
         },
     )
     assert resolved.status_code == 200, resolved.text
-    assert resolved.json()["status"] == "COMPLETED"
+    assert confirm_api_target_if_ready(client, resolved.json())["status"] == "COMPLETED"
     unchanged = client.get(f"/api/clm/zero-touch/cases/{second['case']['case_id']}").json()
     assert unchanged["status"] == "WAITING_FOR_REVIEW"
 

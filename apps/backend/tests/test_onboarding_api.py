@@ -24,7 +24,9 @@ async def test_create_and_retrieve_happy_path_case() -> None:
         get_response = await client.get(f"/api/onboarding/cases/{case_id}")
 
     assert create_response.status_code == 201
-    assert create_response.json()["state"] == "COMPLETED"
+    assert create_response.json()["state"] == "VALIDATED"
+    assert create_response.json()["target_dispatch_confirmation"] is None
+    assert create_response.json()["goldtier_result"] is None
     assert create_response.json()["requested_uen"] == VALID_SME_UEN
     assert get_response.status_code == 200
     assert get_response.json() == create_response.json()
@@ -111,7 +113,9 @@ async def test_padded_lowercase_uen_is_normalized_before_case_creation() -> None
 
     assert response.status_code == 201
     assert response.json()["requested_uen"] == VALID_SME_UEN
-    assert response.json()["state"] == "COMPLETED"
+    assert response.json()["state"] == "VALIDATED"
+    assert response.json()["target_dispatch_confirmation"] is None
+    assert response.json()["goldtier_result"] is None
 
 
 @pytest.mark.anyio

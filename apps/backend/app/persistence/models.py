@@ -12,9 +12,13 @@ from app.domain.documents import DocumentProcessingRecord
 from app.domain.jurisdiction import JurisdictionResolution, RegistryRoutingDecision
 from app.domain.models import (
     CanonicalLegalEntity,
+    ExistingTargetStateProvenance,
     GoldTierResult,
+    InitialCustomerIdentity,
+    InitialGoldTierSearchEvidence,
     OnboardingCase,
     RegistryAcquisitionBundle,
+    RegistryEvidenceBinding,
     SafeError,
     WorkflowEvent,
     WorkflowState,
@@ -26,7 +30,7 @@ from app.domain.reconciliation import ReconciliationCaseRecord
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[6] = 6
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[7] = 7
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -87,7 +91,7 @@ class DurableCaseSnapshotV1(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=6,
+            schema_version=7,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -145,7 +149,7 @@ class DurableCaseSnapshotV2(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=6,
+            schema_version=7,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -201,7 +205,7 @@ class DurableCaseSnapshotV3(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=6,
+            schema_version=7,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -245,7 +249,7 @@ class DurableCaseSnapshotV4(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=6,
+            schema_version=7,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -289,10 +293,92 @@ class DurableCaseSnapshotV5(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=6,
+            schema_version=7,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
+            documents=self.documents,
+            ownership=self.ownership,
+            reconciliation=self.reconciliation,
+            clm=self.clm,
+            automation=self.automation,
+            target_executions=self.target_executions,
+            demo_scenario=self.demo_scenario,
+            intelligence=self.intelligence,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
+
+
+class LegacyOnboardingCaseV6(BaseModel):
+    """Exact schema-v6 onboarding shape before recovery and confirmation fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: UUID
+    source_case_id: str
+    correlation_id: UUID
+    requested_uen: str
+    initial_identity: InitialCustomerIdentity | None = None
+    initial_target_search: InitialGoldTierSearchEvidence | None = None
+    existing_target_state: ExistingTargetStateProvenance | None = None
+    policy_snapshot: CasePolicySnapshot
+    team_id: TeamId | None = None
+    priority: CasePriority | None = None
+    jurisdiction_resolution: JurisdictionResolution | None = None
+    registry_route: RegistryRoutingDecision | None = None
+    state: WorkflowState
+    entity: CanonicalLegalEntity | None = None
+    registry_acquisition: RegistryAcquisitionBundle | None = None
+    registry_evidence_binding: RegistryEvidenceBinding | None = None
+    goldtier_result: GoldTierResult | None = None
+    events: list[WorkflowEvent] = Field(default_factory=list)
+    error: SafeError | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    def to_current(self) -> OnboardingCase:
+        return OnboardingCase.model_validate(
+            {
+                **self.model_dump(),
+                "identity_corrections": (),
+                "initial_target_search_attempts": (),
+                "target_dispatch_confirmation": None,
+            }
+        )
+
+
+class DurableCaseSnapshotV6(BaseModel):
+    """Strict pre-recoverable-review envelope accepted without rewrite."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[6] = 6
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: LegacyOnboardingCaseV6
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV6":
+        _validate_case_bindings(self)
+        return self
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot(
+            schema_version=7,
+            case_id=self.case_id,
+            revision=self.revision,
+            onboarding=self.onboarding.to_current(),
             documents=self.documents,
             ownership=self.ownership,
             reconciliation=self.reconciliation,
@@ -311,7 +397,7 @@ class DurableCaseSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[6] = 6
+    schema_version: Literal[7] = 7
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase

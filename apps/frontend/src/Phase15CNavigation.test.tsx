@@ -316,6 +316,7 @@ function RouteFixture({ profile = allCapabilitiesActor }: { profile?: Authentica
         adminUsers={<Screen>users</Screen>}
         adminTeams={<Screen>teams</Screen>}
         goldtierSandbox={<Screen>goldtier-sandbox</Screen>}
+        acraDiagnostics={<Screen>acra-diagnostics</Screen>}
       />
       <LocationProbe />
     </>

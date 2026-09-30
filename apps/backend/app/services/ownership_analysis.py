@@ -21,6 +21,7 @@ from app.connectors.ownership import (
 )
 from app.domain.models import EventOutcome, OnboardingCase, SafeError
 from app.domain.ownership import (
+    ManualOwnershipReviewReceipt,
     OwnershipAnalysisIssue,
     OwnershipAnalysisRecord,
     OwnershipAnalysisState,
@@ -36,6 +37,7 @@ from app.domain.ownership import (
     OwnershipWorkflowEvent,
     Party,
     PartyType,
+    PriorOwnershipAnalysisSnapshot,
 )
 from app.services.ownership_errors import (
     OwnershipInfrastructureError,
@@ -365,6 +367,141 @@ class OwnershipAnalysisService:
     ) -> OwnershipAnalysisRecord:
         with self._case_lock(case_id):
             return self._load_locked(case_id=case_id, provider=provider)
+
+    def replace_review_required_source(
+        self,
+        *,
+        case_id: UUID,
+        provider: OwnershipProvider,
+        review_receipt: ManualOwnershipReviewReceipt,
+        expected_version: int,
+    ) -> OwnershipAnalysisRecord:
+        """Replace one current review-required source and analyze it under the case lock."""
+
+        with self._case_lock(case_id):
+            current = self._repository.get_for_case(case_id)
+            parent = self._cases.get_case(case_id)
+            if parent is None:
+                raise OwnershipRequestError(
+                    code="ONBOARDING_CASE_NOT_FOUND",
+                    message="The onboarding case was not found.",
+                )
+            if current is None or current.state != OwnershipAnalysisState.REVIEW_REQUIRED:
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_MANUAL_REPLACEMENT_NOT_ALLOWED",
+                    message="Manual evidence may replace only a current review-required analysis.",
+                )
+            if current.version != expected_version:
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_MANUAL_REPLACEMENT_STALE",
+                    message="The ownership analysis changed before manual evidence was accepted.",
+                )
+            if parent.entity is None or parent.entity.legal_name is None:
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_ROOT_UNAVAILABLE",
+                    message=(
+                        "The onboarding case has no canonical legal entity for "
+                        "ownership analysis."
+                    ),
+                )
+            if review_receipt.case_id != case_id:
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_MANUAL_REPLACEMENT_CASE_MISMATCH",
+                    message="The manual review receipt does not belong to this case.",
+                )
+
+            try:
+                metadata = OwnershipProviderMetadata.model_validate(
+                    _untrusted_to_primitives(provider.metadata)
+                )
+                source = OwnershipSourceResult.model_validate(
+                    _untrusted_to_primitives(
+                        provider.load(
+                            OwnershipProviderRequest(
+                                case_id=case_id,
+                                registration_number=parent.entity.registration_number,
+                                display_name=parent.entity.legal_name,
+                            )
+                        )
+                    )
+                )
+                self._validate_source(source, metadata, parent.entity.registration_number)
+            except OwnershipProviderError as exc:
+                code = getattr(exc, "code", "OWNERSHIP_PROVIDER_FAILED")
+                message = getattr(
+                    exc,
+                    "message",
+                    "Ownership source loading could not be completed.",
+                )
+                raise OwnershipRequestError(code=code, message=message) from None
+            except (OwnershipGraphError, ValidationError):
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_MALFORMED_SOURCE",
+                    message="Ownership source data could not be validated safely.",
+                ) from None
+
+            now = self._clock()
+            snapshot = _snapshot_prior_analysis(current)
+            replacement = OwnershipAnalysisRecord(
+                case_id=case_id,
+                version=current.version,
+                analysis_id=self._uuid_factory(),
+                correlation_id=self._uuid_factory(),
+                root_party_id=source.root_party_id,
+                provider_name=metadata.provider_name,
+                provider_environment=metadata.environment,
+                state=OwnershipAnalysisState.LOADING,
+                parties=[item.model_copy(deep=True) for item in source.parties],
+                relationships=[item.model_copy(deep=True) for item in source.relationships],
+                threshold_percent=parent.policy_snapshot.ubo_threshold_percent,
+                events=[
+                    OwnershipWorkflowEvent(
+                        sequence=1,
+                        event_type=OwnershipEventType.OWNERSHIP_SOURCE_REPLACED,
+                        state=OwnershipAnalysisState.LOADING,
+                        outcome=EventOutcome.SUCCEEDED,
+                        timestamp=now,
+                        case_id=case_id,
+                        analysis_id=self._uuid_factory(),
+                        correlation_id=self._uuid_factory(),
+                        code="MANUAL_OWNERSHIP_EVIDENCE_ACCEPTED",
+                        message="Reviewed manual ownership evidence replaced the prior source.",
+                        party_count=len(source.parties),
+                        relationship_count=len(source.relationships),
+                    )
+                ],
+                prior_analyses=(*current.prior_analyses[-3:], snapshot),
+                manual_review_receipt=review_receipt,
+                created_at=now,
+                loaded_at=now,
+                updated_at=now,
+            )
+            # Keep event identifiers bound to the replacement aggregate.
+            replacement.events[0] = replacement.events[0].model_copy(
+                update={
+                    "analysis_id": replacement.analysis_id,
+                    "correlation_id": replacement.correlation_id,
+                }
+            )
+            try:
+                persisted = self._repository.replace_review_required(
+                    replacement, expected_version=expected_version
+                )
+                loaded = self._record(
+                    persisted,
+                    event_type=OwnershipEventType.OWNERSHIP_LOADED,
+                    state=OwnershipAnalysisState.LOADED,
+                    outcome=EventOutcome.SUCCEEDED,
+                    message="Manual ownership source data loaded and validated.",
+                    party_count=len(persisted.parties),
+                    relationship_count=len(persisted.relationships),
+                )
+                return self._analyze_locked(case_id=loaded.case_id)
+            except OwnershipRepositoryConflictError:
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_MANUAL_REPLACEMENT_STALE",
+                    message="The ownership analysis changed before manual evidence was accepted.",
+                ) from None
 
     def _load_locked(
         self, *, case_id: UUID, provider: OwnershipProvider | None
@@ -735,6 +872,31 @@ class OwnershipAnalysisService:
 def _calculation_text(edges: tuple[OwnershipRelationship, ...], effective_percent: Decimal) -> str:
     factors = " x ".join(f"{_format_decimal(item.ownership_percent)}%" for item in edges)
     return f"{factors} = {_format_decimal(effective_percent)}%"
+
+
+def _snapshot_prior_analysis(record: OwnershipAnalysisRecord) -> PriorOwnershipAnalysisSnapshot:
+    """Retain bounded immutable source and decision evidence before replacement."""
+
+    return PriorOwnershipAnalysisSnapshot(
+        version=record.version,
+        analysis_id=record.analysis_id,
+        correlation_id=record.correlation_id,
+        root_party_id=record.root_party_id,
+        provider_name=record.provider_name,
+        provider_environment=record.provider_environment,
+        state=record.state,
+        parties=tuple(record.parties[:100]),
+        relationships=tuple(record.relationships[:200]),
+        candidates=tuple(record.candidates[:100]),
+        issues=tuple(record.issues[:100]),
+        threshold_percent=record.threshold_percent,
+        events=tuple(record.events[-128:]),
+        error=record.error,
+        created_at=record.created_at,
+        loaded_at=record.loaded_at,
+        analyzed_at=record.analyzed_at,
+        updated_at=record.updated_at,
+    )
 
 
 def _format_decimal(value: Decimal) -> str:

@@ -18,10 +18,13 @@ from app.connectors.garden_business import (
     SIM_LIM_UEN,
     derive_garden_ownership,
 )
+from app.connectors.idp import IdpDocumentInput
+from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.connectors.mock_acra import MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.registry_ownership import RegistryAcquisitionOwnershipProvider
 from app.domain.clm import GoldTierSearchDisposition
+from app.domain.documents import DocumentFieldKey, DocumentProfile
 from app.domain.models import RegistryAcquisitionStatus
 from app.domain.ownership import OwnershipAnalysisState, OwnershipCandidateClassification
 from app.domain.zero_touch import AutomationStage, AutomationStatus
@@ -32,6 +35,32 @@ from app.services.ownership_repository import InMemoryOwnershipAnalysisRepositor
 from app.services.repository import InMemoryOnboardingCaseRepository
 
 NOW = datetime(2026, 9, 22, 4, 0, tzinfo=UTC)
+
+
+def test_garden_synthetic_profile_uses_real_local_pdf_parser_and_binds_identity() -> None:
+    parsed = LocalPdfTextIdpProvider().process(
+        IdpDocumentInput(
+            profile=DocumentProfile.PROVISIONAL_CORPORATE,
+            content=_synthetic_pdf(
+                {
+                    "Legal Name": "GARDEN BUSINESS",
+                    "UEN": GARDEN_BUSINESS_UEN,
+                    "Registered Address": "18 GARDEN WALK, #01-01, 018919, SG",
+                    "Country": "SG",
+                }
+            ),
+        )
+    )
+    values = {field.field_key: field.value for field in parsed.fields}  # type: ignore[attr-defined]
+
+    assert values == {
+        DocumentFieldKey.LEGAL_NAME: "GARDEN BUSINESS",
+        DocumentFieldKey.REGISTRATION_NUMBER: GARDEN_BUSINESS_UEN,
+        DocumentFieldKey.REGISTERED_ADDRESS: "18 GARDEN WALK, #01-01, 018919, SG",
+        DocumentFieldKey.COUNTRY_OF_INCORPORATION: "SG",
+    }
+    assert values[DocumentFieldKey.LEGAL_NAME] == "GARDEN BUSINESS"
+    assert values[DocumentFieldKey.REGISTRATION_NUMBER] == GARDEN_BUSINESS_UEN
 
 
 def _service() -> OnboardingService:
@@ -208,7 +237,58 @@ def test_garden_reaches_normal_mock_completion_without_external_network() -> Non
     )
 
     assert completed.status_code == 200
-    payload = completed.json()
+    review = completed.json()
+    assert review["status"] == "WAITING_FOR_REVIEW"
+    assert review["active_exceptions"][0]["exception_type"] == (
+        "TARGET_CONFIRMATION_REQUIRED"
+    )
+    assert [item["status"] for item in review["target_operations"]] == [
+        "NO_MATCH",
+        "NOT_ATTEMPTED",
+        "NOT_ATTEMPTED",
+        "NOT_ATTEMPTED",
+    ]
+    preview = review["clm"]["submission_plan"]["request_preview"]
+    assert [item["operation"] for item in preview["operations"]] == [
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "AMEND",
+    ]
+    by_operation = {item["operation"]: item for item in preview["operations"]}
+    assert {
+        field["target_field"] for field in by_operation["SHELL"]["fields"]
+    } >= {
+        "party.names.legalName",
+        "party.nonIndividualProfile.countryOfIncorporation",
+        "sourceContext.sourceCaseId",
+    }
+    assert {
+        field["target_field"] for field in by_operation["POLICY"]["fields"]
+    } >= {
+        "goldTierId",
+        "customerExternalSystem",
+        "customerExternalSystemKey",
+        "policyDetails.policy",
+    }
+    assert {
+        field["target_field"] for field in by_operation["AMEND"]["fields"]
+    } >= {
+        "party.names.legalName",
+        "party.addresses[0].addressLine1",
+        "party.addresses[0].postalCode",
+        "party.addresses[0].country",
+    }
+    confirmed = client.post(
+        f"/api/clm/zero-touch/cases/{case_id}/target-confirmation",
+        json={
+            "expected_automation_version": review["version"],
+            "expected_clm_version": review["clm"]["version"],
+            "expected_case_event_count": len(review["case"]["events"]),
+        },
+    )
+    assert confirmed.status_code == 200
+    payload = confirmed.json()
     assert payload["status"] == "COMPLETED"
     assert payload["clm"]["status"] == "MOCK_GOLDTIER_SUBMITTED"
     assert [item["operation"] for item in payload["target_operations"]] == [
@@ -227,9 +307,10 @@ def test_garden_reaches_normal_mock_completion_without_external_network() -> Non
     pipeline = payload["processing_pipeline"]
     assert [item["node_id"] for item in pipeline] == [
         "CASE_START",
+        "INITIAL_IDENTITY",
         "JURISDICTION",
-        "ACRA_REGISTRY",
         "GOLDTIER_SEARCH",
+        "ACRA_REGISTRY",
         "DOCUMENT_IDP",
         "RECONCILIATION",
         "OWNERSHIP_UBO",
@@ -238,7 +319,7 @@ def test_garden_reaches_normal_mock_completion_without_external_network() -> Non
         "GOLDTIER_TARGET",
         "HUMAN_APPROVAL",
     ]
-    assert [item["node_id"] for item in pipeline[2]["children"]] == [
+    assert [item["node_id"] for item in pipeline[4]["children"]] == [
         "ACRA_ENTITY_PROFILE",
         "ACRA_OFFICERS",
         "ACRA_OWNERSHIP_PARTIES",
@@ -250,14 +331,14 @@ def test_garden_reaches_normal_mock_completion_without_external_network() -> Non
         "SKIPPED",
     ]
     assert pipeline[3]["retained_goldtier_id"] is None
-    assert [item["status"] for item in pipeline[9]["children"]] == [
+    assert [item["status"] for item in pipeline[10]["children"]] == [
         "COMPLETE",
         "COMPLETE",
         "COMPLETE",
         "COMPLETE",
     ]
-    assert pipeline[9]["children"][-1]["node_id"] == "GOLDTIER_COMPLETED"
-    assert pipeline[9]["retained_goldtier_id"]
+    assert pipeline[10]["children"][-1]["node_id"] == "GOLDTIER_COMPLETED"
+    assert pipeline[10]["retained_goldtier_id"]
     assert pipeline[-1]["node_id"] == "HUMAN_APPROVAL"
     assert pipeline[-1]["status"] == "REVIEW_REQUIRED"
     assert pipeline[-1]["blocker_code"] == "READY_FOR_APPROVAL_NOT_IMPLEMENTED"
