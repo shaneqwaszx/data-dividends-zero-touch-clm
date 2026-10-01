@@ -255,6 +255,20 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
   }
   // CSS zoom exercises 200% content magnification/reflow in headless Chromium.
   await page.setViewportSize({ width: 1440, height: 900 });
+  const header = page.locator(".detail-layout .ds-page-header");
+  // Available header width can shrink under content zoom independently of viewport media queries.
+  await header.evaluate((element) => { element.style.width = "280px"; });
+  try {
+    const headerLayout = await header.evaluate((element) => ({
+      client: element.clientWidth, scroll: element.scrollWidth,
+    }));
+    expect(headerLayout.scroll, JSON.stringify(headerLayout)).toBeLessThanOrEqual(headerLayout.client + 1);
+    await expect(header.getByRole("combobox", { name: "Case priority", exact: true })).toBeVisible();
+    await expect(header.getByRole("button", { name: "Set", exact: true })).toBeVisible();
+    await expect(header.locator(".case-header-actions > .tag").last()).toBeVisible();
+  } finally {
+    await header.evaluate((element) => { element.style.width = ""; });
+  }
   await page.evaluate(() => { document.documentElement.style.zoom = "2"; });
   const zoomLayout = await page.evaluate(() => ({
     bodyScroll: document.body.scrollWidth, rootScroll: document.documentElement.scrollWidth,

@@ -3000,9 +3000,22 @@ dd {
   width: 76px;
 }
 
+.detail-layout .ds-page-header {
+  flex-wrap: wrap;
+}
+
+.detail-layout .ds-page-header > div:first-child {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .case-header-actions {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
   gap: 10px;
 }
 
