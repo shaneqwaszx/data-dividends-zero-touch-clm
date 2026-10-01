@@ -373,7 +373,13 @@ def test_partial_bundle_is_not_cached_and_is_retrieved_again() -> None:
     first = service.create_staged_case(MISSING_OWNERSHIP_UEN)
     second = service.create_staged_case(MISSING_OWNERSHIP_UEN)
 
-    assert first.state == second.state == WorkflowState.REVIEW_REQUIRED
+    # Missing ownership does not invalidate canonical identity or make partial
+    # registry evidence reusable as a complete cache entry.
+    assert first.state == second.state == WorkflowState.VALIDATED
+    assert first.registry_acquisition is not None
+    assert second.registry_acquisition is not None
+    assert first.registry_acquisition.status == RegistryAcquisitionStatus.PARTIAL
+    assert second.registry_acquisition.status == RegistryAcquisitionStatus.PARTIAL
     assert first.registry_evidence_binding is second.registry_evidence_binding is None
     assert connector.total_calls == 8
     assert cast(CountingRepository, repository).creates == 0

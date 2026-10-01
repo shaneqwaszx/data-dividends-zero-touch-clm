@@ -25,9 +25,10 @@ from app.composition import (
     build_reconciliation_service,
 )
 from app.config import Settings
+from app.connectors.errors import AcraOperationUnsupportedError
 from app.connectors.idp import IdpDocumentInput, IdpProcessingError
 from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
-from app.connectors.mock_acra import MockAcraConnector
+from app.connectors.mock_acra import MISSING_OWNERSHIP_UEN, MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.registry_ownership import RegistryAcquisitionOwnershipProvider
 from app.domain.documents import (
@@ -484,6 +485,7 @@ def test_real_mongo_failed_replacement_restart_requires_retry_without_replay(
 
 def _install_counting_connectors(
     monkeypatch: pytest.MonkeyPatch,
+    *, unsupported_relationships: bool = False,
 ) -> dict[str, int]:
     counters = {name: 0 for name in ("registry", "idp", "ownership", "goldtier")}
 
@@ -501,6 +503,8 @@ def _install_counting_connectors(
             return super().fetch_ownership_parties(uen)
 
         def fetch_relationships(self, uen: str) -> object:
+            if unsupported_relationships:
+                raise AcraOperationUnsupportedError
             counters["registry"] += 1
             return super().fetch_relationships(uen)
 
@@ -1451,3 +1455,95 @@ def test_real_mongo_schema_v7_restart_preserves_identity_repair_and_pending_conf
     assert blocked.status_code == 409
     assert blocked.json()["detail"]["code"] == "CLM_TARGET_CONFIRMATION_REQUIRED"
     assert target_calls == calls_before_restart_guard == ["search"]
+
+
+def test_real_mongo_partial_registry_manual_ownership_restart_preserves_confirmation_guard(
+    isolated_mongo_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    counters = _install_counting_connectors(monkeypatch, unsupported_relationships=True)
+    settings = isolated_mongo_settings
+    profile = """SYNTHETIC TEST / CLIENT-SUPPLIED DEMO EVIDENCE
+Legal Name: MISSING OWNERSHIP EVIDENCE DEMO PTE. LTD.
+UEN: 202400011K
+Registered Address: 18 PARTIAL STREET, #06-01, 049006, SG
+Country: SG
+"""
+    with TestClient(create_app(settings)) as first:
+        case_id = _create_case(first, uen=MISSING_OWNERSHIP_UEN)
+        uploaded = _upload_text(first, case_id, profile, name="Synthetic-ownership-profile.txt")
+        pending = _complete_intake(first, case_id, expected_count=1)
+        assert pending["current_stage"] == "OWNERSHIP"
+        assert pending["case"]["state"] == "VALIDATED"
+        assert pending["case"]["registry_acquisition"]["status"] == "PARTIAL"
+        relationship = pending["case"]["registry_acquisition"]["operation_results"][3]
+        assert relationship["status"] == "UNSUPPORTED"
+        assert relationship["provenance"] is None
+        assert counters["registry"] == 3
+        assert pending["ownership_recovery"]["manual_evidence_action"] == (
+            "MANUAL_OWNERSHIP_EVIDENCE"
+        )
+
+    before_restart = counters.copy()
+    with TestClient(create_app(settings)) as second:
+        retained = second.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        assert retained["case"]["registry_acquisition"]["operation_results"][3] == relationship
+        documents = second.get(f"/api/onboarding/cases/{case_id}/documents").json()
+        document = next(
+            item for item in documents if item["document_id"] == uploaded["document_id"]
+        )
+        assert document["state"] == "REVIEWED"
+        response = second.post(
+            f"/api/clm/zero-touch/cases/{case_id}/manual-ownership-evidence",
+            json={
+                "root_registration_number": MISSING_OWNERSHIP_UEN,
+                "evidence_document_id": document["document_id"],
+                "evidence_document_version": len(document["events"]),
+                "as_of_date": datetime.now(UTC).date().isoformat(),
+                "rationale": "Operator reviewed synthetic client-supplied ownership evidence.",
+                "root_party_id": "SYNTHETIC_ROOT",
+                "parties": [
+                    {
+                        "party_id": "SYNTHETIC_ROOT",
+                        "display_name": "Synthetic client company",
+                        "party_type": "LEGAL_ENTITY",
+                        "registration_number": MISSING_OWNERSHIP_UEN,
+                        "country": "SG",
+                    },
+                    {
+                        "party_id": "SYNTHETIC_OWNER",
+                        "display_name": "Synthetic client owner",
+                        "party_type": "NATURAL_PERSON",
+                        "country": "SG",
+                    },
+                ],
+                "relationships": [
+                    {
+                        "relationship_id": "SYNTHETIC_INTEREST",
+                        "parent_party_id": "SYNTHETIC_ROOT",
+                        "child_party_id": "SYNTHETIC_OWNER",
+                        "ownership_percent": "100",
+                    }
+                ],
+                "expected_automation_version": retained["version"],
+                "expected_ownership_version": retained["ownership_recovery"]["version"],
+                "expected_case_event_count": len(retained["case"]["events"]),
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["current_stage"] == "READINESS"
+        assert response.json()["ownership_recovery"]["review_receipt"]["source_type"] == (
+            "USER_SUPPLIED_DECLARATION"
+        )
+    assert counters == before_restart
+
+    with TestClient(create_app(settings)) as third:
+        detail = third.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        assert detail["case"]["registry_acquisition"]["status"] == "PARTIAL"
+        assert detail["case"]["registry_acquisition"]["operation_results"][3] == relationship
+        assert detail["ownership_recovery"]["state"] == "ANALYZED"
+        assert detail["case"]["target_dispatch_confirmation"] is None
+        blocked = third.post(f"/api/clm/cases/{case_id}/submit")
+        assert blocked.status_code == 409
+        assert blocked.json()["detail"]["code"] == "CLM_TARGET_CONFIRMATION_REQUIRED"
+    assert counters == before_restart

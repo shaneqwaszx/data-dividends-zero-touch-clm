@@ -39,6 +39,8 @@ class Phase07DeliveryAssetsTests(unittest.TestCase):
             "cycle-uen-clean.pdf",
             "second-case-isolation.pdf",
             "invalid-document.pdf",
+            "garden-business-clean-onboarding-profile.pdf",
+            "garden-business-conflicting-onboarding-profile.pdf",
         }
         self.assertEqual({path.name for path in fixture_root.glob("*.pdf")}, expected)
         for path in fixture_root.glob("*.pdf"):

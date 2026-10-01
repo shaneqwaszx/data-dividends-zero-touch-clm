@@ -1086,12 +1086,25 @@ def _xpi_onboarding_service(
     target_ready: bool = True,
     target_policy_override: object | None = None,
     acra_connector: object | None = None,
+    reviewed_test_enrichment: bool = True,
 ) -> object:
     onboarding = importlib.import_module("app.services.onboarding")
     intelligence = importlib.import_module("app.services.onboarding_intelligence")
     mock_acra = importlib.import_module("app.connectors.mock_acra")
     repository = importlib.import_module("app.services.repository")
-    mapper = importlib.import_module("app.mappers.goldtier_xpi").GoldTierXpiRequestMapper()
+    mapper_type = importlib.import_module("app.mappers.goldtier_xpi").GoldTierXpiRequestMapper
+
+    class ReviewedSyntheticEnrichmentMapper(mapper_type):
+        """Explicit synthetic enrichment for retained optional-Amend test cases."""
+
+        def build_amend_request(self, submission, party_id):
+            return super().build_amend_request(submission, party_id).model_copy(
+                update={"group_company_name": "SYNTHETIC TEST GROUP"}
+            )
+
+    mapper = (
+        ReviewedSyntheticEnrichmentMapper() if reviewed_test_enrichment else mapper_type()
+    )
     policy_service = PolicyManagementService(InMemoryPolicyRepository())
     target_policy = (
         target_policy_override
@@ -2309,3 +2322,143 @@ def test_ambiguous_shell_response_identifier_is_uncertain_and_non_replayable() -
         "SHELL",
     )
     assert len(transport.calls) == call_count
+
+
+@pytest.mark.parametrize("stage", ["SHELL", "POLICY", "AMEND"])
+@pytest.mark.parametrize("status_code", [302, 500, 503])
+def test_unconfirmed_mutation_http_failure_stops_without_definitive_outcome_or_replay(
+    stage: str,
+    status_code: int,
+) -> None:
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    responses = [module.GoldTierXpiHttpResponse(status_code=200, body=[])]
+    operations = ["SEARCH", "SHELL"]
+    if stage != "SHELL":
+        responses.append(
+            module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345})
+        )
+        operations.append("POLICY")
+    if stage == "AMEND":
+        responses.append(module.GoldTierXpiHttpResponse(status_code=200, body={}))
+        operations.append("AMEND")
+    responses.append(
+        module.GoldTierXpiHttpResponse(status_code=status_code, body={"private": "detail"})
+    )
+    transport = FakeXpiTransport(responses)
+    service = _xpi_onboarding_service(transport)
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+    _confirm_service_submission(service, submission)
+    with pytest.raises(module.GoldTierMutationOutcomeUncertainError):
+        service.execute_submission_input(submission)
+    call_count = len(transport.calls)
+    with pytest.raises(RuntimeError, match="already in progress"):
+        service.execute_submission_input(submission)
+    assert service.get_execution_state(submission.submission_id) == "IN_PROGRESS"
+    assert service.is_execution_outcome_uncertain(submission.submission_id) is True
+    assert service.get_attempted_target_operations(submission.submission_id) == tuple(operations)
+    assert len(transport.calls) == call_count
+
+
+def test_fresh_sandbox_customer_without_enrichment_skips_amend_and_retains_submission() -> None:
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    transport = FakeXpiTransport([
+        module.GoldTierXpiHttpResponse(status_code=200, body=[]),
+        module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
+        module.GoldTierXpiHttpResponse(status_code=200, body={}),
+        module.GoldTierXpiHttpResponse(status_code=200, body=[{"goldTierId": 12345}]),
+    ])
+    service = _xpi_onboarding_service(transport, reviewed_test_enrichment=False)
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+    _confirm_service_submission(service, submission)
+    receipt = service.execute_submission_input(submission)
+    assert receipt.classification == "SUCCESS"
+    assert receipt.result.amend_status == "AMEND_NOT_REQUIRED"
+    assert service.get_attempted_target_operations(submission.submission_id) == (
+        "SEARCH", "SHELL", "POLICY", "READBACK",
+    )
+    assert not any(str(c["url"]).endswith("/amendCustomer") for c in transport.calls)
+    assert service.execute_submission_input(submission) == receipt
+    assert len(transport.calls) == 4
+
+
+def test_sandbox_preview_omits_amend_without_supported_enrichment() -> None:
+    mapper = importlib.import_module("app.mappers.goldtier_xpi").GoldTierXpiRequestMapper()
+    submission = _sandbox_submission()
+    assert mapper.build_amend_request(submission, "12345").anzsic is None
+    assert [op.operation for op in mapper.build_preview(submission).operations] == [
+        "SEARCH", "SHELL", "POLICY", "READBACK",
+    ]
+
+
+@pytest.mark.parametrize("returned", [
+    {"legalName": "DIFFERENT CUSTOMER"},
+    {"registrationNumber": "202499999Z"},
+    {"countryOfIncorporation": "AU"},
+    {"legalForm": "DIFFERENT FORM"},
+    {"legalRegisteredAddress": "DIFFERENT ADDRESS"},
+])
+def test_same_id_readback_rejects_available_identity_mismatch(returned) -> None:
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    transport = FakeXpiTransport([
+        module.GoldTierXpiHttpResponse(status_code=200, body=[]),
+        module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
+        module.GoldTierXpiHttpResponse(status_code=200, body={}),
+        module.GoldTierXpiHttpResponse(status_code=200, body=[
+            {"goldTierId": 12345, **returned},
+        ]),
+    ])
+    service = _xpi_onboarding_service(transport, reviewed_test_enrichment=False)
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+    _confirm_service_submission(service, submission)
+    receipt = service.execute_submission_input(submission)
+    assert receipt.classification == "REVIEW_REQUIRED"
+    assert receipt.error.code == "GT_READBACK_IDENTITY_REVIEW_REQUIRED"
+    assert receipt.result.policy_status == "POLICY_CREATED"
+    assert receipt.result.amend_status == "AMEND_NOT_REQUIRED"
+    assert len(transport.calls) == 4
+
+
+def test_reviewed_optional_enrichment_remains_bound_in_preview() -> None:
+    service = _xpi_onboarding_service(FakeXpiTransport())
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+    preview = service._goldtier_mapper.build_preview(submission)
+    amend = next(item for item in preview.operations if item.operation == "AMEND")
+    assert any(f.target_field == "groupCompanyName" and f.value == "SYNTHETIC TEST GROUP"
+               for f in amend.fields)
+    assert all(f.target_field != "ANZSIC" for f in amend.fields)
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_incremental_submission_skips_unneeded_amend_and_existing_policy(existing) -> None:
+    module = importlib.import_module("app.connectors.goldtier_xpi")
+    responses = [] if existing else [
+        module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
+        module.GoldTierXpiHttpResponse(status_code=200, body={}),
+    ]
+    responses.append(module.GoldTierXpiHttpResponse(
+        status_code=200, body=[{"goldTierId": 12345}],
+    ))
+    transport = FakeXpiTransport(responses)
+    service = _xpi_onboarding_service(transport, reviewed_test_enrichment=False)
+    case = service.create_staged_case("202400001A")
+    submission = service.build_submission_input(case, provider_mode="SANDBOX")
+    _confirm_service_submission(service, submission)
+    receipt = None
+    for _ in range(4):
+        receipt = service.advance_incremental_submission_input(
+            submission, search_resolution="EXACT_MATCH" if existing else "NO_MATCH",
+            selected_party_id="12345" if existing else None,
+        )
+        if receipt is not None:
+            break
+    assert receipt.classification == "SUCCESS"
+    assert receipt.result.amend_status == "AMEND_NOT_REQUIRED"
+    expected = ("SEARCH", "READBACK") if existing else (
+        "SEARCH", "SHELL", "POLICY", "READBACK",
+    )
+    assert service.get_attempted_target_operations(submission.submission_id) == expected
+    assert len(transport.calls) == (1 if existing else 3)

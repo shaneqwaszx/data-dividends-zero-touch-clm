@@ -9,6 +9,7 @@ import {
   fetchIntelligence,
   fetchOwnership,
   fetchZeroTouchCase,
+  intakeZeroTouchDocument,
   replaceZeroTouchDocument,
   recheckZeroTouchIdentitySearch,
   rebindZeroTouchPolicy,
@@ -23,6 +24,9 @@ import {
 import { startAutomationPolling } from "../automationPolling";
 import {
   caseDeletedEffect,
+  publishCaseDetail,
+  retainNewestDocuments,
+  retainNewestVersionedEvidence,
   caseDetailQueryOptions,
   caseSummaryMutationEffect,
   caseSupportingMutationEffect,
@@ -174,10 +178,7 @@ export default function CaseDetail({
     }
     const latestCase = fetchZeroTouchCase(action.caseId).then((latest) => {
       if (isCurrentCaseAction(action)) {
-        queryClient.setQueryData(
-          caseDetailQueryOptions(action.actorUserId, action.caseId).queryKey,
-          latest,
-        );
+        publishCaseDetail(queryClient, action.actorUserId, latest);
       }
       return latest;
     });
@@ -185,7 +186,7 @@ export default function CaseDetail({
       if (isCurrentCaseAction(action)) {
         queryClient.setQueryData(
           documentQueryOptions(action.actorUserId, action.caseId).queryKey,
-          documents,
+          (current: DocumentProcessingRecord[] | undefined) => retainNewestDocuments(current, documents),
         );
         if (import.meta.env.VITE_E2E_DIAGNOSTICS === "1") {
           const reviewedFieldCount = documents
@@ -205,7 +206,7 @@ export default function CaseDetail({
       if (isCurrentCaseAction(action)) {
         queryClient.setQueryData(
           ownershipQueryOptions(action.actorUserId, action.caseId).queryKey,
-          ownership,
+          (current: unknown) => retainNewestVersionedEvidence(current, ownership),
         );
       }
       return ownership;
@@ -214,7 +215,7 @@ export default function CaseDetail({
       if (isCurrentCaseAction(action)) {
         queryClient.setQueryData(
           intelligenceQueryOptions(action.actorUserId, action.caseId).queryKey,
-          record,
+          (current: unknown) => retainNewestVersionedEvidence(current, record),
         );
       }
       return record;
@@ -261,8 +262,10 @@ export default function CaseDetail({
         caseSummaryMutationEffect(queryClient, actor.user_id, latest);
         void Promise.all([fetchDocuments(caseId), fetchOwnership(caseId)]).then(([docs, owner]) => {
           if (activeGeneration === generation.current) {
-            queryClient.setQueryData(documentQueryOptions(actor.user_id, caseId).queryKey, docs);
-            queryClient.setQueryData(ownershipQueryOptions(actor.user_id, caseId).queryKey, owner);
+            queryClient.setQueryData(documentQueryOptions(actor.user_id, caseId).queryKey,
+              (current: DocumentProcessingRecord[] | undefined) => retainNewestDocuments(current, docs));
+            queryClient.setQueryData(ownershipQueryOptions(actor.user_id, caseId).queryKey,
+              (current: unknown) => retainNewestVersionedEvidence(current, owner));
           }
         });
       },
@@ -612,6 +615,13 @@ export default function CaseDetail({
 
         <ProcessingBlockerPanels summary={summary} />
 
+        {isBusy && busyLabel && (
+          <div className="ds-banner case-action-progress" role="status" aria-live="polite"
+            style={{ position: "fixed", bottom: 16, left: 16, right: 16, margin: "0 auto", maxWidth: 420, zIndex: 30 }}>
+            {busyLabel}
+          </div>
+        )}
+
         {(identityIncomplete || identityEditable) && (
           <div
             key={`${evidenceIdentity}:identity:${summary.version}`}
@@ -639,6 +649,19 @@ export default function CaseDetail({
         <HumanInterventionPanel
           summary={summary}
           isBusy={isBusy || mutationBlocked}
+          onEvidenceAction={(target) => {
+            const targetIds = {
+              DOCUMENTS: EVIDENCE_TARGET_IDS.documents,
+              OWNERSHIP_DETAILS: MANUAL_OWNERSHIP_TARGET_ID,
+              OWNERSHIP_UPLOAD: "case-ownership-evidence-upload",
+              CLASSIFICATION: EVIDENCE_TARGET_IDS.classification,
+              IDENTITY: EVIDENCE_TARGET_IDS.identity,
+              REVIEW_SEND: "case-review-send",
+            };
+            const element = document.getElementById(targetIds[target]);
+            element?.scrollIntoView({ behavior: "smooth", block: "start" });
+            element?.focus({ preventScroll: true });
+          }}
           onResolve={(exception, action) => void runMutation(
             () => resolveZeroTouchException(
               summary,
@@ -694,6 +717,11 @@ export default function CaseDetail({
               initialRootLegalName={summary.case.entity?.legal_name ?? summary.case.initial_identity?.legal_name ?? ""}
               documents={documents}
               disabled={isBusy || mutationBlocked}
+              onUploadEvidence={(file) => void settleEvidenceMutation(
+                () => intakeZeroTouchDocument(caseId, file, false),
+                "Validating client-supplied ownership evidence…",
+                "Ownership evidence could not be added.",
+              )}
               onSubmit={(values) => void runMutation(
                 () => submitManualOwnershipEvidence(caseId, {
                   root_registration_number: summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen,
@@ -771,9 +799,9 @@ export default function CaseDetail({
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
         <OperationalTiming summary={summary} />
 
-        <div className="ds-two-col"><div style={{ flex: 1 }}><h4>Corporate particulars</h4><div>
+        <div className="ds-two-col case-corporate-evidence"><div><h4>Corporate particulars</h4><div>
           <div className="kv-row"><span className="kv-label">Company name</span><span className="kv-value">{entity?.legal_name ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration ID</span><span className="kv-value">{entity?.registration_number ?? summary.case.requested_uen}</span></div><div className="kv-row"><span className="kv-label">Entity type</span><span className="kv-value">{entity?.party_type ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registry status</span><span className="kv-value">{entity?.entity_status ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration date</span><span className="kv-value">{entity?.registration_date ?? "—"}</span></div>
-        </div></div><div style={{ width: 330 }}><h4>Directors</h4>{acquisition && acquisition.officers.length > 0 ? <div className="table-card"><table className="table"><tbody>{acquisition.officers.map((officer) => <tr key={officer.officer_id}><td>{officer.name}</td><td>{officer.role}</td></tr>)}</tbody></table></div> : <p className="text-muted" style={{ fontSize: 12 }}>Not available.</p>}</div></div>
+        </div></div><div><h4>Directors</h4>{acquisition && acquisition.officers.length > 0 ? <div className="table-card"><table className="table"><tbody>{acquisition.officers.map((officer) => <tr key={officer.officer_id}><td>{officer.name}</td><td>{officer.role}</td></tr>)}</tbody></table></div> : <p className="text-muted" style={{ fontSize: 12 }}>Not available.</p>}</div></div>
 
         {acquisition && (
           <details className="evidence-details registry-evidence-details">
@@ -791,7 +819,7 @@ export default function CaseDetail({
 
         <div className="ds-two-col evidence-columns">
           <div key={`${evidenceIdentity}:ownership`} id={EVIDENCE_TARGET_IDS.ownership} className="evidence-focus-target evidence-workbench-column" tabIndex={-1}>
-            <OwnershipPathExplorer key={`${evidenceIdentity}:${ownership?.analysis_id ?? "none"}`} record={ownership} />
+            <OwnershipPathExplorer key={`${evidenceIdentity}:${ownership?.analysis_id ?? "none"}`} record={ownership} acquisition={acquisition} />
           </div>
           <div key={`${evidenceIdentity}:recovery`} id={EVIDENCE_TARGET_IDS.recovery} className="evidence-focus-target evidence-workbench-column" tabIndex={-1}>
             <CaseStateExplanationPanel summary={summary} onNavigate={focusEvidence} />

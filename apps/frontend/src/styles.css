@@ -3619,6 +3619,37 @@ dd {
 
 /* Case Evidence & Explainability Workbench */
 
+/* Intrinsic header wrapping also handles content magnification, where viewport
+   media queries alone may leave the rendered account group too narrow. */
+.ds-shell > .nav {
+  flex-wrap: wrap;
+}
+
+.ds-shell > .nav .nav-tabs {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.ds-shell > .nav .nav-meta {
+  flex: 1 1 min(100%, 26rem);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ds-shell > .nav .operator-account {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+}
+
+.ds-shell > .nav .operator-account__button {
+  flex: 0 1 auto;
+}
+
+.ds-shell > .nav .operator-account__identity > * {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .evidence-focus-target {
   min-width: 0;
   scroll-margin-top: 1rem;
@@ -3724,6 +3755,7 @@ dd {
 
 .evidence-section-block {
   min-width: 0;
+  container-type: inline-size;
   padding: 18px;
   border: 1px solid var(--border, #d9dee7);
   border-radius: 12px;
@@ -3779,9 +3811,104 @@ dd {
   overflow-wrap: anywhere;
 }
 
+.ds-two-col.evidence-columns {
+  flex-wrap: wrap;
+}
+
+.ds-two-col.case-corporate-evidence {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+.case-corporate-evidence > div {
+  min-width: 0;
+  container-type: inline-size;
+}
+
+@container (max-width: 24rem) {
+  .case-corporate-evidence .kv-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .case-corporate-evidence .kv-label {
+    width: auto;
+  }
+}
+
 .evidence-workbench-column {
-  flex: 1 1 0;
-  width: 50%;
+  flex: 1 1 24rem;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.evidence-workbench-column .evidence-run-record {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.evidence-workbench-column .evidence-run-record button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Current document cards stack their sections; the older document-card layout
+   belongs to the separate legacy document surface. */
+.document-evidence-panel .document-card {
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.document-evidence-panel .document-fields,
+.document-evidence-panel .document-field {
+  min-width: 0;
+}
+
+.document-evidence-panel .document-field__evidence {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+}
+
+.document-evidence-panel .document-field__evidence > div {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.document-evidence-panel .document-card__header,
+.document-evidence-panel .document-field__heading {
+  flex-wrap: wrap;
+}
+
+.document-evidence-panel .document-card__header > *,
+.document-evidence-panel .document-field__heading > *,
+.document-evidence-panel .document-field__actions > *,
+.document-evidence-panel .document-card__actions > * {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.document-evidence-panel .document-correction,
+.document-evidence-panel .document-correction .input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Reflow the label/value pairs against their actual evidence column, including
+   magnified content, rather than relying on the overall viewport breakpoint. */
+@container (max-width: 30rem) {
+  .evidence-section-block dl > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
 }
 
 .evidence-workbench-column > * + * {

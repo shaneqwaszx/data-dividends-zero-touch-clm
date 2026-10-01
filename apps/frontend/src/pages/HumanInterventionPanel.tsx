@@ -10,26 +10,29 @@ export default function HumanInterventionPanel({
   summary,
   isBusy,
   onResolve,
+  onEvidenceAction,
 }: {
   summary: ZeroTouchCaseSummary;
   isBusy: boolean;
   onResolve: (exception: ZeroTouchException, action: ExceptionResolutionAction) => void;
+  onEvidenceAction?: (target: NonNullable<HumanInterventionProjection["evidence_actions"]>[number]["target"]) => void;
 }) {
   const interventions = summary.interventions ?? [];
-  if (interventions.length === 0) return null;
+  const history = summary.historical_exceptions ?? [];
+  if (interventions.length === 0 && history.length === 0) return null;
 
   const exceptionById = new Map(
     summary.active_exceptions.map((exception) => [exception.exception_id, exception]),
   );
 
   return (
-    <section className="intervention-stack" aria-labelledby="intervention-heading">
-      <div className="state-composition__header">
+    <section className="intervention-stack" aria-label="Case interventions and history">
+      {interventions.length > 0 && <div className="state-composition__header">
         <div>
           <p className="card-kicker">Backend-authorized intervention</p>
           <h2 id="intervention-heading">Action required</h2>
         </div>
-      </div>
+      </div>}
       {interventions.map((intervention) => (
         <InterventionCard
           key={intervention.intervention_id}
@@ -37,8 +40,19 @@ export default function HumanInterventionPanel({
           exception={exceptionById.get(intervention.intervention_id)}
           isBusy={isBusy}
           onResolve={onResolve}
+          onEvidenceAction={onEvidenceAction}
         />
       ))}
+      {history.length > 0 && <details className="card intervention-history">
+        <summary>Intervention history ({history.length})</summary>
+        {history.map((item) => <article key={item.exception_id}>
+          <h3>{item.blocker_code} - {item.status}</h3>
+          <p>{item.explanation}</p>
+          <p>Result: {item.resolution ?? item.status} - evidence {item.evidence_version}
+            {item.resolved_at ? ` - ${new Date(item.resolved_at).toLocaleString()}` : ""}</p>
+          <BlockerDecisionDetails decisions={item.decisions ?? []} />
+        </article>)}
+      </details>}
     </section>
   );
 }
@@ -48,11 +62,13 @@ function InterventionCard({
   exception,
   isBusy,
   onResolve,
+  onEvidenceAction,
 }: {
   intervention: HumanInterventionProjection;
   exception: ZeroTouchException | undefined;
   isBusy: boolean;
   onResolve: (exception: ZeroTouchException, action: ExceptionResolutionAction) => void;
+  onEvidenceAction?: (target: NonNullable<HumanInterventionProjection["evidence_actions"]>[number]["target"]) => void;
 }) {
   const decisions = intervention.decisions?.length
     ? intervention.decisions
@@ -67,6 +83,7 @@ function InterventionCard({
         <code>{intervention.blocker_code}</code>
       </div>
       <p>{intervention.explanation}</p>
+      {intervention.blocker_class && <p className="tag tag-neutral">{intervention.blocker_class.replaceAll("_", " ")}</p>}
 
       {intervention.candidate_summaries.length > 0 && (
         <div className="table-scroll" tabIndex={0} aria-label="Safe GoldTier candidate summary">
@@ -96,9 +113,15 @@ function InterventionCard({
           <dt>Expected next step</dt>
           <dd>{intervention.expected_next_step}</dd>
         </div>
+        {intervention.dependent_stages?.length ? <div><dt>Dependent stages</dt><dd>{intervention.dependent_stages.join(", ")}</dd></div> : null}
+        {intervention.resolution_condition && <div><dt>Resolution condition</dt><dd>{intervention.resolution_condition}</dd></div>}
       </dl>
 
       <BlockerDecisionDetails decisions={decisions} />
+      {onEvidenceAction && intervention.evidence_actions?.map((action) => (
+        <button key={action.target} type="button" className="btn btn-primary" disabled={isBusy}
+          onClick={() => onEvidenceAction(action.target)}>{action.label}</button>
+      ))}
 
       {intervention.authorized_actions.length > 0 ? (
         <div className="intervention-card__actions" aria-label="Backend-authorized actions">
@@ -116,12 +139,12 @@ function InterventionCard({
             </div>
           ))}
         </div>
-      ) : (
+      ) : intervention.no_action_reason ? (
         <div className="ds-banner ds-banner-warn intervention-card__no-action" role="status">
           <strong>No action available</strong>
           <span>{intervention.no_action_reason}</span>
         </div>
-      )}
+      ) : null}
     </article>
   );
 }

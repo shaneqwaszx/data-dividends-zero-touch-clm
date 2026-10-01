@@ -5,6 +5,13 @@ It is not a sponsor contract, phase report, or substitute for current source and
 
 ## Verification metadata
 
+The uncommitted 2026-10-01 zero-touch remediation candidate adds current-field automatic
+confirmation, direct ownership/classification evidence actions, exact reconciliation
+checkpoint consumption, separate active/history projections and revision-safe browser
+publication. Its local Golden/Garden evidence and independent gate are recorded in
+`docs/development/ZERO_TOUCH_EXCEPTION_DRIVEN_ONBOARDING_REMEDIATION.md`. This candidate
+note does not update the verified-main metadata below or provider classifications.
+
 ```json project-state
 {
   "schema_version": 1,

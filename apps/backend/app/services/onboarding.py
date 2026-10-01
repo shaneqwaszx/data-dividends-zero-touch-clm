@@ -192,6 +192,40 @@ class _TargetOutcomeFallbackRecorded(Exception):
     """Internal signal that a constant-only failure outcome replaced rich facts."""
 
 
+def _readback_identity_matches(
+    submission: GoldTierSubmissionInput, readback: GoldTierSearchResult, party_id: str
+) -> bool:
+    """Compare every projected identity field; Search cannot prove Policy or KYC."""
+    if not (
+        readback.outcome == GoldTierSearchOutcome.MATCH_FOUND
+        and len(readback.candidates) == 1
+        and readback.matched_party_id == party_id
+        and readback.candidates[0].party_id == party_id
+    ):
+        return False
+    candidate = readback.candidates[0]
+    entity = submission.canonical_entity
+    address = entity.registered_address
+    expected_address = ", ".join(
+        item for item in (
+            address.address_line_1, address.address_line_2,
+            address.postal_code, address.country_code,
+        ) if item
+    )
+    comparisons = (
+        (candidate.legal_name, entity.legal_name),
+        (candidate.registration_number, entity.registration_number),
+        (candidate.country, entity.country_of_incorporation),
+        (candidate.legal_form, entity.party_type),
+        (candidate.registered_address, expected_address),
+    )
+    return all(
+        returned is None or " ".join(returned.split()).casefold()
+        == " ".join(expected.split()).casefold()
+        for returned, expected in comparisons
+    )
+
+
 def _submission_fingerprint(submission_input: GoldTierSubmissionInput) -> str:
     return sha256(submission_input.model_dump_json().encode("utf-8")).hexdigest()
 
@@ -549,7 +583,11 @@ class OnboardingService:
                 raise ValueError("Onboarding case was not found")
             previous_search = case.initial_target_search
             previous_identity = case.initial_identity
-            if previous_identity is None and case.entity is not None:
+            if (
+                previous_identity is None
+                and case.entity is not None
+                and case.entity.legal_name is not None
+            ):
                 previous_identity = InitialCustomerIdentity(
                     legal_name=case.entity.legal_name,
                     registration_number=case.entity.registration_number,
@@ -799,7 +837,12 @@ class OnboardingService:
             if coordinated is not None
             else provider.retrieve_acquisition(identity.registration_number)
         )
-        if acquisition is None or acquisition.status != RegistryAcquisitionStatus.COMPLETE:
+        if (
+            acquisition is None
+            or acquisition.status
+            not in {RegistryAcquisitionStatus.COMPLETE, RegistryAcquisitionStatus.PARTIAL}
+            or validate_entity(acquisition.entity_profile)
+        ):
             return self._terminate(
                 case,
                 WorkflowState.REVIEW_REQUIRED,
@@ -1521,16 +1564,8 @@ class OnboardingService:
                     else "Registry acquisition could not be completed."
                 ),
             )
-        if acquisition.status == RegistryAcquisitionStatus.PARTIAL:
-            issue = acquisition.issues[0]
-            return self._terminate(
-                case,
-                WorkflowState.REVIEW_REQUIRED,
-                EventOutcome.REVIEW_REQUIRED,
-                issue.code,
-                issue.message,
-            )
-
+        # Acquisition completeness includes ownership evidence. Its absence does not
+        # invalidate registry identity; the ownership owner retains that separate gap.
         validation_errors = validate_entity(entity)
         if validation_errors:
             return self._terminate(
@@ -2196,6 +2231,28 @@ class OnboardingService:
         entry: GoldTierExecutionLedgerEntry,
         party_id: str,
     ) -> GoldTierExecutionReceipt | None:
+        if not self._goldtier_mapper.requires_amend(submission_input):
+            with self._execution_ledger_guard:
+                current = self._stored_execution_entry(submission_input)
+                if (
+                    current is None
+                    or current.attempted_operations != current.lifecycle_resolved_operations
+                ):
+                    raise MutationOutcomeUncertainError
+                skipped = GoldTierExecutionLedgerEntry.model_validate(
+                    {**current.model_dump(), "amend_status": "AMEND_NOT_REQUIRED"}
+                )
+                self._target_executions.replace(
+                    skipped, expected_state=GoldTierExecutionLedgerState.IN_PROGRESS.value
+                )
+            self._record(
+                case,
+                case.state,
+                EventOutcome.SUCCEEDED,
+                "No supported customer enrichment remains; Amend is not required.",
+                "AMEND_NOT_REQUIRED",
+            )
+            return None
         request = self._goldtier_mapper.build_amend_request(submission_input, party_id)
         self._mark_operation_attempted(submission_input, GoldTierOperationMarker.AMEND)
         try:
@@ -2348,7 +2405,7 @@ class OnboardingService:
             case,
             WorkflowState.GT_ENRICHED,
             EventOutcome.SUCCEEDED,
-            "GoldTier party enriched.",
+            "GoldTier target submission completed.",
         )
         return self._finalize_recorded_outcome(submission_input)
 
@@ -2414,12 +2471,7 @@ class OnboardingService:
             )
             return self._finalize_recorded_outcome(submission_input)
 
-        verified = (
-            readback.outcome == GoldTierSearchOutcome.MATCH_FOUND
-            and len(readback.candidates) == 1
-            and readback.matched_party_id == party_id
-            and readback.candidates[0].party_id == party_id
-        )
+        verified = _readback_identity_matches(submission_input, readback, party_id)
         if not verified:
             code = "GT_READBACK_IDENTITY_REVIEW_REQUIRED"
             message = "GoldTier read-back did not prove the retained customer identity."
@@ -2482,7 +2534,7 @@ class OnboardingService:
             case,
             WorkflowState.GT_ENRICHED,
             EventOutcome.SUCCEEDED,
-            "GoldTier post-amendment read-back verified the retained customer identity.",
+            "GoldTier submission read-back verified the retained customer identity.",
             "GT_READBACK_VERIFIED",
         )
         return self._finalize_recorded_outcome(submission_input)
@@ -3588,99 +3640,102 @@ class OnboardingService:
                 "GoldTier customer policy created.",
             )
 
-        completed_operations.append(GoldTierOperationMarker.AMEND)
-        self._mark_operation_attempted(submission_input, GoldTierOperationMarker.AMEND)
-        untrusted_amend = self._run_required_stage(
-            case,
-            code="GT_AMEND_UNEXPECTED_FAILURE",
-            message="GoldTier party enrichment could not be completed.",
-            on_failure=lambda code, message: self._record_target_outcome(
-                submission_input,
-                classification=GoldTierExecutionClassification.FAILED,
-                onboarding_state=WorkflowState.FAILED,
-                completed_operations=tuple(completed_operations),
-                party_id=party_id,
-                shell_status=shell_status,
-                policy_id=policy_id,
-                policy_status=policy_status,
-                error_code=code,
-                error_message=message,
-                infrastructure_failure=True,
-            ),
-            operation=lambda: self._goldtier.amend_party(
-                party_id,
-                self._goldtier_mapper.build_amend_request(submission_input, party_id),
-                self._metadata(
+        amend_status = "AMEND_NOT_REQUIRED"
+        if self._goldtier_mapper.requires_amend(submission_input):
+            completed_operations.append(GoldTierOperationMarker.AMEND)
+            self._mark_operation_attempted(submission_input, GoldTierOperationMarker.AMEND)
+            untrusted_amend = self._run_required_stage(
+                case,
+                code="GT_AMEND_UNEXPECTED_FAILURE",
+                message="GoldTier party enrichment could not be completed.",
+                on_failure=lambda code, message: self._record_target_outcome(
                     submission_input,
-                    submission_input.idempotency.amend,
+                    classification=GoldTierExecutionClassification.FAILED,
+                    onboarding_state=WorkflowState.FAILED,
+                    completed_operations=tuple(completed_operations),
+                    party_id=party_id,
+                    shell_status=shell_status,
+                    policy_id=policy_id,
+                    policy_status=policy_status,
+                    error_code=code,
+                    error_message=message,
+                    infrastructure_failure=True,
                 ),
-            ),
-        )
-        try:
-            amend = validate_amend_response(untrusted_amend, expected_party_id=party_id)
-        except InvalidTargetResponseError:
-            return self._malformed_target_response(
-                case,
-                submission_input,
-                completed_operations=tuple(completed_operations),
+                operation=lambda: self._goldtier.amend_party(
+                    party_id,
+                    self._goldtier_mapper.build_amend_request(submission_input, party_id),
+                    self._metadata(
+                        submission_input,
+                        submission_input.idempotency.amend,
+                    ),
+                ),
             )
-        if amend.outcome == GoldTierOutcome.PARTIAL_SUCCESS:
-            code = _project_target_error_code(
-                amend.error_code,
-                allowed=frozenset({"GT_OPTIONAL_SECTION_REVIEW"}),
-                fallback="GT_PARTIAL_SUCCESS",
-            )
-            message = "Human review required for the partial GoldTier amendment."
-            self._record_target_outcome(
-                submission_input,
-                classification=GoldTierExecutionClassification.REVIEW_REQUIRED,
-                onboarding_state=WorkflowState.REVIEW_REQUIRED,
-                completed_operations=tuple(completed_operations),
-                party_id=party_id,
-                shell_status=shell_status,
-                policy_id=policy_id,
-                policy_status=policy_status,
-                amend_status=amend.status,
-                error_code=code,
-                error_message=message,
-            )
-            case.goldtier_result.amend_status = amend.status
-            self._record(
-                case,
-                WorkflowState.GT_ENRICHED,
-                EventOutcome.PARTIAL,
-                "GoldTier amendment completed partially.",
-                code,
-            )
-            return self._terminate(
-                case,
-                WorkflowState.REVIEW_REQUIRED,
-                EventOutcome.REVIEW_REQUIRED,
-                code,
-                message,
-            )
-        if amend.outcome != GoldTierOutcome.SUCCESS:
-            code = _project_target_error_code(
-                amend.error_code,
-                allowed=frozenset({"GT_AMEND_FAILED"}),
-                fallback="GT_OPERATION_FAILED",
-            )
-            message = _controlled_target_failure_message(code)
-            self._record_target_outcome(
-                submission_input,
-                classification=GoldTierExecutionClassification.FAILED,
-                onboarding_state=WorkflowState.FAILED,
-                completed_operations=tuple(completed_operations),
-                party_id=party_id,
-                shell_status=shell_status,
-                policy_id=policy_id,
-                policy_status=policy_status,
-                amend_status=amend.status,
-                error_code=code,
-                error_message=message,
-            )
-            case.goldtier_result.amend_status = amend.status
-            return self._goldtier_failure(case, code, message)
+            try:
+                amend = validate_amend_response(untrusted_amend, expected_party_id=party_id)
+            except InvalidTargetResponseError:
+                return self._malformed_target_response(
+                    case,
+                    submission_input,
+                    completed_operations=tuple(completed_operations),
+                )
+            if amend.outcome == GoldTierOutcome.PARTIAL_SUCCESS:
+                code = _project_target_error_code(
+                    amend.error_code,
+                    allowed=frozenset({"GT_OPTIONAL_SECTION_REVIEW"}),
+                    fallback="GT_PARTIAL_SUCCESS",
+                )
+                message = "Human review required for the partial GoldTier amendment."
+                self._record_target_outcome(
+                    submission_input,
+                    classification=GoldTierExecutionClassification.REVIEW_REQUIRED,
+                    onboarding_state=WorkflowState.REVIEW_REQUIRED,
+                    completed_operations=tuple(completed_operations),
+                    party_id=party_id,
+                    shell_status=shell_status,
+                    policy_id=policy_id,
+                    policy_status=policy_status,
+                    amend_status=amend.status,
+                    error_code=code,
+                    error_message=message,
+                )
+                case.goldtier_result.amend_status = amend.status
+                self._record(
+                    case,
+                    WorkflowState.GT_ENRICHED,
+                    EventOutcome.PARTIAL,
+                    "GoldTier amendment completed partially.",
+                    code,
+                )
+                return self._terminate(
+                    case,
+                    WorkflowState.REVIEW_REQUIRED,
+                    EventOutcome.REVIEW_REQUIRED,
+                    code,
+                    message,
+                )
+            if amend.outcome != GoldTierOutcome.SUCCESS:
+                code = _project_target_error_code(
+                    amend.error_code,
+                    allowed=frozenset({"GT_AMEND_FAILED"}),
+                    fallback="GT_OPERATION_FAILED",
+                )
+                message = _controlled_target_failure_message(code)
+                self._record_target_outcome(
+                    submission_input,
+                    classification=GoldTierExecutionClassification.FAILED,
+                    onboarding_state=WorkflowState.FAILED,
+                    completed_operations=tuple(completed_operations),
+                    party_id=party_id,
+                    shell_status=shell_status,
+                    policy_id=policy_id,
+                    policy_status=policy_status,
+                    amend_status=amend.status,
+                    error_code=code,
+                    error_message=message,
+                )
+                case.goldtier_result.amend_status = amend.status
+                return self._goldtier_failure(case, code, message)
+            amend_status = amend.status
         readback_party_id: str | None = None
         readback_status: str | None = None
         if submission_input.provider_mode == GoldTierProviderMode.SANDBOX:
@@ -3699,7 +3754,7 @@ class OnboardingService:
                     shell_status=shell_status,
                     policy_id=policy_id,
                     policy_status=policy_status,
-                    amend_status=amend.status,
+                    amend_status=amend_status,
                     error_code=code,
                     error_message=message,
                     infrastructure_failure=True,
@@ -3722,12 +3777,7 @@ class OnboardingService:
                     submission_input,
                     completed_operations=tuple(completed_operations),
                 )
-            verified = (
-                readback.outcome == GoldTierSearchOutcome.MATCH_FOUND
-                and len(readback.candidates) == 1
-                and readback.matched_party_id == party_id
-                and readback.candidates[0].party_id == party_id
-            )
+            verified = _readback_identity_matches(submission_input, readback, party_id)
             if not verified:
                 code = "GT_READBACK_IDENTITY_REVIEW_REQUIRED"
                 message = "GoldTier read-back did not prove the retained customer identity."
@@ -3740,11 +3790,11 @@ class OnboardingService:
                     shell_status=shell_status,
                     policy_id=policy_id,
                     policy_status=policy_status,
-                    amend_status=amend.status,
+                    amend_status=amend_status,
                     error_code=code,
                     error_message=message,
                 )
-                case.goldtier_result.amend_status = amend.status
+                case.goldtier_result.amend_status = amend_status
                 return self._terminate(
                     case,
                     WorkflowState.REVIEW_REQUIRED,
@@ -3765,18 +3815,18 @@ class OnboardingService:
             shell_status=shell_status,
             policy_id=policy_id,
             policy_status=policy_status,
-            amend_status=amend.status,
+            amend_status=amend_status,
             readback_party_id=readback_party_id,
             readback_status=readback_status,
         )
-        case.goldtier_result.amend_status = amend.status
+        case.goldtier_result.amend_status = amend_status
         case.goldtier_result.readback_party_id = readback_party_id
         case.goldtier_result.readback_status = readback_status
         self._record(
             case,
             WorkflowState.GT_ENRICHED,
             EventOutcome.SUCCEEDED,
-            "GoldTier party enriched.",
+            "GoldTier target submission completed.",
         )
         if complete_legacy_flow:
             self._record(

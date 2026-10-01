@@ -45,6 +45,7 @@ from app.domain.ownership import (
     SafePartyId,
     SafeRelationshipId,
 )
+from app.domain.reconciliation import ReconciliationCaseRecord
 
 MANUAL_OWNERSHIP_PROVIDER: Final[Literal["MANUAL_DECLARATION_POC"]] = "MANUAL_DECLARATION_POC"
 MANUAL_OWNERSHIP_SOURCE_TYPE: Final[Literal["USER_SUPPLIED_DECLARATION"]] = (
@@ -123,6 +124,12 @@ class ManualOwnershipCaseReader(Protocol):
 
 class ManualOwnershipDocumentReader(Protocol):
     def get(self, document_id: UUID) -> DocumentProcessingRecord | None: ...
+
+
+class ManualOwnershipReconciliationReader(Protocol):
+    def resolved_document_checkpoint(
+        self, *, case_id: UUID, document_id: UUID, event_count: int
+    ) -> ReconciliationCaseRecord | None: ...
 
 
 class ManualEconomicInterest(BaseModel):
@@ -213,11 +220,13 @@ class ManualOwnershipEvidenceProvider:
         reviewed_by_actor_id: SafeActorId,
         cases: ManualOwnershipCaseReader,
         documents: ManualOwnershipDocumentReader,
+        reconciliation: ManualOwnershipReconciliationReader | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._declaration = declaration
         self._cases = cases
         self._documents = documents
+        self._reconciliation = reconciliation
         self._clock = clock or (lambda: datetime.now(UTC))
         reviewed_at = self._clock()
         _require_utc(reviewed_at)
@@ -299,19 +308,30 @@ class ManualOwnershipEvidenceProvider:
                 "MANUAL_OWNERSHIP_DOCUMENT_STALE",
                 "The evidence document is no longer the reviewed current version.",
             )
-        if document.state != DocumentProcessingState.REVIEWED or document.reviewed_at is None:
+        completed_at = document.reviewed_at
+        if document.state != DocumentProcessingState.REVIEWED or completed_at is None:
+            checkpoint = (
+                self._reconciliation.resolved_document_checkpoint(
+                    case_id=declaration.case_id,
+                    document_id=document.document_id,
+                    event_count=declaration.evidence_document_version,
+                )
+                if self._reconciliation is not None else None
+            )
+            completed_at = checkpoint.updated_at if checkpoint is not None else None
+        if completed_at is None:
             _reject(
                 "MANUAL_OWNERSHIP_DOCUMENT_NOT_REVIEWED",
                 "The evidence document has not completed review.",
             )
-        if document.reviewed_at.tzinfo is None or document.reviewed_at.utcoffset() != UTC.utcoffset(
-            document.reviewed_at
+        if completed_at.tzinfo is None or completed_at.utcoffset() != UTC.utcoffset(
+            completed_at
         ):
             _reject(
                 "MANUAL_OWNERSHIP_DOCUMENT_DATE_INVALID",
                 "The evidence review date must be timezone-aware UTC.",
             )
-        if document.reviewed_at > now:
+        if completed_at > now:
             _reject(
                 "MANUAL_OWNERSHIP_FUTURE_DATE",
                 "The evidence review date cannot be in the future.",

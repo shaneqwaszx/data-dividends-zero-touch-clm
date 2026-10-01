@@ -133,8 +133,8 @@ export default function CaseQueue({
         <div>
           <h1>Cases</h1>
           <p className="text-muted">
-            Onboarding runs on its own. A case only needs a person when a stage cannot clear
-            itself.
+            All accessible workflow case history, including completed cases. Onboarded shows
+            the completed cases from this history. Multiple cases may represent one customer.
           </p>
         </div>
       </div>

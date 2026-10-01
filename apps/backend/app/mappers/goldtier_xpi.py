@@ -252,6 +252,12 @@ class GoldTierXpiRequestMapper:
             policy=policy.policy.value,
         )
 
+    def requires_amend(self, submission: GoldTierSubmissionInput) -> bool:
+        if submission.target_policy is None or not submission.target_policy.dispatch_ready:
+            return False
+        request = self.build_amend_request(submission, "PRE_DISPATCH_VALIDATION")
+        return request.anzsic is not None or request.group_company_name is not None
+
     def build_preview(self, submission: GoldTierSubmissionInput) -> GoldTierRequestPreview:
         self._validate_submission(submission)
         entity = submission.canonical_entity
@@ -315,18 +321,28 @@ class GoldTierXpiRequestMapper:
                 _optional_policy_field("productType", policy.product_type),
             ),
         )
-        amend = _operation(
-            "AMEND",
-            (
-                _derived_field("goldTierId", "BOUND_FROM_SEARCH_OR_SHELL"),
-                _policy_field("policy", policy.policy),
-            ),
+        amend_fields: tuple[GoldTierPreviewField, ...] = (
+            _derived_field("goldTierId", "BOUND_FROM_SEARCH_OR_SHELL"),
+            _policy_field("policy", policy.policy),
         )
+        if self.requires_amend(submission):
+            enrichment = self.build_amend_request(submission, "PRE_DISPATCH_VALIDATION")
+            for name, value in (
+                ("ANZSIC", enrichment.anzsic),
+                ("groupCompanyName", enrichment.group_company_name),
+            ):
+                if value is not None:
+                    amend_fields += (_derived_field(name, value),)
+        amend = _operation("AMEND", amend_fields)
         readback = _operation(
             "READBACK",
             (_derived_field("goldTierID", "BOUND_FROM_SEARCH_OR_SHELL"),),
         )
-        operations = (search, shell, policy_operation, amend, readback)
+        operations = (
+            (search, shell, policy_operation, amend, readback)
+            if self.requires_amend(submission)
+            else (search, shell, policy_operation, readback)
+        )
         return GoldTierRequestPreview(
             environment="SANDBOX",
             policy_version=submission.policy_catalogue_version,

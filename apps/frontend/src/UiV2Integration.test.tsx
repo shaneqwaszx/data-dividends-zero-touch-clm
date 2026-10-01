@@ -569,6 +569,26 @@ describe("UI v2 backend integration adapters", () => {
     expect(markup).toContain("Backend-authorized actions");
   });
 
+  it("shows the confirmation next step without inventing an unavailable action", () => {
+    const summary = {
+      ...makePanelSummary("MATCH"),
+      interventions: [{
+        intervention_id: "confirmation-1", owning_stage: "READINESS",
+        owning_stage_label: "Readiness", title: "Confirm frozen target submission",
+        blocker_code: "TARGET_CONFIRMATION_REQUIRED", explanation: "Confirmation required.",
+        required_evidence_or_input: ["Review frozen destination and digest."],
+        authorized_actions: [], no_action_reason: null,
+        expected_next_step: "Use the confirmation control in Review and Send.",
+        candidate_summaries: [],
+      }],
+    } as unknown as ZeroTouchCaseSummary;
+    const markup = renderToStaticMarkup(
+      <HumanInterventionPanel summary={summary} isBusy={false} onResolve={() => undefined} />,
+    );
+    expect(markup).toContain("Review and Send");
+    expect(markup).not.toContain("No action available");
+  });
+
   it("renders the prominent new-case action with a stable accessible name", () => {
     const markup = renderToStaticMarkup(
       <HomeOnboarding

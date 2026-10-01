@@ -185,6 +185,9 @@ def run(*, timeout_seconds: float) -> int:
     if counts["passed"] == 0:
         print(f"PHYSICAL_MONGO_RESULT=BLOCKED; REASON=ALL_SKIPPED; {summary}")
         return 2
+    if counts["skipped"]:
+        print(f"PHYSICAL_MONGO_RESULT=BLOCKED; REASON=REQUIRED_TESTS_SKIPPED; {summary}")
+        return 2
     print(f"PHYSICAL_MONGO_RESULT=PASSED; SUITES={len(PHYSICAL_SUITES)}; {summary}")
     return 0
 

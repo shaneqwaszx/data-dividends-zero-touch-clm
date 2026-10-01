@@ -3,7 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { confirmZeroTouchTargetDispatch } from "../api";
-import { caseQueryKeys, targetConfirmationMutationEffect } from "../caseQueries";
+import { caseQueryKeys, caseSummaryMutationEffect, targetConfirmationMutationEffect } from "../caseQueries";
 import type { AuthenticatedProfile, BlockerDecisionRecord, ZeroTouchCaseSummary } from "../types";
 import ReviewAndSend from "./ReviewAndSend";
 
@@ -343,7 +343,10 @@ describe("ReviewAndSend", () => {
     ];
     const markup = render(summary);
     expect(markup.match(/Document extraction uses the current POC parser/g)).toHaveLength(1);
-    expect(markup.match(/Ownership threshold remains provisional for this POC/g)).toHaveLength(1);
+    expect(markup.match(/Check the configured ownership threshold/g)).toHaveLength(1);
+    expect(markup).toContain("aggregated ownership at or above 25%");
+    expect(markup).toContain("an older assessment or a different configured threshold");
+    expect(markup).not.toContain("still requires human approval");
     expect(markup.match(/Related-party submission is not included/g)).toHaveLength(1);
     expect(markup).not.toContain("Continue with warning</strong>");
     expect(markup).toContain("IDP_PROFILE_PROVISIONAL, UBO_POLICY_NOT_SPONSOR_CONFIRMED, RELATED_PARTY_MAPPING_PENDING");
@@ -371,14 +374,43 @@ describe("confirmZeroTouchTargetDispatch", () => {
 });
 
 describe("targetConfirmationMutationEffect", () => {
-  it("publishes the case and invalidates only the confirming user's scopes", () => {
+  it("prevents an in-flight older detail GET from overwriting confirmed completion", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const older = summaryFixture();
+    const completed = { ...older, status: "COMPLETED" as const, version: older.version + 1 };
+    let resolve!: (value: typeof older) => void;
+    let signal!: AbortSignal;
+    const pending = new Promise<typeof older>((done) => { resolve = done; });
+    const inflight = client.fetchQuery({
+      queryKey: caseQueryKeys.detail("case-user", "case-1"),
+      queryFn: (context) => { signal = context.signal; return pending; },
+    }).catch(() => undefined);
+    await targetConfirmationMutationEffect(client, "case-user", completed);
+    resolve(older);
+    await inflight;
+    expect(client.getQueryData(caseQueryKeys.detail("case-user", "case-1"))).toEqual(completed);
+    expect(signal.aborted).toBe(true);
+    client.clear();
+  });
+
+  it("rejects an older independently polled summary after confirmed completion", () => {
+    const client = new QueryClient();
+    const older = summaryFixture();
+    const completed = { ...older, status: "COMPLETED" as const, version: older.version + 1 };
+    client.setQueryData(caseQueryKeys.detail("case-user", "case-1"), completed);
+    caseSummaryMutationEffect(client, "case-user", older);
+    expect(client.getQueryData(caseQueryKeys.detail("case-user", "case-1"))).toEqual(completed);
+    client.clear();
+  });
+
+  it("publishes the case and invalidates only the confirming user's scopes", async () => {
     const client = new QueryClient();
     const summary = summaryFixture();
     client.setQueryData(caseQueryKeys.detail("other-user", "case-1"), { marker: "untouched" });
     const invalidate = vi.spyOn(client, "invalidateQueries");
     const remove = vi.spyOn(client, "removeQueries");
 
-    targetConfirmationMutationEffect(client, "case-user", summary);
+    await targetConfirmationMutationEffect(client, "case-user", summary);
 
     expect(client.getQueryData(caseQueryKeys.detail("case-user", "case-1"))).toBe(summary);
     expect(client.getQueryData(caseQueryKeys.detail("other-user", "case-1"))).toEqual({ marker: "untouched" });

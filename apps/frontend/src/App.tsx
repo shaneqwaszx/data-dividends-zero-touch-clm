@@ -355,7 +355,9 @@ function blockerExplanation(blockerCode: string): string {
 
 export function SimulationBanner({ profile }: { profile: SimulationProfile | null }) {
   const sourceLabel = profile
-    ? profile.registry_provider_mode === "API_MARKETPLACE_MOCK"
+    ? profile.registry_provider_mode === "API_MARKETPLACE_PROTOCOL_TEST"
+      ? "ACRA Marketplace protocol · synthetic offline test evidence"
+      : profile.registry_provider_mode === "API_MARKETPLACE_MOCK"
       ? "ACRA API Marketplace Mock"
       : profile.registry_provider_mode === "LOCAL_MOCK"
         ? "ACRA Local Mock"
@@ -1822,6 +1824,7 @@ export default function App({
   const locationPathname = useRef(location.pathname);
   locationPathname.current = location.pathname;
   const resolutionActive = useRef(false);
+  const intakePending = useRef<LiveIntakeOperation | null>(null);
   const intakeCaseRef = useRef<LiveIntakeOperation | null>(null);
   const successfulIntakeFilesRef = useRef(new Set<string>());
   const failedIntakeDocumentsRef = useRef(new Map<string, string>());
@@ -1832,6 +1835,7 @@ export default function App({
       mounted.current = false;
       journeyGeneration.current += 1;
       resolutionActive.current = false;
+      intakePending.current = null;
       intakeCaseRef.current = null;
       successfulIntakeFilesRef.current.clear();
       failedIntakeDocumentsRef.current.clear();
@@ -1843,6 +1847,7 @@ export default function App({
     actorUserId.current = actor.user_id;
     journeyGeneration.current += 1;
     resolutionActive.current = false;
+    intakePending.current = null;
     intakeCaseRef.current = null;
     successfulIntakeFilesRef.current.clear();
     failedIntakeDocumentsRef.current.clear();
@@ -1901,7 +1906,7 @@ export default function App({
   }, [actor.user_id, isSubmitting, queryClient, summary?.case.case_id, summary?.status, summary?.version]);
 
   async function beginJourney(demoScenario?: ZeroTouchDemoScenario) {
-    if (resolutionActive.current) return;
+    if (resolutionActive.current || intakePending.current) return;
     if (actor.role === "DIRECTOR" && !directorTeamId) {
       setRequestError("Select a team before creating the case.");
       return;
@@ -1918,6 +1923,7 @@ export default function App({
       files: [...documentFiles],
     };
     intakeCaseRef.current = operation;
+    intakePending.current = operation;
     setIsSubmitting(true);
     setRequestError(null);
     setIntakeProgress(operation.caseId ? "Retrying retained intake…" : "Creating case…");
@@ -2024,6 +2030,7 @@ export default function App({
         intakeCaseRef.current = null;
       }
     } finally {
+      if (intakePending.current === operation) intakePending.current = null;
       if (isCurrentIntakeOperation(operation)) setIsSubmitting(false);
     }
   }
@@ -2156,6 +2163,7 @@ export default function App({
   function handleStartNewCase() {
     journeyGeneration.current += 1;
     resolutionActive.current = false;
+    intakePending.current = null;
     resetNewCasePresentation({
       clearSummary: () => setSummary(null),
       clearRetainedSummary: () => setRetainedCreatedSummary(null),

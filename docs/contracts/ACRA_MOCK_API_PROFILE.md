@@ -188,8 +188,9 @@ Project connector method: `fetch_ownership_parties(uen)`.
 
 For the normal ownership-bearing SME fixtures, an empty collection means expected
 registry evidence is missing. Transport success is therefore displayed as `EMPTY`, but
-the bundle is `PARTIAL / REGISTRY_EXPECTED_DATA_MISSING` and onboarding stops for
-review. No sponsor rule is inferred to fill or waive the missing ownership evidence.
+the bundle is `PARTIAL / REGISTRY_EXPECTED_DATA_MISSING`. Canonical identity validation
+may complete independently; the ownership stage retains the missing-evidence review.
+No sponsor rule is inferred to fill or waive the missing ownership evidence.
 
 ## Operation 4 — `GET_RELATIONSHIPS`
 
@@ -237,13 +238,16 @@ The normalized bundle contains the canonical entity profile, bounded officer/par
 relationship collections, exactly four ordered operation results, a UTC retrieval time,
 and safe issues. It contains no UBO candidate or threshold result.
 
-Operation status is one of `COMPLETE`, `EMPTY`, `FAILED`, or `NOT_ATTEMPTED`. Bundle
+Operation status is one of `COMPLETE`, `EMPTY`, `UNSUPPORTED`, `FAILED`, or
+`NOT_ATTEMPTED`. `UNSUPPORTED` has zero records and no result provenance or error;
+it cannot claim an observed empty provider response. The official Marketplace Mock
+relationship operation is unsupported and makes no network call. Bundle
 status is:
 
 | Status | Meaning | Workflow result |
 |---|---|---|
 | `COMPLETE` | Every attempted operation validated; optional officers may be empty; required ownership evidence exists | Continue to document and ownership stages |
-| `PARTIAL` | Transport succeeded but expected ownership parties or relationships are missing | `REVIEW_REQUIRED / REGISTRY_EXPECTED_DATA_MISSING` |
+| `PARTIAL` | Expected ownership parties or relationships are empty or unsupported | Validate canonical identity; ownership review remains required |
 | `FAILED` | A later operation timed out, was unavailable, or returned malformed/inconsistent data | Sanitized technical `FAILED`; no downstream call |
 
 ### Aggregate integrity rules
@@ -262,13 +266,13 @@ fields agree.
   with non-empty evidence. Officers may be `COMPLETE` or `EMPTY`. No issue or
   `NOT_ATTEMPTED` result is permitted.
 - `PARTIAL` is reserved for expected missing ownership evidence. It has no `FAILED` or
-  `NOT_ATTEMPTED` operation, at least one ownership operation is `EMPTY`, and its sole
+  `NOT_ATTEMPTED` operation, at least one ownership operation is `EMPTY` or `UNSUPPORTED`, and its sole
   issue is `REGISTRY_EXPECTED_DATA_MISSING`.
 - `FAILED` has exactly one technical `FAILED` operation. Earlier operations form a
   valid complete/empty prefix; every later operation is `NOT_ATTEMPTED`; the sole
   bundle issue equals the failed operation's safe error.
-- Operation counts equal the corresponding collection lengths. `EMPTY`, `FAILED`, and
-  `NOT_ATTEMPTED` operations retain zero records. A record's provider, environment,
+- Operation counts equal the corresponding collection lengths. `EMPTY`, `UNSUPPORTED`,
+  `FAILED`, and `NOT_ATTEMPTED` operations retain zero records. A record's provider, environment,
   operation, retrieval time, and evidence reference must equal its operation-result
   provenance.
 - Officer, ownership-party, and relationship identifiers are unique within their

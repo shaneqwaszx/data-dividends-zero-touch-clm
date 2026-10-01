@@ -27,6 +27,7 @@ from app.connectors.errors import (
     AcraAuthenticationError,
     AcraConfigurationError,
     AcraMalformedResponseError,
+    AcraOperationUnsupportedError,
     AcraServiceUnavailableError,
     AcraTimeoutError,
     AcraUnexpectedConnectorError,
@@ -209,15 +210,6 @@ class AcraApiMarketplaceMockConnector:
             raise AcraMalformedResponseError from None
 
     def fetch_relationships(self, uen: str) -> AcraRelationshipsPayload:
-        """Return explicit absence; no provider relationship contract is evidenced."""
+        """Stop without dispatch or invented evidence: the contract is unsupported."""
 
-        normalized = uen.strip().upper()
-        return AcraRelationshipsPayload(
-            uen=normalized,
-            relationships=(),
-            source_environment="MOCK",
-            source_endpoint=_query_free_provenance(
-                self._connection.shareholders_endpoint(normalized)
-            ),
-            retrieved_at=self._clock(),
-        )
+        raise AcraOperationUnsupportedError

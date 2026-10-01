@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import subprocess
 from datetime import date, timedelta
@@ -93,7 +94,7 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         encoding="utf-8",
         errors="replace",
         shell=False,
-        env={"GIT_OPTIONAL_LOCKS": "0"},
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
     )
 
 

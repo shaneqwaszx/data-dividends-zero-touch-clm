@@ -660,18 +660,20 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
             UBO_POLICY_ID,
             "Ownership",
             "UBO threshold percent",
-            "Provisional inclusive ownership candidate threshold.",
+            "Sponsor-confirmed default aggregated ownership >=25% threshold (D-062); "
+            "legal/control and production policy remain unresolved.",
             "25.000000",
             "0",
             "100",
+            classifications=(project, derived),
         ),
         fixed(
             "OWNERSHIP_UBO_COMPARATOR",
             "Ownership",
             "UBO comparator",
-            "Fixed inclusive comparison used by deterministic ownership analysis.",
+            "Sponsor-confirmed inclusive comparator (D-062) for the bounded POC threshold.",
             StringPolicyValue(value="GREATER_THAN_OR_EQUAL_TO"),
-            (derived, pending),
+            (derived,),
             ("GREATER_THAN_OR_EQUAL_TO",),
         ),
         fixed(

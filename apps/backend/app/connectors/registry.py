@@ -16,6 +16,7 @@ from app.connectors.acra import (
 from app.connectors.errors import (
     AcraMalformedResponseError,
     AcraMappingError,
+    AcraOperationUnsupportedError,
     AcraResponseIdentityMismatchError,
     AcraResponseInvalidError,
     AcraTimeoutError,
@@ -299,6 +300,12 @@ class AcraRegistryProviderAdapter:
                 ),
                 record_count=len(records),
                 provenance=provenance,
+            )
+        except AcraOperationUnsupportedError:
+            return (), RegistryOperationResult(
+                operation=operation,
+                status=RegistryOperationStatus.UNSUPPORTED,
+                record_count=0,
             )
         except ConnectorError as exc:
             code, message = _operation_error(exc)

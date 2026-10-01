@@ -9,7 +9,6 @@ from hashlib import sha256
 from uuid import UUID, uuid4
 
 from app.domain.documents import (
-    DocumentEventType,
     DocumentFieldKey,
     DocumentProcessingRecord,
     FieldReviewStatus,
@@ -338,6 +337,24 @@ class ReconciliationService:
             for item in record.fields
         )
 
+    def resolved_document_checkpoint(
+        self, *, case_id: UUID, document_id: UUID, event_count: int
+    ) -> ReconciliationCaseRecord | None:
+        """Read an exact resolved checkpoint without changing source review evidence."""
+        record = self.get(case_id=case_id)
+        if (
+            record is None
+            or record.case_id != case_id
+            or record.status != ReconciliationStatus.RESOLVED
+            or (document_id, event_count)
+            not in tuple(
+                zip(record.source_document_ids, record.source_document_event_counts, strict=True)
+            )
+            or not self.is_currently_cleared(case_id=case_id)
+        ):
+            return None
+        return record
+
     def _current_evidence(
         self, case_id: UUID
     ) -> tuple[OnboardingCase, list[DocumentProcessingRecord]]:
@@ -345,10 +362,7 @@ class ReconciliationService:
         if (
             case is None
             or case.entity is None
-            or (
-                case.registry_acquisition is None
-                and case.existing_target_state is None
-            )
+            or (case.registry_acquisition is None and case.existing_target_state is None)
         ):
             raise ReconciliationRequestError(
                 code="RECONCILIATION_CASE_NOT_READY",
@@ -504,20 +518,6 @@ class ReconciliationService:
                 validity=registry_validity,
             )
         )
-        human_review_started = any(
-            event.event_type
-            in {
-                DocumentEventType.DOCUMENT_FIELD_ACCEPTED,
-                DocumentEventType.DOCUMENT_FIELD_REJECTED,
-                DocumentEventType.DOCUMENT_FIELD_CORRECTED,
-            }
-            for document in documents
-            for event in document.events
-        ) and any(
-            field.review_status == FieldReviewStatus.PENDING
-            for document in documents
-            for field in document.fields
-        )
         for document in documents:
             field = next(item for item in document.fields if item.field_key == document_key)
             unavailable = field.provenance.source_reference == "DOCUMENT_TEXT_UNAVAILABLE"
@@ -559,10 +559,6 @@ class ReconciliationService:
                     observed_at = field.reviewed_at or document.updated_at
                     evidence_reference = "DOCUMENT_REVIEW_CORRECTION"
                     confidence = None
-            elif field.review_status == FieldReviewStatus.PENDING and human_review_started:
-                if original_validity == ObservationValidity.VALID:
-                    validity = ObservationValidity.UNVERIFIABLE
-                    evidence_reference = "DOCUMENT_REVIEW_PENDING"
             observations.append(
                 ReconciliationObservation(
                     observation_id=self._uuid_factory(),

@@ -42,6 +42,13 @@ class AcraAuthenticationError(ConnectorError):
     public_message = "The ACRA registry request could not be authorized."
 
 
+class AcraOperationUnsupportedError(ConnectorError):
+    """The configured connector has no contract for this operation; no call occurred."""
+
+    code = "ACRA_OPERATION_UNSUPPORTED"
+    public_message = "The configured ACRA connector does not support this operation."
+
+
 class AcraTimeoutError(ConnectorError):
     """ACRA did not respond inside the configured timeout."""
 

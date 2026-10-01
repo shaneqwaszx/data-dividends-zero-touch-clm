@@ -26,6 +26,23 @@ SPEC.loader.exec_module(CHECK)
 
 
 class ProjectStateCheckerTests(unittest.TestCase):
+    def test_git_retains_process_configuration_without_writing_git_config(self) -> None:
+        temporary, root = self._fixture()
+        try:
+            with patch.dict(
+                os.environ,
+                {
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "closeout.environment",
+                    "GIT_CONFIG_VALUE_0": "inherited",
+                },
+            ):
+                result = CHECK._git(root, "config", "--get", "closeout.environment")
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout.strip(), "inherited")
+        finally:
+            temporary.cleanup()
+
     def _git(self, root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["git", *args],

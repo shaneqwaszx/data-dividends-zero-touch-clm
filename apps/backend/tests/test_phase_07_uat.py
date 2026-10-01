@@ -123,7 +123,7 @@ def test_multiple_ownership_paths_complete_with_server_authored_candidate_summar
     result = _start(client, "MULTIPLE_OWNERSHIP_PATHS")
 
     assert result["status"] == "COMPLETED"
-    assert result["metrics"]["human_interventions"] == 1
+    assert result["metrics"]["human_interventions"] == 0
     assert result["clm"]["related_party_preparation"]["provisional_candidate_count"] == 1
     evidence = client.get(
         f"/api/demo/clm/zero-touch/cases/{result['case']['case_id']}/uat-evidence"
@@ -159,7 +159,7 @@ def test_uat_evidence_is_whitelisted_and_demo_gated() -> None:
     assert response.status_code == 200
     evidence = response.json()
     assert evidence["uat_case_id"] == "UAT-01"
-    assert evidence["human_interventions"] == 1
+    assert evidence["human_interventions"] == 0
     serialized = json.dumps(evidence).lower()
     for prohibited in (
         "pdf-1.4",

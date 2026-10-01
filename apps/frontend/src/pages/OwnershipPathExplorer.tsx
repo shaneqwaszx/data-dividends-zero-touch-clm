@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import type { OwnershipAnalysisRecord, OwnershipPath } from "../types";
+import type { OwnershipAnalysisRecord, OwnershipPath, RegistryAcquisition } from "../types";
 
 const PAGE_SIZE = 20;
 const VISUAL_EDGE_LIMIT = 11;
@@ -21,7 +21,7 @@ function EdgeList({ edges }: { edges: OwnershipPath["edges"] }) {
   ));
 }
 
-export default function OwnershipPathExplorer({ record }: { record: OwnershipAnalysisRecord | null }) {
+export default function OwnershipPathExplorer({ record, acquisition }: { record: OwnershipAnalysisRecord | null; acquisition?: RegistryAcquisition | null }) {
   const [candidateId, setCandidateId] = useState<string | null>(null);
   const [pathId, setPathId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
@@ -68,6 +68,9 @@ export default function OwnershipPathExplorer({ record }: { record: OwnershipAna
     [candidate, page],
   );
   const visual = path ? visualEdges(path) : null;
+  const registryEmpty = acquisition?.operation_results.some((result) => result.operation === "OWNERSHIP_PARTIES" && result.status === "EMPTY")
+    && record?.provider_name === "ACRA_REGISTRY_ACQUISITION" && record.state === "REVIEW_REQUIRED" && !record.error;
+  const clientSupplied = record?.provider_name === "MANUAL_DECLARATION_POC" && record.provider_environment === "LOCAL";
 
   if (!record) {
     return <section className="evidence-section-block"><h4>Ownership path explorer</h4><p className="text-muted">Ownership analysis is not available.</p></section>;
@@ -79,6 +82,29 @@ export default function OwnershipPathExplorer({ record }: { record: OwnershipAna
       <h4 id="ownership-path-heading">Ownership path explorer</h4>
       <div className="kv-row"><span className="kv-label">Analysis state</span><span className="kv-value">{record.state}</span></div>
       <div className="kv-row"><span className="kv-label">Threshold</span><span className="kv-value">{record.threshold_comparator} {record.threshold_percent}</span></div>
+      <p className="control-help">Source: {record.provider_name ?? "not available"} · {record.provider_environment ?? "not available"}</p>
+      {clientSupplied && <p className="control-help">Client-supplied ownership evidence · LOCAL · not ACRA-derived. This declaration is retained for local analysis, not independently verified ownership.</p>}
+      {registryEmpty && <div className="ds-banner ds-banner-warn" role="note">
+        <strong>Ownership information required</strong>
+        <span>Ownership is unavailable from current registry evidence. Use Add structured ownership details or Upload ownership evidence to provide reviewed client evidence for UBO analysis.</span>
+      </div>}
+      {record.relationships.length > 0 && <div className="table-scroll">
+        <table aria-label="Retained ownership details">
+          <caption>Retained ownership parties and direct interests</caption>
+          <thead><tr><th>Owned entity</th><th>Owner</th><th>Identifier</th><th>Direct ownership</th><th>Source</th></tr></thead>
+          <tbody>{record.relationships.map((relationship) => {
+            const party = record.parties.find((item) => item.party_id === relationship.child_party_id);
+            const ownedEntity = record.parties.find((item) => item.party_id === relationship.parent_party_id);
+            return <tr key={relationship.relationship_id}>
+              <td>{ownedEntity?.display_name ?? relationship.parent_party_id}</td>
+              <td>{party?.display_name ?? relationship.child_party_id}</td>
+              <td>{party?.registration_number ?? "Not supplied"}</td>
+              <td>{relationship.ownership_percent}%</td>
+              <td>{relationship.provenance.provider} · {relationship.provenance.environment}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>}
 
       {partialIssues.length > 0 && (
         <div className="ds-banner ds-banner-warn" role="note">

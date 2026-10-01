@@ -406,6 +406,7 @@ def run(
     grep: str | None = None,
     selection: str | None = None,
     diagnostics: bool = False,
+    garden_protocol: bool = False,
 ) -> int:
     if grep is not None and selection is not None:
         raise ValueError("grep and exact test selection are mutually exclusive")
@@ -431,6 +432,7 @@ def run(
         "CLM_E2E_BACKEND_PORT": str(backend_port),
         "CLM_E2E_FRONTEND_ORIGIN": frontend_origin,
         **({"CLM_E2E_DIAGNOSTICS": "1"} if diagnostics else {}),
+        **({"CLM_E2E_GARDEN_PROTOCOL": "1"} if garden_protocol else {}),
     }
     frontend_environment = {
         **common,
@@ -587,6 +589,7 @@ def run_isolated_suite(
             grep=None,
             selection=selection,
             diagnostics=diagnostics,
+            garden_protocol=selection.startswith("e2e/garden-happy-path.e2e.ts:"),
         )
         if result != 0:
             print(
@@ -613,6 +616,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--headed", action="store_true")
     parser.add_argument(
+        "--garden-protocol", action="store_true",
+        help="Use strict offline synthetic ACRA protocol evidence for focused Garden tests.",
+    )
+    parser.add_argument(
         "--diagnostics",
         action="store_true",
         help="Emit payload-free E2E upload boundary milestones.",
@@ -623,6 +630,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--timeout-seconds", type=float, default=240.0)
     args = parser.parse_args(argv)
+    if args.garden_protocol and not args.grep:
+        parser.error("--garden-protocol requires a focused --grep selection")
     if not 30 <= args.timeout_seconds <= 900:
         parser.error("--timeout-seconds must be between 30 and 900")
     if args.grep:
@@ -633,6 +642,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             headed=args.headed,
             grep=args.grep,
             diagnostics=args.diagnostics,
+            garden_protocol=args.garden_protocol,
         )
     return run_isolated_suite(
         backend_port=args.backend_port,

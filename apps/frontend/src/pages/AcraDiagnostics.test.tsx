@@ -136,6 +136,25 @@ describe("ACRA diagnostics access and query ownership", () => {
 });
 
 describe("AcraDiagnostics", () => {
+  it("explains marketplace authentication and provides collapsed keyboard-accessible help without a lookup", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ...status,
+      configuration: { ...status.configuration, provider: "ACRA_API_MARKETPLACE_MOCK", mode: "api_marketplace_mock", classification: "MOCK" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const { view } = mount(fetchMock);
+    await waitFor(() => expect(view.textContent).toContain("Not applicable for API Marketplace Mock"));
+    expect(view.textContent).toContain("unsupported does not mean empty");
+    const help = view.querySelector("details")!;
+    expect(help.open).toBe(false);
+    const summary = help.querySelector("summary")!;
+    expect(summary.textContent).toBe("What this tab does");
+    summary.focus();
+    expect(document.activeElement).toBe(summary);
+    act(() => summary.click());
+    expect(help.open).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("separates configuration, connectivity, completeness, and prefills samples without submitting", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).endsWith("/api/admin/acra/status")) return new Response(JSON.stringify(status), { status: 200, headers: { "Content-Type": "application/json" } });
