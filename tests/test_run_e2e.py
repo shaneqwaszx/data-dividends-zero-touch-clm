@@ -7,10 +7,10 @@ import socket
 import subprocess
 import sys
 import unittest
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar, cast
 from unittest.mock import MagicMock, call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,11 +43,11 @@ class _FakeOwnedProcess:
     events: ClassVar[list[str]] = []
     output = ""
 
-    def __init__(self, name: str, command: Sequence[str], *, cwd: Path, env: object) -> None:
+    def __init__(self, name: str, command: Sequence[str], *, cwd: Path, env: Mapping[str, str]) -> None:
         del cwd
         self.name = name
         self.command = list(command)
-        self.env = dict(env)  # type: ignore[arg-type]
+        self.env = dict(env)
         self.process = _FakePopen()
         self.capture = _FakeCapture(self.output)
         self.stopped = False
@@ -92,7 +92,7 @@ class RunE2ETests(unittest.TestCase):
         self.assertIn("[REDACTED_URI]", sanitized)
         self.assertIn("\\u279c", RUN_E2E._sanitize("\u279c"))
 
-    def _browser_policy_probe(self) -> dict[str, object]:
+    def _browser_policy_probe(self) -> dict[str, Any]:
         script = r"""
 const policyModule = await import('./apps/frontend/playwright.config.ts');
 const frontend = 'http://127.0.0.1:4273';
@@ -172,15 +172,15 @@ console.log(JSON.stringify({
             timeout=30,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        return json.loads(completed.stdout)
+        return cast(dict[str, Any], json.loads(completed.stdout))
 
     def test_browser_policy_allows_only_owned_loopback_surfaces(self) -> None:
         result = self._browser_policy_probe()
-        self.assertEqual(result["frontend"]["action"], "continue")  # type: ignore[index]
-        self.assertEqual(result["frontend"].get("classification"), "OWNED_LOOPBACK")  # type: ignore[union-attr]
-        self.assertEqual(result["localhostEquivalent"]["action"], "continue")  # type: ignore[index]
-        self.assertEqual(result["backendWhenProxied"]["action"], "abort")  # type: ignore[index]
-        self.assertEqual(result["backendWhenDirect"]["action"], "continue")  # type: ignore[index]
+        self.assertEqual(result["frontend"]["action"], "continue")
+        self.assertEqual(result["frontend"].get("classification"), "OWNED_LOOPBACK")
+        self.assertEqual(result["localhostEquivalent"]["action"], "continue")
+        self.assertEqual(result["backendWhenProxied"]["action"], "abort")
+        self.assertEqual(result["backendWhenDirect"]["action"], "continue")
 
     def test_browser_policy_fails_closed_for_unowned_requests(self) -> None:
         result = self._browser_policy_probe()
@@ -196,12 +196,12 @@ console.log(JSON.stringify({
             "fontBinary",
         ):
             with self.subTest(name=name):
-                self.assertEqual(result[name]["action"], "abort")  # type: ignore[index]
+                self.assertEqual(result[name]["action"], "abort")
 
     def test_exact_baseline_font_stylesheet_is_fulfilled_locally_once(self) -> None:
         result = self._browser_policy_probe()
-        self.assertEqual(result["fontExact"].get("classification"), "KNOWN_NEUTRALIZED_FONT_STYLESHEET")  # type: ignore[union-attr]
-        self.assertEqual(result["fontExact"]["action"], "fulfill")  # type: ignore[index]
+        self.assertEqual(result["fontExact"].get("classification"), "KNOWN_NEUTRALIZED_FONT_STYLESHEET")
+        self.assertEqual(result["fontExact"]["action"], "fulfill")
         self.assertEqual(
             result["fontRouteCalls"],
             [
@@ -380,19 +380,21 @@ console.log(JSON.stringify({
             )
         rendered = output.getvalue()
         self.assertEqual(result, 1)
+        self.assertIn("ASSERTION_FAILURE", rendered)
         self.assertNotIn(secret, rendered)
         self.assertNotIn("user:pass", rendered)
         self.assertEqual(len(_FakeOwnedProcess.instances), 3)
         self.assertTrue(all(process.stopped for process in _FakeOwnedProcess.instances))
 
     def test_readiness_failure_stops_only_started_processes(self) -> None:
+        output = io.StringIO()
         with (
             patch.object(RUN_E2E.Path, "is_file", return_value=True),
             patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
             patch.object(RUN_E2E, "_find_node", return_value="node"),
             patch.object(RUN_E2E, "_assert_ports_available"),
             patch.object(RUN_E2E, "_wait_for_http", side_effect=TimeoutError("timeout")),
-            redirect_stderr(io.StringIO()),
+            redirect_stderr(output),
         ):
             result = RUN_E2E.run(
                 backend_port=8765,
@@ -402,6 +404,7 @@ console.log(JSON.stringify({
         self.assertEqual(result, 1)
         self.assertEqual(len(_FakeOwnedProcess.instances), 1)
         self.assertTrue(_FakeOwnedProcess.instances[0].stopped)
+        self.assertIn("READINESS_FAILURE", output.getvalue())
 
     def test_frontend_startup_failure_stops_backend_and_frontend(self) -> None:
         with (
@@ -559,6 +562,7 @@ console.log(JSON.stringify({
             StopFailingProcess.events,
             ["stop:playwright", "stop:frontend", "stop:backend"],
         )
+        self.assertIn("CLEANUP_FAILURE", output.getvalue())
         self.assertIn("task-owned frontend process still running", output.getvalue())
 
     def test_occupied_later_lifecycle_port_fails_before_startup(self) -> None:
@@ -688,6 +692,32 @@ console.log(JSON.stringify({
             ["taskkill", "/PID", "54321", "/T", "/F"],
         )
 
+    def test_successful_selectors_keep_their_lifecycle_budget_past_240_seconds(self) -> None:
+        selectors = [f"e2e/valid.e2e.ts:{index}" for index in range(1, 27)]
+        clock = [0.0]
+
+        def complete_selector(**kwargs: object) -> int:
+            clock[0] += 10.0
+            return 0
+
+        with (
+            patch.object(RUN_E2E, "_list_test_selectors", return_value=selectors),
+            patch.object(RUN_E2E, "_allocate_lifecycle_ports", return_value=[(8765, 4173)] * 26),
+            patch.object(RUN_E2E.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(RUN_E2E, "run", side_effect=complete_selector) as run,
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()),
+        ):
+            result = RUN_E2E.run_isolated_suite(
+                backend_port=8765, frontend_port=4173,
+                timeout_seconds=240, headed=False,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual([c.kwargs["selection"] for c in run.call_args_list], selectors)
+        self.assertEqual([c.kwargs["timeout_seconds"] for c in run.call_args_list], [240] * 26)
+        self.assertEqual(clock[0], 260)
+
     def test_unfiltered_suite_stops_after_the_first_failed_isolated_test(self) -> None:
         selectors = ["e2e/one.e2e.ts:10", "e2e/two.e2e.ts:20"]
         with (
@@ -706,6 +736,7 @@ console.log(JSON.stringify({
         self.assertEqual(run.call_count, 1)
 
     def test_test_timeout_stops_every_process(self) -> None:
+        output = io.StringIO()
         with (
             patch.object(RUN_E2E.Path, "is_file", return_value=True),
             patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
@@ -713,7 +744,7 @@ console.log(JSON.stringify({
             patch.object(RUN_E2E, "_assert_ports_available"),
             patch.object(RUN_E2E, "_wait_for_http"),
             patch.object(RUN_E2E, "_wait_for_test", side_effect=TimeoutError("timeout")),
-            redirect_stderr(io.StringIO()),
+            redirect_stderr(output),
         ):
             result = RUN_E2E.run(
                 backend_port=8765,
@@ -722,6 +753,7 @@ console.log(JSON.stringify({
             )
         self.assertEqual(result, 1)
         self.assertTrue(all(process.stopped for process in _FakeOwnedProcess.instances))
+        self.assertIn("INDIVIDUAL_SELECTION_TIMEOUT", output.getvalue())
 
     def test_interruption_stops_every_process(self) -> None:
         with (
@@ -748,7 +780,7 @@ console.log(JSON.stringify({
             {"ok": True, "file": "zero-touch-exception.e2e.ts", "line": 145, "tags": ["garden-protocol"]},
         ]}]}
         def discovery(port: int, *, garden_selectors: set[str]) -> list[str]:
-            return RUN_E2E._selectors_from_listing(payload, garden_selectors=garden_selectors)
+            return cast(list[str], RUN_E2E._selectors_from_listing(payload, garden_selectors=garden_selectors))
         with (
             patch.object(RUN_E2E, "_list_test_selectors", side_effect=discovery),
             patch.object(RUN_E2E, "run", return_value=0) as run,
@@ -770,6 +802,51 @@ console.log(JSON.stringify({
         ]}]}
         with self.assertRaisesRegex(RuntimeError, "conflicting fixture"):
             RUN_E2E._selectors_from_listing(payload, garden_selectors=set())
+
+
+    def test_derived_suite_safety_overrun_fails_without_claiming_omitted_tests_pass(self) -> None:
+        clock = [0.0]
+        output = io.StringIO()
+
+        def exceed_safety_budget(**kwargs: object) -> int:
+            clock[0] = 5000.0
+            return 0
+
+        with (
+            patch.object(RUN_E2E, "_list_test_selectors", return_value=["e2e/a.e2e.ts:1", "e2e/b.e2e.ts:2"]),
+            patch.object(RUN_E2E, "_allocate_lifecycle_ports", return_value=[(8765, 4173)] * 2),
+            patch.object(RUN_E2E.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(RUN_E2E, "run", side_effect=exceed_safety_budget) as run,
+            redirect_stdout(output), redirect_stderr(output),
+        ):
+            result = RUN_E2E.run_isolated_suite(
+                backend_port=8765, frontend_port=4173, timeout_seconds=60, headed=False,
+            )
+        self.assertEqual(result, 1)
+        self.assertEqual(run.call_count, 1)
+        self.assertIn("SUITE_JOB_TIMEOUT", output.getvalue())
+        self.assertIn("2/2 was not dispatched", output.getvalue())
+        self.assertNotIn("E2E SUITE PASS", output.getvalue())
+
+    def test_hung_browser_reaches_its_individual_deadline(self) -> None:
+        process = MagicMock()
+        process.process.poll.return_value = None
+        with (
+            patch.object(RUN_E2E.time, "monotonic", side_effect=[0.0, 61.0]),
+            patch.object(RUN_E2E.time, "sleep"),
+            self.assertRaisesRegex(TimeoutError, "Playwright test execution timed out"),
+        ):
+            RUN_E2E._wait_for_test(process, deadline=60.0)
+
+    def test_ci_outer_bound_covers_current_discovery_and_bounded_cleanup(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        e2e = workflow.split("  e2e:\n", 1)[1].split("  demo-lifecycle-windows:", 1)[0]
+        self.assertIn("timeout-minutes: 90", e2e)
+        self.assertIn("python scripts/run_e2e.py --timeout-seconds 60", e2e)
+        self.assertLessEqual(
+            60 + 26 * (60 + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS) + 11 * 60,
+            90 * 60,
+        )
 
 
 if __name__ == "__main__":
