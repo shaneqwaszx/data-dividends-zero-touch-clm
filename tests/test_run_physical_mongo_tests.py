@@ -154,6 +154,34 @@ class PhysicalMongoRunnerTests(unittest.TestCase):
         self.assertEqual(result, 2)
         self.assertIn("ALL_SKIPPED", output.getvalue())
 
+    def test_mixed_pass_and_skip_cannot_verify_required_physical_suites(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.dict(os.environ, {"PHASE12_MONGO_URI": SECRET_URI}, clear=True),
+            patch.object(
+                RUNNER,
+                "_run_pytest",
+                side_effect=[
+                    completed(0, collection_output()),
+                    completed(0, "...s", stderr="private document body"),
+                ],
+            ),
+            patch.object(
+                RUNNER,
+                "_summary",
+                return_value=expected_counts(passed=3, skipped=1),
+            ),
+            redirect_stdout(output),
+        ):
+            result = RUNNER.run(timeout_seconds=60)
+        rendered = output.getvalue()
+        self.assertEqual(result, 2)
+        self.assertIn("PHYSICAL_MONGO_RESULT=BLOCKED; REASON=REQUIRED_TESTS_SKIPPED", rendered)
+        self.assertIn("PASSED=3; FAILED=0; ERRORS=0; SKIPPED=1", rendered)
+        self.assertNotIn("PHYSICAL_MONGO_RESULT=PASSED", rendered)
+        self.assertNotIn(SECRET_URI, rendered)
+        self.assertNotIn("private document body", rendered)
+
     def test_true_zero_collection_has_distinct_sanitized_result(self) -> None:
         output = io.StringIO()
         with (

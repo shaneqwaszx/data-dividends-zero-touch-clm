@@ -341,6 +341,10 @@ class GoldTierXpiSandboxConnector:
             if mutation:
                 raise GoldTierMutationOutcomeUncertainError
             raise GoldTierXpiMalformedResponseError
+        # XPI supplies no atomic no-application guarantee for unexpected statuses.
+        # Preserve the attempted ledger operation for read-only reconciliation.
+        if mutation and response.status_code not in {200, 400}:
+            raise GoldTierMutationOutcomeUncertainError
         return response
 
     def search_party(

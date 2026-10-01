@@ -1,0 +1,823 @@
+{
+  "schema_version": 1,
+  "branch": "fix/demo-happy-path-stabilization",
+  "base_head": "efc31f450f0103766fa812bc0aa80754f801dbe9",
+  "state": "PROPOSED_ONLY_UNSTAGED",
+  "partition": [
+    {
+      "number": 1,
+      "title": "Stabilize demo onboarding, ownership recovery and provider safety",
+      "rationale": "Shared orchestration/API/frontend owners across accepted continuations; intermediate snapshots are not independently accepted integration units",
+      "paths": [
+        "apps/backend/app/api_models.py",
+        "apps/backend/app/connectors/acra_api_marketplace_mock.py",
+        "apps/backend/app/connectors/errors.py",
+        "apps/backend/app/connectors/goldtier.py",
+        "apps/backend/app/connectors/goldtier_xpi.py",
+        "apps/backend/app/connectors/registry.py",
+        "apps/backend/app/connectors/registry_ownership.py",
+        "apps/backend/app/demo/scenarios.py",
+        "apps/backend/app/domain/models.py",
+        "apps/backend/app/domain/target_submission.py",
+        "apps/backend/app/main.py",
+        "apps/backend/app/mappers/goldtier.py",
+        "apps/backend/app/mappers/goldtier_xpi.py",
+        "apps/backend/app/services/clm_orchestration.py",
+        "apps/backend/app/services/document_processing.py",
+        "apps/backend/app/services/manual_ownership_evidence.py",
+        "apps/backend/app/services/onboarding.py",
+        "apps/backend/app/services/policy_management.py",
+        "apps/backend/app/services/reconciliation.py",
+        "apps/backend/app/services/zero_touch_orchestration.py",
+        "apps/backend/tests/fixtures/uat/garden-business-clean-onboarding-profile.pdf",
+        "apps/backend/tests/fixtures/uat/garden-business-conflicting-onboarding-profile.pdf",
+        "apps/backend/tests/test_acra_api_marketplace_mock_connector.py",
+        "apps/backend/tests/test_clm_orchestration.py",
+        "apps/backend/tests/test_garden_protocol_fixture.py",
+        "apps/backend/tests/test_goldtier_xpi_sandbox.py",
+        "apps/backend/tests/test_phase06_provider_conformance.py",
+        "apps/backend/tests/test_phase10_registry_acquisition.py",
+        "apps/backend/tests/test_phase12_persistence.py",
+        "apps/backend/tests/test_phase12_real_mongo.py",
+        "apps/backend/tests/test_phase14_5_policy.py",
+        "apps/backend/tests/test_phase16_registry_cache.py",
+        "apps/backend/tests/test_phase_07_uat.py",
+        "apps/backend/tests/test_zero_touch_exception_remediation.py",
+        "apps/backend/tests/test_zero_touch_orchestration.py",
+        "apps/frontend/e2e/garden-happy-path.e2e.ts",
+        "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+        "apps/frontend/src/App.tsx",
+        "apps/frontend/src/DemoPerformance.test.tsx",
+        "apps/frontend/src/GoldTierSandbox.test.tsx",
+        "apps/frontend/src/UiV2Integration.test.tsx",
+        "apps/frontend/src/ZeroTouchPublication.test.ts",
+        "apps/frontend/src/caseQueries.ts",
+        "apps/frontend/src/pages/AcraDiagnostics.test.tsx",
+        "apps/frontend/src/pages/AcraDiagnostics.tsx",
+        "apps/frontend/src/pages/CaseDetail.tsx",
+        "apps/frontend/src/pages/CaseQueue.tsx",
+        "apps/frontend/src/pages/CaseStatePanels.test.tsx",
+        "apps/frontend/src/pages/CaseStatePanels.tsx",
+        "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx",
+        "apps/frontend/src/pages/DocumentEvidencePanel.tsx",
+        "apps/frontend/src/pages/GoldTierSandbox.tsx",
+        "apps/frontend/src/pages/HumanInterventionPanel.tsx",
+        "apps/frontend/src/pages/ManualOwnershipEvidenceForm.test.tsx",
+        "apps/frontend/src/pages/ManualOwnershipEvidenceForm.tsx",
+        "apps/frontend/src/pages/OwnershipPathExplorer.test.tsx",
+        "apps/frontend/src/pages/OwnershipPathExplorer.tsx",
+        "apps/frontend/src/pages/RegistryProvenancePanel.test.tsx",
+        "apps/frontend/src/pages/RegistryProvenancePanel.tsx",
+        "apps/frontend/src/pages/ReviewAndSend.test.tsx",
+        "apps/frontend/src/pages/ReviewAndSend.tsx",
+        "apps/frontend/src/styles.css",
+        "apps/frontend/src/types.ts",
+        "docs/ARCHITECTURE.md",
+        "docs/PROJECT_STATE.md",
+        "docs/aegis/plans/2026-10-01-garden-happy-path-stabilization.md",
+        "docs/contracts/ACRA_MOCK_API_PROFILE.md",
+        "docs/contracts/POLICY_AUTHORITY_MATRIX.md",
+        "docs/contracts/policy_authority_registry.json",
+        "docs/decisions/ADR-007_RECOVERABLE_ONBOARDING_AND_FINAL_CONFIRMATION.md",
+        "docs/decisions/DECISION_LOG.md",
+        "docs/development/ACCEPTED_CANDIDATE_CLOSEOUT.md",
+        "docs/development/ACCEPTED_CANDIDATE_CLOSEOUT_QUALITY_GATE.md",
+        "docs/development/ACCEPTED_CANDIDATE_PUBLICATION_MANIFEST.json",
+        "docs/development/FINAL_PROVIDER_ACCEPTANCE_PLAN.md",
+        "docs/development/FINAL_PROVIDER_DEMO_ACCEPTANCE.md",
+        "docs/development/FINAL_PROVIDER_DEMO_QUALITY_GATE.md",
+        "docs/development/FINAL_PROVIDER_PRE_MUTATION_GATE.md",
+        "docs/development/FINAL_PROVIDER_SANITIZED_CONTRACT_GATE.md",
+        "docs/development/GARDEN_DEMO_GUIDE.md",
+        "docs/development/GARDEN_IMPLEMENTATION_REPORT.md",
+        "docs/development/GARDEN_OWNERSHIP_TRACE_AND_RECOVERY_TRUTH.md",
+        "docs/development/GARDEN_OWNERSHIP_TRACE_QUALITY_GATE.md",
+        "docs/development/GARDEN_QUALITY_GATE.md",
+        "docs/development/GARDEN_QUALITY_GATE_FINAL_RECHECK.md",
+        "docs/development/GARDEN_QUALITY_GATE_RECHECK.md",
+        "docs/development/GOLDTIER_CONTRACT_CLOSURE_AND_DEMO_PROVIDER_READINESS.md",
+        "docs/development/GOLDTIER_CONTRACT_CLOSURE_QUALITY_GATE.md",
+        "docs/development/GOLDTIER_SHELL_RECOVERY_PRE_BINDING_GATE.md",
+        "docs/development/GOLDTIER_UNCERTAIN_SHELL_RECOVERY.md",
+        "docs/development/GOLDTIER_UNCERTAIN_SHELL_RECOVERY_GATE.md",
+        "docs/development/OFFICIAL_ACRA_GARDEN_VERIFICATION_REPORT.md",
+        "docs/development/OFFICIAL_GARDEN_EVIDENCE_QUALITY_GATE.md",
+        "docs/development/OVERNIGHT_ACRA_GOLDTIER_DEMO_READINESS_REPORT.md",
+        "docs/development/OVERNIGHT_ACRA_GOLDTIER_FINAL_QUALITY_GATE.md",
+        "docs/development/OVERNIGHT_DEMO_EXECUTION_PLAN.md",
+        "docs/development/OVERNIGHT_GOLDTIER_PRE_MUTATION_SAFETY_REVIEW.md",
+        "docs/development/ZERO_TOUCH_EXCEPTION_DRIVEN_ONBOARDING_REMEDIATION.md",
+        "docs/development/ZERO_TOUCH_EXCEPTION_REMEDIATION_PLAN.md",
+        "docs/development/ZERO_TOUCH_EXCEPTION_REMEDIATION_QUALITY_GATE.md",
+        "docs/integration/GOLDTIER_CURRENT_CONTRACT_AND_SCREENING_RECONCILIATION.md",
+        "docs/sponsor-questions/OPEN_QUESTIONS.md",
+        "scripts/check_project_state.py",
+        "scripts/e2e_backend_server.py",
+        "scripts/garden_protocol_fixture.py",
+        "scripts/generate_garden_demo_pdfs.py",
+        "scripts/profile_garden_local.py",
+        "scripts/run_e2e.py",
+        "scripts/run_physical_mongo_tests.py",
+        "tests/test_check_project_state.py",
+        "tests/test_phase_07_delivery_assets.py",
+        "tests/test_run_physical_mongo_tests.py"
+      ]
+    }
+  ],
+  "classification": [
+    {
+      "path": "apps/backend/app/api_models.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/connectors/acra_api_marketplace_mock.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/connectors/errors.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/connectors/goldtier.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/connectors/goldtier_xpi.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/connectors/registry.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/connectors/registry_ownership.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/demo/scenarios.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/domain/models.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/domain/target_submission.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/main.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/mappers/goldtier.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/mappers/goldtier_xpi.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/services/clm_orchestration.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/services/document_processing.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/services/manual_ownership_evidence.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/services/onboarding.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/services/policy_management.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/services/reconciliation.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/garden-business-clean-onboarding-profile.pdf",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/garden-business-conflicting-onboarding-profile.pdf",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_acra_api_marketplace_mock_connector.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_clm_orchestration.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_garden_protocol_fixture.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_goldtier_xpi_sandbox.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_phase06_provider_conformance.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_phase10_registry_acquisition.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_phase12_persistence.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_phase12_real_mongo.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_phase14_5_policy.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_phase16_registry_cache.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_phase_07_uat.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_zero_touch_exception_remediation.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/backend/tests/test_zero_touch_orchestration.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/e2e/garden-happy-path.e2e.ts",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/App.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/DemoPerformance.test.tsx",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/GoldTierSandbox.test.tsx",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/UiV2Integration.test.tsx",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/ZeroTouchPublication.test.ts",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/caseQueries.ts",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/AcraDiagnostics.test.tsx",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/AcraDiagnostics.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseDetail.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseQueue.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.test.tsx",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/GoldTierSandbox.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/HumanInterventionPanel.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/ManualOwnershipEvidenceForm.test.tsx",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/ManualOwnershipEvidenceForm.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/OwnershipPathExplorer.test.tsx",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/OwnershipPathExplorer.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/RegistryProvenancePanel.test.tsx",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/RegistryProvenancePanel.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/ReviewAndSend.test.tsx",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/pages/ReviewAndSend.tsx",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/styles.css",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "apps/frontend/src/types.ts",
+      "classification": "INTENDED",
+      "owner": "Accepted Garden/Golden orchestration, provider safety and operator UX",
+      "partition": 1
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/PROJECT_STATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/aegis/plans/2026-10-01-garden-happy-path-stabilization.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/contracts/ACRA_MOCK_API_PROFILE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/contracts/POLICY_AUTHORITY_MATRIX.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/contracts/policy_authority_registry.json",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/decisions/ADR-007_RECOVERABLE_ONBOARDING_AND_FINAL_CONFIRMATION.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/decisions/DECISION_LOG.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/ACCEPTED_CANDIDATE_CLOSEOUT.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/ACCEPTED_CANDIDATE_CLOSEOUT_QUALITY_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/ACCEPTED_CANDIDATE_PUBLICATION_MANIFEST.json",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/FINAL_PROVIDER_ACCEPTANCE_PLAN.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/FINAL_PROVIDER_DEMO_ACCEPTANCE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/FINAL_PROVIDER_DEMO_QUALITY_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/FINAL_PROVIDER_PRE_MUTATION_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/FINAL_PROVIDER_SANITIZED_CONTRACT_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GARDEN_DEMO_GUIDE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GARDEN_IMPLEMENTATION_REPORT.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GARDEN_OWNERSHIP_TRACE_AND_RECOVERY_TRUTH.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GARDEN_OWNERSHIP_TRACE_QUALITY_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GARDEN_QUALITY_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GARDEN_QUALITY_GATE_FINAL_RECHECK.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GARDEN_QUALITY_GATE_RECHECK.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GOLDTIER_CONTRACT_CLOSURE_AND_DEMO_PROVIDER_READINESS.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GOLDTIER_CONTRACT_CLOSURE_QUALITY_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GOLDTIER_SHELL_RECOVERY_PRE_BINDING_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GOLDTIER_UNCERTAIN_SHELL_RECOVERY.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/GOLDTIER_UNCERTAIN_SHELL_RECOVERY_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/OFFICIAL_ACRA_GARDEN_VERIFICATION_REPORT.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/OFFICIAL_GARDEN_EVIDENCE_QUALITY_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/OVERNIGHT_ACRA_GOLDTIER_DEMO_READINESS_REPORT.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/OVERNIGHT_ACRA_GOLDTIER_FINAL_QUALITY_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/OVERNIGHT_DEMO_EXECUTION_PLAN.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/OVERNIGHT_GOLDTIER_PRE_MUTATION_SAFETY_REVIEW.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/ZERO_TOUCH_EXCEPTION_DRIVEN_ONBOARDING_REMEDIATION.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/ZERO_TOUCH_EXCEPTION_REMEDIATION_PLAN.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/development/ZERO_TOUCH_EXCEPTION_REMEDIATION_QUALITY_GATE.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/integration/GOLDTIER_CURRENT_CONTRACT_AND_SCREENING_RECONCILIATION.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "docs/sponsor-questions/OPEN_QUESTIONS.md",
+      "classification": "SUPPORTING",
+      "owner": "Accepted implementation/governance and sanitized historical review evidence",
+      "partition": 1
+    },
+    {
+      "path": "scripts/check_project_state.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "scripts/e2e_backend_server.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "scripts/garden_protocol_fixture.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "scripts/generate_garden_demo_pdfs.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "scripts/profile_garden_local.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "scripts/run_e2e.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "scripts/run_physical_mongo_tests.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "tests/test_check_project_state.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "tests/test_phase_07_delivery_assets.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    },
+    {
+      "path": "tests/test_run_physical_mongo_tests.py",
+      "classification": "SUPPORTING",
+      "owner": "Accepted regression/offline fixtures and bounded governance tooling",
+      "partition": 1
+    }
+  ],
+  "excluded_status_path": {
+    "path": "apps/frontend/src/pages/BlockerDecisionDetails.tsx",
+    "reason": "Current bytes exactly equal HEAD blob; status/stat or normalization artifact, no publishable content delta"
+  },
+  "excluded_patterns": [
+    "tmp/**",
+    ".env and local credentials",
+    "browser/session state",
+    "private sponsor artifacts",
+    "raw provider payloads",
+    "ignored environments/build/cache output"
+  ],
+  "independent_report_path": "docs/development/ACCEPTED_CANDIDATE_CLOSEOUT_QUALITY_GATE.md",
+  "publication_authorized": false,
+  "pr_ready": false,
+  "required_later_steps": [
+    "Separate user publication authorization",
+    "Latest-main fetch/drift assessment when authorized",
+    "Exact named-path staging/commit; empty content/status verification",
+    "Clean committed pre_pr_check and checklist",
+    "Push/PR CI including phase12-mongo physical acceptance; human merge only"
+  ]
+}

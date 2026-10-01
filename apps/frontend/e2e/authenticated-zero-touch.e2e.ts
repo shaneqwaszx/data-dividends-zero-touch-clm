@@ -26,10 +26,7 @@ const ownershipCycleFixture = path.resolve(
   currentDirectory,
   "../../backend/tests/fixtures/uat/cycle-uen-clean.pdf",
 );
-const operatorRouteArtifactDirectory = path.resolve(
-  currentDirectory,
-  "../test-artifacts/operator-route",
-);
+
 
 function legalNameForUen(uen: string): string {
   return uen === "202400006F"
@@ -180,7 +177,8 @@ test("protected workspace requires a real login before navigation", async ({ pag
   await expect(page.getByRole("heading", { name: "Start onboarding" })).toBeVisible();
 });
 
-test("ordinary RM repairs same-case identity, resolves evidence, and reviews without target writes", async ({ page }) => {
+test("ordinary RM repairs same-case identity, resolves evidence, and reviews without target writes", async ({ page }, testInfo) => {
+  const operatorRouteArtifactDirectory = testInfo.outputPath("operator-route");
   test.setTimeout(240_000);
   const mutationRequests: Array<{ method: string; path: string }> = [];
   page.on("request", (request) => {
@@ -1109,11 +1107,19 @@ test("review-ready actions render after authoritative current document evidence 
   const currentDocument = (await response.json() as Array<{
     state: string;
     superseded_by_document_id: string | null;
-    fields: Array<{ review_status: string; original_extracted_value: string | null }>;
+    fields: Array<{ field_key: string; review_status: string; comparison_status: string; confidence: number; original_extracted_value: string | null }>;
   }>).find((document) => document.superseded_by_document_id === null);
   expect(currentDocument).toBeDefined();
   expect(currentDocument?.state).toBe("REVIEW_REQUIRED");
-  expect(currentDocument?.fields.every((field) => field.review_status === "PENDING")).toBe(true);
+  expect(currentDocument?.fields.map((field) => [field.field_key, field.review_status])).toEqual([
+    ["registration_number", "ACCEPTED"],
+    ["legal_name", "PENDING"],
+    ["registered_address", "ACCEPTED"],
+    ["country_of_incorporation", "ACCEPTED"],
+  ]);
+  const pendingField = currentDocument?.fields.find((field) => field.field_key === "legal_name");
+  expect(pendingField?.comparison_status).toBe("MATCH");
+  expect(pendingField?.confidence).toBe(0.4);
   expect(currentDocument?.fields.every((field) => field.original_extracted_value !== null)).toBe(true);
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Accept .* suggestion/ }).first()).toBeVisible();
@@ -1149,8 +1155,11 @@ test("current document review progresses authoritatively and keeps superseded hi
   await page.getByRole("button", { name: "Focus documents evidence" }).click();
   await expect(page.locator("#case-evidence-documents")).toBeFocused();
   expect(reviewRequests.length + resumeRequests.length).toBe(focusRequestBaseline);
-  await expect(page.getByText("0 final / 4 fields")).toBeVisible();
-  await expect(page.getByText(/4 fields remain for review/)).toBeVisible();
+  await expect(page.getByText("3 final / 4 fields")).toBeVisible();
+  await expect(page.getByText(/1 field remains for review/)).toBeVisible();
+  for (const field of ["registration number", "registered address", "country of incorporation"]) {
+    await expect(page.getByRole("button", { name: `Accept ${field} suggestion` })).toHaveCount(0);
+  }
   await expect(page.getByRole("button", { name: "Assign reviewer" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Return for rework" })).toHaveCount(0);
 
@@ -1171,49 +1180,24 @@ test("current document review progresses authoritatively and keeps superseded hi
       ?.fields.filter((item) => item.review_status !== "PENDING").length ?? 0;
   };
 
-  const acceptRegistration = page.getByRole("button", { name: "Accept registration number suggestion" });
+  const acceptLegalName = page.getByRole("button", { name: "Accept legal name suggestion" });
   const firstMutationResponse = page.waitForResponse((response) =>
     response.request().method() === "POST" && response.url().endsWith("/reviews"));
   const firstDocumentsResponse = page.waitForResponse((response) =>
     response.request().method() === "GET"
       && response.url().endsWith(`/api/onboarding/cases/${caseId}/documents`));
-  reviewMilestone("REVIEW_MUTATION_DISPATCHED", 0);
-  await acceptRegistration.dblclick();
+  reviewMilestone("REVIEW_MUTATION_DISPATCHED", 3);
+  await acceptLegalName.dblclick();
   expect((await firstMutationResponse).status()).toBe(200);
-  reviewMilestone("REVIEW_MUTATION_RESPONSE_COMPLETE", 1);
+  reviewMilestone("REVIEW_MUTATION_RESPONSE_COMPLETE", 4);
   const firstBackendCount = await reviewedCount(await firstDocumentsResponse);
-  expect(firstBackendCount).toBe(1);
+  expect(firstBackendCount).toBe(4);
   reviewMilestone("REVIEW_DOCUMENTS_GET_COMPLETE", firstBackendCount);
   expect(reviewRequests).toHaveLength(1);
-  expect(JSON.parse(reviewRequests[0])).toEqual({ field_key: "registration_number", decision: "ACCEPTED" });
+  expect(JSON.parse(reviewRequests[0])).toEqual({ field_key: "legal_name", decision: "ACCEPTED" });
   expect(resumeRequests).toHaveLength(0);
-  await expect(page.getByText("1 final / 4 fields")).toBeVisible({ timeout: 30_000 });
-  reviewMilestone("REVIEW_RENDERED_COUNT", 1);
-  await expect(page.getByText(/3 fields remain for review/)).toBeVisible();
-
-  for (const [index, field] of ["legal name", "registered address", "country of incorporation"].entries()) {
-    await expect(page.getByText(`${index + 1} final / 4 fields`)).toBeVisible({
-      timeout: 30_000,
-    });
-    const action = page.getByRole("button", { name: `Accept ${field} suggestion` });
-    await expect(action).toBeVisible({ timeout: 30_000 });
-    const mutationResponse = page.waitForResponse((response) =>
-      response.request().method() === "POST" && response.url().endsWith("/reviews"));
-    const documentsResponse = page.waitForResponse((response) =>
-      response.request().method() === "GET"
-        && response.url().endsWith(`/api/onboarding/cases/${caseId}/documents`));
-    reviewMilestone("REVIEW_MUTATION_DISPATCHED", index + 1);
-    await action.click();
-    expect((await mutationResponse).status()).toBe(200);
-    reviewMilestone("REVIEW_MUTATION_RESPONSE_COMPLETE", index + 2);
-    const backendCount = await reviewedCount(await documentsResponse);
-    expect(backendCount).toBe(index + 2);
-    reviewMilestone("REVIEW_DOCUMENTS_GET_COMPLETE", backendCount);
-    await expect(page.getByText(`${index + 2} final / 4 fields`)).toBeVisible({
-      timeout: 30_000,
-    });
-    reviewMilestone("REVIEW_RENDERED_COUNT", index + 2);
-  }
+  await expect(page.getByText("4 final / 4 fields")).toBeVisible({ timeout: 30_000 });
+  reviewMilestone("REVIEW_RENDERED_COUNT", 4);
   await expect.poll(async () => {
     const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
     if (!response.ok()) return null;
@@ -1221,7 +1205,7 @@ test("current document review progresses authoritatively and keeps superseded hi
     return documents.find((document) => document.superseded_by_document_id === null)?.state ?? null;
   }, { timeout: 120_000 }).toBe("REVIEWED");
   await expect(page.getByText("REVIEWED", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
-  expect(reviewRequests).toHaveLength(4);
+  expect(reviewRequests).toHaveLength(1);
   expect(resumeRequests).toHaveLength(0);
 
   const replacementInput = page.getByLabel("Replace current document");

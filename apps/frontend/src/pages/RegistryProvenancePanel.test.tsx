@@ -41,6 +41,24 @@ function render(value: RegistryEvidenceBinding | null | undefined, source: Regis
 }
 
 describe("RegistryProvenancePanel", () => {
+  it("explains explicit empty ownership separately from retrieved identity and request failures", () => {
+    const source: RegistryAcquisition = { ...acquisition, operation_results: [
+      acquisition.operation_results[0],
+      { ...acquisition.operation_results[1], operation: "OWNERSHIP_PARTIES", status: "EMPTY", provenance: { ...acquisition.operation_results[0].provenance!, operation: "OWNERSHIP_PARTIES" } },
+    ] };
+    const text = render(null, source).textContent ?? "";
+    expect(text).toContain("Identity retrieved");
+    expect(text).toContain("Ownership unavailable from current registry evidence");
+    expect(text).not.toContain("Ownership retrieval failed");
+  });
+
+  it.each(["FAILED", "NOT_ATTEMPTED"] as const)("does not label %s ownership as an explicit empty success", (status) => {
+    const source: RegistryAcquisition = { ...acquisition, operation_results: [
+      acquisition.operation_results[0], { ...acquisition.operation_results[1], operation: "OWNERSHIP_PARTIES", status },
+    ] };
+    expect(render(null, source).textContent).not.toContain("Ownership unavailable from current registry evidence");
+  });
+
   it("shows fetch/cache labels and preserves exact acquisition and binding timestamps", () => {
     const view = render(binding);
     expect(view.textContent).toContain("Reused cached snapshot");

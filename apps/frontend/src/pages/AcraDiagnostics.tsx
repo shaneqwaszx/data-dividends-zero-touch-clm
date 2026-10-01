@@ -135,6 +135,16 @@ export default function AcraDiagnostics({ actor }: { actor: AuthenticatedProfile
   return (
     <section className="ds-root ds-page acra-console" aria-labelledby="acra-console-heading">
       <div className="ds-page-header"><div><p className="card-kicker">HR provider tooling · read only</p><h1 id="acra-console-heading">ACRA diagnostics</h1><p className="text-muted">Bounded provider checks only. This console does not alter onboarding cases or prove Live interoperability.</p></div></div>
+      <details className="card">
+        <summary>What this tab does</summary>
+        <ul>
+          <li>Shows safe connector configuration.</li>
+          <li>Lets HR run bounded read-only provider lookups.</li>
+          <li>Displays sanitized receipts.</li>
+          <li>Never changes onboarding cases.</li>
+          <li>Does not prove Live interoperability.</li>
+        </ul>
+      </details>
 
       {statusQuery.isPending && <p>Loading ACRA diagnostic status…</p>}
       {statusQuery.isError && <p className="ds-banner ds-banner-warn" role="alert">{safeError(statusQuery.error)}</p>}
@@ -146,11 +156,11 @@ export default function AcraDiagnostics({ actor }: { actor: AuthenticatedProfile
           <div><dt>Safe host</dt><dd>{status.configuration.safe_host ?? "Not disclosed"}</dd></div>
           <div><dt>Client ID present</dt><dd>{status.configuration.client_id_present ? "Yes" : "No"}</dd></div>
           <div><dt>Secret key present</dt><dd>{status.configuration.secret_key_present ? "Yes" : "No"}</dd></div>
-          <div><dt>Generic auth present</dt><dd>{status.configuration.generic_auth_present ? "Yes" : "No"}</dd></div>
+          <div><dt>Generic static-header auth</dt><dd>{status.configuration.mode === "api_marketplace_mock" ? "Not applicable for API Marketplace Mock" : status.configuration.mode === "mock" ? "Not applicable for local Mock" : status.configuration.generic_auth_present ? "Present" : "Not configured"}</dd></div>
           <div><dt>Timeout / response bound</dt><dd>{status.configuration.timeout_seconds}s · {status.configuration.max_response_bytes.toLocaleString()} bytes</dd></div>
         </dl></section>
         <section className="card"><h2>Connectivity</h2><p className={`tag acra-connectivity--${status.connectivity.toLowerCase()}`}>{readable(status.connectivity)}</p><p>Last actual check: {status.last_actual_check_at ? formatTimestamp(status.last_actual_check_at) : "Not checked"}</p><p className="control-help">Cancellation is reliable before dispatch. An in-flight provider request uses the configured timeout.</p></section>
-        <section className="card"><h2>Data completeness</h2><ul className="acra-coverage">{status.coverage.map((item) => <li key={item.operation}><strong>{readable(item.operation)}</strong><span className={`tag ${item.availability === "SUPPORTED" ? "tag-success" : "tag-muted"}`}>{readable(item.availability)}</span><small>{readable(item.reason_code)}</small></li>)}</ul></section>
+        <section className="card"><h2>Data completeness</h2><ul className="acra-coverage">{status.coverage.map((item) => <li key={item.operation}><strong>{readable(item.operation)}</strong><span className={`tag ${item.availability === "SUPPORTED" ? "tag-success" : "tag-muted"}`}>{readable(item.availability)}</span><small>{item.availability === "UNSUPPORTED" ? "A strict provider contract is not implemented. No provider lookup is made; unsupported does not mean empty." : readable(item.reason_code)}</small></li>)}</ul></section>
       </div>}
 
       {status && <section className="card" aria-labelledby="acra-lookup-heading"><h2 id="acra-lookup-heading">Bounded lookup</h2>

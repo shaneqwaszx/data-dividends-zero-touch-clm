@@ -13,6 +13,7 @@ from app.domain.policy import (
     BooleanPolicyValue,
     DecimalPolicyValue,
     IntegerPolicyValue,
+    PolicyClassification,
     StringListPolicyValue,
     StringPolicyValue,
     legacy_phase13_policy_snapshot,
@@ -40,6 +41,33 @@ def _actor(role: Role) -> AuthenticatedActor:
             ),
         )
     )
+
+
+def test_confirmed_ubo_defaults_do_not_rewrite_existing_catalogues() -> None:
+    now = datetime(2026, 10, 1, tzinfo=UTC)
+    catalogue = default_policy_catalogue(now)
+    threshold = catalogue.rule("OWNERSHIP_UBO_THRESHOLD_PERCENT")
+    comparator = catalogue.rule("OWNERSHIP_UBO_COMPARATOR")
+    assert threshold is not None and comparator is not None
+    assert "Sponsor-confirmed" in threshold.description
+    assert "D-062" in threshold.description
+    assert PolicyClassification.PENDING_SPONSOR_CONFIRMATION not in threshold.classifications
+    assert PolicyClassification.PENDING_SPONSOR_CONFIRMATION not in comparator.classifications
+    assert str(threshold.value.value) == "25.000000"
+    assert comparator.value.value == "GREATER_THAN_OR_EQUAL_TO"
+    historical = catalogue.model_copy(update={
+        "rules": tuple(
+            rule.model_copy(update={
+                "description": "Historical provisional threshold",
+                "classifications": (PolicyClassification.PENDING_SPONSOR_CONFIRMATION,),
+            }) if rule.policy_id == threshold.policy_id else rule
+            for rule in catalogue.rules
+        ),
+    })
+    repository = InMemoryPolicyRepository()
+    repository.create(historical)
+    service = PolicyManagementService(repository, clock=lambda: now)
+    assert service.catalogue() == historical
 
 
 def test_default_catalogue_is_exact_and_snapshot_is_typed() -> None:

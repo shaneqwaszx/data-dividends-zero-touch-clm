@@ -25,6 +25,8 @@ def _is_valid_operation_prefix(
     return values in {
         _NEW_PARTY_OPERATION_ORDER[: len(values)],
         _EXISTING_PARTY_OPERATION_ORDER[: len(values)],
+        ("SEARCH", "SHELL", "POLICY", "READBACK")[: len(values)],
+        ("SEARCH", "READBACK")[: len(values)],
     }
 
 

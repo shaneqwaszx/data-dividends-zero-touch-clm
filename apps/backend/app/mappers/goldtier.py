@@ -236,6 +236,10 @@ class MockGoldTierRequestMapper:
             submission.accepted_at,
         )
 
+    def requires_amend(self, submission: GoldTierSubmissionInput) -> bool:
+        # The accepted EDS-shaped Mock profile still submits its canonical enrichment.
+        return True
+
     def build_preview(self, submission: GoldTierSubmissionInput) -> GoldTierRequestPreview:
         validation_party_id = "BOUND_FROM_SEARCH_OR_SHELL"
         search = self.build_search_request(submission)

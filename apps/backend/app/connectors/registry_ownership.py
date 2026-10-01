@@ -42,7 +42,8 @@ class RegistryAcquisitionOwnershipProvider:
         if (
             case is None
             or acquisition is None
-            or acquisition.status != RegistryAcquisitionStatus.COMPLETE
+            or acquisition.status
+            not in {RegistryAcquisitionStatus.COMPLETE, RegistryAcquisitionStatus.PARTIAL}
             or acquisition.entity_profile.source.environment != SourceEnvironment.MOCK
             or acquisition.requested_identifier != request.registration_number
         ):

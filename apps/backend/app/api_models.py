@@ -29,6 +29,7 @@ from app.domain.clm import (
 )
 from app.domain.documents import (
     ComparisonStatus,
+    DocumentCompletionMethod,
     DocumentFieldKey,
     DocumentProcessingRecord,
     DocumentProcessingState,
@@ -117,6 +118,7 @@ from app.domain.zero_touch import (
 )
 
 ProcessingNodeStatus = Literal[
+    "UNSUPPORTED",
     "COMPLETE",
     "IN_PROGRESS",
     "EMPTY",
@@ -458,6 +460,9 @@ class DocumentProcessingResponse(BaseModel):
     created_at: datetime
     processed_at: datetime | None = None
     reviewed_at: datetime | None = None
+    completion_method: DocumentCompletionMethod | None = None
+    semantic_completion: Literal["RECONCILIATION_RESOLVED"] | None = None
+    reconciliation_version: int | None = None
     supersedes_document_id: UUID | None = None
     superseded_by_document_id: UUID | None = None
     superseded_at: datetime | None = None
@@ -661,6 +666,19 @@ class BrowserGoldTierCandidateSummary(BaseModel):
     legal_form: str | None = Field(default=None, max_length=80)
 
 
+class BrowserInterventionEvidenceAction(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    target: Literal[
+        "DOCUMENTS",
+        "OWNERSHIP_DETAILS",
+        "OWNERSHIP_UPLOAD",
+        "CLASSIFICATION",
+        "IDENTITY",
+        "REVIEW_SEND",
+    ]
+    label: str = Field(min_length=1, max_length=96)
+
+
 class BrowserHumanIntervention(BaseModel):
     """Backend-authored operator projection without a second resolution engine."""
 
@@ -683,6 +701,16 @@ class BrowserHumanIntervention(BaseModel):
     )
     identity_correction_action: Literal["IDENTITY_SEARCH_RECHECK"] | None = None
     decisions: tuple[BrowserBlockerDecision, ...] = Field(default_factory=tuple, max_length=8)
+    blocker_class: Literal[
+        "WARNING", "RECOVERABLE_INPUT", "HUMAN_DECISION", "WAITING_EXTERNAL", "HARD_SAFETY_STOP"
+    ] = "HARD_SAFETY_STOP"
+    evidence_actions: tuple[BrowserInterventionEvidenceAction, ...] = Field(
+        default_factory=tuple, max_length=4
+    )
+    dependent_stages: tuple[str, ...] = Field(default_factory=tuple, max_length=12)
+    backend_mutation_owner: str = Field(min_length=1, max_length=96)
+    resolution_condition: str = Field(min_length=1, max_length=300)
+    resume_target: AutomationStage | None = None
 
 
 _INTERVENTION_STAGE_LABELS: dict[AutomationStage, str] = {
@@ -695,9 +723,7 @@ _INTERVENTION_STAGE_LABELS: dict[AutomationStage, str] = {
     AutomationStage.COMPLETE: "Completed workflow",
 }
 
-_INTERVENTION_ACTIONS: dict[
-    ExceptionResolutionAction, tuple[str, str]
-] = {
+_INTERVENTION_ACTIONS: dict[ExceptionResolutionAction, tuple[str, str]] = {
     ExceptionResolutionAction.KEEP_REGISTRY_VALUE: (
         "Keep registry value",
         "Retain the current registry observation for the bounded discrepancy.",
@@ -718,14 +744,14 @@ def project_human_interventions(
     automation: ZeroTouchAutomationRecord,
     clm: ClmOrchestrationRecord,
     case: OnboardingCase,
+    ownership: OwnershipAnalysisRecord | None = None,
 ) -> tuple[BrowserHumanIntervention, ...]:
     """Project current blockers and only actions already authorized by their owners."""
 
     checkpoint = clm.target_search_checkpoint
     projections: list[BrowserHumanIntervention] = []
     if case.initial_identity is None and not any(
-        item.blocker_code == "INITIAL_IDENTITY_INCOMPLETE"
-        for item in automation.active_exceptions
+        item.blocker_code == "INITIAL_IDENTITY_INCOMPLETE" for item in automation.active_exceptions
     ):
         projections.append(
             BrowserHumanIntervention(
@@ -751,14 +777,23 @@ def project_human_interventions(
                     "this retained case before any target mutation."
                 ),
                 identity_correction_action="IDENTITY_SEARCH_RECHECK",
+                blocker_class="RECOVERABLE_INPUT",
+                evidence_actions=(
+                    BrowserInterventionEvidenceAction(target="IDENTITY", label="Correct identity"),
+                ),
+                backend_mutation_owner="ZERO_TOUCH_ORCHESTRATION",
+                resolution_condition="Supply complete canonical identity and a safe Search result.",
+                resume_target=AutomationStage.GOLDTIER_SEARCH,
                 decisions=(),
             )
         )
     for exception in automation.active_exceptions:
-        required: tuple[str, ...] = (
-            "Review the retained evidence identified by the blocker.",
-        )
+        if exception.blocker_code == "TARGET_CONFIRMATION_REQUIRED":
+            # Submission control is rendered in Review and Send, separately from exceptions.
+            continue
+        required: tuple[str, ...] = ("Review the retained evidence identified by the blocker.",)
         title = f"Action required — {_INTERVENTION_STAGE_LABELS[exception.stage]}"
+        explanation = exception.explanation
         expected = (
             "Use only a backend-authorized action below. The owning service will "
             "re-evaluate retained evidence after it accepts the decision."
@@ -769,6 +804,27 @@ def project_human_interventions(
         )
         candidates: tuple[BrowserGoldTierCandidateSummary, ...] = ()
         identity_correction_action: Literal["IDENTITY_SEARCH_RECHECK"] | None = None
+        evidence_actions: tuple[BrowserInterventionEvidenceAction, ...] = ()
+        classification: Literal[
+            "WARNING", "RECOVERABLE_INPUT", "HUMAN_DECISION", "WAITING_EXTERNAL", "HARD_SAFETY_STOP"
+        ] = "HARD_SAFETY_STOP"
+        if exception.decisions:
+            decision_class = exception.decisions[0].metadata.classification.value
+            classes: dict[
+                str,
+                Literal[
+                    "WARNING",
+                    "RECOVERABLE_INPUT",
+                    "HUMAN_DECISION",
+                    "WAITING_EXTERNAL",
+                    "HARD_SAFETY_STOP",
+                ],
+            ] = {
+                "USER_ACTION_REQUIRED": "HUMAN_DECISION",
+                "EXTERNAL_DEPENDENCY": "WAITING_EXTERNAL",
+                "CONTINUE_WITH_WARNING": "WARNING",
+            }
+            classification = classes.get(decision_class, "HARD_SAFETY_STOP")
 
         if exception.blocker_code == "GT_SEARCH_IDENTITY_REVIEW_REQUIRED":
             title = "Possible existing customer found"
@@ -823,6 +879,7 @@ def project_human_interventions(
             "TARGET_OPERATION_OUTCOME_UNCERTAIN",
         }:
             title = "Provider verification required"
+            classification = "HARD_SAFETY_STOP"
             required = ("Provider-side verification of the retained attempted operation.",)
             expected = "Verify the provider outcome without replaying the mutation."
             no_action = "Automatic retry or replay is not authorized for an uncertain mutation."
@@ -834,16 +891,85 @@ def project_human_interventions(
                 "attempt."
             )
             no_action = (
-                "Retry is not authorized because safe idempotency and corrected input are "
-                "unproved."
+                "Retry is not authorized because safe idempotency and corrected input are unproved."
             )
         elif exception.stage == AutomationStage.DOCUMENT:
             title = "Document or reconciliation review required"
             required = ("Current document evidence or a supported reconciliation decision.",)
+            evidence_actions = (
+                BrowserInterventionEvidenceAction(
+                    target="DOCUMENTS", label="Review document evidence"
+                ),
+            )
+            no_action = None
+            if "MISSING" in exception.blocker_code or exception.blocker_code == "DOCUMENT_REQUIRED":
+                classification = "RECOVERABLE_INPUT"
+        elif exception.stage == AutomationStage.OWNERSHIP and (
+            ownership is not None
+            and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
+            and automation.current_stage == AutomationStage.OWNERSHIP
+            and case.target_dispatch_confirmation is None
+            and case.goldtier_result is None
+            and clm.submission_snapshot is None
+            and clm.status != ClmStatus.SUBMITTING
+        ):
+            title = "Ownership and UBO — needs input"
+            classification = "RECOVERABLE_INPUT"
+            required = (
+                "Case-bound ownership percentages, as-of date and "
+                "client-supplied evidence/rationale.",
+            )
+            expected = (
+                "Save valid structured ownership evidence; the existing Decimal engine "
+                "recalculates UBOs and resumes automatically."
+            )
+            no_action = None
+            evidence_actions = (
+                BrowserInterventionEvidenceAction(
+                    target="OWNERSHIP_DETAILS", label="Add structured ownership details"
+                ),
+                BrowserInterventionEvidenceAction(
+                    target="OWNERSHIP_UPLOAD", label="Upload ownership evidence"
+                ),
+            )
+            acquisition = case.registry_acquisition
+            if (
+                ownership.provider_name == "ACRA_REGISTRY_ACQUISITION"
+                and acquisition is not None
+                and any(
+                    operation.operation == RegistryOperation.OWNERSHIP_PARTIES
+                    and operation.status == RegistryOperationStatus.EMPTY
+                    for operation in acquisition.operation_results
+                )
+            ):
+                explanation = (
+                    "ACRA did not provide sufficient ownership information for this entity. "
+                    "Provide reviewed client-supplied ownership information "
+                    "to continue UBO analysis."
+                )
         elif exception.stage == AutomationStage.READINESS:
             title = "Readiness input required"
             required = ("Complete the backend-declared case classification or readiness evidence.",)
+            if (
+                exception.blocker_code == "GOLDTIER_CLASSIFICATION_REQUIRED"
+                and clm.submission_snapshot is None
+                and case.target_dispatch_confirmation is None
+            ):
+                classification = "RECOVERABLE_INPUT"
+                title = "Target classification — needs input"
+                evidence_actions = (
+                    BrowserInterventionEvidenceAction(
+                        target="CLASSIFICATION", label="Set target classification"
+                    ),
+                )
+                no_action = None
 
+        if identity_correction_action is not None:
+            evidence_actions = (
+                BrowserInterventionEvidenceAction(
+                    target="IDENTITY", label="Correct identity and recheck"
+                ),
+            )
         actions = tuple(
             BrowserAuthorizedInterventionAction(
                 action=action,
@@ -859,13 +985,31 @@ def project_human_interventions(
                 owning_stage_label=_INTERVENTION_STAGE_LABELS[exception.stage],
                 title=title,
                 blocker_code=exception.blocker_code,
-                explanation=exception.explanation,
+                explanation=explanation,
                 required_evidence_or_input=required,
                 authorized_actions=actions,
                 no_action_reason=None if actions else no_action,
                 expected_next_step=expected,
                 candidate_summaries=candidates,
                 identity_correction_action=identity_correction_action,
+                blocker_class=classification,
+                evidence_actions=evidence_actions,
+                dependent_stages=tuple(
+                    dependency.value
+                    for dependency in (
+                        exception.decisions[0].metadata.invalidated_dependencies
+                        if exception.decisions else ()
+                    )
+                ),
+                backend_mutation_owner=(
+                    exception.decisions[0].metadata.owner.value
+                    if exception.decisions else "ZERO_TOUCH_ORCHESTRATION"
+                ),
+                resolution_condition=expected,
+                resume_target=(
+                    exception.decisions[0].metadata.resume_stage
+                    if exception.decisions else None
+                ),
                 decisions=tuple(
                     BrowserBlockerDecision.model_validate(item) for item in exception.decisions
                 ),
@@ -1109,6 +1253,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     current_stage: AutomationStage
     completed_stages: tuple[AutomationStage, ...]
     active_exceptions: list[BusinessExceptionResponse]
+    historical_exceptions: list[BusinessExceptionResponse]
     non_blocking_decisions: tuple[BrowserBlockerDecision, ...]
     interventions: tuple[BrowserHumanIntervention, ...]
     reconciliation: ReconciliationResponse | None
@@ -1150,6 +1295,11 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
             active_exceptions=[
                 BusinessExceptionResponse.model_validate(item) for item in record.active_exceptions
             ],
+            historical_exceptions=[
+                BusinessExceptionResponse.model_validate(item)
+                for item in record.exceptions
+                if item.status != BusinessExceptionStatus.OPEN
+            ],
             non_blocking_decisions=tuple(
                 BrowserBlockerDecision.model_validate(item)
                 for item in record.non_blocking_decisions
@@ -1158,6 +1308,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
                 automation=record,
                 clm=clm_record,
                 case=case,
+                ownership=ownership,
             ),
             reconciliation=(
                 ReconciliationResponse.from_domain(reconciliation)
@@ -1484,6 +1635,7 @@ def project_processing_pipeline(
                 "EMPTY": "EMPTY",
                 "FAILED": "FAILED",
                 "NOT_ATTEMPTED": "NOT_REACHED",
+                "UNSUPPORTED": "UNSUPPORTED",
             }[item.status.value]  # type: ignore[assignment]
             operation_nodes.append(
                 BrowserProcessingNode(
@@ -1502,6 +1654,8 @@ def project_processing_pipeline(
                     safe_result=(
                         "Operation returned no records"
                         if mapped_status == "EMPTY"
+                        else "Operation unsupported; no provider call occurred"
+                        if mapped_status == "UNSUPPORTED"
                         else "Operation evidence retained"
                         if mapped_status == "COMPLETE"
                         else "Operation failed"
@@ -1516,9 +1670,12 @@ def project_processing_pipeline(
         registry_timestamp = acquisition.retrieved_at
         registry_status = {
             "COMPLETE": "COMPLETE",
-            "PARTIAL": "REVIEW_REQUIRED",
+            "PARTIAL": (
+                "COMPLETE" if AutomationStage.REGISTRY in automation.completed_stages
+                else "REVIEW_REQUIRED"
+            ),
             "FAILED": "FAILED",
-        }[acquisition.status.value]  # type: ignore[assignment]
+        }[acquisition.status.value]
     elif existing_target_state is not None:
         registry_status = "SKIPPED"
     elif initial_search_disposition == "REVIEW_REQUIRED" or initial_identity is None:
@@ -1858,6 +2015,9 @@ def project_processing_pipeline(
                 if existing_target_state is not None
                 else "Waiting for GoldTier customer identity resolution"
                 if initial_search_disposition == "REVIEW_REQUIRED"
+                else "Registry identity validated; source ownership evidence remains partial"
+                if acquisition is not None and acquisition.status.value == "PARTIAL"
+                and registry_status == "COMPLETE"
                 else "Registry acquisition retained"
                 if acquisition is not None
                 else "Registry acquisition not reached"

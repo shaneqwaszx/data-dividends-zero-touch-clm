@@ -294,6 +294,18 @@ describe("backend-authored stage ordering", () => {
     expect(markup).toContain("Skipped");
   });
 
+  it("states Sandbox submission without claiming completed KYC or screening", () => {
+    const summary = summaryWithPipeline([]);
+    summary.status = "COMPLETED";
+    summary.clm = { submission_plan: { environment: "SANDBOX" } } as ZeroTouchCaseSummary["clm"];
+    const markup = renderToStaticMarkup(<CompletedOverview summary={summary} />);
+    expect(markup).toContain("GoldTier Sandbox customer/profile submission completed");
+    expect(markup).toContain("Policy initiates GoldTier KYC activity where documented");
+    expect(markup).toContain("does not establish KYC completion");
+    expect(markup).toContain("sanctions or PEP clearance");
+    expect(markup).toContain("regulatory approval or Production onboarding");
+  });
+
   it("does not invent a completed-stage record when an older response has no pipeline", () => {
     const summary = summaryWithPipeline([]);
     summary.status = "COMPLETED";
@@ -307,6 +319,27 @@ describe("backend-authored stage ordering", () => {
 });
 
 describe("registry presentation taxonomy", () => {
+  it.each(["WAITING_FOR_REVIEW", "COMPLETED"] as const)("retains partial source evidence without a stale registry action at %s", (status) => {
+    const summary = summaryWithPipeline([processingNode("ACRA_REGISTRY", "ACRA registry", "COMPLETE")]);
+    summary.status = status;
+    summary.current_stage = status === "COMPLETED" ? "COMPLETE" : "READINESS";
+    summary.case.entity = { legal_name: "GARDEN BUSINESS" } as ZeroTouchCaseSummary["case"]["entity"];
+    summary.case.registry_acquisition = {
+      status: "PARTIAL", operation_results: [],
+      issues: [{ code: "REGISTRY_EXPECTED_DATA_MISSING", message: "Source ownership evidence incomplete." }],
+    } as unknown as NonNullable<ZeroTouchCaseSummary["case"]["registry_acquisition"]>;
+    const presentation = registryPresentation(summary);
+    expect(presentation.heading).toBe("Registry identity validated");
+    expect(presentation.attention).toBe(false);
+    expect(presentation.description).toContain("source ownership evidence remains incomplete");
+    expect(presentation.action).not.toContain("Review required");
+  });
+
+  it("renders an unsupported pipeline child with an explicit label", () => {
+    const summary = summaryWithPipeline([processingNode("ACRA_RELATIONSHIPS", "Relationships", "UNSUPPORTED")]);
+    expect(renderToStaticMarkup(<PipelineRail summary={summary} />)).toContain("Unsupported");
+  });
+
   it("classifies expected missing ownership evidence as partial data, not provider unavailability", () => {
     const summary = summaryWithPipeline([]);
     summary.status = "WAITING_FOR_REVIEW";

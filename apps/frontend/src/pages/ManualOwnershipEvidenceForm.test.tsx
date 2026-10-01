@@ -57,6 +57,24 @@ function enter(element: HTMLInputElement | HTMLTextAreaElement, value: string): 
 }
 
 describe("ManualOwnershipEvidenceForm", () => {
+  it("submits the displayed reviewed document when documents arrive after mount", () => {
+    const { view, onSubmit } = render([]);
+    act(() => root?.render(
+      <ManualOwnershipEvidenceForm canonicalRootUen="202400001A" initialRootLegalName="Garden synthetic company" documents={[reviewedDocument]} disabled={false} onSubmit={onSubmit} />,
+    ));
+    act(() => {
+      enter(view.querySelector('[name="rationale"]')!, "Reviewed against signed evidence.");
+      enter(view.querySelector('[name="display_name_0"]')!, "Owner A");
+      enter(view.querySelector('[name="display_name_1"]')!, "Owner B");
+    });
+    act(() => view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      evidence_document_id: reviewedDocument.document_id,
+      evidence_document_version: 3,
+    }));
+  });
+
   it("is offered only for the explicit server action", () => {
     expect(shouldShowManualOwnershipEvidence("MANUAL_OWNERSHIP_EVIDENCE")).toBe(true);
     expect(shouldShowManualOwnershipEvidence(null)).toBe(false);
@@ -89,7 +107,7 @@ describe("ManualOwnershipEvidenceForm", () => {
         expect.objectContaining({ relationship_id: "GARDEN_DIRECT_40", party_id: "GARDEN_OWNER_B", display_name: "Synthetic Garden Owner B", ownership_percent: "40" }),
       ],
     }));
-    expect(view.textContent).toContain("User-supplied declaration · LOCAL · MANUAL_DECLARATION_POC");
+    expect(view.textContent).toContain("Supplementary client-supplied evidence · operator review · LOCAL · MANUAL_DECLARATION_POC");
     expect(view.textContent).toContain("not ACRA evidence or verified ownership");
     expect(view.textContent).toContain("independent blockers remain authoritative");
   });

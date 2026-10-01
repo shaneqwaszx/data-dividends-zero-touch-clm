@@ -33,6 +33,21 @@ function render(value: OwnershipAnalysisRecord | null) { container = document.cr
 function click(label: string) { const button = [...container!.querySelectorAll("button")].find((item) => item.textContent === label)!; expect(button).toBeTruthy(); act(() => button.dispatchEvent(new MouseEvent("click", { bubbles: true }))); }
 
 describe("OwnershipPathExplorer", () => {
+  it("renders recovered owner identifiers, exact percentages and LOCAL source alongside UBO results", () => {
+    const owner = { party_id: "candidate-1", display_name: "Candidate One", party_type: "NATURAL_PERSON" as const, registration_number: "safe-identifier", country: "SG" };
+    const recovered: OwnershipAnalysisRecord = { ...record(), state: "ANALYZED", provider_name: "MANUAL_DECLARATION_POC", parties: [owner],
+      relationships: [{ relationship_id: "manual-1", parent_party_id: "root", child_party_id: "candidate-1", ownership_percent: "60.000000000000000001", relationship_type: "OWNERSHIP", basis: "SHARE_OWNERSHIP", provenance: { provider: "MANUAL_DECLARATION_POC", environment: "LOCAL", sourced_at: "2026-10-01T00:00:00Z" } }], issues: [] };
+    const view = render(recovered);
+    const table = view.querySelector<HTMLTableElement>("table[aria-label='Retained ownership details']");
+    expect(table).not.toBeNull();
+    expect(table?.textContent).toContain("safe-identifier");
+    expect(table?.textContent).toContain("60.000000000000000001%");
+    expect(table?.textContent).toContain("LOCAL");
+    expect(view.textContent).toContain("Client-supplied ownership evidence");
+    expect(view.textContent).toContain("not ACRA-derived");
+    expect(view.textContent).toContain("Threshold comparison");
+  });
+
   it("preserves exact Decimal, calculation, comparator, result, classification and issue strings", () => {
     const view = render(record()); const text = view.textContent ?? "";
     expect(text).toContain("25.000000000000000001"); expect(text).toContain("12.340000000000000009"); expect(text).toContain("37.340000000000000010");

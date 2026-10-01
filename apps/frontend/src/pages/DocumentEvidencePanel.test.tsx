@@ -274,6 +274,15 @@ describe("DocumentEvidencePanel", () => {
     expect(onRetry).toHaveBeenCalledWith(failed, file);
   });
 
+  it("shows exact reconciliation completion without requesting duplicate source field accepts", () => {
+    const { container: view } = renderPanel([documentFixture({ semantic_completion: "RECONCILIATION_RESOLVED", reconciliation_version: 7 })]);
+    expect(view.textContent).toContain("RECONCILIATION RESOLVED");
+    expect(view.textContent).toContain("OPERATOR RESOLVED");
+    expect(view.textContent).toContain("Original extraction and field review evidence is preserved");
+    expect(view.textContent).toContain("source field reviews final");
+    expect(Array.from(view.querySelectorAll("button")).some((button) => /Accept .* suggestion/.test(button.textContent ?? ""))).toBe(false);
+  });
+
   it("blocks all mutation inputs after a refresh failure and offers only a read-only refresh", () => {
     container = document.createElement("div");
     document.body.append(container);

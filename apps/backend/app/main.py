@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, sta
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.api_acra_diagnostics import build_acra_diagnostic_router
 from app.api_admin import build_admin_router
@@ -84,7 +84,7 @@ from app.domain.clm import (
     GoldTierSubmissionPlan,
 )
 from app.domain.dashboard import DashboardSnapshot
-from app.domain.documents import DocumentFieldKey, ReviewDecision
+from app.domain.documents import DocumentFieldKey, DocumentProcessingRecord, ReviewDecision
 from app.domain.jurisdiction import JurisdictionCode
 from app.domain.models import EventOutcome
 from app.domain.ownership import OwnershipCandidate, Party, SafePartyId
@@ -480,12 +480,22 @@ def create_app(
     scenario_catalogue: MockScenarioCatalogue | None = None,
     authentication_service: AuthenticationService | None = None,
     acra_diagnostic_service: AcraDiagnosticService | None = None,
+    acra_connector: AcraConnector | None = None,
+    e2e_acra_protocol_fixture: bool = False,
     e2e_portfolio_seed_count: int = 0,
     clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     """Build the application with injectable settings for deterministic tests."""
 
     active_settings = settings or get_settings()
+    if e2e_acra_protocol_fixture and (
+        active_settings.app_env != "test"
+        or active_settings.clm_persistence_mode != "memory"
+        or active_settings.acra_connector_mode != "api_marketplace_mock"
+        or acra_connector is None
+        or onboarding_service is not None
+    ):
+        raise ValueError("Offline ACRA protocol fixtures require an injected test/memory connector")
     active_clock = clock or (lambda: datetime.now(UTC))
     browser_origin_policy = BrowserOriginPolicy.from_origins(
         active_settings.phase13_trusted_browser_origins,
@@ -502,7 +512,7 @@ def create_app(
     )
     active_acra_connector: AcraConnector | None = None
     if onboarding_service is None:
-        active_acra_connector = build_acra_connector(active_settings)
+        active_acra_connector = acra_connector or build_acra_connector(active_settings)
         service = build_onboarding_service(
             catalogue,
             active_settings,
@@ -648,10 +658,13 @@ def create_app(
             "SANDBOX" if active_settings.acra_connector_mode == "sandbox" else "MOCK"
         )
         registry_provider_mode: Literal[
-            "LOCAL_MOCK", "API_MARKETPLACE_MOCK", "GENERIC_SANDBOX"
+            "LOCAL_MOCK", "API_MARKETPLACE_MOCK", "GENERIC_SANDBOX",
+            "API_MARKETPLACE_PROTOCOL_TEST",
         ]
         if active_settings.acra_connector_mode == "mock":
             registry_provider_mode = "LOCAL_MOCK"
+        elif e2e_acra_protocol_fixture:
+            registry_provider_mode = "API_MARKETPLACE_PROTOCOL_TEST"
         elif active_settings.acra_connector_mode == "api_marketplace_mock":
             registry_provider_mode = "API_MARKETPLACE_MOCK"
         else:
@@ -1935,6 +1948,7 @@ def create_app(
                 client_segment=classification.client_segment,
                 expected_automation_version=classification.expected_automation_version,
                 expected_case_event_count=classification.expected_case_event_count,
+                actor_id=authenticated_actor(request).profile.user_id,
                 reauthorize=build_case_reauthorizer(
                     request, authentication, access_policy, service, case_id
                 ),
@@ -2049,10 +2063,22 @@ def create_app(
         ],
     ) -> ZeroTouchCaseSummaryResponse:
         try:
+            declaration = evidence.declaration_for(case_id)
+        except ValidationError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "ZERO_TOUCH_MANUAL_OWNERSHIP_INVALID",
+                    "message": (
+                        "The ownership declaration or required evidence metadata is invalid."
+                    ),
+                },
+            ) from None
+        try:
             record = active_zero_touch.submit_manual_ownership_evidence(
                 case_id=case_id,
                 actor_id=actor.profile.user_id,
-                declaration=evidence.declaration_for(case_id),
+                declaration=declaration,
                 expected_automation_version=evidence.expected_automation_version,
                 expected_ownership_version=evidence.expected_ownership_version,
                 expected_case_event_count=evidence.expected_case_event_count,
@@ -2467,6 +2493,7 @@ def create_app(
                     action=request.action,
                     expected_automation_version=request.expected_automation_version,
                     evidence_version=request.evidence_version,
+                    actor_id=authenticated_actor(http_request).profile.user_id,
                     reauthorize=build_case_reauthorizer(
                         http_request, authentication, access_policy, service, case_id
                     ),
@@ -2501,6 +2528,7 @@ def create_app(
                     expected_automation_version=request.expected_automation_version,
                     expected_reconciliation_version=(request.expected_reconciliation_version),
                     evidence_fingerprint=request.evidence_fingerprint,
+                    actor_id=authenticated_actor(http_request).profile.user_id,
                     reauthorize=build_case_reauthorizer(
                         http_request, authentication, access_policy, service, case_id
                     ),
@@ -2697,6 +2725,28 @@ def create_app(
             provider=provider,
         )
 
+    def document_response(record: DocumentProcessingRecord) -> DocumentProcessingResponse:
+        response = DocumentProcessingResponse.from_domain(record)
+        if record.is_current_evidence:
+            current_reconciliation = reconciliation.get(case_id=record.case_id)
+            if current_reconciliation is not None:
+                response = response.model_copy(
+                    update={"reconciliation_version": current_reconciliation.version}
+                )
+            checkpoint = reconciliation.resolved_document_checkpoint(
+                case_id=record.case_id,
+                document_id=record.document_id,
+                event_count=len(record.events),
+            )
+            if checkpoint is not None:
+                return response.model_copy(
+                    update={
+                        "semantic_completion": "RECONCILIATION_RESOLVED",
+                        "reconciliation_version": checkpoint.version,
+                    }
+                )
+        return response
+
     @application.get(
         "/api/onboarding/cases/{case_id}/documents",
         response_model=list[DocumentProcessingResponse],
@@ -2712,7 +2762,7 @@ def create_app(
             records = active_documents.list_documents(case_id=case_id)
         except DocumentRequestError as exc:
             raise _document_http_error(exc) from None
-        return [DocumentProcessingResponse.from_domain(record) for record in records]
+        return [document_response(record) for record in records]
 
     @application.get(
         "/api/onboarding/cases/{case_id}/documents/{document_id}",
@@ -2734,7 +2784,7 @@ def create_app(
                     message="The document review record was not found.",
                 )
             )
-        return DocumentProcessingResponse.from_domain(record)
+        return document_response(record)
 
     @application.post(
         "/api/onboarding/cases/{case_id}/documents/{document_id}/reviews",
@@ -2756,6 +2806,7 @@ def create_app(
                 decision=review.decision,
                 corrected_value=review.corrected_value,
                 note=review.note,
+                actor_id=authenticated_actor(request).profile.user_id,
                 reauthorize=build_case_reauthorizer(
                     request, authentication, access_policy, service, case_id
                 ),
@@ -2766,7 +2817,7 @@ def create_app(
             raise _zero_touch_http_error(exc) from None
         except ZeroTouchInfrastructureError as exc:
             raise _zero_touch_infrastructure_http_error(exc) from None
-        return DocumentProcessingResponse.from_domain(record)
+        return document_response(record)
 
     install_auth_boundary(
         application,

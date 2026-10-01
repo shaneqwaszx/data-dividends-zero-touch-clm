@@ -173,6 +173,10 @@ export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile
               <span>Blocked — integration contract incomplete.</span>
               <span>GoldTier related-party Policy and Amend require an existing childId, but the supplied contract does not define how that identity is created or retrieved.</span>
               <span>Required before enabling: {readable(status.required_authority)} for the child-ID lifecycle and relationship semantics.</span>
+              <p><strong>What is missing:</strong> an authoritative way to search, retrieve or create the child party and bind it to the parent customer.</p>
+              <p><strong>Why the system cannot safely continue:</strong> a parent ID or a locally generated ID cannot replace a provider-issued childId. Related-party network calls remain blocked.</p>
+              <p><strong>What the sponsor/API owner must provide:</strong> childId meaning; creation and retrieval endpoints; identity evidence for reuse; parent/child binding and relationship vocabulary; multiple-parent rules; Policy and Amend retry/idempotency semantics; and whether Amend RP goldTierId identifies the child.</p>
+              <p><strong>Future lifecycle once confirmed:</strong> search/retrieve an existing child identity or perform confirmed creation → retain the durable provider-issued childId → bind the confirmed parent/child relationship → ledger-controlled Policy and Amend.</p>
               <details>
                 <summary>Technical details</summary>
                 <code>{status.blocker_code}</code>
@@ -200,6 +204,19 @@ export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile
         <p className="control-help">Credentials, authorization headers, raw endpoints, and provider payloads are never displayed.</p>
       </section>
 
+      <details className="card">
+        <summary>How to test this console</summary>
+        <ol>
+          <li>Enter at least one Search criterion.</li>
+          <li>Run read-only Search.</li>
+          <li>Inspect candidates and any missing identity evidence.</li>
+          <li>Choose KYC customer type and client segment. Supply legal name and country before validating a preview.</li>
+          <li>Inspect the accepted POC constants and ephemeral SANDBOX_TEST_ONLY inputs.</li>
+          <li>Select Validate request preview.</li>
+          <li>Inspect Search, Shell, Policy and Amend validation. The preview uses synthetic test identity and address data.</li>
+          <li>No provider mutation occurred. Dispatch-valid preview is offline validation, not provider acceptance.</li>
+        </ol>
+      </details>
       <form className="card" onSubmit={runSearch} aria-labelledby="sandbox-search-heading">
         <p className="card-kicker">Read-only provider operation</p>
         <h2 id="sandbox-search-heading">Customer search</h2>

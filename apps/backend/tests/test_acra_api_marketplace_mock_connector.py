@@ -16,6 +16,7 @@ from app.connectors.acra_sandbox import AcraHttpResponse
 from app.connectors.errors import (
     AcraAuthenticationError,
     AcraMalformedResponseError,
+    AcraOperationUnsupportedError,
     AcraServiceUnavailableError,
     AcraTimeoutError,
 )
@@ -317,20 +318,51 @@ def test_authentication_status_cannot_be_hidden_by_an_empty_envelope() -> None:
         ).fetch_company(UEN)
 
 
-def test_relationships_remain_explicitly_empty_without_a_provider_call() -> None:
+def test_relationships_are_unsupported_without_a_provider_call() -> None:
     transport = RecordingTransport([AcraHttpResponse(500)])
 
-    relationships = connector(transport).fetch_relationships(UEN)
-
-    assert relationships.relationships == ()
-    assert relationships.source_environment == "MOCK"
-    assert relationships.source_endpoint.endswith(
-        "/entityQuery/coShareholdersDetails"
-    )
+    with pytest.raises(AcraOperationUnsupportedError):
+        connector(transport).fetch_relationships(UEN)
     assert transport.calls == []
 
 
-def test_official_mock_empty_ownership_stops_application_without_fallback() -> None:
+def test_acquisition_distinguishes_empty_shareholders_from_unsupported_relationships() -> None:
+    from app.connectors.registry import AcraRegistryProviderAdapter
+    from app.domain.models import RegistryOperationStatus
+
+    transport = RecordingTransport([
+        AcraHttpResponse(200, COMPANY_BODY),
+        AcraHttpResponse(200, COMPANY_BODY),
+        AcraHttpResponse(200, {"entities": []}),
+    ])
+    bundle = AcraRegistryProviderAdapter(connector(transport)).retrieve_acquisition(UEN)
+    assert bundle is not None
+    assert bundle.status == RegistryAcquisitionStatus.PARTIAL
+    shareholder, relationship = bundle.operation_results[2:]
+    assert shareholder.status == RegistryOperationStatus.EMPTY
+    assert shareholder.provenance is not None
+    assert relationship.status == RegistryOperationStatus.UNSUPPORTED
+    assert relationship.provenance is None
+    assert relationship.error is None
+    assert relationship.record_count == 0
+    assert len(transport.calls) == 3
+
+    from pydantic import ValidationError
+
+    from app.domain.models import RegistryAcquisitionBundle, RegistryOperationResult
+
+    unsupported = relationship.model_dump(mode="python")
+    with pytest.raises(ValidationError):
+        RegistryOperationResult.model_validate({**unsupported, "record_count": 1})
+    with pytest.raises(ValidationError):
+        RegistryOperationResult.model_validate(
+            {**unsupported, "provenance": shareholder.provenance}
+        )
+    # A serialized bundle accepts the new status without inventing observed evidence.
+    assert RegistryAcquisitionBundle.model_validate_json(bundle.model_dump_json()) == bundle
+
+
+def test_official_mock_missing_identity_still_stops_application_without_fallback() -> None:
     company = {
         "entities": [
             {
@@ -361,7 +393,7 @@ def test_official_mock_empty_ownership_stops_application_without_fallback() -> N
 
     assert case.state == WorkflowState.REVIEW_REQUIRED
     assert case.error is not None
-    assert case.error.code == "REGISTRY_EXPECTED_DATA_MISSING"
+    assert case.error.code == "CANONICAL_DATA_INCOMPLETE"
     assert case.registry_acquisition is not None
     assert case.registry_acquisition.status == RegistryAcquisitionStatus.PARTIAL
     assert case.registry_acquisition.entity_profile.source.environment.value == "MOCK"

@@ -26,6 +26,7 @@ from app.connectors.mock_acra import MISSING_OWNERSHIP_UEN, MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
 from app.connectors.mock_idp import MockIdpProvider, MockIdpScenario
 from app.connectors.mock_ownership import MockOwnershipProvider, MockOwnershipScenario
+from app.connectors.registry_ownership import RegistryAcquisitionOwnershipProvider
 from app.demo.zero_touch_control import ZeroTouchDemoScenario
 from app.domain.access import TeamId
 from app.domain.documents import (
@@ -480,6 +481,9 @@ def test_straight_through_pauses_for_confirmation_before_target_mutation() -> No
     assert decision["metadata"]["currently_available_actions"] == [
         "CONFIRM_FROZEN_TARGET_SUBMISSION"
     ]
+    assert all(item["blocker_code"] != "TARGET_CONFIRMATION_REQUIRED"
+               for item in result["interventions"])
+    assert result["case"]["target_dispatch_confirmation"] is None
     assert result["non_blocking_decisions"]
     assert {
         item["metadata"]["classification"] for item in result["non_blocking_decisions"]
@@ -539,7 +543,7 @@ def test_straight_through_pauses_for_confirmation_before_target_mutation() -> No
         "READINESS",
         "MOCK_GOLDTIER",
     ]
-    assert confirmed["metrics"]["human_interventions"] == 1
+    assert confirmed["metrics"]["human_interventions"] == 0
     pipeline = {item["node_id"]: item for item in confirmed["processing_pipeline"]}
     assert pipeline["GOLDTIER_SEARCH"]["safe_result"] == (
         "No existing customer found. Continuing as a new customer."
@@ -1003,10 +1007,13 @@ def test_same_case_identity_recheck_retains_intent_and_resumes_without_target_wr
     assert target.calls == ["search", "search"]
 
 
-def test_missing_initial_identity_is_repaired_and_searched_on_the_same_case() -> None:
+@pytest.mark.parametrize("identifier", ("202400001A", MISSING_OWNERSHIP_UEN))
+def test_missing_initial_identity_is_repaired_and_searched_on_the_same_case(
+    identifier: str,
+) -> None:
     client, zero, _, target, _ = build_system(require_confirmation=True)
     paused = zero.create_case(
-        "202400001A",
+        identifier,
         legal_name="MERLION CIRCULAR LABS PTE. LTD.",
         team_id=TeamId.TEAM_A,
     )
@@ -1033,7 +1040,7 @@ def test_missing_initial_identity_is_repaired_and_searched_on_the_same_case() ->
         f"/api/clm/zero-touch/cases/{paused.case_id}/identity-search-recheck",
         json={
             "legal_name": "MERLION CIRCULAR LABS PTE. LTD.",
-            "registration_number": "202400001A",
+            "registration_number": identifier,
             "country_of_incorporation": "SG",
             "expected_automation_version": before["version"],
             "expected_clm_version": before["clm"]["version"],
@@ -1046,7 +1053,7 @@ def test_missing_initial_identity_is_repaired_and_searched_on_the_same_case() ->
     assert repaired["case"]["case_id"] == before["case"]["case_id"]
     assert repaired["case"]["initial_identity"] == {
         "legal_name": "MERLION CIRCULAR LABS PTE. LTD.",
-        "registration_number": "202400001A",
+        "registration_number": identifier,
         "country_of_incorporation": "SG",
     }
     assert repaired["case"]["identity_corrections"][0]["previous_identity"] is None
@@ -1789,7 +1796,7 @@ def test_document_source_conflict_resolution_is_one_intervention_and_auto_resume
     assert resolved.status_code == 200
     result = resolved.json()
     assert result["status"] == "COMPLETED", result["technical_failure"]
-    assert result["metrics"]["human_interventions"] == 2
+    assert result["metrics"]["human_interventions"] == 1
     assert result["metrics"]["exceptions_resolved"] == 2
     assert target.calls == ["search", "search", "shell", "policy", "amend"]
 
@@ -1920,7 +1927,7 @@ def test_low_confidence_conflict_rejects_value_selection() -> None:
     assert target.calls == ["search"]
 
 
-def test_partial_review_stays_waiting_then_safe_correction_resumes_once() -> None:
+def test_matching_fields_auto_confirm_then_one_safe_correction_resumes_once() -> None:
     _, zero, documents, target, _ = build_system()
     created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
     paused = zero.attach_document(
@@ -1947,22 +1954,11 @@ def test_partial_review_stays_waiting_then_safe_correction_resumes_once() -> Non
     )
     partial = zero.get(case_id=created.case_id)
     assert partial is not None
-    assert partial.status == "WAITING_FOR_REVIEW"
-    assert {item.blocker_code for item in partial.active_exceptions} == {"DOCUMENT_REVIEW_REQUIRED"}
+    assert partial.status == "COMPLETED"
+    assert partial.active_exceptions == []
     assert partial.version > paused.version
-    assert target.calls == ["search"]
-
-    for key in (
-        DocumentFieldKey.REGISTRATION_NUMBER,
-        DocumentFieldKey.REGISTERED_ADDRESS,
-        DocumentFieldKey.COUNTRY_OF_INCORPORATION,
-    ):
-        zero.review_document_field(
-            case_id=created.case_id,
-            document_id=document.document_id,
-            field_key=key,
-            decision=ReviewDecision.ACCEPTED,
-        )
+    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert sum(event.code == "DOCUMENT_FIELD_AUTO_CONFIRMED" for event in document.events) == 3
 
     completed = zero.get(case_id=created.case_id)
     reviewed = documents.get_document(case_id=created.case_id, document_id=document.document_id)
@@ -2195,22 +2191,15 @@ def _prepare_final_document_review(
     )
     document = documents.list_documents(case_id=created.case_id)[0]
     for key in (
-        DocumentFieldKey.LEGAL_NAME,
         DocumentFieldKey.REGISTRATION_NUMBER,
         DocumentFieldKey.REGISTERED_ADDRESS,
+        DocumentFieldKey.COUNTRY_OF_INCORPORATION,
     ):
         zero.review_document_field(
             case_id=created.case_id,
             document_id=document.document_id,
             field_key=key,
-            decision=(
-                ReviewDecision.CORRECTED
-                if key == DocumentFieldKey.LEGAL_NAME
-                else ReviewDecision.ACCEPTED
-            ),
-            corrected_value=(
-                case.entity.legal_name if key == DocumentFieldKey.LEGAL_NAME else None
-            ),
+            decision=ReviewDecision.ACCEPTED,
         )
     current = documents.get_document(case_id=created.case_id, document_id=document.document_id)
     assert current is not None
@@ -2258,8 +2247,9 @@ def test_reconciliation_conflict_after_review_fails_closed_then_repeat_repairs_o
         zero.review_document_field(
             case_id=case_id,
             document_id=document_id,
-            field_key=DocumentFieldKey.COUNTRY_OF_INCORPORATION,
-            decision=ReviewDecision.ACCEPTED,
+            field_key=DocumentFieldKey.LEGAL_NAME,
+            decision=ReviewDecision.CORRECTED,
+            corrected_value=zero._cases.get_case(case_id).entity.legal_name,  # noqa: SLF001
         )
 
     assert caught.value.code == "RECONCILIATION_CONFLICT"
@@ -2278,8 +2268,9 @@ def test_reconciliation_conflict_after_review_fails_closed_then_repeat_repairs_o
     zero.review_document_field(
         case_id=case_id,
         document_id=document_id,
-        field_key=DocumentFieldKey.COUNTRY_OF_INCORPORATION,
-        decision=ReviewDecision.ACCEPTED,
+        field_key=DocumentFieldKey.LEGAL_NAME,
+        decision=ReviewDecision.CORRECTED,
+        corrected_value=zero._cases.get_case(case_id).entity.legal_name,  # noqa: SLF001
     )
 
     completed = zero.get(case_id=case_id)
@@ -2317,8 +2308,9 @@ def test_reconciliation_infrastructure_failure_after_review_resume_repairs_once(
         zero.review_document_field(
             case_id=case_id,
             document_id=document_id,
-            field_key=DocumentFieldKey.COUNTRY_OF_INCORPORATION,
-            decision=ReviewDecision.ACCEPTED,
+            field_key=DocumentFieldKey.LEGAL_NAME,
+            decision=ReviewDecision.CORRECTED,
+            corrected_value=zero._cases.get_case(case_id).entity.legal_name,  # noqa: SLF001
         )
 
     assert caught.value.code == "RECONCILIATION_PERSISTENCE_FAILED"
@@ -2363,8 +2355,9 @@ def test_automation_checkpoint_rejection_stops_progress_and_is_recoverable(
         zero.review_document_field(
             case_id=case_id,
             document_id=document_id,
-            field_key=DocumentFieldKey.COUNTRY_OF_INCORPORATION,
-            decision=ReviewDecision.ACCEPTED,
+            field_key=DocumentFieldKey.LEGAL_NAME,
+            decision=ReviewDecision.CORRECTED,
+            corrected_value=zero._cases.get_case(case_id).entity.legal_name,  # noqa: SLF001
         )
 
     assert caught.value.code == "ZERO_TOUCH_AUTOMATION_CONFLICT"
@@ -2383,8 +2376,9 @@ def test_automation_checkpoint_rejection_stops_progress_and_is_recoverable(
         zero.review_document_field(
             case_id=case_id,
             document_id=document_id,
-            field_key=DocumentFieldKey.COUNTRY_OF_INCORPORATION,
-            decision=ReviewDecision.ACCEPTED,
+            field_key=DocumentFieldKey.LEGAL_NAME,
+            decision=ReviewDecision.CORRECTED,
+            corrected_value=zero._cases.get_case(case_id).entity.legal_name,  # noqa: SLF001
         )
     else:
         zero.start(case_id=case_id, refresh_document_checkpoint=True)
@@ -2515,11 +2509,37 @@ def test_registry_review_document_attach_does_not_publish_running_state() -> Non
     assert target.calls == []
 
 
-def test_registry_expected_data_missing_retains_document_without_advancing() -> None:
+def test_completed_cases_projection_preserves_every_accessible_case_for_same_customer() -> None:
+    client, zero, _, _, _ = build_system()
+    accessible = []
+    for team_id in (TeamId.TEAM_A, TeamId.TEAM_A, TeamId.TEAM_B):
+        created = zero.create_case("202400001A", team_id=team_id)
+        completed = zero.attach_document(
+            case_id=created.case_id,
+            display_name="synthetic-client-profile.pdf",
+            content_type="application/pdf",
+            content=PDF,
+        )
+        assert completed.status == AutomationStatus.COMPLETED
+        if team_id == TeamId.TEAM_A:
+            accessible.append(str(created.case_id))
+    history = client.get("/api/clm/zero-touch/cases")
+    onboarded = client.get("/api/clm/zero-touch/cases?status=COMPLETED")
+    assert history.status_code == onboarded.status_code == 200
+    history_completed = {
+        item["case_id"] for item in history.json() if item["status"] == "COMPLETED"
+    }
+    assert history_completed == {item["case_id"] for item in onboarded.json()} == set(accessible)
+    assert len(onboarded.json()) == 2
+    assert {item["requested_uen"] for item in onboarded.json()} == {"202400001A"}
+
+
+def test_registry_ownership_gap_does_not_block_independent_document_review() -> None:
     _, zero, documents, target, _ = build_system()
     created = zero.create_case(MISSING_OWNERSHIP_UEN)
-    assert created.status == AutomationStatus.WAITING_FOR_REVIEW
-    assert created.active_exceptions[0].blocker_code == "REGISTRY_EXPECTED_DATA_MISSING"
+    assert created.status == AutomationStatus.PENDING_INPUTS
+    assert created.current_stage == AutomationStage.DOCUMENT
+    assert not created.active_exceptions
 
     current = zero.attach_document(
         case_id=created.case_id,
@@ -2529,10 +2549,10 @@ def test_registry_expected_data_missing_retains_document_without_advancing() -> 
     )
 
     assert current.status == AutomationStatus.WAITING_FOR_REVIEW
-    assert current.current_stage == AutomationStage.REGISTRY
+    assert current.current_stage == AutomationStage.DOCUMENT
     assert len(documents.list_documents(case_id=created.case_id)) == 1
-    assert all(event.event_type != "ONBOARDING_STARTED" for event in current.events)
-    assert target.calls == []
+    assert any(event.event_type == "ONBOARDING_STARTED" for event in current.events)
+    assert target.calls == ["search"]
 
 
 def test_unexpected_document_fault_terminalizes_with_sanitized_failure(
@@ -2596,17 +2616,58 @@ def test_ownership_provider_binding_survives_document_resolution() -> None:
     assert target.calls == ["search"]
 
 
-def test_reviewed_manual_ownership_replaces_blocked_source_without_target_write() -> None:
+@pytest.mark.parametrize("identifier", ("202400001A", MISSING_OWNERSHIP_UEN))
+def test_reviewed_manual_ownership_replaces_blocked_source_without_target_write(
+    identifier: str,
+) -> None:
     client, zero, documents, target, _ = build_system(require_confirmation=True)
-    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+    created = zero.create_case(identifier, team_id=TeamId.TEAM_A)
     paused = zero.attach_document(
         case_id=created.case_id,
         display_name="ownership-declaration.pdf",
         content_type="application/pdf",
         content=PDF,
-        ownership_provider=MockOwnershipProvider(MockOwnershipScenario.INCOMPLETE_CHAIN),
+        ownership_provider=(
+            RegistryAcquisitionOwnershipProvider(zero._cases)  # noqa: SLF001
+            if identifier == MISSING_OWNERSHIP_UEN
+            else MockOwnershipProvider(MockOwnershipScenario.INCOMPLETE_CHAIN)
+        ),
     )
+    while paused.current_stage == AutomationStage.DOCUMENT:
+        exception = paused.active_exceptions[0]
+        paused = zero.resolve_exception(
+            case_id=created.case_id,
+            exception_id=exception.exception_id,
+            action=ExceptionResolutionAction.KEEP_REGISTRY_VALUE,
+            expected_automation_version=paused.version,
+            evidence_version=exception.evidence_version,
+        )
     assert paused.current_stage == AutomationStage.OWNERSHIP
+    if identifier == MISSING_OWNERSHIP_UEN:
+        retained_document = documents.list_documents(case_id=created.case_id)[0]
+        assert retained_document.state == DocumentProcessingState.REVIEW_REQUIRED
+        for field in retained_document.fields:
+            zero.review_document_field(
+                case_id=created.case_id,
+                document_id=retained_document.document_id,
+                field_key=field.field_key,
+                decision=ReviewDecision.ACCEPTED,
+            )
+        paused = zero.get(case_id=created.case_id)
+        assert paused is not None
+        while paused.current_stage == AutomationStage.DOCUMENT:
+            exception = next(
+                item for item in paused.active_exceptions if item.stage == AutomationStage.DOCUMENT
+            )
+            paused = zero.resolve_exception(
+                case_id=created.case_id,
+                exception_id=exception.exception_id,
+                action=ExceptionResolutionAction.KEEP_REGISTRY_VALUE,
+                expected_automation_version=paused.version,
+                evidence_version=exception.evidence_version,
+            )
+        assert paused.current_stage == AutomationStage.OWNERSHIP
+        assert documents.list_documents(case_id=created.case_id)[0].state == "REVIEWED"
     current = zero._ownership.get(case_id=created.case_id)  # noqa: SLF001
     case = zero._cases.get_case(created.case_id)  # noqa: SLF001
     document = documents.list_documents(case_id=created.case_id)[0]
@@ -2614,7 +2675,7 @@ def test_reviewed_manual_ownership_replaces_blocked_source_without_target_write(
 
     declaration = ManualOwnershipDeclaration(
         case_id=created.case_id,
-        root_registration_number="202400001A",
+        root_registration_number=identifier,
         evidence_document_id=document.document_id,
         evidence_document_version=len(document.events),
         as_of_date=zero._clock().date(),  # noqa: SLF001
@@ -2625,7 +2686,7 @@ def test_reviewed_manual_ownership_replaces_blocked_source_without_target_write(
                 party_id="GARDEN_ROOT",
                 display_name="Garden synthetic company",
                 party_type=PartyType.LEGAL_ENTITY,
-                registration_number="202400001A",
+                registration_number=identifier,
                 country="SG",
             ),
             Party(
@@ -2705,7 +2766,7 @@ def test_reviewed_manual_ownership_replaces_blocked_source_without_target_write(
         f"/api/clm/zero-touch/cases/{created.case_id}/manual-ownership-evidence",
         json=payload,
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     recovered = response.json()
 
     replacement = zero._ownership.get(case_id=created.case_id)  # noqa: SLF001
@@ -2721,6 +2782,12 @@ def test_reviewed_manual_ownership_replaces_blocked_source_without_target_write(
     assert replacement.prior_analyses[-1].analysis_id == current.analysis_id
     assert replacement.prior_analyses[-1].state == "REVIEW_REQUIRED"
     assert recovered["current_stage"] == AutomationStage.READINESS
+    if identifier == MISSING_OWNERSHIP_UEN:
+        registry_node = next(
+            item for item in recovered["processing_pipeline"] if item["node_id"] == "ACRA_REGISTRY"
+        )
+        assert registry_node["status"] == "COMPLETE"
+        assert recovered["case"]["registry_acquisition"]["status"] == "PARTIAL"
     assert recovered["active_exceptions"][0]["exception_type"] == (
         "TARGET_CONFIRMATION_REQUIRED"
     )
@@ -2970,7 +3037,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_RESOLVED_BY_KEEP_REGISTRY() -> None:
     assert reconciliation is not None
     assert reconciliation.discrepancies[0].decision is not None
     assert reconciliation.discrepancies[0].decision.action == "KEEP_REGISTRY_VALUE"
-    assert completed.metrics.human_interventions == 2
+    assert completed.metrics.human_interventions == 1
     assert target.calls == ["search", "search", "shell", "policy", "amend"]
 
 
@@ -3120,7 +3187,7 @@ def test_stale_and_cross_case_exception_resolution_cannot_advance() -> None:
     first_exception = first["active_exceptions"][0]
     first_case_id = UUID(first["case"]["case_id"])
     document = documents.list_documents(case_id=first_case_id)[0]
-    matching = next(field for field in document.fields if field.comparison_status == "MATCH")
+    matching = next(field for field in document.fields if field.comparison_status == "MISMATCH")
     documents.review_field(
         case_id=first_case_id,
         document_id=document.document_id,

@@ -36,10 +36,11 @@ export function registryRouteProgressState(
 }
 
 export function registryOperationProgressState(
-  status: "COMPLETE" | "EMPTY" | "FAILED" | "NOT_ATTEMPTED",
+  status: "COMPLETE" | "EMPTY" | "FAILED" | "NOT_ATTEMPTED" | "UNSUPPORTED",
 ): RegistryProgressState {
   if (status === "COMPLETE" || status === "EMPTY") return "SUCCESS";
   if (status === "FAILED") return "FAILED";
+  if (status === "UNSUPPORTED") return "UNAVAILABLE";
   return "NOT_SELECTED";
 }
 
@@ -196,6 +197,7 @@ export function DetailedProcessingInspector({ summary }: { summary: ZeroTouchCas
 }
 
 const PROGRESS_STATUS_LABELS: Record<ProcessingNodeStatus, string> = {
+  UNSUPPORTED: "Unsupported",
   COMPLETE: "Complete",
   IN_PROGRESS: "In progress",
   EMPTY: "Complete — no records",
@@ -207,6 +209,7 @@ const PROGRESS_STATUS_LABELS: Record<ProcessingNodeStatus, string> = {
 };
 
 const PROGRESS_STATUS_SYMBOLS: Record<ProcessingNodeStatus, string> = {
+  UNSUPPORTED: "—",
   COMPLETE: "✓",
   IN_PROGRESS: "●",
   EMPTY: "✓",
@@ -559,6 +562,7 @@ const REGISTRY_MALFORMED_CODES = new Set([
 ]);
 
 function registryProviderLabel(mode: RegistryProviderMode, fallback?: string): string {
+  if (mode === "API_MARKETPLACE_PROTOCOL_TEST") return "ACRA Marketplace protocol · synthetic offline test evidence";
   if (mode === "API_MARKETPLACE_MOCK") return "Official ACRA API Marketplace Mock";
   if (mode === "LOCAL_MOCK") return "Synthetic local ACRA Mock";
   if (mode === "GENERIC_SANDBOX") return "Generic ACRA sandbox";
@@ -618,6 +622,21 @@ export function registryPresentation(
   }
 
   if (code === "REGISTRY_EXPECTED_DATA_MISSING") {
+    if (!registryException && summary.completed_stages.includes("REGISTRY")) {
+      return {
+        heading: "Registry identity validated",
+        description: "Canonical identity is validated; source ownership evidence remains incomplete. Ownership evidence and current actions are handled by the backend workflow.",
+        tag: "Identity validated · partial source",
+        provider,
+        connection: "Successful / data retrieved",
+        entity,
+        issue: "Source ownership evidence incomplete",
+        action: "Follow the current workflow action",
+        attention: false,
+        code,
+        message,
+      };
+    }
     return {
       heading: "Registry data incomplete",
       description: "The registry connection succeeded, but expected ownership evidence was not returned. The case requires review.",
@@ -779,7 +798,9 @@ export function RegistryStatePanel({
           <div className="kv-row"><span className="kv-label">Action</span><span className="kv-value">{presentation.action}</span></div>
           <div className="kv-row"><span className="kv-label">Access</span><span className="kv-value">Backend-managed</span></div>
           <p className="control-help">
-            {registryProviderMode === "API_MARKETPLACE_MOCK"
+            {registryProviderMode === "API_MARKETPLACE_PROTOCOL_TEST"
+              ? "Synthetic offline protocol test evidence. No external ACRA request or network interoperability is demonstrated."
+              : registryProviderMode === "API_MARKETPLACE_MOCK"
               ? "Official Marketplace Mock is non-production. Production/Live ACRA is not integrated."
               : "Provider classification follows the configured backend execution profile. Foreign providers are not implemented."}
           </p>
@@ -895,6 +916,9 @@ export function CompletedOverview({
           <p className="card-kicker">Completed POC workflow</p>
           <h2 id="completed-heading">{summary.case.entity?.legal_name ?? summary.case.requested_uen} is onboarded</h2>
           <p className="text-muted">Completed zero-touch POC workflow on {formatTimestamp(completedAt)}. This is not production approval or Ready-for-Approval.</p>
+          {summary.clm?.submission_plan.environment === "SANDBOX" && (
+            <p className="text-muted">GoldTier Sandbox customer/profile submission completed. Policy initiates GoldTier KYC activity where documented. This does not establish KYC completion, sanctions or PEP clearance, adverse-media clearance, risk approval, regulatory approval or Production onboarding.</p>
+          )}
         </div>
       </div>
       <div className="state-grid completed-grid">

@@ -3,7 +3,8 @@
 ## Purpose and status
 
 This matrix separates current POC facts from authority to activate sponsor/production
-policy. It does not answer an open sponsor question. `runtime enabled` means enabled as
+policy. D-062 resolves the bounded POC threshold/comparator while preserving open
+legal/control and production questions. `runtime enabled` means enabled as
 sponsor/production policy, not merely present as a provisional POC mechanism.
 
 | Policy area | Concrete decision | Current POC behavior | Authority | Exact source | Blocking question | Runtime enabled | Allowed consequence | Prohibited inference |
@@ -23,10 +24,34 @@ sponsor/production policy, not merely present as a provisional POC mechanism.
 | Ready-for-Approval | Exact action/state, prerequisites, and transition owner | Success ends at `COMPLETED / MOCK_GOLDTIER_SUBMITTED`. | `UNKNOWN_BLOCKED` | Q-001 | Q-001 | No | Keep Mock completion distinct. | Mock submission is approval or Ready-for-Approval. |
 | Approval owner | Human/system owner of final approval/rejection | No approval/rejection state or owner. | `UNKNOWN_BLOCKED` | Q-001/Q-014 | Q-001, Q-014 | No | Preserve unresolved approval boundary. | Automation or a current local role may approve. |
 | Document scope | Required document types and target fields | Bounded PDF/DOCX/TXT intake defaults to a `CERTIFICATE_OF_INCORPORATION_POC` profile. Legal name, registration number, and jurisdiction are required; registered address remains optional registry-only evidence when absent from the certificate. | `USER_AUTHORIZED_POC / PROJECT_DEFINED_POC` | D-052 | Q-003 | No sponsor/production activation | Demonstrate the simplified COI journey without fabricating certificate fields. | The POC profile defines a final KYC document contract, proves certificate authenticity, or makes Registry globally authoritative. |
-| Final legal UBO rule | Threshold, comparator, control test, and authority | Deterministic Decimal candidates use provisional `>= 25%`. | `PROJECT_DEFINED_PROVISIONAL` | D-021 | Q-004 | No | Preserve candidate terminology. | A legal/controller or compliance determination exists. |
+| Bounded POC ownership threshold | Default aggregated ownership threshold and comparator | Deterministic Decimal candidates use sponsor-confirmed `>= 25%`, `GREATER_THAN_OR_EQUAL_TO`. Existing catalogues/snapshots retain historical labels without rewrite. | `SPONSOR_CONFIRMED` for this bounded default | D-062, 2026-10-01 | — for threshold/comparator | No production activation | Use the confirmed default; review incomplete/indeterminate evidence. | An edited threshold is confirmed, or a complete legal/control or production UBO determination exists. |
+| Final legal UBO rule | Complete legal/control tests, evidence and production authority | Candidate analysis remains bounded; confirmed numeric threshold alone does not settle legal/control tests. | `PROJECT_DEFINED_PROVISIONAL` | D-062; historical D-021 | Q-004 | No | Preserve candidate terminology and open legal/control authority. | Confirmation of the default activates complete production compliance policy. |
 | Retention-dependent review/audit | Retention, reviewer access, evidence, deletion, and audit use | Raw uploads are not retained; bounded state/activity exists; deletion removes case history. | `UNKNOWN_BLOCKED` | Q-013 | Q-013 | No | Keep minimization and non-audit claims. | Current storage/activity is an approved retention or compliance-audit system. |
 | Production handoff ownership | Placement, handoff point, state/evidence transfer, continuation owner | External POC orchestration calls Mock GoldTier by default; the optional XPI adapter is sandbox/Partial only. | `UNKNOWN_BLOCKED` | Q-018 / D-048 | Q-018 | No | Preserve the existing orchestration/ledger boundary and explicit provider labels. | The sandbox lane proves a production deployment/handoff boundary. |
 
 The machine-readable source for activation enforcement is
 `policy_authority_registry.json`. Existing provider classifications remain governed by
 `PROJECT_STATE.md` and `scripts/check_project_state.py`.
+
+## Dated POC workflow clarification — 2026-10-01
+
+D-062 places KYC within evidence preparation. RM/onboarder Review & Send is submission
+confirmation. A separate KYC analyst, compliance approver, second final approver and
+mandatory four-eyes step are not required for this POC. The production reviewer and
+separation rows above remain unresolved; they do not introduce local approval blockers.
+
+Ready-for-Approval is not a local mandatory state unless the actual target API requires
+it. No such requirement is established by inspected current XPI material. EDD is out
+of scope absent technically mandatory target authority. Regulatory approval is not
+claimed by target submission.
+
+Local risk is advisory: LOW continues, MEDIUM warns and continues, HIGH may request
+justified RM attention. A probability alone is not a hard blocker. GoldTier's reported
+built-in risk capability remains separate from verified API screening ownership.
+PEP/sanctions/adverse media and wealth/funds are not established mandatory current XPI
+inputs; no duplicate screening or invented mapping follows from workbook presence.
+See the current contract and screening reconciliation for exact evidence limitations.
+
+The machine registry's bounded threshold entry is sponsor-confirmed but keeps
+`runtime_enabled=false`: its activation scope is `SPONSOR_POLICY_PRODUCTION`, while
+D-062 confirms a bounded POC default. Existing final legal/control gate remains Q-004.

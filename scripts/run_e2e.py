@@ -19,6 +19,7 @@ import urllib.request
 from collections import deque
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
+from typing import IO, Protocol, TypedDict, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_ROOT = ROOT / "apps" / "frontend"
@@ -28,6 +29,10 @@ DEFAULT_FRONTEND_PORT = 4173
 MAX_CAPTURE_CHARS = 64_000
 PROCESS_STOP_POLL_SECONDS = 0.05
 PROCESS_STOP_TIMEOUT_SECONDS = 5.0
+# Three owned processes can each require six 5-second stop phases. Reserve
+# 120 seconds per lifecycle for those bounded phases, capture joins and dispatch.
+LIFECYCLE_OVERHEAD_SECONDS = 120.0
+DISCOVERY_TIMEOUT_SECONDS = 60.0
 _URI_PATTERN = re.compile(r"(?i)(?:mongodb(?:\+srv)?|https?)://[^\s\]\[<>{}\"']+")
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)\b(password|secret|token|authorization|cookie)\s*[:=]\s*[^\s,;]+"
@@ -52,10 +57,33 @@ _SYSTEM_ENV_KEYS = (
 )
 
 
+class _PosixOS(Protocol):
+    def killpg(self, process_group_id: int, signal_number: int) -> None: ...
+
+
+class _PlatformSignals(Protocol):
+    CTRL_BREAK_EVENT: int
+    SIGKILL: int
+
+
+class _WindowsSubprocess(Protocol):
+    CREATE_NEW_PROCESS_GROUP: int
+
+
+# Typed module views preserve guarded platform calls without absent-stub errors.
+_POSIX_OS = cast(_PosixOS, os)
+_PLATFORM_SIGNALS = cast(_PlatformSignals, signal)
+_WINDOWS_SUBPROCESS = cast(_WindowsSubprocess, subprocess)
+
+
+class _PopenOptions(TypedDict, total=False):
+    start_new_session: bool
+
+
 class OutputCapture:
     """Drain a child pipe while retaining only a bounded tail."""
 
-    def __init__(self, stream: object) -> None:
+    def __init__(self, stream: IO[str]) -> None:
         self._stream = stream
         self._chunks: deque[str] = deque()
         self._length = 0
@@ -63,7 +91,7 @@ class OutputCapture:
         self._thread.start()
 
     def _read(self) -> None:
-        for line in self._stream:  # type: ignore[union-attr]
+        for line in self._stream:
             self._chunks.append(line)
             self._length += len(line)
             while self._length > MAX_CAPTURE_CHARS and self._chunks:
@@ -86,9 +114,9 @@ class OwnedProcess:
         env: Mapping[str, str],
     ) -> None:
         creationflags = 0
-        kwargs: dict[str, object] = {}
+        kwargs: _PopenOptions = {}
         if os.name == "nt":
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+            creationflags = _WINDOWS_SUBPROCESS.CREATE_NEW_PROCESS_GROUP
         else:
             kwargs["start_new_session"] = True
         self.name = name
@@ -115,7 +143,7 @@ class OwnedProcess:
             if self.process.poll() is not None:
                 return
             try:
-                self.process.send_signal(signal.CTRL_BREAK_EVENT)
+                self.process.send_signal(_PLATFORM_SIGNALS.CTRL_BREAK_EVENT)
                 self.process.wait(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
             except (OSError, subprocess.TimeoutExpired):
                 if self.process.poll() is None:
@@ -140,7 +168,7 @@ class OwnedProcess:
         if process_group_id is None:
             raise RuntimeError(f"Task-owned {self.name} process group is unavailable")
         try:
-            os.killpg(process_group_id, signal.SIGTERM)
+            _POSIX_OS.killpg(process_group_id, signal.SIGTERM)
         except ProcessLookupError:
             pass
         try:
@@ -154,7 +182,7 @@ class OwnedProcess:
             )
         except TimeoutError:
             try:
-                os.killpg(process_group_id, signal.SIGKILL)
+                _POSIX_OS.killpg(process_group_id, _PLATFORM_SIGNALS.SIGKILL)
             except ProcessLookupError:
                 pass
             try:
@@ -188,7 +216,7 @@ def _wait_for_posix_process_group_exit(
 
     while True:
         try:
-            os.killpg(process_group_id, 0)
+            _POSIX_OS.killpg(process_group_id, 0)
         except ProcessLookupError:
             return
         except PermissionError:
@@ -316,13 +344,16 @@ def _find_node() -> str:
     return node
 
 
-def _selectors_from_listing(payload: object) -> list[str]:
+def _selectors_from_listing(
+    payload: object, *, garden_selectors: set[str] | None = None,
+) -> list[str]:
     if not isinstance(payload, dict):
         raise TypeError("Playwright test discovery returned an invalid document")
     if payload.get("errors"):
         raise RuntimeError("Playwright test discovery reported configuration errors")
 
     selectors: list[str] = []
+    fixture_modes: dict[str, bool] = {}
 
     def visit(suites: object) -> None:
         if not isinstance(suites, list):
@@ -346,6 +377,15 @@ def _selectors_from_listing(payload: object) -> list[str]:
                 if relative.is_absolute() or ".." in relative.parts or relative.suffix != ".ts":
                     raise RuntimeError("Playwright test discovery returned an unsafe path")
                 selector = f"{(PurePosixPath('e2e') / relative).as_posix()}:{line}"
+                tags = spec.get("tags", [])
+                if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+                    raise RuntimeError("Playwright test discovery returned invalid fixture tags")
+                garden = "garden-protocol" in tags or selector.startswith("e2e/garden-happy-path.e2e.ts:")
+                if selector in fixture_modes and fixture_modes[selector] != garden:
+                    raise RuntimeError("Playwright test discovery returned conflicting fixture modes")
+                fixture_modes[selector] = garden
+                if garden and garden_selectors is not None:
+                    garden_selectors.add(selector)
                 if selector not in selectors:
                     selectors.append(selector)
             visit(suite.get("suites", []))
@@ -356,7 +396,9 @@ def _selectors_from_listing(payload: object) -> list[str]:
     return selectors
 
 
-def _list_test_selectors(frontend_port: int) -> list[str]:
+def _list_test_selectors(
+    frontend_port: int, *, garden_selectors: set[str] | None = None,
+) -> list[str]:
     node = _find_node()
     playwright_cli = FRONTEND_ROOT / "node_modules" / "@playwright" / "test" / "cli.js"
     if not playwright_cli.is_file():
@@ -385,7 +427,7 @@ def _list_test_selectors(frontend_port: int) -> list[str]:
         encoding="utf-8",
         errors="replace",
         check=False,
-        timeout=60,
+        timeout=DISCOVERY_TIMEOUT_SECONDS,
     )
     if completed.returncode != 0:
         detail = _sanitize(completed.stdout + completed.stderr)
@@ -394,7 +436,7 @@ def _list_test_selectors(frontend_port: int) -> list[str]:
         payload = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError("Playwright test discovery returned invalid JSON") from exc
-    return _selectors_from_listing(payload)
+    return _selectors_from_listing(payload, garden_selectors=garden_selectors)
 
 
 def run(
@@ -406,6 +448,7 @@ def run(
     grep: str | None = None,
     selection: str | None = None,
     diagnostics: bool = False,
+    garden_protocol: bool = False,
 ) -> int:
     if grep is not None and selection is not None:
         raise ValueError("grep and exact test selection are mutually exclusive")
@@ -431,6 +474,7 @@ def run(
         "CLM_E2E_BACKEND_PORT": str(backend_port),
         "CLM_E2E_FRONTEND_ORIGIN": frontend_origin,
         **({"CLM_E2E_DIAGNOSTICS": "1"} if diagnostics else {}),
+        **({"CLM_E2E_GARDEN_PROTOCOL": "1"} if garden_protocol else {}),
     }
     frontend_environment = {
         **common,
@@ -453,6 +497,7 @@ def run(
     cleanup_failures: list[str] = []
     result = 1
     deadline = time.monotonic() + timeout_seconds
+    failure_kind = "READINESS_FAILURE"
     try:
         backend = OwnedProcess(
             "backend",
@@ -500,6 +545,7 @@ def run(
             env=test_environment,
         )
         processes.append(tests)
+        failure_kind = "ASSERTION_FAILURE"
         return_code = _wait_for_test(tests, deadline)
         sanitized = _sanitize(tests.capture.text(), (ephemeral_credential,))
         if sanitized:
@@ -516,7 +562,7 @@ def run(
                 if milestones:
                     print(milestones)
         if return_code != 0:
-            print("E2E FAILED: Playwright returned a non-zero status.", file=sys.stderr)
+            print("E2E FAILED [ASSERTION_FAILURE]: Playwright returned a non-zero status.", file=sys.stderr)
             result = return_code
         else:
             print("E2E PASS: guarded authenticated local Mock browser suite completed.")
@@ -525,8 +571,10 @@ def run(
         print("E2E INTERRUPTED: stopping task-owned process groups.", file=sys.stderr)
         result = 130
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+        if failure_kind == "ASSERTION_FAILURE" and isinstance(exc, TimeoutError):
+            failure_kind = "INDIVIDUAL_SELECTION_TIMEOUT"
         print(
-            f"E2E FAILED: {_sanitize(str(exc), (ephemeral_credential,))}",
+            f"E2E FAILED [{failure_kind}]: {_sanitize(str(exc), (ephemeral_credential,))}",
             file=sys.stderr,
         )
         for process in processes:
@@ -543,7 +591,7 @@ def run(
 
     if cleanup_failures:
         print(
-            f"E2E FAILED: task-owned process cleanup failed: {cleanup_failures[0]}",
+            f"E2E FAILED [CLEANUP_FAILURE]: task-owned process cleanup failed: {cleanup_failures[0]}",
             file=sys.stderr,
         )
         return 1
@@ -560,7 +608,8 @@ def run_isolated_suite(
 ) -> int:
     started = time.monotonic()
     try:
-        selectors = _list_test_selectors(frontend_port)
+        garden_selectors: set[str] = set()
+        selectors = _list_test_selectors(frontend_port, garden_selectors=garden_selectors)
         lifecycle_ports = _allocate_lifecycle_ports(
             backend_port,
             frontend_port,
@@ -570,24 +619,44 @@ def run_isolated_suite(
         print(f"E2E FAILED: {_sanitize(str(exc))}", file=sys.stderr)
         return 1
 
+    suite_timeout = DISCOVERY_TIMEOUT_SECONDS + len(selectors) * (
+        timeout_seconds + LIFECYCLE_OVERHEAD_SECONDS
+    )
+    suite_deadline = started + suite_timeout
+    print(
+        f"E2E TIMEOUT CONTRACT: selectors={len(selectors)}; "
+        f"lifecycle_seconds={timeout_seconds:g}; suite_seconds={suite_timeout:g}; "
+        f"overhead_per_lifecycle_seconds={LIFECYCLE_OVERHEAD_SECONDS:g}"
+    )
+    slowest_seconds = 0.0
+    slowest_selection = ""
     for index, (selection, ports) in enumerate(
         zip(selectors, lifecycle_ports, strict=True),
         start=1,
     ):
-        remaining = timeout_seconds - (time.monotonic() - started)
-        if remaining < 30:
-            print("E2E FAILED: isolated suite exceeded its overall deadline.", file=sys.stderr)
+        if time.monotonic() + timeout_seconds + LIFECYCLE_OVERHEAD_SECONDS > suite_deadline:
+            print(
+                f"E2E FAILED [SUITE_JOB_TIMEOUT]: suite safety budget exhausted; "
+                f"selection {index}/{len(selectors)} was not dispatched.", file=sys.stderr,
+            )
             return 1
         print(f"E2E isolated lifecycle {index}/{len(selectors)}: {selection}")
+        selection_started = time.monotonic()
         result = run(
             backend_port=ports[0],
             frontend_port=ports[1],
-            timeout_seconds=remaining,
+            timeout_seconds=timeout_seconds,
             headed=headed,
             grep=None,
             selection=selection,
             diagnostics=diagnostics,
+            garden_protocol=(selection in garden_selectors
+                or selection.startswith("e2e/garden-happy-path.e2e.ts:")),
         )
+        elapsed = time.monotonic() - selection_started
+        print(f"E2E LIFECYCLE TIMING: selection={index}/{len(selectors)}; elapsed_seconds={elapsed:.3f}")
+        if elapsed > slowest_seconds:
+            slowest_seconds, slowest_selection = elapsed, selection
         if result != 0:
             print(
                 f"E2E SUITE FAILED: isolated selection {index}/{len(selectors)} failed.",
@@ -595,7 +664,14 @@ def run_isolated_suite(
             )
             return result
 
-    print(f"E2E SUITE PASS: {len(selectors)} configured tests passed in isolated lifecycles.")
+    if time.monotonic() > suite_deadline:
+        print("E2E FAILED [SUITE_JOB_TIMEOUT]: suite safety budget exceeded.", file=sys.stderr)
+        return 1
+    print(
+        f"E2E SUITE TIMING: elapsed_seconds={time.monotonic() - started:.3f}; "
+        f"slowest_seconds={slowest_seconds:.3f}; slowest_selection={slowest_selection}"
+    )
+    print(f"E2E SUITE PASS: {len(selectors)} configured selectors passed in isolated lifecycles.")
     return 0
 
 
@@ -613,6 +689,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--headed", action="store_true")
     parser.add_argument(
+        "--garden-protocol", action="store_true",
+        help="Use strict offline synthetic ACRA protocol evidence for focused Garden tests.",
+    )
+    parser.add_argument(
         "--diagnostics",
         action="store_true",
         help="Emit payload-free E2E upload boundary milestones.",
@@ -621,8 +701,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--grep",
         help="Run only Playwright tests whose title matches this regular expression.",
     )
-    parser.add_argument("--timeout-seconds", type=float, default=240.0)
+    parser.add_argument(
+        "--timeout-seconds", type=float, default=240.0,
+        help="Per-lifecycle readiness and Playwright deadline (30-900 seconds); "
+        "unfiltered suite safety budget scales with discovered selectors.",
+    )
     args = parser.parse_args(argv)
+    if args.garden_protocol and not args.grep:
+        parser.error("--garden-protocol requires a focused --grep selection")
     if not 30 <= args.timeout_seconds <= 900:
         parser.error("--timeout-seconds must be between 30 and 900")
     if args.grep:
@@ -633,6 +719,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             headed=args.headed,
             grep=args.grep,
             diagnostics=args.diagnostics,
+            garden_protocol=args.garden_protocol,
         )
     return run_isolated_suite(
         backend_port=args.backend_port,

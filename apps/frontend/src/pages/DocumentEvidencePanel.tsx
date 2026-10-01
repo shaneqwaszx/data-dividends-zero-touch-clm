@@ -169,14 +169,15 @@ function DocumentCard({
           <p className="card-kicker">{historical ? "Historical evidence" : "Current evidence"}</p>
           <h5>{document.display_name}</h5>
         </div>
-        <span className="tag tag-neutral">{document.state.replaceAll("_", " ")}</span>
+        <span className="tag tag-neutral">{(document.semantic_completion ?? document.state).replaceAll("_", " ")}</span>
       </header>
       <p className="control-help">
-        {document.provider_environment ?? "Provider unavailable"} · {finalCount} final / {document.fields.length} fields
+        {document.provider_environment ?? "Provider unavailable"} · {finalCount} {document.semantic_completion ? "source field reviews final" : "final"} / {document.fields.length} fields
         {document.supersedes_document_id ? ` · replaces ${document.supersedes_document_id}` : ""}
         {document.superseded_by_document_id ? ` · replaced by ${document.superseded_by_document_id}` : ""}
       </p>
-      {!historical && pendingCount > 0 && (
+      {document.semantic_completion && <p className="control-help">Document checkpoint completed by the retained operator reconciliation decisions. Original extraction and field review evidence is preserved.</p>}
+      {!historical && !document.semantic_completion && pendingCount > 0 && (
         <div className="ds-banner">
           {pendingCount} field{pendingCount === 1 ? " remains" : "s remain"} for review. Independent readiness blockers remain authoritative until the refreshed case clears them.
         </div>
@@ -186,15 +187,17 @@ function DocumentCard({
       <div className="document-fields">
         {document.fields.map((field) => {
           const label = fieldLabel(field.field_key);
+          const autoConfirmed = document.events.some((event) => event.code === "DOCUMENT_FIELD_AUTO_CONFIRMED" && event.field_key === field.field_key)
+            && !document.events.some((event) => event.field_key === field.field_key && ["DOCUMENT_FIELD_ACCEPTED", "DOCUMENT_FIELD_REJECTED", "DOCUMENT_FIELD_CORRECTED"].includes(event.event_type));
           const isPending = field.review_status === "PENDING";
-          const canDecide = !historical && isCurrentDocument(document) && document.state === "REVIEW_REQUIRED" && isPending;
+          const canDecide = !document.semantic_completion && !historical && isCurrentDocument(document) && document.state === "REVIEW_REQUIRED" && isPending;
           const savedRequest = exactSavedReviewRequest(field);
-          const canRepair = !historical && savedRequest !== null && canRetrySavedReviewCheckpoint(summary, document);
+          const canRepair = !document.semantic_completion && !autoConfirmed && !historical && savedRequest !== null && canRetrySavedReviewCheckpoint(summary, document);
           return (
             <section className="document-field" key={field.field_key} aria-labelledby={`${document.document_id}-${field.field_key}`}>
               <div className="document-field__heading">
                 <h6 id={`${document.document_id}-${field.field_key}`}>{label}</h6>
-                <span className="tag tag-neutral">{field.review_status.replaceAll("_", " ")}</span>
+                <span className="tag tag-neutral">{document.semantic_completion && isPending ? "OPERATOR RESOLVED" : autoConfirmed ? "AUTO CONFIRMED" : field.review_status.replaceAll("_", " ")}</span>
               </div>
               <dl className="document-field__evidence">
                 <div><dt>Suggestion</dt><dd>{evidenceValue(field.original_extracted_value)}</dd></div>

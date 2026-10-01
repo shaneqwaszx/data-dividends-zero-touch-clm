@@ -23,6 +23,7 @@ import type {
   CasePortfolioPage,
   ZeroTouchCaseListItem,
   ZeroTouchCaseSummary,
+  DocumentProcessingRecord,
 } from "./types";
 
 const absent = "all";
@@ -141,6 +142,9 @@ export function caseDetailQueryOptions(userId: string, caseId: string) {
   return {
     queryKey: caseQueryKeys.detail(userId, caseId),
     queryFn: ({ signal }: { signal: AbortSignal }) => fetchZeroTouchCase(caseId, signal),
+    structuralSharing: (current: unknown, incoming: unknown) => retainNewestCaseSummary(
+      current as ZeroTouchCaseSummary | undefined, incoming as ZeroTouchCaseSummary,
+    ),
   };
 }
 
@@ -148,6 +152,9 @@ export function documentQueryOptions(userId: string, caseId: string) {
   return {
     queryKey: caseQueryKeys.documents(userId, caseId),
     queryFn: ({ signal }: { signal: AbortSignal }) => fetchDocuments(caseId, signal),
+    structuralSharing: (current: unknown, incoming: unknown) => retainNewestDocuments(
+      current as DocumentProcessingRecord[] | undefined, incoming as DocumentProcessingRecord[],
+    ),
   };
 }
 
@@ -155,6 +162,7 @@ export function ownershipQueryOptions(userId: string, caseId: string) {
   return {
     queryKey: caseQueryKeys.ownership(userId, caseId),
     queryFn: ({ signal }: { signal: AbortSignal }) => fetchOwnership(caseId, signal),
+    structuralSharing: retainNewestVersionedEvidence,
   };
 }
 
@@ -162,6 +170,7 @@ export function intelligenceQueryOptions(userId: string, caseId: string) {
   return {
     queryKey: caseQueryKeys.intelligence(userId, caseId),
     queryFn: ({ signal }: { signal: AbortSignal }) => fetchIntelligence(caseId, signal),
+    structuralSharing: retainNewestVersionedEvidence,
   };
 }
 
@@ -203,8 +212,45 @@ export function publishCaseDetail(
 ): void {
   queryClient.setQueryData(
     caseQueryKeys.detail(userId, summary.case.case_id),
-    summary,
+    (current: ZeroTouchCaseSummary | undefined) => retainNewestCaseSummary(current, summary),
   );
+}
+
+export function retainNewestDocuments(
+  current: DocumentProcessingRecord[] | undefined,
+  incoming: DocumentProcessingRecord[],
+): DocumentProcessingRecord[] {
+  if (!current) return incoming;
+  const next = new Map(incoming.map((document) => [document.document_id, document]));
+  return current.some((document) => {
+    const updated = next.get(document.document_id);
+    if (!updated || updated.events.length < document.events.length) return true;
+    // Supersession adds a durable event; historical projections clear current reconciliation.
+    const replacement = updated.superseded_by_document_id
+      ? next.get(updated.superseded_by_document_id) : undefined;
+    const boundSupersession = updated.events.length > document.events.length
+      && updated.reconciliation_version === null
+      && replacement?.supersedes_document_id === document.document_id;
+    return !boundSupersession
+      && (updated.reconciliation_version ?? 0) < (document.reconciliation_version ?? 0);
+  }) ? current : incoming;
+}
+
+export function retainNewestVersionedEvidence(current: unknown, incoming: unknown): unknown {
+  const previous = current as { version?: number } | null | undefined;
+  const next = incoming as { version?: number } | null | undefined;
+  return previous && (!next || (next.version ?? 0) < (previous.version ?? 0)) ? current : incoming;
+}
+
+function retainNewestCaseSummary(
+  current: ZeroTouchCaseSummary | undefined, incoming: ZeroTouchCaseSummary,
+): ZeroTouchCaseSummary {
+  if (current && (
+    (current.version ?? 0) > (incoming.version ?? 0)
+    || (current.case.events?.length ?? 0) > (incoming.case.events?.length ?? 0)
+    || (current.clm?.version ?? 0) > (incoming.clm?.version ?? 0)
+  )) return current;
+  return incoming;
 }
 
 export function caseCreatedEffect(
@@ -223,14 +269,26 @@ export function caseSummaryMutationEffect(
   userId: string,
   summary: ZeroTouchCaseSummary,
 ): void {
-  publishCaseDetail(queryClient, userId, summary);
-  void queryClient.invalidateQueries({ queryKey: caseQueryKeys.caseLists(userId) });
-  queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
-  void queryClient.invalidateQueries({ queryKey: caseQueryKeys.activities(userId) });
+  const current = queryClient.getQueryData<ZeroTouchCaseSummary>(
+    caseQueryKeys.detail(userId, summary.case.case_id),
+  );
+  if (current && current.version > summary.version) return;
+  publishCaseMutationScopes(queryClient, userId, summary);
   void queryClient.invalidateQueries({
     queryKey: caseQueryKeys.intelligence(userId, summary.case.case_id),
     exact: true,
   });
+}
+
+function publishCaseMutationScopes(
+  queryClient: QueryClient,
+  userId: string,
+  summary: ZeroTouchCaseSummary,
+): void {
+  publishCaseDetail(queryClient, userId, summary);
+  void queryClient.invalidateQueries({ queryKey: caseQueryKeys.caseLists(userId) });
+  queryClient.removeQueries({ queryKey: caseQueryKeys.dashboards(userId) });
+  void queryClient.invalidateQueries({ queryKey: caseQueryKeys.activities(userId) });
 }
 
 export function targetConfirmationMutationEffect(
@@ -238,6 +296,10 @@ export function targetConfirmationMutationEffect(
   userId: string,
   summary: ZeroTouchCaseSummary,
 ): void {
+  void queryClient.cancelQueries({
+    queryKey: caseQueryKeys.detail(userId, summary.case.case_id),
+    exact: true,
+  });
   caseSummaryMutationEffect(queryClient, userId, summary);
 }
 
@@ -270,7 +332,13 @@ export async function caseSupportingMutationEffect(
   userId: string,
   summary: ZeroTouchCaseSummary,
 ): Promise<void> {
-  caseSummaryMutationEffect(queryClient, userId, summary);
+  await Promise.all([
+    caseQueryKeys.detail(userId, summary.case.case_id),
+    caseQueryKeys.documents(userId, summary.case.case_id),
+    caseQueryKeys.ownership(userId, summary.case.case_id),
+    caseQueryKeys.intelligence(userId, summary.case.case_id),
+  ].map((queryKey) => queryClient.cancelQueries({ queryKey, exact: true })));
+  publishCaseMutationScopes(queryClient, userId, summary);
   const caseId = summary.case.case_id;
   await Promise.all([
     queryClient.invalidateQueries({

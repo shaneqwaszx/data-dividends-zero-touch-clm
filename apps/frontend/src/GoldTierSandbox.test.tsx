@@ -256,6 +256,19 @@ describe("GoldTier Sandbox frontend boundary", () => {
     expect(container?.textContent).toContain("childId");
     expect(container?.textContent).toContain("SPONSOR CONFIRMATION");
     expect(container?.textContent).toContain("BLOCKED_CHILD_ID_LIFECYCLE");
+    const guideSummary = Array.from(container!.querySelectorAll("summary"))
+      .find((item) => item.textContent === "How to test this console")!;
+    const guide = guideSummary.parentElement as HTMLDetailsElement;
+    expect(guide.open).toBe(false);
+    const callsBeforeGuide = calls.length;
+    guideSummary.focus();
+    expect(document.activeElement).toBe(guideSummary);
+    await act(async () => guideSummary.click());
+    expect(guide.open).toBe(true);
+    expect(guide.querySelectorAll("li")).toHaveLength(8);
+    expect(guide.textContent).toContain("Supply legal name and country");
+    expect(guide.textContent).toContain("No provider mutation occurred");
+    expect(calls).toHaveLength(callsBeforeGuide);
 
     await act(async () => container?.querySelector("form")?.dispatchEvent(
       new Event("submit", { bubbles: true, cancelable: true }),

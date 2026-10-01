@@ -126,3 +126,48 @@ composition authority.
   out of scope.
 - Locking and CAS guarantees remain process-local except for the tested Mongo revision
   boundary; distributed exactly-once execution is not claimed.
+
+## Amendment - 2026-10-01 Garden operator recovery
+
+The owner-authorized Garden stabilization task separates canonical registry identity
+validation from ownership completeness within the existing owners. A strictly validated
+partial acquisition retains its actual empty/unsupported ownership evidence. Canonical
+identity requirements still apply; technical acquisition failure still stops. Actual
+incomplete graph evidence reaches the one Decimal engine and requires structured
+document-bound manual review before readiness. No shareholder, percentage or relationship
+is inferred. Unsupported official-Mock Relationships has no call or result provenance.
+Historical stored empty results remain readable without a read-time rewrite.
+
+An operator who resolves reconciliation before finishing document review can still
+review pending current fields during pre-confirmation incomplete ownership. Existing
+current-evidence authorization, lock/version and confirmation/submission guards apply;
+document review re-evaluates reconciliation and returns to the retained ownership blocker.
+This is bounded POC recovery, not new source precedence or sponsor reviewer policy.
+
+The complete primary demo uses Mock GoldTier. Name-only Sandbox candidates remain
+ambiguous under this decision. Offline browser acceptance exercises the official-Mock
+protocol adapter with explicitly synthetic input and a distinct test-only execution
+label; it does not establish a new official network observation or production mode.
+
+## Amendment - 2026-10-01 zero-touch exception remediation
+
+The owner explicitly authorizes automatic finalization of current pending document
+fields when their extracted and current canonical values match, confidence meets the
+case-bound inclusive threshold, and no contradictory current evidence or prior operator
+decision exists. Machine events remain distinct from operator review events. Cached
+reconciliation is not a reason to omit this bounded progression.
+
+A current, exact document/event-version-bound resolved reconciliation is also a
+completed document checkpoint. Manual ownership validation may consume that checkpoint
+through the existing reconciliation reader. It rechecks current case identity, current
+document/version, cleared fingerprint and UTC completion time during provider load.
+Original extraction and field review records remain unchanged; the browser receives
+explicit semantic completion rather than a fabricated persisted REVIEWED state. This
+supersedes the earlier requirement for duplicate field Accept clicks after reconciliation.
+
+Blocker class, direct evidence actions, dependencies and resolution conditions are
+derived browser metadata. Historical resolved/superseded exceptions are separate from
+active interventions. Existing schema v7, repositories, atomic reconciliation decisions,
+Decimal engine, target ledger and uncertain-operation no-replay rules remain unchanged.
+The explicit final dispatch confirmation is measured separately from exception
+interventions. No sponsor policy, external lifecycle or Live authority is added.

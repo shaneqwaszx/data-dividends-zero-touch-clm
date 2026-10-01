@@ -181,14 +181,13 @@ def test_legitimate_empty_officer_collection_is_truthfully_complete() -> None:
     assert connector.calls == {key: 1 for key in connector.calls}
 
 
-def test_missing_expected_ownership_is_partial_and_stops_downstream() -> None:
+def test_missing_ownership_retains_partial_evidence_but_validates_registry_identity() -> None:
     service, connector = build_service()
 
     case = service.create_staged_case(MISSING_OWNERSHIP_UEN)
 
-    assert case.state == WorkflowState.REVIEW_REQUIRED
-    assert case.error is not None
-    assert case.error.code == "REGISTRY_EXPECTED_DATA_MISSING"
+    assert case.state == WorkflowState.VALIDATED
+    assert case.error is None
     assert case.registry_acquisition is not None
     assert case.registry_acquisition.status == RegistryAcquisitionStatus.PARTIAL
     assert case.registry_acquisition.ownership_parties == ()
@@ -265,9 +264,10 @@ def test_bounded_synthetic_ownership_scenarios_normalize(identifier: str) -> Non
     )
 
 
-def test_registry_evidence_feeds_existing_decimal_ownership_analysis() -> None:
+@pytest.mark.parametrize("identifier", ("202400001A", MISSING_OWNERSHIP_UEN))
+def test_registry_evidence_feeds_existing_decimal_ownership_analysis(identifier: str) -> None:
     service, _ = build_service()
-    case = service.create_staged_case("202400001A")
+    case = service.create_staged_case(identifier)
     ownership = OwnershipAnalysisService(
         cases=service,
         provider=RegistryAcquisitionOwnershipProvider(service),
@@ -285,6 +285,13 @@ def test_registry_evidence_feeds_existing_decimal_ownership_analysis() -> None:
     analyzed = ownership.analyze(case_id=case.case_id)
 
     assert loaded.provider_name == "ACRA_REGISTRY_ACQUISITION"
+    if identifier == MISSING_OWNERSHIP_UEN:
+        assert analyzed.state == OwnershipAnalysisState.REVIEW_REQUIRED
+        assert analyzed.candidates == []
+        assert [item.code.value for item in analyzed.issues] == ["INCOMPLETE_LEGAL_ENTITY"]
+        assert case.registry_acquisition is not None
+        assert case.registry_acquisition.status == RegistryAcquisitionStatus.PARTIAL
+        return
     assert analyzed.state == OwnershipAnalysisState.ANALYZED
     assert [item.aggregated_ownership_percent for item in analyzed.candidates] == [
         Decimal("60"),
@@ -731,7 +738,7 @@ def test_browser_projection_is_bounded_truthful_and_endpoint_free() -> None:
     assert connector.calls == {key: 1 for key in connector.calls}
 
 
-def test_partial_and_failed_acquisition_stop_all_downstream_api_calls() -> None:
+def test_partial_identity_can_continue_but_failed_acquisition_stops() -> None:
     service, _ = build_service()
     client = TestClient(
         create_app(
@@ -747,8 +754,11 @@ def test_partial_and_failed_acquisition_stop_all_downstream_api_calls() -> None:
         "/api/clm/zero-touch/cases", json={"uen": FAILED_RELATIONSHIPS_UEN}
     ).json()
 
-    assert partial["status"] == "WAITING_FOR_REVIEW"
-    assert partial["case"]["error"]["code"] == "REGISTRY_EXPECTED_DATA_MISSING"
+    assert partial["status"] == "PENDING_INPUTS"
+    assert partial["current_stage"] == "DOCUMENT"
+    assert partial["case"]["error"] is None
+    assert "REGISTRY_NOT_READY" not in partial["clm"]["readiness"]["blockers"]
+    assert "OWNERSHIP_REQUIRED" in partial["clm"]["readiness"]["blockers"]
     assert failed["status"] == "TECHNICAL_FAILURE"
     assert failed["technical_failure"]["code"] == "REGISTRY_OPERATION_UNAVAILABLE"
     for payload in (partial, failed):
@@ -757,6 +767,8 @@ def test_partial_and_failed_acquisition_stop_all_downstream_api_calls() -> None:
         ownership = client.get(f"/api/onboarding/cases/{case_id}/ownership")
         assert documents.status_code == 200 and documents.json() == []
         assert ownership.status_code == 404
-        assert {item["status"] for item in payload["target_operations"]} == {
-            "NOT_ATTEMPTED"
-        }
+        assert all(
+            item["status"] == "NOT_ATTEMPTED"
+            for item in payload["target_operations"]
+            if item["operation"] != "SEARCH"
+        )

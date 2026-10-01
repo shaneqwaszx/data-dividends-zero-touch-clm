@@ -1839,7 +1839,7 @@ def test_partial_document_review_round_trips_across_adapter_restart() -> None:
     store = MemoryEnvelopeStore()
     mismatched_profile = TEXT_PROFILE.replace(
         "MERLION CIRCULAR LABS PTE. LTD.", "MERLION CIRCULAR LABS PTE. LIMITED"
-    )
+    ).replace("Country: SG", "Country: MY")
     with TestClient(_durable_adapter_app(store)) as first:  # type: ignore[arg-type]
         created = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
         case_id = created.json()["case"]["case_id"]

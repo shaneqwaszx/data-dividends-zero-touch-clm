@@ -35,8 +35,8 @@ const REVIEW_NOTE_COPY: Record<string, Pick<ReviewNote, "title" | "impact">> = {
     impact: "Review extracted document fields before relying on them.",
   },
   UBO_POLICY_NOT_SPONSOR_CONFIRMED: {
-    title: "Ownership threshold remains provisional for this POC",
-    impact: "The ownership result is advisory and still requires human approval.",
+    title: "Check the configured ownership threshold",
+    impact: "The sponsor confirmed aggregated ownership at or above 25%. This note may reflect an older assessment or a different configured threshold. Incomplete ownership evidence still requires review. Final Send confirms the prepared submission.",
   },
   LIVE_HIERARCHY_UNAVAILABLE: {
     title: "External hierarchy data is not available",

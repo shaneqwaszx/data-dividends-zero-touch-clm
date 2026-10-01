@@ -107,9 +107,16 @@
       "runtime_enabled": false
     },
     {
+      "policy_id": "POC_AGGREGATED_OWNERSHIP_THRESHOLD_AND_COMPARATOR",
+      "authority_status": "SPONSOR_CONFIRMED",
+      "source_reference": "docs/decisions/DECISION_LOG.md#D-062",
+      "blocking_sponsor_question": null,
+      "runtime_enabled": false
+    },
+    {
       "policy_id": "FINAL_LEGAL_UBO_RULE",
       "authority_status": "PROJECT_DEFINED_PROVISIONAL",
-      "source_reference": "docs/decisions/DECISION_LOG.md#D-021",
+      "source_reference": "docs/decisions/DECISION_LOG.md#D-062",
       "blocking_sponsor_question": "Q-004",
       "runtime_enabled": false
     },

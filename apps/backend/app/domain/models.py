@@ -101,6 +101,7 @@ class RegistryOperationStatus(StrEnum):
     EMPTY = "EMPTY"
     FAILED = "FAILED"
     NOT_ATTEMPTED = "NOT_ATTEMPTED"
+    UNSUPPORTED = "UNSUPPORTED"
 
 
 class RegistryAcquisitionStatus(StrEnum):
@@ -220,7 +221,7 @@ class RegistryOperationResult(BaseModel):
             if self.record_count != 0 or self.provenance is None or self.error is None:
                 raise ValueError("failed registry operations require provenance and a safe error")
         elif self.record_count != 0 or self.provenance is not None or self.error is not None:
-            raise ValueError("not-attempted registry operations carry no result data")
+            raise ValueError("unattempted or unsupported registry operations carry no result data")
         if self.provenance is not None and self.provenance.operation != self.operation:
             raise ValueError("operation provenance must identify the summarized operation")
         return self
@@ -274,6 +275,7 @@ class RegistryAcquisitionBundle(BaseModel):
                     RegistryOperationStatus.EMPTY,
                     RegistryOperationStatus.FAILED,
                     RegistryOperationStatus.NOT_ATTEMPTED,
+                    RegistryOperationStatus.UNSUPPORTED,
                 }
                 and evidence_count != 0
             ):
@@ -386,11 +388,15 @@ class RegistryAcquisitionBundle(BaseModel):
                 not in {
                     RegistryOperationStatus.COMPLETE,
                     RegistryOperationStatus.EMPTY,
+                    RegistryOperationStatus.UNSUPPORTED,
                 }
                 for status in statuses[2:]
             ):
                 raise ValueError("partial acquisition has inconsistent operation states")
-            if RegistryOperationStatus.EMPTY not in statuses[2:]:
+            if not any(
+                status in {RegistryOperationStatus.EMPTY, RegistryOperationStatus.UNSUPPORTED}
+                for status in statuses[2:]
+            ):
                 raise ValueError("partial acquisition requires missing ownership evidence")
             if len(self.issues) != 1 or self.issues[0].code != expected_missing_code:
                 raise ValueError("partial acquisition requires its expected-data issue")

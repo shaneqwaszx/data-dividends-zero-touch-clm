@@ -578,7 +578,7 @@ def test_P06_QG_009_R2_ORDINARY_SPACES_NORMALIZE_AND_COMPLETE() -> None:
 
     assert created.status == "PENDING_INPUTS"
     assert completed.status == "COMPLETED"
-    assert completed.metrics.human_interventions == 1
+    assert completed.metrics.human_interventions == 0
     assert target.calls == ["search", "search", "shell", "policy", "amend"]
 
 
@@ -686,7 +686,7 @@ def test_alternate_local_adapters_complete_the_full_zero_touch_path() -> None:
     assert target.calls == ["search"]
     completed = _confirm_target_dispatch(zero, waiting)
     assert completed.status == "COMPLETED"
-    assert completed.metrics.human_interventions == 1
+    assert completed.metrics.human_interventions == 0
     assert target.calls == ["search", "search", "shell", "policy", "amend"]
     assert documents.list_documents(case_id=created.case_id)[0].provider_environment == "SANDBOX"
     analyzed = ownership.get(case_id=created.case_id)

@@ -3,6 +3,27 @@
 Remove or mark a question resolved only after an explicit sponsor answer. These
 questions do not block credential-free Phase 01 mock development unless stated.
 
+## Current clarification — 2026-10-01 / D-062
+
+The owner relayed sponsor confirmation of aggregated ownership `>= 25%` with
+`GREATER_THAN_OR_EQUAL_TO`. Q-004 remains open only for complete legal/control,
+evidence and production policy; the bounded threshold itself is no longer provisional.
+Existing catalogues and case snapshots keep their historical metadata.
+
+For the current POC, KYC is onboarding/evidence preparation. RM/onboarder Review & Send
+confirms the prepared target submission. No separate KYC analyst, compliance approver,
+second final approver or mandatory four-eyes step is required. Q-014/Q-016 remain open
+for production authority. Ready-for-Approval is not a local prerequisite unless the
+actual target API technically requires it; inspected current XPI material does not
+establish such a requirement. EDD remains out of scope. These clarifications do not
+claim regulatory approval or resolve production workflow questions.
+
+Local risk remains advisory: LOW continues, MEDIUM warns and continues, and HIGH may
+request justified RM attention. Probability alone is not a hard blocker. The owner's
+report of built-in GoldTier scoring is not verified API screening ownership. Q-017 and
+Q-007 still require current XPI PEP/sanctions/adverse-media/risk/wealth/funds ownership,
+requiredness, permitted source and optionality. Workbook presence is not an API minimum.
+
 ## POC IDENTITY, TEAM ACCESS, AND PRIORITY POLICY
 
 ### Q-016 - Production identity, role, assignment, and prioritisation policy
@@ -184,12 +205,15 @@ extracted from each?
 
 ### Q-004 — UBO threshold rule
 
-What configurable rule should demonstrate the sponsor's “20–25% UBO” requirement:
-`>= 25%`, `> 20%`, jurisdiction/policy-dependent, or another rule?
+The bounded default threshold/comparator is **RESOLVED** by D-062 on 2026-10-01:
+aggregated ownership `>= 25%`, `GREATER_THAN_OR_EQUAL_TO`, sponsor-confirmed through
+the owner's current clarification. What legal/control tests, evidence standards and
+production jurisdiction/policy conditions complete the final UBO determination?
 
-The Phase 04 development default is `aggregated ownership >= 25%`. Both the value and
-inclusive comparator are explicitly project-defined/provisional and must not be treated
-as the sponsor's final threshold or complete legal controller test.
+Historically, the Phase 04 development default was labelled project-defined/provisional.
+That label is superseded for the bounded default threshold and comparator only. Existing
+historical metadata remains readable; it must not be treated as a complete legal
+controller test or production policy, or as negating the newly confirmed default.
 
 ### Q-005 — Validation responsibility split
 

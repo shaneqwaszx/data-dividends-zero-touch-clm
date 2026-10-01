@@ -68,6 +68,7 @@ def main() -> int:
     port = _port(_required("CLM_E2E_BACKEND_PORT"))
     frontend_origin = _loopback_origin(_required("CLM_E2E_FRONTEND_ORIGIN"))
     diagnostics_enabled = os.environ.get("CLM_E2E_DIAGNOSTICS") == "1"
+    garden_protocol_fixture = os.environ.get("CLM_E2E_GARDEN_PROTOCOL") == "1"
 
     system_environment = {
         key: os.environ[key] for key in _SYSTEM_ENV_KEYS if key in os.environ
@@ -97,6 +98,7 @@ def main() -> int:
         }
     )
     sys.path.insert(0, str(BACKEND_ROOT))
+    sys.path.insert(0, str(ROOT))
 
     from app.config import Settings
     from app.domain.access import SYNTHETIC_USER_PROFILES
@@ -104,6 +106,7 @@ def main() -> int:
         credential_setting_key,
         generate_scrypt_password_hash,
     )
+    from pydantic import SecretStr
 
     # Importing app.main creates its conventional module-level app. Disable its
     # configured dotenv source first, then also pass an explicit Settings instance
@@ -130,9 +133,28 @@ def main() -> int:
     for user_id in user_ids:
         setting_values[credential_setting_key(user_id).lower()] = encoded
     settings = Settings(_env_file=None, **setting_values)
+    fixture_connector = None
+    if garden_protocol_fixture:
+        import secrets
+
+        from app.composition import build_acra_connector
+
+        from scripts.garden_protocol_fixture import OfflineGardenProtocolTransport
+
+        settings = settings.model_copy(update={
+            "acra_connector_mode": "api_marketplace_mock",
+            "acra_api_marketplace_mock_client_id": SecretStr(secrets.token_urlsafe(32)),
+            "acra_api_marketplace_mock_secret_key": SecretStr(secrets.token_urlsafe(32)),
+        })
+        transport = OfflineGardenProtocolTransport()
+        fixture_connector = build_acra_connector(
+            settings, transport=transport, marketplace_token_transport=transport,
+        )
     application = application_module.create_app(
         settings=settings,
-        e2e_portfolio_seed_count=105,
+        acra_connector=fixture_connector,
+        e2e_acra_protocol_fixture=garden_protocol_fixture,
+        e2e_portfolio_seed_count=0 if garden_protocol_fixture else 105,
     )
 
     import uvicorn

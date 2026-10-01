@@ -98,6 +98,14 @@ Source evidence remains evidence; it does not automatically become authority. Th
 reconciliation context owns disagreement and the policy snapshot owns per-case runtime
 thresholds. Target DTOs are constructed only from validated canonical/readiness data.
 
+The local zero-touch remediation keeps document auto-confirmation in
+`DocumentProcessingService`, current source-bound reconciliation in
+`ReconciliationService`, and bounded progression in `ZeroTouchOrchestrator`.
+`ManualOwnershipEvidenceProvider` can read an exact current resolved reconciliation
+checkpoint without rewriting document evidence. Browser completion/classes/history are
+explicit projections; they do not own workflow decisions. The centralized query owner
+guards automation, case, CLM, document-event, reconciliation and supporting-record revisions.
+
 ## 5. Registry and ACRA architecture
 
 `RegistryProviderRouter` is a closed backend-owned route. Resolved Singapore selects

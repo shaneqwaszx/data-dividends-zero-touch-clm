@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 from hashlib import sha256
 from threading import RLock
 from typing import Literal, Protocol
@@ -846,7 +847,7 @@ class ClmOrchestrationService:
                     "customers/search",
                     "customers/create if NO_MATCH",
                     "customers/createPolicy",
-                    "customers/amendCustomer",
+                    "customers/amendCustomer only for supported reviewed enrichment",
                     "customers/search by retained GoldTier ID",
                 ),
                 match_found_behavior="EXACT_MATCH_REUSE_ELSE_REVIEW_NO_WRITES",
@@ -1464,7 +1465,12 @@ def _evaluate_readiness(
         ownership=ownership_stage,
         goldtier=goldtier,
         blockers=blockers,
-        warnings=REAL_INTEGRATION_WARNINGS,
+        warnings=[
+            warning
+            for warning in REAL_INTEGRATION_WARNINGS
+            if warning != ClmWarningCode.UBO_POLICY_NOT_SPONSOR_CONFIRMED
+            or case.policy_snapshot.ubo_threshold_percent != Decimal("25")
+        ],
         evaluated_at=now,
     )
 

@@ -32,8 +32,9 @@ already available browser and never downloads one.
 
 ## Authenticated browser smoke
 
-Listing proves there are exactly two test cases and does not start servers, generate a
-password, or require external credentials:
+Listing reports the current configured test inventory and does not start servers,
+generate a password, or require external credentials. Multiple parameterized tests
+can share one exact selector; test and selector counts are distinct:
 
 ```bat
 npm.cmd --prefix apps\frontend run e2e:list
@@ -62,8 +63,35 @@ npm.cmd --prefix apps\frontend run e2e:headed
 The launcher rejects invalid, duplicate, or occupied ports; starts the real backend in
 test/memory mode with Mock ACRA, local deterministic document extraction, registry-fed
 local ownership analysis, Mock GoldTier, and demo controls disabled; starts Vite with
-strict port ownership; waits for process-owned readiness; runs the two browser tests;
-and tears down only its own process groups.
+strict port ownership; waits for process-owned readiness; runs every discovered selector
+in a fresh lifecycle; and tears down only its own process groups. Tagged Garden selectors
+use strict offline synthetic protocol fixtures; Golden retains the normal Mock composition.
+
+`--timeout-seconds` is the per-lifecycle readiness plus Playwright execution budget
+(default 240 seconds, allowed 30-900), including focused `--grep` runs. A complete
+isolated suite gives each selector this full budget; prior successful selectors do
+not consume later selectors' execution allowances. Product assertion timeouts and
+retries remain unchanged.
+
+The separate finite suite safety budget is `60 + selector_count *
+(lifecycle_timeout + 120)` seconds. Discovery is bounded at 60 seconds; each lifecycle
+reserves 120 seconds for existing bounded cleanup, capture joins and dispatch. The
+three owned processes can each require up to six five-second POSIX stop phases;
+Windows cleanup is also bounded. Cleanup failure remains fatal, with no further
+selector dispatched. A suite safety exhaustion names an undispatched selector and
+returns non-zero, never suite PASS.
+
+CI explicitly uses a 60-second per-lifecycle budget and a 90-minute job timeout.
+At the current 26-selector inventory the derived worst-case suite budget is 79
+minutes, leaving 11 minutes for dependency/browser setup. Normal observed runtime
+is minutes. Reassess the documented outer job bound when discovery grows; the
+launcher logs discovered count, effective budgets, individual lifecycle elapsed
+time, total elapsed and the slowest lifecycle. GitHub's job timeout remains a final
+outer guard even if the launcher is forcibly terminated.
+
+Failure categories distinguish `INDIVIDUAL_SELECTION_TIMEOUT`, `SUITE_JOB_TIMEOUT`,
+`ASSERTION_FAILURE` (non-zero Playwright result), `READINESS_FAILURE`, and
+`CLEANUP_FAILURE`. No failed, undispatched or skipped selector is counted as passing.
 
 The browser interception layer continues only requests to the task-owned loopback
 origins. It recognizes the one exact baseline `fonts.googleapis.com` stylesheet URL
@@ -76,8 +104,9 @@ received its single route disposition.
 The per-run password exists only in the backend and Playwright process environments.
 It is not placed in Vite variables, command-line arguments, source, bundles, or normal
 output. Trace, video, screenshots, HAR, persistent profiles, and `storageState` are
-disabled. `playwright-report/`, `test-results/`, and `.playwright-output/` are ignored
-defensively, but a successful configured run retains no browser recording artefacts.
+disabled by configuration. Individual synthetic browser tests may explicitly retain
+sanitized screenshots in ignored task-owned output; these are not publication content.
+`playwright-report/`, `test-results/`, and `.playwright-output/` are ignored defensively.
 Ordinary interruption is handled; no user-space launcher can promise cleanup after an
 uncatchable operating-system termination.
 

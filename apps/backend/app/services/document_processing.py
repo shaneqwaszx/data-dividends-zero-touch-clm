@@ -506,20 +506,35 @@ class DocumentProcessingService:
                 code="ONBOARDING_CASE_NOT_FOUND",
                 message="The onboarding case was not found.",
             )
-        return document_semantic_assessment(
+        assessment = document_semantic_assessment(
             record=record,
             current_entity=parent.entity,
             confidence_threshold=float(parent.policy_snapshot.idp_review_confidence_threshold),
         )
+        blockers = list(assessment.blockers)
+        for other in self.list_documents(case_id=case_id):
+            if other.document_id == record.document_id or not other.is_current_evidence:
+                continue
+            other_assessment = document_semantic_assessment(
+                record=other,
+                current_entity=parent.entity,
+                confidence_threshold=float(parent.policy_snapshot.idp_review_confidence_threshold),
+            )
+            if (
+                DocumentAutoClearBlocker.SOURCE_CONFLICT in other_assessment.blockers
+                and DocumentAutoClearBlocker.SOURCE_CONFLICT not in blockers
+            ):
+                blockers.append(DocumentAutoClearBlocker.SOURCE_CONFLICT)
+        return DocumentAutoClearAssessment(eligible=not blockers, blockers=tuple(blockers))
 
     def auto_confirm_document(
-        self, *, case_id: UUID, document_id: UUID
+        self, *, case_id: UUID, document_id: UUID, allow_partial: bool = False
     ) -> DocumentProcessingRecord:
         """Auto-confirm only complete, current, all-match, high-confidence evidence."""
 
         with self._case_lock(case_id):
             assessment = self.assess_auto_clear(case_id=case_id, document_id=document_id)
-            if not assessment.eligible:
+            if not assessment.eligible and not allow_partial:
                 raise DocumentRequestError(
                     code="DOCUMENT_AUTO_CLEAR_BLOCKED",
                     message="The document does not satisfy the provisional auto-clear policy.",
@@ -530,13 +545,106 @@ class DocumentProcessingService:
                     code="DOCUMENT_NOT_FOUND",
                     message="The document review record was not found.",
                 )
+            parent = self._cases.get_case(case_id)
+            if (
+                parent is None
+                or not record.is_current_evidence
+                or record.state != DocumentProcessingState.REVIEW_REQUIRED
+            ):
+                return record
+            current_documents = self.list_documents(case_id=case_id)
             now = self._clock()
+            pending = [
+                field for field in record.fields if field.review_status == FieldReviewStatus.PENDING
+            ]
+            if not pending:
+                return record
+            had_operator_decision = any(
+                event.event_type
+                in {
+                    DocumentEventType.DOCUMENT_FIELD_ACCEPTED,
+                    DocumentEventType.DOCUMENT_FIELD_REJECTED,
+                    DocumentEventType.DOCUMENT_FIELD_CORRECTED,
+                }
+                for event in record.events
+            )
+            confirmed_keys: list[DocumentFieldKey] = []
             for field in record.fields:
+                if field.review_status != FieldReviewStatus.PENDING:
+                    continue
+                if field.original_extracted_value is None:
+                    # An optional absent field has no value to confirm.
+                    continue
+                canonical = canonical_value_for_field(parent.entity, field.field_key)
+                if (
+                    field.confidence < float(parent.policy_snapshot.idp_review_confidence_threshold)
+                    or field.comparison_status != ComparisonStatus.MATCH
+                    or compare_values(field.field_key, field.canonical_value, canonical)
+                    != ComparisonStatus.MATCH
+                    or compare_values(field.field_key, field.original_extracted_value, canonical)
+                    != ComparisonStatus.MATCH
+                ):
+                    continue
+                contradictory = False
+                for other in current_documents:
+                    if other.document_id == record.document_id or not other.is_current_evidence:
+                        continue
+                    other_field = next(
+                        (item for item in other.fields if item.field_key == field.field_key), None
+                    )
+                    if other_field is None or other_field.original_extracted_value is None:
+                        continue
+                    effective = (
+                        other_field.reviewed_value
+                        if other_field.review_status
+                        in {
+                            FieldReviewStatus.ACCEPTED,
+                            FieldReviewStatus.CORRECTED,
+                        }
+                        else other_field.original_extracted_value
+                    )
+                    resolved = any(
+                        item.field_key == field.field_key
+                        and compare_values(
+                            field.field_key,
+                            item.registry_value,
+                            canonical,
+                        )
+                        == ComparisonStatus.MATCH
+                        for item in other.source_conflict_resolutions
+                    )
+                    if not resolved and (
+                        other_field.review_status == FieldReviewStatus.REJECTED
+                        or compare_values(field.field_key, effective, canonical)
+                        != ComparisonStatus.MATCH
+                    ):
+                        contradictory = True
+                if contradictory:
+                    continue
                 field.review_status = FieldReviewStatus.ACCEPTED
                 field.reviewed_value = field.original_extracted_value
                 field.reviewed_at = now
+                confirmed_keys.append(field.field_key)
+            for field_key in confirmed_keys:
+                record = self._record(
+                    record,
+                    event_type=DocumentEventType.DOCUMENT_AUTO_CONFIRMED,
+                    state=DocumentProcessingState.REVIEW_REQUIRED,
+                    outcome=EventOutcome.SUCCEEDED,
+                    field_key=field_key,
+                    code="DOCUMENT_FIELD_AUTO_CONFIRMED",
+                    message="A matching current field met the automated confidence rule.",
+                )
+            if not confirmed_keys:
+                return record
+            if not self.assess_auto_clear(case_id=case_id, document_id=document_id).eligible:
+                return record.model_copy(deep=True)
             record.reviewed_at = now
-            record.completion_method = DocumentCompletionMethod.AUTO_CONFIRMED
+            record.completion_method = (
+                DocumentCompletionMethod.HUMAN_REVIEWED
+                if had_operator_decision
+                else DocumentCompletionMethod.AUTO_CONFIRMED
+            )
             return self._record(
                 record,
                 event_type=DocumentEventType.DOCUMENT_AUTO_CONFIRMED,
@@ -822,6 +930,8 @@ def document_semantic_assessment(
         DocumentProcessingState.REVIEWED,
     }:
         block(DocumentAutoClearBlocker.REVIEW_STATE_INVALID)
+    if not record.is_current_evidence:
+        block(DocumentAutoClearBlocker.REVIEW_STATE_INVALID)
     fields_by_key = {field.field_key: field for field in record.fields}
     if fields_by_key and all(
         field.provenance.source_reference == "DOCUMENT_TEXT_UNAVAILABLE"
@@ -847,6 +957,12 @@ def document_semantic_assessment(
         )
         if resolution_matches:
             continue
+        if field.review_status == FieldReviewStatus.PENDING and (
+            field.comparison_status != ComparisonStatus.MATCH
+            or compare_values(field_key, field.canonical_value, current_canonical)
+            != ComparisonStatus.MATCH
+        ):
+            block(DocumentAutoClearBlocker.SOURCE_CONFLICT)
         if field.review_status in {
             FieldReviewStatus.ACCEPTED,
             FieldReviewStatus.CORRECTED,

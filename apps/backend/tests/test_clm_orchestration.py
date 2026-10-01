@@ -544,6 +544,25 @@ def test_staged_intake_stops_before_goldtier_and_preserves_legacy_composition() 
     assert target.calls == ["search"]
 
 
+@pytest.mark.parametrize("threshold, provisional", [("25.000000", False), ("20", True)])
+def test_confirmed_inclusive_threshold_warning_is_scoped_to_25_percent(
+    threshold: str, provisional: bool,
+) -> None:
+    cases, _, _, clm, _ = build_services()
+    staged = clm.create_case("202400001A")
+    case = cases.get_case(staged.case_id)
+    assert case is not None
+    case = case.model_copy(update={"policy_snapshot": case.policy_snapshot.model_copy(
+        update={"ubo_threshold_percent": Decimal(threshold)},
+    )})
+    readiness = clm_orchestration_module._evaluate_readiness(
+        case=case, documents=[], ownership=None,
+        document_confidence_threshold=0.8, now=datetime.now(UTC),
+    )
+    assert ("UBO_POLICY_NOT_SPONSOR_CONFIRMED" in readiness.warnings) is provisional
+    assert "OWNERSHIP_REQUIRED" in readiness.blockers
+
+
 def test_mock_request_preview_exactly_projects_all_mapper_request_fields() -> None:
     cases, _, _, clm, target, case_id = make_ready_case(confirm=False)
     case = cases.get_case(case_id)  # type: ignore[arg-type]

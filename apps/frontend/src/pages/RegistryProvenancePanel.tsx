@@ -7,6 +7,8 @@ export default function RegistryProvenancePanel({
   acquisition?: RegistryAcquisition | null;
   binding?: RegistryEvidenceBinding | null;
 }) {
+  const identity = acquisition?.operation_results.find((result) => result.operation === "ENTITY_PROFILE");
+  const ownership = acquisition?.operation_results.find((result) => result.operation === "OWNERSHIP_PARTIES");
   return (
     <section className="evidence-section-block" aria-labelledby="registry-provenance-heading">
       <p className="card-kicker">Case-bound registry evidence</p>
@@ -14,6 +16,16 @@ export default function RegistryProvenancePanel({
 
       {acquisition ? (
         <>
+          <dl aria-label="Registry evidence availability">
+            <div><dt>Identity</dt><dd>{identity?.status === "COMPLETE" ? "Identity retrieved" : `Registry identity: ${identity?.status ?? "not available"}`}</dd></div>
+            <div><dt>Ownership</dt><dd>{ownership?.status === "EMPTY"
+              ? "Ownership unavailable from current registry evidence"
+              : ownership?.status === "COMPLETE" ? `${ownership.record_count} ownership record(s) retrieved`
+                : ownership?.status === "FAILED" ? "Ownership retrieval failed"
+                  : ownership?.status === "UNSUPPORTED" ? "Ownership retrieval is unsupported by this registry route"
+                    : ownership?.status === "NOT_ATTEMPTED" ? "Ownership retrieval was not attempted"
+                      : "Registry ownership status is not available"}</dd></div>
+          </dl>
           <div className="kv-row"><span className="kv-label">Acquisition status</span><span className="kv-value">{acquisition.status}</span></div>
           <div className="kv-row"><span className="kv-label">Acquisition retrieved at</span><span className="kv-value">{acquisition.retrieved_at}</span></div>
           <ul aria-label="Original registry operations">

@@ -65,20 +65,24 @@ export default function ManualOwnershipEvidenceForm({
   documents,
   disabled,
   onSubmit,
+  onUploadEvidence,
 }: {
   canonicalRootUen: string;
   initialRootLegalName: string;
   documents: DocumentProcessingRecord[];
   disabled: boolean;
   onSubmit: (values: ManualOwnershipEvidenceValues) => void;
+  onUploadEvidence?: (file: File) => void;
 }) {
   const reviewedDocuments = useMemo(
     () => documents.filter(
-      (document) => document.state === "REVIEWED" && !document.superseded_by_document_id,
+      (document) => (document.state === "REVIEWED" || document.semantic_completion === "RECONCILIATION_RESOLVED") && !document.superseded_by_document_id,
     ),
     [documents],
   );
   const [documentId, setDocumentId] = useState(reviewedDocuments[0]?.document_id ?? "");
+  const selectedDocument = reviewedDocuments.find((document) => document.document_id === documentId)
+    ?? reviewedDocuments[0];
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
   const [rationale, setRationale] = useState("");
   const [rootPartyId, setRootPartyId] = useState(`ROOT_${canonicalRootUen}`);
@@ -94,7 +98,6 @@ export default function ManualOwnershipEvidenceForm({
 
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    const selectedDocument = reviewedDocuments.find((document) => document.document_id === documentId);
     if (disabled || !selectedDocument) return;
     if (!ownershipTotalIsExactly100(owners.map((owner) => owner.ownership_percent))) {
       setValidationError("Direct economic-interest percentages must total exactly 100.");
@@ -154,12 +157,22 @@ export default function ManualOwnershipEvidenceForm({
       <p className="card-kicker">Ownership recovery · local proof of concept</p>
       <h2 id="manual-ownership-title">Provide reviewed ownership declaration</h2>
       <p className="manual-ownership__source">
-        User-supplied declaration · LOCAL · MANUAL_DECLARATION_POC
+        Supplementary client-supplied evidence · operator review · LOCAL · MANUAL_DECLARATION_POC
       </p>
       <p>
         This declaration is not ACRA evidence or verified ownership. It replaces only the
         ownership evidence for this case; independent blockers remain authoritative.
       </p>
+      {onUploadEvidence && <label id="case-ownership-evidence-upload" tabIndex={-1}>
+        Upload ownership evidence
+        <input className="input" type="file" accept=".pdf,.docx,.txt" disabled={disabled}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) onUploadEvidence(file);
+          }} />
+        <span className="control-help">Client-supplied evidence uses the existing document validation. Confirm ownership percentages in the structured declaration; they are not inferred from the document.</span>
+      </label>}
 
       {reviewedDocuments.length === 0 ? (
         <p className="ds-banner ds-banner-warn" role="status">
@@ -171,7 +184,7 @@ export default function ManualOwnershipEvidenceForm({
           <div className="manual-ownership__fields">
             <label>
               Evidence document
-              <select className="input" value={documentId} disabled={disabled} onChange={(event) => setDocumentId(event.target.value)}>
+              <select className="input" value={selectedDocument?.document_id ?? ""} disabled={disabled} onChange={(event) => setDocumentId(event.target.value)}>
                 {reviewedDocuments.map((document) => (
                   <option key={document.document_id} value={document.document_id}>
                     {document.display_name} · version {document.events.length}

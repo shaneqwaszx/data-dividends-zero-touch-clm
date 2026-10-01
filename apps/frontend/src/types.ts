@@ -138,7 +138,7 @@ export interface SimulationProfile {
   is_simulated: true;
   registry_system: "ACRA";
   registry_environment: "MOCK" | "SANDBOX";
-  registry_provider_mode?: "LOCAL_MOCK" | "API_MARKETPLACE_MOCK" | "GENERIC_SANDBOX";
+  registry_provider_mode?: "LOCAL_MOCK" | "API_MARKETPLACE_MOCK" | "API_MARKETPLACE_PROTOCOL_TEST" | "GENERIC_SANDBOX";
   target_system: "GOLDTIER";
   target_environment: "MOCK" | "SANDBOX";
   target_provider_classification: "MOCK" | "SANDBOX_PARTIAL";
@@ -425,7 +425,7 @@ export interface RegistryAcquisition {
   }>;
   operation_results: Array<{
     operation: RegistryOperation;
-    status: "COMPLETE" | "EMPTY" | "FAILED" | "NOT_ATTEMPTED";
+    status: "COMPLETE" | "EMPTY" | "FAILED" | "NOT_ATTEMPTED" | "UNSUPPORTED";
     record_count: number;
     provenance: RegistryEvidenceProvenance | null;
     error: { code: string; message: string } | null;
@@ -592,6 +592,9 @@ export interface DocumentProcessingRecord {
   profile: "PROVISIONAL_CORPORATE";
   provider_environment: "MOCK" | "LOCAL" | "SANDBOX" | "LIVE" | null;
   state: DocumentProcessingState;
+  completion_method?: "AUTO_CONFIRMED" | "HUMAN_REVIEWED" | "EXCEPTION_RESOLVED" | null;
+  semantic_completion?: "RECONCILIATION_RESOLVED" | null;
+  reconciliation_version?: number | null;
   fields: Array<{
     field_key: DocumentFieldKey;
     original_extracted_value: string | null;
@@ -970,6 +973,7 @@ export type AutomationStage =
 export type EventOutcome = "SUCCEEDED" | "PARTIAL" | "REVIEW_REQUIRED" | "FAILED";
 
 export type ProcessingNodeStatus =
+  | "UNSUPPORTED"
   | "COMPLETE"
   | "IN_PROGRESS"
   | "EMPTY"
@@ -1186,6 +1190,8 @@ export interface ZeroTouchException {
 }
 
 export interface HumanInterventionProjection {
+  blocker_class?: "WARNING" | "RECOVERABLE_INPUT" | "HUMAN_DECISION" | "WAITING_EXTERNAL" | "HARD_SAFETY_STOP";
+  evidence_actions?: Array<{ target: "DOCUMENTS" | "OWNERSHIP_DETAILS" | "OWNERSHIP_UPLOAD" | "CLASSIFICATION" | "IDENTITY" | "REVIEW_SEND"; label: string }>;
   intervention_id: string;
   owning_stage: AutomationStage;
   owning_stage_label: string;
@@ -1208,6 +1214,10 @@ export interface HumanInterventionProjection {
     legal_form: string | null;
   }>;
   decisions?: BlockerDecisionRecord[];
+  dependent_stages?: string[];
+  backend_mutation_owner?: string;
+  resolution_condition?: string;
+  resume_target?: AutomationStage | null;
 }
 
 export type BlockerDecisionClassification =
@@ -1295,6 +1305,7 @@ export interface ZeroTouchCaseSummary {
   current_stage: AutomationStage;
   completed_stages: AutomationStage[];
   active_exceptions: ZeroTouchException[];
+  historical_exceptions?: ZeroTouchException[];
   non_blocking_decisions?: BlockerDecisionRecord[];
   interventions?: HumanInterventionProjection[];
   target_classification: GoldTierTargetClassification;
