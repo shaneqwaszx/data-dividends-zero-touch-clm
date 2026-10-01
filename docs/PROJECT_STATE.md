@@ -5,19 +5,33 @@ It is not a sponsor contract, phase report, or substitute for current source and
 
 ## Verification metadata
 
-The uncommitted 2026-10-01 zero-touch remediation candidate adds current-field automatic
-confirmation, direct ownership/classification evidence actions, exact reconciliation
-checkpoint consumption, separate active/history projections and revision-safe browser
-publication. Its local Golden/Garden evidence and independent gate are recorded in
-`docs/development/ZERO_TOUCH_EXCEPTION_DRIVEN_ONBOARDING_REMEDIATION.md`. This candidate
-note does not update the verified-main metadata below or provider classifications.
+PR #65 was human squash-merged on 2026-10-01 at
+`4a206a3a3c4c91b06cec99e26a44016a74d8d2ce`. Its inspected tree
+`01bd239ee8dcd05ca663e9aaadfe6518c3c4940e` exactly matches the accepted
+feature head `6c8fecbc96254ddf70109ab174ffc011c9bd2fe5`. The previously
+uncommitted zero-touch remediation is now accepted on main, including clean-field
+automatic confirmation, exception-driven interventions, Garden LOCAL ownership
+recovery, active/history projections, revision guards and bounded E2E orchestration.
+Acceptance is POC Mock/Local/Partial evidence, not sponsor or Live approval.
+
+Accepted pre-merge PR run
+[36852119580](https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/36852119580)
+passed all six lanes. Its identical-tree browser execution completed 26 selectors /
+27 tests; disposable mongo:7 execution completed nine suites / 38 passed / zero
+skips. These are attributed to the PR head and merge-preview tree, not presented as
+a newly executed post-merge runtime suite. Local post-merge governance inspection
+establishes the main baseline below; no provider/database operation was required.
+
+Historical verification provenance is retained: the preceding snapshot was inspected
+on 2026-09-29 against main `d23d7b7335ba402b071191821c35e4f5e879ed7c`.
+Earlier phase/closeout reports and provider classifications remain unchanged.
 
 ```json project-state
 {
   "schema_version": 1,
   "case_envelope_schema_version": 7,
-  "verified_date": "2026-09-29",
-  "verified_main_sha": "d23d7b7335ba402b071191821c35e4f5e879ed7c",
+  "verified_date": "2026-10-01",
+  "verified_main_sha": "4a206a3a3c4c91b06cec99e26a44016a74d8d2ce",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -186,18 +200,18 @@ Major implemented phases are:
   and do not add a late Search retry, editable final review, or pre-write GoldTier
   confirmation.
 
-The 2026-09-29 working candidate on
-`feat/recoverable-onboarding-final-review` implements the bounded D-061 package on top
-of that accepted main baseline. It adds same-case identity correction and read-only
+The bounded D-061 package, originally developed in the 2026-09-29 candidate on
+`feat/recoverable-onboarding-final-review`, is now included in the inspected PR #65
+merged-main baseline. It adds same-case identity correction and read-only
 Search recheck; independent evidence continuation for ambiguous as well as failed
 Search; fixed D-056 policy rebind; pre-confirm KYC/segment editing; reviewed local
 manual economic-interest evidence; versioned explanatory blocker-decision metadata;
 and an exact server-authored final review whose durable confirmation is enforced under
 lock before every target write path. HR gains a read-only ACRA diagnostic surface using
-the same composed connector and no case access. This is an implementation candidate
-pending an independent quality gate, not an accepted-main, provider-write, Live,
-approval, or sponsor-policy claim.
-The working candidate's final review includes legal form, owning team, and section-level
+the same composed connector and no case access. Acceptance establishes POC behavior;
+it does not establish provider-write authorization, Live integration, approval, or
+sponsor policy.
+The accepted POC final review includes legal form, owning team, and section-level
 routes to the existing identity, classification, and document owners. It routes to the
 manual-ownership evidence owner only when the server's typed recovery projection
 authorizes `MANUAL_OWNERSHIP_EVIDENCE`; otherwise it truthfully labels ownership as
@@ -206,7 +220,8 @@ backend-validated; it cancels stale confirmation state, performs only a read-onl
 recheck, and invalidates dependent evidence. Confirmed or submitted projections cannot
 expose those edit actions.
 
-Post-merge main CI run `36452914032` for this SHA passed on its second attempt. The
+Historical post-merge main CI run `36452914032` for baseline
+`d23d7b7335ba402b071191821c35e4f5e879ed7c` passed on its second attempt. The
 initial Windows demo-lifecycle attempt failed because local lifecycle ports were
 already occupied; after the ports were freed, the exact local 23/23 lifecycle suite
 passed and the GitHub rerun passed all six jobs: backend, frontend, e2e, security,
@@ -322,7 +337,7 @@ unknown or blocked.
   clears them.
 - `mongo` is explicit. Missing/invalid configuration, startup validation, reads, or
   writes fail closed and never fall back to memory.
-- One schema-versioned case envelope (working-candidate schema v7) owns durable case
+- One schema-versioned case envelope (schema v7) owns durable case
   state. Strict v1/v2/v3/v4/v5/v6 reads preserve absent historical fields, including v4
   `intelligence = null`, without a read-only persistence rewrite. Automation records
   persist a separate stage-order version: a missing value is the pre-Search v1 order,
@@ -386,11 +401,11 @@ unknown or blocked.
 - Explainable source-neutral entity resolution, ML-assisted UBO advice, and bounded mock
   advisory risk, all with permanent non-authority labels and synthetic model cards.
 - Ordered Mock target execution with no-replay recovery states.
-- Working-candidate operator recovery controls: same-case identity correction and
+- Accepted POC operator recovery controls: same-case identity correction and
   read-only Search recheck, bounded policy rebind, pre-confirm classification edits,
   reviewed local ownership evidence, truthful decision metadata, and accessible
   problem-stage navigation to the existing owners.
-- Working-candidate final review and durable target confirmation, revalidated under the
+- Accepted POC final review and durable target confirmation, revalidated under the
   case lock before every Shell, Policy, or Amend dispatch. Exact preview/snapshot parity
   includes the stable case-acceptance `sourceContext.acceptedAt`, and all transmitted
   preview fields are digest-bound.
@@ -536,18 +551,18 @@ Consult `docs/sponsor-questions/OPEN_QUESTIONS.md` for exact wording and current
 
 These are candidates, not authorization to implement:
 
-1. **Recoverable onboarding + final review/confirmation independent quality gate and
-   bounded remediation.** The D-061 implementation is a working candidate, not accepted
-   main. Official-Mock demo-pack completeness remains evidence-dependent: no absent
-   supplied fixture, screenshot, declaration, README, or validation artefact may be
-   invented.
-2. Sponsor contract/access reconciliation for ACRA and GoldTier/PingFed.
-3. Sponsor-confirmed Ready-for-Approval/reviewer/retention policy design.
-4. Authoritative external-provider work only after contract, security and credential
+PR #65's accepted POC onboarding/final-review implementation and independent gate
+are complete. Further work requires a separately authorized package. Official-Mock
+demo-pack completeness remains evidence-dependent: no absent supplied fixture,
+screenshot, declaration, README, or validation artefact may be invented.
+
+1. Sponsor contract/access reconciliation for ACRA and GoldTier/PingFed.
+2. Sponsor-confirmed Ready-for-Approval/reviewer/retention policy design.
+3. Authoritative external-provider work only after contract, security and credential
    prerequisites are satisfied.
-5. Camunda runtime integration remains a separate optional, requirements-dependent
+4. Camunda runtime integration remains a separate optional, requirements-dependent
    package and is not implemented.
-6. Measured hotspot or production-scale portfolio/activity work if evidence shows need.
+5. Measured hotspot or production-scale portfolio/activity work if evidence shows need.
 
 Every new package requires a bounded planner handoff, change classification, relevant
 skill, proportional verification, and independent quality gate.
