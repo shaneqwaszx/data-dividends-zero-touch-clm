@@ -458,7 +458,16 @@ test("responsive review case exposes only supported authoritative review control
   await expectAuthoritativeReviewReady(page, reviewCaseId);
   await expectActionableStageTiles(page);
   await expect(page.getByRole("heading", { name: "Action required" })).toBeVisible();
-  await expect(page.getByText("No action available", { exact: true })).toBeVisible();
+  await expect(page.getByText("No action available", { exact: true })).toHaveCount(0);
+  const evidenceAction = page.getByRole("button", { name: "Review document evidence", exact: true });
+  await expect(evidenceAction).toBeVisible();
+  const mutations: string[] = [];
+  page.on("request", (request) => {
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(request.method());
+  });
+  await evidenceAction.click();
+  await expect(page.locator("#case-evidence-documents")).toBeFocused();
+  expect(mutations).toEqual([]);
   await expect(page.getByRole("button", { name: /replay|retry target/i })).toHaveCount(0);
 });
 

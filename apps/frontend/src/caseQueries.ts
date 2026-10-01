@@ -222,9 +222,18 @@ export function retainNewestDocuments(
 ): DocumentProcessingRecord[] {
   if (!current) return incoming;
   const next = new Map(incoming.map((document) => [document.document_id, document]));
-  return current.some((document) => !next.has(document.document_id)
-    || next.get(document.document_id)!.events.length < document.events.length
-    || (next.get(document.document_id)!.reconciliation_version ?? 0) < (document.reconciliation_version ?? 0)) ? current : incoming;
+  return current.some((document) => {
+    const updated = next.get(document.document_id);
+    if (!updated || updated.events.length < document.events.length) return true;
+    // Supersession adds a durable event; historical projections clear current reconciliation.
+    const replacement = updated.superseded_by_document_id
+      ? next.get(updated.superseded_by_document_id) : undefined;
+    const boundSupersession = updated.events.length > document.events.length
+      && updated.reconciliation_version === null
+      && replacement?.supersedes_document_id === document.document_id;
+    return !boundSupersession
+      && (updated.reconciliation_version ?? 0) < (document.reconciliation_version ?? 0);
+  }) ? current : incoming;
 }
 
 export function retainNewestVersionedEvidence(current: unknown, incoming: unknown): unknown {

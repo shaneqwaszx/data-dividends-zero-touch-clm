@@ -741,6 +741,36 @@ console.log(JSON.stringify({
         self.assertEqual(result, 130)
         self.assertTrue(all(process.stopped for process in _FakeOwnedProcess.instances))
 
+    def test_discovery_routes_tagged_garden_without_changing_golden_composition(self) -> None:
+        payload = {"suites": [{"specs": [
+            {"ok": True, "file": "zero-touch-exception.e2e.ts", "line": 122, "tags": []},
+            {"ok": True, "file": "zero-touch-exception.e2e.ts", "line": 145, "tags": ["garden-protocol"]},
+            {"ok": True, "file": "zero-touch-exception.e2e.ts", "line": 145, "tags": ["garden-protocol"]},
+        ]}]}
+        def discovery(port: int, *, garden_selectors: set[str]) -> list[str]:
+            return RUN_E2E._selectors_from_listing(payload, garden_selectors=garden_selectors)
+        with (
+            patch.object(RUN_E2E, "_list_test_selectors", side_effect=discovery),
+            patch.object(RUN_E2E, "run", return_value=0) as run,
+            redirect_stdout(io.StringIO()),
+        ):
+            result = RUN_E2E.run_isolated_suite(
+                backend_port=8765, frontend_port=4173, timeout_seconds=240, headed=False,
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual([item.kwargs["garden_protocol"] for item in run.call_args_list], [False, True])
+        self.assertEqual([item.kwargs["selection"] for item in run.call_args_list], [
+            "e2e/zero-touch-exception.e2e.ts:122", "e2e/zero-touch-exception.e2e.ts:145",
+        ])
+
+    def test_discovery_rejects_mixed_fixture_composition_at_same_selector(self) -> None:
+        payload = {"suites": [{"specs": [
+            {"ok": True, "file": "zero-touch-exception.e2e.ts", "line": 145, "tags": []},
+            {"ok": True, "file": "zero-touch-exception.e2e.ts", "line": 145, "tags": ["garden-protocol"]},
+        ]}]}
+        with self.assertRaisesRegex(RuntimeError, "conflicting fixture"):
+            RUN_E2E._selectors_from_listing(payload, garden_selectors=set())
+
 
 if __name__ == "__main__":
     unittest.main()

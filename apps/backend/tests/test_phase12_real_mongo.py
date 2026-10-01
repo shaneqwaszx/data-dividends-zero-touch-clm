@@ -326,7 +326,7 @@ def test_real_mongo_restart_preserves_review_refresh_and_stops_target(
         assert initial_exception_ids.isdisjoint(
             item["exception_id"] for item in refreshed["active_exceptions"]
         )
-        assert counters == {"registry": 4, "idp": 1, "ownership": 0, "goldtier": 1}
+        assert counters == {"registry": 4, "idp": 1, "ownership": 1, "goldtier": 1}
 
     before_restart = counters.copy()
     with TestClient(create_app(settings)) as second:
@@ -349,7 +349,12 @@ def test_real_mongo_restart_preserves_review_refresh_and_stops_target(
     ]
     assert legal_name["review_status"] == "CORRECTED"
     assert legal_name["reviewed_value"] == "MERLION CIRCULAR LABS PTE. LTD."
-    assert len(pending) == 3
+    assert pending == []
+    assert all(
+        item["review_status"] == "ACCEPTED"
+        for item in restored_document["fields"]
+        if item["field_key"] != "legal_name"
+    )
     assert counters == before_restart
     snapshot = _open_store(settings, initialize=False)
     try:
@@ -382,6 +387,12 @@ def test_real_mongo_failed_replacement_restart_requires_retry_without_replay(
         paused = _complete_intake(first, case_id, expected_count=1)
         assert paused["status"] == "WAITING_FOR_REVIEW"
         stale_exception = paused["active_exceptions"][0]
+        current_document = first.get(
+            f"/api/onboarding/cases/{case_id}/documents/{original['document_id']}"
+        )
+        assert current_document.status_code == 200
+        current_event_count = len(current_document.json()["events"])
+        assert current_event_count > len(original["events"])
         failed = first.post(
             (
                 f"/api/clm/zero-touch/cases/{case_id}/documents/"
@@ -390,7 +401,7 @@ def test_real_mongo_failed_replacement_restart_requires_retry_without_replay(
             headers={
                 "Content-Type": "text/plain",
                 "X-Document-Name": "Failed.txt",
-                "X-Document-Event-Count": str(len(original["events"])),
+                "X-Document-Event-Count": str(current_event_count),
             },
             content=failure_marker,
         )
@@ -1120,6 +1131,12 @@ def test_real_mongo_replacement_restart_preserves_history_and_stales_old_decisio
         old_discrepancy = next(
             item for item in paused["reconciliation"]["discrepancies"] if item["status"] == "OPEN"
         )
+        current_document = first.get(
+            f"/api/onboarding/cases/{case_id}/documents/{document_b['document_id']}"
+        )
+        assert current_document.status_code == 200
+        current_event_count = len(current_document.json()["events"])
+        assert current_event_count > len(document_b["events"])
         replacement = first.post(
             (
                 f"/api/clm/zero-touch/cases/{case_id}/documents/"
@@ -1128,7 +1145,7 @@ def test_real_mongo_replacement_restart_preserves_history_and_stales_old_decisio
             headers={
                 "Content-Type": "text/plain",
                 "X-Document-Name": "Document-B2.txt",
-                "X-Document-Event-Count": str(len(document_b["events"])),
+                "X-Document-Event-Count": str(current_event_count),
             },
             content=TEXT_PROFILE.encode(),
         )

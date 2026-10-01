@@ -316,13 +316,16 @@ def _find_node() -> str:
     return node
 
 
-def _selectors_from_listing(payload: object) -> list[str]:
+def _selectors_from_listing(
+    payload: object, *, garden_selectors: set[str] | None = None,
+) -> list[str]:
     if not isinstance(payload, dict):
         raise TypeError("Playwright test discovery returned an invalid document")
     if payload.get("errors"):
         raise RuntimeError("Playwright test discovery reported configuration errors")
 
     selectors: list[str] = []
+    fixture_modes: dict[str, bool] = {}
 
     def visit(suites: object) -> None:
         if not isinstance(suites, list):
@@ -346,6 +349,15 @@ def _selectors_from_listing(payload: object) -> list[str]:
                 if relative.is_absolute() or ".." in relative.parts or relative.suffix != ".ts":
                     raise RuntimeError("Playwright test discovery returned an unsafe path")
                 selector = f"{(PurePosixPath('e2e') / relative).as_posix()}:{line}"
+                tags = spec.get("tags", [])
+                if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+                    raise RuntimeError("Playwright test discovery returned invalid fixture tags")
+                garden = "garden-protocol" in tags or selector.startswith("e2e/garden-happy-path.e2e.ts:")
+                if selector in fixture_modes and fixture_modes[selector] != garden:
+                    raise RuntimeError("Playwright test discovery returned conflicting fixture modes")
+                fixture_modes[selector] = garden
+                if garden and garden_selectors is not None:
+                    garden_selectors.add(selector)
                 if selector not in selectors:
                     selectors.append(selector)
             visit(suite.get("suites", []))
@@ -356,7 +368,9 @@ def _selectors_from_listing(payload: object) -> list[str]:
     return selectors
 
 
-def _list_test_selectors(frontend_port: int) -> list[str]:
+def _list_test_selectors(
+    frontend_port: int, *, garden_selectors: set[str] | None = None,
+) -> list[str]:
     node = _find_node()
     playwright_cli = FRONTEND_ROOT / "node_modules" / "@playwright" / "test" / "cli.js"
     if not playwright_cli.is_file():
@@ -394,7 +408,7 @@ def _list_test_selectors(frontend_port: int) -> list[str]:
         payload = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError("Playwright test discovery returned invalid JSON") from exc
-    return _selectors_from_listing(payload)
+    return _selectors_from_listing(payload, garden_selectors=garden_selectors)
 
 
 def run(
@@ -562,7 +576,8 @@ def run_isolated_suite(
 ) -> int:
     started = time.monotonic()
     try:
-        selectors = _list_test_selectors(frontend_port)
+        garden_selectors: set[str] = set()
+        selectors = _list_test_selectors(frontend_port, garden_selectors=garden_selectors)
         lifecycle_ports = _allocate_lifecycle_ports(
             backend_port,
             frontend_port,
@@ -589,7 +604,8 @@ def run_isolated_suite(
             grep=None,
             selection=selection,
             diagnostics=diagnostics,
-            garden_protocol=selection.startswith("e2e/garden-happy-path.e2e.ts:"),
+            garden_protocol=(selection in garden_selectors
+                or selection.startswith("e2e/garden-happy-path.e2e.ts:")),
         )
         if result != 0:
             print(
@@ -598,7 +614,7 @@ def run_isolated_suite(
             )
             return result
 
-    print(f"E2E SUITE PASS: {len(selectors)} configured tests passed in isolated lifecycles.")
+    print(f"E2E SUITE PASS: {len(selectors)} configured selectors passed in isolated lifecycles.")
     return 0
 
 

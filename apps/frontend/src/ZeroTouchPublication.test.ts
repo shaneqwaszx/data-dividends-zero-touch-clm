@@ -60,6 +60,23 @@ describe("authoritative zero-touch publication", () => {
     expect(retainNewestVersionedEvidence({ version: 4 }, { version: 3 })).toEqual({ version: 4 });
     expect(retainNewestVersionedEvidence({ version: 4 }, null)).toEqual({ version: 4 });
   });
+  it("publishes bound replacement history despite cleared reconciliation, rejecting stale reversal", () => {
+    const original = { document_id: "original", events: Array.from({ length: 9 }, () => ({})),
+      reconciliation_version: 2, superseded_by_document_id: null,
+    } as unknown as DocumentProcessingRecord;
+    const historical = { ...original, events: [...original.events, {}], reconciliation_version: null,
+      superseded_by_document_id: "replacement" } as DocumentProcessingRecord;
+    const replacement = { document_id: "replacement", events: Array.from({ length: 9 }, () => ({})),
+      reconciliation_version: 3, supersedes_document_id: "original", superseded_by_document_id: null,
+    } as unknown as DocumentProcessingRecord;
+    const before = [original];
+    const after = [historical, replacement];
+    expect(retainNewestDocuments(before, after)).toBe(after);
+    expect(retainNewestDocuments(after, before)).toBe(after);
+    expect(retainNewestDocuments(before, [historical])).toBe(before);
+    expect(retainNewestDocuments(before, [{ ...historical, events: original.events }, replacement])).toBe(before);
+    expect(retainNewestDocuments(before, [historical, { ...replacement, supersedes_document_id: "unrelated" }])).toBe(before);
+  });
   it("held supporting GETs cannot replace evidence published after intervention", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const doc = (count: number) => ({ document_id: "current", events: Array.from({ length: count }, () => ({})) }) as unknown as DocumentProcessingRecord;

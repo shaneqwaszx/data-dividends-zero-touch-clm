@@ -142,7 +142,7 @@ test("Zero-touch Golden STP normal UI has zero exception interventions", async (
 });
 
 for (const conflict of [false, true]) {
-  test(`Zero-touch Garden ${conflict ? "conflict" : "clean"} exception automatically resumes`, async ({ page }, info) => {
+  test(`Zero-touch Garden ${conflict ? "conflict" : "clean"} exception automatically resumes`, { tag: "@garden-protocol" }, async ({ page }, info) => {
     const caseId = await create(page, true, conflict);
     await capture(page, info, "before");
     if (conflict) {
