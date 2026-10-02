@@ -58,7 +58,7 @@ GOVERNED_DOCS = (
 )
 REQUIRED_CURRENT_CONTRACT_CLAIMS = {
     Path("docs/contracts/POLICY_TEAM_IDENTITY_ADMIN_PROFILE.md"): (
-        ("21-rule policy catalogue", "The catalogue has 21 seed rules, including 13 intelligence rules:"),
+        ("35-rule policy catalogue", "The current catalogue has 35 seed rules"),
         ("13 intelligence runtime bindings", "plus all 13 intelligence rules"),
     ),
     Path("docs/contracts/CASE_ACTIVITY_QUERY_PROFILE.md"): (

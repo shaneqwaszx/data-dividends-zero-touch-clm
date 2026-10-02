@@ -64,6 +64,34 @@ function summaryWithPipeline(nodes: ProcessingNode[]): ZeroTouchCaseSummary {
 }
 
 describe("OnboardingProgressPanel", () => {
+  it("names the user-owned final confirmation and terminal next action", () => {
+    const summary = summaryWithPipeline([]);
+    summary.status = "WAITING_FOR_REVIEW";
+    summary.current_stage = "READINESS";
+    summary.interventions = [];
+    summary.active_exceptions = [{ exception_type: "TARGET_CONFIRMATION_REQUIRED" }] as ZeroTouchCaseSummary["active_exceptions"];
+    let markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />);
+    expect(markup).toContain("Review and confirm submission");
+    expect(markup).not.toContain("Wait for the current backend stage");
+    summary.status = "COMPLETED";
+    markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />);
+    expect(markup).toContain("Submitted — no action required.");
+    expect(markup).not.toContain("Review and confirm submission");
+  });
+  it("announces completed POC progress consistently while final approval stays unresolved", () => {
+    const summary = summaryWithPipeline([
+      processingNode("GOLDTIER_TARGET", "GoldTier target", "COMPLETE"),
+      processingNode("HUMAN_APPROVAL", "Human approval (unresolved)", "REVIEW_REQUIRED"),
+    ]);
+    summary.status = "COMPLETED";
+    const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />);
+    expect(markup).toContain('aria-valuemax="100"');
+    expect(markup).toContain('aria-valuenow="100"');
+    expect(markup).toContain("POC submission complete");
+    expect(markup).toContain("100%");
+    expect(markup).toContain("Human approval (unresolved)");
+    expect(markup).toContain("Review required");
+  });
   it("renders the backend order, current text, and accessible bounded progress before terminal state", () => {
     const summary = summaryWithPipeline([
       processingNode("INITIAL_IDENTITY", "Initial identity", "COMPLETE"),
@@ -77,8 +105,9 @@ describe("OnboardingProgressPanel", () => {
     expect(markup).toContain("Onboarding progress");
     expect(markup).toContain('role="progressbar"');
     expect(markup).toContain('aria-valuemin="0"');
-    expect(markup).toContain('aria-valuemax="4"');
-    expect(markup).toContain('aria-valuenow="1"');
+    expect(markup).toContain('aria-valuemax="100"');
+    expect(markup).toContain('aria-valuenow="25"');
+    expect(markup).toContain("1 of 4 stages complete or skipped");
     expect(markup).toContain("current: GoldTier search — In progress");
     const stagesMarkup = markup.slice(markup.indexOf('aria-label="Onboarding stages"'));
     expect(stagesMarkup.indexOf("Initial identity")).toBeLessThan(stagesMarkup.indexOf("GoldTier search"));
@@ -105,8 +134,9 @@ describe("OnboardingProgressPanel", () => {
     for (const label of ["Complete", "In progress", "Skipped", "Review required", "Blocked", "Failed", "Not reached"]) {
       expect(markup).toContain(label);
     }
-    expect(markup).toContain('aria-valuemax="7"');
-    expect(markup).toContain('aria-valuenow="2"');
+    expect(markup).toContain('aria-valuemax="100"');
+    expect(markup).toContain('aria-valuenow="29"');
+    expect(markup).toContain("2 of 7 stages complete or skipped");
   });
 
   it("uses the earliest actionable backend node and exposes only problem stages as buttons", () => {

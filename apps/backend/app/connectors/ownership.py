@@ -13,6 +13,8 @@ from app.domain.ownership import (
     SafePartyId,
     SafeProviderName,
 )
+from app.domain.ownership_evidence import OwnershipEvidence
+from app.domain.registry_legal_form import RegistryLegalForm
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,8 @@ class OwnershipSourceResult(BaseModel):
     root_party_id: SafePartyId
     parties: list[Party] = Field(min_length=1, max_length=1000)
     relationships: list[OwnershipRelationship] = Field(default_factory=list, max_length=2000)
+    evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=256)
+    legal_form: RegistryLegalForm | None = None
 
     @model_validator(mode="after")
     def validate_graph_references(self) -> "OwnershipSourceResult":
@@ -48,6 +52,9 @@ class OwnershipSourceResult(BaseModel):
         relationship_ids = [item.relationship_id for item in self.relationships]
         if len(relationship_ids) != len(set(relationship_ids)):
             raise ValueError("relationship IDs must be unique")
+        evidence_ids = [item.evidence_id for item in self.evidence]
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("evidence IDs must be unique")
         known = set(party_ids)
         if self.root_party_id not in known:
             raise ValueError("root party must exist")

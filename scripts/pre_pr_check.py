@@ -7,6 +7,7 @@ A PASS is evidence for deterministic hazards only, not semantic merge safety.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import subprocess
@@ -25,6 +26,25 @@ DIFF_CHECK_MARKER = re.compile(
     r"^(?P<path>.+):(?P<line>[1-9][0-9]*): leftover conflict marker$"
 )
 CHANGE_FILTER = "ACMRDT"
+
+# Owner-authorized immutable Phase 24 remediation evidence. No glob or baseline exemption.
+HISTORICAL_PATCH_WHITESPACE: dict[str, tuple[str, frozenset[int]]] = {
+    ".ai-pipeline/reports/PHASE_24B_REMEDIATION_ROUND_1_DELTA.patch": (
+        "73fca2299b9038a90968871497e8e181160e44a28141b55018cd26509a8cf1ec",
+        frozenset({6, 36, 44, 45, 49, 50, 59, 60, 90, 117}),
+    ),
+    ".ai-pipeline/reports/PHASE_24B_REMEDIATION_ROUND_2_DELTA.patch": (
+        "763daa74b1225643b676563a696fcd9daec85486c2880ffb72b652583e09523f",
+        frozenset({6, 13, 50, 58, 65, 79, 83, 172, 173}),
+    ),
+    ".ai-pipeline/reports/PHASE_24B_STAGE_RECOVERY_ROUND_1_ORCHESTRATION_DELTA.patch": (
+        "5baa7225bd15c0b5e4e18f20e2fb45b686530eca0f55ef2491372b25b02cff63",
+        frozenset({57}),
+    ),
+}
+PATCH_WHITESPACE_DIAGNOSTIC = re.compile(
+    r"^(?P<path>.+):(?P<line>[1-9][0-9]*): trailing whitespace\.$"
+)
 
 HOTSPOTS = {
     ".github/workflows/ci.yml",
@@ -355,15 +375,54 @@ def _non_marker_diff_check_output(
     return "\n".join(retained).rstrip()
 
 
+def _historical_patch_diff_check_output(output: str, verified_paths: set[str]) -> str:
+    lines = output.splitlines()
+    retained: list[str] = []
+    index = 0
+    while index < len(lines):
+        diagnostic = PATCH_WHITESPACE_DIAGNOSTIC.fullmatch(lines[index])
+        if diagnostic is not None:
+            path = diagnostic.group("path")
+            line_number = int(diagnostic.group("line"))
+            if (
+                path in verified_paths
+                and line_number in HISTORICAL_PATCH_WHITESPACE[path][1]
+                and index + 1 < len(lines)
+                and lines[index + 1] == "+ "
+            ):
+                index += 2
+                continue
+        retained.append(lines[index])
+        index += 1
+    return "\n".join(retained)
+
+
 def _check_diff_whitespace(
     report: Report,
     result: subprocess.CompletedProcess,
     label: str,
     source_texts: dict[str, str | None],
 ) -> None:
+    verified_paths: set[str] = set()
+    for path in source_texts.keys() & HISTORICAL_PATCH_WHITESPACE.keys():
+        text = source_texts[path]
+        expected_hash, context_lines = HISTORICAL_PATCH_WHITESPACE[path]
+        lines = text.splitlines() if text is not None else []
+        if (
+            text is None
+            or hashlib.sha256(text.encode("utf-8")).hexdigest() != expected_hash
+            or any(number > len(lines) or lines[number - 1] != " " for number in context_lines)
+        ):
+            report.fail(f"Historical patch identity mismatch: {path}.")
+        else:
+            verified_paths.add(path)
+            report.detail(f"Exact historical patch whitespace identity: {path}")
     if result.returncode == 0:
         return
-    relevant_output = _non_marker_diff_check_output(result.stdout, source_texts)
+    output = result.stdout
+    if result.returncode == 2:
+        output = _historical_patch_diff_check_output(output, verified_paths)
+    relevant_output = _non_marker_diff_check_output(output, source_texts)
     if relevant_output:
         report.fail(f"git diff --check failed for {label}:\n{relevant_output}")
     elif not result.stdout.rstrip():

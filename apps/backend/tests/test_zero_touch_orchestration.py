@@ -419,6 +419,9 @@ def policy_rebind_snapshots() -> tuple[CasePolicySnapshot, CasePolicySnapshot]:
         update={
             "snapshot_label": "LEGACY_SG_TARGET_VALUES_V0",
             "catalogue_version": 0,
+            "registry": None,
+            "evidence_classifier": None,
+            "policy_identity": None,
             "idp_review_confidence_threshold": Decimal("0.81"),
             "ubo_threshold_percent": Decimal("27"),
             "goldtier_target": legacy_target,
@@ -481,13 +484,14 @@ def test_straight_through_pauses_for_confirmation_before_target_mutation() -> No
     assert decision["metadata"]["currently_available_actions"] == [
         "CONFIRM_FROZEN_TARGET_SUBMISSION"
     ]
-    assert all(item["blocker_code"] != "TARGET_CONFIRMATION_REQUIRED"
-               for item in result["interventions"])
+    assert all(
+        item["blocker_code"] != "TARGET_CONFIRMATION_REQUIRED" for item in result["interventions"]
+    )
     assert result["case"]["target_dispatch_confirmation"] is None
     assert result["non_blocking_decisions"]
-    assert {
-        item["metadata"]["classification"] for item in result["non_blocking_decisions"]
-    } == {"CONTINUE_WITH_WARNING"}
+    assert {item["metadata"]["classification"] for item in result["non_blocking_decisions"]} == {
+        "CONTINUE_WITH_WARNING"
+    }
     assert target.calls == ["search"]
 
     persisted = zero._repository.get_for_case(UUID(result["case"]["case_id"]))  # noqa: SLF001
@@ -569,9 +573,7 @@ def test_equivalent_formatting_records_auto_resolution_note_and_warning_disclosu
         content=PDF,
     )
 
-    by_classification = {
-        item.metadata.classification for item in pending.non_blocking_decisions
-    }
+    by_classification = {item.metadata.classification for item in pending.non_blocking_decisions}
     assert "AUTO_RESOLVED_WITH_NOTE" in by_classification
     assert "CONTINUE_WITH_WARNING" in by_classification
     auto_notes = [
@@ -632,9 +634,7 @@ def test_ready_for_confirmation_identity_edit_rechecks_same_case_without_target_
     )
     assert cancelled_confirmation.status.value == "CANCELLED"
     assert target.calls == ["search", "search"]
-    assert {
-        item["operation"]: item["status"] for item in edited["target_operations"]
-    } == {
+    assert {item["operation"]: item["status"] for item in edited["target_operations"]} == {
         "SEARCH": "NO_MATCH",
         "SHELL": "NOT_ATTEMPTED",
         "POLICY": "NOT_ATTEMPTED",
@@ -670,9 +670,7 @@ def test_confirmation_search_change_returns_identity_review_without_target_write
         "ENTITY_RESOLUTION_REVIEW_REQUIRED"
     ]
     assert target.calls == ["search", "search"]
-    assert {
-        item["operation"]: item["status"] for item in revised["target_operations"]
-    } == {
+    assert {item["operation"]: item["status"] for item in revised["target_operations"]} == {
         "SEARCH": "REVIEW_REQUIRED",
         "SHELL": "NOT_ATTEMPTED",
         "POLICY": "NOT_ATTEMPTED",
@@ -741,6 +739,14 @@ def test_policy_rebind_preserves_case_choices_and_audits_previous_snapshot() -> 
     assert audit.actor_id == metadata["last_rebound_by"]
     assert persisted.policy_snapshot.idp_review_confidence_threshold == Decimal("0.81")
     assert persisted.policy_snapshot.ubo_threshold_percent == Decimal("27")
+    assert persisted.policy_snapshot.catalogue_version == previous.policy_snapshot.catalogue_version
+    assert persisted.policy_snapshot.bound_at == previous.policy_snapshot.bound_at
+    assert persisted.policy_snapshot.registry == previous.policy_snapshot.registry
+    assert (
+        persisted.policy_snapshot.evidence_classifier
+        == previous.policy_snapshot.evidence_classifier
+    )
+    assert persisted.policy_snapshot.policy_identity == previous.policy_snapshot.policy_identity
     rebound_target = persisted.policy_snapshot.goldtier_target
     assert rebound_target is not None
     assert rebound_target.kyc_customer_type.value == "Company - Private"
@@ -762,7 +768,7 @@ def test_policy_rebind_preserves_case_choices_and_audits_previous_snapshot() -> 
     )
     codec = object.__new__(MongoCaseStore)
     round_trip = codec._decode(codec._encode(durable))  # noqa: SLF001
-    assert round_trip.schema_version == 7
+    assert round_trip.schema_version == 8
     assert round_trip.onboarding.policy_rebind_history == persisted.policy_rebind_history
 
     stale = client.post(
@@ -835,9 +841,7 @@ def test_policy_rebind_rejects_contradictory_catalogue_and_confirmed_case() -> N
         },
         deep=True,
     )
-    contradictory = current.model_copy(
-        update={"goldtier_target": contradictory_target}, deep=True
-    )
+    contradictory = current.model_copy(update={"goldtier_target": contradictory_target}, deep=True)
     selected: dict[str, CasePolicySnapshot] = {"snapshot": legacy}
     client, zero, _, target, _ = build_system(
         require_confirmation=True,
@@ -913,10 +917,7 @@ def test_ambiguous_initial_goldtier_identity_is_not_reported_as_acra_failure() -
     assert result["status"] == "WAITING_FOR_REVIEW"
     assert result["current_stage"] == "GOLDTIER_SEARCH"
     assert result["active_exceptions"][0]["stage"] == "GOLDTIER_SEARCH"
-    assert (
-        result["active_exceptions"][0]["blocker_code"]
-        == "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
-    )
+    assert result["active_exceptions"][0]["blocker_code"] == "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
     assert result["interventions"][0]["title"] == "Possible existing customer found"
     assert result["interventions"][0]["authorized_actions"] == []
     assert len(result["interventions"][0]["candidate_summaries"]) == 2
@@ -1021,9 +1022,7 @@ def test_missing_initial_identity_is_repaired_and_searched_on_the_same_case(
     assert before["status"] == "WAITING_FOR_REVIEW"
     assert before["case"]["initial_identity"] is None
     assert before["interventions"][0]["blocker_code"] == "INITIAL_IDENTITY_INCOMPLETE"
-    assert before["interventions"][0]["identity_correction_action"] == (
-        "IDENTITY_SEARCH_RECHECK"
-    )
+    assert before["interventions"][0]["identity_correction_action"] == ("IDENTITY_SEARCH_RECHECK")
     assert before["stage_order_version"] == 2
     pipeline_ids = [item["node_id"] for item in before["processing_pipeline"]]
     assert pipeline_ids.index("INITIAL_IDENTITY") < pipeline_ids.index("GOLDTIER_SEARCH")
@@ -1087,9 +1086,7 @@ def test_missing_identity_action_survives_independent_document_blocker() -> None
         "INITIAL_IDENTITY_INCOMPLETE",
         "DOCUMENT_LOW_CONFIDENCE",
     ]
-    assert before["interventions"][0]["identity_correction_action"] == (
-        "IDENTITY_SEARCH_RECHECK"
-    )
+    assert before["interventions"][0]["identity_correction_action"] == ("IDENTITY_SEARCH_RECHECK")
     case = zero._cases.get_case(created.case_id)  # noqa: SLF001
     clm = zero._clm.get(case_id=created.case_id)  # noqa: SLF001
     assert case is not None and clm is not None
@@ -1111,9 +1108,7 @@ def test_missing_identity_action_survives_independent_document_blocker() -> None
     assert [item["blocker_code"] for item in body["active_exceptions"]] == [
         "DOCUMENT_LOW_CONFIDENCE"
     ]
-    assert [item["blocker_code"] for item in body["interventions"]] == [
-        "DOCUMENT_LOW_CONFIDENCE"
-    ]
+    assert [item["blocker_code"] for item in body["interventions"]] == ["DOCUMENT_LOW_CONFIDENCE"]
     assert target.calls == ["search"]
 
 
@@ -1268,9 +1263,7 @@ def test_failed_initial_search_keeps_case_evidence_flow_and_blocks_target_mutati
     assert initial["clm"]["status"] == "COLLECTING_EVIDENCE"
     pipeline = {item["node_id"]: item for item in initial["processing_pipeline"]}
     assert pipeline["GOLDTIER_SEARCH"]["status"] == "FAILED"
-    assert "does not mean the customer does not exist" in pipeline["GOLDTIER_SEARCH"][
-        "safe_result"
-    ]
+    assert "does not mean the customer does not exist" in pipeline["GOLDTIER_SEARCH"]["safe_result"]
     assert pipeline["ACRA_REGISTRY"]["status"] == "COMPLETE"
     assert pipeline["GOLDTIER_TARGET"]["status"] == "BLOCKED"
     assert target.calls == ["search"]
@@ -1290,10 +1283,7 @@ def test_failed_initial_search_keeps_case_evidence_flow_and_blocks_target_mutati
     assert len(documents.list_documents(case_id=created.case_id)) == 1
     assert target.calls == ["search"]
     terminal = client.get(f"/api/clm/zero-touch/cases/{created.case_id}").json()
-    assert [
-        (node["node_id"], node["status"])
-        for node in terminal["processing_pipeline"]
-    ] == [
+    assert [(node["node_id"], node["status"]) for node in terminal["processing_pipeline"]] == [
         ("CASE_START", "COMPLETE"),
         ("INITIAL_IDENTITY", "COMPLETE"),
         ("JURISDICTION", "COMPLETE"),
@@ -1395,6 +1385,7 @@ def test_failed_search_still_retains_independent_registry_and_document_evidence(
     )
     assert confirmation.status_code == 409
     assert target.calls == ["search"]
+
 
 def test_same_customer_can_have_distinct_cases_without_duplicate_shell() -> None:
     connector = ExistingAfterFirstRecordingMockGoldTier()
@@ -1592,8 +1583,7 @@ def test_legacy_document_profile_still_requires_registered_address() -> None:
     reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
     assert paused.status == "WAITING_FOR_REVIEW"
     assert any(
-        item.blocker_code == "DOCUMENT_REQUIRED_FIELD_MISSING"
-        for item in paused.active_exceptions
+        item.blocker_code == "DOCUMENT_REQUIRED_FIELD_MISSING" for item in paused.active_exceptions
     )
     assert reconciliation is not None
     address = next(
@@ -2744,9 +2734,7 @@ def test_reviewed_manual_ownership_replaces_blocked_source_without_target_write(
         "rationale": declaration.rationale,
         "root_party_id": declaration.root_party_id,
         "parties": [item.model_dump(mode="json") for item in declaration.parties],
-        "relationships": [
-            item.model_dump(mode="json") for item in declaration.relationships
-        ],
+        "relationships": [item.model_dump(mode="json") for item in declaration.relationships],
         "expected_automation_version": paused.version,
         "expected_ownership_version": current.version,
         "expected_case_event_count": len(case.events),
@@ -2776,9 +2764,7 @@ def test_reviewed_manual_ownership_replaces_blocked_source_without_target_write(
     assert replacement.provider_environment == "LOCAL"
     assert replacement.manual_review_receipt is not None
     assert replacement.manual_review_receipt.source_type == "USER_SUPPLIED_DECLARATION"
-    assert {item.basis for item in replacement.relationships} == {
-        OwnershipBasis.ECONOMIC_INTEREST
-    }
+    assert {item.basis for item in replacement.relationships} == {OwnershipBasis.ECONOMIC_INTEREST}
     assert replacement.prior_analyses[-1].analysis_id == current.analysis_id
     assert replacement.prior_analyses[-1].state == "REVIEW_REQUIRED"
     assert recovered["current_stage"] == AutomationStage.READINESS
@@ -2788,9 +2774,7 @@ def test_reviewed_manual_ownership_replaces_blocked_source_without_target_write(
         )
         assert registry_node["status"] == "COMPLETE"
         assert recovered["case"]["registry_acquisition"]["status"] == "PARTIAL"
-    assert recovered["active_exceptions"][0]["exception_type"] == (
-        "TARGET_CONFIRMATION_REQUIRED"
-    )
+    assert recovered["active_exceptions"][0]["exception_type"] == ("TARGET_CONFIRMATION_REQUIRED")
     assert recovered["ownership_recovery"] == {
         "analysis_id": str(replacement.analysis_id),
         "version": replacement.version,

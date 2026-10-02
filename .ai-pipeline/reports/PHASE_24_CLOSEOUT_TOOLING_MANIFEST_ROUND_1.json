@@ -1,0 +1,52 @@
+{
+  "stage": "PHASE_24_CLOSEOUT_TOOLING_REMEDIATION_ROUND_1_GATE",
+  "branch": "feat/phase24-registry-identity-ownership-ubo",
+  "head": "039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c",
+  "original_phase24c_content_id": "6da4e190816e25357d71c2fb61bf8b9493d896097b49e1906ddf8f2d1e88b3a7",
+  "original_manifest_sha256": "b2dcfd06191c66976cc77501af3d1ceddf5fd5ddf4a7d4d0769425aec09e9ad4",
+  "original_entry_count": 135,
+  "original_entries_unchanged": true,
+  "tooling_content_id": "a2f217b60bcb621df95e597f71d4be170f12e30119fecc8f26f02fcff3837097",
+  "digest_algorithm": "SHA256 of sorted UTF8(path + NUL + file SHA256 + LF)",
+  "entries": [
+    {
+      "path": "docs/demo/DEMO_RUNBOOK.md",
+      "sha256": "63f88749a8c44a72efecae5d64a3730ce8917a6964ef0c787bd00bd44cd9a2e2",
+      "git_blob_oid": "205e17d9d6b4cbaeb1012d4bd396d37b575fd544"
+    },
+    {
+      "path": "scripts/demo_lifecycle.ps1",
+      "sha256": "6c1bdb1609d606ea3f6b0993c936da0940b4247af45d497d557d284b9781c717",
+      "git_blob_oid": "8d06429ce3b28edc6e451a39a9a45b6e569df123"
+    },
+    {
+      "path": "tests/test_demo_lifecycle_windows.py",
+      "sha256": "e5aa5c26b61e613d65a5da9cc817e98d00e876b41d0f51f69ab64980ee656cdd",
+      "git_blob_oid": "cab3fb46b43eff1f4f933ad7ec1fc6275f834501"
+    }
+  ],
+  "independent_report": ".ai-pipeline/reports/PHASE_24_CLOSEOUT_TOOLING_QUALITY_GATE_ROUND_1.md",
+  "remediation_rounds_used": 1,
+  "remediation_rounds_maximum": 2,
+  "coordinator_configuration_tests": "10 passed including stronger malformed-value matrix",
+  "coordinator_lifecycle": "31 passed: 7 port configuration, 3 creation time, 21 runtime (all original20 plus1 new metadata port mismatch)",
+  "lifecycle_receipt": {
+    "ports": [
+      54412,
+      54413
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 369.36,
+    "ports_no_longer_listening": [
+      true,
+      true
+    ],
+    "runtime_metadata_absent": true
+  },
+  "lifecycle_log_sha256": "78f112089d64a18a0e116f97a843aabf3f0a64f063fa41fe8363c9e53dc3980c",
+  "source_changes_outside_three_tooling_paths": false,
+  "previous_tooling_manifest_sha256": "38c6a2075d3fb4c2aa2935d95118f53d9804b2400001fb2357ac0d7dc441d907",
+  "initial_fail_report_sha256": "3177626e5f7b487cd16cfc860a1b524661d620b27478dee3dcb489e0a2655b71",
+  "remediation_scope": "P2-1 only: strict .NET \\A/\\z ASCII digit anchors; LF/CRLF/tab regressions for both variables; no other source behavior change",
+  "failing_first": "Both trailing-LF overrides accepted before repair;2 regression failures reproduced"
+}

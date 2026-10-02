@@ -40,6 +40,7 @@ from app.domain.jurisdiction import (
     is_eligible_singapore_uen,
 )
 from app.domain.models import (
+    IDENTITY_RECHECK_HISTORY_LIMIT,
     EventOutcome,
     ExistingTargetStateProvenance,
     GoldTierResult,
@@ -48,7 +49,9 @@ from app.domain.models import (
     InitialGoldTierSearchAttempt,
     InitialGoldTierSearchEvidence,
     OnboardingCase,
+    RegistryAcquisitionBundle,
     RegistryAcquisitionStatus,
+    RegistryEvidenceBinding,
     RegistryOperationStatus,
     SafeError,
     TargetDispatchConfirmation,
@@ -207,10 +210,14 @@ def _readback_identity_matches(
     entity = submission.canonical_entity
     address = entity.registered_address
     expected_address = ", ".join(
-        item for item in (
-            address.address_line_1, address.address_line_2,
-            address.postal_code, address.country_code,
-        ) if item
+        item
+        for item in (
+            address.address_line_1,
+            address.address_line_2,
+            address.postal_code,
+            address.country_code,
+        )
+        if item
     )
     comparisons = (
         (candidate.legal_name, entity.legal_name),
@@ -220,8 +227,8 @@ def _readback_identity_matches(
         (candidate.registered_address, expected_address),
     )
     return all(
-        returned is None or " ".join(returned.split()).casefold()
-        == " ".join(expected.split()).casefold()
+        returned is None
+        or " ".join(returned.split()).casefold() == " ".join(expected.split()).casefold()
         for returned, expected in comparisons
     )
 
@@ -324,8 +331,7 @@ def _validated_current_sg_target_policy(
     if target is None or snapshot.catalogue_version < 1:
         raise ValueError("Current catalogue has no accepted SG target policy")
     if any(
-        getattr(target, field).value != value
-        or getattr(target, field).authority != authority
+        getattr(target, field).value != value or getattr(target, field).authority != authority
         for field, (value, authority) in expected.items()
     ):
         raise ValueError("Current catalogue contradicts the accepted SG target policy")
@@ -507,10 +513,7 @@ class OnboardingService:
                     "operation": operation.operation,
                     "missing_fields": operation.missing_fields,
                     "validation": operation.validation.value,
-                    "fields": [
-                        field.model_dump(mode="json")
-                        for field in operation.fields
-                    ],
+                    "fields": [field.model_dump(mode="json") for field in operation.fields],
                 }
                 for operation in preview.operations
             ],
@@ -561,6 +564,10 @@ class OnboardingService:
         registration_number: str,
         country_of_incorporation: str,
         expected_case_event_count: int,
+        verify_registry: bool = False,
+        identity_choice: Literal["ENTERED", "DOCUMENT", "OTHER"] = "OTHER",
+        source_document_id: UUID | None = None,
+        source_document_event_count: int | None = None,
         reauthorize: Callable[[], None] | None = None,
     ) -> OnboardingCase:
         """Correct pre-submission identity and run one durable read-only Search recheck."""
@@ -599,12 +606,16 @@ class OnboardingService:
                 and case.error is not None
                 and case.error.code == "INITIAL_IDENTITY_INCOMPLETE"
             )
-            if not missing_identity_repair and (
-                previous_identity is None
-                or (
-                    previous_search is not None
-                    and previous_search.disposition
-                    not in {"FAILED", "REVIEW_REQUIRED", "NO_MATCH", "EXACT_MATCH"}
+            if (
+                not missing_identity_repair
+                and not verify_registry
+                and (
+                    previous_identity is None
+                    or (
+                        previous_search is not None
+                        and previous_search.disposition
+                        not in {"FAILED", "REVIEW_REQUIRED", "NO_MATCH", "EXACT_MATCH"}
+                    )
                 )
             ):
                 raise ValueError("Identity is not editable in the current pre-submission state")
@@ -613,17 +624,41 @@ class OnboardingService:
             if case.target_dispatch_confirmation is not None or case.goldtier_result is not None:
                 raise ValueError("Target execution state is already frozen")
 
+            if len(case.initial_target_search_attempts) >= IDENTITY_RECHECK_HISTORY_LIMIT or (
+                (verify_registry or previous_identity != identity)
+                and len(case.identity_corrections) >= IDENTITY_RECHECK_HISTORY_LIMIT
+            ):
+                raise ValueError(
+                    "Identity recheck history is full; no further correction can be retained."
+                )
+
+            verified: tuple[RegistryAcquisitionBundle, RegistryEvidenceBinding | None] | None = None
+            if verify_registry:
+                verified = self._verify_registry_correction(
+                    identity, case_policy=case.policy_snapshot
+                )
+                identity = InitialCustomerIdentity(
+                    legal_name=verified[0].entity_profile.legal_name or identity.legal_name,
+                    registration_number=verified[0].entity_profile.registration_number,
+                    country_of_incorporation="SG",
+                )
+
             changed_identity = previous_identity != identity
             request_id = self._uuid_factory()
             requested_at = self._clock()
             requested = case.model_copy(deep=True)
-            if changed_identity:
+            if changed_identity or verify_registry:
                 requested.identity_corrections = (
                     *requested.identity_corrections,
                     IdentityCorrectionEvidence(
                         correction_id=self._uuid_factory(),
                         actor_id=actor_id,
                         previous_identity=previous_identity,
+                        previous_entity=case.entity,
+                        previous_registry_acquisition=case.registry_acquisition,
+                        choice=identity_choice,
+                        source_document_id=source_document_id,
+                        source_document_event_count=source_document_event_count,
                         corrected_identity=identity,
                         previous_search_request_id=(
                             previous_search.request_id if previous_search is not None else None
@@ -636,7 +671,7 @@ class OnboardingService:
             requested.existing_target_state = None
             requested.target_dispatch_confirmation = None
             requested.goldtier_result = None
-            if changed_identity:
+            if changed_identity or verify_registry:
                 requested.entity = None
                 requested.registry_acquisition = None
                 requested.registry_evidence_binding = None
@@ -664,7 +699,12 @@ class OnboardingService:
                     message="An authorized read-only GoldTier Search recheck was requested.",
                 )
             )
-            self._repository.save(OnboardingCase.model_validate(requested))
+            self._repository.save(OnboardingCase.model_validate(requested.model_dump()))
+
+            if verified is not None:
+                requested = self._acquire_registry_after_identity_recheck(
+                    requested, identity, verified=verified
+                )
 
             evidence, reused_case = self._run_initial_identity_search(
                 requested,
@@ -729,7 +769,7 @@ class OnboardingService:
                     message="Authorized read-only GoldTier Search recheck completed.",
                 )
             )
-            validated = OnboardingCase.model_validate(completed)
+            validated = OnboardingCase.model_validate(completed.model_dump())
             self._repository.save(validated)
             if evidence.disposition == "NO_MATCH" and validated.entity is None:
                 return self._acquire_registry_after_identity_recheck(validated, identity)
@@ -807,7 +847,11 @@ class OnboardingService:
         return evidence, reused_case
 
     def _acquire_registry_after_identity_recheck(
-        self, case: OnboardingCase, identity: InitialCustomerIdentity
+        self,
+        case: OnboardingCase,
+        identity: InitialCustomerIdentity,
+        *,
+        verified: tuple[RegistryAcquisitionBundle, RegistryEvidenceBinding | None] | None = None,
     ) -> OnboardingCase:
         resolution = self._jurisdiction_resolver.resolve(
             (
@@ -827,13 +871,18 @@ class OnboardingService:
             raise ValueError("Singapore registry provider is unavailable")
         coordinated = (
             self._registry_acquisition_coordinator.acquire(
-                provider, identity.registration_number
+                provider,
+                identity.registration_number,
+                case_policy=case.policy_snapshot.registry,
+                policy_version=case.policy_snapshot.catalogue_version,
             )
-            if self._registry_acquisition_coordinator is not None
+            if self._registry_acquisition_coordinator is not None and verified is None
             else None
         )
         acquisition = (
-            coordinated.acquisition
+            verified[0]
+            if verified is not None
+            else coordinated.acquisition
             if coordinated is not None
             else provider.retrieve_acquisition(identity.registration_number)
         )
@@ -855,7 +904,11 @@ class OnboardingService:
         updated.registry_route = route
         updated.registry_acquisition = acquisition
         updated.registry_evidence_binding = (
-            coordinated.binding if coordinated is not None else None
+            verified[1]
+            if verified is not None
+            else coordinated.binding
+            if coordinated is not None
+            else None
         )
         updated.entity = acquisition.entity_profile
         updated.error = None
@@ -867,6 +920,49 @@ class OnboardingService:
             "IDENTITY_CORRECTION_REGISTRY_REACQUIRED",
         )
         return updated.model_copy(deep=True)
+
+    def _verify_registry_correction(
+        self,
+        identity: InitialCustomerIdentity,
+        *,
+        case_policy: CasePolicySnapshot,
+    ) -> tuple[RegistryAcquisitionBundle, RegistryEvidenceBinding | None]:
+        """The single request-bound registry verification path for every UEN choice.
+
+        Verification precedes canonical mutation and performs no target operation.
+        """
+        _, provider = self._registry_router.route(
+            JurisdictionCode.SINGAPORE, decided_at=self._clock()
+        )
+        if provider is None:
+            raise ValueError("Registry verification could not verify this UEN.")
+        try:
+            result = (
+                self._registry_acquisition_coordinator.acquire(
+                    provider,
+                    identity.registration_number,
+                    case_policy=case_policy.registry,
+                    policy_version=case_policy.catalogue_version,
+                )
+                if self._registry_acquisition_coordinator is not None
+                else None
+            )
+            acquisition = (
+                result.acquisition
+                if result is not None
+                else provider.retrieve_acquisition(identity.registration_number)
+            )
+        except (ConnectorError, RegistryCacheError):
+            raise ValueError("Registry verification could not verify this UEN.") from None
+        if (
+            acquisition is None
+            or acquisition.status
+            not in {RegistryAcquisitionStatus.COMPLETE, RegistryAcquisitionStatus.PARTIAL}
+            or acquisition.requested_identifier != identity.registration_number
+            or validate_entity(acquisition.entity_profile)
+        ):
+            raise ValueError("Registry verification could not verify this UEN.")
+        return acquisition, result.binding if result is not None else None
 
     def bind_goldtier_case_classification(
         self,
@@ -1077,12 +1173,9 @@ class OnboardingService:
                 raise ValueError("Policy rebind audit metadata is invalid") from None
             rebound_snapshot = previous.model_copy(
                 update={
-                    "snapshot_label": (
-                        f"SG_POC_POLICY_REBIND_V{current_catalogue.catalogue_version}"
-                    ),
-                    "catalogue_version": current_catalogue.catalogue_version,
+                    # Existing SG target-only repair does not rebind frozen
+                    # business policy/version/parameters or its original timestamp.
                     "goldtier_target": rebound_target,
-                    "bound_at": now,
                 },
                 deep=True,
             )
@@ -1354,9 +1447,9 @@ class OnboardingService:
             except InvalidTargetResponseError:
                 result = _initial_search_failure("GT_XPI_MALFORMED_RESPONSE")
 
-            disposition: Literal[
-                "NO_MATCH", "EXACT_MATCH", "REVIEW_REQUIRED", "FAILED"
-            ] = "REVIEW_REQUIRED"
+            disposition: Literal["NO_MATCH", "EXACT_MATCH", "REVIEW_REQUIRED", "FAILED"] = (
+                "REVIEW_REQUIRED"
+            )
             selected_party_id: str | None = None
             if result.outcome == GoldTierSearchOutcome.NO_MATCH:
                 disposition = "NO_MATCH"
@@ -1367,8 +1460,7 @@ class OnboardingService:
                 )
                 disposition = "FAILED"
             elif (
-                result.outcome == GoldTierSearchOutcome.MATCH_FOUND
-                and len(result.candidates) == 1
+                result.outcome == GoldTierSearchOutcome.MATCH_FOUND and len(result.candidates) == 1
             ):
                 candidate = result.candidates[0]
                 prior = self._repository.find_verified_target_case(
@@ -1378,6 +1470,7 @@ class OnboardingService:
                     party_id=candidate.party_id,
                 )
                 if prior is not None and prior.entity is not None:
+
                     def normalized(value: str) -> str:
                         return " ".join(value.strip().split()).casefold()
 
@@ -1498,6 +1591,14 @@ class OnboardingService:
                 "The identifier is not eligible for Singapore ACRA retrieval.",
             )
 
+        self._record(
+            case,
+            case.state,
+            EventOutcome.SUCCEEDED,
+            "Exact registration-identifier GoldTier lookup is unsupported; "
+            "registry resolution continues.",
+            "GOLDTIER_SEARCH_SKIPPED_UNSUPPORTED_IDENTIFIER",
+        )
         binding = None
         registry_coordinator = self._registry_acquisition_coordinator
         if registry_coordinator is None:
@@ -1515,6 +1616,8 @@ class OnboardingService:
                 operation=lambda: registry_coordinator.acquire(
                     registry_provider,
                     normalised_uen,
+                    case_policy=case.policy_snapshot.registry,
+                    policy_version=case.policy_snapshot.catalogue_version,
                 ),
             )
             acquisition = coordinated.acquisition
@@ -1742,13 +1845,13 @@ class OnboardingService:
             )
             result = validate_search_response(untrusted)
         return TargetIdentitySearchEvidence(
-                result=result,
-                resolution=self._resolve_target_candidates(
-                    search_input,
-                    result,
-                    policy=case.policy_snapshot.intelligence,
-                ),
-            )
+            result=result,
+            resolution=self._resolve_target_candidates(
+                search_input,
+                result,
+                policy=case.policy_snapshot.intelligence,
+            ),
+        )
 
     def _resolve_target_candidates(
         self,
@@ -1939,9 +2042,7 @@ class OnboardingService:
             if entry.target_outcome is not None:
                 return self._finalize_execution_receipt(submission_input, entry.target_outcome)
             if entry.provider_verified_amend_failure is not None:
-                raise ValueError(
-                    "Amend has a provider-verified failure and must not be replayed"
-                )
+                raise ValueError("Amend has a provider-verified failure and must not be replayed")
             if entry.attempted_operations != entry.lifecycle_resolved_operations:
                 raise MutationOutcomeUncertainError
 
@@ -2027,9 +2128,7 @@ class OnboardingService:
                 completed_operations=completed,
                 resolved_operations=resolved,
                 provider_verified_recovery=entry.provider_verified_recovery,
-                provider_verified_policy_recovery=(
-                    entry.provider_verified_policy_recovery
-                ),
+                provider_verified_policy_recovery=(entry.provider_verified_policy_recovery),
                 provider_verified_amend_failure=entry.provider_verified_amend_failure,
                 search_resolution=entry.search_resolution,
                 resolved_party_id=resolved_party_id,
@@ -2653,9 +2752,7 @@ class OnboardingService:
                 completed_operations=entry.completed_operations,
                 resolved_operations=entry.resolved_operations,
                 provider_verified_recovery=entry.provider_verified_recovery,
-                provider_verified_policy_recovery=(
-                    entry.provider_verified_policy_recovery
-                ),
+                provider_verified_policy_recovery=(entry.provider_verified_policy_recovery),
                 provider_verified_amend_failure=entry.provider_verified_amend_failure,
                 search_resolution=entry.search_resolution,
                 resolved_party_id=entry.resolved_party_id,
@@ -2821,9 +2918,7 @@ class OnboardingService:
                 completed_operations=definitive,
                 resolved_operations=outcome.completed_operations,
                 provider_verified_recovery=entry.provider_verified_recovery,
-                provider_verified_policy_recovery=(
-                    entry.provider_verified_policy_recovery
-                ),
+                provider_verified_policy_recovery=(entry.provider_verified_policy_recovery),
                 provider_verified_amend_failure=entry.provider_verified_amend_failure,
                 search_resolution=entry.search_resolution,
                 resolved_party_id=outcome.party_id,
@@ -2861,9 +2956,7 @@ class OnboardingService:
                 completed_operations=entry.completed_operations,
                 resolved_operations=entry.resolved_operations,
                 provider_verified_recovery=entry.provider_verified_recovery,
-                provider_verified_policy_recovery=(
-                    entry.provider_verified_policy_recovery
-                ),
+                provider_verified_policy_recovery=(entry.provider_verified_policy_recovery),
                 provider_verified_amend_failure=entry.provider_verified_amend_failure,
                 search_resolution=entry.search_resolution,
                 resolved_party_id=outcome.party_id,
@@ -2939,15 +3032,18 @@ class OnboardingService:
                         idempotent_recovery = stored.model_copy(deep=True)
                     else:
                         raise ValueError("A conflicting provider recovery is already retained")
-                if idempotent_recovery is None and stored is not None and (
-                    stored.state != GoldTierExecutionLedgerState.IN_PROGRESS
-                    or stored.attempted_operations
-                    != (GoldTierOperationMarker.SEARCH, GoldTierOperationMarker.SHELL)
-                    or stored.definitively_completed_operations
-                    not in {(), (GoldTierOperationMarker.SEARCH,)}
-                    or stored.search_resolution
-                    not in {None, GoldTierSearchResolution.NO_MATCH}
-                    or stored.resolved_party_id is not None
+                if (
+                    idempotent_recovery is None
+                    and stored is not None
+                    and (
+                        stored.state != GoldTierExecutionLedgerState.IN_PROGRESS
+                        or stored.attempted_operations
+                        != (GoldTierOperationMarker.SEARCH, GoldTierOperationMarker.SHELL)
+                        or stored.definitively_completed_operations
+                        not in {(), (GoldTierOperationMarker.SEARCH,)}
+                        or stored.search_resolution not in {None, GoldTierSearchResolution.NO_MATCH}
+                        or stored.resolved_party_id is not None
+                    )
                 ):
                     raise ValueError("Only one uncertain Shell may be provider-recovered")
                 if (
@@ -3139,13 +3235,11 @@ class OnboardingService:
                         GoldTierOperationMarker.SHELL,
                         GoldTierOperationMarker.POLICY,
                     )
-                    or stored.definitively_completed_operations
-                    != (GoldTierOperationMarker.SEARCH,)
+                    or stored.definitively_completed_operations != (GoldTierOperationMarker.SEARCH,)
                     or stored.lifecycle_resolved_operations
                     != (GoldTierOperationMarker.SEARCH, GoldTierOperationMarker.SHELL)
                     or stored.provider_verified_recovery is None
-                    or stored.provider_verified_recovery.operation
-                    != GoldTierOperationMarker.SHELL
+                    or stored.provider_verified_recovery.operation != GoldTierOperationMarker.SHELL
                     or stored.search_resolution != GoldTierSearchResolution.NO_MATCH
                     or stored.resolved_party_id != recovered_party_id
                     or stored.policy_id is not None
@@ -3255,9 +3349,7 @@ class OnboardingService:
                         and existing.origin == origin
                     ):
                         return stored.model_copy(deep=True)
-                    raise ValueError(
-                        "A conflicting provider Amend failure is already retained"
-                    )
+                    raise ValueError("A conflicting provider Amend failure is already retained")
                 if (
                     stored.state != GoldTierExecutionLedgerState.IN_PROGRESS
                     or stored.attempted_operations
@@ -3267,8 +3359,7 @@ class OnboardingService:
                         GoldTierOperationMarker.POLICY,
                         GoldTierOperationMarker.AMEND,
                     )
-                    or stored.definitively_completed_operations
-                    != (GoldTierOperationMarker.SEARCH,)
+                    or stored.definitively_completed_operations != (GoldTierOperationMarker.SEARCH,)
                     or stored.lifecycle_resolved_operations
                     != (
                         GoldTierOperationMarker.SEARCH,
@@ -3595,9 +3686,7 @@ class OnboardingService:
                 ),
             )
             try:
-                policy = validate_policy_response(
-                    untrusted_policy, expected_party_id=party_id
-                )
+                policy = validate_policy_response(untrusted_policy, expected_party_id=party_id)
             except InvalidTargetResponseError:
                 return self._malformed_target_response(
                     case,
@@ -3760,9 +3849,7 @@ class OnboardingService:
                     infrastructure_failure=True,
                 ),
                 operation=lambda: self._goldtier.search_party(
-                    self._goldtier_mapper.build_readback_request(
-                        submission_input, party_id
-                    ),
+                    self._goldtier_mapper.build_readback_request(submission_input, party_id),
                     self._metadata(
                         submission_input,
                         submission_input.idempotency.amend,

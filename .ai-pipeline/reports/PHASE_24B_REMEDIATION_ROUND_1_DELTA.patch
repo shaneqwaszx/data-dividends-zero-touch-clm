@@ -1,0 +1,627 @@
+--- entry/apps/backend/app/services/ownership_analysis.py
++++ round1/apps/backend/app/services/ownership_analysis.py
+@@ -977,6 +977,28 @@
+             )
+         return None
+ 
++    def registry_dependency_is_obsolete(self, *, case_id: UUID, evidence_version: str) -> bool:
++        """Inspect retained provenance without making stale ownership current again.
++
++        An absent/unrecognized binding fails closed. Existing snapshots use the same
++        identity/generation predicate as the current record, including legacy dates.
++        """
++        with self._case_lock(case_id):
++            parent = self._cases.get_case(case_id)
++            retained = self._repository.get_for_case(case_id)
++            if parent is None or retained is None:
++                return False
++            analyses: tuple[OwnershipAnalysisRecord | PriorOwnershipAnalysisSnapshot, ...] = (
++                retained, *retained.prior_analyses,
++            )
++            for analysis in analyses:
++                if evidence_version == f"ownership:{analysis.analysis_id}:{analysis.version}":
++                    return (
++                        analysis.provider_name == "ACRA_REGISTRY_ACQUISITION"
++                        and not ownership_is_current(analysis, parent)
++                    )
++            return False
++
+     def _case_lock(self, case_id: UUID) -> AbstractContextManager[object]:
+         lock_factory = getattr(self._cases, "case_lock", None)
+         return lock_factory(case_id) if callable(lock_factory) else nullcontext()
+--- entry/apps/backend/app/services/ownership_repository.py
++++ round1/apps/backend/app/services/ownership_repository.py
+@@ -5,7 +5,11 @@
+ from uuid import UUID
+ 
+ from app.domain.models import OnboardingCase
+-from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState
++from app.domain.ownership import (
++    OwnershipAnalysisRecord,
++    OwnershipAnalysisState,
++    PriorOwnershipAnalysisSnapshot,
++)
+ 
+ 
+ class OwnershipRepositoryConflictError(Exception):
+@@ -126,14 +130,18 @@
+     return retained.analysis_id == current.analysis_id and retained.version == current.version
+ 
+ 
+-def ownership_identity(record: OwnershipAnalysisRecord) -> str | None:
++def ownership_identity(
++    record: OwnershipAnalysisRecord | PriorOwnershipAnalysisSnapshot,
++) -> str | None:
+     return record.identity_registration_number or next(
+         (party.registration_number for party in record.parties
+          if party.party_id == record.root_party_id), None,
+     )
+ 
+ 
+-def ownership_is_current(record: OwnershipAnalysisRecord, parent: OnboardingCase) -> bool:
++def ownership_is_current(
++    record: OwnershipAnalysisRecord | PriorOwnershipAnalysisSnapshot, parent: OnboardingCase,
++) -> bool:
+     """Shared service/persistence eligibility; caller retains the owning lock/CAS."""
+     if ownership_identity(record) != parent.requested_uen:
+         return False
+--- entry/apps/backend/app/services/zero_touch_orchestration.py
++++ round1/apps/backend/app/services/zero_touch_orchestration.py
+@@ -655,7 +655,9 @@
+         with self._cases.case_lock(case_id):
+             if reauthorize is not None:
+                 reauthorize()
+-            record = self._require_record(case_id)
++            record = self._recover_obsolete_registry_ownership_locked(
++                self._require_record(case_id)
++            )
+             if (
+                 refresh_document_checkpoint
+                 and record.status == AutomationStatus.WAITING_FOR_REVIEW
+@@ -1452,7 +1454,6 @@
+                                 "The document UEN is unavailable or changed; refresh the evidence."
+                             ),
+                         )
+-            prior_ownership = self._ownership.get(case_id=case_id) if verify_registry else None
+             changed_uen = bool(current_case and
+                                current_case.requested_uen != registration_number.strip().upper())
+             try:
+@@ -1486,21 +1487,10 @@
+ 
+             candidate = record.model_copy(deep=True)
+             documents_available = bool(self._current_documents(case_id))
+-            rebound_case = self._cases.get_case(case_id)
+-            generation = len(rebound_case.identity_corrections) if rebound_case else None
+             for item in candidate.active_exceptions:
+-                obsolete_registry_dependency = bool(
+-                    verify_registry and generation is not None
+-                    and item.stage in {AutomationStage.OWNERSHIP, AutomationStage.READINESS}
+-                    and (
+-                        (item.registry_evidence_generation is not None
+-                         and item.registry_evidence_generation < generation)
+-                        or (prior_ownership is not None
+-                            and prior_ownership.provider_name == "ACRA_REGISTRY_ACQUISITION"
+-                            and item.evidence_version ==
+-                            f"ownership:{prior_ownership.analysis_id}:{prior_ownership.version}"
+-                            and self._ownership.get(case_id=case_id) is None)
+-                    )
++                obsolete_registry_dependency = (
++                    verify_registry
++                    and self._is_obsolete_registry_ownership_exception(case_id, item)
+                 )
+                 if (
+                     obsolete_registry_dependency
+@@ -2037,8 +2027,83 @@
+                 message="Onboarding automation stopped after an unexpected technical failure.",
+             ) from None
+ 
++    def _is_obsolete_registry_ownership_exception(
++        self, case_id: UUID, item: BusinessException,
++    ) -> bool:
++        return (
++            item.stage in {AutomationStage.OWNERSHIP, AutomationStage.READINESS}
++            and self._ownership.registry_dependency_is_obsolete(
++                case_id=case_id, evidence_version=item.evidence_version,
++            )
++        )
++
++    def _recover_obsolete_registry_ownership_locked(
++        self, record: ZeroTouchAutomationRecord,
++    ) -> ZeroTouchAutomationRecord:
++        """Repair an interrupted pre-submission rebind under the owning case lock.
++
++        Only exact obsolete registry ownership dependencies are retired. No new
++        registry/Search call, human decision or target dispatch is performed here.
++        """
++        if record.status in {AutomationStatus.COMPLETED, AutomationStatus.TECHNICAL_FAILURE}:
++            return record
++        obsolete = {
++            item.exception_id for item in record.active_exceptions
++            if self._is_obsolete_registry_ownership_exception(record.case_id, item)
++        }
++        if not obsolete:
++            return record
++        case = self._cases.get_case(record.case_id)
++        clm = self._clm.get(case_id=record.case_id)
++        if case is None or clm is None or clm.submission_snapshot is not None:
++            return record
++        # The parent write may have succeeded before its CLM projection. Rebind
++        # retained Search evidence using its existing request ID and CLM CAS.
++        search = case.initial_target_search
++        if search is not None and (
++            clm.target_search_checkpoint is None
++            or clm.target_search_checkpoint.request_id != search.request_id
++        ):
++            try:
++                clm = self._clm.refresh_initial_search_after_recheck(
++                    case_id=record.case_id, expected_clm_version=clm.version,
++                )
++            except ClmRequestError as exc:
++                raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
++        candidate = record.model_copy(deep=True)
++        for item in candidate.active_exceptions:
++            if item.exception_id in obsolete:
++                item.status = BusinessExceptionStatus.CANCELLED
++                item.resolved_at = self._clock()
++        # Rebuild document reconciliation, ownership and readiness from current
++        # evidence; retain every unrelated blocker and its original decision.
++        candidate.completed_stages = (
++            (AutomationStage.REGISTRY,)
++            if case.state == WorkflowState.VALIDATED and case.entity is not None else ()
++        )
++        if (candidate.completed_stages and search is not None
++            and clm.target_search_checkpoint is not None
++            and clm.target_search_checkpoint.request_id == search.request_id
++            and clm.target_search_checkpoint.status == GoldTierSearchCheckpointStatus.COMPLETED):
++            candidate.completed_stages += (AutomationStage.GOLDTIER_SEARCH,)
++        remaining = candidate.active_exceptions
++        candidate.status = (
++            AutomationStatus.WAITING_FOR_REVIEW if remaining else AutomationStatus.RESUMING
++        )
++        candidate.current_stage = remaining[0].stage if remaining else _next_stage(
++            candidate.completed_stages
++        )
++        candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
++        candidate.metrics.final_outcome = None
++        candidate = self._append_event(
++            candidate, event_type=AutomationEventType.AUTOMATION_RESUMING,
++            outcome=EventOutcome.SUCCEEDED, code="OBSOLETE_REGISTRY_OWNERSHIP_RETIRED",
++            message="Superseded registry ownership blockers were retained as cancelled history.",
++        )
++        return self._save(record, candidate)
++
+     def _advance_locked_impl(self, *, case_id: UUID) -> ZeroTouchAutomationRecord:
+-        record = self._require_record(case_id)
++        record = self._recover_obsolete_registry_ownership_locked(self._require_record(case_id))
+         if record.active_exceptions:
+             return record
+         if record.status in {
+--- entry/apps/backend/tests/test_provider_identity_real_mongo.py
++++ round1/apps/backend/tests/test_provider_identity_real_mongo.py
+@@ -480,3 +480,93 @@
+         assert restored.target_executions == ()
+     finally:
+         restarted.close()
++
++
++def _phase24b_restart_services(store):
++    """Reconstruct normal owners over a reopened disposable case envelope."""
++    from test_zero_touch_orchestration import build_system
++
++    from app.connectors.registry_ownership import RegistryAcquisitionOwnershipProvider
++    from app.persistence.repositories import (
++        MongoClmOrchestrationRepository,
++        MongoDocumentProcessingRepository,
++        MongoReconciliationRepository,
++        MongoReconciliationUnitOfWork,
++        MongoTargetExecutionRepository,
++        MongoZeroTouchAutomationRepository,
++    )
++    from app.services.zero_touch_provider_bindings import DurableOwnershipProviderBindingResolver
++
++    client, zero, _, target, _ = build_system(require_confirmation=True)
++    zero._cases._repository = MongoOnboardingCaseRepository(store)
++    zero._cases._target_executions = MongoTargetExecutionRepository(store)
++    zero._documents._repository = MongoDocumentProcessingRepository(store)
++    zero._ownership._repository = MongoOwnershipAnalysisRepository(store)
++    zero._ownership._provider = RegistryAcquisitionOwnershipProvider(zero._cases)
++    zero._clm._repository = MongoClmOrchestrationRepository(store)
++    zero._repository = MongoZeroTouchAutomationRepository(store)
++    zero._reconciliation._repository = MongoReconciliationRepository(store)
++    zero._reconciliation._unit_of_work = MongoReconciliationUnitOfWork(store)
++    zero._ownership_provider_bindings = DurableOwnershipProviderBindingResolver(
++        lambda: zero._ownership.configured_provider,
++    )
++    return client, zero, target
++
++
++@pytest.mark.parametrize("legacy", [False, True])
++@pytest.mark.parametrize("boundary", ["clm", "reconciliation"])
++def test_phase24b_interrupted_registry_retry_survives_physical_restart(
++    isolated_provider_database, monkeypatch, legacy, boundary,
++):
++    from test_phase24b_interrupted_retry import (
++        blocked_registry_case,
++        interrupt_refresh,
++        snapshot_of,
++    )
++
++    client, zero, _, _, registry, blocker, case_id = blocked_registry_case(durable=True)
++    store = _open_store(isolated_provider_database)
++    try:
++        store.create(snapshot_of(zero, case_id))
++    finally:
++        store.close()
++    # Run the interrupted write through physical owners, then close every store.
++    store = _open_store(isolated_provider_database, initialize=False)
++    try:
++        physical_client, physical, target = _phase24b_restart_services(store)
++        physical._cases._registry_router = zero._cases._registry_router
++        interrupt_refresh(physical_client, physical, registry, blocker, monkeypatch,
++                          case_id=case_id, boundary=boundary, legacy=legacy)
++        assert target.calls == ["search"]
++        interrupted_revision = store.get(case_id).revision
++    finally:
++        store.close()
++    store = _open_store(isolated_provider_database, initialize=False)
++    try:
++        restarted_client, restarted, restarted_target = _phase24b_restart_services(store)
++        assert restarted._ownership.get(case_id=case_id) is None
++        response = restarted_client.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
++        assert response.status_code == 200
++        ownership = restarted._ownership.get(case_id=case_id)
++        assert ownership.state == "ANALYZED" and ownership.identity_correction_version == 1
++        assert next(item for item in restarted.get(case_id=case_id).exceptions
++                    if item.exception_id == blocker.exception_id).status == "CANCELLED"
++        assert {item.blocker_code for item in restarted.get(case_id=case_id).active_exceptions} == {
++            "TARGET_CONFIRMATION_REQUIRED",
++        }
++        assert restarted_target.calls == []
++        assert store.get(case_id).revision > interrupted_revision
++        recovered_revision = store.get(case_id).revision
++    finally:
++        store.close()
++    # A second repository reopen cannot resurrect cancelled history or replay.
++    store = _open_store(isolated_provider_database, initialize=False)
++    try:
++        final_client, final, final_target = _phase24b_restart_services(store)
++        assert final_client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++        assert store.get(case_id).revision == recovered_revision
++        assert final_target.calls == []
++        assert next(item for item in final.get(case_id=case_id).exceptions
++                    if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    finally:
++        store.close()
+--- entry/docs/contracts/OWNERSHIP_UBO_PROFILE.md
++++ round1/docs/contracts/OWNERSHIP_UBO_PROFILE.md
+@@ -186,3 +186,17 @@
+ ownership produces `REVIEW` without a guessed probability. The project-defined advisory
+ thresholds are editable and snapshotted for new cases, but do not change the graph,
+ provisional UBO rule, or Q-004 status. See `docs/models/UBO_ADVISORY_MODEL_CARD.md`.
++
++
++Interrupted pre-submission registry rechecks are recoverable before orchestration's
++waiting-state early return. The ownership owner matches the blocker's existing
++`ownership:<analysis_id>:<version>` reference against the retained analysis or its
++bounded prior snapshots, then applies the same identity/generation currentness
++predicate. This works when the optional exception generation field is absent.
++Unknown references and current/independent evidence remain blocking; stale evidence
++is never exposed as current. Recovery rebinds a missing CLM projection from retained
++initial Search evidence (no new Search), cancels only the matched obsolete registry
++dependency, and rebuilds reconciliation/ownership/readiness under the existing case
++lock and repository CAS. Unrelated human decisions and submission freeze boundaries
++remain authoritative. Existing durable bindings/history suffice; no schema or second
++freshness counter is introduced.
+--- /dev/null
++++ round1/apps/backend/tests/test_phase24b_interrupted_retry.py
+@@ -0,0 +1,310 @@
++"""Bounded interrupted registry-generation recovery; local synthetic evidence."""
++
++from datetime import UTC, datetime
++from uuid import UUID, uuid4
++
++import pytest
++from test_phase24_identity import correction
++from test_phase24b_p2_regressions import RecoveringRegistry
++from test_zero_touch_orchestration import PDF, build_system
++
++from app.connectors.registry import AcraRegistryProviderAdapter, RegistryProviderRouter
++from app.connectors.registry_ownership import RegistryAcquisitionOwnershipProvider
++from app.domain.documents import DocumentAutoClearBlocker
++from app.domain.zero_touch import AutomationStage, BusinessExceptionType
++from app.persistence.models import DurableCaseSnapshot
++from app.persistence.mongo_case_store import _persistence_value
++from app.services.clm_errors import ClmRequestError
++from app.services.ownership_repository import OwnershipRepositoryConflictError
++from app.services.reconciliation_errors import ReconciliationInfrastructureError
++from app.services.zero_touch_errors import ZeroTouchInfrastructureError, ZeroTouchRequestError
++from app.services.zero_touch_provider_bindings import DurableOwnershipProviderBindingResolver
++
++
++def blocked_registry_case(*, durable=False):
++    client, zero, documents, target, _ = build_system(require_confirmation=True)
++    registry = RecoveringRegistry()
++    zero._cases._registry_router = RegistryProviderRouter(AcraRegistryProviderAdapter(registry))
++    zero._ownership._provider = RegistryAcquisitionOwnershipProvider(zero._cases)
++    if durable:
++        zero._ownership_provider_bindings = DurableOwnershipProviderBindingResolver(
++            lambda: zero._ownership.configured_provider,
++        )
++    assert client.get("/api/auth/me").status_code == 200
++    response = client.post("/api/clm/zero-touch/cases", json={
++        "uen": "202400001A", "legal_name": "Synthetic", "country_of_incorporation": "SG",
++    })
++    assert response.status_code == 201
++    case_id = UUID(response.json()["case"]["case_id"])
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/documents", content=PDF,
++                       headers={"Content-Type": "application/pdf",
++                                "X-Document-Name": "synthetic.pdf"}).status_code == 200
++    blocked = zero.get(case_id=case_id)
++    blocker = next(item for item in blocked.active_exceptions
++                   if item.blocker_code == "OWNERSHIP_REQUIRED")
++    assert blocker.registry_evidence_generation == 0
++    return client, zero, documents, target, registry, blocker, case_id
++
++
++def interrupt_refresh(
++    client, zero, registry, blocker, monkeypatch, *, case_id, boundary, legacy,
++    uen="202400001A", choice="ENTERED", generation=1,
++):
++    blocked = zero.get(case_id=case_id)
++    if legacy:
++        candidate = blocked.model_copy(deep=True)
++        next(item for item in candidate.active_exceptions
++             if item.exception_id == blocker.exception_id).registry_evidence_generation = None
++        blocked = zero._save(blocked, candidate)
++    registry.available = True
++    with monkeypatch.context() as patch:
++        if boundary == "reconciliation":
++            def fail(**kwargs):
++                raise ReconciliationInfrastructureError(
++                    code="RECONCILIATION_UNAVAILABLE", message="Synthetic interruption.",
++                )
++            patch.setattr(zero._reconciliation, "reconcile_current", fail)
++            with pytest.raises(ZeroTouchInfrastructureError):
++                correction(client, zero, blocked, choice=choice, uen=uen)
++        else:
++            def fail(**kwargs):
++                raise ClmRequestError(code="CLM_IDENTITY_RECHECK_STALE",
++                                      message="Synthetic checkpoint interruption.")
++            patch.setattr(zero._clm, "refresh_initial_search_after_recheck", fail)
++            response = correction(client, zero, blocked, choice=choice, uen=uen)
++            assert response.status_code == 409
++    assert len(zero._cases.get_case(case_id).identity_corrections) == generation
++    assert zero._ownership.get(case_id=case_id) is None
++    assert next(item for item in zero.get(case_id=case_id).exceptions
++                if item.exception_id == blocker.exception_id).status == "OPEN"
++    return case_id
++
++
++@pytest.mark.parametrize("legacy", [False, True])
++@pytest.mark.parametrize("boundary", ["reconciliation", "clm"])
++@pytest.mark.parametrize("retry", ["resume", "correction"])
++def test_interrupted_same_uen_recovers_exact_obsolete_blocker(monkeypatch, legacy, boundary, retry):
++    client, zero, _, target, registry, blocker, case_id = blocked_registry_case()
++    old = zero._ownership.get(case_id=case_id)
++    case_id = interrupt_refresh(client, zero, registry, blocker, monkeypatch,
++                                case_id=case_id, boundary=boundary, legacy=legacy)
++    if retry == "resume":
++        response = client.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
++    else:
++        response = correction(client, zero, zero.get(case_id=case_id),
++                              choice="ENTERED", uen="202400001A")
++    assert response.status_code == 200
++    current = zero.get(case_id=case_id)
++    retained = next(item for item in current.exceptions
++                    if item.exception_id == blocker.exception_id)
++    assert retained.status == "CANCELLED"
++    ownership = zero._ownership.get(case_id=case_id)
++    assert ownership is not None and ownership.state == "ANALYZED"
++    assert ownership.analysis_id != old.analysis_id
++    assert ownership.identity_correction_version == (1 if retry == "resume" else 2)
++    assert ownership.prior_analyses[-1].analysis_id == old.analysis_id
++    assert {item.blocker_code for item in current.active_exceptions} == {
++        "TARGET_CONFIRMATION_REQUIRED",
++    }
++    assert target.calls == ["search"] * (2 if retry == "resume" else 3)
++    checkpoint = zero._clm.get(case_id=case_id).target_search_checkpoint
++    assert checkpoint.request_id == zero._cases.get_case(case_id).initial_target_search.request_id
++    version = current.version
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    assert zero.get(case_id=case_id).version == version
++    assert target.calls == ["search"] * (2 if retry == "resume" else 3)
++
++
++def snapshot_of(zero, case_id):
++    now = datetime.now(UTC)
++    return DurableCaseSnapshot(
++        case_id=case_id, revision=0, onboarding=zero._cases.get_case(case_id),
++        documents=tuple(zero._documents.list_documents(case_id=case_id)),
++        ownership=zero._ownership._repository.get_for_case(case_id),
++        reconciliation=zero._reconciliation._repository.get_for_case(case_id),
++        clm=zero._clm._repository.get_for_case(case_id), automation=zero.get(case_id=case_id),
++        created_at=now, updated_at=now,
++    )
++
++
++def restore_memory_snapshot(snapshot):
++    client, zero, _, target, _ = build_system(require_confirmation=True)
++    case_id = snapshot.case_id
++    zero._cases._repository.create(snapshot.onboarding)
++    for document in snapshot.documents:
++        zero._documents._repository.save(document)
++    zero._ownership._repository._records[case_id] = snapshot.ownership
++    zero._clm._repository._records[case_id] = snapshot.clm
++    zero._repository._records[case_id] = snapshot.automation
++    zero._reconciliation._repository._records[case_id] = snapshot.reconciliation
++    zero._ownership._provider = RegistryAcquisitionOwnershipProvider(zero._cases)
++    zero._ownership_provider_bindings = DurableOwnershipProviderBindingResolver(
++        lambda: zero._ownership.configured_provider,
++    )
++    return client, zero, target
++
++
++@pytest.mark.parametrize("legacy_analysis", [False, True])
++def test_serialized_reload_uses_retained_generation_and_legacy_history(
++    monkeypatch, legacy_analysis,
++):
++    client, zero, _, _, registry, blocker, case_id = blocked_registry_case(durable=True)
++    old = zero._ownership.get(case_id=case_id)
++    if legacy_analysis:
++        zero._ownership._repository._records[case_id] = old.model_copy(
++            update={"identity_correction_version": None}, deep=True,
++        )
++    interrupt_refresh(client, zero, registry, blocker, monkeypatch, case_id=case_id,
++                      boundary="clm", legacy=True)
++    raw = _persistence_value(snapshot_of(zero, case_id))
++    for item in raw["automation"]["exceptions"]:
++        item.pop("registry_evidence_generation", None)
++    restored = DurableCaseSnapshot.model_validate(raw)
++    restarted_client, restarted, target = restore_memory_snapshot(restored)
++    assert restarted._ownership.get(case_id=case_id) is None
++    assert restarted_client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    ownership = restarted._ownership.get(case_id=case_id)
++    assert ownership.state == "ANALYZED" and ownership.identity_correction_version == 1
++    assert next(item for item in restarted.get(case_id=case_id).exceptions
++                if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    assert target.calls == []
++
++
++def test_interrupted_a_to_b_to_a_never_resurrects_first_a(monkeypatch):
++    client, zero, _, target, registry, blocker, case_id = blocked_registry_case()
++    old = zero._ownership.get(case_id=case_id)
++    interrupt_refresh(client, zero, registry, blocker, monkeypatch, case_id=case_id,
++                      boundary="clm", legacy=True, uen="202400009I", choice="OTHER")
++    interrupt_refresh(client, zero, registry, blocker, monkeypatch, case_id=case_id,
++                      boundary="clm", legacy=True, uen="202400001A", choice="OTHER", generation=2)
++    assert zero._cases.get_case(case_id).requested_uen == old.identity_registration_number
++    assert zero._ownership.get(case_id=case_id) is None
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    current = zero._ownership.get(case_id=case_id)
++    assert current.analysis_id != old.analysis_id
++    assert current.identity_correction_version == 2 and current.state == "ANALYZED"
++    assert target.calls == ["search"] * 3
++    assert next(item for item in zero.get(case_id=case_id).exceptions
++                if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    # Neither an old automation candidate nor an old ownership completion owns CAS.
++    with pytest.raises(ZeroTouchRequestError) as conflict:
++        zero._save(snapshot_of(zero, case_id).automation.model_copy(update={"version": 1}),
++                   snapshot_of(zero, case_id).automation)
++    assert conflict.value.code == "ZERO_TOUCH_AUTOMATION_CONFLICT"
++    with pytest.raises(OwnershipRepositoryConflictError):
++        zero._ownership._repository.save(old.model_copy(update={"version": old.version + 1}),
++                                         expected_version=old.version)
++    assert zero._ownership.get(case_id=case_id) == current
++
++
++def test_retained_history_matches_legacy_blocker_after_current_analysis_rebuild(monkeypatch):
++    client, zero, _, target, registry, blocker, case_id = blocked_registry_case()
++    interrupt_refresh(client, zero, registry, blocker, monkeypatch, case_id=case_id,
++                      boundary="reconciliation", legacy=True)
++    zero._ownership.load(case_id=case_id)
++    current = zero._ownership.analyze(case_id=case_id)
++    assert current.state == "ANALYZED"
++    assert zero._ownership.registry_dependency_is_obsolete(
++        case_id=case_id, evidence_version=blocker.evidence_version,
++    )
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    assert zero._ownership.get(case_id=case_id).analysis_id == current.analysis_id
++    assert next(item for item in zero.get(case_id=case_id).exceptions
++                if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    assert target.calls == ["search", "search"]
++
++
++def test_current_registry_blocker_and_unknown_binding_remain_open():
++    client, zero, _, target, _, blocker, case_id = blocked_registry_case()
++    before = zero.get(case_id=case_id)
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    assert zero.get(case_id=case_id) == before
++    assert not zero._ownership.registry_dependency_is_obsolete(
++        case_id=case_id, evidence_version=f"ownership:{uuid4()}:1",
++    )
++    assert not zero._ownership.registry_dependency_is_obsolete(
++        case_id=case_id, evidence_version=blocker.evidence_version,
++    )
++    assert target.calls == ["search"]
++
++
++@pytest.mark.parametrize("kind", ["document", "classification", "target", "independent"])
++def test_recovery_preserves_unrelated_blocker_identity_and_decision(monkeypatch, kind):
++    client, zero, _, target, registry, blocker, case_id = blocked_registry_case()
++    interrupt_refresh(client, zero, registry, blocker, monkeypatch, case_id=case_id,
++                      boundary="clm", legacy=True)
++    record = zero.get(case_id=case_id)
++    types = {
++        "document": (BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE, AutomationStage.DOCUMENT),
++        "classification": (BusinessExceptionType.TARGET_CLASSIFICATION_REQUIRED,
++                           AutomationStage.READINESS),
++        "target": (BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED, AutomationStage.READINESS),
++        "independent": (BusinessExceptionType.OWNERSHIP_REVIEW_REQUIRED, AutomationStage.OWNERSHIP),
++    }
++    if kind == "document":
++        document = zero._documents.list_documents(case_id=case_id)[0]
++        altered = document.model_copy(deep=True)
++        altered.fields[0].confidence = 0.1
++        zero._documents._repository.save(altered)
++        candidate = zero._raise_document_exception(record, altered,
++                                                   (DocumentAutoClearBlocker.LOW_CONFIDENCE,))
++    else:
++        exception_type, stage = types[kind]
++        candidate = zero._add_exception(
++            record, exception_type=exception_type, stage=stage,
++            blocker_code={"classification": "TARGET_CLASSIFICATION_REQUIRED",
++                          "target": "TARGET_CONFIRMATION_REQUIRED",
++                          "independent": "OWNERSHIP_REQUIRED"}[kind],
++            explanation="Synthetic current independent decision.",
++            evidence_version=f"independent:{uuid4()}:1", evidence=(), actions=(),
++        )
++    record = candidate
++    unrelated = next(item for item in record.active_exceptions
++                     if item.exception_id != blocker.exception_id)
++    # Normal owning service retry retains independent human decisions verbatim.
++    zero.start(case_id=case_id)
++    after = zero.get(case_id=case_id)
++    assert next(item for item in after.exceptions
++                if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    assert next(item for item in after.active_exceptions
++                if item.exception_id == unrelated.exception_id) == unrelated
++    assert target.calls == ["search", "search"]
++
++
++def test_recovery_reauthorizes_inside_lock_before_writes(monkeypatch):
++    client, zero, _, target, registry, blocker, case_id = blocked_registry_case()
++    interrupt_refresh(client, zero, registry, blocker, monkeypatch, case_id=case_id,
++                      boundary="clm", legacy=True)
++    before = snapshot_of(zero, case_id)
++    def deny():
++        assert zero._cases.case_lock(case_id)._is_owned()
++        raise ZeroTouchRequestError(code="SYNTHETIC_FORBIDDEN", message="Synthetic denial.")
++    with pytest.raises(ZeroTouchRequestError) as denied:
++        zero.start(case_id=case_id, reauthorize=deny)
++    assert denied.value.code == "SYNTHETIC_FORBIDDEN"
++    after = snapshot_of(zero, case_id)
++    assert after.model_copy(update={"created_at": before.created_at,
++                                    "updated_at": before.updated_at}) == before
++    assert target.calls == ["search", "search"]
++
++
++def test_new_insufficient_generation_remains_genuine_and_stale_request_has_no_effect():
++    client, zero, _, target, _, blocker, case_id = blocked_registry_case()
++    old = zero.get(case_id=case_id)
++    parent = zero._cases.get_case(case_id)
++    clm = zero._clm.get(case_id=case_id)
++    assert correction(client, zero, old, choice="ENTERED", uen="202400001A").status_code == 200
++    current = zero.get(case_id=case_id)
++    new_blocker = next(item for item in current.active_exceptions
++                       if item.blocker_code == "OWNERSHIP_REQUIRED")
++    assert new_blocker.exception_id != blocker.exception_id
++    assert new_blocker.registry_evidence_generation == 1
++    assert zero._ownership.get(case_id=case_id).state == "REVIEW_REQUIRED"
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    assert zero.get(case_id=case_id) == current
++    response = correction(client, zero, old, choice="ENTERED", uen="202400001A",
++                          expected_clm_version=clm.version,
++                          expected_case_event_count=len(parent.events))
++    assert response.status_code == 409
++    assert zero.get(case_id=case_id) == current
++    assert target.calls == ["search", "search"]

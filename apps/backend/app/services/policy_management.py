@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
+from threading import RLock
 
 from pydantic import ValidationError
 
@@ -47,6 +48,7 @@ from app.domain.policy import (
     CasePolicySnapshot,
     DecimalPolicyValue,
     EntityResolutionWeights,
+    EvidenceClassifierPolicy,
     GoldTierTargetPolicySnapshot,
     IntegerPolicyValue,
     IntelligencePolicySnapshot,
@@ -55,12 +57,14 @@ from app.domain.policy import (
     PolicyCatalogue,
     PolicyClassification,
     PolicyEnforcement,
+    PolicyProposal,
     PolicyRule,
     PolicyValue,
     PolicyValueType,
+    PolicyVersionRecord,
+    RegistryPolicySnapshot,
     StringListPolicyValue,
     StringPolicyValue,
-    validate_showcase_plain_text_value,
 )
 from app.services.admin_repository import (
     AdministrationAuditCapacityError,
@@ -68,6 +72,7 @@ from app.services.admin_repository import (
     PolicyRepository,
     new_event_id,
 )
+from app.services.ownership_evidence_tagger import OwnershipEvidenceTagger
 
 
 class PolicyForbiddenError(Exception):
@@ -94,6 +99,7 @@ class PolicyManagementService:
         *,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
+        self._lock = RLock()
         self._repository = repository
         self._clock = clock or (lambda: datetime.now(UTC))
         current = repository.get()
@@ -108,11 +114,20 @@ class PolicyManagementService:
         current_ids = tuple(rule.policy_id for rule in current.rules)
         if all(policy_id in current_ids for policy_id in required_ids):
             return
-        if (
-            current_ids != required_ids[: len(current_ids)]
-            or len(current_ids) not in {8, 21}
-            or len(current.audit_events) >= MAX_POLICY_AUDIT_EVENTS
-        ):
+        legacy_count = next(
+            (
+                count
+                for count in (29, 21, 8)
+                if current_ids[:count] == required_ids[:count]
+                and all(
+                    rule.enforcement == PolicyEnforcement.DISPLAY_SHOWCASE_ONLY
+                    and rule.policy_id not in required_ids
+                    for rule in current.rules[count:]
+                )
+            ),
+            None,
+        )
+        if legacy_count is None or len(current.audit_events) >= MAX_POLICY_AUDIT_EVENTS:
             raise PolicyValidationError
         now = self._clock()
         next_version = current.version + 1
@@ -123,12 +138,18 @@ class PolicyManagementService:
             target_id=current.catalogue_id,
             timestamp=now,
             resulting_version=next_version,
-            metadata={"added_rule_count": len(defaults.rules) - len(current.rules)},
+            metadata={"added_rule_count": len(defaults.rules) - legacy_count},
         )
         candidate = PolicyCatalogue(
             catalogue_id=current.catalogue_id,
             version=next_version,
-            rules=(*current.rules, *defaults.rules[len(current.rules) :]),
+            active_version=next_version,
+            active_effective_at=now,
+            rules=(
+                *current.rules[:legacy_count],
+                *defaults.rules[legacy_count:],
+                *current.rules[legacy_count:],
+            ),
             created_at=current.created_at,
             updated_at=now,
             updated_by="system-bootstrap",
@@ -148,186 +169,400 @@ class PolicyManagementService:
             raise PolicyNotFoundError
         return rule
 
-    def create_showcase(
-        self,
-        actor: AuthenticatedActor,
-        *,
-        expected_catalogue_version: int,
-        policy_id: str,
-        category: str,
-        name: str,
-        description: str,
-        value: PolicyValue,
-    ) -> PolicyCatalogue:
-        self._require_mutation(actor)
-        current = self.catalogue()
-        if current.version != expected_catalogue_version or current.rule(policy_id) is not None:
-            raise AdministrationConflictError
-        if len(current.rules) >= 64:
-            raise PolicyValidationError
-        try:
-            validate_showcase_plain_text_value(value)
-        except ValueError:
-            raise PolicyValidationError from None
-        now = self._clock()
-        rule = PolicyRule(
-            policy_id=policy_id,
-            category=category,
-            name=name,
-            description=description,
-            value=value,
-            value_type=value.type,
-            default_value=value,
-            classifications=(PolicyClassification.DISPLAY_ONLY_NOT_RUNTIME_ENFORCED,),
-            enforcement=PolicyEnforcement.DISPLAY_SHOWCASE_ONLY,
-            version=1,
-            created_at=now,
-            updated_at=now,
-            updated_by=actor.profile.user_id,
-        )
-        return self._save(
-            current,
-            rules=(*current.rules, rule),
-            actor=actor,
-            action="POLICY_CREATED",
-            target=policy_id,
-            expected_version=expected_catalogue_version,
-        )
+    def create_showcase(self, *args: object, **kwargs: object) -> PolicyCatalogue:
+        """Retired direct mutation route; arbitrary rules have no runtime consumer."""
+        raise PolicyForbiddenError
 
-    def update(
+    def update(self, *args: object, **kwargs: object) -> PolicyCatalogue:
+        raise PolicyForbiddenError
+
+    def reset_one(self, *args: object, **kwargs: object) -> PolicyCatalogue:
+        raise PolicyForbiddenError
+
+    def reset_all(self, *args: object, **kwargs: object) -> PolicyCatalogue:
+        raise PolicyForbiddenError
+
+    def _authorized_actor(
         self,
         actor: AuthenticatedActor,
-        policy_id: str,
+        reauthorize: Callable[[], AuthenticatedActor] | None,
+        capability: Capability,
+    ) -> AuthenticatedActor:
+        current = reauthorize() if reauthorize is not None else actor
+        if (
+            current.profile.user_id != actor.profile.user_id
+            or capability not in ROLE_CAPABILITIES[current.profile.role]
+        ):
+            raise PolicyForbiddenError
+        return current
+
+    def _proposed_rules(
+        self,
+        current: PolicyCatalogue,
+        source: tuple[PolicyRule, ...],
+        changes: dict[str, PolicyValue],
+        reset_ids: tuple[str, ...],
+        actor: AuthenticatedActor,
+    ) -> tuple[PolicyRule, ...]:
+        if len(changes) > 64 or len(reset_ids) > 64 or len(set(reset_ids)) != len(reset_ids):
+            raise PolicyValidationError
+        ids = set(changes) | set(reset_ids)
+        if set(changes) & set(reset_ids) or not ids:
+            raise PolicyValidationError
+        by_id = {rule.policy_id: rule for rule in current.rules}
+        if any(
+            key not in by_id
+            or by_id[key].enforcement != PolicyEnforcement.RUNTIME_ENFORCED
+            or key in GOLDTIER_TARGET_POLICY_IDS
+            for key in ids
+        ):
+            raise PolicyValidationError
+        now = self._clock()
+        try:
+            rules = tuple(
+                PolicyRule.model_validate(
+                    rule.model_copy(
+                        update={
+                            "value": by_id[rule.policy_id].default_value
+                            if rule.policy_id in reset_ids
+                            else changes.get(rule.policy_id, rule.value),
+                            "version": by_id[rule.policy_id].version + 1,
+                            "updated_at": now,
+                            "updated_by": actor.profile.user_id,
+                        }
+                    ).model_dump()
+                )
+                if rule.policy_id in ids
+                else rule
+                for rule in source
+            )
+        except (ValidationError, ValueError, TypeError):
+            raise PolicyValidationError from None
+        return rules
+
+    def create_proposal(
+        self,
+        actor: AuthenticatedActor,
         *,
         expected_catalogue_version: int,
-        expected_rule_version: int,
-        value: PolicyValue,
-        name: str | None = None,
-        description: str | None = None,
-        authority: PolicyAuthority | None = None,
+        changes: dict[str, PolicyValue],
+        reason: str,
+        reset_ids: tuple[str, ...] = (),
+        reauthorize: Callable[[], AuthenticatedActor] | None = None,
     ) -> PolicyCatalogue:
-        self._require_mutation(actor)
-        current = self.catalogue()
-        rule = current.rule(policy_id)
-        if (
-            current.version != expected_catalogue_version
-            or rule is None
-            or rule.version != expected_rule_version
-        ):
-            raise AdministrationConflictError
-        if rule.enforcement == PolicyEnforcement.NOT_EDITABLE:
-            raise PolicyValidationError
-        if policy_id in CASE_BOUND_GOLDTIER_POLICY_IDS:
-            raise PolicyValidationError
-        if authority is not None and policy_id not in GOLDTIER_TARGET_POLICY_IDS:
-            raise PolicyValidationError
-        if rule.enforcement == PolicyEnforcement.DISPLAY_SHOWCASE_ONLY:
+        with self._lock:
+            actor = self._authorized_actor(actor, reauthorize, Capability.POLICY_MUTATE)
+            current = self._expected(expected_catalogue_version)
+            if len(current.proposals) >= 64:
+                raise AdministrationAuditCapacityError
+            now = self._clock()
             try:
-                validate_showcase_plain_text_value(value)
-            except ValueError:
+                proposal = PolicyProposal(
+                    proposal_id=new_event_id(),
+                    base_active_version=current.active_version,
+                    proposer_id=actor.profile.user_id,
+                    reason=reason,
+                    created_at=now,
+                    updated_at=now,
+                    rules=self._proposed_rules(current, current.rules, changes, reset_ids, actor),
+                )
+            except (ValidationError, ValueError, TypeError):
                 raise PolicyValidationError from None
-        now = self._clock()
-        candidate_rule = rule.model_copy(
-            update={
-                "value": value,
-                "name": name if name is not None else rule.name,
-                "description": description if description is not None else rule.description,
-                "authority": authority if authority is not None else rule.authority,
-                "version": rule.version + 1,
-                "updated_at": now,
-                "updated_by": actor.profile.user_id,
-            },
-            deep=True,
-        )
-        try:
-            candidate_rule = PolicyRule.model_validate(candidate_rule.model_dump())
-        except ValidationError:
-            raise PolicyValidationError from None
-        return self._save(
-            current,
-            rules=tuple(
-                candidate_rule if item.policy_id == policy_id else item for item in current.rules
-            ),
-            actor=actor,
-            action="POLICY_UPDATED",
-            target=policy_id,
-            expected_version=expected_catalogue_version,
-        )
+            return self._persist(
+                current,
+                actor,
+                "POLICY_PROPOSAL_CREATED",
+                proposal.proposal_id,
+                proposals=(*current.proposals, proposal),
+            )
 
-    def reset_one(
+    def edit_proposal(
         self,
         actor: AuthenticatedActor,
-        policy_id: str,
+        proposal_id: str,
         *,
         expected_catalogue_version: int,
-        expected_rule_version: int,
+        expected_proposal_version: int,
+        changes: dict[str, PolicyValue],
+        reason: str,
+        reset_ids: tuple[str, ...] = (),
+        reauthorize: Callable[[], AuthenticatedActor] | None = None,
     ) -> PolicyCatalogue:
-        self._require_mutation(actor)
+        with self._lock:
+            actor = self._authorized_actor(actor, reauthorize, Capability.POLICY_MUTATE)
+            current = self._expected(expected_catalogue_version)
+            proposal = self._proposal(current, proposal_id, expected_proposal_version, "DRAFT")
+            if proposal.proposer_id != actor.profile.user_id:
+                raise PolicyForbiddenError
+            try:
+                updated = PolicyProposal.model_validate(
+                    proposal.model_copy(
+                        update={
+                            "rules": self._proposed_rules(
+                                current, proposal.rules, changes, reset_ids, actor
+                            ),
+                            "reason": reason,
+                            "updated_at": self._clock(),
+                            "version": proposal.version + 1,
+                        }
+                    ).model_dump()
+                )
+            except (ValidationError, ValueError, TypeError):
+                raise PolicyValidationError from None
+            return self._persist(
+                current,
+                actor,
+                "POLICY_PROPOSAL_EDITED",
+                proposal_id,
+                proposals=tuple(
+                    updated if p.proposal_id == proposal_id else p for p in current.proposals
+                ),
+            )
+
+    def submit_proposal(
+        self,
+        actor: AuthenticatedActor,
+        proposal_id: str,
+        *,
+        expected_catalogue_version: int,
+        expected_proposal_version: int,
+        reauthorize: Callable[[], AuthenticatedActor] | None = None,
+    ) -> PolicyCatalogue:
+        with self._lock:
+            actor = self._authorized_actor(actor, reauthorize, Capability.POLICY_MUTATE)
+            current = self._expected(expected_catalogue_version)
+            proposal = self._proposal(current, proposal_id, expected_proposal_version, "DRAFT")
+            if proposal.proposer_id != actor.profile.user_id:
+                raise PolicyForbiddenError
+            self._validate_runtime(current.model_copy(update={"rules": proposal.rules}))
+            updated = proposal.model_copy(
+                update={
+                    "status": "PENDING_APPROVAL",
+                    "version": proposal.version + 1,
+                    "updated_at": self._clock(),
+                }
+            )
+            return self._persist(
+                current,
+                actor,
+                "POLICY_PROPOSAL_SUBMITTED",
+                proposal_id,
+                proposals=tuple(
+                    updated if p.proposal_id == proposal_id else p for p in current.proposals
+                ),
+            )
+
+    def decide_proposal(
+        self,
+        actor: AuthenticatedActor,
+        proposal_id: str,
+        *,
+        approve: bool,
+        expected_catalogue_version: int,
+        expected_proposal_version: int,
+        reason: str,
+        reauthorize: Callable[[], AuthenticatedActor] | None = None,
+    ) -> PolicyCatalogue:
+        with self._lock:
+            actor = self._authorized_actor(actor, reauthorize, Capability.POLICY_APPROVE)
+            current = self._expected(expected_catalogue_version)
+            proposal = self._proposal(
+                current, proposal_id, expected_proposal_version, "PENDING_APPROVAL"
+            )
+            if proposal.proposer_id == actor.profile.user_id:
+                raise PolicyForbiddenError
+            if approve and len(current.superseded_versions) >= 64:
+                raise AdministrationAuditCapacityError
+            self._validate_runtime(current.model_copy(update={"rules": proposal.rules}))
+            now = self._clock()
+            next_active = current.version + 1
+            try:
+                updated = PolicyProposal.model_validate(
+                    proposal.model_copy(
+                        update={
+                            "status": "APPROVED" if approve else "REJECTED",
+                            "version": proposal.version + 1,
+                            "updated_at": now,
+                            "decided_at": now,
+                            "decided_by": actor.profile.user_id,
+                            "decision_reason": reason,
+                            "activated_version": next_active if approve else None,
+                        }
+                    ).model_dump()
+                )
+            except (ValidationError, ValueError, TypeError):
+                raise PolicyValidationError from None
+            values: dict[str, object] = {
+                "proposals": tuple(
+                    updated if p.proposal_id == proposal_id else p for p in current.proposals
+                )
+            }
+            if approve:
+                values.update(
+                    rules=proposal.rules,
+                    active_version=next_active,
+                    active_origin="APPROVED",
+                    active_effective_at=now,
+                    superseded_versions=(
+                        *current.superseded_versions,
+                        PolicyVersionRecord(
+                            version=current.active_version, rules=current.rules, superseded_at=now
+                        ),
+                    ),
+                )
+            return self._persist(
+                current,
+                actor,
+                "POLICY_PROPOSAL_APPROVED" if approve else "POLICY_PROPOSAL_REJECTED",
+                proposal_id,
+                **values,
+            )
+
+    def classifier_benchmark(self) -> dict[str, object]:
+        from app.services.ownership_evidence_tagger import OwnershipEvidenceTagger
+
+        with self._lock:
+            current = self.catalogue()
+            return OwnershipEvidenceTagger().benchmark(
+                self._classifier_snapshot(current), policy_version=current.active_version
+            )
+
+    def proposal_impact(self, proposal_id: str) -> dict[str, object]:
+        """Read-only synthetic fixtures, without any case/provider mutation path."""
+        with self._lock:
+            current = self.catalogue()
+            proposal = next((p for p in current.proposals if p.proposal_id == proposal_id), None)
+            if proposal is None:
+                raise PolicyNotFoundError
+            proposed = current.model_copy(update={"rules": proposal.rules})
+            self._validate_runtime(proposed)
+            tagger = OwnershipEvidenceTagger()
+            before = tagger.benchmark(
+                self._classifier_snapshot(current), policy_version=current.active_version
+            )
+            after = tagger.benchmark(
+                self._classifier_snapshot(proposed), policy_version=current.version + 1
+            )
+
+            def runtime(catalogue: PolicyCatalogue) -> dict[str, object]:
+                registry = self._registry_snapshot(catalogue)
+                document = self._runtime_decimal(catalogue, IDP_POLICY_ID)
+                ownership = self._runtime_decimal(catalogue, UBO_POLICY_ID)
+                return dict(
+                    registry_freshness_seconds=registry.freshness_seconds,
+                    not_found_ttl_seconds=registry.negative_seconds,
+                    document_auto_confirm=[
+                        confidence >= document
+                        for confidence in (Decimal("0.84"), Decimal("0.85"), Decimal("0.90"))
+                    ],
+                    ownership_numeric_candidates=[
+                        percent >= ownership
+                        for percent in (Decimal("24.999999"), Decimal("25"), Decimal("30"))
+                    ],
+                )
+
+            changes = [
+                dict(
+                    policy_id=rule.policy_id,
+                    current=base.value.model_dump(mode="json"),
+                    default=base.default_value.model_dump(mode="json"),
+                    proposed=rule.value.model_dump(mode="json"),
+                )
+                for rule in proposal.rules
+                if (base := current.rule(rule.policy_id)) is not None and rule.value != base.value
+            ]
+            return dict(
+                proposal_id=proposal_id,
+                base_active_version=proposal.base_active_version,
+                current_active_version=current.active_version,
+                stale=proposal.base_active_version != current.active_version,
+                label="Read-only synthetic policy impact; no real case or provider mutation",
+                changes=changes,
+                before=dict(classifier=before, runtime=runtime(current)),
+                after=dict(classifier=after, runtime=runtime(proposed)),
+            )
+
+    def _expected(self, version: int) -> PolicyCatalogue:
         current = self.catalogue()
-        rule = current.rule(policy_id)
+        if current.version != version:
+            raise AdministrationConflictError
+        return current
+
+    @staticmethod
+    def _proposal(
+        current: PolicyCatalogue, proposal_id: str, version: int, status: str
+    ) -> PolicyProposal:
+        proposal = next((p for p in current.proposals if p.proposal_id == proposal_id), None)
+        if proposal is None:
+            raise PolicyNotFoundError
         if (
-            current.version != expected_catalogue_version
-            or rule is None
-            or rule.version != expected_rule_version
+            proposal.version != version
+            or proposal.status != status
+            or proposal.base_active_version != current.active_version
         ):
             raise AdministrationConflictError
-        if policy_id in CASE_BOUND_GOLDTIER_POLICY_IDS:
-            raise PolicyValidationError
+        return proposal
+
+    def _persist(
+        self,
+        current: PolicyCatalogue,
+        actor: AuthenticatedActor,
+        action: str,
+        target: str,
+        **changes: object,
+    ) -> PolicyCatalogue:
+        if len(current.audit_events) >= MAX_POLICY_AUDIT_EVENTS:
+            raise AdministrationAuditCapacityError
         now = self._clock()
-        reset = PolicyRule.model_validate(
-            rule.model_copy(
+        version = current.version + 1
+        event = PolicyAuditEvent.model_validate(
+            dict(
+                event_id=new_event_id(),
+                action=action,
+                actor_user_id=actor.profile.user_id,
+                target_id=target,
+                timestamp=now,
+                resulting_version=version,
+                metadata={"active_version": changes.get("active_version", current.active_version)},
+            )
+        )
+        candidate = PolicyCatalogue.model_validate(
+            current.model_copy(
                 update={
-                    "value": rule.default_value,
-                    "authority": rule.default_authority,
-                    "version": rule.version + 1,
+                    **changes,
+                    "catalogue_schema_version": 2,
+                    "version": version,
                     "updated_at": now,
                     "updated_by": actor.profile.user_id,
-                },
-                deep=True,
-            )
+                    "audit_events": (*current.audit_events, event),
+                }
+            ).model_dump()
         )
-        return self._save(
-            current,
-            rules=tuple(reset if item.policy_id == policy_id else item for item in current.rules),
-            actor=actor,
-            action="POLICY_RESET_DEFAULT",
-            target=policy_id,
-            expected_version=expected_catalogue_version,
+        return self._repository.update(candidate, expected_version=current.version)
+
+    def _validate_runtime(self, catalogue: PolicyCatalogue) -> None:
+        try:
+            self._intelligence_snapshot(catalogue)
+            self._goldtier_target_snapshot(catalogue)
+            self._registry_snapshot(catalogue)
+            self._classifier_snapshot(catalogue)
+        except (ValidationError, ValueError, TypeError):
+            raise PolicyValidationError from None
+
+    @classmethod
+    def _registry_snapshot(cls, catalogue: PolicyCatalogue) -> RegistryPolicySnapshot:
+        return RegistryPolicySnapshot(
+            freshness_seconds=cls._runtime_integer(catalogue, "REGISTRY_FRESHNESS_DAYS") * 86400,
+            negative_seconds=cls._runtime_integer(catalogue, "REGISTRY_NOT_FOUND_TTL_SECONDS"),
         )
 
-    def reset_all(
-        self,
-        actor: AuthenticatedActor,
-        *,
-        expected_catalogue_version: int,
-    ) -> PolicyCatalogue:
-        self._require_mutation(actor)
-        current = self.catalogue()
-        if current.version != expected_catalogue_version:
-            raise AdministrationConflictError
-        now = self._clock()
-        rules = tuple(
-            PolicyRule.model_validate(
-                rule.model_copy(
-                    update={
-                        "value": rule.default_value,
-                        "authority": rule.default_authority,
-                        "version": rule.version + 1,
-                        "updated_at": now,
-                        "updated_by": actor.profile.user_id,
-                    },
-                    deep=True,
-                )
-            )
-            for rule in current.rules
-        )
-        return self._save(
-            current,
-            rules=rules,
-            actor=actor,
-            action="POLICY_CATALOGUE_RESET",
-            target=current.catalogue_id,
-            expected_version=expected_catalogue_version,
+    @classmethod
+    def _classifier_snapshot(cls, catalogue: PolicyCatalogue) -> EvidenceClassifierPolicy:
+        return EvidenceClassifierPolicy(
+            kind_weight=cls._runtime_decimal(catalogue, "EVIDENCE_KIND_WEIGHT"),
+            binding_weight=cls._runtime_decimal(catalogue, "EVIDENCE_BINDING_WEIGHT"),
+            confidence_weight=cls._runtime_decimal(catalogue, "EVIDENCE_CONFIDENCE_WEIGHT"),
+            threshold=cls._runtime_decimal(catalogue, "EVIDENCE_CLASSIFICATION_THRESHOLD"),
         )
 
     def case_snapshot(self) -> CasePolicySnapshot:
@@ -346,8 +581,11 @@ class PolicyManagementService:
         intelligence = self._intelligence_snapshot(catalogue)
         goldtier_target = self._goldtier_target_snapshot(catalogue)
         return CasePolicySnapshot(
-            snapshot_label=f"GLOBAL_POLICY_CATALOGUE_V{catalogue.version}",
-            catalogue_version=catalogue.version,
+            snapshot_label=f"GLOBAL_POLICY_CATALOGUE_V{catalogue.active_version}",
+            catalogue_version=catalogue.active_version,
+            policy_identity=catalogue.active_identity,
+            registry=self._registry_snapshot(catalogue),
+            evidence_classifier=self._classifier_snapshot(catalogue),
             idp_review_confidence_threshold=Decimal(idp.value.value),
             ubo_threshold_percent=Decimal(ubo.value.value),
             intelligence=intelligence,
@@ -460,48 +698,6 @@ class PolicyManagementService:
         ):
             raise PolicyValidationError
         return rule.value.value
-
-    def _require_mutation(self, actor: AuthenticatedActor) -> None:
-        if Capability.POLICY_MUTATE not in ROLE_CAPABILITIES[actor.profile.role]:
-            raise PolicyForbiddenError
-
-    def _save(
-        self,
-        current: PolicyCatalogue,
-        *,
-        rules: tuple[PolicyRule, ...],
-        actor: AuthenticatedActor,
-        action: str,
-        target: str,
-        expected_version: int,
-    ) -> PolicyCatalogue:
-        if len(current.audit_events) >= MAX_POLICY_AUDIT_EVENTS:
-            raise AdministrationAuditCapacityError
-        now = self._clock()
-        next_version = current.version + 1
-        event = PolicyAuditEvent.model_validate(
-            {
-                "event_id": new_event_id(),
-                "action": action,
-                "actor_user_id": actor.profile.user_id,
-                "target_id": target,
-                "timestamp": now,
-                "resulting_version": next_version,
-                "metadata": {"rule_count": len(rules)},
-            }
-        )
-        candidate = PolicyCatalogue(
-            catalogue_id=current.catalogue_id,
-            version=next_version,
-            rules=rules,
-            created_at=current.created_at,
-            updated_at=now,
-            updated_by=actor.profile.user_id,
-            audit_events=(*current.audit_events, event),
-        )
-        self._intelligence_snapshot(candidate)
-        self._goldtier_target_snapshot(candidate)
-        return self._repository.update(candidate, expected_version=expected_version)
 
 
 def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
@@ -646,7 +842,7 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
             updated_by="system-bootstrap",
         )
 
-    rules = (
+    rules: tuple[PolicyRule, ...] = (
         decimal_rule(
             IDP_POLICY_ID,
             "Document",
@@ -920,8 +1116,66 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
             "Optional XPI sandbox field; the unconfirmed default is emitted as empty.",
         ),
     )
+    rules = (
+        *rules,
+        integer_rule(
+            "REGISTRY_FRESHNESS_DAYS",
+            "Registry & External Data",
+            "Registry evidence freshness",
+            "Approved elapsed-day reuse window for normalized Mock registry evidence.",
+            90,
+            1,
+            365,
+        ),
+        integer_rule(
+            "REGISTRY_NOT_FOUND_TTL_SECONDS",
+            "Registry & External Data",
+            "Definitive not-found cache TTL",
+            "Only definitive missing entities use this cache; uncertain failures do not.",
+            600,
+            1,
+            3600,
+        ),
+        decimal_rule(
+            "EVIDENCE_KIND_WEIGHT",
+            "Ownership Evidence Classification",
+            "Recognized evidence contribution",
+            "Deterministic semantic score contribution for recognized evidence kinds.",
+            "0.50",
+            "0",
+            "1",
+        ),
+        decimal_rule(
+            "EVIDENCE_BINDING_WEIGHT",
+            "Ownership Evidence Classification",
+            "Identity binding contribution",
+            "Deterministic semantic score contribution for an explicit entity binding.",
+            "0.25",
+            "0",
+            "1",
+        ),
+        decimal_rule(
+            "EVIDENCE_CONFIDENCE_WEIGHT",
+            "Ownership Evidence Classification",
+            "Source confidence contribution",
+            "Deterministic semantic score contribution from bounded source confidence.",
+            "0.25",
+            "0",
+            "1",
+        ),
+        decimal_rule(
+            "EVIDENCE_CLASSIFICATION_THRESHOLD",
+            "Ownership Evidence Classification",
+            "Semantic classification threshold",
+            "Inclusive deterministic semantic score threshold; never a legal ownership decision.",
+            "0.50",
+            "0",
+            "1",
+        ),
+    )
     return PolicyCatalogue(
         version=1,
+        active_effective_at=now,
         rules=rules,
         created_at=now,
         updated_at=now,

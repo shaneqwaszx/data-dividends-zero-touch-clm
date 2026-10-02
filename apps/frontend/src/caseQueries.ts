@@ -331,13 +331,27 @@ export async function caseSupportingMutationEffect(
   queryClient: QueryClient,
   userId: string,
   summary: ZeroTouchCaseSummary,
+  retireIdentityEvidence = false,
 ): Promise<void> {
-  await Promise.all([
-    caseQueryKeys.detail(userId, summary.case.case_id),
+  const supportingKeys = [
     caseQueryKeys.documents(userId, summary.case.case_id),
     caseQueryKeys.ownership(userId, summary.case.case_id),
     caseQueryKeys.intelligence(userId, summary.case.case_id),
+  ];
+  await Promise.all([
+    caseQueryKeys.detail(userId, summary.case.case_id),
+    ...supportingKeys,
   ].map((queryKey) => queryClient.cancelQueries({ queryKey, exact: true })));
+  if (retireIdentityEvidence) {
+    // Reset before publishing the rebound identity: null/lower-version responses
+    // must not share the previous identity's monotonic evidence baseline.
+    const refreshed = Promise.all(supportingKeys.map((queryKey) =>
+      queryClient.resetQueries({ queryKey, exact: true }),
+    ));
+    publishCaseMutationScopes(queryClient, userId, summary);
+    await refreshed;
+    return;
+  }
   publishCaseMutationScopes(queryClient, userId, summary);
   const caseId = summary.case.case_id;
   await Promise.all([

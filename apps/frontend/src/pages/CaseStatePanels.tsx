@@ -275,14 +275,14 @@ function ProcessingExplanation({ node, children }: { node: ProcessingNode; child
   );
 }
 
-export function ProcessingBlockerPanels({ summary }: { summary: ZeroTouchCaseSummary }) {
+export function ProcessingBlockerPanels({ summary, stage }: { summary: ZeroTouchCaseSummary; stage?: "REGISTRY" | "TARGET" }) {
   const pipeline = summary.processing_pipeline ?? [];
   const search = findProcessingNode(pipeline, "GOLDTIER_SEARCH");
   const target = findProcessingNode(pipeline, "GOLDTIER_TARGET");
   const approval = findProcessingNode(pipeline, "HUMAN_APPROVAL");
   return (
     <>
-      {search && NAVIGABLE_PROCESSING_STATUSES.has(search.status) && (
+      {stage !== "TARGET" && search && NAVIGABLE_PROCESSING_STATUSES.has(search.status) && (
         <section id="case-search-diagnostic" className="card evidence-focus-target" tabIndex={-1} aria-labelledby="case-search-diagnostic-heading">
           <p className="card-kicker">Read-only diagnostic</p>
           <h2 id="case-search-diagnostic-heading">GoldTier Search</h2>
@@ -291,7 +291,7 @@ export function ProcessingBlockerPanels({ summary }: { summary: ZeroTouchCaseSum
           </ProcessingExplanation>
         </section>
       )}
-      {target && NAVIGABLE_PROCESSING_STATUSES.has(target.status) && (
+      {stage !== "REGISTRY" && target && NAVIGABLE_PROCESSING_STATUSES.has(target.status) && (
         <section id="case-target-blocker" className="card evidence-focus-target" tabIndex={-1} aria-labelledby="case-target-blocker-heading">
           <p className="card-kicker">Target safety boundary</p>
           <h2 id="case-target-blocker-heading">GoldTier target operations</h2>
@@ -300,7 +300,7 @@ export function ProcessingBlockerPanels({ summary }: { summary: ZeroTouchCaseSum
           </ProcessingExplanation>
         </section>
       )}
-      {approval && NAVIGABLE_PROCESSING_STATUSES.has(approval.status) && (
+      {stage !== "REGISTRY" && approval && NAVIGABLE_PROCESSING_STATUSES.has(approval.status) && (
         <section id="case-human-approval-boundary" className="card evidence-focus-target" tabIndex={-1} aria-labelledby="case-human-approval-heading">
           <p className="card-kicker">POC boundary</p>
           <h2 id="case-human-approval-heading">Human approval</h2>
@@ -351,7 +351,21 @@ export function OnboardingProgressPanel({
   ).length;
   const current = currentProcessingNode(pipeline);
   const maximum = Math.max(pipeline.length, 1);
-  const percentage = Math.round((completed / maximum) * 100);
+  const percentage = summary.status === "COMPLETED" ? 100 : Math.round((completed / maximum) * 100);
+  const activeIssues = summary.status === "COMPLETED" ? 0 : summary.active_exceptions.filter(
+    (item) => item.exception_type !== "TARGET_CONFIRMATION_REQUIRED",
+  ).length + (summary.technical_failure ? 1 : 0);
+  const finalConfirmationOnly = activeIssues === 0 && summary.current_stage === "READINESS"
+    && summary.active_exceptions.some((item) => item.exception_type === "TARGET_CONFIRMATION_REQUIRED");
+  const nextAction = summary.status === "COMPLETED" ? "Submitted — no action required."
+    : finalConfirmationOnly ? "Review and confirm submission"
+    : summary.interventions?.[0]?.evidence_actions?.[0]?.label
+      ?? summary.interventions?.[0]?.expected_next_step
+      ?? (summary.status === "PENDING_INPUTS" ? "Provide the required documents."
+        : summary.status === "TECHNICAL_FAILURE"
+          ? (summary.current_stage === "REGISTRY" ? "Review registry identity and edit the UEN."
+            : "Review the stopped stage.")
+          : "Wait for the current backend stage.");
   const currentText = current
     ? `${current.label} — ${PROGRESS_STATUS_LABELS[current.status]}`
     : "Waiting for backend processing state";
@@ -372,13 +386,17 @@ export function OnboardingProgressPanel({
         role="progressbar"
         aria-labelledby="onboarding-progress-heading"
         aria-valuemin={0}
-        aria-valuemax={pipeline.length}
-        aria-valuenow={completed}
-        aria-valuetext={`${completed} of ${pipeline.length} stages complete or skipped; current: ${currentText}`}
+        aria-valuemax={100}
+        aria-valuenow={percentage}
+        aria-valuetext={summary.status === "COMPLETED"
+          ? "100% — POC submission complete; final human approval remains outside this workflow."
+          : `${percentage}%; ${completed} of ${pipeline.length} stages complete or skipped; current: ${currentText}`}
       >
         <span style={{ "--onboarding-progress": `${percentage}%` } as CSSProperties} />
       </div>
       <p className="onboarding-progress__current"><strong>Current:</strong> {currentText}</p>
+      <p><strong>Progress:</strong> {percentage}% · <strong>Active issues:</strong> {activeIssues}</p>
+      <p><strong>Next action:</strong> {nextAction}</p>
       {pipeline.length > 0 ? (
         <ol className="onboarding-progress__stages" aria-label="Onboarding stages">
           {pipeline.map((node) => {

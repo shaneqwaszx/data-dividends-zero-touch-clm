@@ -38,6 +38,7 @@ ACRA_API_MARKETPLACE_MOCK_BASE_URL = "https://api-sandbox.bizfile.gov.sg/api/acr
 ACRA_API_MARKETPLACE_MOCK_ENTITY_PATH = "/entityQuery/entityBasicInformation"
 ACRA_API_MARKETPLACE_MOCK_SHAREHOLDERS_PATH = "/entityQuery/coShareholdersDetails"
 ACRA_API_MARKETPLACE_MOCK_RESPONSE_MAX_BYTES = 256 * 1024
+ACRA_API_MARKETPLACE_MOCK_DATASET_NAMESPACE = "ACRA_API_MARKETPLACE_MOCK_V1"
 
 
 def _query_free_provenance(url: str) -> str:

@@ -424,6 +424,11 @@ class BizfileMockOwnershipPartiesDecoder:
         if entity.uen.upper() != requested_uen:
             raise AcraMalformedResponseError
 
+        if entity.shareholders is None:
+            # An entity row with an unsupported/missing collection is not proof
+            # of an empty ownership set. Member schemas remain unconfirmed.
+            raise AcraMalformedResponseError
+
         if entity.shareholders is not None and entity.shareholders.grouping:
             # The supplied collection names grouping but provides no authoritative
             # member schema or ownership semantics. Fail closed instead of flattening.

@@ -27,11 +27,13 @@ from app.domain.ownership import (
     OwnershipAnalysisState,
     OwnershipCandidate,
     OwnershipCandidateClassification,
+    OwnershipEnvironment,
     OwnershipEventType,
     OwnershipIssueCode,
     OwnershipPathEdge,
     OwnershipPathEvidence,
     OwnershipPercent,
+    OwnershipProvenance,
     OwnershipRelationship,
     OwnershipThresholdResult,
     OwnershipWorkflowEvent,
@@ -39,16 +41,170 @@ from app.domain.ownership import (
     PartyType,
     PriorOwnershipAnalysisSnapshot,
 )
+from app.domain.ownership_evidence import OwnershipEvidence
+from app.domain.registry_legal_form import RegistryLegalForm
 from app.services.ownership_errors import (
     OwnershipInfrastructureError,
     OwnershipRequestError,
 )
+from app.services.ownership_evidence_tagger import OwnershipEvidenceTagger
 from app.services.ownership_repository import (
     OwnershipAnalysisRepository,
     OwnershipRepositoryConflictError,
+    ownership_is_current,
 )
 
 _OWNERSHIP_PERCENT_ADAPTER = TypeAdapter(OwnershipPercent)
+
+
+def percentage_from_units(
+    numerator: OwnershipEvidence,
+    denominator: OwnershipEvidence | None,
+) -> Decimal | None:
+    """Calculate only explicitly compatible, same-entity, authoritative unit evidence.
+
+    Never sum source rows, infer activity, equate capital currency with shares or
+    round a value into the six-place source-edge contract.
+    """
+    if denominator is None:
+        return None
+    numerator = OwnershipEvidence.model_validate(numerator.model_dump())
+    denominator = OwnershipEvidence.model_validate(denominator.model_dump())
+    if (
+        numerator.kind != "SHARE_UNITS"
+        or denominator.kind != "CAPITAL_DENOMINATOR"
+        or not denominator.authoritative
+        or not numerator.entity_identifier
+        or numerator.entity_identifier != denominator.entity_identifier
+        or not numerator.share_class
+        or numerator.share_class != denominator.share_class
+        or not numerator.unit_type
+        or numerator.unit_type != denominator.unit_type
+        or numerator.numeric_value is None
+        or denominator.numeric_value is None
+        or numerator.numeric_value <= 0
+        or denominator.numeric_value <= 0
+        or numerator.numeric_value > denominator.numeric_value
+        or numerator.provider != denominator.provider
+        or numerator.environment != denominator.environment
+        or numerator.source_status is not None
+        or denominator.source_status is not None
+        or numerator.as_of is None
+        or numerator.as_of != denominator.as_of
+    ):
+        return None
+    value = numerator.numeric_value / denominator.numeric_value * Decimal("100")
+    if value != value.quantize(Decimal("0.000001")):
+        return None
+    return value
+
+
+def _scalar_percentage(
+    item: OwnershipEvidence,
+    evidence: tuple[OwnershipEvidence, ...],
+) -> Decimal | None:
+    """Use the existing Decimal rules to assess a retained scalar beside a graph.
+
+    A matching party/entity edge alone cannot resolve missing, ambiguous or
+    incompatible unit evidence. No source wins over another source.
+    """
+    same_interest = [
+        other
+        for other in evidence
+        if other.kind == item.kind
+        and other.party_id == item.party_id
+        and other.entity_identifier == item.entity_identifier
+    ]
+    if len(same_interest) != 1:
+        return None
+    if item.kind == "DIRECT_PERCENTAGE":
+        return (
+            item.numeric_value
+            if item.source_status is None
+            and item.determination_basis in {"PROVIDER_PERCENTAGE", "REVIEWED_DECLARATION"}
+            else None
+        )
+    denominators = [
+        other
+        for other in evidence
+        if other.kind == "CAPITAL_DENOMINATOR" and other.entity_identifier == item.entity_identifier
+    ]
+    classes = {
+        other.share_class
+        for other in evidence
+        if other.kind == "SHARE_UNITS" and other.entity_identifier == item.entity_identifier
+    }
+    return (
+        percentage_from_units(item, denominators[0])
+        if len(denominators) == 1 and len(classes) == 1
+        else None
+    )
+
+
+def quantify_ownership_evidence(source: OwnershipSourceResult) -> OwnershipSourceResult:
+    """Extend an evidence-only source inside the existing arithmetic owner.
+
+    Existing graph evidence is never replaced or combined with a second numerator.
+    Multiple classes, denominators or conflicting interests remain unquantified.
+    """
+    if (
+        source.relationships
+        or not source.evidence
+        or any(item.kind == "CONFLICT" for item in source.evidence)
+    ):
+        return source
+    denominators = [item for item in source.evidence if item.kind == "CAPITAL_DENOMINATOR"]
+    class_set = {item.share_class for item in source.evidence if item.kind == "SHARE_UNITS"}
+    interests: dict[str, list[OwnershipEvidence]] = defaultdict(list)
+    root_identifier = next(
+        item.registration_number for item in source.parties if item.party_id == source.root_party_id
+    )
+    for item in source.evidence:
+        if item.kind in {"DIRECT_PERCENTAGE", "SHARE_UNITS"}:
+            interests[item.party_id].append(item)
+    relationships: list[OwnershipRelationship] = []
+    for party_id, items in interests.items():
+        if len(items) != 1:
+            continue
+        item = items[0]
+        if not item.entity_identifier or item.entity_identifier != root_identifier:
+            continue
+        percentage = (
+            item.numeric_value
+            if item.kind == "DIRECT_PERCENTAGE"
+            and not item.source_status
+            and item.determination_basis in {"PROVIDER_PERCENTAGE", "REVIEWED_DECLARATION"}
+            else percentage_from_units(item, denominators[0])
+            if len(denominators) == 1 and len(class_set) == 1
+            else None
+        )
+        if percentage is None or percentage <= 0 or percentage > 100:
+            continue
+        relationships.append(
+            OwnershipRelationship(
+                relationship_id="derived-" + sha256(item.evidence_id.encode()).hexdigest()[:32],
+                parent_party_id=source.root_party_id,
+                child_party_id=party_id,
+                ownership_percent=percentage,
+                provenance=OwnershipProvenance(
+                    provider=item.provider,
+                    environment=OwnershipEnvironment(item.environment),
+                    source_reference="EVIDENCE_" + sha256(item.evidence_id.encode()).hexdigest(),
+                    sourced_at=item.retrieved_at,
+                ),
+            )
+        )
+    if not relationships:
+        return source
+    # Unquantified parties are retained in source evidence rather than invented graph edges.
+    connected = {source.root_party_id, *(item.child_party_id for item in relationships)}
+    return OwnershipSourceResult(
+        root_party_id=source.root_party_id,
+        parties=[item for item in source.parties if item.party_id in connected],
+        relationships=relationships,
+        evidence=source.evidence,
+        legal_form=source.legal_form,
+    )
 
 
 class OnboardingCaseReader(Protocol):
@@ -400,8 +556,7 @@ class OwnershipAnalysisService:
                 raise OwnershipRequestError(
                     code="OWNERSHIP_ROOT_UNAVAILABLE",
                     message=(
-                        "The onboarding case has no canonical legal entity for "
-                        "ownership analysis."
+                        "The onboarding case has no canonical legal entity for ownership analysis."
                     ),
                 )
             if review_receipt.case_id != case_id:
@@ -443,6 +598,8 @@ class OwnershipAnalysisService:
             now = self._clock()
             snapshot = _snapshot_prior_analysis(current)
             replacement = OwnershipAnalysisRecord(
+                identity_registration_number=parent.entity.registration_number,
+                identity_correction_version=len(parent.identity_corrections),
                 case_id=case_id,
                 version=current.version,
                 analysis_id=self._uuid_factory(),
@@ -512,7 +669,13 @@ class OwnershipAnalysisService:
                 code="ONBOARDING_CASE_NOT_FOUND",
                 message="The onboarding case was not found.",
             )
-        if self._repository.get_for_case(case_id) is not None:
+        previous = self._repository.get_for_case(case_id)
+        identity_changed = (
+            previous is not None
+            and parent.entity is not None
+            and not ownership_is_current(previous, parent)
+        )
+        if previous is not None and not identity_changed:
             raise OwnershipRequestError(
                 code="OWNERSHIP_ALREADY_LOADED",
                 message="Ownership data has already been loaded for this case.",
@@ -526,6 +689,12 @@ class OwnershipAnalysisService:
         now = self._clock()
         record = OwnershipAnalysisRecord(
             case_id=case_id,
+            identity_registration_number=parent.entity.registration_number,
+            identity_correction_version=len(parent.identity_corrections),
+            version=previous.version if previous is not None else 0,
+            prior_analyses=(*previous.prior_analyses[-3:], _snapshot_prior_analysis(previous))
+            if previous is not None
+            else (),
             analysis_id=self._uuid_factory(),
             correlation_id=self._uuid_factory(),
             state=OwnershipAnalysisState.LOADING,
@@ -534,7 +703,11 @@ class OwnershipAnalysisService:
             updated_at=now,
         )
         try:
-            record = self._repository.save(record, expected_version=None)
+            record = (
+                self._repository.replace_identity_bound(record, expected_version=previous.version)
+                if previous is not None
+                else self._repository.save(record, expected_version=None)
+            )
         except OwnershipRepositoryConflictError:
             raise OwnershipRequestError(
                 code="OWNERSHIP_ALREADY_LOADED",
@@ -584,9 +757,18 @@ class OwnershipAnalysisService:
                     message="Ownership source data could not be validated safely.",
                 )
             self._validate_source(source, metadata, parent.entity.registration_number)
+            source = quantify_ownership_evidence(source)
             record.provider_name = metadata.provider_name
             record.provider_environment = metadata.environment
             record.root_party_id = source.root_party_id
+            record.evidence = source.evidence
+            record.legal_form = source.legal_form
+            record.tagging = OwnershipEvidenceTagger().tag(
+                source.evidence,
+                case_version=len(parent.events),
+                policy=parent.policy_snapshot.evidence_classifier,
+                policy_version=parent.policy_snapshot.catalogue_version,
+            )
             record.parties = [party.model_copy(deep=True) for party in source.parties]
             record.relationships = [item.model_copy(deep=True) for item in source.relationships]
             record.loaded_at = self._clock()
@@ -638,6 +820,12 @@ class OwnershipAnalysisService:
                 code="OWNERSHIP_NOT_LOADED",
                 message="Ownership data has not been loaded for this case.",
             )
+        parent = self._cases.get_case(case_id)
+        if parent is not None and not ownership_is_current(record, parent):
+            raise OwnershipRequestError(
+                code="OWNERSHIP_IDENTITY_STALE",
+                message="Ownership evidence belongs to a previous case identity.",
+            )
         if record.state in {
             OwnershipAnalysisState.ANALYZED,
             OwnershipAnalysisState.REVIEW_REQUIRED,
@@ -674,7 +862,11 @@ class OwnershipAnalysisService:
                 raise OwnershipGraphError
             source = OwnershipSourceResult(
                 root_party_id=record.root_party_id,
-                parties=record.parties,
+                parties=(
+                    record.parties
+                    if record.relationships or not record.evidence
+                    else [item for item in record.parties if item.party_id == record.root_party_id]
+                ),
                 relationships=record.relationships,
             )
             graph = build_ownership_graph(source)
@@ -686,14 +878,125 @@ class OwnershipAnalysisService:
                 max_total_paths=self.max_total_paths,
             )
             aggregated = aggregate_ownership_paths(calculation)
-            candidates = build_ownership_candidates(
+            record.issues = list(calculation.issues)
+            entities = {party.party_id: party.registration_number for party in record.parties}
+            unquantified: list[OwnershipEvidence] = []
+            contradictory: list[OwnershipEvidence] = []
+            for item in record.evidence:
+                if item.kind not in {"SHARE_UNITS", "DIRECT_PERCENTAGE"}:
+                    continue
+                scalar = _scalar_percentage(item, record.evidence)
+                edges = [
+                    edge
+                    for edge in record.relationships
+                    if item.entity_identifier is not None
+                    and edge.child_party_id == item.party_id
+                    and entities[edge.parent_party_id] == item.entity_identifier
+                ]
+                if scalar is None or len(edges) != 1:
+                    unquantified.append(item)
+                elif edges[0].ownership_percent != scalar:
+                    contradictory.append(item)
+            if contradictory:
+                record.issues.append(
+                    OwnershipAnalysisIssue(
+                        code=OwnershipIssueCode.CONTRADICTORY_OWNERSHIP_EVIDENCE,
+                        message="Graph and compatible scalar ownership evidence disagree; "
+                        "both are retained and require review.",
+                    )
+                )
+            has_conflict = any(item.kind == "CONFLICT" for item in record.evidence)
+            has_unbound = any(item.entity_identifier is None for item in record.evidence)
+            has_unsupported_activity = any(
+                (item.kind == "DIRECT_PERCENTAGE" and item.source_status is not None)
+                or (item.kind == "SHARE_UNITS" and item.source_status not in {None, "ACTIVE"})
+                for item in record.evidence
+            )
+            has_unresolved_semantics = any(
+                item.kind
+                in {
+                    "GROUP_SHAREHOLDER",
+                    "UNKNOWN",
+                    "CONTROL",
+                    "MEMBERSHIP_INTEREST",
+                    "ECONOMIC_INTEREST",
+                }
+                or (
+                    item.kind == "ROLE"
+                    and item.raw_value.strip().upper()
+                    in {"OWNER", "PARTNER", "MEMBER", "SHAREHOLDER"}
+                    and not any(
+                        item.entity_identifier is not None
+                        and edge.child_party_id == item.party_id
+                        and entities[edge.parent_party_id] == item.entity_identifier
+                        for edge in record.relationships
+                    )
+                )
+                for item in record.evidence
+            )
+            if (
+                not record.relationships
+                or unquantified
+                or has_conflict
+                or has_unbound
+                or has_unresolved_semantics
+                or record.legal_form == RegistryLegalForm.OTHER
+            ):
+                # An unquantified source is a review outcome, not a broken engine.
+                has_units = any(
+                    item.kind == "SHARE_UNITS" for item in (unquantified or record.evidence)
+                )
+                has_semantic_interest = any(
+                    item.kind in {"ROLE", "CONTROL", "MEMBERSHIP_INTEREST"}
+                    and item.raw_value.upper() in {"OWNER", "PARTNER", "MEMBER", "SHAREHOLDER"}
+                    for item in record.evidence
+                ) or any(item.kind == "CONTROL" for item in record.evidence)
+                code = (
+                    OwnershipIssueCode.OWNERSHIP_METHOD_UNSUPPORTED
+                    if record.legal_form == RegistryLegalForm.OTHER
+                    else OwnershipIssueCode.UBO_REVIEW_REQUIRED
+                    if has_conflict
+                    else OwnershipIssueCode.UBO_REVIEW_REQUIRED
+                    if has_unbound
+                    else OwnershipIssueCode.UBO_REVIEW_REQUIRED
+                    if has_unsupported_activity
+                    else OwnershipIssueCode.OWNERSHIP_DENOMINATOR_REQUIRED
+                    if has_units
+                    else OwnershipIssueCode.UBO_REVIEW_REQUIRED
+                    if has_semantic_interest or has_unresolved_semantics or unquantified
+                    else OwnershipIssueCode.OWNERSHIP_REQUIRED
+                )
+                message = (
+                    "No ownership method is supported for this registry legal form."
+                    if record.legal_form == RegistryLegalForm.OTHER
+                    else "Conflicting source ownership evidence requires review."
+                    if has_conflict
+                    else "Ownership scalar entity binding is unavailable; "
+                    "no percentage is inferred."
+                    if has_unbound
+                    else "Ownership activity status is unsupported or unresolved; "
+                    "no active interest "
+                    "is inferred."
+                    if has_unsupported_activity
+                    else "Share units are present; a same-entity compatible "
+                    "authoritative denominator "
+                    "is required."
+                    if has_units
+                    else "Unquantified role/control evidence requires review; "
+                    "no legal determination "
+                    "or ownership percentage is inferred."
+                    if has_semantic_interest or has_unresolved_semantics or unquantified
+                    else "No quantified registry ownership evidence is available."
+                )
+                record.issues.append(OwnershipAnalysisIssue(code=code, message=message))
+            record.candidates = build_ownership_candidates(
                 graph,
-                calculation,
+                PathCalculation(
+                    paths_by_party=calculation.paths_by_party, issues=tuple(record.issues)
+                ),
                 aggregated,
                 threshold_percent=record.threshold_percent,
             )
-            record.candidates = candidates
-            record.issues = list(calculation.issues)
             record.analyzed_at = self._clock()
             if record.issues:
                 record = self._record(
@@ -740,6 +1043,9 @@ class OwnershipAnalysisService:
     def get(self, *, case_id: UUID) -> OwnershipAnalysisRecord | None:
         record = self._repository.get_for_case(case_id)
         if record is not None:
+            parent = self._cases.get_case(case_id)
+            if parent is not None and not ownership_is_current(record, parent):
+                return None
             return record
         if self._cases.get_case(case_id) is None:
             raise OwnershipRequestError(
@@ -747,6 +1053,60 @@ class OwnershipAnalysisService:
                 message="The onboarding case was not found.",
             )
         return None
+
+    def registry_dependency_is_obsolete(
+        self,
+        *,
+        case_id: UUID,
+        evidence_version: str,
+        registry_evidence_generation: int | None = None,
+    ) -> bool:
+        """Inspect retained provenance without making stale ownership current again.
+
+        A known durable registry binding outlives bounded analysis history. Equal
+        or future generations stay blocking. Legacy references require retained
+        registry provenance and the existing currentness predicate, never a guess.
+        """
+        with self._case_lock(case_id):
+            parent = self._cases.get_case(case_id)
+            if parent is None:
+                return False
+            if registry_evidence_generation is not None:
+                return 0 <= registry_evidence_generation < len(parent.identity_corrections)
+            retained = self._repository.get_for_case(case_id)
+            if retained is None:
+                return False
+            analyses: tuple[OwnershipAnalysisRecord | PriorOwnershipAnalysisSnapshot, ...] = (
+                retained,
+                *retained.prior_analyses,
+            )
+            for analysis in analyses:
+                if evidence_version == f"ownership:{analysis.analysis_id}:{analysis.version}":
+                    return (
+                        analysis.provider_name == "ACRA_REGISTRY_ACQUISITION"
+                        and not ownership_is_current(analysis, parent)
+                    )
+            return False
+
+    def current_registry_dependency_generation(
+        self,
+        *,
+        case_id: UUID,
+        evidence_version: str,
+    ) -> int | None:
+        """Bind a newly raised dependency only to proven current registry evidence."""
+        with self._case_lock(case_id):
+            parent = self._cases.get_case(case_id)
+            retained = self._repository.get_for_case(case_id)
+            if (
+                parent is None
+                or retained is None
+                or retained.provider_name != "ACRA_REGISTRY_ACQUISITION"
+                or evidence_version != f"ownership:{retained.analysis_id}:{retained.version}"
+                or not ownership_is_current(retained, parent)
+            ):
+                return None
+            return len(parent.identity_corrections)
 
     def _case_lock(self, case_id: UUID) -> AbstractContextManager[object]:
         lock_factory = getattr(self._cases, "case_lock", None)
@@ -773,6 +1133,26 @@ class OwnershipAnalysisService:
                 or provenance.environment != metadata.environment
             ):
                 raise OwnershipGraphError
+        for item in source.evidence:
+            if (
+                item.provider != metadata.provider_name
+                or item.environment != metadata.environment.value
+            ):
+                raise OwnershipGraphError
+            if item.entity_identifier not in {None, registration_number}:
+                # Nested percentages must match an existing edge's actual owned entity.
+                entities = {party.party_id: party for party in source.parties}
+                if item.kind not in {"DIRECT_PERCENTAGE", "SHARE_UNITS", "UNKNOWN"} or not any(
+                    edge.child_party_id == item.party_id
+                    and (
+                        item.kind != "DIRECT_PERCENTAGE"
+                        or edge.ownership_percent == item.numeric_value
+                    )
+                    and entities[edge.parent_party_id].party_type == PartyType.LEGAL_ENTITY
+                    and entities[edge.parent_party_id].registration_number == item.entity_identifier
+                    for edge in source.relationships
+                ):
+                    raise OwnershipGraphError
 
     def _record(
         self,
@@ -879,6 +1259,11 @@ def _snapshot_prior_analysis(record: OwnershipAnalysisRecord) -> PriorOwnershipA
 
     return PriorOwnershipAnalysisSnapshot(
         version=record.version,
+        evidence=record.evidence,
+        tagging=record.tagging,
+        identity_registration_number=record.identity_registration_number,
+        identity_correction_version=record.identity_correction_version,
+        legal_form=record.legal_form,
         analysis_id=record.analysis_id,
         correlation_id=record.correlation_id,
         root_party_id=record.root_party_id,

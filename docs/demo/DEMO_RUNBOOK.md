@@ -35,6 +35,28 @@ ownership, and GoldTier Mock, enables gated developer controls, and waits up to
 - Frontend: `http://127.0.0.1:5173`
 - API schema: `http://127.0.0.1:8000/docs`
 
+For an isolated lifecycle verification session, set `CLM_DEMO_BACKEND_PORT` and/or
+`CLM_DEMO_FRONTEND_PORT` to explicitly selected free local integer ports from 1 through
+65535. Unset (or empty on Windows) retains backend 8000 and frontend 5173; the ports
+must be distinct. Keep the same overrides for Start, Status, Stop and Reset. A mismatch
+with recorded metadata fails closed without terminating processes. The launcher resolves
+both ports once for startup, health, process ownership and the existing Vite proxy;
+tests consume that resolver for client URLs and shutdown checks. The existing backend
+browser-origin setting is scoped to the resolved local frontend origin for this session.
+Application defaults and security checks remain unchanged. Invalid values fail before
+any lifecycle action; an occupied requested port aborts startup without terminating its
+owner or choosing another port.
+
+For the configured Windows test lane, choose two free task-owned ports, set both
+variables in the calling PowerShell session, then run:
+
+```powershell
+.\.venv\Scripts\python.exe -B -m unittest discover -s tests -p "test_demo_lifecycle_windows.py" -v
+```
+
+Verify both chosen ports are no longer listening after the lane. Default URLs above
+remain examples for normal usage; an overridden frontend uses its resolved port.
+
 The command returns `0` only after both endpoints are healthy. It returns nonzero and
 cleans up the exact partial process tree if startup or health verification fails. Open
 the frontend only after `Demo started and verified healthy` appears. The banner must

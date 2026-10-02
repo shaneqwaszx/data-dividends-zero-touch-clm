@@ -129,6 +129,56 @@ No Phase 04 Mock field or rule may become a real GoldTier assertion without conf
 
 ## Separate ML-assisted advisory
 
+### Phase 24 scalar evidence candidate
+
+The uncommitted Phase 24 candidate adds optional bounded scalar evidence, original
+values, source operation, UEN, retrieval/as-of time, class/unit, determination basis,
+confidence and evidence version. Share units are not percentages.
+Unknown owned-entity bindings are retained as null; they never participate in arithmetic.
+Nested percentages bind the actual owned parent entity, rather than the case root.
+Repeated parties on different relationships retain distinct scalar references.
+Only an explicitly authoritative positive denominator with matching
+UEN/provider/environment/class/unit
+and non-missing matching as-of semantics permits division in the existing Decimal
+owner. Unknown activity status cannot be interpreted as active. Multiple/contradictory
+interests, incompatible or incomplete denominators and non-representable six-decimal
+ratios stay unquantified; shareholder rows never establish a denominator.
+
+Explicit provider/reviewed direct percentages enter the same graph engine. Threshold
+comparison remains case-frozen and inclusive; D-062 confirms only the bounded >=25%
+default/comparator, superseding historical provisional descriptions of that default.
+Candidate results remain provisional. Owner/partner/member/shareholder roles are
+semantic evidence; officer/director labels establish neither ownership nor legal UBO.
+Company, business/partnership, LLP, LP and unknown legal forms remain distinct.
+
+`OWNERSHIP_DENOMINATOR_REQUIRED`, `OWNERSHIP_REQUIRED`, `UBO_REVIEW_REQUIRED` and
+`OWNERSHIP_METHOD_UNSUPPORTED` explain current evidence deficits. Rule tags retain
+evidence references, reasons, rule/case/evidence versions, confidence and provenance.
+They use `DETERMINISTIC_RULES / ML_RUNTIME_NOT_AVAILABLE`; no trained-model metrics
+are claimed. This tagger is separate from the existing advisory below. Schema v7
+accepts these optional fields without rewriting historical records. Unknown prior
+identity/correction bindings stay unknown. Registry rebind replacement retains prior
+evidence/graphs/tags and validates the current parent identity/generation under Mongo
+CAS; it cannot resurrect a deleted case or replay target operations.
+
+Graph diagnostics and scalar evidence diagnostics are combined before candidate
+classification. Mixed valid and unresolved evidence remains review required; affected
+candidate percentages may be retained but their status is indeterminate. A later
+return to the same UEN cannot resurrect independent evidence from before an intervening
+different or unknown identity. A genuinely newer identity generation can replace that
+retired analysis through the existing expected-version boundary.
+This includes unresolved group, unknown, control, membership/economic-interest and
+unmatched owner/partner/member/shareholder-role observations beside a quantified
+graph. Unknown or withdrawn direct/share activity remains review required even when
+a graph edge matches the retained scalar value. A director/officer role alone neither
+adds ownership nor invalidates supported numeric evidence.
+
+Service currentness and Mongo mutation guards share the ownership repository's
+predicate under the existing lock/CAS boundary. Independent same-UEN evidence can
+continue after a correction only without an intervening different/unknown identity;
+registry-derived evidence remains generation-bound. Replacement uses the stricter
+current parent generation and cannot revive a deleted case.
+
 `ubo-advisory-linear-v1` is a separate case-bound review aid. It consumes each retained
 deterministic `OwnershipCandidate`, preserves its authoritative Decimal percentage and
 classification, and emits `LIKELY_UBO`, `REVIEW`, or `UNLIKELY_UBO` with the permanent
@@ -136,3 +186,20 @@ labels `ML_ASSISTED` and `NOT_LEGAL_UBO_DETERMINATION`. Indeterminate/review-req
 ownership produces `REVIEW` without a guessed probability. The project-defined advisory
 thresholds are editable and snapshotted for new cases, but do not change the graph,
 provisional UBO rule, or Q-004 status. See `docs/models/UBO_ADVISORY_MODEL_CARD.md`.
+
+
+Interrupted pre-submission registry rechecks recover before orchestration's waiting
+return under the existing case lock and repository CAS. A known durable ownership
+dependency `registry_evidence_generation` is compared with the authoritative case's
+identity-correction count: older means obsolete even after bounded history pruning;
+equal remains potentially current; future is an integrity anomaly and stays review.
+No UEN-only currentness, guessed generation, larger history or second counter is used.
+
+Legacy null generation uses only an exact retained registry analysis/prior reference
+and the existing currentness predicate. Unknown or pruned legacy provenance stays
+review. All newly raised registry-derived ownership/readiness dependencies bind to
+proven current evidence, including current legacy analyses. Target/classification,
+document and independent user decisions are outside this retirement category.
+Recovery rebinds partial CLM projection from retained Search, preserves cancelled
+history, and recomputes reconciliation/ownership/readiness without provider replay.
+Submission freeze, authorization and stale-writer protections remain authoritative.

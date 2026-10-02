@@ -122,6 +122,97 @@ def _same_process_identity(
         return False
 
 
+def resolve_lifecycle_ports(environment: dict[str, str]) -> tuple[int, int]:
+    """Execute the launcher's sole port resolver without taking a lifecycle action."""
+    environment = dict(environment)
+    environment["CLM_TEST_LIFECYCLE_SCRIPT"] = str(SCRIPTS / "demo_lifecycle.ps1")
+    command = r"""
+$tokens = $null; $errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile(
+    $env:CLM_TEST_LIFECYCLE_SCRIPT, [ref]$tokens, [ref]$errors)
+$definition = $ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq "Resolve-DemoPorts"
+}, $true)
+if ($errors.Count -ne 0 -or $definition.Count -ne 1) { exit 2 }
+Invoke-Expression $definition[0].Extent.Text
+try { Resolve-DemoPorts | ConvertTo-Json -Compress }
+catch { Write-Output $_.Exception.Message; exit 1 }
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", command],
+        cwd=ROOT, env=environment, capture_output=True, text=True, timeout=15, check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(result.stdout + result.stderr or "Lifecycle port resolver unavailable")
+    ports = json.loads(result.stdout)
+    return int(ports["backend"]), int(ports["frontend"])
+
+
+@unittest.skipUnless(os.name == "nt", "Windows-only lifecycle configuration")
+class DemoLifecyclePortTests(unittest.TestCase):
+    def port_environment(
+        self, backend: str | None = None, frontend: str | None = None,
+    ) -> dict[str, str]:
+        environment = {
+            key: value for key, value in os.environ.items()
+            if key.casefold() not in {"clm_demo_backend_port", "clm_demo_frontend_port"}
+        }
+        for name, value in (("CLM_DEMO_BACKEND_PORT", backend), ("CLM_DEMO_FRONTEND_PORT", frontend)):
+            if value is not None:
+                environment[name] = value
+        return environment
+
+    def test_default_ports_remain_8000_and_5173(self) -> None:
+        self.assertEqual(resolve_lifecycle_ports(self.port_environment()), (8000, 5173))
+        # Windows PowerShell treats an empty process environment value as unset.
+        self.assertEqual(resolve_lifecycle_ports(self.port_environment("", "")), (8000, 5173))
+
+    def test_backend_override_only_preserves_frontend_default(self) -> None:
+        self.assertEqual(resolve_lifecycle_ports(self.port_environment("43210")), (43210, 5173))
+
+    def test_frontend_override_only_preserves_backend_default(self) -> None:
+        self.assertEqual(resolve_lifecycle_ports(self.port_environment(frontend="43211")), (8000, 43211))
+
+    def test_both_overrides_resolve_exact_available_ports(self) -> None:
+        with socket.socket() as backend, socket.socket() as frontend:
+            backend.bind(("127.0.0.1", 0))
+            frontend.bind(("127.0.0.1", 0))
+            ports = (backend.getsockname()[1], frontend.getsockname()[1])
+        self.assertEqual(resolve_lifecycle_ports(self.port_environment(*(str(p) for p in ports))), ports)
+
+    def test_invalid_ports_fail_closed(self) -> None:
+        for value in ("0", "65536", "999999999999", "abc", "-1", " 12345 ", " ",
+                      "12345\n", "12345\r\n", "12345\t", "\t12345"):
+            for backend in (True, False):
+                variable = "CLM_DEMO_BACKEND_PORT" if backend else "CLM_DEMO_FRONTEND_PORT"
+                environment = self.port_environment(value) if backend else self.port_environment(frontend=value)
+                with self.subTest(value=value, variable=variable), self.assertRaisesRegex(ValueError, variable):
+                    resolve_lifecycle_ports(environment)
+
+    def test_same_port_configuration_fails_closed(self) -> None:
+        for backend, frontend in (("43210", "43210"), ("5173", None), (None, "8000")):
+            with self.subTest(backend=backend, frontend=frontend), self.assertRaisesRegex(ValueError, "distinct"):
+                resolve_lifecycle_ports(self.port_environment(backend, frontend))
+
+    def test_invalid_port_rejects_every_action_before_state_access(self) -> None:
+        before = STATE.read_bytes() if STATE.exists() else None
+        for variable in ("CLM_DEMO_BACKEND_PORT", "CLM_DEMO_FRONTEND_PORT"):
+            environment = self.port_environment()
+            environment[variable] = "invalid"
+            for action in ("Start", "Stop", "Reset", "Status"):
+                with self.subTest(variable=variable, action=action):
+                    result = subprocess.run(
+                        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(SCRIPTS / "demo_lifecycle.ps1"), "-Action", action],
+                        cwd=ROOT, env=environment,
+                        capture_output=True, text=True, timeout=15, check=False,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(variable, result.stdout + result.stderr)
+                    self.assertEqual(STATE.read_bytes() if STATE.exists() else None, before)
+
+
 @unittest.skipUnless(os.name == "nt", "Windows-only process lifecycle verification")
 class DemoLifecycleCreationTimeTests(unittest.TestCase):
     """Exercise the script's creation-time comparison without starting the demo."""
@@ -306,8 +397,11 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
             self.assertEqual(
                 result.returncode, 0, (result.stdout or "") + (result.stderr or "")
             )
-        self.assert_port_free(8000)
-        self.assert_port_free(5173)
+        self.backend_port, self.frontend_port = resolve_lifecycle_ports(self.lifecycle_environment())
+        self.backend_origin = f"http://127.0.0.1:{self.backend_port}"
+        self.frontend_origin = f"http://127.0.0.1:{self.frontend_port}"
+        self.assert_port_free(self.backend_port)
+        self.assert_port_free(self.frontend_port)
 
     def tearDown(self) -> None:
         if self.demo_cleanup_state is not None:
@@ -405,7 +499,7 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
         opener = FakeOpener()
         with patch("urllib.request.build_opener", return_value=opener):
             status, body = self.request(
-                "http://127.0.0.1:8000/api/clm/zero-touch/cases/case-id",
+                f"{self.backend_origin}/api/clm/zero-touch/cases/case-id",
                 request_context="after_reset",
             )
 
@@ -550,7 +644,7 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
                     self.assertRaises(exception_type) as raised,
                 ):
                     self.request(
-                        "http://127.0.0.1:8000/api/clm/zero-touch/cases/case-id",
+                        f"{self.backend_origin}/api/clm/zero-touch/cases/case-id",
                         request_context="after_reset",
                     )
 
@@ -616,7 +710,7 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
             self.assertRaises(TimeoutError) as raised,
         ):
             self.request(
-                "http://127.0.0.1:8000/api/clm/zero-touch/cases/case-id",
+                f"{self.backend_origin}/api/clm/zero-touch/cases/case-id",
                 request_context="before_reset",
             )
 
@@ -669,7 +763,7 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
             with patcher:
                 observation = self.probe_endpoint_health(
                     "frontend",
-                    "http://127.0.0.1:5173/",
+                    f"{self.frontend_origin}/",
                     timeout=0.5,
                     monotonic=lambda: next(ticks),
                 )
@@ -855,8 +949,9 @@ $script:BackendDirectory = [IO.Path]::GetFullPath((Join-Path $script:RepositoryR
 $script:FrontendDirectory = [IO.Path]::GetFullPath((Join-Path $script:RepositoryRoot "apps\frontend"))
 $script:PythonPath = [IO.Path]::GetFullPath((Join-Path $script:RepositoryRoot ".venv\Scripts\python.exe"))
 $script:VitePath = [IO.Path]::GetFullPath((Join-Path $script:FrontendDirectory "node_modules\vite\bin\vite.js"))
-$script:BackendPort = 8000
-$script:FrontendPort = 5173
+$ports = Resolve-DemoPorts
+$script:BackendPort = $ports.backend
+$script:FrontendPort = $ports.frontend
 
 function Get-DiagnosticInstant {
     param([object]$Value)
@@ -1067,7 +1162,7 @@ $roles = @(
                     urllib.request.HTTPCookieProcessor(CookieJar())
                 )
                 login_request = urllib.request.Request(
-                    "http://127.0.0.1:8000/api/auth/login",
+                    f"{self.backend_origin}/api/auth/login",
                     data=json.dumps(
                         {"user_id": "olivia-koh", "password": _LIFECYCLE_CREDENTIAL}
                     ).encode(),
@@ -1172,7 +1267,7 @@ $roles = @(
             if data is not None:
                 request.add_header("Content-Type", "application/json")
                 request.add_header("X-CSRF-Token", csrf_token or "")
-                request.add_header("Origin", "http://127.0.0.1:8000")
+                request.add_header("Origin", self.frontend_origin)
         except Exception as exc:
             self._record_request_diagnostic(
                 operation_role="target_request",
@@ -1281,13 +1376,13 @@ $roles = @(
 
     def login_through_frontend_proxy(self) -> tuple[int, dict[str, Any]]:
         request = urllib.request.Request(
-            "http://127.0.0.1:5173/api/auth/login",
+            f"{self.frontend_origin}/api/auth/login",
             data=json.dumps(
                 {"user_id": "maya-lim", "password": _LIFECYCLE_CREDENTIAL}
             ).encode(),
             headers={
                 "Content-Type": "application/json",
-                "Origin": "http://127.0.0.1:5173",
+                "Origin": f"{self.frontend_origin}",
             },
         )
         try:
@@ -1386,8 +1481,8 @@ $roles = @(
         """Require the original owned trees while allowing bounded HTTP recovery."""
 
         endpoints = {
-            "backend": "http://127.0.0.1:8000/health",
-            "frontend": "http://127.0.0.1:5173/",
+            "backend": f"{self.backend_origin}/health",
+            "frontend": f"{self.frontend_origin}/",
         }
         use_structured_probe = endpoint_probe is None
         expected_identities: list[dict[str, str | int]] = []
@@ -1586,8 +1681,8 @@ $roles = @(
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             if not self.endpoint_available(
-                "http://127.0.0.1:8000/health"
-            ) and not self.endpoint_available("http://127.0.0.1:5173/"):
+                f"{self.backend_origin}/health"
+            ) and not self.endpoint_available(f"{self.frontend_origin}/"):
                 return
             time.sleep(0.2)
         self.fail("Backend or frontend endpoint remained available after stop")
@@ -1747,7 +1842,7 @@ $roles = @(
             "launcher_pid": process_id,
             "creation_time_utc": creation_time,
             "executable_path": executable_path,
-            "expected_port": 8000 if backend else 5173,
+            "expected_port": self.backend_port if backend else self.frontend_port,
             "working_directory_marker": str(directory),
             "command_markers": [],
             "listener_pid": None,
@@ -1781,6 +1876,8 @@ $roles = @(
         self.assertEqual(proxy_login["profile"]["user_id"], "maya-lim")
         self.assertEqual(proxy_login["profile"]["display_name"], "Maya Lim")
         self.assertEqual(state["status"], "RUNNING")
+        self.assertEqual(state["processes"][0]["expected_port"], self.backend_port)
+        self.assertEqual(state["processes"][1]["expected_port"], self.frontend_port)
         self.assertEqual(
             [record["role"] for record in state["processes"]], ["backend", "frontend"]
         )
@@ -2092,7 +2189,7 @@ $roles = @(
             }
         ).encode()
         status, body = self.request(
-            "http://127.0.0.1:8000/api/demo/clm/zero-touch/cases",
+            f"{self.backend_origin}/api/demo/clm/zero-touch/cases",
             data=payload,
             request_context="before_reset",
         )
@@ -2100,7 +2197,7 @@ $roles = @(
         case_id = json.loads(body)["case"]["case_id"]
         self.assertEqual(
             self.request(
-                f"http://127.0.0.1:8000/api/clm/zero-touch/cases/{case_id}",
+                f"{self.backend_origin}/api/clm/zero-touch/cases/{case_id}",
                 request_context="before_reset",
             )[0],
             200,
@@ -2113,18 +2210,35 @@ $roles = @(
         self.assert_owned_endpoints_healthy_within(after_state)
         self.assertEqual(
             self.request(
-                f"http://127.0.0.1:8000/api/clm/zero-touch/cases/{case_id}",
+                f"{self.backend_origin}/api/clm/zero-touch/cases/{case_id}",
                 request_context="after_reset",
             )[0],
             404,
         )
 
+    def test_changed_port_refuses_stop_and_preserves_owned_session(self) -> None:
+        started = self.run_lifecycle("start_demo_windows.bat")
+        self.assertEqual(started.returncode, 0)
+        original = self.read_state()
+        self.demo_cleanup_state = original
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            different_port = probe.getsockname()[1]
+        with patch.dict(os.environ, {"CLM_DEMO_BACKEND_PORT": str(different_port)}):
+            returncode, output = self.run_lifecycle_captured("stop_demo_windows.bat")
+        self.assertNotEqual(returncode, 0)
+        self.assertIn("Runtime metadata port does not match its role", output)
+        self.assertEqual(self.read_state(), original)
+        self.assert_owned_endpoints_healthy_within(original)
+
     def test_occupied_ports_fail_without_terminating_occupants(self) -> None:
-        for port in (8000, 5173):
+        for port in (self.backend_port, self.frontend_port):
             with self.subTest(port=port):
                 holder = self.spawn_port_holder(port)
-                started = self.run_lifecycle("start_demo_windows.bat")
-                self.assertNotEqual(started.returncode, 0)
+                returncode, output = self.run_lifecycle_captured("start_demo_windows.bat")
+                self.assertNotEqual(returncode, 0)
+                self.assertIn(f"Required port {port} is occupied", output)
+                self.assertIn("occupant was not terminated", output)
                 self.assertIsNone(holder.poll())
                 self.assertFalse(STATE.exists())
                 self.terminate_exact(holder)
@@ -2157,13 +2271,13 @@ $roles = @(
             "backend executable is outside the project virtual environment", output
         )
         self.assertIsNone(unrelated.poll())
-        self.assertFalse(self.endpoint_available("http://127.0.0.1:8000/health"))
+        self.assertFalse(self.endpoint_available(f"{self.backend_origin}/health"))
         self.assertTrue(STATE.exists())
         STATE.unlink()
         self.fake_state_written = False
 
     def test_reset_returns_nonzero_when_fresh_start_is_blocked(self) -> None:
-        holder = self.spawn_port_holder(8000)
+        holder = self.spawn_port_holder(self.backend_port)
         reset = self.run_lifecycle("reset_demo_windows.bat")
         self.assertNotEqual(reset.returncode, 0)
         self.assertIsNone(holder.poll())

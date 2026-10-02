@@ -13,8 +13,6 @@ $script:RuntimeDirectory = Join-Path $script:RepositoryRoot ".runtime"
 $script:StatePath = Join-Path $script:RuntimeDirectory "demo-processes.json"
 $script:StateTemporaryPath = Join-Path $script:RuntimeDirectory "demo-processes.json.tmp"
 $script:StateSchemaVersion = 1
-$script:BackendPort = 8000
-$script:FrontendPort = 5173
 $script:HealthTimeoutSeconds = 30
 $script:StopTimeoutSeconds = 15
 $script:RequiredRunningRoles = @("backend", "frontend")
@@ -22,6 +20,26 @@ $script:BackendDirectory = [IO.Path]::GetFullPath((Join-Path $script:RepositoryR
 $script:FrontendDirectory = [IO.Path]::GetFullPath((Join-Path $script:RepositoryRoot "apps\frontend"))
 $script:PythonPath = [IO.Path]::GetFullPath((Join-Path $script:RepositoryRoot ".venv\Scripts\python.exe"))
 $script:VitePath = [IO.Path]::GetFullPath((Join-Path $script:FrontendDirectory "node_modules\vite\bin\vite.js"))
+
+function Resolve-DemoPorts {
+    $ports = @{}
+    foreach ($setting in @(
+        @{ name = "CLM_DEMO_BACKEND_PORT"; role = "backend"; default = 8000 },
+        @{ name = "CLM_DEMO_FRONTEND_PORT"; role = "frontend"; default = 5173 }
+    )) {
+        $value = [Environment]::GetEnvironmentVariable($setting.name)
+        $port = $setting.default
+        if ($null -ne $value -and $value -ne "" -and ($value -cnotmatch '\A[0-9]{1,5}\z' -or
+            -not [int]::TryParse($value, [ref]$port) -or $port -lt 1 -or $port -gt 65535)) {
+            throw "$($setting.name) must be an integer from 1 through 65535. No lifecycle action was taken."
+        }
+        $ports[$setting.role] = $port
+    }
+    if ($ports.backend -eq $ports.frontend) {
+        throw "CLM_DEMO_BACKEND_PORT and CLM_DEMO_FRONTEND_PORT must be distinct. No lifecycle action was taken."
+    }
+    return [pscustomobject]$ports
+}
 
 function Write-DemoError {
     param([string]$Message)
@@ -820,6 +838,7 @@ function Start-DemoSession {
         $env:IDP_CONNECTOR_MODE = "local_pdf_text"
         $env:OWNERSHIP_CONNECTOR_MODE = "mock"
         $env:DEMO_CONTROLS_ENABLED = "true"
+        $env:PHASE13_BROWSER_ORIGIN = "http://127.0.0.1:$($script:FrontendPort)"
         $backendArguments = @(
             "-m", "uvicorn", "app.main:app",
             "--app-dir", $script:BackendDirectory,
@@ -834,6 +853,7 @@ function Start-DemoSession {
         $records += New-OwnedProcessRecord -Role "backend" -Process $backendProcess
 
         $env:VITE_DEMO_CONTROLS_ENABLED = "true"
+        $env:VITE_BACKEND_PROXY_TARGET = "http://127.0.0.1:$($script:BackendPort)"
         $startupStage = "frontend launch"
         $frontendArguments = @(
             $script:VitePath,
@@ -935,6 +955,9 @@ function Show-DemoStatus {
 }
 
 try {
+    $ports = Resolve-DemoPorts
+    $script:BackendPort = $ports.backend
+    $script:FrontendPort = $ports.frontend
     switch ($Action) {
         "Start" {
             if (-not (Start-DemoSession)) { exit 1 }

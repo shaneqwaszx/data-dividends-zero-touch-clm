@@ -6,6 +6,7 @@ import pytest
 from phase13_test_clients import RawTestClient
 from phase13_test_credentials import TEST_PASSWORD
 from phase13_test_settings import ordinary_test_settings
+from phase24c_policy_workflow import approve_business_change, approve_http_policy
 from pydantic import ValidationError
 
 from app.domain.access import AuthenticatedActor, Role, TeamId, UserProfile
@@ -20,8 +21,9 @@ from app.domain.policy import (
     validate_showcase_plain_text_value,
 )
 from app.main import create_app
-from app.services.admin_repository import AdministrationConflictError, InMemoryPolicyRepository
+from app.services.admin_repository import InMemoryPolicyRepository
 from app.services.policy_management import (
+    PolicyForbiddenError,
     PolicyManagementService,
     PolicyValidationError,
     default_policy_catalogue,
@@ -55,15 +57,21 @@ def test_confirmed_ubo_defaults_do_not_rewrite_existing_catalogues() -> None:
     assert PolicyClassification.PENDING_SPONSOR_CONFIRMATION not in comparator.classifications
     assert str(threshold.value.value) == "25.000000"
     assert comparator.value.value == "GREATER_THAN_OR_EQUAL_TO"
-    historical = catalogue.model_copy(update={
-        "rules": tuple(
-            rule.model_copy(update={
-                "description": "Historical provisional threshold",
-                "classifications": (PolicyClassification.PENDING_SPONSOR_CONFIRMATION,),
-            }) if rule.policy_id == threshold.policy_id else rule
-            for rule in catalogue.rules
-        ),
-    })
+    historical = catalogue.model_copy(
+        update={
+            "rules": tuple(
+                rule.model_copy(
+                    update={
+                        "description": "Historical provisional threshold",
+                        "classifications": (PolicyClassification.PENDING_SPONSOR_CONFIRMATION,),
+                    }
+                )
+                if rule.policy_id == threshold.policy_id
+                else rule
+                for rule in catalogue.rules
+            ),
+        }
+    )
     repository = InMemoryPolicyRepository()
     repository.create(historical)
     service = PolicyManagementService(repository, clock=lambda: now)
@@ -106,6 +114,12 @@ def test_default_catalogue_is_exact_and_snapshot_is_typed() -> None:
         "GOLDTIER_BOOKING_ENTITY",
         "GOLDTIER_ACCOUNT_ENTITY_TYPE",
         "GOLDTIER_PRODUCT_TYPE",
+        "REGISTRY_FRESHNESS_DAYS",
+        "REGISTRY_NOT_FOUND_TTL_SECONDS",
+        "EVIDENCE_KIND_WEIGHT",
+        "EVIDENCE_BINDING_WEIGHT",
+        "EVIDENCE_CONFIDENCE_WEIGHT",
+        "EVIDENCE_CLASSIFICATION_THRESHOLD",
     ]
     snapshot = service.case_snapshot()
     assert str(snapshot.idp_review_confidence_threshold) == "0.85"
@@ -123,19 +137,12 @@ def test_default_catalogue_is_exact_and_snapshot_is_typed() -> None:
 def test_intelligence_policy_snapshot_is_case_bound_and_validated_as_one_policy() -> None:
     repository = InMemoryPolicyRepository()
     service = PolicyManagementService(repository, clock=lambda: datetime(2026, 9, 9, tzinfo=UTC))
-    actor = _actor(Role.DIRECTOR)
     before = service.case_snapshot()
     catalogue = service.catalogue()
     probable = catalogue.rule("ENTITY_RESOLUTION_AUTO_MATCH_THRESHOLD")
     assert probable is not None
 
-    service.update(
-        actor,
-        probable.policy_id,
-        expected_catalogue_version=catalogue.version,
-        expected_rule_version=probable.version,
-        value=DecimalPolicyValue(value="0.90"),
-    )
+    approve_business_change(service, probable.policy_id, DecimalPolicyValue(value="0.90"))
     after = service.case_snapshot()
 
     assert before.intelligence is not None and after.intelligence is not None
@@ -151,13 +158,7 @@ def test_mock_risk_blocks_readiness_defaults_false_and_is_case_bound() -> None:
     assert rule.value == BooleanPolicyValue(value=False)
     assert rule.enforcement == "RUNTIME_ENFORCED"
     before = service.case_snapshot()
-    service.update(
-        _actor(Role.DIRECTOR),
-        rule.policy_id,
-        expected_catalogue_version=service.catalogue().version,
-        expected_rule_version=rule.version,
-        value=BooleanPolicyValue(value=True),
-    )
+    approve_business_change(service, rule.policy_id, BooleanPolicyValue(value=True))
     after = service.case_snapshot()
 
     assert before.intelligence is not None and after.intelligence is not None
@@ -167,16 +168,8 @@ def test_mock_risk_blocks_readiness_defaults_false_and_is_case_bound() -> None:
 
 def test_mock_risk_band_thresholds_are_editable_integer_rules() -> None:
     service = PolicyManagementService(InMemoryPolicyRepository())
-    actor = _actor(Role.DIRECTOR)
-    catalogue = service.catalogue()
     medium = service.get("MOCK_RISK_MEDIUM_THRESHOLD")
-    updated = service.update(
-        actor,
-        medium.policy_id,
-        expected_catalogue_version=catalogue.version,
-        expected_rule_version=medium.version,
-        value=IntegerPolicyValue(value=35),
-    )
+    updated = approve_business_change(service, medium.policy_id, IntegerPolicyValue(value=35))
 
     assert service.case_snapshot().intelligence.mock_risk_medium_threshold == 35
     assert updated.rule(medium.policy_id).value == IntegerPolicyValue(value=35)  # type: ignore[union-attr]
@@ -196,16 +189,8 @@ def test_policy_update_rejects_cross_rule_invalid_intelligence_catalogue(
     value: DecimalPolicyValue | IntegerPolicyValue,
 ) -> None:
     service = PolicyManagementService(InMemoryPolicyRepository())
-    rule = service.get(policy_id)
-
     with pytest.raises(PolicyValidationError):
-        service.update(
-            _actor(Role.DIRECTOR),
-            policy_id,
-            expected_catalogue_version=service.catalogue().version,
-            expected_rule_version=rule.version,
-            value=value,
-        )
+        approve_business_change(service, policy_id, value)
 
 
 def test_exact_legacy_policy_catalogue_is_upgraded_once_with_an_audit_event() -> None:
@@ -217,7 +202,7 @@ def test_exact_legacy_policy_catalogue_is_upgraded_once_with_an_audit_event() ->
     first = PolicyManagementService(repository, clock=lambda: now).catalogue()
     second = PolicyManagementService(repository, clock=lambda: now).catalogue()
 
-    assert len(first.rules) == 29
+    assert len(first.rules) == 35
     assert first.version == 2
     assert first.audit_events[-1].action == "POLICY_CATALOGUE_MIGRATED"
     assert second == first
@@ -233,31 +218,21 @@ def test_partial_intelligence_policy_catalogue_fails_closed() -> None:
         PolicyManagementService(repository, clock=lambda: now)
 
 
-def test_showcase_policy_is_forced_non_runtime_and_cas_is_strict() -> None:
-    repository = InMemoryPolicyRepository()
-    service = PolicyManagementService(repository)
-    director = _actor(Role.DIRECTOR)
-    initial = service.catalogue()
-    created = service.create_showcase(
-        director,
-        expected_catalogue_version=initial.version,
-        policy_id="SHOWCASE_NOTE",
-        category="Demonstration",
-        name="Showcase note",
-        description="Visible demonstration value only.",
-        value=StringPolicyValue(value="Visible only"),
-    )
-    assert created.rule("SHOWCASE_NOTE").enforcement == "DISPLAY_SHOWCASE_ONLY"  # type: ignore[union-attr]
-    with pytest.raises(AdministrationConflictError):
-        service.create_showcase(
-            director,
-            expected_catalogue_version=initial.version,
-            policy_id="ANOTHER_SHOWCASE",
-            category="Demonstration",
-            name="Another showcase",
-            description="Must lose the stale catalogue race.",
-            value=StringPolicyValue(value="No effect"),
-        )
+def test_showcase_creation_is_retired_without_runtime_consumer() -> None:
+    service = PolicyManagementService(InMemoryPolicyRepository())
+    before = service.catalogue()
+    for role in (Role.HR, Role.DIRECTOR, Role.RELATIONSHIP_MANAGER):
+        with pytest.raises(PolicyForbiddenError):
+            service.create_showcase(
+                _actor(role),
+                expected_catalogue_version=before.version,
+                policy_id="SHOWCASE_NOTE",
+                category="Demonstration",
+                name="Historical note",
+                description="No runtime consumer",
+                value=StringPolicyValue(value="Visible only"),
+            )
+    assert service.catalogue() == before
 
 
 def test_policy_decimal_rejects_nan_infinity_and_excess_precision() -> None:
@@ -344,8 +319,8 @@ def test_showcase_create_api_rejects_hostile_strings_without_echo(value: str) ->
         },
     )
 
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "POLICY_REQUEST_INVALID"
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "POLICY_MUTATION_FORBIDDEN"
     assert value not in response.text
 
 
@@ -354,15 +329,13 @@ def test_all_authenticated_roles_can_read_policy_catalogue(user_id: str) -> None
     client, _ = _client_for(user_id)
     response = client.get("/api/policies")
     assert response.status_code == 200
-    assert len(response.json()["rules"]) == 29
+    assert len(response.json()["rules"]) == 35
 
 
 def test_target_policy_api_exposes_fixed_sponsor_documented_authority() -> None:
     client, csrf = _client_for("olivia-koh")
     catalogue = client.get("/api/policies").json()
-    rule = next(
-        item for item in catalogue["rules"] if item["policy_id"] == "GOLDTIER_POLICY"
-    )
+    rule = next(item for item in catalogue["rules"] if item["policy_id"] == "GOLDTIER_POLICY")
 
     assert rule["value"]["value"] == "Singapore"
     assert rule["authority"] == "SPONSOR_DOCUMENTED"
@@ -380,95 +353,25 @@ def test_target_policy_api_exposes_fixed_sponsor_documented_authority() -> None:
         },
     )
 
-    assert updated.status_code == 422
-    assert updated.json()["detail"]["code"] == "POLICY_REQUEST_INVALID"
+    assert updated.status_code == 403
+    assert updated.json()["detail"]["code"] == "POLICY_MUTATION_FORBIDDEN"
 
 
-@pytest.mark.parametrize("user_id", ["ethan-tan", "olivia-koh"])
-def test_policy_mutators_can_create_update_and_reset_allowed_rules(user_id: str) -> None:
+@pytest.mark.parametrize("user_id", ["maya-lim", "ethan-tan", "olivia-koh", "hr-admin"])
+def test_all_roles_are_denied_retired_direct_activation(user_id: str) -> None:
     client, csrf = _client_for(user_id)
-    catalogue = client.get("/api/policies").json()
-    created = client.post(
-        "/api/policies",
+    c = client.get("/api/policies").json()
+    response = client.patch(
+        "/api/policies/DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD",
         headers={"X-CSRF-Token": csrf},
         json={
-            "expected_catalogue_version": catalogue["version"],
-            "policy_id": "SHOWCASE_RULE",
-            "category": "Demo",
-            "name": "Showcase rule",
-            "description": "Display-only demonstration rule.",
-            "value": {"type": "STRING", "value": "visible"},
-        },
-    )
-    assert created.status_code == 201
-    showcase = next(
-        item for item in created.json()["rules"] if item["policy_id"] == "SHOWCASE_RULE"
-    )
-    assert showcase["enforcement"] == "DISPLAY_SHOWCASE_ONLY"
-
-    catalogue = created.json()
-    rule = next(
-        item
-        for item in catalogue["rules"]
-        if item["policy_id"] == "DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD"
-    )
-    updated = client.patch(
-        f"/api/policies/{rule['policy_id']}",
-        headers={"X-CSRF-Token": csrf},
-        json={
-            "expected_catalogue_version": catalogue["version"],
-            "expected_rule_version": rule["version"],
+            "expected_catalogue_version": c["version"],
+            "expected_rule_version": 1,
             "value": {"type": "DECIMAL", "value": "0.90"},
         },
     )
-    assert updated.status_code == 200
-    changed = next(
-        item for item in updated.json()["rules"] if item["policy_id"] == rule["policy_id"]
-    )
-    assert changed["value"]["value"] == "0.90"
-
-    stale = client.patch(
-        f"/api/policies/{rule['policy_id']}",
-        headers={"X-CSRF-Token": csrf},
-        json={
-            "expected_catalogue_version": catalogue["version"],
-            "expected_rule_version": rule["version"],
-            "value": {"type": "DECIMAL", "value": "0.80"},
-        },
-    )
-    assert stale.status_code == 409
-    assert stale.json()["detail"]["code"] == "POLICY_VERSION_CONFLICT"
-
-    reset = client.post(
-        f"/api/policies/{rule['policy_id']}/reset",
-        headers={"X-CSRF-Token": csrf},
-        json={
-            "expected_catalogue_version": updated.json()["version"],
-            "expected_rule_version": changed["version"],
-            "confirmation": "RESET_POLICY_DEFAULT",
-        },
-    )
-    assert reset.status_code == 200
-    reset_rule = next(
-        item for item in reset.json()["rules"] if item["policy_id"] == rule["policy_id"]
-    )
-    assert reset_rule["value"] == reset_rule["default_value"]
-
-    reset_all = client.post(
-        "/api/policies/reset",
-        headers={"X-CSRF-Token": csrf},
-        json={
-            "expected_catalogue_version": reset.json()["version"],
-            "confirmation": "RESET_ALL_POLICY_DEFAULTS",
-        },
-    )
-    assert reset_all.status_code == 200
-    assert (
-        next(item for item in reset_all.json()["rules"] if item["policy_id"] == rule["policy_id"])[
-            "value"
-        ]
-        == rule["default_value"]
-    )
+    assert response.status_code == 403
+    assert client.get("/api/policies").json() == c
 
 
 def test_policy_edit_binds_only_to_cases_created_after_successful_cas() -> None:
@@ -482,22 +385,11 @@ def test_policy_edit_binds_only_to_cases_created_after_successful_cas() -> None:
     before_case = before.json()
     assert before_case["policy_snapshot"]["idp_review_confidence_threshold"] == "0.85"
 
-    catalogue = client.get("/api/policies").json()
-    rule = next(
-        item
-        for item in catalogue["rules"]
-        if item["policy_id"] == "DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD"
+    approved = approve_http_policy(
+        client.app,
+        {"DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD": {"type": "DECIMAL", "value": "0.90"}},
     )
-    updated = client.patch(
-        f"/api/policies/{rule['policy_id']}",
-        headers={"X-CSRF-Token": csrf},
-        json={
-            "expected_catalogue_version": catalogue["version"],
-            "expected_rule_version": rule["version"],
-            "value": {"type": "DECIMAL", "value": "0.90"},
-        },
-    )
-    assert updated.status_code == 200
+    assert approved["active_origin"] == "APPROVED"
 
     after = client.post(
         "/api/onboarding/cases",
@@ -511,8 +403,8 @@ def test_policy_edit_binds_only_to_cases_created_after_successful_cas() -> None:
     assert retained.json()["policy_snapshot"] == before_case["policy_snapshot"]
 
 
-@pytest.mark.parametrize("user_id", ["maya-lim", "hr-admin"])
-def test_read_only_roles_cannot_use_any_policy_mutation(user_id: str) -> None:
+@pytest.mark.parametrize("user_id", ["maya-lim", "ethan-tan", "olivia-koh", "hr-admin"])
+def test_all_roles_cannot_use_retired_direct_mutations(user_id: str) -> None:
     client, csrf = _client_for(user_id)
     catalogue = client.get("/api/policies").json()
     rule = next(

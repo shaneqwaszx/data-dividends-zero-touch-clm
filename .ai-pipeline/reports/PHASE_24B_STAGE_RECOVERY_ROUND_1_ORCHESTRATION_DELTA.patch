@@ -1,0 +1,152 @@
+--- initial-frozen/apps/backend/app/services/zero_touch_orchestration.py
++++ round1/apps/backend/app/services/zero_touch_orchestration.py
+@@ -677,6 +677,7 @@
+             } or (
+                 record.status == AutomationStatus.WAITING_FOR_REVIEW
+                 and not retained_evidence_intake
++                and not _has_unproved_prerequisite(record)
+             ):
+                 return record
+             current_documents = self._current_documents(case_id)
+@@ -1568,7 +1569,7 @@
+                 else AutomationStatus.RESUMING
+             )
+             candidate.current_stage = (
+-                remaining_exceptions[0].stage
++                _earliest_open_stage(candidate)
+                 if remaining_exceptions
+                 else AutomationStage.GOLDTIER_SEARCH
+             )
+@@ -2070,7 +2071,13 @@
+         current_review = (
+             ownership is not None and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
+         )
+-        if not obsolete:
++        unproved_ownership_checkpoint = (
++            AutomationStage.OWNERSHIP in record.completed_stages
++            and (ownership is None or ownership.state in {
++                OwnershipAnalysisState.LOADED, OwnershipAnalysisState.FAILED,
++            })
++        )
++        if not obsolete and not unproved_ownership_checkpoint:
+             # A durable ownership result can precede its automation checkpoint.
+             # Restore that owned dependency even beside an independent later blocker.
+             if current_review and ownership is not None:
+@@ -2113,20 +2120,25 @@
+             AutomationStatus.WAITING_FOR_REVIEW if remaining else AutomationStatus.RESUMING
+         )
+         candidate.current_stage = _earliest_open_stage(candidate) if remaining else _next_stage(
+-            candidate.completed_stages
++            candidate.completed_stages, order=_stage_order(candidate),
+         )
+         candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
+         candidate.metrics.final_outcome = None
+         candidate = self._append_event(
+             candidate, event_type=AutomationEventType.AUTOMATION_RESUMING,
+-            outcome=EventOutcome.SUCCEEDED, code="OBSOLETE_REGISTRY_OWNERSHIP_RETIRED",
+-            message="Superseded registry ownership blockers were retained as cancelled history.",
++            outcome=EventOutcome.SUCCEEDED,
++            code=("OBSOLETE_REGISTRY_OWNERSHIP_RETIRED" if obsolete
++                  else "CURRENT_OWNERSHIP_PREREQUISITE_RESTORED"),
++            message=(
++                "Superseded registry ownership blockers were retained as cancelled history."
++                if obsolete else "Current ownership prerequisites require re-evaluation."
++            ),
+         )
+         return self._save(record, candidate)
+ 
+     def _advance_locked_impl(self, *, case_id: UUID) -> ZeroTouchAutomationRecord:
+         record = self._recover_obsolete_registry_ownership_locked(self._require_record(case_id))
+-        if record.active_exceptions:
++        if record.active_exceptions and not _has_unproved_prerequisite(record):
+             return record
+         if record.status in {
+             AutomationStatus.COMPLETED,
+@@ -2143,7 +2155,7 @@
+         finalization_recovery_attempts = 0
+         for _ in range(self._max_transitions):
+             record = self._require_record(case_id)
+-            if record.active_exceptions:
++            if record.active_exceptions and not _has_unproved_prerequisite(record):
+                 return record
+             next_stage = _next_stage(record.completed_stages)
+             if next_stage == AutomationStage.GOLDTIER_SEARCH:
+@@ -2596,7 +2608,12 @@
+         candidate.current_stage = (
+             AutomationStage.GOLDTIER_SEARCH if registry_completed else AutomationStage.REGISTRY
+         )
+-        candidate.status = AutomationStatus.RUNNING
++        candidate.status = (
++            AutomationStatus.WAITING_FOR_REVIEW
++            if candidate.active_exceptions else AutomationStatus.RUNNING
++        )
++        if candidate.active_exceptions:
++            candidate.current_stage = _earliest_open_stage(candidate)
+         candidate.started_at = candidate.started_at or self._clock()
+         candidate.completed_at = None
+         candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
+@@ -3245,8 +3262,13 @@
+         if stage in record.completed_stages:
+             return record
+         candidate = record.model_copy(deep=True)
+-        candidate.status = AutomationStatus.RUNNING
+-        candidate.current_stage = _stage_after(stage)
++        candidate.status = (
++            AutomationStatus.WAITING_FOR_REVIEW
++            if candidate.active_exceptions else AutomationStatus.RUNNING
++        )
++        candidate.current_stage = (
++            _earliest_open_stage(candidate) if candidate.active_exceptions else _stage_after(stage)
++        )
+         candidate.completed_stages = (*candidate.completed_stages, stage)
+         candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
+         candidate.metrics.stage_durations_ms[stage] = _duration_ms(started_at, self._clock())
+@@ -3476,22 +3498,36 @@
+     Exception order and timestamps remain audit facts. Currentness is normalized
+     by the owning services before this projection; it does not infer currentness.
+     """
+-    order = tuple(AutomationStage(value) for value in (
++    return min((item.stage for item in record.active_exceptions),
++               key=_stage_order(record).index)
++
++
++def _stage_order(record: ZeroTouchAutomationRecord) -> tuple[AutomationStage, ...]:
++    return tuple(AutomationStage(value) for value in (
+         LEGACY_AUTOMATION_STAGE_ORDER
+         if record.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+         else AUTOMATION_STAGE_ORDER
+     ))
+-    return min((item.stage for item in record.active_exceptions), key=order.index)
+-
+-
+-def _next_stage(completed: tuple[AutomationStage, ...]) -> AutomationStage:
+-    for stage in (
+-        AutomationStage.REGISTRY,
+-        AutomationStage.GOLDTIER_SEARCH,
+-        AutomationStage.DOCUMENT,
+-        AutomationStage.OWNERSHIP,
+-        AutomationStage.READINESS,
+-        AutomationStage.MOCK_GOLDTIER,
++
++
++def _has_unproved_prerequisite(record: ZeroTouchAutomationRecord) -> bool:
++    """Existing progression may prove only dependencies strictly before a blocker.
++
++    Human decisions remain OPEN. The normal document/ownership/readiness owners
++    evaluate evidence; completing a prerequisite does not authorize crossing the
++    earliest current blocker, and target mutations remain behind that boundary.
++    """
++    if not record.active_exceptions:
++        return False
++    order = _stage_order(record)
++    return len(record.completed_stages) < order.index(_earliest_open_stage(record))
++
++
++def _next_stage(
++    completed: tuple[AutomationStage, ...], *, order: tuple[AutomationStage, ...] | None = None,
++) -> AutomationStage:
++    for stage in order if order is not None else tuple(
++        AutomationStage(value) for value in AUTOMATION_STAGE_ORDER
+     ):
+         if stage not in completed:
+             return stage

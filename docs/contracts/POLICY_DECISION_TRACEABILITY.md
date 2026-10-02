@@ -17,3 +17,14 @@
 
 Future work must begin from the registry and this table, then re-read current source and
 the authoritative sponsor evidence. This traceability is not permission to implement.
+
+## D-064 Phase24C traceability — 2026-10-02
+
+HR draft/edit/reset/submit and independent Director approve/reject are USER_AUTHORIZED_POC
+through PolicyManagementService, existing backend capabilities and singleton repository
+CAS. Frozen case policy feeds RegistryAcquisitionCoordinator, document/reconciliation,
+OwnershipAnalysisService, advisory intelligence and OwnershipEvidenceTagger. Semantic
+metrics/simulation use 14 labelled synthetic examples and never claim trained-model/legal
+accuracy or mutate cases/providers. Runtime validation couples weights/thresholds and
+forbids arbitrary/invariant proposals. Independent combined acceptance is required for
+this implementation candidate. Production/sponsor activation gates stay separate.

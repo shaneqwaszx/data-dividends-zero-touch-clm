@@ -1,0 +1,230 @@
+{
+  "branch": "feat/phase24-registry-identity-ownership-ubo",
+  "base_sha": "039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c",
+  "head": "039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c",
+  "origin_main": "039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c",
+  "entries": [
+    {
+      "path": ".ai-pipeline/001_planner/PHASE_24_PLAN.md",
+      "sha256": "36964858d0377c1a4c9cb056b330b06113358a9e6dba2429aa808713c9c124ae"
+    },
+    {
+      "path": ".ai-pipeline/reports/PHASE_24_IMPLEMENTATION_HANDOFF.md",
+      "sha256": "ad57ce7a679f8b97e8898bc5c81da04a6392681755f9801d4033b66aa8db4ef5"
+    },
+    {
+      "path": "apps/backend/app/api_models.py",
+      "sha256": "72632ad10930848a9d0761bf77caf7f59f4640e3d9a74905afe56cd04f7a2e29"
+    },
+    {
+      "path": "apps/backend/app/composition.py",
+      "sha256": "410f3f3c9a586e535ab16efdf07c7f999b38b096c1f2971a81a6e9372d759ed4"
+    },
+    {
+      "path": "apps/backend/app/connectors/acra_bizfile_sandbox.py",
+      "sha256": "8f03d0c07516e7595dbbf5c2c6d909ebe2092db359d34fcbb35ceb97e9e57f2f"
+    },
+    {
+      "path": "apps/backend/app/connectors/ownership.py",
+      "sha256": "c8c5259cd569ce01ebce52b49baf601adc743c58509c9c8bed0c4ae11648cc55"
+    },
+    {
+      "path": "apps/backend/app/connectors/registry.py",
+      "sha256": "0c385ee0f954d65263dce0014c570f0fcc7cd5ef44d9ffeaa2ec452b5ec08a54"
+    },
+    {
+      "path": "apps/backend/app/connectors/registry_ownership.py",
+      "sha256": "5c454211d1199247c04b4de4b8bc20b61b19ba9c874f6d623a5564e4e5089fb0"
+    },
+    {
+      "path": "apps/backend/app/domain/models.py",
+      "sha256": "34f0058bf55af726d621c32a9921ad706aa6ffdc69c7c6a8f16bba0c33ca1bb2"
+    },
+    {
+      "path": "apps/backend/app/domain/ownership.py",
+      "sha256": "ae83c35e41699716934f297631da777b15bfab82bc1c7b6a59877ba6a2ecdcd1"
+    },
+    {
+      "path": "apps/backend/app/domain/ownership_evidence.py",
+      "sha256": "e5bd1f1e1d1f20d6e56d2fbd0463b37c627a60206b0d345ca3d6fe17814f29cf"
+    },
+    {
+      "path": "apps/backend/app/domain/registry_legal_form.py",
+      "sha256": "e307a8aec86953f22887bc5de3d38ea1b7a4adc94b41915a49fce7eeb89c132d"
+    },
+    {
+      "path": "apps/backend/app/main.py",
+      "sha256": "5f9fae435537045ac436137e34149b459fd61bb8fbb942e76085d1048e528a56"
+    },
+    {
+      "path": "apps/backend/app/persistence/repositories.py",
+      "sha256": "123b9628f83e451d050293a0d6cfca6132ea7355f3cb3ba927c83e14e985019f"
+    },
+    {
+      "path": "apps/backend/app/services/authorization.py",
+      "sha256": "e869db0cf7dc155fec4f3a63ed8e32bfaeb745babe27516ff4dd763bd5a5bbb0"
+    },
+    {
+      "path": "apps/backend/app/services/blocker_decision_policy.py",
+      "sha256": "9b61ecc261433e4f456ae58047001c1225aa4a5bb967347529441ba07d900bc3"
+    },
+    {
+      "path": "apps/backend/app/services/onboarding.py",
+      "sha256": "9834ffc6e5b6078e277d4cde2b15aad24b2303ad05e5b2312648a0c0a64fa645"
+    },
+    {
+      "path": "apps/backend/app/services/ownership_analysis.py",
+      "sha256": "72c5d31a39c6d54e5a357838697fbe22f8116d34337db5fd296bd9a4e4d8b29b"
+    },
+    {
+      "path": "apps/backend/app/services/ownership_evidence_tagger.py",
+      "sha256": "f8fb3ecb97a72643e5bdad4356470b3374d9d773e6d3496e8893ee2809035e2c"
+    },
+    {
+      "path": "apps/backend/app/services/ownership_repository.py",
+      "sha256": "b82268c9f96752e0c4ba7e140c76b6fd82f909db30a97cd332a4b2f2d4dee9a7"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "sha256": "00ed65ccb455f357891709d8bf0f70f31ba80f7f471e6fffb92469a955747486"
+    },
+    {
+      "path": "apps/backend/tests/test_acra_api_marketplace_mock_connector.py",
+      "sha256": "2fe35e1577bb6142f9d2bd504c294fcc43a9cddf498e4c560df69f47662618c8"
+    },
+    {
+      "path": "apps/backend/tests/test_blocker_decision_policy.py",
+      "sha256": "5bfbdeeb11a2723f31933f83465d6a25a877bd5152d895bc02e29ed8b33373c3"
+    },
+    {
+      "path": "apps/backend/tests/test_phase10_registry_acquisition.py",
+      "sha256": "51aaef9da6d69dbd395ef740729558a073de006de27f452cccafba31e9d76207"
+    },
+    {
+      "path": "apps/backend/tests/test_phase13_auth_rbac.py",
+      "sha256": "d91be11ca96116ca3b27531483774568fcafcc02819e4566ea7b301a9648ed61"
+    },
+    {
+      "path": "apps/backend/tests/test_phase24_identity.py",
+      "sha256": "d6d847a68ce34208720f8e820839d93a36bf373486c6394f0b693dc5a8b46950"
+    },
+    {
+      "path": "apps/backend/tests/test_phase24_ownership_evidence.py",
+      "sha256": "d3c6077dd51ea7876cf70dc709e42811fae6abfbc0ef247390e31f523705e942"
+    },
+    {
+      "path": "apps/backend/tests/test_provider_identity_real_mongo.py",
+      "sha256": "ff2ab4e001ab3d90a4b9f8f343a9de16a3a4b4d3f35803b5424f609715fec462"
+    },
+    {
+      "path": "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
+      "sha256": "be90a2ed215497839b8c8fbd7df5a27233f7e4438b59319962e6a4aea598b882"
+    },
+    {
+      "path": "apps/frontend/e2e/garden-happy-path.e2e.ts",
+      "sha256": "1007d689cc051744cb1fd44bd9d578f4f35034a8c3d16dbb0ccc20a4af924dc8"
+    },
+    {
+      "path": "apps/frontend/e2e/phase24-identity.e2e.ts",
+      "sha256": "1dc23447b34545a11fc5796ed269e38092102d3aa68915b37891d747ee24b4ed"
+    },
+    {
+      "path": "apps/frontend/e2e/responsive-layout.e2e.ts",
+      "sha256": "acca6d417f0cd65ed8c571cdb0103ddce34fa09b5d01bf920abeb84473c7f5fd"
+    },
+    {
+      "path": "apps/frontend/e2e/stage-disclosures.ts",
+      "sha256": "c31a7f2c4aa6ca7d2ee05055c994cbc5047cbb5ddc3e7e6465f889865fb029b3"
+    },
+    {
+      "path": "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+      "sha256": "ce23b06fe967e4dc071523254c2548a3a97fdaa7ab09360c3faa0a1894cacfd1"
+    },
+    {
+      "path": "apps/frontend/src/EvidenceWorkbenchIsolation.test.tsx",
+      "sha256": "0405ca8fa0ad349be1b634b3bc253aaa4a3e8590143e613d717dc58105c450a9"
+    },
+    {
+      "path": "apps/frontend/src/api.ts",
+      "sha256": "d431a06942fbc3e8527c57f2f76c876487db0b8ddb7d898df8bacc448b66bbe6"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseDetail.tsx",
+      "sha256": "c2549c23b6e9959b968f9a6b8ff6d7b73a5fdf7f984db71e10b444dcafa8c805"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.tsx",
+      "sha256": "82469b71a4b646af9ae1cb18bb07a2cabcc17c449b9f86699f0ef56ff6e3194c"
+    },
+    {
+      "path": "apps/frontend/src/pages/HumanInterventionPanel.tsx",
+      "sha256": "c11a9519080b2c02b35eef7b73e2e035026363468eae1a9dca586bdcf1028165"
+    },
+    {
+      "path": "apps/frontend/src/pages/IdentityCorrectionForm.test.tsx",
+      "sha256": "1cadb9c6034cc7e0a2e35c88a7f097bf047d6d1592ebedb2a62ff5ba42bd24c1"
+    },
+    {
+      "path": "apps/frontend/src/pages/IdentityCorrectionForm.tsx",
+      "sha256": "2190368afb82bdcf1936a08105b5aaeb89990af3b11dfacb0645bc6776d7dacc"
+    },
+    {
+      "path": "apps/frontend/src/pages/OwnershipPathExplorer.tsx",
+      "sha256": "6412384d5f99ef60128fb32c8d3995f8cecd2c8c14a56a85b287afab0aedd139"
+    },
+    {
+      "path": "apps/frontend/src/pages/StageDisclosure.test.tsx",
+      "sha256": "20672181eb049c13029d9cc12d276319fb54f9d54bfacc2c7cbc4d0396e46dd5"
+    },
+    {
+      "path": "apps/frontend/src/pages/StageDisclosure.tsx",
+      "sha256": "6bce75832d1398eeac5224a17c9701aeb05bc352b7422c8ae708debcf2f0a45d"
+    },
+    {
+      "path": "apps/frontend/src/styles.css",
+      "sha256": "55d5119f18c4bf7cf41a6d4649eb0824520caa95dbbce26c6b100f8ccc5a31d7"
+    },
+    {
+      "path": "apps/frontend/src/types.ts",
+      "sha256": "186159470b0f084d7c42090e31ebec5d7b109edfa4a4f8a0c778218cfbafb294"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "16a76593c99383503e11b1432a428dc7378f29540d376d415da9b92474112c2c"
+    },
+    {
+      "path": "docs/PROJECT_STATE.md",
+      "sha256": "62112a8c461464fb39f07bff460076e4dce257ef9ce754141e82d0fa7c629b78"
+    },
+    {
+      "path": "docs/contracts/ACRA_MOCK_API_PROFILE.md",
+      "sha256": "4e1776e9835e573746bffcd1244ffab6b1d55166cef8bafe405cb4ee44f6e39d"
+    },
+    {
+      "path": "docs/contracts/OWNERSHIP_UBO_PROFILE.md",
+      "sha256": "ebaf68921b77626bb351ebce485696b721be500e914cc183f66d3e30b3398dfc"
+    },
+    {
+      "path": "docs/decisions/ADR-008_OWNERSHIP_EVIDENCE_TAGGING.md",
+      "sha256": "a284b741ccf6aa67acec935c942fe40a2de4cac67d2e1e0741bfa378a5fd25ae"
+    },
+    {
+      "path": "docs/decisions/DECISION_LOG.md",
+      "sha256": "0e1024ef9b0cb86b3966c9490e784f073e069586011ac7aaa3386a2a12364d43"
+    },
+    {
+      "path": "docs/development/PHASE_24_ACRA_DISCOVERY.md",
+      "sha256": "3e0739fe6a51bf4db343aa0f147c551ac10f12467b383050ed11540305b4d885"
+    },
+    {
+      "path": "scripts/phase24_acra_mock_discovery.py",
+      "sha256": "19a96f817906064065eb5a70d8e4c3e7eab3e6d3ce0fc795feeae163d0476224"
+    }
+  ],
+  "content_id": "55d66b16f7c993719b6e41584b098fa67fdff2b1a04e7968535b76b57be3aca2",
+  "excluded_paths": [
+    ".ai-pipeline/reports/PHASE_24_CANDIDATE_MANIFEST.json",
+    ".ai-pipeline/reports/PHASE_24_QUALITY_GATE.md"
+  ],
+  "identity_algorithm": "SHA256 of sorted-key compact UTF-8 JSON of branch/base_sha/head/origin_main/entries; entries ordered by path, SHA256 of exact file bytes"
+}

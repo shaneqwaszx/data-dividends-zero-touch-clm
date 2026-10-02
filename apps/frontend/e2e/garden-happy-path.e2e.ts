@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
+import { openStage } from "./stage-disclosures";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
 const fixtureRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../backend/tests/fixtures/uat");
@@ -50,6 +51,7 @@ async function reviewedCurrentDocument(page: Page, caseId: string) {
   let document = await readCurrent();
   const card = page.locator(".document-card:not(.document-card--history)");
   await expect(card).toHaveCount(1);
+  await openStage(page, "Documents & reconciliation");
   await expect(card.getByRole("heading", { name: document.display_name, exact: true })).toBeVisible();
   for (const key of ["registration_number", "legal_name", "registered_address", "country_of_incorporation"]) {
     document = await readCurrent();
@@ -110,6 +112,7 @@ async function createGarden(page: Page, conflicting: boolean): Promise<string> {
   await measured("open case", async () => {
     await page.getByRole("button", { name: "Open full case" }).click();
     await expect(page).toHaveURL(`/cases/${caseId}`);
+    await openStage(page, "Documents & reconciliation");
     await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
   });
   const current = await summary(page, caseId);
@@ -126,6 +129,7 @@ async function createGarden(page: Page, conflicting: boolean): Promise<string> {
 }
 
 async function selectClassification(page: Page) {
+  await openStage(page, "Classification & readiness");
   const kyc = page.getByLabel("KYC customer type", { exact: true });
   const segment = page.getByLabel("Client segment", { exact: true });
   await expect(kyc).toBeEnabled();
@@ -214,6 +218,7 @@ test("Garden late preconfirmation detail GET cannot replace completed case", asy
     await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
     expect((await confirmation).status()).toBe(200);
     const overview = page.getByText("Completed POC workflow", { exact: true });
+    await openStage(page, "Target preparation / submission state");
     await expect(overview).toBeVisible();
     release();
     await finished;
@@ -245,6 +250,8 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
   expect(documents[0].provider_environment).toBe("LOCAL");
   await selectClassification(page);
   await reviewedOwnership(page, caseId);
+  await openStage(page, "Documents & reconciliation");
+  await openStage(page, "Registry identity");
   for (const width of [360, 768, 1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier" })).toBeEnabled();
@@ -287,6 +294,8 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
   await testInfo.attach("Garden-200-percent-content-zoom", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
   await page.evaluate(() => { document.documentElement.style.zoom = ""; });
   const focusBaseline = requests.length;
+  await openStage(page, "Target preparation / submission state");
+  await page.getByText("Backend execution details", { exact: true }).click();
   await page.getByRole("button", { name: "Focus registry evidence" }).click();
   await expect(page.locator("#case-evidence-registry")).toBeFocused();
   await expect(page.getByRole("heading", { name: "Registry data incomplete" })).toHaveCount(0);
@@ -295,6 +304,7 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
     && result.url().endsWith("/target-confirmation"), { timeout: 15_000 });
   await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
   expect((await confirmation).status()).toBe(200);
+  await openStage(page, "Target preparation / submission state");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 90_000 });
   const completed = await summary(page, caseId);
   expect(completed.status).toBe("COMPLETED");

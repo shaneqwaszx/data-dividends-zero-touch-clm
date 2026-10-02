@@ -21,7 +21,7 @@ function EdgeList({ edges }: { edges: OwnershipPath["edges"] }) {
   ));
 }
 
-export default function OwnershipPathExplorer({ record, acquisition }: { record: OwnershipAnalysisRecord | null; acquisition?: RegistryAcquisition | null }) {
+export default function OwnershipPathExplorer({ record, acquisition, primaryBlockerVisible = false }: { record: OwnershipAnalysisRecord | null; acquisition?: RegistryAcquisition | null; primaryBlockerVisible?: boolean }) {
   const [candidateId, setCandidateId] = useState<string | null>(null);
   const [pathId, setPathId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
@@ -84,7 +84,7 @@ export default function OwnershipPathExplorer({ record, acquisition }: { record:
       <div className="kv-row"><span className="kv-label">Threshold</span><span className="kv-value">{record.threshold_comparator} {record.threshold_percent}</span></div>
       <p className="control-help">Source: {record.provider_name ?? "not available"} · {record.provider_environment ?? "not available"}</p>
       {clientSupplied && <p className="control-help">Client-supplied ownership evidence · LOCAL · not ACRA-derived. This declaration is retained for local analysis, not independently verified ownership.</p>}
-      {registryEmpty && <div className="ds-banner ds-banner-warn" role="note">
+      {registryEmpty && !primaryBlockerVisible && <div className="ds-banner ds-banner-warn" role="note">
         <strong>Ownership information required</strong>
         <span>Ownership is unavailable from current registry evidence. Use Add structured ownership details or Upload ownership evidence to provide reviewed client evidence for UBO analysis.</span>
       </div>}
@@ -107,12 +107,31 @@ export default function OwnershipPathExplorer({ record, acquisition }: { record:
       </div>}
 
       {partialIssues.length > 0 && (
-        <div className="ds-banner ds-banner-warn" role="note">
+        <details className="evidence-details"><summary>Why is this blocked?</summary>
           <strong>Non-definitive partial ownership view.</strong>
           {partialIssues.map((issue) => <span key={`${issue.code}-${issue.message}`}>{issue.code}: {issue.message}</span>)}
-        </div>
+        </details>
       )}
-      {record.error && <div className="ds-banner ds-banner-warn"><strong>{record.error.code}</strong><span>{record.error.message}</span></div>}
+      {record.evidence?.length ? <div className="table-scroll" tabIndex={0} aria-label="Original ownership evidence">
+        <table className="table"><caption>Original ownership evidence — percentages are shown only when justified</caption>
+          <thead><tr><th>Entity</th><th>Evidence</th><th>Original value</th><th>Source</th></tr></thead>
+          <tbody>{record.evidence.map((item) => <tr key={item.evidence_id}>
+            <td>{item.entity_identifier ?? "Unknown binding"}</td><td>{item.kind.replaceAll("_", " ")}</td>
+            <td>{item.raw_value}{item.kind === "SHARE_UNITS" ? " units" : ""}</td>
+            <td>{item.provider} · {item.environment} · {item.source_operation} · {item.retrieved_at}</td>
+          </tr>)}</tbody>
+        </table>
+      </div> : null}
+      {record.tagging && <details className="evidence-details"><summary>Ownership evidence classification</summary>
+        <p>Parameterized deterministic evidence classifier · not a trained ML model · no legal determination</p>
+        {record.tagging.tags.map((item) => <section key={`${item.tag}:${item.evidence_ids.join()}`}>
+          <p>{item.tag.replaceAll("_", " ")} · source confidence {item.confidence}</p>
+          {item.score != null && <p>Score {item.score} · threshold {item.threshold} · policy version {item.policy_version}</p>}
+          <p>Rule {item.rule_version} · evidence {item.evidence_ids.join(", ")} · case {item.case_version} / evidence {item.evidence_version}</p>
+          <details><summary>Why is this blocked?</summary><p>Classification reasons: {(item.reason_codes?.length ? item.reason_codes : [item.reason_code]).join(" · ")}. A semantic label does not decide arithmetic sufficiency or legal ownership.</p></details>
+        </section>)}
+      </details>}
+      {record.error && !primaryBlockerVisible && <details className="evidence-details"><summary>Why is this blocked?</summary><p>{record.error.code}: {record.error.message}</p></details>}
 
       {record.candidates.length === 0 ? <p className="text-muted">No retained ownership candidates are available. This does not establish that the hierarchy is complete.</p> : (
         <>

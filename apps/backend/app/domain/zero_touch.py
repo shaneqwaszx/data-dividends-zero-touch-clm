@@ -320,6 +320,7 @@ class BusinessException(BaseModel):
         min_length=64, max_length=64, exclude=True, repr=False
     )
     automation_version: int = Field(ge=1)
+    registry_evidence_generation: int | None = Field(default=None, ge=0, le=16)
     evidence: tuple[SafeExceptionEvidence, ...] = Field(default_factory=tuple, max_length=4)
     available_actions: tuple[ExceptionResolutionAction, ...] = Field(
         default_factory=tuple, max_length=4

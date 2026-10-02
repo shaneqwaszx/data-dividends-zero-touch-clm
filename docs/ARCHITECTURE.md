@@ -63,10 +63,10 @@ shapes, and runtime calls dispatch through ports rather than reversing static ow
 | Runtime composition/config | `app/composition.py`, `app/config.py`, `app/persistence/composition.py` | validated mode selection and dependency assembly | connectors, services, repositories | business branching or silent fallback |
 | Identity/RBAC/team scope | `domain/access.py`, `services/authentication.py`, `services/authorization.py`, `api_auth.py` | actor/session validation, capability and case scope | profile/team ports | frontend claims, caller-supplied authority |
 | Administration | `domain/administration.py`, `services/administration.py`, `services/admin_repository.py`, `persistence/mongo_admin_store.py` | team/profile lifecycle, versions, audits, last-HR invariant | auth domain, repository ports | case ownership or business workflow |
-| Policy | `domain/policy.py`, `services/policy_management.py` | typed catalogue and immutable case snapshots | policy repository | retroactive reinterpretation of cases |
+| Policy | `domain/policy.py`, `services/policy_management.py` | typed ACTIVE/proposal/superseded catalogue, HR proposal/Director decision and frozen case snapshots | existing capability owner and policy repository | retroactive reinterpretation of cases |
 | Jurisdiction | `domain/jurisdiction.py` | observations, resolution, closed routing decision | source-neutral values | source precedence or provider HTTP |
 | Registry/ACRA | `connectors/registry.py`, `connectors/acra.py`, `mock_acra.py`, `acra_sandbox.py`, `mappers/acra.py` | strict provider acquisition, normalization, canonical mapping | connector DTOs/domain canonical model | target mapping or UBO calculation |
-| Registry snapshot cache | `services/registry_acquisition.py`, `services/registry_cache_repository.py`, `persistence/mongo_registry_cache_store.py` | opt-in synthetic Mock exact-key freshness, single-flight acquisition, complete-snapshot persistence and case evidence binding | registry provider port and normalized domain bundles | routing/auth decisions, case state, raw payloads, ownership/reconciliation/target results, sandbox/live reuse |
+| Registry snapshot cache | `services/registry_acquisition.py`, `services/registry_cache_repository.py`, `persistence/mongo_registry_cache_store.py` | opt-in synthetic/official Mock exact-key frozen-policy freshness, bounded single-flight, normalized successful-prefix/definitive-negative persistence and COMPLETE-only case binding | registry provider port and normalized domain bundles | routing/auth decisions, case state, raw payloads, ownership/reconciliation/target results, sandbox/live reuse |
 | Canonical entity/evidence | `domain/models.py`, `services/canonical_validation.py` | source-neutral entity, provenance and evidence integrity | domain only | raw payload retention |
 | Documents/IDP | `domain/documents.py`, `services/document_media.py`, `document_processing.py`, `connectors/idp.py`, `local_pdf_idp.py` | intake validation, extraction, provenance, confidence/review records | case port, IDP port | source precedence or canonical overwrite |
 | Reconciliation | `domain/reconciliation.py`, `services/reconciliation.py`, reconciliation repository/UoW | compare observations, discrepancies, bounded decisions, resume binding | canonical/document evidence | implicit source winner |
@@ -124,29 +124,27 @@ ACRA source DTOs are freshly reconstructed and validated, request-identifier bou
 normalized, and mapped through `mappers/acra.py`. Direct ACRA-to-GoldTier mapping is
 prohibited.
 
-The optional registry snapshot cache is disabled by default and is valid only for the
-synthetic Mock ACRA identity. Authorization, jurisdiction, router, and identifier gates
-run before its single `RegistryAcquisitionCoordinator`. Exact keys include provider,
-environment, acquisition-contract version, synthetic dataset namespace, and normalized
-identifier. Only complete normalized bundles are stored. Freshness is evaluated after
-the per-key process-local lock at the actual use point, against every relevant UTC
-timestamp, using the project-owner-approved fixed 7,776,000-second rule. The original
-provider provenance is retained; a separate binding records provider-fetch versus
-cache-hit use and is defensively copied into each case.
+The optional registry snapshot cache is disabled by default and permits synthetic and
+explicit official API Marketplace Mock identities with distinct dataset namespaces.
+Authorization, jurisdiction, router and identifier gates run before its single
+RegistryAcquisitionCoordinator. Keys bind provider, environment, acquisition contract,
+dataset and normalized identifier. Schema1 reads complete bundles; schema2 writes
+normalized successful prefixes or definitive NOT_FOUND. Fresh complete evidence alone
+binds to a case. Frozen ACTIVE policy controls elapsed freshness (default90days) and
+negative TTL (default600seconds), with historical absent parameters retaining legacy
+values. Freshness is exclusive at expiry and checked at actual binding after fetch.
 
-The authorized case DTO exposes only a nullable seven-field Mock binding projection:
-disposition, case binding time, computed expiry, and the fixed freshness policy
-ID/version/duration/comparator. Projection fails closed for a non-Mock binding. Cache
-IDs, keys, revisions, write/anchor times, fingerprints, repository details, endpoints,
-references, and raw payloads remain server-internal. `None` is unknown/unrecorded and
-does not prove a miss, disabled cache, provider fetch, freshness, or current validity.
+The authorized DTO exposes the existing minimized nullable seven-field Mock binding:
+disposition, case binding time, expiry and freshness policy ID/version/duration/comparator.
+Keys/revisions/write times/references/fingerprints/endpoints/raw payloads stay internal.
+None means unknown/unrecorded, not a claim about cache use or evidence validity.
 
-The lock table counts holders and waiters and retires an exact-key lock only after the
-last user exits, including failure paths. Case establishment acquires its case lock
-before cache acquisition; cache code never acquires a case lock. This provides
-single-process same-key suppression only, not a distributed lock or exactly-once
-guarantee. The synthetic dataset and bounded identifier syntax constrain inputs, but
-there is no globally bounded key count, eviction, TTL, purge, or retention policy.
+Process-local single-flight allows at most256 active keys,64 registered users per key,
+and45seconds waiter deadline. Locks retire after their last caller, including failures
+and cancellation. Case establishment acquires its case lock before cache acquisition;
+cache code never acquires a case lock. Complete hits suppress all provider operations;
+partial reuse calls only missing required operations. No distributed exactly-once,
+TTL deletion, eviction, retained-keyspace bound or retention policy is claimed.
 
 ## 6. Document/IDP architecture
 
@@ -160,6 +158,51 @@ missing, invalid or unverifiable evidence follows the defined review/replacement
 it never silently changes the canonical entity.
 
 ## 7. Ownership/UBO architecture
+
+Phase 24 working candidate (uncommitted, not accepted): the registry normalizer retains
+bounded original unit/role evidence in `domain/ownership_evidence.py`; the single
+`OwnershipEvidenceTagger` labels it using versioned deterministic semantic rules.
+It cannot calculate percentages, establish legal control, authorize a workflow action,
+or invoke a model. `ML_RUNTIME_NOT_AVAILABLE` is explicit. The experimental model
+protocol is unwired. [ADR-008](decisions/ADR-008_OWNERSHIP_EVIDENCE_TAGGING.md) records
+the proposed boundary. Compatible authoritative same-UEN denominator calculation
+remains inside `OwnershipAnalysisService`; unquantified evidence stays separate from
+graph edges. Existing pure graph validation remains strict.
+
+Scalar percentages retain each relationship's actual owned entity and unique edge
+reference, including repeated parties at different graph levels. Unknown owned-entity
+bindings remain null and unquantified. Scalar review issues augment graph diagnostics
+before candidate classification; affected candidates remain indeterminate.
+Unresolved group, unknown, control, membership/economic-interest and unmatched owner
+roles require review even beside a valid graph. Unknown/withdrawn activity cannot be
+hidden by a matching numeric edge. Director/officer observations alone do not change
+an otherwise supported ownership result.
+
+The existing Onboarding/ZeroTouch owners verify registry UEN corrections and bind
+entered/document/other choices before read-only Search and downstream recomputation.
+Document choices retain document ID/event version. Registry-derived ownership binds
+the canonical UEN and correction generation; its repository preserves bounded prior
+analysis history under expected-version CAS. Mongo also checks current parent identity
+and generation inside its envelope lock. Historical missing bindings mean unknown.
+Completed/submitted/confirmed cases remain frozen.
+Identity recheck capacity is checked before registry/Search or mutation: both bounded
+histories retain at most 16 entries. Case repositories and the durable codec validate
+reconstructed model values before writes, retaining existing private binding fields.
+Independent evidence cannot reappear after an intervening different/unknown identity.
+The existing ownership repository owns a shared currentness predicate used by both
+service validation and Mongo writes under the parent envelope lock. Same-UEN independent
+evidence may continue across a correction; registry evidence requires the current
+generation. Expected revision and deleted-case protections remain in that boundary.
+CaseDetail owns seven ordered disclosures, stage-local interventions and final
+Review & Send; the existing query
+publication owner still controls authoritative mutation results and stale responses.
+Registry correction advances the CaseDetail action generation and cancels/resets
+documents, ownership and intelligence through `caseQueries` before publishing the
+new summary. A null or lower-version new analysis cannot retain the old identity's
+monotonic cache baseline; late old actions/responses cannot replace the new evidence.
+Disclosure buttons keep readable normal, hover and keyboard-focus colors. Visual and
+accessible progress use the same POC percentage; POC completion is 100% while final
+human approval remains outside this workflow.
 
 Registry acquisition evidence is adapted to the source-neutral ownership port and fed
 to `OwnershipAnalysisService`/`domain/ownership.py`. This is the sole maintained graph
@@ -293,8 +336,8 @@ unknown historical metadata. Reads do not infer cache disposition. The separate 
 schema v1 uses canonical lossless UTC ISO-8601 strings in memory and Mongo, an exact-key
 digest identity, insert-only creation, and expected-revision replacement. Cache and case
 repositories remain separate; no cross-collection transaction is claimed. A successful
-cache write can survive a later case-persistence failure, while an incomplete/failed
-refresh can never replace a complete entry.
+cache write can survive a later case-persistence failure, while a schema2 failed/partial refresh retains only validated successful operations
+and can never provide a COMPLETE case binding.
 
 The schema-v5 envelope uses additive optional fields for GoldTier provider mode,
 authority-labelled target policy, and request-plan preview. Existing schema-v5 records
@@ -553,8 +596,8 @@ global source-precedence rule.
 
 For Singapore, UEN is the current routing and returned-registry identity evidence;
 legal name remains reconciliation evidence. Fuzzy name matching is not authoritative
-identity. Synthetic Mock ACRA cache-first reuse is now an optional project-approved POC
-path with a fixed 7,776,000-second freshness interval. It is disabled by default and is
+identity. Exact-key Mock operation reuse is an optional owner-authorized POC
+path with frozen ACTIVE freshness parameters (default7,776,000seconds). It is disabled by default and is
 not an ACRA rule, production sharing/retention decision, calendar-month interpretation,
 or sponsor-confirmed policy. The POC has no general ageing/SLA, OCDD, periodic refresh,
 forced refresh, or perpetual-KYC engine.
@@ -600,3 +643,17 @@ Do not solve these incidentally.
 rules. It is not the architecture authority and cannot prove semantic ownership,
 route-handler behavior, runtime call direction, or absence of every possible bypass;
 those remain documentation and independent-review responsibilities.
+
+## Phase24C owner delta — 2026-10-02
+
+D-064 and current policy/cache/persistence contract amendments supersede earlier fixed
+cache and direct policy-edit descriptions. PolicyManagementService owns proposal/activation
+under one lock and repository CAS; existing capability owner grants HR proposal and
+Director decision. Cases freeze ACTIVE identity/values. RegistryAcquisitionCoordinator
+owns schema2 operation reuse/definitive negatives and bounded process-local single-flight;
+current case schema8 remains the sole envelope. OwnershipEvidenceTagger owns parameterized
+deterministic semantic classification/14-example synthetic metrics; the single Decimal
+ownership engine keeps arithmetic authority. PolicyRules renders the five categories,
+proposal/reset/decision and synthetic before-after impact. No new state, auth, policy,
+persistence, target execution, provider or frontend query-client owner is introduced.
+Implementation candidate; fresh independent combined gate pending.

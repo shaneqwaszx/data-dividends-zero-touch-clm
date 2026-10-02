@@ -47,7 +47,6 @@ from app.domain.jurisdiction import (
 from app.domain.models import (
     EventOutcome,
     GoldTierResult,
-    IdentityCorrectionEvidence,
     InitialCustomerIdentity,
     OnboardingCase,
     RegisteredAddress,
@@ -81,6 +80,7 @@ from app.domain.ownership import (
     OwnershipWorkflowEvent,
     Party,
 )
+from app.domain.ownership_evidence import OwnershipEvidence, OwnershipTaggingResult
 from app.domain.policy import (
     GOLDTIER_BOOKING_ENTITY_POC_VALUE,
     GOLDTIER_CLIENT_SEGMENT_VALUES,
@@ -102,6 +102,7 @@ from app.domain.reconciliation import (
     ReconciliationSourceKind,
     ReconciliationStatus,
 )
+from app.domain.registry_legal_form import RegistryLegalForm
 from app.domain.zero_touch import (
     LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
     AutomationEvent,
@@ -211,6 +212,9 @@ class BrowserRegistryOwnershipParty(BaseModel):
     registration_identifier: str | None
     country: str | None
     ownership_percentage: Decimal | None
+    source_category: str | None = None
+    source_status: str | None = None
+    share_allotted: Decimal | None = None
     provenance: BrowserRegistryProvenance
 
 
@@ -258,9 +262,9 @@ class BrowserRegistryEvidenceBinding(BaseModel):
     disposition: RegistryEvidenceDisposition
     bound_to_case_at: datetime
     expires_at: datetime
-    freshness_policy_id: Literal["MOCK_ACRA_FIXED_90D"]
-    freshness_policy_version: Literal[1]
-    freshness_duration_seconds: Literal[7_776_000]
+    freshness_policy_id: Literal["MOCK_ACRA_FIXED_90D", "MOCK_ACRA_APPROVED_POLICY"]
+    freshness_policy_version: int
+    freshness_duration_seconds: int
     freshness_comparator: Literal["EVALUATION_NOW_LT_EXPIRES_AT"]
 
 
@@ -340,6 +344,22 @@ class BrowserPolicyRebindMetadata(BaseModel):
         )
 
 
+class BrowserIdentityCorrectionEvidence(BaseModel):
+    """Correction receipt; previous canonical/provider evidence stays backend-only."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+    correction_id: UUID
+    actor_id: str
+    evidence_type: str
+    previous_identity: InitialCustomerIdentity | None = None
+    corrected_identity: InitialCustomerIdentity
+    previous_search_request_id: UUID | None = None
+    choice: Literal["ENTERED", "DOCUMENT", "OTHER"] = "OTHER"
+    source_document_id: UUID | None = None
+    source_document_event_count: int | None = None
+    corrected_at: datetime
+
+
 class OnboardingCaseResponse(BaseModel):
     """Application case response with internal proof metadata minimized."""
 
@@ -350,7 +370,7 @@ class OnboardingCaseResponse(BaseModel):
     correlation_id: UUID
     requested_uen: str
     initial_identity: InitialCustomerIdentity | None = None
-    identity_corrections: tuple[IdentityCorrectionEvidence, ...] = ()
+    identity_corrections: tuple[BrowserIdentityCorrectionEvidence, ...] = ()
     target_dispatch_confirmation: TargetDispatchConfirmation | None = None
     policy_snapshot: CasePolicySnapshot
     policy_snapshot_revision: int
@@ -479,6 +499,9 @@ class OwnershipAnalysisResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
     case_id: UUID
+    evidence: tuple[OwnershipEvidence, ...] = ()
+    tagging: OwnershipTaggingResult | None = None
+    legal_form: RegistryLegalForm | None = None
     version: int
     analysis_id: UUID
     correlation_id: UUID
@@ -792,7 +815,7 @@ def project_human_interventions(
             # Submission control is rendered in Review and Send, separately from exceptions.
             continue
         required: tuple[str, ...] = ("Review the retained evidence identified by the blocker.",)
-        title = f"Action required — {_INTERVENTION_STAGE_LABELS[exception.stage]}"
+        title = f"Action required â€” {_INTERVENTION_STAGE_LABELS[exception.stage]}"
         explanation = exception.explanation
         expected = (
             "Use only a backend-authorized action below. The owning service will "
@@ -913,7 +936,7 @@ def project_human_interventions(
             and clm.submission_snapshot is None
             and clm.status != ClmStatus.SUBMITTING
         ):
-            title = "Ownership and UBO — needs input"
+            title = "Ownership and UBO â€” needs input"
             classification = "RECOVERABLE_INPUT"
             required = (
                 "Case-bound ownership percentages, as-of date and "
@@ -956,7 +979,7 @@ def project_human_interventions(
                 and case.target_dispatch_confirmation is None
             ):
                 classification = "RECOVERABLE_INPUT"
-                title = "Target classification — needs input"
+                title = "Target classification â€” needs input"
                 evidence_actions = (
                     BrowserInterventionEvidenceAction(
                         target="CLASSIFICATION", label="Set target classification"
@@ -1874,7 +1897,7 @@ def project_processing_pipeline(
             ),
             backend_stage=AutomationStage.READINESS,
             timestamp=classification_timestamp,
-            safe_result=(f"{item.value} · {item.authority.value}" if item is not None else None),
+            safe_result=(f"{item.value} Â· {item.authority.value}" if item is not None else None),
             blocker_code=(
                 "GOLDTIER_CLASSIFICATION_REQUIRED"
                 if item is None
@@ -1932,8 +1955,8 @@ def project_processing_pipeline(
             operation=item.operation,
             backend_stage=AutomationStage.MOCK_GOLDTIER,
             safe_result=(
-                "Recovered from provider verification · Original transport outcome: "
-                "Uncertain · Replay: No"
+                "Recovered from provider verification Â· Original transport outcome: "
+                "Uncertain Â· Replay: No"
                 if item.status == "RECOVERED"
                 else item.status.replace("_", " ").title()
             ),

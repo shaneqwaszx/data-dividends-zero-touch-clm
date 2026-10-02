@@ -1,0 +1,7 @@
+# Stage recovery remediation round 1 of 2
+
+Authority: owner attachment806d1f20 and initial fresh MINI FAIL (SHA256 c5d3129d2eca3b189fa4037d92e77642323225f50a60734f5400ebd3b3ef988e). Initial frozen88 content599b2b6e908c68d03e9c52485b1d367cece4794f1b2c25ec92f1ff778050208d remains historical and immutable.
+Branch feat/phase24-registry-identity-ownership-ubo; HEAD/base/inspected origin/main039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c; index empty; no fetch/publication.
+
+F1: existing progression must evaluate unproved prerequisites before later retained blockers, including missing/LOADED ownership; preserve unrelated decisions, authoritative document dependency, currentness and no dispatch. F2: complete semantic selection in correction and safe infrastructure projection on both correction API aliases. Existing owner and versioned stage constants only; no schema/provider/config/security/business-rule changes.
+Owned paths: orchestration service, main correction catches, new round1 regressions, affected stage/interrupted/physical assertions and automation-policy contract. New handoff/manifest/delta and a fresh review-only report will identify exact content. Preserve all preceding artifacts. Focused failing-first, adversarial permutations/current states/reload/repeat, affected and full backend, Ruff/mypy/contracts/governance/security/hygiene and disposable physical lane required. Phase24C stays deferred until fresh MINI PASS under the owner's conditional instruction.

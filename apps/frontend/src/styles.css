@@ -3576,7 +3576,7 @@ dd {
   .ds-shell:has(.review-and-send) > :not(.ds-content),
   .ds-content:has(.review-and-send) > :not(:has(.review-and-send)),
   .detail-layout:has(.review-and-send) > :not(.ds-page),
-  .ds-page:has(.review-and-send) > :not(.review-and-send) {
+  .ds-page:has(.review-and-send) > :not(.review-and-send):not(:has(.review-and-send)) {
     display: none !important;
   }
   body * { visibility: hidden; }
@@ -3591,6 +3591,8 @@ dd {
     color: #000;
     font-size: 10pt;
   }
+  .stage-disclosure--final > h2 { display: none !important; }
+  .stage-disclosure--final > div[hidden] { display: block !important; }
   .review-and-send__print,
   .review-and-send__edit,
   .review-and-send__actions { display: none !important; }
@@ -3950,3 +3952,64 @@ dd {
     width: 100%;
   }
 }
+.stage-disclosure {
+  margin-block: 16px;
+  border: 1px solid var(--border, #d6ded9);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  min-width: 0;
+}
+.stage-disclosure > h2 { margin: 0; font-size: 16px; }
+.stage-disclosure__summary { margin: 0; padding: 0 18px 18px; }
+.stage-disclosure > h2 > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #12291f;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.stage-disclosure > h2 > button:hover:not(:disabled),
+.stage-disclosure > h2 > button:focus-visible {
+  background: #edf5f0;
+  color: #12291f;
+}
+.stage-disclosure > h2 > button:focus-visible {
+  outline: 3px solid #147653;
+  outline-offset: 2px;
+}
+.stage-disclosure > div:not([hidden]) { padding: 0 18px 18px; min-width: 0; }
+.stage-disclosure--final { border-color: #147653; }
+.stage-disclosure .table-card { overflow-x: auto; max-width: 100%; }
+.stage-disclosure .kv-value, .stage-disclosure p { overflow-wrap: anywhere; }
+@media (max-width: 540px) {
+  .stage-disclosure > h2 > button { padding: 14px; }
+  .stage-disclosure > div:not([hidden]) { padding: 0 12px 14px; }
+}
+
+/* Phase24C policy values and formulas remain readable at narrow widths and zoom. */
+.policy-control-plane { min-width: 0; }
+.policy-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1rem; margin-block: 1rem; }
+.policy-parameter, .policy-proposal, .policy-editor { min-width: 0; overflow-wrap: anywhere; }
+.policy-parameter h3 { margin-top: 0; }
+.policy-values { display: flex; flex-wrap: wrap; gap: 1rem; }
+.policy-values dt { font-weight: 600; }
+.policy-values dd { margin: .25rem 0; }
+.policy-formula { overflow-wrap: anywhere; white-space: normal; line-height: 1.6; }
+.policy-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.policy-editor { display: grid; gap: .75rem; }
+.policy-editor label { display: grid; gap: .5rem; }
+.policy-editor input, .policy-editor select, .policy-editor textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.policy-editor textarea { min-height: 6rem; }
+.policy-category > summary, .policy-metrics > summary { padding: 1rem; font-weight: 600; cursor: pointer; }
+.policy-category summary:focus-visible, .policy-metrics summary:focus-visible { outline: 3px solid #00736b; outline-offset: 3px; }
+.policy-proposal { margin-block: 1rem; }
+.policy-metrics .table-scroll { max-width: 100%; overflow-x: auto; }
+.policy-metrics table { width: max-content; min-width: 100%; }

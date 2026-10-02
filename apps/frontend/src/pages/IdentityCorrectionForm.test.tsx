@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,11 +34,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function render(onSubmit = vi.fn()): { view: HTMLDivElement; onSubmit: ReturnType<typeof vi.fn> } {
+function render(onSubmit = vi.fn(), props: Partial<ComponentProps<typeof IdentityCorrectionForm>> = {}): { view: HTMLDivElement; onSubmit: ReturnType<typeof vi.fn> } {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  act(() => root?.render(<IdentityCorrectionForm onboardingCase={onboardingCase} disabled={false} onSubmit={onSubmit} />));
+  act(() => root?.render(<IdentityCorrectionForm onboardingCase={onboardingCase} disabled={false} onSubmit={onSubmit} {...props} />));
   return { view: container, onSubmit };
 }
 
@@ -49,6 +49,27 @@ function enter(input: HTMLInputElement, value: string): void {
 }
 
 describe("IdentityCorrectionForm", () => {
+  it("exposes all bounded identity choices with selected document version", () => {
+    const { view, onSubmit } = render(vi.fn(), {
+      registryRecovery: true,
+      documentCandidates: [{ uen: "202400009I", documentId: "synthetic-doc", eventCount: 8 }],
+    });
+    const button = (label: string) => Array.from(view.querySelectorAll("button")).find(
+      (item) => item.textContent === label,
+    )!;
+    expect(view.textContent).toContain("Entity identity requires confirmation");
+    act(() => button("Use entered UEN").click());
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({
+      registration_number: "202400001A", choice: "ENTERED",
+    }));
+    act(() => button("Use document UEN").click());
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({
+      registration_number: "202400009I", choice: "DOCUMENT",
+      document_id: "synthetic-doc", expected_document_event_count: 8,
+    }));
+    act(() => button("Enter another UEN").click());
+    expect(view.querySelector("#identity-registration-number")).not.toBeNull();
+  });
   it("collects legal name and UEN, fixes country to SG, and states the evidence boundary", () => {
     const { view } = render();
     expect((view.querySelector("#identity-legal-name") as HTMLInputElement).value).toBe("Example Pte Ltd");

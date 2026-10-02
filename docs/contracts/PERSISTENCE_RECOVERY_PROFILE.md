@@ -12,7 +12,7 @@ The execution profile exposes only `Process-local` or `Mongo-backed durable POC`
 
 ## Durable contract
 
-One case envelope (currently schema v7) contains revision, onboarding and Registry evidence,
+One case envelope (currently schema v8) contains revision, onboarding and Registry evidence,
 ordered document records and supersession links, reconciliation outcomes/decisions,
 ownership evidence, CLM and automation checkpoints, target execution ledger, safe demo
 scenario metadata, an optional immutable case-bound advisory-intelligence projection,
@@ -20,7 +20,7 @@ and timestamps. Every nested case/submission/intelligence identity must agree.
 Mongo `_id` must be the canonical UUID string equal to the envelope `case_id`. Missing,
 non-string, malformed, noncanonical, or mismatched keys are invalid persisted data on
 every read path and during startup. Unknown versions or invalid nested aggregates are
-not interpreted, repaired, or automatically migrated. Strict v1-v6 reads migrate only
+not interpreted, repaired, or automatically migrated. Strict v1-v7 reads migrate only
 in memory to the current type; schema-v4 cases retain `intelligence = null`, are not
 recomputed from current policy, and are not rewritten by a read. Schema v6 additionally
 retains bounded initial identity/Search, existing-target provenance, lifecycle-resolved
@@ -100,3 +100,17 @@ policy.
 current failed record was durably accepted with `IDP_PROCESSING_FAILED`. Repository/CAS
 or other infrastructure rejection does not enter that recovery state and leaves the
 existing automation checkpoint and blockers unchanged.
+
+## Phase24C additive envelope/control-plane amendment — 2026-10-02
+
+Current case writes are schema8, adding frozen registry/classifier parameters and policy
+identity plus optional version2 semantic score/threshold/policy/reason metadata. Schemas
+1..7 read into the current type in memory only and retain absent parameters as legacy
+behavior; no active-policy lookup, case rewrite or automatic reclassification occurs.
+New non-null parameters/version2 tags in an old envelope fail closed. Schema7 keeps all
+accepted recovery/confirmation/stage facts. Same identities, strict integer discriminator,
+CAS/no resurrection, ledger/no replay, minimized browser cache projection and explicit
+memory/Mongo modes remain. The separate policy singleton has explicit schema2 proposals,
+ACTIVE/superseded versions, approval metadata and append-only audit; the separate cache
+collection has explicit schema2 normalized prefixes/definitive absence. Neither is a
+new persistence owner. Physical evidence requires fresh allowlisted disposable databases.

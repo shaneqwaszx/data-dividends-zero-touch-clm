@@ -60,7 +60,7 @@ class InMemoryOnboardingCaseRepository:
 
     def save(self, case: OnboardingCase) -> None:
         with self._lock:
-            validated = OnboardingCase.model_validate(case)
+            validated = OnboardingCase.model_validate(case.model_dump())
             current = self._cases.get(validated.case_id)
             if current is None:
                 raise OnboardingCaseRepositoryConflictError
@@ -70,7 +70,7 @@ class InMemoryOnboardingCaseRepository:
 
     def create(self, case: OnboardingCase) -> None:
         with self._lock:
-            validated = OnboardingCase.model_validate(case)
+            validated = OnboardingCase.model_validate(case.model_dump())
             if validated.case_id in self._cases:
                 raise OnboardingCaseRepositoryConflictError
             self._cases[validated.case_id] = validated.model_copy(deep=True)
@@ -121,6 +121,7 @@ class InMemoryOnboardingCaseRepository:
         return case.model_copy(deep=True) if case is not None else None
 
     def transaction_replace(self, case: OnboardingCase) -> None:
+        case = OnboardingCase.model_validate(case.model_dump())
         current = self._cases.get(case.case_id)
         if current is None:
             raise OnboardingCaseRepositoryConflictError

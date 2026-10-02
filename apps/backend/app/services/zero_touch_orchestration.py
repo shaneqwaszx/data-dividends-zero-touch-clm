@@ -5,6 +5,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
+from typing import Literal
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from app.connectors.idp import IdpProvider
@@ -26,6 +27,7 @@ from app.domain.documents import (
     FieldReviewStatus,
     ReviewDecision,
 )
+from app.domain.jurisdiction import is_eligible_singapore_uen
 from app.domain.models import EventOutcome, SafeError, WorkflowState
 from app.domain.onboarding_intelligence import (
     EntityResolutionOutcome,
@@ -38,6 +40,7 @@ from app.domain.reconciliation import (
     ReconciliationCaseRecord,
     ReconciliationDecisionAction,
     ReconciliationDiscrepancy,
+    ReconciliationField,
     ReconciliationOutcome,
     ReconciliationSourceKind,
     ReconciliationStatus,
@@ -103,6 +106,12 @@ from app.services.zero_touch_repository import (
     ZeroTouchAutomationRepository,
     ZeroTouchRepositoryConflictError,
 )
+
+_OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES = frozenset({
+    BusinessExceptionType.OWNERSHIP_CYCLE,
+    BusinessExceptionType.OWNERSHIP_INCOMPLETE,
+    BusinessExceptionType.OWNERSHIP_REVIEW_REQUIRED,
+})
 
 
 class _CaseDocumentReader:
@@ -652,7 +661,9 @@ class ZeroTouchOrchestrator:
         with self._cases.case_lock(case_id):
             if reauthorize is not None:
                 reauthorize()
-            record = self._require_record(case_id)
+            record = self._recover_obsolete_registry_ownership_locked(
+                self._require_record(case_id)
+            )
             if (
                 refresh_document_checkpoint
                 and record.status == AutomationStatus.WAITING_FOR_REVIEW
@@ -666,6 +677,7 @@ class ZeroTouchOrchestrator:
             } or (
                 record.status == AutomationStatus.WAITING_FOR_REVIEW
                 and not retained_evidence_intake
+                and not _has_unproved_prerequisite(record)
             ):
                 return record
             current_documents = self._current_documents(case_id)
@@ -996,7 +1008,7 @@ class ZeroTouchOrchestrator:
             remaining_blockers = candidate.active_exceptions
             if remaining_blockers:
                 candidate.status = AutomationStatus.WAITING_FOR_REVIEW
-                candidate.current_stage = remaining_blockers[0].stage
+                candidate.current_stage = _earliest_open_stage(candidate)
             else:
                 candidate.status = AutomationStatus.RESUMING
                 candidate.current_stage = AutomationStage.OWNERSHIP
@@ -1176,7 +1188,7 @@ class ZeroTouchOrchestrator:
             candidate.metrics.exceptions_resolved += affected_count
             if remaining:
                 candidate.status = AutomationStatus.WAITING_FOR_REVIEW
-                candidate.current_stage = remaining[0].stage
+                candidate.current_stage = _earliest_open_stage(candidate)
             else:
                 candidate.status = AutomationStatus.RESUMING
                 candidate.current_stage = AutomationStage.READINESS
@@ -1360,6 +1372,10 @@ class ZeroTouchOrchestrator:
         expected_automation_version: int,
         expected_clm_version: int,
         expected_case_event_count: int,
+        verify_registry: bool = False,
+        identity_choice: Literal["ENTERED", "DOCUMENT", "OTHER"] = "OTHER",
+        document_id: UUID | None = None,
+        expected_document_event_count: int | None = None,
         reauthorize: Callable[[], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Repair/recheck the same pre-submission case without target mutation."""
@@ -1393,7 +1409,7 @@ class ZeroTouchOrchestrator:
                 and current_case.error is not None
                 and current_case.error.code == "INITIAL_IDENTITY_INCOMPLETE"
             )
-            if not missing_identity_repair and (
+            if not missing_identity_repair and not verify_registry and (
                 checkpoint is None
                 or checkpoint.status
                 not in {
@@ -1406,6 +1422,47 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_IDENTITY_RECHECK_NOT_ALLOWED",
                     message="Identity editing is not accepted at the current stage.",
                 )
+            if record.status == AutomationStatus.COMPLETED:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_IDENTITY_RECHECK_FROZEN",
+                    message="Completed case identity is frozen.",
+                )
+            if verify_registry:
+                if current_case is None:
+                    raise ZeroTouchRequestError(
+                        code="ONBOARDING_CASE_NOT_FOUND",
+                        message="The onboarding case was not found."
+                    )
+                if identity_choice == "ENTERED" and (
+                    registration_number.strip().upper() != current_case.requested_uen
+                ):
+                    raise ZeroTouchRequestError(
+                        code="IDENTITY_CHOICE_INVALID", message="The entered UEN choice changed."
+                    )
+                if identity_choice == "DOCUMENT":
+                    document = next((item for item in self._current_documents(case_id)
+                                     if item.document_id == document_id), None)
+                    field = next((item for item in document.fields
+                                  if item.field_key == DocumentFieldKey.REGISTRATION_NUMBER), None
+                                 ) if document is not None else None
+                    value = (field.reviewed_value or field.normalized_value) if field else None
+                    if (document is None or len(document.events) != expected_document_event_count
+                        or field is None or value is None
+                        or not is_eligible_singapore_uen(value.strip().upper())
+                        or value.strip().upper() != registration_number.strip().upper()
+                        or field.review_status == FieldReviewStatus.REJECTED
+                        or (field.review_status == FieldReviewStatus.PENDING
+                            and field.confidence
+                            < current_case.policy_snapshot.idp_review_confidence_threshold)
+                    ):
+                        raise ZeroTouchRequestError(
+                            code="IDENTITY_DOCUMENT_CHOICE_STALE",
+                            message=(
+                                "The document UEN is unavailable or changed; refresh the evidence."
+                            ),
+                        )
+            changed_uen = bool(current_case and
+                               current_case.requested_uen != registration_number.strip().upper())
             try:
                 self._cases.repair_initial_identity_and_recheck(
                     case_id=case_id,
@@ -1414,6 +1471,12 @@ class ZeroTouchOrchestrator:
                     registration_number=registration_number,
                     country_of_incorporation=country_of_incorporation,
                     expected_case_event_count=expected_case_event_count,
+                    verify_registry=verify_registry,
+                    identity_choice=identity_choice,
+                    source_document_id=document_id if identity_choice == "DOCUMENT" else None,
+                    source_document_event_count=(
+                        expected_document_event_count if identity_choice == "DOCUMENT" else None
+                    ),
                 )
                 refreshed = self._clm.refresh_initial_search_after_recheck(
                     case_id=case_id,
@@ -1430,15 +1493,50 @@ class ZeroTouchOrchestrator:
                 ) from None
 
             candidate = record.model_copy(deep=True)
+            documents_available = bool(self._current_documents(case_id))
             for item in candidate.active_exceptions:
+                obsolete_registry_dependency = (
+                    verify_registry
+                    and self._is_obsolete_registry_ownership_exception(case_id, item)
+                )
                 if (
-                    item.stage == AutomationStage.GOLDTIER_SEARCH
+                    obsolete_registry_dependency
+                    or item.stage == AutomationStage.GOLDTIER_SEARCH
+                    or (verify_registry and documents_available
+                        and item.stage == AutomationStage.DOCUMENT)
+                    or (changed_uen and item.stage in {
+                        AutomationStage.DOCUMENT, AutomationStage.OWNERSHIP,
+                        AutomationStage.READINESS
+                    })
+                    or (verify_registry and item.stage == AutomationStage.REGISTRY)
                     or item.blocker_code == "INITIAL_IDENTITY_INCOMPLETE"
                     or item.exception_type
                     == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
                 ):
                     item.status = BusinessExceptionStatus.CANCELLED
                     item.resolved_at = self._clock()
+            if verify_registry and documents_available:
+                try:
+                    reconciliation = self._reconciliation.reconcile_current(case_id=case_id)
+                    if identity_choice == "ENTERED":
+                        for discrepancy in reconciliation.open_discrepancies:
+                            if (discrepancy.field_name
+                                == ReconciliationField.REGISTRATION_IDENTIFIER
+                                and ReconciliationDecisionAction.KEEP_REGISTRY_VALUE
+                                in discrepancy.allowed_actions):
+                                reconciliation = self._reconciliation.resolve_discrepancy(
+                                    case_id=case_id, discrepancy_id=discrepancy.discrepancy_id,
+                                    action=ReconciliationDecisionAction.KEEP_REGISTRY_VALUE,
+                                    expected_version=reconciliation.version,
+                                    evidence_fingerprint=discrepancy.evidence_fingerprint,
+                                )
+                except ReconciliationRequestError as exc:
+                    raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
+                except ReconciliationInfrastructureError as exc:
+                    raise ZeroTouchInfrastructureError(
+                        case_id=case_id, automation_id=record.automation_id,
+                        code=exc.code, message=exc.public_message,
+                    ) from None
             repaired_case = self._cases.get_case(case_id)
             search_completed = bool(
                 refreshed.target_search_checkpoint is not None
@@ -1471,7 +1569,7 @@ class ZeroTouchOrchestrator:
                 else AutomationStatus.RESUMING
             )
             candidate.current_stage = (
-                remaining_exceptions[0].stage
+                _earliest_open_stage(candidate)
                 if remaining_exceptions
                 else AutomationStage.GOLDTIER_SEARCH
             )
@@ -1486,6 +1584,8 @@ class ZeroTouchOrchestrator:
                 message="Authorized identity repair and read-only Search recheck were retained.",
             )
             saved = self._save(record, candidate)
+            if verify_registry and documents_available:
+                return self._advance_locked(case_id=case_id)
             if remaining_exceptions:
                 return saved
             if search_completed:
@@ -1774,7 +1874,9 @@ class ZeroTouchOrchestrator:
         candidate.status = (
             AutomationStatus.WAITING_FOR_REVIEW if remaining else AutomationStatus.RESUMING
         )
-        candidate.current_stage = remaining[0].stage if remaining else AutomationStage.DOCUMENT
+        candidate.current_stage = (
+            _earliest_open_stage(candidate) if remaining else AutomationStage.DOCUMENT
+        )
         candidate = self._append_event(
             candidate,
             event_type=AutomationEventType.AUTOMATION_RESUMING,
@@ -1885,7 +1987,7 @@ class ZeroTouchOrchestrator:
             return self._raise_reconciliation_exceptions(candidate, reconciliation)
         if candidate.active_exceptions:
             candidate.status = AutomationStatus.WAITING_FOR_REVIEW
-            candidate.current_stage = candidate.active_exceptions[0].stage
+            candidate.current_stage = _earliest_open_stage(candidate)
             return self._save(record, candidate)
         self._save(record, candidate)
         return self._advance_locked(case_id=record.case_id)
@@ -1934,9 +2036,109 @@ class ZeroTouchOrchestrator:
                 message="Onboarding automation stopped after an unexpected technical failure.",
             ) from None
 
+    def _is_obsolete_registry_ownership_exception(
+        self, case_id: UUID, item: BusinessException,
+    ) -> bool:
+        return (
+            item.stage in {AutomationStage.OWNERSHIP, AutomationStage.READINESS}
+            and item.exception_type in _OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES
+            and item.evidence_version.startswith("ownership:")
+            and self._ownership.registry_dependency_is_obsolete(
+                case_id=case_id, evidence_version=item.evidence_version,
+                registry_evidence_generation=item.registry_evidence_generation,
+            )
+        )
+
+    def _recover_obsolete_registry_ownership_locked(
+        self, record: ZeroTouchAutomationRecord,
+    ) -> ZeroTouchAutomationRecord:
+        """Repair an interrupted pre-submission rebind under the owning case lock.
+
+        Only proven obsolete registry ownership dependencies are retired. No new
+        registry/Search call, human decision or target dispatch is performed here.
+        """
+        if record.status in {AutomationStatus.COMPLETED, AutomationStatus.TECHNICAL_FAILURE}:
+            return record
+        obsolete = {
+            item.exception_id for item in record.active_exceptions
+            if self._is_obsolete_registry_ownership_exception(record.case_id, item)
+        }
+        case = self._cases.get_case(record.case_id)
+        clm = self._clm.get(case_id=record.case_id)
+        if case is None or clm is None or clm.submission_snapshot is not None:
+            return record
+        ownership = self._ownership.get(case_id=record.case_id)
+        current_review = (
+            ownership is not None and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
+        )
+        unproved_ownership_checkpoint = (
+            AutomationStage.OWNERSHIP in record.completed_stages
+            and (ownership is None or ownership.state in {
+                OwnershipAnalysisState.LOADED, OwnershipAnalysisState.FAILED,
+            })
+        )
+        if not obsolete and not unproved_ownership_checkpoint:
+            # A durable ownership result can precede its automation checkpoint.
+            # Restore that owned dependency even beside an independent later blocker.
+            if current_review and ownership is not None:
+                return self._raise_ownership_exception(record, ownership)
+            return record
+        # The parent write may have succeeded before its CLM projection. Rebind
+        # retained Search evidence using its existing request ID and CLM CAS.
+        search = case.initial_target_search
+        if search is not None and (
+            clm.target_search_checkpoint is None
+            or clm.target_search_checkpoint.request_id != search.request_id
+        ):
+            try:
+                clm = self._clm.refresh_initial_search_after_recheck(
+                    case_id=record.case_id, expected_clm_version=clm.version,
+                )
+            except ClmRequestError as exc:
+                raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
+        candidate = record.model_copy(deep=True)
+        for item in candidate.active_exceptions:
+            if item.exception_id in obsolete:
+                item.status = BusinessExceptionStatus.CANCELLED
+                item.resolved_at = self._clock()
+        # Rebuild document reconciliation, ownership and readiness from current
+        # evidence; retain every unrelated blocker and its original decision.
+        candidate.completed_stages = (
+            (AutomationStage.REGISTRY,)
+            if case.state == WorkflowState.VALIDATED and case.entity is not None else ()
+        )
+        if (candidate.stage_order_version != LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+            and candidate.completed_stages and search is not None
+            and clm.target_search_checkpoint is not None
+            and clm.target_search_checkpoint.request_id == search.request_id
+            and clm.target_search_checkpoint.status == GoldTierSearchCheckpointStatus.COMPLETED):
+            candidate.completed_stages += (AutomationStage.GOLDTIER_SEARCH,)
+        if current_review and ownership is not None:
+            candidate = self._raise_ownership_exception(candidate, ownership, persist=False)
+        remaining = candidate.active_exceptions
+        candidate.status = (
+            AutomationStatus.WAITING_FOR_REVIEW if remaining else AutomationStatus.RESUMING
+        )
+        candidate.current_stage = _earliest_open_stage(candidate) if remaining else _next_stage(
+            candidate.completed_stages, order=_stage_order(candidate),
+        )
+        candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
+        candidate.metrics.final_outcome = None
+        candidate = self._append_event(
+            candidate, event_type=AutomationEventType.AUTOMATION_RESUMING,
+            outcome=EventOutcome.SUCCEEDED,
+            code=("OBSOLETE_REGISTRY_OWNERSHIP_RETIRED" if obsolete
+                  else "CURRENT_OWNERSHIP_PREREQUISITE_RESTORED"),
+            message=(
+                "Superseded registry ownership blockers were retained as cancelled history."
+                if obsolete else "Current ownership prerequisites require re-evaluation."
+            ),
+        )
+        return self._save(record, candidate)
+
     def _advance_locked_impl(self, *, case_id: UUID) -> ZeroTouchAutomationRecord:
-        record = self._require_record(case_id)
-        if record.active_exceptions:
+        record = self._recover_obsolete_registry_ownership_locked(self._require_record(case_id))
+        if record.active_exceptions and not _has_unproved_prerequisite(record):
             return record
         if record.status in {
             AutomationStatus.COMPLETED,
@@ -1953,7 +2155,7 @@ class ZeroTouchOrchestrator:
         finalization_recovery_attempts = 0
         for _ in range(self._max_transitions):
             record = self._require_record(case_id)
-            if record.active_exceptions:
+            if record.active_exceptions and not _has_unproved_prerequisite(record):
                 return record
             next_stage = _next_stage(record.completed_stages)
             if next_stage == AutomationStage.GOLDTIER_SEARCH:
@@ -2406,7 +2608,12 @@ class ZeroTouchOrchestrator:
         candidate.current_stage = (
             AutomationStage.GOLDTIER_SEARCH if registry_completed else AutomationStage.REGISTRY
         )
-        candidate.status = AutomationStatus.RUNNING
+        candidate.status = (
+            AutomationStatus.WAITING_FOR_REVIEW
+            if candidate.active_exceptions else AutomationStatus.RUNNING
+        )
+        if candidate.active_exceptions:
+            candidate.current_stage = _earliest_open_stage(candidate)
         candidate.started_at = candidate.started_at or self._clock()
         candidate.completed_at = None
         candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
@@ -2658,10 +2865,20 @@ class ZeroTouchOrchestrator:
         )
 
     def _raise_ownership_exception(
-        self, record: ZeroTouchAutomationRecord, ownership: OwnershipAnalysisRecord
+        self, record: ZeroTouchAutomationRecord, ownership: OwnershipAnalysisRecord,
+        *, persist: bool = True,
     ) -> ZeroTouchAutomationRecord:
         issue_codes = {item.code.value for item in ownership.issues}
-        if "CYCLE_DETECTED" in issue_codes:
+        evidence_specific = next((item for item in ownership.issues if item.code.value in {
+            "OWNERSHIP_DENOMINATOR_REQUIRED", "OWNERSHIP_REQUIRED",
+            "UBO_REVIEW_REQUIRED", "OWNERSHIP_METHOD_UNSUPPORTED",
+            "CONTRADICTORY_OWNERSHIP_EVIDENCE",
+        }), None)
+        if evidence_specific is not None:
+            exception_type = BusinessExceptionType.OWNERSHIP_INCOMPLETE
+            code = evidence_specific.code.value
+            explanation = evidence_specific.message
+        elif "CYCLE_DETECTED" in issue_codes:
             exception_type = BusinessExceptionType.OWNERSHIP_CYCLE
             code = "OWNERSHIP_CYCLE"
             explanation = (
@@ -2684,6 +2901,9 @@ class ZeroTouchOrchestrator:
             blocker_code=code,
             explanation=explanation,
             evidence_version=f"ownership:{ownership.analysis_id}:{ownership.version}",
+            persist=persist,
+            registry_evidence_generation=(ownership.identity_correction_version
+                if ownership.provider_name == "ACRA_REGISTRY_ACQUISITION" else None),
             evidence=(),
             actions=(),
         )
@@ -2941,6 +3161,8 @@ class ZeroTouchOrchestrator:
         actions: tuple[ExceptionResolutionAction, ...],
         blocker_codes: tuple[str, ...] | None = None,
         exception_id: UUID | None = None,
+        registry_evidence_generation: int | None = None,
+        persist: bool = True,
     ) -> ZeroTouchAutomationRecord:
         for existing in record.active_exceptions:
             if (
@@ -2948,6 +3170,12 @@ class ZeroTouchOrchestrator:
                 and existing.evidence_version == evidence_version
             ):
                 return record
+        if (registry_evidence_generation is None
+            and stage in {AutomationStage.OWNERSHIP, AutomationStage.READINESS}
+            and exception_type in _OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES):
+            registry_evidence_generation = self._ownership.current_registry_dependency_generation(
+                case_id=record.case_id, evidence_version=evidence_version,
+            )
         candidate = record.model_copy(deep=True)
         candidate.status = AutomationStatus.WAITING_FOR_REVIEW
         candidate.current_stage = stage
@@ -3003,24 +3231,14 @@ class ZeroTouchOrchestrator:
                     blocker_codes=bound_codes,
                 ),
                 automation_version=record.version + 1,
+                registry_evidence_generation=registry_evidence_generation,
                 evidence=evidence,
                 available_actions=actions,
                 decisions=decisions,
                 created_at=created_at,
             )
         )
-        stage_order = tuple(
-            AutomationStage(value)
-            for value in (
-                LEGACY_AUTOMATION_STAGE_ORDER
-                if candidate.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
-                else AUTOMATION_STAGE_ORDER
-            )
-        )
-        candidate.current_stage = min(
-            (item.stage for item in candidate.active_exceptions),
-            key=stage_order.index,
-        )
+        candidate.current_stage = _earliest_open_stage(candidate)
         candidate.metrics.exceptions_raised += 1
         candidate = self._append_event(
             candidate,
@@ -3029,7 +3247,7 @@ class ZeroTouchOrchestrator:
             code=blocker_code,
             message="Automation paused at a typed human-review exception.",
         )
-        return self._save(record, candidate) if record.version else candidate
+        return self._save(record, candidate) if record.version and persist else candidate
 
     def _complete_stage(
         self,
@@ -3044,8 +3262,13 @@ class ZeroTouchOrchestrator:
         if stage in record.completed_stages:
             return record
         candidate = record.model_copy(deep=True)
-        candidate.status = AutomationStatus.RUNNING
-        candidate.current_stage = _stage_after(stage)
+        candidate.status = (
+            AutomationStatus.WAITING_FOR_REVIEW
+            if candidate.active_exceptions else AutomationStatus.RUNNING
+        )
+        candidate.current_stage = (
+            _earliest_open_stage(candidate) if candidate.active_exceptions else _stage_after(stage)
+        )
         candidate.completed_stages = (*candidate.completed_stages, stage)
         candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
         candidate.metrics.stage_durations_ms[stage] = _duration_ms(started_at, self._clock())
@@ -3237,6 +3460,14 @@ class ZeroTouchOrchestrator:
                 code="ZERO_TOUCH_AUTOMATION_CONFLICT",
                 message="The onboarding automation changed during this operation.",
             ) from None
+        except ValueError:
+            # A rejected domain transition never becomes an accepted checkpoint or
+            # a raw API exception. Keep the last durable state; do not dispatch.
+            raise ZeroTouchInfrastructureError(
+                case_id=previous.case_id, automation_id=previous.automation_id,
+                code="ZERO_TOUCH_TRANSITION_REJECTED",
+                message="Onboarding could not accept the workflow transition safely.",
+            ) from None
 
     def _require_record(self, case_id: UUID) -> ZeroTouchAutomationRecord:
         record = self._repository.get_for_case(case_id)
@@ -3261,14 +3492,42 @@ def _allows_retained_evidence_intake(record: ZeroTouchAutomationRecord) -> bool:
     )
 
 
-def _next_stage(completed: tuple[AutomationStage, ...]) -> AutomationStage:
-    for stage in (
-        AutomationStage.REGISTRY,
-        AutomationStage.GOLDTIER_SEARCH,
-        AutomationStage.DOCUMENT,
-        AutomationStage.OWNERSHIP,
-        AutomationStage.READINESS,
-        AutomationStage.MOCK_GOLDTIER,
+def _earliest_open_stage(record: ZeroTouchAutomationRecord) -> AutomationStage:
+    """Project dependencies using the same versioned order as domain validation.
+
+    Exception order and timestamps remain audit facts. Currentness is normalized
+    by the owning services before this projection; it does not infer currentness.
+    """
+    return min((item.stage for item in record.active_exceptions),
+               key=_stage_order(record).index)
+
+
+def _stage_order(record: ZeroTouchAutomationRecord) -> tuple[AutomationStage, ...]:
+    return tuple(AutomationStage(value) for value in (
+        LEGACY_AUTOMATION_STAGE_ORDER
+        if record.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+        else AUTOMATION_STAGE_ORDER
+    ))
+
+
+def _has_unproved_prerequisite(record: ZeroTouchAutomationRecord) -> bool:
+    """Existing progression may prove only dependencies strictly before a blocker.
+
+    Human decisions remain OPEN. The normal document/ownership/readiness owners
+    evaluate evidence; completing a prerequisite does not authorize crossing the
+    earliest current blocker, and target mutations remain behind that boundary.
+    """
+    if not record.active_exceptions:
+        return False
+    order = _stage_order(record)
+    return len(record.completed_stages) < order.index(_earliest_open_stage(record))
+
+
+def _next_stage(
+    completed: tuple[AutomationStage, ...], *, order: tuple[AutomationStage, ...] | None = None,
+) -> AutomationStage:
+    for stage in order if order is not None else tuple(
+        AutomationStage(value) for value in AUTOMATION_STAGE_ORDER
     ):
         if stage not in completed:
             return stage

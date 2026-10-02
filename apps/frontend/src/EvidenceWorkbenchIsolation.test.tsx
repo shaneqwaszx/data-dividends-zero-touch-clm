@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { caseQueryKeys } from "./caseQueries";
 import CaseDetail from "./pages/CaseDetail";
+import { createSessionQueryClient } from "./queryClient";
 import type {
   AuthenticatedProfile,
   DocumentProcessingRecord,
@@ -311,6 +312,98 @@ async function clickAndFlush(label: string): Promise<void> {
 }
 
 describe("Evidence workbench integration isolation", () => {
+  it.each(["WAITING_FOR_REVIEW", "PENDING_INPUTS", "TECHNICAL_FAILURE"] as const)(
+    "retires identity-dependent cached ownership at %s, including a late old GET",
+    async (status) => {
+      const client = createSessionQueryClient();
+      seedCase(client, actorA, CASE_A, "old-analysis", "OLD_UEN");
+      const initial = summaryFixture(CASE_A, "Synthetic entity");
+      initial.case.requested_uen = "202400001A";
+      initial.case.initial_identity = {
+        legal_name: "Synthetic entity", registration_number: "202400001A",
+        country_of_incorporation: "SG",
+      } as ZeroTouchCaseSummary["case"]["initial_identity"];
+      initial.case.events = [{}] as ZeroTouchCaseSummary["case"]["events"];
+      initial.clm.version = 1;
+      client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), initial);
+      const updated = {
+        ...initial, version: 2, status, clm: { ...initial.clm, version: 2 },
+        case: { ...initial.case, requested_uen: "202400009I", events: [{}, {}],
+                entity: { ...initial.case.entity, registration_number: "202400009I" } },
+      };
+      const nextOwnership = { ...ownershipFixture(CASE_A, "new-analysis", "NEW_UEN"), version: 6 };
+      const oldOwnership = { ...ownershipFixture(CASE_A, "old-analysis", "OLD_UEN"), version: 4 };
+      client.setQueryData(caseQueryKeys.ownership(actorA.user_id, CASE_A), oldOwnership);
+      let releaseOld!: (value: Response) => void;
+      const oldGet = new Promise<Response>((resolve) => { releaseOld = resolve; });
+      let ownerReads = 0;
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/registry-identity")) {
+          expect(init?.method).toBe("POST");
+          expect(JSON.parse(String(init?.body)).expected_case_event_count).toBe(1);
+          expect(JSON.parse(String(init?.body)).expected_clm_version).toBe(1);
+          return response(updated);
+        }
+        if (url.endsWith("/ownership")) {
+          ownerReads += 1;
+          return ownerReads === 1 ? oldGet : response(nextOwnership);
+        }
+        if (url.endsWith("/documents")) return response([documentFixture(CASE_A)]);
+        if (url.endsWith("/intelligence")) return response(null);
+        throw new Error("Unexpected local fixture request");
+      });
+      renderCase(client, actorA, CASE_A);
+      const late = client.refetchQueries({
+        queryKey: caseQueryKeys.ownership(actorA.user_id, CASE_A), exact: true,
+      }).catch(() => undefined);
+      await vi.waitFor(() => expect(ownerReads).toBe(1));
+      await clickAndFlush("Edit UEN");
+      const input = container!.querySelector<HTMLInputElement>("#identity-registration-number")!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "202400009I");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await clickAndFlush("Verify UEN and resume");
+      await vi.waitFor(() => expect(
+        client.getQueryData<OwnershipAnalysisRecord>(caseQueryKeys.ownership(actorA.user_id, CASE_A))?.analysis_id,
+      ).toBe("new-analysis"));
+      await act(async () => { releaseOld(response(oldOwnership)); await late; });
+      expect(container!.textContent).not.toContain("OLD_UEN Candidate");
+      expect(container!.textContent).toContain("NEW_UEN Candidate");
+      expect(client.getQueryData<ZeroTouchCaseSummary>(
+        caseQueryKeys.detail(actorA.user_id, CASE_A),
+      )?.case.requested_uen).toBe("202400009I");
+      expect(fetchSpy.mock.calls.some(([url]) => String(url).endsWith("/documents"))).toBe(true);
+    },
+  );
+
+  it("retires a previous analysis when corrected identity has no current ownership", async () => {
+    const client = createSessionQueryClient();
+    seedCase(client, actorA, CASE_A, "old-analysis", "OLD_UEN");
+    const initial = summaryFixture(CASE_A, "Synthetic entity");
+    initial.case.initial_identity = { legal_name: "Synthetic entity",
+      registration_number: "202400001A", country_of_incorporation: "SG" } as ZeroTouchCaseSummary["case"]["initial_identity"];
+    initial.case.events = [{}] as ZeroTouchCaseSummary["case"]["events"];
+    initial.clm.version = 1;
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), initial);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/registry-identity")) return response({
+        ...initial, version: 2, case: { ...initial.case, requested_uen: "202400009I", events: [{}, {}] },
+      });
+      if (url.endsWith("/ownership") || url.endsWith("/intelligence")) return response(null);
+      if (url.endsWith("/documents")) return response([documentFixture(CASE_A)]);
+      throw new Error("Unexpected local fixture request");
+    });
+    renderCase(client, actorA, CASE_A);
+    await clickAndFlush("Edit UEN");
+    await clickAndFlush("Verify UEN and resume");
+    await vi.waitFor(() => expect(client.getQueryData(
+      caseQueryKeys.ownership(actorA.user_id, CASE_A),
+    )).toBeNull());
+    expect(container!.textContent).not.toContain("OLD_UEN Candidate");
+  });
   it("keeps candidate, retained-path, and explanation exploration local and read only", () => {
     const client = createTestClient();
     seedCase(client, actorA, CASE_A, "analysis-a", "a");
@@ -442,5 +535,22 @@ describe("Evidence workbench integration isolation", () => {
       { url: `/api/onboarding/cases/${CASE_A}/ownership`, method: "GET" },
       { url: `/api/clm/zero-touch/cases/${CASE_A}/intelligence`, method: "GET" },
     ]);
+  });
+
+  it("renders seven disclosures in order with Review & Send last and compact before readiness", () => {
+    const client = createTestClient();
+    seedCase(client, actorA, CASE_A, "analysis-a", "a");
+    renderCase(client, actorA, CASE_A);
+    const sections = Array.from(container!.querySelectorAll(".stage-disclosure"));
+    expect(sections.map((section) => section.querySelector("h2 button span")?.textContent)).toEqual([
+      "Registry identity", "Documents & reconciliation", "Ownership & UBO",
+      "Classification & readiness", "Target preparation / submission state",
+      "Historical / resolved issues", "Review & Send",
+    ]);
+    expect(sections[1].querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
+    expect(sections[5].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(sections[6].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(sections[6].textContent).toContain("Not yet available");
+    expect(sections[6].querySelector(".review-and-send")).toBeNull();
   });
 });

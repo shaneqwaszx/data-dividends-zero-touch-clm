@@ -1,0 +1,58 @@
+{
+  "stage": "PHASE_24B_PART_A_MINI_GATE",
+  "head": "039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c",
+  "branch": "feat/phase24-registry-identity-ownership-ubo",
+  "prior_content_id": "249486e1a615cc8a13750834888916e66198b77147100e6d00c17811fb9f53e9",
+  "content_id": "705139993fc21db5bde7f6fadb56454f9574250dfa64431b82d58d4b6cd31682",
+  "entries": [
+    {
+      "path": ".ai-pipeline/001_planner/PHASE_24B_PLAN.md",
+      "sha256": "a85ba681811d939e29145ffd9e6aaa208732090b0730f5597beb241570614bd5",
+      "prior_phase24_sha256": null
+    },
+    {
+      "path": "apps/backend/app/domain/ownership.py",
+      "sha256": "c49e258b95360fd7464c04c4cf49e6b1414f90254040870389705a169c8cc757",
+      "prior_phase24_sha256": "ae83c35e41699716934f297631da777b15bfab82bc1c7b6a59877ba6a2ecdcd1"
+    },
+    {
+      "path": "apps/backend/app/domain/zero_touch.py",
+      "sha256": "558c5e6fb928f9c3b4d363197ebc3564448553b564043582824680093e29f467",
+      "prior_phase24_sha256": null
+    },
+    {
+      "path": "apps/backend/app/services/ownership_analysis.py",
+      "sha256": "230f68331d822ed8551491746c4366cf969e6b62c1876a91cf844afe7a39eb9d",
+      "prior_phase24_sha256": "cdafc123137cc7277fddfc1baf0675f3d61e53f1c837b60e1a375b685d88be49"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "sha256": "2faa412e25e949d3d5c87bd2a05e50949b27efb0e9a8ce311d9505c9c3374fa3",
+      "prior_phase24_sha256": "00ed65ccb455f357891709d8bf0f70f31ba80f7f471e6fffb92469a955747486"
+    },
+    {
+      "path": "apps/backend/tests/test_phase24b_p2_regressions.py",
+      "sha256": "98a8f84e883d28ccd1a5254522ef0f7da9f526186f99a41a84c7a0b93b4a03de",
+      "prior_phase24_sha256": null
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.test.tsx",
+      "sha256": "eaf4b736589aff7734ced5513c953199cc6ff61461de54ef4640426cddab9774",
+      "prior_phase24_sha256": "ff5c3e4d680ca4dd3fabfbc912653f04197cd9bc06d4901551d1cd4a229b63d4"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.tsx",
+      "sha256": "2814a8ebe519100a0a275b53d60ab8c6bc5f0deff82e7949eb52a737da40dae6",
+      "prior_phase24_sha256": "5b15b6c9ec41c3acd2a365914a7894f7a6813bc2c481bddb964b4e9815aee3ac"
+    }
+  ],
+  "evidence": {
+    "focused_backend": "92 passed; one existing warning",
+    "focused_frontend": "24 passed",
+    "frontend_typecheck": "PASS",
+    "focused_ruff": "PASS",
+    "failing_first": "2 backend P2 failures and 1 frontend P2 failure reproduced",
+    "external_calls": 0,
+    "git_mutations": 0
+  }
+}

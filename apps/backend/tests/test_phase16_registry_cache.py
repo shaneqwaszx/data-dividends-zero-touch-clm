@@ -329,7 +329,7 @@ def test_exact_expiry_boundary_is_exclusive(
         ("RELATIONSHIPS", 4),
     ],
 )
-def test_failed_refresh_stops_at_each_operation_and_retains_stale_entry(
+def test_failed_refresh_stops_at_each_operation_and_retains_successful_prefix(
     failed_operation: str,
     expected_refresh_calls: int,
 ) -> None:
@@ -359,13 +359,20 @@ def test_failed_refresh_stops_at_each_operation_and_retains_stale_entry(
         assert failed.registry_acquisition is not None
         assert failed.registry_acquisition.status == RegistryAcquisitionStatus.FAILED
     assert failed.registry_evidence_binding is None
-    assert after == before
+    if failed_operation == "ENTITY_PROFILE":
+        assert after == before
+    else:
+        assert after is not None
+        assert after.revision == before.revision + 1
+        assert after.cache_schema_version == 2
+        assert after.acquisition == failed.registry_acquisition
+        assert after.freshness_anchor == clock.value
     assert connector.total_calls == 4 + expected_refresh_calls
     assert original.registry_acquisition is not None
     assert original.registry_acquisition.retrieved_at == START
 
 
-def test_partial_bundle_is_not_cached_and_is_retrieved_again() -> None:
+def test_partial_bundle_reuses_successful_operations_without_complete_binding() -> None:
     clock = MutableClock()
     connector = CountingAcraConnector(clock)
     service, _, repository = build_cached_service(clock, connector)
@@ -381,8 +388,11 @@ def test_partial_bundle_is_not_cached_and_is_retrieved_again() -> None:
     assert first.registry_acquisition.status == RegistryAcquisitionStatus.PARTIAL
     assert second.registry_acquisition.status == RegistryAcquisitionStatus.PARTIAL
     assert first.registry_evidence_binding is second.registry_evidence_binding is None
-    assert connector.total_calls == 8
-    assert cast(CountingRepository, repository).creates == 0
+    assert connector.total_calls == 6
+    assert connector.calls["ENTITY_PROFILE"] == connector.calls["OFFICERS"] == 1
+    assert connector.calls["OWNERSHIP_PARTIES"] == connector.calls["RELATIONSHIPS"] == 2
+    assert cast(CountingRepository, repository).creates == 1
+    assert cast(CountingRepository, repository).replaces == 1
 
 
 @pytest.mark.parametrize(

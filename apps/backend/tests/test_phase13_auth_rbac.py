@@ -349,7 +349,7 @@ def test_authenticated_profile_projects_canonical_team_metadata(
     assert director_profile["capabilities"] == [
         "CASE_ACCESS",
         "CASE_GLOBAL",
-        "POLICY_MUTATE",
+        "POLICY_APPROVE",
         "POLICY_VIEW",
         "TARGET_RECOVERY",
     ]
@@ -1079,11 +1079,13 @@ def test_review_reauthorizes_inside_case_lock_before_mutation(
 
 
 @pytest.mark.parametrize(("mode", "expected_status"), [("revoked", 401), ("cross_team", 404)])
+@pytest.mark.parametrize("endpoint", ["identity-search-recheck", "registry-identity"])
 def test_identity_recheck_reauthorizes_inside_case_lock_before_search(
     runtime_credentials: tuple[str, dict[str, str]],
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
     expected_status: int,
+    endpoint: str,
 ) -> None:
     password, hashes = runtime_credentials
     client, authentication = _raw_client(hashes)
@@ -1120,7 +1122,7 @@ def test_identity_recheck_reauthorizes_inside_case_lock_before_search(
         authentication, "authenticate_session", authenticate_with_mid_request_change
     )
     denied = client.post(
-        f"/api/clm/zero-touch/cases/{case_id}/identity-search-recheck",
+        f"/api/clm/zero-touch/cases/{case_id}/{endpoint}",
         json={
             "legal_name": "LION CITY EXISTING CUSTOMER PTE. LTD.",
             "registration_number": "202400005E",
@@ -1155,13 +1157,13 @@ def test_every_current_application_route_is_deliberately_classified(
     counts = Counter(policy.access for policy in ROUTE_POLICIES)
 
     assert actual == expected
-    assert len(expected) == len(ROUTE_POLICIES) == 74
+    assert len(expected) == len(ROUTE_POLICIES) == 81
     assert counts == {
         RouteAccess.PUBLIC: 2,
-        RouteAccess.ACTOR_ONLY: 23,
+        RouteAccess.ACTOR_ONLY: 29,
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
-        RouteAccess.CASE_SCOPED: 40,
+        RouteAccess.CASE_SCOPED: 41,
     }
 
 

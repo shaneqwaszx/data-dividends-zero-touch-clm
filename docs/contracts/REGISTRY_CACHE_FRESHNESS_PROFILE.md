@@ -178,3 +178,34 @@ claim that the overall provider keyspace is bounded.
 Forced refresh, existing-case reassessment, scheduled/OCDD/perpetual-KYC refresh,
 sandbox/live storage, production cross-team sharing, retention/deletion policy, and
 provider-effective timestamps require separate authority and design review.
+
+## Phase24C normalized operation/negative cache amendment — 2026-10-02
+
+D-064 supersedes the complete-only write and fixed-runtime-duration limitations for the
+explicitly enabled Mock cache. Configuration remains disabled by default, with explicit
+mock mode and the unchanged 90-day baseline configuration. Approved case-bound business
+parameters control use: freshness days 1..365 (default90); definitive NOT_FOUND TTL
+seconds 1..3600 (default600). Historical case parameters absent retain fixed90days/600s;
+new cases freeze ACTIVE parameters and version. Sandbox/Live remain prohibited.
+The existing official API Marketplace Mock may opt in with a distinct
+ACRA_API_MARKETPLACE_MOCK_V1 namespace; synthetic Mock remains MOCK_ACRA_SYNTHETIC_V1.
+Neither lane falls back or shares evidence across namespaces.
+
+Schema1 remains complete-only. Explicit schema2 retains normalized successful operation
+prefixes (including FAILED/PARTIAL bundles with failed operations never reusable), or
+only definitive NOT_FOUND (no acquisition, anchor equals write time). Required empty
+ownership/relationship operations are reacquired; optional empty officers may be reused.
+Only COMPLETE evidence gets a case binding. ENTITY_PROFILE expiry invalidates the
+operation reuse set; unavailable ownership invalidates relationship reuse. Freshness is
+exclusive at exact expiry and rechecked at actual binding after acquisition. Expiry
+crossing during acquisition fails safely without committing/binding stale evidence.
+Only definitive absence is negative; timeout/TLS/malformed/uncertain failures are not.
+
+One process-local exact-key owner suppresses active same-key calls, with max256 keys,
+max64 registered users per key and max45s waiter deadline (bounded test seams). Cancellation
+before/post acquisition commits no result; locks retire after the last user. Error or
+incomplete results shared within a registered cohort never become negative cache hits;
+partial results are rechecked under each caller's frozen freshness policy. There is no
+distributed lock/exactly-once claim, provider retry loop, TTL deletion or retention policy.
+CAS validates the entire returned entry; insert-only/update-only/no-upsert and UTC
+microsecond-preserving storage remain. Normal tests use fake transports only.

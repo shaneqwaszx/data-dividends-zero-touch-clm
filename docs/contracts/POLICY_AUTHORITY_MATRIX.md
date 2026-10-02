@@ -55,3 +55,15 @@ See the current contract and screening reconciliation for exact evidence limitat
 The machine registry's bounded threshold entry is sponsor-confirmed but keeps
 `runtime_enabled=false`: its activation scope is `SPONSOR_POLICY_PRODUCTION`, while
 D-062 confirms a bounded POC default. Existing final legal/control gate remains Q-004.
+
+## Phase24C POC control-plane authority — 2026-10-02
+
+D-064 authorizes HR proposals and independent Director decisions only for current POC
+business-adjustable runtime rules, including registry freshness/negative TTL and semantic
+classifier weights/threshold. Source: explicit owner authorization, not sponsor policy.
+Activation is USER_AUTHORIZED_POC; sponsor/production runtime-enabled remains No under
+this matrix's definition. The rule owner is PolicyManagementService/PolicyCatalogue,
+existing capability/repository owners and frozen case snapshots. Four-eyes here governs
+policy activation, not RM Review & Send or regulatory approval. Invariants, source
+precedence, credentials, legal/controller decisions and target mutation permission are
+not editable; unrelated blocking questions remain unresolved.

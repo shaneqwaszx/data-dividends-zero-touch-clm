@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -360,6 +361,31 @@ def test_acquisition_distinguishes_empty_shareholders_from_unsupported_relations
         )
     # A serialized bundle accepts the new status without inventing observed evidence.
     assert RegistryAcquisitionBundle.model_validate_json(bundle.model_dump_json()) == bundle
+
+
+def test_present_entity_without_confirmed_shareholder_collection_is_not_empty() -> None:
+    transport = RecordingTransport([
+        AcraHttpResponse(200, {"entities": [{"uen": UEN, "name": "Synthetic company"}]}),
+    ])
+    with pytest.raises(AcraMalformedResponseError):
+        connector(transport).fetch_ownership_parties(UEN)
+
+
+def test_official_company_shareholder_dispatch_is_not_used_for_partnerships() -> None:
+    from app.connectors.registry import AcraRegistryProviderAdapter
+    from app.domain.models import RegistryOperationStatus
+
+    body = deepcopy(COMPANY_BODY)
+    assert isinstance(body, dict)
+    body["entities"][0]["entityConstnDetailsAndType"] = {"constitution": "PARTNERSHIP"}
+    transport = RecordingTransport([AcraHttpResponse(200, body), AcraHttpResponse(200, body)])
+    bundle = AcraRegistryProviderAdapter(
+        connector(transport), company_shareholders_only=True,
+    ).retrieve_acquisition(UEN)
+    assert bundle is not None
+    assert bundle.operation_results[2].status == RegistryOperationStatus.UNSUPPORTED
+    assert len(transport.calls) == 2
+    assert not any("coShareholdersDetails" in url for url, _, _ in transport.calls)
 
 
 def test_official_mock_missing_identity_still_stops_application_without_fallback() -> None:

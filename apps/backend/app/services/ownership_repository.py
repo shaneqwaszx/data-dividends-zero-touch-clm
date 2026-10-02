@@ -4,7 +4,12 @@ from threading import RLock
 from typing import Protocol
 from uuid import UUID
 
-from app.domain.ownership import OwnershipAnalysisRecord, OwnershipAnalysisState
+from app.domain.models import OnboardingCase
+from app.domain.ownership import (
+    OwnershipAnalysisRecord,
+    OwnershipAnalysisState,
+    PriorOwnershipAnalysisSnapshot,
+)
 
 
 class OwnershipRepositoryConflictError(Exception):
@@ -12,6 +17,9 @@ class OwnershipRepositoryConflictError(Exception):
 
 
 class OwnershipAnalysisRepository(Protocol):
+    def replace_identity_bound(
+        self, record: OwnershipAnalysisRecord, *, expected_version: int,
+    ) -> OwnershipAnalysisRecord: ...
     def save(
         self,
         record: OwnershipAnalysisRecord,
@@ -86,6 +94,17 @@ class InMemoryOwnershipAnalysisRepository:
             record = self._records.get(case_id)
             return record.model_copy(deep=True) if record is not None else None
 
+    def replace_identity_bound(
+        self, record: OwnershipAnalysisRecord, *, expected_version: int,
+    ) -> OwnershipAnalysisRecord:
+        with self._lock:
+            current = self._records.get(record.case_id)
+            if not _is_valid_identity_replacement(current, record, expected_version):
+                raise OwnershipRepositoryConflictError
+            persisted = record.model_copy(update={"version": expected_version + 1}, deep=True)
+            self._records[record.case_id] = persisted
+            return persisted.model_copy(deep=True)
+
     def delete_for_case(self, case_id: UUID) -> None:
         with self._lock:
             self._records.pop(case_id, None)
@@ -109,3 +128,52 @@ def _is_valid_review_replacement(
         return False
     retained = replacement.prior_analyses[-1]
     return retained.analysis_id == current.analysis_id and retained.version == current.version
+
+
+def ownership_identity(
+    record: OwnershipAnalysisRecord | PriorOwnershipAnalysisSnapshot,
+) -> str | None:
+    return record.identity_registration_number or next(
+        (party.registration_number for party in record.parties
+         if party.party_id == record.root_party_id), None,
+    )
+
+
+def ownership_is_current(
+    record: OwnershipAnalysisRecord | PriorOwnershipAnalysisSnapshot, parent: OnboardingCase,
+) -> bool:
+    """Shared service/persistence eligibility; caller retains the owning lock/CAS."""
+    if ownership_identity(record) != parent.requested_uen:
+        return False
+    if record.provider_name not in {None, "ACRA_REGISTRY_ACQUISITION"}:
+        later = (parent.identity_corrections[record.identity_correction_version:]
+                 if record.identity_correction_version is not None else
+                 tuple(item for item in parent.identity_corrections
+                       if item.corrected_at > record.created_at))
+        return not any(item.previous_identity is None or
+                       item.previous_identity.registration_number !=
+                       item.corrected_identity.registration_number for item in later)
+    if record.identity_correction_version is None:
+        return not any(item.corrected_at > record.created_at
+                       for item in parent.identity_corrections)
+    return record.identity_correction_version == len(parent.identity_corrections)
+
+
+def _is_valid_identity_replacement(
+    current: OwnershipAnalysisRecord | None, replacement: OwnershipAnalysisRecord,
+    expected_version: int,
+) -> bool:
+    if (current is None or current.version != expected_version
+        or replacement.case_id != current.case_id or replacement.version != expected_version
+        or replacement.state != OwnershipAnalysisState.LOADING
+        or replacement.analysis_id == current.analysis_id
+        or not replacement.identity_registration_number
+        or (ownership_identity(current) == replacement.identity_registration_number
+            and not (replacement.identity_correction_version is not None
+                     and (current.identity_correction_version is None
+                          or current.identity_correction_version
+                          < replacement.identity_correction_version)))
+        or not replacement.prior_analyses):
+        return False
+    prior = replacement.prior_analyses[-1]
+    return prior.analysis_id == current.analysis_id and prior.version == current.version

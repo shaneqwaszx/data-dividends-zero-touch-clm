@@ -340,6 +340,25 @@ Decimal ownership engine. Q-004 and Q-012 remain open.
 
 ## Safe errors and call stopping
 
+Phase 24 working candidate preserves strict `shareAllotted`, category/status and
+explicit role evidence. In the official API Marketplace Mock composition, the
+company-shareholder operation dispatches only for a recognized COMPANY legal form.
+Its dependent relationship acquisition is also stopped when that operation is
+inapplicable; the local synthetic composition retains its existing dispatch.
+Garden's BUSINESS_PARTNERSHIP identity/people evidence does not authorize company
+shareholder, partner/member/group or capital mapping. A present entity without the
+supported shareholder collection is rejected, rather than reported as empty ownership;
+an explicitly empty `entities` collection still retains its accepted EMPTY meaning.
+Synthetic Garden semantics and its bounded fixture exception remain unchanged.
+
+The October 1-2 bounded read-only discovery receipt is recorded in
+`docs/development/PHASE_24_ACRA_DISCOVERY.md`. It established useful Garden role
+evidence but no quantitative official sample. The private seven-page sample catalogue
+was subsequently inspected for candidate discovery only, followed by current bounded
+Mock reads. It supplies no endpoint, schema, control or denominator authority; Q-012
+for new partner/member/group and capital operations remains unresolved. No new operation, DTO or source to
+target mapping is inferred from a returned field or historical example.
+
 Entity-profile errors retain the accepted ACRA safe codes. Expanded operations use:
 
 | Code | Meaning |

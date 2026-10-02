@@ -1,0 +1,48 @@
+{
+  "stage": "PHASE_24_CLOSEOUT_TOOLING_INITIAL_GATE",
+  "branch": "feat/phase24-registry-identity-ownership-ubo",
+  "head": "039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c",
+  "original_phase24c_content_id": "6da4e190816e25357d71c2fb61bf8b9493d896097b49e1906ddf8f2d1e88b3a7",
+  "original_manifest_sha256": "b2dcfd06191c66976cc77501af3d1ceddf5fd5ddf4a7d4d0769425aec09e9ad4",
+  "original_entry_count": 135,
+  "original_entries_unchanged": true,
+  "tooling_content_id": "0891be7859d87ef58977c4672f88588b524ef4da59a4318b318921de18c86649",
+  "digest_algorithm": "SHA256 of sorted UTF8(path + NUL + file SHA256 + LF)",
+  "entries": [
+    {
+      "path": "docs/demo/DEMO_RUNBOOK.md",
+      "sha256": "63f88749a8c44a72efecae5d64a3730ce8917a6964ef0c787bd00bd44cd9a2e2",
+      "git_blob_oid": "205e17d9d6b4cbaeb1012d4bd396d37b575fd544"
+    },
+    {
+      "path": "scripts/demo_lifecycle.ps1",
+      "sha256": "5cc8803fce3ec613694be9c4884f8d9dfc0ab09e44267a19e9f3b2620e59aea3",
+      "git_blob_oid": "3838cc2c2d0c9ac60df309a54191e0d7385363ae"
+    },
+    {
+      "path": "tests/test_demo_lifecycle_windows.py",
+      "sha256": "b372ec2edeb587631b6dd798c9cfb4021d0828dc2af20ee7208f8f568c1a4b2e",
+      "git_blob_oid": "556a1022341b7af3a6944192f853aba3cdb8a82c"
+    }
+  ],
+  "independent_report": ".ai-pipeline/reports/PHASE_24_CLOSEOUT_TOOLING_QUALITY_GATE.md",
+  "remediation_rounds_used": 0,
+  "remediation_rounds_maximum": 2,
+  "coordinator_configuration_tests": "10 passed",
+  "coordinator_lifecycle": "31 passed: 7 port configuration, 3 creation time, 21 runtime (all original20 plus1 new metadata port mismatch)",
+  "lifecycle_receipt": {
+    "ports": [
+      55572,
+      55573
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 373.48,
+    "ports_no_longer_listening": [
+      true,
+      true
+    ],
+    "runtime_metadata_absent": true
+  },
+  "lifecycle_log_sha256": "5b1939fb17fde0f20b20ce5adc422214bbd389287582b8cd50989bd922181c51",
+  "source_changes_outside_three_tooling_paths": false
+}
