@@ -89,7 +89,7 @@ async function reviewedCurrentDocument(page: Page, caseId: string) {
   return document;
 }
 
-async function createGarden(page: Page, conflicting: boolean): Promise<string> {
+async function startGarden(page: Page, conflicting: boolean): Promise<string> {
   await page.goto("/");
   await page.getByLabel("User ID").fill("maya-lim");
   await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
@@ -109,12 +109,6 @@ async function createGarden(page: Page, conflicting: boolean): Promise<string> {
   const caseId = page.url().split("/").at(-1)!;
   await expect.poll(async () => (await summary(page, caseId)).status, { timeout: 90_000 })
     .toBe("WAITING_FOR_REVIEW");
-  await measured("open case", async () => {
-    await page.getByRole("button", { name: "Open full case" }).click();
-    await expect(page).toHaveURL(`/cases/${caseId}`);
-    await openStage(page, "Documents & reconciliation");
-    await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
-  });
   const current = await summary(page, caseId);
   const acquisition = current.case.registry_acquisition;
   expect(acquisition.status).toBe("PARTIAL");
@@ -125,6 +119,28 @@ async function createGarden(page: Page, conflicting: boolean): Promise<string> {
   expect(relationships.status).toBe("UNSUPPORTED");
   expect(relationships.provenance).toBeNull();
   expect(current.active_exceptions.map((item: any) => item.blocker_code)).not.toContain("REGISTRY_NOT_READY");
+  return caseId;
+}
+
+async function openGardenDocuments(page: Page, conflicting: boolean): Promise<void> {
+  // The heading mounts before the documents query completes. Current evidence
+  // can then reveal a UEN conflict and move the active disclosure to Registry.
+  // Wait for that query-driven presentation before explicitly inspecting Documents.
+  await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
+  if (conflicting) {
+    await expect(page.getByRole("button", { name: "Use document UEN", exact: true })).toBeVisible();
+  }
+  await openStage(page, "Documents & reconciliation");
+  await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+}
+
+async function createGarden(page: Page, conflicting: boolean): Promise<string> {
+  const caseId = await startGarden(page, conflicting);
+  await measured("open case", async () => {
+    await page.getByRole("button", { name: "Open full case" }).click();
+    await expect(page).toHaveURL(`/cases/${caseId}`);
+    await openGardenDocuments(page, conflicting);
+  });
   return caseId;
 }
 
@@ -358,7 +374,9 @@ test("Garden delayed current document rendering cannot skip required field revie
     await route.fallback();
   });
   try {
-    const caseId = await createGarden(page, true);
+    const caseId = await startGarden(page, true);
+    await page.getByRole("button", { name: "Open full case" }).click();
+    await expect(page).toHaveURL(`/cases/${caseId}`);
     await expect.poll(() => delayed).toBe(true);
     // Reproduce the former verifier's instantaneous optional-control check while
     // the real document GET is held. None of the four pending fields was reviewed.
@@ -376,10 +394,12 @@ test("Garden delayed current document rendering cannot skip required field revie
     // Start the repaired verifier before releasing the GET. Its condition-based
     // waits must remain pending until the actual current evidence renders.
     let settled = false;
-    const repaired = reviewedCurrentDocument(page, caseId).then((document) => {
+    const repaired = (async () => {
+      await openGardenDocuments(page, true);
+      const document = await reviewedCurrentDocument(page, caseId);
       settled = true;
       return document;
-    });
+    })();
     expect(settled).toBe(false);
     release();
     const reviewed = await repaired;
@@ -388,6 +408,35 @@ test("Garden delayed current document rendering cannot skip required field revie
       .toHaveLength(4);
     expect(reviewed.events.length).toBeGreaterThanOrEqual(initial.events.length + 4);
     expect(reviewed.state).toBe("REVIEWED");
+  } finally {
+    release();
+  }
+});
+
+test("Garden document arrival settles identity focus before explicit Documents inspection", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/onboarding/cases/*/documents", async (route) => {
+    if (route.request().method() === "GET") await held;
+    await route.fallback();
+  });
+  try {
+    const caseId = await startGarden(page, true);
+    await page.getByRole("button", { name: "Open full case" }).click();
+    await expect(page).toHaveURL(`/cases/${caseId}`);
+    await openStage(page, "Documents & reconciliation");
+    const documentsButton = page.locator(".stage-disclosure > h2 > button").filter({ hasText: "Documents & reconciliation" });
+    await expect(documentsButton).toHaveAttribute("aria-expanded", "true");
+    release();
+    await expect(page.getByRole("button", { name: "Use document UEN", exact: true })).toBeVisible();
+    await expect(documentsButton).toHaveAttribute("aria-expanded", "false");
+    expect(await page.locator("#documents-heading").count()).toBe(1);
+    // The original createGarden heading assertion failed here for 15 seconds:
+    // the panel is mounted, but the query-derived active-stage change hid it.
+    await openGardenDocuments(page, true);
+    await expect(documentsButton).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
+    expect((await summary(page, caseId)).current_stage).toBe("DOCUMENT");
   } finally {
     release();
   }
