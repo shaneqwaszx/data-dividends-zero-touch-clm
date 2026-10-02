@@ -245,6 +245,9 @@ class MongoPolicyRepository:
         current = self.get()
         if (
             current is None
+            or current.version != expected_version
+            or candidate.version != expected_version + 1
+            or candidate.created_at != current.created_at
             or len(candidate.audit_events) != len(current.audit_events) + 1
             or candidate.audit_events[: len(current.audit_events)] != current.audit_events
         ):

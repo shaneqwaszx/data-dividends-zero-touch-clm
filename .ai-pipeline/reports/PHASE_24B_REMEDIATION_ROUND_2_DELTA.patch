@@ -1,0 +1,440 @@
+--- round2-entry/apps/backend/app/services/ownership_analysis.py
++++ round2-candidate/apps/backend/app/services/ownership_analysis.py
+@@ -977,16 +977,24 @@
+             )
+         return None
+ 
+-    def registry_dependency_is_obsolete(self, *, case_id: UUID, evidence_version: str) -> bool:
++    def registry_dependency_is_obsolete(
++        self, *, case_id: UUID, evidence_version: str,
++        registry_evidence_generation: int | None = None,
++    ) -> bool:
+         """Inspect retained provenance without making stale ownership current again.
+ 
+-        An absent/unrecognized binding fails closed. Existing snapshots use the same
+-        identity/generation predicate as the current record, including legacy dates.
++        A known durable registry binding outlives bounded analysis history. Equal
++        or future generations stay blocking. Legacy references require retained
++        registry provenance and the existing currentness predicate, never a guess.
+         """
+         with self._case_lock(case_id):
+             parent = self._cases.get_case(case_id)
++            if parent is None:
++                return False
++            if registry_evidence_generation is not None:
++                return 0 <= registry_evidence_generation < len(parent.identity_corrections)
+             retained = self._repository.get_for_case(case_id)
+-            if parent is None or retained is None:
++            if retained is None:
+                 return False
+             analyses: tuple[OwnershipAnalysisRecord | PriorOwnershipAnalysisSnapshot, ...] = (
+                 retained, *retained.prior_analyses,
+@@ -998,6 +1006,20 @@
+                         and not ownership_is_current(analysis, parent)
+                     )
+             return False
++
++    def current_registry_dependency_generation(
++        self, *, case_id: UUID, evidence_version: str,
++    ) -> int | None:
++        """Bind a newly raised dependency only to proven current registry evidence."""
++        with self._case_lock(case_id):
++            parent = self._cases.get_case(case_id)
++            retained = self._repository.get_for_case(case_id)
++            if (parent is None or retained is None
++                or retained.provider_name != "ACRA_REGISTRY_ACQUISITION"
++                or evidence_version != f"ownership:{retained.analysis_id}:{retained.version}"
++                or not ownership_is_current(retained, parent)):
++                return None
++            return len(parent.identity_corrections)
+ 
+     def _case_lock(self, case_id: UUID) -> AbstractContextManager[object]:
+         lock_factory = getattr(self._cases, "case_lock", None)
+--- round2-entry/apps/backend/app/services/zero_touch_orchestration.py
++++ round2-candidate/apps/backend/app/services/zero_touch_orchestration.py
+@@ -107,6 +107,12 @@
+     ZeroTouchRepositoryConflictError,
+ )
+ 
++_OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES = frozenset({
++    BusinessExceptionType.OWNERSHIP_CYCLE,
++    BusinessExceptionType.OWNERSHIP_INCOMPLETE,
++    BusinessExceptionType.OWNERSHIP_REVIEW_REQUIRED,
++})
++
+ 
+ class _CaseDocumentReader:
+     """Bind the document service's case-aware lookup to the manual provider protocol."""
+@@ -2032,8 +2038,11 @@
+     ) -> bool:
+         return (
+             item.stage in {AutomationStage.OWNERSHIP, AutomationStage.READINESS}
++            and item.exception_type in _OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES
++            and item.evidence_version.startswith("ownership:")
+             and self._ownership.registry_dependency_is_obsolete(
+                 case_id=case_id, evidence_version=item.evidence_version,
++                registry_evidence_generation=item.registry_evidence_generation,
+             )
+         )
+ 
+@@ -2042,7 +2051,7 @@
+     ) -> ZeroTouchAutomationRecord:
+         """Repair an interrupted pre-submission rebind under the owning case lock.
+ 
+-        Only exact obsolete registry ownership dependencies are retired. No new
++        Only proven obsolete registry ownership dependencies are retired. No new
+         registry/Search call, human decision or target dispatch is performed here.
+         """
+         if record.status in {AutomationStatus.COMPLETED, AutomationStatus.TECHNICAL_FAILURE}:
+@@ -3128,6 +3137,12 @@
+                 and existing.evidence_version == evidence_version
+             ):
+                 return record
++        if (registry_evidence_generation is None
++            and stage in {AutomationStage.OWNERSHIP, AutomationStage.READINESS}
++            and exception_type in _OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES):
++            registry_evidence_generation = self._ownership.current_registry_dependency_generation(
++                case_id=record.case_id, evidence_version=evidence_version,
++            )
+         candidate = record.model_copy(deep=True)
+         candidate.status = AutomationStatus.WAITING_FOR_REVIEW
+         candidate.current_stage = stage
+--- round2-entry/apps/backend/tests/test_provider_identity_real_mongo.py
++++ round2-candidate/apps/backend/tests/test_provider_identity_real_mongo.py
+@@ -570,3 +570,63 @@
+                     if item.exception_id == blocker.exception_id).status == "CANCELLED"
+     finally:
+         store.close()
++
++
++@pytest.mark.parametrize("replacements, legacy, expected", [
++    (4, False, "CANCELLED"), (5, False, "CANCELLED"), (10, False, "CANCELLED"),
++    (5, True, "OPEN"),
++])
++def test_phase24b_generation_pruning_restart_uses_durable_binding(
++    isolated_provider_database, monkeypatch, replacements, legacy, expected,
++):
++    from test_phase24_identity import correction
++    from test_phase24b_interrupted_retry import (
++        blocked_registry_case,
++        interrupt_refresh,
++        snapshot_of,
++    )
++
++    _, initial, _, _, registry, blocker, case_id = blocked_registry_case(durable=True)
++    first = initial._ownership.get(case_id=case_id)
++    store = _open_store(isolated_provider_database)
++    try:
++        store.create(snapshot_of(initial, case_id))
++        client, physical, target = _phase24b_restart_services(store)
++        physical._cases._registry_router = initial._cases._registry_router
++        for generation in range(1, replacements + 1):
++            interrupt_refresh(client, physical, registry, blocker, monkeypatch,
++                              case_id=case_id, boundary="clm", legacy=legacy,
++                              generation=generation)
++            assert client.post(f"/api/onboarding/cases/{case_id}/ownership/load").status_code == 201
++            response = client.post(f"/api/onboarding/cases/{case_id}/ownership/analyze")
++            assert response.status_code == 200
++        current = physical._ownership.get(case_id=case_id)
++        assert current.state == "ANALYZED" and len(current.prior_analyses) == 4
++        assert (first.analysis_id in {item.analysis_id for item in current.prior_analyses}) == (
++            replacements == 4
++        )
++        assert target.calls == ["search"] * replacements
++    finally:
++        store.close()
++    restarted = _open_store(isolated_provider_database, initialize=False)
++    try:
++        client, physical, target = _phase24b_restart_services(restarted)
++        physical._cases._registry_router = initial._cases._registry_router
++        response = client.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
++        assert response.status_code == 200
++        assert next(item for item in physical.get(case_id=case_id).exceptions
++                    if item.exception_id == blocker.exception_id).status == expected
++        assert physical._ownership.get(case_id=case_id).state == "ANALYZED"
++        assert target.calls == []
++        if not legacy:
++            response = correction(client, physical, physical.get(case_id=case_id),
++                                  choice="ENTERED", uen="202400001A")
++            assert response.status_code == 200
++            assert physical._ownership.get(case_id=case_id).identity_correction_version == (
++                replacements + 1
++            )
++            assert next(item for item in physical.get(case_id=case_id).exceptions
++                        if item.exception_id == blocker.exception_id).status == "CANCELLED"
++            assert target.calls == ["search"]
++    finally:
++        restarted.close()
+--- round2-entry/docs/contracts/OWNERSHIP_UBO_PROFILE.md
++++ round2-candidate/docs/contracts/OWNERSHIP_UBO_PROFILE.md
+@@ -188,15 +188,18 @@
+ provisional UBO rule, or Q-004 status. See `docs/models/UBO_ADVISORY_MODEL_CARD.md`.
+ 
+ 
+-Interrupted pre-submission registry rechecks are recoverable before orchestration's
+-waiting-state early return. The ownership owner matches the blocker's existing
+-`ownership:<analysis_id>:<version>` reference against the retained analysis or its
+-bounded prior snapshots, then applies the same identity/generation currentness
+-predicate. This works when the optional exception generation field is absent.
+-Unknown references and current/independent evidence remain blocking; stale evidence
+-is never exposed as current. Recovery rebinds a missing CLM projection from retained
+-initial Search evidence (no new Search), cancels only the matched obsolete registry
+-dependency, and rebuilds reconciliation/ownership/readiness under the existing case
+-lock and repository CAS. Unrelated human decisions and submission freeze boundaries
+-remain authoritative. Existing durable bindings/history suffice; no schema or second
+-freshness counter is introduced.
++Interrupted pre-submission registry rechecks recover before orchestration's waiting
++return under the existing case lock and repository CAS. A known durable ownership
++dependency `registry_evidence_generation` is compared with the authoritative case's
++identity-correction count: older means obsolete even after bounded history pruning;
++equal remains potentially current; future is an integrity anomaly and stays review.
++No UEN-only currentness, guessed generation, larger history or second counter is used.
++
++Legacy null generation uses only an exact retained registry analysis/prior reference
++and the existing currentness predicate. Unknown or pruned legacy provenance stays
++review. All newly raised registry-derived ownership/readiness dependencies bind to
++proven current evidence, including current legacy analyses. Target/classification,
++document and independent user decisions are outside this retirement category.
++Recovery rebinds partial CLM projection from retained Search, preserves cancelled
++history, and recomputes reconciliation/ownership/readiness without provider replay.
++Submission freeze, authorization and stale-writer protections remain authoritative.
+--- round2-entry/apps/backend/tests/test_phase24b_generation_currentness.py
++++ round2-candidate/apps/backend/tests/test_phase24b_generation_currentness.py
+@@ -0,0 +1,225 @@
++"""Generation-first currentness survives bounded history; authenticated local routes."""
++
++import pytest
++from test_phase24_identity import correction
++from test_phase24b_interrupted_retry import (
++    blocked_registry_case,
++    interrupt_refresh,
++    restore_memory_snapshot,
++    snapshot_of,
++)
++from test_zero_touch_orchestration import PDF, AddressMismatchIdp
++
++from app.domain.zero_touch import AutomationStage, BusinessExceptionType
++from app.persistence.models import DurableCaseSnapshot
++from app.persistence.mongo_case_store import _persistence_value
++from app.services.zero_touch_errors import ZeroTouchRequestError
++
++
++def rebuilt_registry_generations(monkeypatch, *, replacements=5, legacy=False):
++    client, zero, _, target, registry, blocker, case_id = blocked_registry_case(durable=True)
++    original = zero._ownership.get(case_id=case_id)
++    for generation in range(1, replacements + 1):
++        interrupt_refresh(client, zero, registry, blocker, monkeypatch, case_id=case_id,
++                          boundary="clm", legacy=legacy, generation=generation)
++        assert client.post(f"/api/onboarding/cases/{case_id}/ownership/load").status_code == 201
++        assert client.post(f"/api/onboarding/cases/{case_id}/ownership/analyze").status_code == 200
++        current = zero._ownership.get(case_id=case_id)
++        assert current.state == "ANALYZED"
++        assert current.identity_correction_version == generation
++        assert len(current.prior_analyses) == min(generation, 4)
++    assert len(zero._cases.get_case(case_id).identity_corrections) == replacements
++    current = zero._ownership.get(case_id=case_id)
++    assert (original.analysis_id in {item.analysis_id for item in current.prior_analyses}) == (
++        replacements <= 4
++    )
++    assert next(item for item in zero.get(case_id=case_id).exceptions
++                if item.exception_id == blocker.exception_id).status == "OPEN"
++    return client, zero, target, registry, blocker, case_id
++
++
++@pytest.mark.parametrize("replacements", [4, 5, 10, 12])
++def test_numeric_registry_generation_retires_after_legitimate_history_pruning(
++    monkeypatch, replacements,
++):
++    client, zero, target, _, blocker, case_id = rebuilt_registry_generations(
++        monkeypatch, replacements=replacements,
++    )
++    current_analysis = zero._ownership.get(case_id=case_id)
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    recovered = zero.get(case_id=case_id)
++    assert next(item for item in recovered.exceptions
++                if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    assert zero._ownership.get(case_id=case_id).analysis_id == current_analysis.analysis_id
++    assert {item.blocker_code for item in recovered.active_exceptions} == {
++        "TARGET_CONFIRMATION_REQUIRED",
++    }
++    assert target.calls == ["search"] * (replacements + 1)
++
++
++@pytest.mark.parametrize("replacements", [4, 5, 10])
++def test_numeric_pruning_serialized_restart_and_further_correction(monkeypatch, replacements):
++    _, zero, _, _, blocker, case_id = rebuilt_registry_generations(
++        monkeypatch, replacements=replacements,
++    )
++    restored = DurableCaseSnapshot.model_validate(_persistence_value(snapshot_of(zero, case_id)))
++    client, restarted, target = restore_memory_snapshot(restored)
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    assert next(item for item in restarted.get(case_id=case_id).exceptions
++                if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    assert restarted._ownership.get(case_id=case_id).state == "ANALYZED"
++    assert target.calls == []
++    assert correction(client, restarted, restarted.get(case_id=case_id),
++                      choice="ENTERED", uen="202400001A").status_code == 200
++    assert restarted._ownership.get(case_id=case_id).identity_correction_version == replacements + 1
++    assert next(item for item in restarted.get(case_id=case_id).exceptions
++                if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    assert {item.blocker_code for item in restarted.get(case_id=case_id).active_exceptions} == {
++        "TARGET_CONFIRMATION_REQUIRED",
++    }
++    assert target.calls == ["search"]
++
++
++@pytest.mark.parametrize("replacements, expected", [(4, "CANCELLED"), (5, "OPEN"), (10, "OPEN")])
++def test_legacy_null_uses_only_retained_proof_without_guessing(monkeypatch, replacements, expected):
++    client, zero, target, _, blocker, case_id = rebuilt_registry_generations(
++        monkeypatch, replacements=replacements, legacy=True,
++    )
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    assert next(item for item in zero.get(case_id=case_id).exceptions
++                if item.exception_id == blocker.exception_id).status == expected
++    assert target.calls == ["search"] * (replacements + 1)
++
++
++@pytest.mark.parametrize("binding, expected", [(0, "CANCELLED"), (5, "OPEN"), (6, "OPEN")])
++def test_pruned_less_equal_future_generation_remains_safe(monkeypatch, binding, expected):
++    client, zero, _, _, blocker, case_id = rebuilt_registry_generations(monkeypatch)
++    old = zero.get(case_id=case_id)
++    changed = old.model_copy(deep=True)
++    next(item for item in changed.exceptions
++         if item.exception_id == blocker.exception_id).registry_evidence_generation = binding
++    zero._save(old, changed)
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    current = zero.get(case_id=case_id)
++    assert next(item for item in current.exceptions
++                if item.exception_id == blocker.exception_id).status == expected
++    if expected == "OPEN":
++        assert current.status == "WAITING_FOR_REVIEW"
++        assert zero._ownership.get(case_id=case_id).state == "ANALYZED"
++
++
++@pytest.mark.parametrize("stage", [AutomationStage.OWNERSHIP, AutomationStage.READINESS])
++def test_new_registry_ownership_dependencies_bind_even_on_current_legacy_analysis(stage):
++    _, zero, _, _, _, _, case_id = blocked_registry_case()
++    retained = zero._ownership.get(case_id=case_id)
++    zero._ownership._repository._records[case_id] = retained.model_copy(
++        update={"identity_correction_version": None}, deep=True,
++    )
++    candidate = zero._add_exception(
++        zero.get(case_id=case_id), exception_type=BusinessExceptionType.OWNERSHIP_REVIEW_REQUIRED,
++        stage=stage, blocker_code="OWNERSHIP_REVIEW_REQUIRED",
++        explanation="Synthetic current registry dependency.",
++        evidence_version=f"ownership:{retained.analysis_id}:{retained.version}",
++        evidence=(), actions=(),
++    )
++    new = next(item for item in candidate.active_exceptions
++               if item.exception_type == BusinessExceptionType.OWNERSHIP_REVIEW_REQUIRED)
++    assert new.registry_evidence_generation == 0
++    restored = DurableCaseSnapshot.model_validate(_persistence_value(snapshot_of(zero, case_id)))
++    assert next(item for item in restored.automation.active_exceptions
++                if item.exception_id == new.exception_id).registry_evidence_generation == 0
++
++
++def test_generation_metadata_cannot_retire_target_safety(monkeypatch):
++    client, zero, _, _, blocker, case_id = rebuilt_registry_generations(monkeypatch)
++    target = zero._add_exception(
++        zero.get(case_id=case_id),
++        exception_type=BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED,
++        stage=AutomationStage.READINESS, blocker_code="TARGET_CONFIRMATION_REQUIRED",
++        explanation="Synthetic target safety decision.",
++        evidence_version="target-confirmation:1:1", evidence=(), actions=(),
++        registry_evidence_generation=0,
++    ).active_exceptions[-1]
++    assert not zero._is_obsolete_registry_ownership_exception(case_id, target)
++    zero.start(case_id=case_id)
++    current = zero.get(case_id=case_id)
++    assert next(item for item in current.exceptions
++                if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    assert next(item for item in current.active_exceptions
++                if item.exception_id == target.exception_id) == target
++
++
++def test_current_insufficient_registry_blocker_survives_beside_pruned_stale_one(monkeypatch):
++    client, zero, target, registry, blocker, case_id = rebuilt_registry_generations(monkeypatch)
++    obsolete_candidate = zero.get(case_id=case_id)
++    registry.available = False
++    with monkeypatch.context() as patch:
++        def fail(**kwargs):
++            from app.services.clm_errors import ClmRequestError
++            raise ClmRequestError(
++                code="CLM_IDENTITY_RECHECK_STALE", message="Synthetic interruption.",
++            )
++        patch.setattr(zero._clm, "refresh_initial_search_after_recheck", fail)
++        assert correction(client, zero, obsolete_candidate,
++                          choice="ENTERED", uen="202400001A").status_code == 409
++    assert client.post(f"/api/onboarding/cases/{case_id}/ownership/load").status_code == 201
++    assert client.post(f"/api/onboarding/cases/{case_id}/ownership/analyze").status_code == 200
++    ownership = zero._ownership.get(case_id=case_id)
++    assert ownership.state == "REVIEW_REQUIRED" and ownership.identity_correction_version == 6
++    with zero._cases.case_lock(case_id):
++        raised = zero._raise_ownership_exception(zero.get(case_id=case_id), ownership)
++    genuine = next(item for item in raised.active_exceptions
++                   if item.exception_id != blocker.exception_id)
++    assert genuine.registry_evidence_generation == 6
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    current = zero.get(case_id=case_id)
++    assert next(item for item in current.exceptions
++                if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    assert next(item for item in current.active_exceptions
++                if item.exception_id == genuine.exception_id) == genuine
++    assert target.calls == ["search"] * 7
++    with pytest.raises(ZeroTouchRequestError) as stale:
++        zero._save(obsolete_candidate, obsolete_candidate.model_copy(deep=True))
++    assert stale.value.code == "ZERO_TOUCH_AUTOMATION_CONFLICT"
++    assert zero.get(case_id=case_id) == current
++
++
++def test_a_to_b_to_a_after_pruning_uses_current_generation(monkeypatch):
++    client, zero, target, registry, blocker, case_id = rebuilt_registry_generations(monkeypatch)
++    old_a = zero._ownership.get(case_id=case_id)
++    interrupt_refresh(client, zero, registry, blocker, monkeypatch, case_id=case_id,
++                      boundary="clm", legacy=False, generation=6,
++                      uen="202400009I", choice="OTHER")
++    interrupt_refresh(client, zero, registry, blocker, monkeypatch, case_id=case_id,
++                      boundary="clm", legacy=False, generation=7,
++                      uen="202400001A", choice="OTHER")
++    assert zero._ownership.get(case_id=case_id) is None
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    current = zero._ownership.get(case_id=case_id)
++    assert current.analysis_id != old_a.analysis_id
++    assert current.identity_registration_number == old_a.identity_registration_number
++    assert current.identity_correction_version == 7 and current.state == "ANALYZED"
++    assert next(item for item in zero.get(case_id=case_id).exceptions
++                if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    assert target.calls == ["search"] * 8
++
++
++def test_actual_document_mismatch_remains_actionable_after_stale_retirement(monkeypatch):
++    client, zero, target, _, blocker, case_id = rebuilt_registry_generations(monkeypatch)
++    zero._documents._idp = AddressMismatchIdp()
++    response = client.post(f"/api/onboarding/cases/{case_id}/documents", content=PDF,
++                           headers={"Content-Type": "application/pdf",
++                                    "X-Document-Name": "synthetic-mismatch.pdf"})
++    assert response.status_code == 201
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    blocked = zero.get(case_id=case_id)
++    assert next(item for item in blocked.exceptions
++                if item.exception_id == blocker.exception_id).status == "CANCELLED"
++    assert blocked.active_exceptions
++    assert all(item.stage == AutomationStage.DOCUMENT for item in blocked.active_exceptions)
++    mismatches = {item.exception_id for item in blocked.active_exceptions}
++    assert client.post(f"/api/clm/zero-touch/cases/{case_id}/resume").status_code == 200
++    current = zero.get(case_id=case_id)
++    assert mismatches <= {item.exception_id for item in current.active_exceptions}
++    assert current.status == "WAITING_FOR_REVIEW"
++    assert target.calls == ["search"] * 6
+--- round2-entry/.ai-pipeline/reports/PHASE_24B_REMEDIATION_ROUND_2_SCOPE.md
++++ round2-candidate/.ai-pipeline/reports/PHASE_24B_REMEDIATION_ROUND_2_SCOPE.md
+@@ -0,0 +1,9 @@
++# Phase 24B post-gate remediation round 2/2
++
++Explicit owner attachment80cd96ac authorizes generation-first pruning recovery and a pre-freeze adversarial/self-remedy loop. Prior gates/manifests stay immutable. Existing worktree/branch, BASE_SHA/HEAD/inspected origin-main039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c;78 entry paths, empty index. Round-one15 frozen paths and67 preserved hashes match. Exact entry backups and hashes are in task temporary directory phase24b-round2-baseline-039101b.
++
++Goal: the existing durable registry_evidence_generation determines known dependency obsolescence independently of bounded ownership history. Less-than current cancels; equal/future stays review. Legacy None uses only proven retained source; unknown/pruned stays review. Bind every newly created registry-derived ownership/readiness exception through current existing source/currentness owner. Keep history bounded4, case corrections16, lock/reauthorization/CAS and target freeze/no-replay.
++
++Owners: OwnershipAnalysisService for dependency/currentness and ZeroTouchOrchestrator for exception persistence/recovery. BACKEND_DOMAIN/PERSISTENCE/AUTH_RBAC_SECURITY classes; existing schema shape unchanged. Tests exercise authenticated5-refresh pruning before source edits;4/5/10+ boundaries, numeric/null/equal/future, serialized restart before/after prune, retry, current-insufficient/current-independent/document/classification/target decisions, A-to-A/A-to-B-to-A, stale writers and prior P2s. Physical allowlisted disposable Mongo all owned suites, affected full/static/contracts/security and hygiene after self-review. No external provider call, secret/.env or retained DB access.
++
++Freeze only after the development adversarial loop is green. Fresh independent mini reviewer must reproduce old pruning and independently challenge12 required cases. Any remaining P0/P1/P2 meansFAIL and entire sessionSTOP; round2 exhausted. Only exact independentPASS authorizes automatic same-session Phase24C continuation per this attachment, with its own planner/scope and gate/remediation budget. No Git publication/new worktree/Phase25.

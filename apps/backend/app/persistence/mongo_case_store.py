@@ -66,6 +66,7 @@ from app.persistence.models import (
     DurableCaseSnapshotV4,
     DurableCaseSnapshotV5,
     DurableCaseSnapshotV6,
+    DurableCaseSnapshotV7,
     _validate_case_bindings,
 )
 
@@ -464,8 +465,13 @@ class MongoCaseStore:
         return candidate.model_copy(deep=True)
 
     def _encode(self, snapshot: DurableCaseSnapshot) -> dict[str, Any]:
-        _validate_case_bindings(snapshot)
-        raw_value = _persistence_value(snapshot)
+        try:
+            # Reuse the durable serializer: model_dump omits backend-only bindings.
+            validated = DurableCaseSnapshot.model_validate(_persistence_value(snapshot))
+        except (ValidationError, ValueError, TypeError):
+            raise PersistenceDataInvalidError from None
+        _validate_case_bindings(validated)
+        raw_value = _persistence_value(validated)
         if not isinstance(raw_value, dict):
             raise PersistenceDataInvalidError
         raw = raw_value
@@ -490,7 +496,7 @@ class MongoCaseStore:
             raise PersistenceDataInvalidError
         automation_value = value.get("automation")
         if (
-            schema_version in {1, 2, 3, 4, 5, 6, CASE_SNAPSHOT_SCHEMA_VERSION}
+            schema_version in {1, 2, 3, 4, 5, 6, 7, CASE_SNAPSHOT_SCHEMA_VERSION}
             and isinstance(automation_value, dict)
             and "stage_order_version" not in automation_value
         ):
@@ -499,6 +505,8 @@ class MongoCaseStore:
                 "stage_order_version": LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
             }
         try:
+            if schema_version in {1, 2, 3, 4, 5, 6, 7}:
+                _reject_phase24c_legacy_values(value)
             if schema_version == 1:
                 legacy_v1 = DurableCaseSnapshotV1.model_validate(value)
                 _reject_unknown_model_fields(value, legacy_v1)
@@ -523,6 +531,10 @@ class MongoCaseStore:
                 legacy_v6 = DurableCaseSnapshotV6.model_validate(value)
                 _reject_unknown_model_fields(value, legacy_v6)
                 snapshot = legacy_v6.to_current()
+            elif schema_version == 7:
+                legacy_v7 = DurableCaseSnapshotV7.model_validate(value)
+                _reject_unknown_model_fields(value, legacy_v7)
+                snapshot = legacy_v7.to_current()
             elif schema_version == CASE_SNAPSHOT_SCHEMA_VERSION:
                 snapshot = DurableCaseSnapshot.model_validate(value)
                 _reject_unknown_model_fields(value, snapshot)
@@ -557,7 +569,7 @@ class MongoCaseStore:
             revision = raw["revision"]
             if type(schema_version) is not int or type(revision) is not int or revision < 0:
                 raise PersistenceDataInvalidError
-            if schema_version not in {1, 2, 3, 4, 5, 6, CASE_SNAPSHOT_SCHEMA_VERSION}:
+            if schema_version not in {1, 2, 3, 4, 5, 6, 7, CASE_SNAPSHOT_SCHEMA_VERSION}:
                 raise PersistenceSchemaUnsupportedError
             envelope_id = _canonical_uuid(raw["_id"])
             if _canonical_uuid(raw["case_id"]) != envelope_id:
@@ -826,8 +838,7 @@ class MongoCaseStore:
             recovered_automation.current_stage = AutomationStage.DOCUMENT
             recovered_automation.completed_stages = (
                 (AutomationStage.REGISTRY,)
-                if recovered_automation.stage_order_version
-                == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
+                if recovered_automation.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION
                 else (
                     AutomationStage.REGISTRY,
                     AutomationStage.GOLDTIER_SEARCH,
@@ -1162,7 +1173,7 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
     return {
         "$and": [
             {"$in": [schema_type, ["int", "long"]]},
-            {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, CASE_SNAPSHOT_SCHEMA_VERSION]]},
+            {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, 7, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},
             {"$gte": ["$revision", 0]},
             _mongo_canonical_uuid("$_id"),
@@ -1445,7 +1456,7 @@ def _activity_candidate_valid_expression() -> dict[str, Any]:
     return {
         "$and": [
             {"$in": [schema_type, ["int", "long"]]},
-            {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, CASE_SNAPSHOT_SCHEMA_VERSION]]},
+            {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, 7, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},
             {"$gte": ["$revision", 0]},
             _mongo_canonical_uuid("$_id"),
@@ -1601,3 +1612,20 @@ def _utc_datetime(value: object) -> datetime:
     if parsed.utcoffset() != timedelta(0):
         raise PersistenceDataInvalidError
     return parsed.astimezone(UTC)
+
+
+def _reject_phase24c_legacy_values(value: Any) -> None:
+    """Old envelopes cannot masquerade as approved Phase24C policy/classification."""
+    if isinstance(value, dict):
+        if {"catalogue_version", "idp_review_confidence_threshold"} <= value.keys() and any(
+            value.get(key) is not None
+            for key in ("registry", "evidence_classifier", "policy_identity")
+        ):
+            raise PersistenceDataInvalidError
+        if value.get("rule_version") == "ownership-semantic-rules-v2":
+            raise PersistenceDataInvalidError
+        for child in value.values():
+            _reject_phase24c_legacy_values(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            _reject_phase24c_legacy_values(child)

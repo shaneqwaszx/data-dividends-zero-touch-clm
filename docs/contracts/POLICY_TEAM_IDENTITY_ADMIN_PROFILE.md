@@ -8,12 +8,12 @@ team, profile, and policy repositories with memory and Mongo implementations.
 
 The backend capability matrix is authoritative:
 
-| Role | Case access | Policy read | Policy mutate | Profile/team admin |
-|---|---|---|---|---|
-| `CLIENT_ONBOARDER` | own team | yes | no | no |
-| `RELATIONSHIP_MANAGER` | own team | yes | yes | no |
-| `DIRECTOR` | global | yes | yes | no |
-| `HR` | none | yes | no | yes |
+| Role | Case access | Policy read | Business proposal | Policy decision | Profile/team admin |
+|---|---|---|---|---|---|
+| `CLIENT_ONBOARDER` | own team | yes | no | no | no |
+| `RELATIONSHIP_MANAGER` | own team | yes | no | no | no |
+| `DIRECTOR` | global | yes | no | independent approve/reject | no |
+| `HR` | none | yes | own draft/edit/reset/submit | no | yes |
 
 HR is separate from, and not senior to, Director. User/team deletion, deactivation,
 password reset, production IAM, and case reassignment are outside this phase.
@@ -66,7 +66,8 @@ the supported single-process POC repository boundary, not distributed IAM atomic
 
 The catalogue is a strict singleton with at most 64 typed rules and catalogue/rule
 optimistic versions. It accepts no executable expressions or arbitrary nested JSON.
-The catalogue has 21 seed rules, including 13 intelligence rules:
+The current catalogue has 35 seed rules (see Phase24C amendment below). The historical
+first 21 definitions, including 13 intelligence rules, are:
 
 1. `DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD` — editable, runtime-enforced, default
    `0.85`.
@@ -95,28 +96,17 @@ The catalogue has 21 seed rules, including 13 intelligence rules:
 The entity weights must total one, review/auto-match and low/high threshold ordering
 must remain valid, and every intelligence value retains its project-defined POC label.
 
-Only RMs and Directors may mutate policy. Custom rules are forced by the backend to
-`DISPLAY_SHOWCASE_ONLY` and cannot affect workflow execution. Stale expected catalogue
-or rule versions return `409 POLICY_VERSION_CONFLICT`; no silent retry or last-write
-wins is allowed.
+HR alone prepares business proposals. Director alone approves/rejects another actor's
+submitted current-base proposal. Every mutation reauthorizes inside the service lock
+and uses aggregate/proposal CAS. Stale versions return409 POLICY_VERSION_CONFLICT,
+without retry or last-write wins. Legacy direct edit/reset/showcase endpoints deny all
+roles. Historical safe display-only rules remain readable with no runtime effect.
 
-Each user-authored showcase `STRING` value and `STRING_LIST` item must match
-`^[A-Za-z0-9][A-Za-z0-9 _./:+%-]{0,127}$` and must not use code-like expression
-prefixes. Quotes, backticks, grouping brackets, semicolons, equals, angle brackets,
-backslashes, pipes, ampersands, and dollar interpolation therefore fail closed. This
-does not reinterpret system-controlled enum/list values or add any execution path.
-
-Single reset requires `RESET_POLICY_DEFAULT`; whole-catalogue reset requires
-`RESET_ALL_POLICY_DEFAULTS`. Resets restore project defaults, retain custom showcase
-rules, increment versions, and append audit evidence. These are not represented as
-sponsor-approved defaults.
-
-In the browser, RM and Director can edit backend-permitted runtime and custom showcase
-rules; custom rules remain visibly labelled showcase-only and non-runtime. Single and
-whole reset actions require an accessible confirmation. Cancel/Escape produce no
-mutation, confirm is guarded against duplicate submission, and `409` triggers one
-authoritative catalogue refetch without retrying the stale mutation. Client Onboarder
-and HR retain read-only catalogue access.
+Reset stages the defined default in a proposal; ACTIVE values change only after
+independent approval. Browser confirmation supports Cancel/Escape/focus restoration
+and a duplicate-submit guard. Conflict refreshes authoritative catalogue truth.
+Read-only users see current/default/formula/description/Affects/version; HR sees
+proposed values/reason/submit; Director sees before-after synthetic impact and decision.
 
 ## Runtime snapshot boundary
 
@@ -142,3 +132,23 @@ defensive-copy, version-CAS, and audit-prefix rules.
 Audit events are allowlisted, append-only, and capped at 256. A mutation fails closed
 at capacity; old events are not discarded. Audit never contains passwords, credential
 hashes, session/CSRF data, Mongo connection data, or arbitrary model dumps.
+
+## Phase24C policy amendment — 2026-10-02
+
+The current policy authority matrix supersedes the earlier policy-mutate column:
+HR may draft/edit/reset-through-proposal/submit; Director may approve/reject another
+user's submitted current-base proposal; RM/onboarder read only. HR still has no case
+access. Director gains POLICY_APPROVE and loses POLICY_MUTATE. Current catalogue has
+35 seeds: the earlier 29 plus registry freshness days (90), NOT_FOUND TTL seconds (600),
+semantic kind/binding/confidence weights (0.50/0.25/0.25, sum exactly one), and semantic
+threshold (0.50). Every editable rule is runtime enforced; arbitrary showcase creation
+and direct activation are retired, and all target/provider/security definitions are
+not business editable. Historical display rules remain readable.
+
+Policy schema2 separates aggregate CAS version from ACTIVE version. Proposals (max64),
+superseded active versions (max64), and append-only audit (max256) fail closed on capacity,
+unknown/invalid state, UTC/chronology mismatch, duplicate activation or inconsistent
+approval history. Historical schema1/absent-version catalogues retain their stored
+values; exact supported 8/21/29-seed prefixes plus historical display rules gain missing
+runtime definitions once. Partial/unknown runtime catalogues fail closed. No global
+approval changes historical case snapshots. See POLICY_ACTIVATION_CONTRACT.md/D-064.

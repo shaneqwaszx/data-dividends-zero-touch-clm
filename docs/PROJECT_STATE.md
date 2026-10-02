@@ -29,7 +29,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 7,
+  "case_envelope_schema_version": 8,
   "verified_date": "2026-10-01",
   "verified_main_sha": "4a206a3a3c4c91b06cec99e26a44016a74d8d2ce",
   "verification_status": "verified-against-main",
@@ -64,6 +64,27 @@ behavioral baseline. `schema_version` versions this metadata format;
 persistence constant.
 
 ## Current status
+
+### Phase 24 working candidate (not accepted)
+
+An isolated uncommitted candidate based on main `039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c`
+adds same-case registry verification and entered/document/other UEN choices, dependency
+recomputation with identity-bound ownership history, bounded scalar evidence and a
+deterministic semantic tagger (`ML_RUNTIME_NOT_AVAILABLE`), and seven accessible ordered
+disclosures ending in Review & Send. Its source/test/review identity and verification
+limits are owned by the Phase 24 handoff and independent gate; this paragraph does not
+upgrade the accepted baseline metadata or provider classifications.
+
+Actual October 1-2 official ACRA Marketplace Mock discovery made 24 token/read attempts:
+22 HTTP responses and two pre-response TLS failures. The private seven-page sample
+catalogue was inspected only to identify candidate UENs. A fresh Garden acquisition
+fed four role observations through canonical normalization and deterministic tagging:
+review required, zero candidates, no numeric numerator or denominator. Documented
+fallbacks did not supply a supported coherent same-entity quantitative case; no
+official percentage or UBO candidate is claimed. The catalogue does not resolve
+Q-012 authority for partner/member/group or capital/denominator contracts.
+See [sanitized receipt](development/PHASE_24_ACRA_DISCOVERY.md) and
+[proposed tagger boundary](decisions/ADR-008_OWNERSHIP_EVIDENCE_TAGGING.md).
 
 The repository is a synthetic, local/sandbox-shaped proof of concept for Singapore
 new-to-bank corporate onboarding. The supported happy path can reach
@@ -298,7 +319,7 @@ boundaries.
 |---|---|---|---|---|
 | ACRA | `mock` | generic `sandbox` connector | Mock active; sandbox partial | Synthetic ACRA-shaped behavior and adapter isolation |
 | ACRA API Marketplace Mock | explicit opt-in | fixed official Mock token/entity/shareholder transport with no fallback | Mock / Observed interoperability | Authorized token plus strict entity/shareholder success; Garden shareholders empty; no ownership-percentage authority and not Live |
-| Registry cache | disabled | opt-in synthetic Mock only | Project-defined POC | Complete normalized Mock snapshots under exact identity and fixed elapsed-time freshness |
+| Registry cache | disabled | opt-in synthetic and official API Marketplace Mock | User-authorized POC candidate | Normalized operation-prefix/definitive-negative schema2, frozen ACTIVE freshness/TTL, COMPLETE-only binding and bounded process-local single-flight; current independent combined gate pending |
 | ACRA BizFile | none | module exists but is not composed | Dormant | Focused adapter code/tests only, not runtime availability |
 | IDP/OCR | `local_pdf_text` | Mock fault/demo provider | Local POC / Mock | Deterministic extraction from supported synthetic documents |
 | Ownership | registry evidence into local engine | Mock fault/demo provider | Local / Mock support | Deterministic Decimal graph analysis, not an external service |
@@ -337,8 +358,8 @@ unknown or blocked.
   clears them.
 - `mongo` is explicit. Missing/invalid configuration, startup validation, reads, or
   writes fail closed and never fall back to memory.
-- One schema-versioned case envelope (schema v7) owns durable case
-  state. Strict v1/v2/v3/v4/v5/v6 reads preserve absent historical fields, including v4
+- One schema-versioned case envelope (schema v8) owns durable case
+  state. Strict v1/v2/v3/v4/v5/v6/v7 reads preserve absent historical fields, including v4
   `intelligence = null`, without a read-only persistence rewrite. Automation records
   persist a separate stage-order version: a missing value is the pre-Search v1 order,
   while newly authored records use v2. A safe non-terminal v1 continuation is rebased in
@@ -354,8 +375,9 @@ unknown or blocked.
   does not add another repository, policy, authorization, or mutation owner.
   Repository adapters preserve revision compare-and-set, insert-only creation,
   update-only mutation, strict identity binding, and replay-aware recovery.
-- The optional Mock registry cache has a separate schema-v1 repository/collection and
-  persists complete normalized synthetic bundles only. It has no cross-collection
+- The optional Mock registry cache has a separate schema-v1/v2 repository/collection.
+  Schema1 reads remain complete-only; schema2 stores normalized successful operation
+  prefixes and definitive NOT_FOUND. Only complete fresh bundles bind to a case. It has no cross-collection
   transaction, TTL, deletion cascade, or distributed exactly-once guarantee.
 - Global team/profile/policy records use separate bounded repository owners.
 - Raw uploads, full extracted text, raw external payloads, credentials, sessions, and
@@ -381,23 +403,26 @@ unknown or blocked.
   applied by backend query services.
 - Sensitive mutations re-authorize within the owning case or repository lock/CAS
   boundary.
-- HR administers synthetic profiles/teams and reads policies but has no case access or
-  runtime policy mutation authority.
+- HR administers synthetic profiles/teams and can draft/edit/default-reset/submit
+  business policy proposals, without case access or activation authority. Independent
+  Director approval alone activates a proposal under existing authorization and CAS.
 
 ## Major current capabilities
 
 - Controlled Singapore/ACRA routing with no implicit source precedence.
 - Four-operation Mock registry acquisition with truthful complete/partial/failure
   evidence and downstream call stopping.
-- Optional backend-global reuse of fresh complete synthetic Mock registry snapshots,
-  with exact identity isolation and immutable per-case source/cache-use evidence.
+- Optional backend-global reuse of fresh normalized synthetic and official API
+  Marketplace Mock operations, with exact namespace isolation, complete-only case
+  bindings, definitive negative TTL and bounded process-local single-flight.
 - PDF, DOCX and UTF-8 TXT technical intake with strict size/structure handling.
 - Deterministic local extraction and field provenance.
 - Source-neutral reconciliation with explicit bounded actions and resume, including
   case-scoped comparison against retained prior-case canonical evidence when an exact
   verified existing target is reused and fresh ACRA bootstrap is skipped.
 - Deterministic Decimal direct/indirect ownership paths and provisional UBO candidates.
-- Immutable per-case IDP/UBO and advisory-intelligence policy snapshot.
+- Immutable per-case IDP/UBO, advisory-intelligence, registry TTL and deterministic
+  classifier policy snapshot with approved active-version identity.
 - Explainable source-neutral entity resolution, ML-assisted UBO advice, and bounded mock
   advisory risk, all with permanent non-authority labels and synthetic model cards.
 - Ordered Mock target execution with no-replay recovery states.
@@ -566,3 +591,19 @@ screenshot, declaration, README, or validation artefact may be invented.
 
 Every new package requires a bounded planner handoff, change classification, relevant
 skill, proportional verification, and independent quality gate.
+
+## Phase24C candidate delta — 2026-10-02
+
+D-064 implements HR proposal/edit/default-reset/submit and independent Director decision
+through existing policy/capability/repository owners. RM/onboarder are policy-view only;
+legacy direct activation/showcase routes are denied. Approval alone changes global ACTIVE
+for new cases. In-flight/completed case snapshots retain their identity/version/value/time;
+D-056 target-only rebind preserves these frozen business values. Thirty-five seeded rules
+include actual registry TTL and semantic classifier consumers. Version2 parameterized
+semantic tags expose score/threshold/reasons/evidence/rule/policy metadata; 14-example
+synthetic metrics and read-only impact simulation are not trained-model/legal accuracy.
+Policy UI uses the five specified business categories and before-after Director review.
+Case schema8 reads1..7 in memory without rewrite; policy/cache schema2 stay separate under
+existing strict CAS. Sandbox/Live cache and final autonomous approval remain unavailable.
+No external provider call or publication occurred in this continuation. Implementer
+checks are in progress; a fresh independent combined gate is required before acceptance.

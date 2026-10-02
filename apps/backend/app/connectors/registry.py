@@ -48,6 +48,7 @@ from app.domain.models import (
     SourceEnvironment,
     SourceSystem,
 )
+from app.domain.registry_legal_form import RegistryLegalForm, classify_registry_legal_form
 from app.mappers.acra import map_acra_company
 from app.mappers.errors import MappingError
 
@@ -68,7 +69,13 @@ class RegistryProvider(Protocol):
     provider_code: RegistryProviderCode
     cache_identity: RegistryProviderIdentity | None
 
-    def retrieve_acquisition(self, identifier: str) -> RegistryAcquisitionBundle | None:
+    def retrieve_acquisition(
+        self,
+        identifier: str,
+        *,
+        reuse: RegistryAcquisitionBundle | None = None,
+        reuse_operations: frozenset[RegistryOperation] = frozenset(),
+    ) -> RegistryAcquisitionBundle | None:
         """Run the bounded acquisition sequence for one registration identifier."""
 
 
@@ -91,10 +98,12 @@ class AcraRegistryProviderAdapter:
         *,
         clock: Callable[[], datetime] | None = None,
         cache_identity: RegistryProviderIdentity | None = None,
+        company_shareholders_only: bool = False,
     ) -> None:
         self._connector = connector
         self._clock = clock or (lambda: datetime.now(UTC))
         self.cache_identity = cache_identity
+        self._company_shareholders_only = company_shareholders_only
 
     def retrieve_company(self, identifier: str) -> CanonicalLegalEntity | None:
         """Compatibility seam retaining Phase 09 entity-profile behavior."""
@@ -118,9 +127,33 @@ class AcraRegistryProviderAdapter:
         except Exception as exc:
             raise AcraUnexpectedMappingError(exc) from None
 
-    def retrieve_acquisition(self, identifier: str) -> RegistryAcquisitionBundle | None:
+    @staticmethod
+    def _unsupported_ownership(identifier: str) -> AcraOwnershipPartiesPayload:
+        del identifier
+        raise AcraOperationUnsupportedError
+
+    @staticmethod
+    def _unsupported_relationships(identifier: str) -> AcraRelationshipsPayload:
+        del identifier
+        raise AcraOperationUnsupportedError
+
+    def retrieve_acquisition(
+        self,
+        identifier: str,
+        *,
+        reuse: RegistryAcquisitionBundle | None = None,
+        reuse_operations: frozenset[RegistryOperation] = frozenset(),
+    ) -> RegistryAcquisitionBundle | None:
         normalized_identifier = self._require_eligible_identifier(identifier)
-        entity = self.retrieve_company(normalized_identifier)
+        if reuse is not None:
+            reuse = RegistryAcquisitionBundle.model_validate(reuse.model_dump())
+            if reuse.requested_identifier != normalized_identifier:
+                raise AcraResponseIdentityMismatchError
+        entity = (
+            reuse.entity_profile.model_copy(deep=True)
+            if reuse is not None and RegistryOperation.ENTITY_PROFILE in reuse_operations
+            else self.retrieve_company(normalized_identifier)
+        )
         if entity is None:
             return None
 
@@ -142,7 +175,21 @@ class AcraRegistryProviderAdapter:
             )
         ]
 
-        officers, officer_result = self._retrieve_collection(
+        def retrieve_collection(**kwargs: Any) -> tuple[tuple[Any, ...], RegistryOperationResult]:
+            operation = kwargs["operation"]
+            if reuse is not None and operation in reuse_operations:
+                result = next(
+                    item for item in reuse.operation_results if item.operation == operation
+                )
+                if result.status not in {
+                    RegistryOperationStatus.COMPLETE,
+                    RegistryOperationStatus.EMPTY,
+                }:
+                    raise AcraResponseInvalidError
+                return getattr(reuse, kwargs["collection_name"]), result
+            return self._retrieve_collection(**kwargs)
+
+        officers, officer_result = retrieve_collection(
             identifier=normalized_identifier,
             operation=RegistryOperation.OFFICERS,
             fetch=self._connector.fetch_officers,
@@ -161,14 +208,20 @@ class AcraRegistryProviderAdapter:
         )
         results.append(officer_result)
         if officer_result.status == RegistryOperationStatus.FAILED:
-            return self._failed_bundle(
-                normalized_identifier, entity, officers=(), results=results
-            )
+            return self._failed_bundle(normalized_identifier, entity, officers=(), results=results)
 
-        ownership_parties, ownership_result = self._retrieve_collection(
+        company_method_inapplicable = (
+            self._company_shareholders_only
+            and classify_registry_legal_form(entity.party_type) != RegistryLegalForm.COMPANY
+        )
+        ownership_parties, ownership_result = retrieve_collection(
             identifier=normalized_identifier,
             operation=RegistryOperation.OWNERSHIP_PARTIES,
-            fetch=self._connector.fetch_ownership_parties,
+            fetch=(
+                self._unsupported_ownership
+                if company_method_inapplicable
+                else self._connector.fetch_ownership_parties
+            ),
             payload_type=AcraOwnershipPartiesPayload,
             collection_name="ownership_parties",
             normalize=lambda item, provenance: RegistryOwnershipParty(
@@ -178,6 +231,9 @@ class AcraRegistryProviderAdapter:
                 registration_identifier=item.registration_identifier,
                 country=item.country.upper() if item.country is not None else None,
                 ownership_percentage=item.ownership_percentage,
+                source_category=item.source_category,
+                source_status=item.source_status,
+                share_allotted=item.share_allotted,
                 provenance=provenance,
             ),
             environment=entity.source.environment,
@@ -191,10 +247,14 @@ class AcraRegistryProviderAdapter:
                 results=results,
             )
 
-        relationships, relationship_result = self._retrieve_collection(
+        relationships, relationship_result = retrieve_collection(
             identifier=normalized_identifier,
             operation=RegistryOperation.RELATIONSHIPS,
-            fetch=self._connector.fetch_relationships,
+            fetch=(
+                self._unsupported_relationships
+                if company_method_inapplicable
+                else self._connector.fetch_relationships
+            ),
             payload_type=AcraRelationshipsPayload,
             collection_name="relationships",
             normalize=lambda item, provenance: RegistryRelationship(
@@ -272,9 +332,7 @@ class AcraRegistryProviderAdapter:
         environment: SourceEnvironment,
     ) -> tuple[tuple[NormalizedRecord, ...], RegistryOperationResult]:
         try:
-            payload = payload_type.model_validate(
-                _untrusted_to_primitives(fetch(identifier))
-            )
+            payload = payload_type.model_validate(_untrusted_to_primitives(fetch(identifier)))
             if payload.uen.strip().upper() != identifier:
                 raise ValueError("registry operation identity mismatch")
             source_environment = SourceEnvironment(payload.source_environment)
@@ -288,15 +346,12 @@ class AcraRegistryProviderAdapter:
                 evidence_reference=_evidence_reference(operation, identifier),
             )
             records = tuple(
-                normalize(item, provenance)
-                for item in getattr(payload, collection_name)
+                normalize(item, provenance) for item in getattr(payload, collection_name)
             )
             return records, RegistryOperationResult(
                 operation=operation,
                 status=(
-                    RegistryOperationStatus.COMPLETE
-                    if records
-                    else RegistryOperationStatus.EMPTY
+                    RegistryOperationStatus.COMPLETE if records else RegistryOperationStatus.EMPTY
                 ),
                 record_count=len(records),
                 provenance=provenance,
@@ -376,9 +431,7 @@ class AcraRegistryProviderAdapter:
             status=RegistryAcquisitionStatus.FAILED,
             issues=(failed,),
             retrieved_at=max(
-                item.provenance.retrieved_at
-                for item in results
-                if item.provenance is not None
+                item.provenance.retrieved_at for item in results if item.provenance is not None
             ),
         )
 

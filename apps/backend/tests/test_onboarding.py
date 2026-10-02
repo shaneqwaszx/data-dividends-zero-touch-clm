@@ -83,6 +83,7 @@ def test_happy_path_progresses_in_order_and_is_persisted() -> None:
     assert case.state == WorkflowState.COMPLETED
     assert stages(case) == [
         WorkflowState.REQUESTED,
+        WorkflowState.REQUESTED,  # Exact-registration target search unsupported by current port.
         WorkflowState.REGISTRY_FETCHED,
         WorkflowState.VALIDATED,
         WorkflowState.VALIDATED,
@@ -108,7 +109,8 @@ def test_unknown_uen_fails_safely_before_registry_mapping() -> None:
     assert case.goldtier_result is None
     assert case.error is not None
     assert case.error.code == "ACRA_ENTITY_NOT_FOUND"
-    assert stages(case) == [WorkflowState.REQUESTED, WorkflowState.FAILED]
+    assert stages(case) == [WorkflowState.REQUESTED, WorkflowState.REQUESTED, WorkflowState.FAILED]
+    assert case.events[1].code == "GOLDTIER_SEARCH_SKIPPED_UNSUPPORTED_IDENTIFIER"
 
 
 def test_incomplete_entity_requires_review_before_goldtier() -> None:

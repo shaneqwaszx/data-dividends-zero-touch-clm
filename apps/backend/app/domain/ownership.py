@@ -17,6 +17,8 @@ from pydantic import (
 )
 
 from app.domain.models import EventOutcome, SafeError
+from app.domain.ownership_evidence import OwnershipEvidence, OwnershipTaggingResult
+from app.domain.registry_legal_form import RegistryLegalForm
 
 
 def _normalize_safe_text(value: object) -> object:
@@ -141,6 +143,11 @@ class OwnershipEventType(StrEnum):
 
 
 class OwnershipIssueCode(StrEnum):
+    CONTRADICTORY_OWNERSHIP_EVIDENCE = "CONTRADICTORY_OWNERSHIP_EVIDENCE"
+    OWNERSHIP_DENOMINATOR_REQUIRED = "OWNERSHIP_DENOMINATOR_REQUIRED"
+    OWNERSHIP_REQUIRED = "OWNERSHIP_REQUIRED"
+    UBO_REVIEW_REQUIRED = "UBO_REVIEW_REQUIRED"
+    OWNERSHIP_METHOD_UNSUPPORTED = "OWNERSHIP_METHOD_UNSUPPORTED"
     CYCLE_DETECTED = "CYCLE_DETECTED"
     INCOMPLETE_LEGAL_ENTITY = "INCOMPLETE_LEGAL_ENTITY"
     MAXIMUM_DEPTH_EXCEEDED = "MAXIMUM_DEPTH_EXCEEDED"
@@ -321,6 +328,11 @@ class PriorOwnershipAnalysisSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
     version: int = Field(ge=1)
+    evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=256)
+    identity_registration_number: SafeOptionalIdentifier | None = None
+    identity_correction_version: int | None = Field(default=None, ge=0)
+    tagging: OwnershipTaggingResult | None = None
+    legal_form: RegistryLegalForm | None = None
     analysis_id: UUID
     correlation_id: UUID
     root_party_id: SafePartyId | None = None
@@ -346,6 +358,11 @@ class OwnershipAnalysisRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     case_id: UUID
+    identity_registration_number: SafeOptionalIdentifier | None = None
+    identity_correction_version: int | None = Field(default=None, ge=0)
+    evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=256)
+    tagging: OwnershipTaggingResult | None = None
+    legal_form: RegistryLegalForm | None = None
     version: int = Field(default=0, ge=0)
     analysis_id: UUID
     correlation_id: UUID

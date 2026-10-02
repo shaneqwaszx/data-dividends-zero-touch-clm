@@ -39,7 +39,9 @@ from app.services.onboarding_intelligence_repository import (
 )
 from app.services.ownership_repository import (
     OwnershipRepositoryConflictError,
+    _is_valid_identity_replacement,
     _is_valid_review_replacement,
+    ownership_is_current,
 )
 from app.services.reconciliation_repository import (
     ReconciliationRepositoryConflictError,
@@ -64,7 +66,7 @@ class MongoOnboardingCaseRepository:
         return self._store.transaction_lock
 
     def create(self, case: OnboardingCase) -> None:
-        validated = OnboardingCase.model_validate(case)
+        validated = OnboardingCase.model_validate(case.model_dump())
         with self._store.locked():
             now = datetime.now(UTC)
             self._store.create(
@@ -78,7 +80,7 @@ class MongoOnboardingCaseRepository:
             )
 
     def save(self, case: OnboardingCase) -> None:
-        validated = OnboardingCase.model_validate(case)
+        validated = OnboardingCase.model_validate(case.model_dump())
         with self._store.locked():
             current = self._store.get(validated.case_id)
             if current is None:
@@ -246,6 +248,13 @@ class MongoOwnershipAnalysisRepository:
             snapshot = self._store.get(validated.case_id)
             if snapshot is None:
                 raise OwnershipRepositoryConflictError
+            if (validated.identity_registration_number is not None
+                and (snapshot.onboarding.requested_uen != validated.identity_registration_number
+                     or not ownership_is_current(validated, snapshot.onboarding)
+                     or snapshot.onboarding.entity is None
+                     or snapshot.onboarding.entity.registration_number
+                     != validated.identity_registration_number)):
+                raise OwnershipRepositoryConflictError
             current = snapshot.ownership
             if expected_version is None:
                 if current is not None or validated.version != 0:
@@ -282,6 +291,13 @@ class MongoOwnershipAnalysisRepository:
                 snapshot.ownership, validated, expected_version
             ):
                 raise OwnershipRepositoryConflictError
+            if (validated.identity_registration_number is not None
+                and (snapshot.onboarding.requested_uen != validated.identity_registration_number
+                     or not ownership_is_current(validated, snapshot.onboarding)
+                     or snapshot.onboarding.entity is None
+                     or snapshot.onboarding.entity.registration_number
+                     != validated.identity_registration_number)):
+                raise OwnershipRepositoryConflictError
             persisted = validated.model_copy(
                 update={"version": expected_version + 1}, deep=True
             )
@@ -297,6 +313,31 @@ class MongoOwnershipAnalysisRepository:
         if snapshot is None or snapshot.ownership is None:
             return None
         return snapshot.ownership.model_copy(deep=True)
+
+    def replace_identity_bound(
+        self, record: OwnershipAnalysisRecord, *, expected_version: int,
+    ) -> OwnershipAnalysisRecord:
+        validated = OwnershipAnalysisRecord.model_validate(record)
+        with self._store.locked():
+            snapshot = self._store.get(validated.case_id)
+            if (snapshot is None
+                or snapshot.onboarding.requested_uen != validated.identity_registration_number
+                or len(snapshot.onboarding.identity_corrections)
+                != validated.identity_correction_version
+                or snapshot.onboarding.entity is None
+                or snapshot.onboarding.entity.registration_number
+                != validated.identity_registration_number
+                or not _is_valid_identity_replacement(
+                    snapshot.ownership, validated, expected_version
+                )):
+                raise OwnershipRepositoryConflictError
+            persisted = validated.model_copy(update={"version": expected_version + 1}, deep=True)
+            candidate = snapshot.model_copy(update={"ownership": persisted}, deep=True)
+            try:
+                self._store.replace(candidate, expected_revision=snapshot.revision)
+            except PersistenceConflictError:
+                raise OwnershipRepositoryConflictError from None
+            return persisted.model_copy(deep=True)
 
     def delete_for_case(self, case_id: UUID) -> None:
         del case_id

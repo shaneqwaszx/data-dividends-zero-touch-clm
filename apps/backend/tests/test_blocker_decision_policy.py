@@ -245,7 +245,8 @@ def test_ownership_requires_corrected_evidence_and_the_existing_engine(
         BlockerDecisionAction.RERUN_OWNERSHIP_ANALYSIS,
     )
     assert "Decimal engine" in result.explanation
-    assert "LEGAL_UBO_DETERMINATION_NOT_IMPLEMENTED" in result.unknowns
+    assert result.unknowns == ("CURRENT_OWNERSHIP_EVIDENCE_REQUIRES_REVIEW",)
+    assert "LEGAL_UBO_DETERMINATION_NOT_IMPLEMENTED" not in result.unknowns
 
 
 def test_risk_review_is_hard_stop_under_unresolved_policy() -> None:

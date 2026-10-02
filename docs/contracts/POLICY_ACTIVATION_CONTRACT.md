@@ -58,3 +58,22 @@ Activation must also account for Q-003 document scope, Q-004 final legal UBO pol
 Q-005 validation ownership, Q-013 privacy/retention/access, Q-018 production handoff,
 and Q-002/Q-006/Q-007/Q-009/Q-010/Q-011 where hierarchy or GoldTier contract details
 affect the chosen behavior. A decision in one domain does not silently resolve another.
+
+## Phase24C owner-authorized POC control plane — 2026-10-02
+
+D-064 supersedes this contract's sponsor-activation prerequisites only for the bounded
+owner-authorized business parameters already consumed by current POC runtime owners.
+HR (POLICY_MUTATE) creates/edits their own draft, provides a reason, stages reset defaults
+and submits. Director (POLICY_APPROVE) decides a submitted current-base proposal with a
+reason; proposer and decider must differ. Reauthorization occurs inside the owning
+PolicyManagementService lock and persistence uses singleton CAS. RM and onboarder view.
+No role directly activates through legacy update/reset/showcase endpoints (safe 403).
+Only approval creates a new ACTIVE version; rejection keeps ACTIVE unchanged. The
+baseline is DEFAULT, and previous active value sets are SUPERSEDED. Bounded history
+retains proposal/base/decision/effective metadata and deterministic active SHA-256.
+New cases bind ACTIVE values. Existing in-flight/completed cases remain frozen, including
+registry TTL and semantic classifier parameters. Existing D-056 target-only rebind must
+preserve frozen business policy identity/version/time. No new rebind feature is added.
+Security/provider/target contract invariants are fixed. This is USER_AUTHORIZED_POC,
+not sponsor/production RBAC or regulatory approval. Q-001/Q-004/Q-014/Q-015/Q-016/Q-017
+remain open for their separate production, legal, source, reviewer and risk questions.

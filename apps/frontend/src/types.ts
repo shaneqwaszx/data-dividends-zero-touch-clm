@@ -15,6 +15,7 @@ export type Role = "CLIENT_ONBOARDER" | "RELATIONSHIP_MANAGER" | "DIRECTOR" | "H
 export type Capability =
   | "POLICY_VIEW"
   | "POLICY_MUTATE"
+  | "POLICY_APPROVE"
   | "CASE_ACCESS"
   | "CASE_GLOBAL"
   | "TARGET_RECOVERY"
@@ -72,6 +73,7 @@ export type PolicyValue =
   | { type: "STRING_LIST"; value: string[] };
 
 export type PolicyAuthority =
+  | "SPONSOR_DOCUMENTED"
   | "SPONSOR_SUPPLIED"
   | "SPONSOR_EXAMPLE"
   | "SANDBOX_OBSERVED"
@@ -109,6 +111,12 @@ export interface PolicyRule {
 export interface PolicyCatalogue {
   catalogue_id: string;
   version: number;
+  active_version?: number;
+  active_identity?: string;
+  active_origin?: "DEFAULT" | "APPROVED";
+  active_effective_at?: string | null;
+  proposals?: PolicyProposal[];
+  superseded_versions?: Array<{ version: number; status: "SUPERSEDED"; rules: PolicyRule[]; superseded_at: string }>;
   rules: PolicyRule[];
   created_at: string;
   updated_at: string;
@@ -413,6 +421,9 @@ export interface RegistryAcquisition {
     registration_identifier: string | null;
     country: string | null;
     ownership_percentage: string | null;
+    source_category?: string | null;
+    source_status?: string | null;
+    share_allotted?: string | null;
     provenance: RegistryEvidenceProvenance;
   }>;
   relationships: Array<{
@@ -438,8 +449,8 @@ export interface RegistryEvidenceBinding {
   disposition: "PROVIDER_FETCH" | "CACHE_HIT";
   bound_to_case_at: string;
   expires_at: string;
-  freshness_policy_id: "MOCK_ACRA_FIXED_90D";
-  freshness_policy_version: 1;
+  freshness_policy_id: "MOCK_ACRA_FIXED_90D" | "MOCK_ACRA_APPROVED_POLICY";
+  freshness_policy_version: number;
   freshness_duration_seconds: 7776000;
   freshness_comparator: "EVALUATION_NOW_LT_EXPIRES_AT";
 }
@@ -719,6 +730,18 @@ export interface OwnershipCandidate {
 }
 
 export interface OwnershipAnalysisRecord {
+  legal_form?: "COMPANY" | "BUSINESS_PARTNERSHIP" | "LLP" | "LP" | "OTHER" | null;
+  evidence?: Array<{
+    evidence_id: string; entity_identifier: string | null; party_id: string;
+    kind: string; raw_value: string; numeric_value: string | null;
+    source_operation: string; provider: string; environment: string; retrieved_at: string;
+  }>;
+  tagging?: {
+    method: "DETERMINISTIC_RULES"; runtime_status: "ML_RUNTIME_NOT_AVAILABLE";
+    tags: Array<{ tag: string; reason_code: string; evidence_ids: string[]; confidence: string;
+      rule_version: string; case_version: number; evidence_version: number;
+      score?: string | null; threshold?: string | null; policy_version?: number | null; reason_codes?: string[] }>;
+  } | null;
   case_id: string;
   analysis_id: string;
   correlation_id: string;
@@ -733,6 +756,10 @@ export interface OwnershipAnalysisRecord {
     code:
       | "CYCLE_DETECTED"
       | "INCOMPLETE_LEGAL_ENTITY"
+      | "OWNERSHIP_DENOMINATOR_REQUIRED"
+      | "OWNERSHIP_REQUIRED"
+      | "UBO_REVIEW_REQUIRED"
+      | "OWNERSHIP_METHOD_UNSUPPORTED"
       | "MAXIMUM_DEPTH_EXCEEDED"
       | "PATH_LIMIT_EXCEEDED";
     message: string;
@@ -1536,4 +1563,39 @@ export interface UatEvidenceExport {
     message: string;
   }>;
   exported_at: string;
+}
+
+export interface PolicyProposal {
+  proposal_id: string;
+  version: number;
+  base_active_version: number;
+  proposer_id: string;
+  status: "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED";
+  rules: PolicyRule[];
+  reason: string;
+  created_at: string;
+  updated_at: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_reason: string | null;
+  activated_version: number | null;
+}
+export interface ClassifierBenchmark {
+  label: string; benchmark_id: string; benchmark_hash: string; rule_version: string;
+  policy_version: number; scope: string; support: number; exact_accuracy: number;
+  classes: Array<{ label: string; precision: number; recall: number; f1: number; support: number }>;
+  confusion_matrix: Record<string, Record<string, number>>;
+  macro: { precision: number; recall: number; f1: number };
+  micro: { precision: number; recall: number; f1: number };
+}
+export interface PolicyImpact {
+  proposal_id: string; base_active_version: number; current_active_version: number;
+  stale: boolean; label: string;
+  changes: Array<{ policy_id: string; current: PolicyValue; default: PolicyValue; proposed: PolicyValue }>;
+  before: { classifier: ClassifierBenchmark; runtime: PolicyRuntimeImpact };
+  after: { classifier: ClassifierBenchmark; runtime: PolicyRuntimeImpact };
+}
+export interface PolicyRuntimeImpact {
+  registry_freshness_seconds: number; not_found_ttl_seconds: number;
+  document_auto_confirm: boolean[]; ownership_numeric_candidates: boolean[];
 }

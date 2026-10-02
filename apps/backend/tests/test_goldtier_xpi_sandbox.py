@@ -15,7 +15,7 @@ from pydantic import SecretStr, ValidationError
 from app.config import Settings
 from app.domain.access import AuthenticatedActor, Role, UserProfile
 from app.services.admin_repository import InMemoryPolicyRepository
-from app.services.policy_management import PolicyManagementService, PolicyValidationError
+from app.services.policy_management import PolicyForbiddenError, PolicyManagementService
 
 PDF = (Path(__file__).parent / "fixtures" / "uat" / "clean-company-profile.pdf").read_bytes()
 
@@ -340,8 +340,7 @@ def _run_sandbox_case(transport: FakeXpiTransport) -> tuple[object, object, obje
         content=PDF,
     )
     if any(
-        item.exception_type == "TARGET_CONFIRMATION_REQUIRED"
-        for item in terminal.active_exceptions
+        item.exception_type == "TARGET_CONFIRMATION_REQUIRED" for item in terminal.active_exceptions
     ):
         case = orchestrator._cases.get_case(created.case_id)  # noqa: SLF001
         pending_clm = orchestrator._clm.get(case_id=created.case_id)  # noqa: SLF001
@@ -695,7 +694,7 @@ def test_target_classification_vocabulary_is_case_bound_not_globally_editable() 
     assert before.goldtier_target.dispatch_ready is False
 
     assert rule.allowed_values == ("TBD_SPONSOR", *policy.GOLDTIER_KYC_CUSTOMER_TYPE_VALUES)
-    with pytest.raises(PolicyValidationError):
+    with pytest.raises(PolicyForbiddenError):
         service.update(
             _director(),
             rule.policy_id,
@@ -777,9 +776,7 @@ def test_case_target_classification_is_editable_until_confirmation_and_serialize
         kyc_customer_type="Company - Public",
         client_segment="Corporate",
     )
-    assert edited.policy_snapshot.goldtier_target.kyc_customer_type.value == (
-        "Company - Public"
-    )
+    assert edited.policy_snapshot.goldtier_target.kyc_customer_type.value == ("Company - Public")
     service.confirm_target_dispatch(
         case_id=case.case_id,
         actor_id="sandbox-test-operator",
@@ -816,7 +813,7 @@ def test_policy_contract_accepts_and_serializes_empty_optional_sponsor_fields() 
     }
 
 
-def test_account_entity_type_is_the_only_provisional_target_default_and_remains_editable() -> None:
+def test_account_entity_type_default_preserved_and_business_edit_retired() -> None:
     policy = importlib.import_module("app.domain.policy")
     service = PolicyManagementService(InMemoryPolicyRepository())
     before = service.case_snapshot()
@@ -836,29 +833,13 @@ def test_account_entity_type_is_the_only_provisional_target_default_and_remains_
         "clientSegment",
     )
 
-    updated_catalogue = service.update(
-        _director(),
-        rule.policy_id,
-        expected_catalogue_version=service.catalogue().version,
-        expected_rule_version=rule.version,
-        value=policy.StringPolicyValue(value="SPONSOR VALUE"),
-        authority=policy.PolicyAuthority.SPONSOR_SUPPLIED,
-    )
-    updated = updated_catalogue.rule(rule.policy_id)
-    assert updated is not None
-    assert updated.value == policy.StringPolicyValue(value="SPONSOR VALUE")
-    assert updated.authority == policy.PolicyAuthority.SPONSOR_SUPPLIED
-
-    reset_catalogue = service.reset_one(
-        _director(),
-        rule.policy_id,
-        expected_catalogue_version=updated_catalogue.version,
-        expected_rule_version=updated.version,
-    )
-    reset = reset_catalogue.rule(rule.policy_id)
-    assert reset is not None
-    assert reset.value == policy.StringPolicyValue(value="PROJECT_DEFINED_PROVISIONAL")
-    assert reset.authority == policy.PolicyAuthority.PROJECT_DEFINED_PROVISIONAL
+    with pytest.raises(PolicyForbiddenError):
+        service.update(
+            _director(), rule.policy_id, value=policy.StringPolicyValue(value="SPONSOR VALUE")
+        )
+    with pytest.raises(PolicyForbiddenError):
+        service.reset_one(_director(), rule.policy_id)
+    assert service.case_snapshot().goldtier_target == before.goldtier_target
 
 
 def test_singapore_uen_registration_mapping_is_user_authorized_and_never_abn() -> None:
@@ -904,17 +885,14 @@ def test_sandbox_external_system_example_is_separate_from_acra_identity() -> Non
     assert rule.value == policy.StringPolicyValue(value="DSD")
     assert rule.authority == policy.PolicyAuthority.SPONSOR_DOCUMENTED
     assert snapshot.customer_external_system.value == "DSD"
-    assert (
-        snapshot.customer_external_system.authority
-        == policy.PolicyAuthority.SPONSOR_DOCUMENTED
-    )
+    assert snapshot.customer_external_system.authority == policy.PolicyAuthority.SPONSOR_DOCUMENTED
 
 
 def test_target_policy_reset_preserves_the_fixed_value_and_authority() -> None:
     policy = importlib.import_module("app.domain.policy")
     service = PolicyManagementService(InMemoryPolicyRepository())
     original = service.get(policy.GOLDTIER_POLICY_ID)
-    with pytest.raises(PolicyValidationError):
+    with pytest.raises(PolicyForbiddenError):
         service.update(
             _director(),
             original.policy_id,
@@ -924,17 +902,16 @@ def test_target_policy_reset_preserves_the_fixed_value_and_authority() -> None:
             authority=policy.PolicyAuthority.SPONSOR_SUPPLIED,
         )
 
-    reset_catalogue = service.reset_one(
-        _director(),
-        original.policy_id,
-        expected_catalogue_version=service.catalogue().version,
-        expected_rule_version=original.version,
-    )
-    reset = reset_catalogue.rule(original.policy_id)
-
-    assert reset is not None
-    assert reset.value == policy.StringPolicyValue(value="Singapore")
-    assert reset.authority == policy.PolicyAuthority.SPONSOR_DOCUMENTED
+    with pytest.raises(PolicyForbiddenError):
+        service.reset_one(
+            _director(),
+            original.policy_id,
+            expected_catalogue_version=service.catalogue().version,
+            expected_rule_version=original.version,
+        )
+    retained = service.get(original.policy_id)
+    assert retained.value == policy.StringPolicyValue(value="Singapore")
+    assert retained.authority == policy.PolicyAuthority.SPONSOR_DOCUMENTED
 
 
 def test_xpi_mapper_uses_canonical_fields_and_case_bound_target_policy() -> None:
@@ -1098,13 +1075,13 @@ def _xpi_onboarding_service(
         """Explicit synthetic enrichment for retained optional-Amend test cases."""
 
         def build_amend_request(self, submission, party_id):
-            return super().build_amend_request(submission, party_id).model_copy(
-                update={"group_company_name": "SYNTHETIC TEST GROUP"}
+            return (
+                super()
+                .build_amend_request(submission, party_id)
+                .model_copy(update={"group_company_name": "SYNTHETIC TEST GROUP"})
             )
 
-    mapper = (
-        ReviewedSyntheticEnrichmentMapper() if reviewed_test_enrichment else mapper_type()
-    )
+    mapper = ReviewedSyntheticEnrichmentMapper() if reviewed_test_enrichment else mapper_type()
     policy_service = PolicyManagementService(InMemoryPolicyRepository())
     target_policy = (
         target_policy_override
@@ -1501,7 +1478,9 @@ def test_unusable_target_policy_text_is_rejected_at_policy_boundaries(value: str
         )
 
 
-def test_corrupted_case_bound_target_policy_blocks_preview_and_execution_before_dispatch() -> None:
+def test_corrupted_case_bound_target_policy_blocks_preview_and_execution_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     policy = importlib.import_module("app.domain.policy")
     valid_target = _sandbox_submission().target_policy
     assert valid_target is not None
@@ -1518,7 +1497,31 @@ def test_corrupted_case_bound_target_policy_blocks_preview_and_execution_before_
         transport,
         target_policy_override=corrupted_target,
     )
+    with pytest.raises(ValidationError):
+        service.create_staged_case("202400001A")
+    assert transport.calls == []
+    service = _xpi_onboarding_service(transport, target_policy_override=valid_target)
     case = service.create_staged_case("202400001A")
+    corrupted_case = case.model_copy(
+        update={
+            "policy_snapshot": case.policy_snapshot.model_copy(
+                update={"goldtier_target": corrupted_target}, deep=True
+            )
+        },
+        deep=True,
+    )
+    original_get = service._repository.get
+    # Fault-inject a read without allowing malformed content through validated writes.
+    monkeypatch.setattr(
+        service._repository,
+        "get",
+        lambda case_id: (
+            corrupted_case.model_copy(deep=True)
+            if case_id == case.case_id
+            else original_get(case_id)
+        ),
+    )
+    case = corrupted_case
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
 
     preview = service.build_request_preview(case, provider_mode="SANDBOX")
@@ -1790,9 +1793,7 @@ def test_policy_provider_recovery_preserves_uncertainty_and_never_replays_policy
         "SHELL",
         "POLICY",
     )
-    assert tuple(item.value for item in recovered.definitively_completed_operations) == (
-        "SEARCH",
-    )
+    assert tuple(item.value for item in recovered.definitively_completed_operations) == ("SEARCH",)
     assert tuple(item.value for item in recovered.lifecycle_resolved_operations) == (
         "SEARCH",
         "SHELL",
@@ -1898,9 +1899,7 @@ def test_provider_verified_amend_failure_is_durable_state_and_never_replayed() -
         "SHELL",
         "POLICY",
     )
-    assert target.GoldTierOperationMarker.AMEND not in (
-        failed.definitively_completed_operations
-    )
+    assert target.GoldTierOperationMarker.AMEND not in (failed.definitively_completed_operations)
     amend_failure = failed.provider_verified_amend_failure
     assert amend_failure is not None
     assert amend_failure.operation == target.GoldTierOperationMarker.AMEND
@@ -2362,12 +2361,14 @@ def test_unconfirmed_mutation_http_failure_stops_without_definitive_outcome_or_r
 
 def test_fresh_sandbox_customer_without_enrichment_skips_amend_and_retains_submission() -> None:
     module = importlib.import_module("app.connectors.goldtier_xpi")
-    transport = FakeXpiTransport([
-        module.GoldTierXpiHttpResponse(status_code=200, body=[]),
-        module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
-        module.GoldTierXpiHttpResponse(status_code=200, body={}),
-        module.GoldTierXpiHttpResponse(status_code=200, body=[{"goldTierId": 12345}]),
-    ])
+    transport = FakeXpiTransport(
+        [
+            module.GoldTierXpiHttpResponse(status_code=200, body=[]),
+            module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
+            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(status_code=200, body=[{"goldTierId": 12345}]),
+        ]
+    )
     service = _xpi_onboarding_service(transport, reviewed_test_enrichment=False)
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
@@ -2376,7 +2377,10 @@ def test_fresh_sandbox_customer_without_enrichment_skips_amend_and_retains_submi
     assert receipt.classification == "SUCCESS"
     assert receipt.result.amend_status == "AMEND_NOT_REQUIRED"
     assert service.get_attempted_target_operations(submission.submission_id) == (
-        "SEARCH", "SHELL", "POLICY", "READBACK",
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "READBACK",
     )
     assert not any(str(c["url"]).endswith("/amendCustomer") for c in transport.calls)
     assert service.execute_submission_input(submission) == receipt
@@ -2388,27 +2392,38 @@ def test_sandbox_preview_omits_amend_without_supported_enrichment() -> None:
     submission = _sandbox_submission()
     assert mapper.build_amend_request(submission, "12345").anzsic is None
     assert [op.operation for op in mapper.build_preview(submission).operations] == [
-        "SEARCH", "SHELL", "POLICY", "READBACK",
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "READBACK",
     ]
 
 
-@pytest.mark.parametrize("returned", [
-    {"legalName": "DIFFERENT CUSTOMER"},
-    {"registrationNumber": "202499999Z"},
-    {"countryOfIncorporation": "AU"},
-    {"legalForm": "DIFFERENT FORM"},
-    {"legalRegisteredAddress": "DIFFERENT ADDRESS"},
-])
+@pytest.mark.parametrize(
+    "returned",
+    [
+        {"legalName": "DIFFERENT CUSTOMER"},
+        {"registrationNumber": "202499999Z"},
+        {"countryOfIncorporation": "AU"},
+        {"legalForm": "DIFFERENT FORM"},
+        {"legalRegisteredAddress": "DIFFERENT ADDRESS"},
+    ],
+)
 def test_same_id_readback_rejects_available_identity_mismatch(returned) -> None:
     module = importlib.import_module("app.connectors.goldtier_xpi")
-    transport = FakeXpiTransport([
-        module.GoldTierXpiHttpResponse(status_code=200, body=[]),
-        module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
-        module.GoldTierXpiHttpResponse(status_code=200, body={}),
-        module.GoldTierXpiHttpResponse(status_code=200, body=[
-            {"goldTierId": 12345, **returned},
-        ]),
-    ])
+    transport = FakeXpiTransport(
+        [
+            module.GoldTierXpiHttpResponse(status_code=200, body=[]),
+            module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
+            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+            module.GoldTierXpiHttpResponse(
+                status_code=200,
+                body=[
+                    {"goldTierId": 12345, **returned},
+                ],
+            ),
+        ]
+    )
     service = _xpi_onboarding_service(transport, reviewed_test_enrichment=False)
     case = service.create_staged_case("202400001A")
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
@@ -2427,21 +2442,30 @@ def test_reviewed_optional_enrichment_remains_bound_in_preview() -> None:
     submission = service.build_submission_input(case, provider_mode="SANDBOX")
     preview = service._goldtier_mapper.build_preview(submission)
     amend = next(item for item in preview.operations if item.operation == "AMEND")
-    assert any(f.target_field == "groupCompanyName" and f.value == "SYNTHETIC TEST GROUP"
-               for f in amend.fields)
+    assert any(
+        f.target_field == "groupCompanyName" and f.value == "SYNTHETIC TEST GROUP"
+        for f in amend.fields
+    )
     assert all(f.target_field != "ANZSIC" for f in amend.fields)
 
 
 @pytest.mark.parametrize("existing", [False, True])
 def test_incremental_submission_skips_unneeded_amend_and_existing_policy(existing) -> None:
     module = importlib.import_module("app.connectors.goldtier_xpi")
-    responses = [] if existing else [
-        module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
-        module.GoldTierXpiHttpResponse(status_code=200, body={}),
-    ]
-    responses.append(module.GoldTierXpiHttpResponse(
-        status_code=200, body=[{"goldTierId": 12345}],
-    ))
+    responses = (
+        []
+        if existing
+        else [
+            module.GoldTierXpiHttpResponse(status_code=200, body={"goldTierId": 12345}),
+            module.GoldTierXpiHttpResponse(status_code=200, body={}),
+        ]
+    )
+    responses.append(
+        module.GoldTierXpiHttpResponse(
+            status_code=200,
+            body=[{"goldTierId": 12345}],
+        )
+    )
     transport = FakeXpiTransport(responses)
     service = _xpi_onboarding_service(transport, reviewed_test_enrichment=False)
     case = service.create_staged_case("202400001A")
@@ -2450,15 +2474,23 @@ def test_incremental_submission_skips_unneeded_amend_and_existing_policy(existin
     receipt = None
     for _ in range(4):
         receipt = service.advance_incremental_submission_input(
-            submission, search_resolution="EXACT_MATCH" if existing else "NO_MATCH",
+            submission,
+            search_resolution="EXACT_MATCH" if existing else "NO_MATCH",
             selected_party_id="12345" if existing else None,
         )
         if receipt is not None:
             break
     assert receipt.classification == "SUCCESS"
     assert receipt.result.amend_status == "AMEND_NOT_REQUIRED"
-    expected = ("SEARCH", "READBACK") if existing else (
-        "SEARCH", "SHELL", "POLICY", "READBACK",
+    expected = (
+        ("SEARCH", "READBACK")
+        if existing
+        else (
+            "SEARCH",
+            "SHELL",
+            "POLICY",
+            "READBACK",
+        )
     )
     assert service.get_attempted_target_operations(submission.submission_id) == expected
     assert len(transport.calls) == (1 if existing else 3)

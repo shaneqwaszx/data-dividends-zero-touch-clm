@@ -11,14 +11,20 @@ export default function HumanInterventionPanel({
   isBusy,
   onResolve,
   onEvidenceAction,
+  stages,
+  historyOnly = false,
 }: {
   summary: ZeroTouchCaseSummary;
   isBusy: boolean;
   onResolve: (exception: ZeroTouchException, action: ExceptionResolutionAction) => void;
   onEvidenceAction?: (target: NonNullable<HumanInterventionProjection["evidence_actions"]>[number]["target"]) => void;
+  stages?: readonly string[];
+  historyOnly?: boolean;
 }) {
-  const interventions = summary.interventions ?? [];
-  const history = summary.historical_exceptions ?? [];
+  const interventions = historyOnly ? [] : (summary.interventions ?? []).filter(
+    (item) => !stages || stages.includes(item.owning_stage),
+  );
+  const history = historyOnly || !stages ? summary.historical_exceptions ?? [] : [];
   if (interventions.length === 0 && history.length === 0) return null;
 
   const exceptionById = new Map(
@@ -30,7 +36,7 @@ export default function HumanInterventionPanel({
       {interventions.length > 0 && <div className="state-composition__header">
         <div>
           <p className="card-kicker">Backend-authorized intervention</p>
-          <h2 id="intervention-heading">Action required</h2>
+          <h3>Action required</h3>
         </div>
       </div>}
       {interventions.map((intervention) => (
@@ -80,10 +86,8 @@ function InterventionCard({
           <p className="card-kicker">{intervention.owning_stage_label}</p>
           <h3 id={`intervention-${intervention.intervention_id}`}>{intervention.title}</h3>
         </div>
-        <code>{intervention.blocker_code}</code>
       </div>
       <p>{intervention.explanation}</p>
-      {intervention.blocker_class && <p className="tag tag-neutral">{intervention.blocker_class.replaceAll("_", " ")}</p>}
 
       {intervention.candidate_summaries.length > 0 && (
         <div className="table-scroll" tabIndex={0} aria-label="Safe GoldTier candidate summary">
@@ -104,6 +108,9 @@ function InterventionCard({
         </div>
       )}
 
+      <details className="evidence-details"><summary>Why is this blocked?</summary>
+      <code>{intervention.blocker_code}</code>
+      {intervention.blocker_class && <p>{intervention.blocker_class.replaceAll("_", " ")}</p>}
       <dl className="intervention-card__details">
         <div>
           <dt>Required evidence or input</dt>
@@ -118,6 +125,7 @@ function InterventionCard({
       </dl>
 
       <BlockerDecisionDetails decisions={decisions} />
+      </details>
       {onEvidenceAction && intervention.evidence_actions?.map((action) => (
         <button key={action.target} type="button" className="btn btn-primary" disabled={isBusy}
           onClick={() => onEvidenceAction(action.target)}>{action.label}</button>

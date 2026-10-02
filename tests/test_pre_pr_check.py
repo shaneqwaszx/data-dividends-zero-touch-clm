@@ -91,6 +91,92 @@ class PrePrCheckTests(unittest.TestCase):
             result = PRE_PR_CHECK.main([], root=self.repo)
         return result, output.getvalue()
 
+    def _copy_historical_patch(self, name: str, suffix: bytes = b"") -> str:
+        relative = ".ai-pipeline/reports/" + name
+        target = self.repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / relative).read_bytes() + suffix)
+        self._git("config", "core.autocrlf", "false")
+        (self.repo / "README.md").write_bytes(b"baseline\n")
+        return relative
+
+    def test_exact_three_historical_patches_pass_committed_checker(self) -> None:
+        self._switch_to_feature()
+        paths = [self._copy_historical_patch(name) for name in (
+            "PHASE_24B_REMEDIATION_ROUND_1_DELTA.patch",
+            "PHASE_24B_REMEDIATION_ROUND_2_DELTA.patch",
+            "PHASE_24B_STAGE_RECOVERY_ROUND_1_ORCHESTRATION_DELTA.patch",
+        )]
+        self._commit_feature_files(*paths)
+        result, output = self._run_checker()
+        self.assertEqual(result, 0, output)
+        self.assertIn("SUMMARY: PASS", output)
+        for relative in paths:
+            self.assertIn("Exact historical patch whitespace identity: " + relative, output)
+
+    def test_normal_source_and_markdown_whitespace_still_fail(self) -> None:
+        self._switch_to_feature()
+        self._write("ordinary.py", "value = 1 \n")
+        self._write("ordinary.md", "ordinary text \n")
+        self._commit_feature_files("ordinary.py", "ordinary.md")
+        result, output = self._run_checker()
+        self.assertEqual(result, 1)
+        for relative in ("ordinary.py", "ordinary.md"):
+            self.assertIn(relative + ":1: trailing whitespace", output)
+
+    def test_arbitrary_patch_context_whitespace_is_not_exempt(self) -> None:
+        self._switch_to_feature()
+        self._write("new.patch", "--- a/file\n+++ b/file\n@@ -1 +1 @@\n \n")
+        self._commit_feature_files("new.patch")
+        result, output = self._run_checker()
+        self.assertEqual(result, 1)
+        self.assertIn("new.patch:4: trailing whitespace", output)
+
+    def test_approved_patch_changed_byte_fails_identity(self) -> None:
+        self._switch_to_feature()
+        relative = self._copy_historical_patch("PHASE_24B_REMEDIATION_ROUND_1_DELTA.patch")
+        target = self.repo / relative
+        raw = target.read_bytes()
+        changed = b"?" + raw[1:]
+        self.assertNotEqual(raw, changed)
+        target.write_bytes(changed)
+        self._commit_feature_files(relative)
+        result, output = self._run_checker()
+        self.assertEqual(result, 1)
+        self.assertIn("Historical patch identity mismatch: " + relative, output)
+
+    def test_approved_patch_additional_whitespace_fails_identity(self) -> None:
+        self._switch_to_feature()
+        relative = self._copy_historical_patch(
+            "PHASE_24B_REMEDIATION_ROUND_2_DELTA.patch", b"unexpected whitespace \n"
+        )
+        self._commit_feature_files(relative)
+        result, output = self._run_checker()
+        self.assertEqual(result, 1)
+        self.assertIn("Historical patch identity mismatch: " + relative, output)
+        self.assertIn("trailing whitespace", output)
+
+    def test_approved_patch_changed_hash_without_whitespace_still_fails(self) -> None:
+        self._switch_to_feature()
+        relative = self._copy_historical_patch("PHASE_24B_REMEDIATION_ROUND_1_DELTA.patch")
+        target = self.repo / relative
+        target.write_bytes(b"ordinary text without whitespace\n")
+        self._commit_feature_files(relative)
+        result, output = self._run_checker()
+        self.assertEqual(result, 1)
+        self.assertIn("Historical patch identity mismatch: " + relative, output)
+
+    def test_historical_patch_unrecognized_diagnostic_still_fails(self) -> None:
+        relative = ".ai-pipeline/reports/PHASE_24B_REMEDIATION_ROUND_1_DELTA.patch"
+        report = PRE_PR_CHECK.Report()
+        completed = subprocess.CompletedProcess(
+            [], 2, relative + ":1: trailing whitespace.\n+unexpected \n", ""
+        )
+        PRE_PR_CHECK._check_diff_whitespace(
+            report, completed, "staged changes", {relative: (ROOT / relative).read_text(encoding="utf-8")}
+        )
+        self.assertTrue(report.failures)
+
     def test_clean_feature_branch_containing_origin_main_passes(self) -> None:
         self._switch_to_feature()
 

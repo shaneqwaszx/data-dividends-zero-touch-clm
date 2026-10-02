@@ -6,16 +6,23 @@ export interface IdentityCorrectionValues {
   legal_name: string;
   registration_number: string;
   country_of_incorporation: "SG";
+  choice?: "ENTERED" | "DOCUMENT" | "OTHER";
+  document_id?: string;
+  expected_document_event_count?: number;
 }
 
 export default function IdentityCorrectionForm({
   onboardingCase,
   disabled,
   onSubmit,
+  registryRecovery = false,
+  documentCandidates = [],
 }: {
   onboardingCase: OnboardingCase;
   disabled: boolean;
   onSubmit: (values: IdentityCorrectionValues) => void;
+  registryRecovery?: boolean;
+  documentCandidates?: Array<{ uen: string; documentId: string; eventCount: number }>;
 }) {
   const initial = onboardingCase.initial_identity;
   const [legalName, setLegalName] = useState(initial?.legal_name ?? "");
@@ -25,6 +32,13 @@ export default function IdentityCorrectionForm({
   const legalNameValue = legalName.trim();
   const registrationNumberValue = registrationNumber.trim().toUpperCase();
   const complete = legalNameValue.length > 0 && registrationNumberValue.length > 0;
+  const [editing, setEditing] = useState(!registryRecovery || !initial?.legal_name);
+
+  function choose(uen: string, choice: "ENTERED" | "DOCUMENT", documentId?: string, eventCount?: number): void {
+    if (disabled || !legalNameValue) return;
+    onSubmit({ legal_name: legalNameValue, registration_number: uen, country_of_incorporation: "SG",
+      choice, document_id: documentId, expected_document_event_count: eventCount });
+  }
 
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -33,18 +47,35 @@ export default function IdentityCorrectionForm({
       legal_name: legalNameValue,
       registration_number: registrationNumberValue,
       country_of_incorporation: "SG",
+      ...(registryRecovery ? { choice: "OTHER" as const } : {}),
     });
   }
 
   return (
     <section className="identity-correction" aria-labelledby="identity-correction-title">
       <p className="card-kicker">Corrective action · same case</p>
-      <h2 id="identity-correction-title">Complete company details</h2>
-      <p>
+      <h2 id="identity-correction-title">{registryRecovery ? "Registry identity" : "Complete company details"}</h2>
+      {registryRecovery && onboardingCase.error &&
+        (onboardingCase.error.code.startsWith("ACRA_") ||
+         onboardingCase.error.code.startsWith("REGISTRY_")) &&
+        <p role="status">Registry verification could not verify this UEN.</p>}
+      {registryRecovery && documentCandidates.length > 0 && <section aria-label="UEN identity choices">
+        <h3>Entity identity requires confirmation</h3>
+        <p>Entered UEN: <strong>{onboardingCase.requested_uen}</strong></p>
+        <button type="button" className="btn btn-secondary" disabled={disabled || !legalNameValue} onClick={() => choose(onboardingCase.requested_uen, "ENTERED")}>Use entered UEN</button>
+        {documentCandidates.map((candidate) => <div key={candidate.documentId}>
+          <p>Document-detected UEN: <strong>{candidate.uen}</strong></p>
+          <button type="button" className="btn btn-secondary" disabled={disabled || !legalNameValue} onClick={() => choose(candidate.uen, "DOCUMENT", candidate.documentId, candidate.eventCount)}>Use document UEN</button>
+        </div>)}
+        <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => setEditing(true)}>Enter another UEN</button>
+      </section>}
+      {registryRecovery && !editing && <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => setEditing(true)}>Edit UEN</button>}
+      {(!registryRecovery || editing) && <>
+      <p>{registryRecovery ? "Verify the proposed UEN through the existing registry acquisition path. The backend retains the correction, re-evaluates documents and resumes dependent processing." : <>
         Enter the company identity to run another read-only GoldTier Search for this case.
         These proposed values are not authoritative registry evidence; the backend retains the
         correction and decides the resulting workflow state.
-      </p>
+      </>}</p>
       <form onSubmit={submit}>
         <div className="identity-correction__fields">
           <div>
@@ -83,9 +114,10 @@ export default function IdentityCorrectionForm({
           establish registry truth, customer approval, or Ready-for-Approval status.
         </p>
         <button type="submit" className="btn btn-primary" disabled={disabled || !complete}>
-          Save details and recheck Search
+          {registryRecovery ? "Verify UEN and resume" : "Save details and recheck Search"}
         </button>
       </form>
+      </>}
     </section>
   );
 }

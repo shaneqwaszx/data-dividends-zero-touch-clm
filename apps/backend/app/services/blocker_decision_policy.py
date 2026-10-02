@@ -380,6 +380,9 @@ _RULE_SPECS: tuple[_RuleSpec, ...] = (
                 "OWNERSHIP_CYCLE",
                 "OWNERSHIP_INCOMPLETE",
                 "OWNERSHIP_REVIEW_REQUIRED",
+                "OWNERSHIP_DENOMINATOR_REQUIRED",
+                "UBO_REVIEW_REQUIRED",
+                "OWNERSHIP_METHOD_UNSUPPORTED",
             }
         ),
         exception_types=frozenset(
@@ -407,7 +410,7 @@ _RULE_SPECS: tuple[_RuleSpec, ...] = (
             "Cycle, incomplete, or indeterminate ownership evidence must be corrected and "
             "recalculated by the existing Decimal engine."
         ),
-        unknowns=("LEGAL_UBO_DETERMINATION_NOT_IMPLEMENTED",),
+        unknowns=("CURRENT_OWNERSHIP_EVIDENCE_REQUIRES_REVIEW",),
     ),
     _RuleSpec(
         codes=frozenset({"OWNERSHIP_ANALYSIS_FAILED"}),

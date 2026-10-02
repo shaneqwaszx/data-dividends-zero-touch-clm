@@ -24,6 +24,8 @@ import type {
   AdminTeam,
   AdminProfile,
   PolicyCatalogue,
+  PolicyImpact,
+  ClassifierBenchmark,
   PolicyAuthority,
   PolicyValue,
   Role,
@@ -574,6 +576,18 @@ export async function recheckZeroTouchIdentitySearch(
   return parseResponse<ZeroTouchCaseSummary>(response);
 }
 
+export async function correctRegistryIdentity(
+  caseId: string, input: IdentitySearchRecheckInput & {
+    choice: "ENTERED" | "DOCUMENT" | "OTHER";
+    document_id?: string; expected_document_event_count?: number;
+  },
+): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/registry-identity`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
 export interface ManualOwnershipEvidenceInput {
   root_registration_number: string;
   evidence_document_id: string;
@@ -901,8 +915,8 @@ export async function updateAdminProfile(
   return parseResponse<AdminProfile>(response);
 }
 
-export async function fetchPolicies(): Promise<PolicyCatalogue> {
-  return parseResponse<PolicyCatalogue>(await fetch(`${API_BASE_URL}/api/policies`));
+export async function fetchPolicies(signal?: AbortSignal): Promise<PolicyCatalogue> {
+  return parseResponse<PolicyCatalogue>(await fetch(`${API_BASE_URL}/api/policies`, { signal }));
 }
 
 export async function createShowcasePolicy(input: {
@@ -967,4 +981,30 @@ export async function resetAllPolicies(catalogueVersion: number): Promise<Policy
     }),
   });
   return parseResponse<PolicyCatalogue>(response);
+}
+
+export interface PolicyProposalInput {
+  expected_catalogue_version: number; changes: Record<string, PolicyValue>;
+  reset_ids?: string[]; reason: string; expected_proposal_version?: number;
+}
+export async function savePolicyProposal(input: PolicyProposalInput, proposalId?: string): Promise<PolicyCatalogue> {
+  return parseResponse<PolicyCatalogue>(await fetch(`${API_BASE_URL}/api/policies/proposals${proposalId ? `/${encodeURIComponent(proposalId)}` : ""}`, {
+    method: proposalId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  }));
+}
+export async function submitPolicyProposal(proposalId: string, catalogueVersion: number, proposalVersion: number): Promise<PolicyCatalogue> {
+  return parseResponse<PolicyCatalogue>(await fetch(`${API_BASE_URL}/api/policies/proposals/${encodeURIComponent(proposalId)}/submit`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_catalogue_version: catalogueVersion, expected_proposal_version: proposalVersion }),
+  }));
+}
+export async function decidePolicyProposal(proposalId: string, catalogueVersion: number, proposalVersion: number, approve: boolean, reason: string): Promise<PolicyCatalogue> {
+  return parseResponse<PolicyCatalogue>(await fetch(`${API_BASE_URL}/api/policies/proposals/${encodeURIComponent(proposalId)}/decision`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_catalogue_version: catalogueVersion, expected_proposal_version: proposalVersion, approve, reason }),
+  }));
+}
+export async function fetchPolicyImpact(proposalId: string, signal?: AbortSignal): Promise<PolicyImpact> {
+  return parseResponse<PolicyImpact>(await fetch(`${API_BASE_URL}/api/policies/proposals/${encodeURIComponent(proposalId)}/impact`, { signal }));
+}
+export async function fetchClassifierBenchmark(signal?: AbortSignal): Promise<ClassifierBenchmark> {
+  return parseResponse<ClassifierBenchmark>(await fetch(`${API_BASE_URL}/api/policies/classifier-benchmark`, { signal }));
 }

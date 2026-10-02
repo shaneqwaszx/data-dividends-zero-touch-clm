@@ -1,0 +1,47 @@
+{
+  "stage": "PHASE_24_PATCH_WHITESPACE_REMEDIATION_ROUND_1",
+  "branch": "feat/phase24-registry-identity-ownership-ubo",
+  "base_sha": "039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c",
+  "content_id": "29bbf8e452a5c0a641eea2fb54c61df92a405f67847deeec1f2575feda5edd71",
+  "entries": [
+    {
+      "path": "scripts/check_architecture.py",
+      "sha256": "4bb638c420ee480d08b7c87974eaa0432460dd6ce804f9d6deb1166d6d414546"
+    },
+    {
+      "path": "scripts/pre_pr_check.py",
+      "sha256": "854c909e71942c0ce81ce72d57a381384327eea870ca5cf99fbee41e37db339f"
+    },
+    {
+      "path": "tests/test_check_architecture.py",
+      "sha256": "7757b2f5ce30adb8b00a4a8fdb6001f8db5c5b3cd38acb4e51bf327d78a112c5"
+    },
+    {
+      "path": "tests/test_pre_pr_check.py",
+      "sha256": "d6e3a48b6e3486c7e1b29aa46fc8e25a15d50aea0a02eaeb60ecbbb925cbe56b"
+    }
+  ],
+  "authority": "Owner request attachment9034b7ea, exact3historical unified-diff artifacts only",
+  "accepted_phase24c_content_id": "6da4e190816e25357d71c2fb61bf8b9493d896097b49e1906ddf8f2d1e88b3a7",
+  "accepted_phase24c_entries_unchanged": 135,
+  "accepted_lifecycle_tooling_content_id": "a2f217b60bcb621df95e597f71d4be170f12e30119fecc8f26f02fcff3837097",
+  "prior_publication_paths_unchanged": 144,
+  "coordinator_tests": "50 pre-PR unittest tests PASS;7newmethods; RuffPASS; stagedwhitespacecomponentPASS144paths/20contextdiagnostics/3verifiedhashes",
+  "negative_coverage": [
+    "ordinary source and Markdown",
+    "arbitrarypatch",
+    "changedbyte",
+    "additionalwhitespace",
+    "hashmismatchwithzeroGitdiagnostics",
+    "unrecognizeddiagnostic"
+  ],
+  "independent_report": ".ai-pipeline/reports/PHASE_24_PATCH_WHITESPACE_QUALITY_GATE_ROUND_1.md",
+  "official_pre_pr": "Pending clean committed state; do not borrow componentPASS",
+  "additional_publication_defect": "After staging, filename-only ownership guard rejected the documented existing scalar model carrier. Bounded exact-path AST recognition accepts only BaseModel/StrEnum carriers and validator methods; no domain/source behavior changed; second engines/free functions remain rejected.",
+  "coordinator_architecture_tests": "18PASS including three adverse decorated-free-function variants; RuffPASS;6scannersPASS; fullgovernancepending",
+  "initial_manifest_sha256": "8c21ac5beb8de8113da07a8cd393a5c0bc6751781694218fb27954b552c20f65",
+  "initial_fail_report_sha256": "8e0955ef73744eb49d1be75fcb4f9af60708c8abb83e26debfe6bce5d00c7212",
+  "remediation_rounds_used": 1,
+  "remediation_rounds_maximum": 2,
+  "remediation_scope": "P2-1 only: validate function is a direct member of permitted model class; sync/async/nested free-function regression reproduced3FAIL before repair and now18architecturetestsPASS; no other source behavior changed"
+}

@@ -9,21 +9,25 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.api_auth import SESSION_COOKIE_NAME
 from app.domain.access import AuthenticatedActor
 from app.domain.policy import (
     PolicyAuthority,
     PolicyCatalogue,
     PolicyClassification,
     PolicyEnforcement,
+    PolicyProposal,
     PolicyRule,
     PolicyValue,
     PolicyValueType,
+    PolicyVersionRecord,
 )
 from app.persistence.errors import PersistenceUnavailableError
 from app.services.admin_repository import (
     AdministrationAuditCapacityError,
     AdministrationConflictError,
 )
+from app.services.authentication import AuthenticationError, AuthenticationService
 from app.services.policy_management import (
     PolicyForbiddenError,
     PolicyManagementService,
@@ -64,6 +68,12 @@ class PolicyCatalogueResponse(BaseModel):
 
     catalogue_id: str
     version: int
+    active_version: int
+    active_identity: str
+    active_origin: Literal["DEFAULT", "APPROVED"]
+    active_effective_at: datetime | None
+    proposals: tuple[PolicyProposal, ...]
+    superseded_versions: tuple[PolicyVersionRecord, ...]
     rules: tuple[PolicyRuleResponse, ...]
     created_at: datetime
     updated_at: datetime
@@ -74,6 +84,12 @@ class PolicyCatalogueResponse(BaseModel):
         return cls(
             catalogue_id=catalogue.catalogue_id,
             version=catalogue.version,
+            active_version=catalogue.active_version,
+            active_identity=catalogue.active_identity,
+            active_origin=catalogue.active_origin,
+            active_effective_at=catalogue.active_effective_at,
+            proposals=catalogue.proposals,
+            superseded_versions=catalogue.superseded_versions,
             rules=tuple(PolicyRuleResponse.from_domain(rule) for rule in catalogue.rules),
             created_at=catalogue.created_at,
             updated_at=catalogue.updated_at,
@@ -118,12 +134,132 @@ class ResetAllPoliciesRequest(BaseModel):
     confirmation: Literal["RESET_ALL_POLICY_DEFAULTS"]
 
 
-def build_policy_router(service: PolicyManagementService) -> APIRouter:
+class CreateProposalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_catalogue_version: Annotated[int, Field(strict=True, ge=1)]
+    changes: Annotated[dict[str, PolicyValue], Field(max_length=64)] = Field(default_factory=dict)
+    reset_ids: Annotated[tuple[str, ...], Field(max_length=64)] = ()
+    reason: Annotated[str, Field(min_length=10, max_length=240)]
+
+
+class EditProposalRequest(CreateProposalRequest):
+    expected_proposal_version: Annotated[int, Field(strict=True, ge=1)]
+
+
+class ProposalVersionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_catalogue_version: Annotated[int, Field(strict=True, ge=1)]
+    expected_proposal_version: Annotated[int, Field(strict=True, ge=1)]
+
+
+class ProposalDecisionRequest(ProposalVersionRequest):
+    approve: Annotated[bool, Field(strict=True)]
+    reason: Annotated[str, Field(min_length=10, max_length=240)]
+
+
+def build_policy_router(
+    service: PolicyManagementService, authentication: AuthenticationService
+) -> APIRouter:
     router = APIRouter(prefix="/api/policies", tags=["policies"])
 
     @router.get("", response_model=PolicyCatalogueResponse)
     def list_policies() -> PolicyCatalogueResponse:
         return _policy_call(lambda: PolicyCatalogueResponse.from_domain(service.catalogue()))
+
+    def fresh_actor(request: Request) -> Callable[[], AuthenticatedActor]:
+        token = request.cookies.get(SESSION_COOKIE_NAME)
+
+        def reauthorize() -> AuthenticatedActor:
+            try:
+                return authentication.authenticate_session(token).actor
+            except AuthenticationError:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail={
+                        "code": "AUTHENTICATION_REQUIRED",
+                        "message": "A valid authenticated session is required.",
+                    },
+                ) from None
+
+        return reauthorize
+
+    @router.get("/classifier-benchmark")
+    def classifier_benchmark() -> dict[str, object]:
+        return _policy_call(service.classifier_benchmark)
+
+    @router.get("/proposals/{proposal_id}/impact")
+    def proposal_impact(proposal_id: str) -> dict[str, object]:
+        return _policy_call(lambda: service.proposal_impact(proposal_id))
+
+    @router.post(
+        "/proposals", response_model=PolicyCatalogueResponse, status_code=status.HTTP_201_CREATED
+    )
+    def create_proposal(body: CreateProposalRequest, request: Request) -> PolicyCatalogueResponse:
+        return _policy_call(
+            lambda: PolicyCatalogueResponse.from_domain(
+                service.create_proposal(
+                    _actor(request),
+                    expected_catalogue_version=body.expected_catalogue_version,
+                    changes=body.changes,
+                    reset_ids=body.reset_ids,
+                    reason=body.reason,
+                    reauthorize=fresh_actor(request),
+                )
+            )
+        )
+
+    @router.patch("/proposals/{proposal_id}", response_model=PolicyCatalogueResponse)
+    def edit_proposal(
+        proposal_id: str, body: EditProposalRequest, request: Request
+    ) -> PolicyCatalogueResponse:
+        return _policy_call(
+            lambda: PolicyCatalogueResponse.from_domain(
+                service.edit_proposal(
+                    _actor(request),
+                    proposal_id,
+                    expected_catalogue_version=body.expected_catalogue_version,
+                    expected_proposal_version=body.expected_proposal_version,
+                    changes=body.changes,
+                    reset_ids=body.reset_ids,
+                    reason=body.reason,
+                    reauthorize=fresh_actor(request),
+                )
+            )
+        )
+
+    @router.post("/proposals/{proposal_id}/submit", response_model=PolicyCatalogueResponse)
+    def submit_proposal(
+        proposal_id: str, body: ProposalVersionRequest, request: Request
+    ) -> PolicyCatalogueResponse:
+        return _policy_call(
+            lambda: PolicyCatalogueResponse.from_domain(
+                service.submit_proposal(
+                    _actor(request),
+                    proposal_id,
+                    expected_catalogue_version=body.expected_catalogue_version,
+                    expected_proposal_version=body.expected_proposal_version,
+                    reauthorize=fresh_actor(request),
+                )
+            )
+        )
+
+    @router.post("/proposals/{proposal_id}/decision", response_model=PolicyCatalogueResponse)
+    def decide_proposal(
+        proposal_id: str, body: ProposalDecisionRequest, request: Request
+    ) -> PolicyCatalogueResponse:
+        return _policy_call(
+            lambda: PolicyCatalogueResponse.from_domain(
+                service.decide_proposal(
+                    _actor(request),
+                    proposal_id,
+                    expected_catalogue_version=body.expected_catalogue_version,
+                    expected_proposal_version=body.expected_proposal_version,
+                    approve=body.approve,
+                    reason=body.reason,
+                    reauthorize=fresh_actor(request),
+                )
+            )
+        )
 
     @router.get("/{policy_id}", response_model=PolicyRuleResponse)
     def get_policy(policy_id: str) -> PolicyRuleResponse:

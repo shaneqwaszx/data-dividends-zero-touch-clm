@@ -288,7 +288,9 @@ def test_registry_evidence_feeds_existing_decimal_ownership_analysis(identifier:
     if identifier == MISSING_OWNERSHIP_UEN:
         assert analyzed.state == OwnershipAnalysisState.REVIEW_REQUIRED
         assert analyzed.candidates == []
-        assert [item.code.value for item in analyzed.issues] == ["INCOMPLETE_LEGAL_ENTITY"]
+        assert [item.code.value for item in analyzed.issues] == [
+            "INCOMPLETE_LEGAL_ENTITY", "OWNERSHIP_REQUIRED"
+        ]
         assert case.registry_acquisition is not None
         assert case.registry_acquisition.status == RegistryAcquisitionStatus.PARTIAL
         return

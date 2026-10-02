@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from phase13_test_clients import RawTestClient
 from phase13_test_credentials import TEST_PASSWORD
+from phase24c_policy_workflow import approve_http_policy
 from pymongo import MongoClient
 from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
@@ -77,23 +78,9 @@ def test_real_mongo_restart_preserves_admin_policy_case_snapshot_and_gamma_scope
             assert gamma_password not in profile.text
 
             director = RawTestClient(first.app)
+            approve_http_policy(first.app, {
+                "DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD": {"type": "DECIMAL", "value": "0.90"}})
             director_csrf = _login(director, "olivia-koh")
-            catalogue = director.get("/api/policies").json()
-            threshold = next(
-                item
-                for item in catalogue["rules"]
-                if item["policy_id"] == "DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD"
-            )
-            changed = director.patch(
-                f"/api/policies/{threshold['policy_id']}",
-                headers={"X-CSRF-Token": director_csrf},
-                json={
-                    "expected_catalogue_version": catalogue["version"],
-                    "expected_rule_version": threshold["version"],
-                    "value": {"type": "DECIMAL", "value": "0.90"},
-                },
-            )
-            assert changed.status_code == 200
             created = director.post(
                 "/api/clm/zero-touch/cases",
                 headers={"X-CSRF-Token": director_csrf},
@@ -179,7 +166,7 @@ def test_real_mongo_restart_preserves_admin_policy_case_snapshot_and_gamma_scope
             assert sum(item.role == Role.HR for item in repository.list()) == 1
 
         raw_case = cleanup[database][settings.mongo_case_collection].find_one({"_id": case_id})
-        assert raw_case is not None and raw_case["schema_version"] == 7
+        assert raw_case is not None and raw_case["schema_version"] == 8
         assert raw_case["onboarding"]["policy_snapshot"]["intelligence"] is not None
         assert "credential_hash" not in str(raw_case)
         assert "credential_hash" not in str(

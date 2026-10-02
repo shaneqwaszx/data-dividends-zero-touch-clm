@@ -161,6 +161,47 @@ class ArchitectureCheckerTests(unittest.TestCase):
         )
         self.assertNotIn("FRONTEND_BACKEND_BOUNDARY", rules)
 
+    def test_accepts_canonical_scalar_ownership_evidence_models(self) -> None:
+        relative = "apps/backend/app/domain/ownership_evidence.py"
+        self.assertNotIn(
+            "OWNERSHIP_CANONICAL_OWNER",
+            self._rules_after(relative, (ROOT / relative).read_text(encoding="utf-8")),
+        )
+
+    def test_evidence_model_path_does_not_allow_another_engine(self) -> None:
+        for source in (
+            "class OtherOwnershipEngine:\n    pass\n",
+            "def calculate_ubo():\n    return 1\n",
+            "class OwnershipEvidence(BaseModel):\n    def calculate_ubo(self):\n        return 1\n",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(
+                    "OWNERSHIP_CANONICAL_OWNER",
+                    self._rules_after("apps/backend/app/domain/ownership_evidence.py", source),
+                )
+
+    def test_evidence_carrier_rejects_validator_decorated_free_functions(self) -> None:
+        for source in (
+            (
+                "class Carrier(BaseModel):\n    pass\n"
+                "@model_validator(mode='after')\ndef calculate_ubo(value):\n    return value\n"
+            ),
+            (
+                "class Carrier(BaseModel):\n    pass\n"
+                "@field_validator('value')\nasync def calculate_ubo(value):\n    return value\n"
+            ),
+            (
+                "class Carrier(BaseModel):\n    @model_validator(mode='after')\n"
+                "    def validate(self):\n        @model_validator(mode='after')\n"
+                "        def calculate_ubo(value):\n            return value\n        return self\n"
+            ),
+        ):
+            with self.subTest(source=source):
+                self.assertIn(
+                    "OWNERSHIP_CANONICAL_OWNER",
+                    self._rules_after("apps/backend/app/domain/ownership_evidence.py", source),
+                )
+
     def test_catches_second_domain_ownership_owner(self) -> None:
         self.assertIn(
             "OWNERSHIP_CANONICAL_OWNER",

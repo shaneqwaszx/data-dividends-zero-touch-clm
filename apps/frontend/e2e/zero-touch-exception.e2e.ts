@@ -2,6 +2,7 @@ import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { openStage } from "./stage-disclosures";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -76,6 +77,7 @@ async function create(page: Page, garden: boolean, conflict = false) {
 }
 
 async function classification(page: Page) {
+  await openStage(page, "Classification & readiness");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   const response = page.waitForResponse((response) => response.request().method() === "PUT"
@@ -132,7 +134,11 @@ test("Zero-touch Golden STP normal UI has zero exception interventions", async (
   const measure = await boundedMutation(page, info, "/target-confirmation", async () => {
     await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
   }, "confirmation");
+  await openStage(page, "Target preparation / submission state");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "100");
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuetext", /final human approval remains outside/);
   const completed = await summary(page, caseId);
   expect(completed.status).toBe("COMPLETED");
   expect(completed.metrics.human_interventions).toBe(0);
@@ -146,6 +152,7 @@ for (const conflict of [false, true]) {
     const caseId = await create(page, true, conflict);
     await capture(page, info, "before");
     if (conflict) {
+      await openStage(page, "Documents & reconciliation");
       for (let count = 4; count > 0; count -= 1) {
         await expect(page.getByRole("button", { name: "Keep registry value", exact: true })).toHaveCount(count);
         const measure = await boundedMutation(page, info, "/resolve", async () => {
@@ -160,8 +167,13 @@ for (const conflict of [false, true]) {
       expect((await summary(page, caseId)).metrics.human_interventions).toBe(0);
     }
     await expect(page.getByRole("button", { name: "Add structured ownership details", exact: true })).toBeVisible();
+    const ownershipStage = page.locator(".stage-disclosure").filter({
+      has: page.getByRole("button", { name: /^Ownership & UBO/ }),
+    });
+    await openStage(page, "Registry identity");
     await expect(page.getByText("Ownership unavailable from current registry evidence", { exact: true })).toBeVisible();
-    await expect(page.getByText("Ownership information required", { exact: true })).toBeVisible();
+    await expect(ownershipStage.locator(".intervention-card")).toHaveCount(1);
+    await expect(ownershipStage.getByRole("heading", { name: /^Ownership and UBO.+needs input$/ })).toBeVisible();
     await expect(page.getByText("Identity retrieved", { exact: true })).toBeVisible();
     await capture(page, info, "ownership-gap");
     const baseline = requests.length;
@@ -186,6 +198,7 @@ for (const conflict of [false, true]) {
     expect(owner.state).toBe("ANALYZED");
     expect(owner.provider_environment).toBe("LOCAL");
     const table = page.getByRole("table", { name: "Retained ownership details" });
+    await openStage(page, "Ownership & UBO");
     await table.scrollIntoViewIfNeeded();
     await expect(table.getByRole("row")).toHaveCount(3);
     await expect(table).toContainText("Demo Partner A");

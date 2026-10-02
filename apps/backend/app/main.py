@@ -285,6 +285,12 @@ class IdentitySearchRecheckRequest(BaseModel):
     expected_case_event_count: int = Field(ge=1)
 
 
+class RegistryIdentityCorrectionRequest(IdentitySearchRecheckRequest):
+    choice: Literal["ENTERED", "DOCUMENT", "OTHER"] = "OTHER"
+    document_id: UUID | None = None
+    expected_document_event_count: int | None = Field(default=None, ge=1)
+
+
 class TargetRecoveryRequest(BaseModel):
     """Untrusted browser attestation checked against case and fresh provider evidence."""
 
@@ -634,7 +640,7 @@ def create_app(
     application.include_router(build_provider_sandbox_router(service, active_settings))
     if active_acra_diagnostics is not None:
         application.include_router(build_acra_diagnostic_router(active_acra_diagnostics))
-    application.include_router(build_policy_router(policy_management))
+    application.include_router(build_policy_router(policy_management, authentication))
     application.include_router(
         build_intelligence_router(
             intelligence_projection,
@@ -2046,6 +2052,40 @@ def create_app(
             )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
+        except ZeroTouchInfrastructureError as exc:
+            raise _zero_touch_infrastructure_http_error(exc) from None
+        return zero_touch_response(record)
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/registry-identity",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    def correct_registry_identity(
+        case_id: UUID, correction: RegistryIdentityCorrectionRequest, request: Request,
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
+    ) -> ZeroTouchCaseSummaryResponse:
+        try:
+            record = active_zero_touch.repair_initial_identity_and_recheck(
+                case_id=case_id, actor_id=actor.profile.user_id,
+                legal_name=correction.legal_name,
+                registration_number=correction.registration_number,
+                country_of_incorporation=correction.country_of_incorporation,
+                expected_automation_version=correction.expected_automation_version,
+                expected_clm_version=correction.expected_clm_version,
+                expected_case_event_count=correction.expected_case_event_count,
+                verify_registry=True, identity_choice=correction.choice,
+                document_id=correction.document_id,
+                expected_document_event_count=correction.expected_document_event_count,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id
+                ),
+            )
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        except ZeroTouchInfrastructureError as exc:
+            raise _zero_touch_infrastructure_http_error(exc) from None
         return zero_touch_response(record)
 
     @application.post(

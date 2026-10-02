@@ -1,0 +1,254 @@
+{
+  "branch": "feat/phase24-registry-identity-ownership-ubo",
+  "base_sha": "039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c",
+  "head": "039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c",
+  "origin_main": "039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c",
+  "entries": [
+    {
+      "path": ".ai-pipeline/001_planner/PHASE_24_PLAN.md",
+      "sha256": "58b465741b13a63a737a18d265facc029ae058d7941fbb41a5083679c9ef5a87"
+    },
+    {
+      "path": ".ai-pipeline/reports/PHASE_24_CANDIDATE_MANIFEST_ROUND_1.json",
+      "sha256": "2100f3cc99bc5e1dc248a1d0c4d0f146c4d8e942d81badeba0937e28f819bcd8"
+    },
+    {
+      "path": ".ai-pipeline/reports/PHASE_24_IMPLEMENTATION_HANDOFF.md",
+      "sha256": "8b948e718722d466b8ee59398a4686c031a2de025a93f4a2b67818012dc9c7ea"
+    },
+    {
+      "path": ".ai-pipeline/reports/PHASE_24_QUALITY_GATE_ROUND_1.md",
+      "sha256": "dcb9572b0a0cbbe6b35fda5b7f493db5320bc782fbb16bc5519e0df531b045c7"
+    },
+    {
+      "path": "apps/backend/app/api_models.py",
+      "sha256": "72632ad10930848a9d0761bf77caf7f59f4640e3d9a74905afe56cd04f7a2e29"
+    },
+    {
+      "path": "apps/backend/app/composition.py",
+      "sha256": "410f3f3c9a586e535ab16efdf07c7f999b38b096c1f2971a81a6e9372d759ed4"
+    },
+    {
+      "path": "apps/backend/app/connectors/acra_bizfile_sandbox.py",
+      "sha256": "8f03d0c07516e7595dbbf5c2c6d909ebe2092db359d34fcbb35ceb97e9e57f2f"
+    },
+    {
+      "path": "apps/backend/app/connectors/ownership.py",
+      "sha256": "c8c5259cd569ce01ebce52b49baf601adc743c58509c9c8bed0c4ae11648cc55"
+    },
+    {
+      "path": "apps/backend/app/connectors/registry.py",
+      "sha256": "7c0e1095f6d55b594bf71634cf60cd7ce18f873ab2b1d55321a1f2abca6aae2f"
+    },
+    {
+      "path": "apps/backend/app/connectors/registry_ownership.py",
+      "sha256": "62881e2d0605a07b0b5ff5415bbca9b6292be706aa26588c1aef3cab1ebd635c"
+    },
+    {
+      "path": "apps/backend/app/domain/models.py",
+      "sha256": "56bf65d48f58adba1ebccfd86565563e72ac1dbcec2dea494fec28a6cefedcfd"
+    },
+    {
+      "path": "apps/backend/app/domain/ownership.py",
+      "sha256": "ae83c35e41699716934f297631da777b15bfab82bc1c7b6a59877ba6a2ecdcd1"
+    },
+    {
+      "path": "apps/backend/app/domain/ownership_evidence.py",
+      "sha256": "09503eddfdf417acef895e5ada9ddb7e9de4182d8d31e921c35374d90122274d"
+    },
+    {
+      "path": "apps/backend/app/domain/registry_legal_form.py",
+      "sha256": "e307a8aec86953f22887bc5de3d38ea1b7a4adc94b41915a49fce7eeb89c132d"
+    },
+    {
+      "path": "apps/backend/app/main.py",
+      "sha256": "5f9fae435537045ac436137e34149b459fd61bb8fbb942e76085d1048e528a56"
+    },
+    {
+      "path": "apps/backend/app/persistence/mongo_case_store.py",
+      "sha256": "888d6b8d49182fc1637f07339d696c2dce7af688f47bdf53a08a9bcb1b298bd6"
+    },
+    {
+      "path": "apps/backend/app/persistence/repositories.py",
+      "sha256": "3cf8aeaadaa69a94c1b7fa89e953a31044962653c13fee55671ee2b98b8da00b"
+    },
+    {
+      "path": "apps/backend/app/services/authorization.py",
+      "sha256": "e869db0cf7dc155fec4f3a63ed8e32bfaeb745babe27516ff4dd763bd5a5bbb0"
+    },
+    {
+      "path": "apps/backend/app/services/blocker_decision_policy.py",
+      "sha256": "9b61ecc261433e4f456ae58047001c1225aa4a5bb967347529441ba07d900bc3"
+    },
+    {
+      "path": "apps/backend/app/services/onboarding.py",
+      "sha256": "beadd1387d2a21f2005c9522b6b2fb2f6a7f3811b3c1b65ecb6f1d2c4e366a80"
+    },
+    {
+      "path": "apps/backend/app/services/ownership_analysis.py",
+      "sha256": "e40639cf3d2dc57d8669f050d9738671aadd4101370f5d8be416c852a5c42559"
+    },
+    {
+      "path": "apps/backend/app/services/ownership_evidence_tagger.py",
+      "sha256": "bda484144b5f621b5386e07aeedcf1428ec0831d108454679e76acc2b0704453"
+    },
+    {
+      "path": "apps/backend/app/services/ownership_repository.py",
+      "sha256": "857738b80e2af556582c598097c6db3fe801e24f53ea3e9ab2ba2ad106b6a9cb"
+    },
+    {
+      "path": "apps/backend/app/services/repository.py",
+      "sha256": "642262dcfb89e37b1eef0ea3707284c5370c66d687250c4b6bf77c3c33902a75"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "sha256": "00ed65ccb455f357891709d8bf0f70f31ba80f7f471e6fffb92469a955747486"
+    },
+    {
+      "path": "apps/backend/tests/test_acra_api_marketplace_mock_connector.py",
+      "sha256": "2fe35e1577bb6142f9d2bd504c294fcc43a9cddf498e4c560df69f47662618c8"
+    },
+    {
+      "path": "apps/backend/tests/test_blocker_decision_policy.py",
+      "sha256": "5bfbdeeb11a2723f31933f83465d6a25a877bd5152d895bc02e29ed8b33373c3"
+    },
+    {
+      "path": "apps/backend/tests/test_goldtier_xpi_sandbox.py",
+      "sha256": "2e60ebddac00d510e4950f4dd6fbdd714ad37e7887bd3b38a0b845cec73b2c3c"
+    },
+    {
+      "path": "apps/backend/tests/test_phase10_registry_acquisition.py",
+      "sha256": "b8f3bbdffeceba396c47b8828dcbf6e2bf5d197c1be79e861a5465c194fd0b03"
+    },
+    {
+      "path": "apps/backend/tests/test_phase13_auth_rbac.py",
+      "sha256": "d91be11ca96116ca3b27531483774568fcafcc02819e4566ea7b301a9648ed61"
+    },
+    {
+      "path": "apps/backend/tests/test_phase24_identity.py",
+      "sha256": "41caf170930250307fe4e4c759b8df82cc4a17575dc2b0887881119c5c29ff29"
+    },
+    {
+      "path": "apps/backend/tests/test_phase24_ownership_evidence.py",
+      "sha256": "197c9dcf0b855435a6132379645e375bbbb8e22e4462e3effa7b26de08851f1a"
+    },
+    {
+      "path": "apps/backend/tests/test_provider_identity_real_mongo.py",
+      "sha256": "f692eac8ebd1f8bdeccdec75581057c57037090415b6da19e5416ce0576b3a19"
+    },
+    {
+      "path": "apps/backend/tests/test_zero_touch_exception_remediation.py",
+      "sha256": "91fd3d82b5cc34ffcca608753314dc2d821116337f300117d84bdfb348d138ee"
+    },
+    {
+      "path": "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
+      "sha256": "be90a2ed215497839b8c8fbd7df5a27233f7e4438b59319962e6a4aea598b882"
+    },
+    {
+      "path": "apps/frontend/e2e/garden-happy-path.e2e.ts",
+      "sha256": "1007d689cc051744cb1fd44bd9d578f4f35034a8c3d16dbb0ccc20a4af924dc8"
+    },
+    {
+      "path": "apps/frontend/e2e/phase24-identity.e2e.ts",
+      "sha256": "1dc23447b34545a11fc5796ed269e38092102d3aa68915b37891d747ee24b4ed"
+    },
+    {
+      "path": "apps/frontend/e2e/responsive-layout.e2e.ts",
+      "sha256": "acca6d417f0cd65ed8c571cdb0103ddce34fa09b5d01bf920abeb84473c7f5fd"
+    },
+    {
+      "path": "apps/frontend/e2e/stage-disclosures.ts",
+      "sha256": "c31a7f2c4aa6ca7d2ee05055c994cbc5047cbb5ddc3e7e6465f889865fb029b3"
+    },
+    {
+      "path": "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+      "sha256": "ce23b06fe967e4dc071523254c2548a3a97fdaa7ab09360c3faa0a1894cacfd1"
+    },
+    {
+      "path": "apps/frontend/src/EvidenceWorkbenchIsolation.test.tsx",
+      "sha256": "0405ca8fa0ad349be1b634b3bc253aaa4a3e8590143e613d717dc58105c450a9"
+    },
+    {
+      "path": "apps/frontend/src/api.ts",
+      "sha256": "d431a06942fbc3e8527c57f2f76c876487db0b8ddb7d898df8bacc448b66bbe6"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseDetail.tsx",
+      "sha256": "c2549c23b6e9959b968f9a6b8ff6d7b73a5fdf7f984db71e10b444dcafa8c805"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.tsx",
+      "sha256": "82469b71a4b646af9ae1cb18bb07a2cabcc17c449b9f86699f0ef56ff6e3194c"
+    },
+    {
+      "path": "apps/frontend/src/pages/HumanInterventionPanel.tsx",
+      "sha256": "c11a9519080b2c02b35eef7b73e2e035026363468eae1a9dca586bdcf1028165"
+    },
+    {
+      "path": "apps/frontend/src/pages/IdentityCorrectionForm.test.tsx",
+      "sha256": "1cadb9c6034cc7e0a2e35c88a7f097bf047d6d1592ebedb2a62ff5ba42bd24c1"
+    },
+    {
+      "path": "apps/frontend/src/pages/IdentityCorrectionForm.tsx",
+      "sha256": "2190368afb82bdcf1936a08105b5aaeb89990af3b11dfacb0645bc6776d7dacc"
+    },
+    {
+      "path": "apps/frontend/src/pages/OwnershipPathExplorer.tsx",
+      "sha256": "3f0b65fedf542da90232146dc01b692cba73fcd3c916c18d33587afb626ce86b"
+    },
+    {
+      "path": "apps/frontend/src/pages/StageDisclosure.test.tsx",
+      "sha256": "20672181eb049c13029d9cc12d276319fb54f9d54bfacc2c7cbc4d0396e46dd5"
+    },
+    {
+      "path": "apps/frontend/src/pages/StageDisclosure.tsx",
+      "sha256": "6bce75832d1398eeac5224a17c9701aeb05bc352b7422c8ae708debcf2f0a45d"
+    },
+    {
+      "path": "apps/frontend/src/styles.css",
+      "sha256": "55d5119f18c4bf7cf41a6d4649eb0824520caa95dbbce26c6b100f8ccc5a31d7"
+    },
+    {
+      "path": "apps/frontend/src/types.ts",
+      "sha256": "931335f7418f122dc9b67bbe4c648191b501ecd695af3cbeae1116939ac4048e"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "5ae2fe0d3a052c0379791b16b3461cae4ee82354b767def77743f4159a6deaf0"
+    },
+    {
+      "path": "docs/PROJECT_STATE.md",
+      "sha256": "d5a1a07bc35307e515908262e372ae8dbf2ca5640cd248ca24bb5f2b3432865f"
+    },
+    {
+      "path": "docs/contracts/ACRA_MOCK_API_PROFILE.md",
+      "sha256": "2d8fc14c31537524cf6a9b8299b43cffb7849ee37a20a2a6f781e5440e64f8ec"
+    },
+    {
+      "path": "docs/contracts/OWNERSHIP_UBO_PROFILE.md",
+      "sha256": "00c856876a2f25b4d44941fde27a1b7347e2b3028cb1d7b56799014f2fa20110"
+    },
+    {
+      "path": "docs/decisions/ADR-008_OWNERSHIP_EVIDENCE_TAGGING.md",
+      "sha256": "a284b741ccf6aa67acec935c942fe40a2de4cac67d2e1e0741bfa378a5fd25ae"
+    },
+    {
+      "path": "docs/decisions/DECISION_LOG.md",
+      "sha256": "0e1024ef9b0cb86b3966c9490e784f073e069586011ac7aaa3386a2a12364d43"
+    },
+    {
+      "path": "docs/development/PHASE_24_ACRA_DISCOVERY.md",
+      "sha256": "910bc30c7353c62a81673116e19c0ea61489714e8c218e88023fc0b67728c053"
+    },
+    {
+      "path": "scripts/phase24_acra_mock_discovery.py",
+      "sha256": "15281fd8c756439405bc557d5c3968292263decc3486e39ed1f8f770f22de077"
+    }
+  ],
+  "content_id": "a93d78a876f49b6b18cdc119b940f72c1e16c6c88a1be44a247b854781f90945",
+  "excluded_paths": [
+    ".ai-pipeline/reports/PHASE_24_CANDIDATE_MANIFEST.json",
+    ".ai-pipeline/reports/PHASE_24_QUALITY_GATE.md"
+  ],
+  "identity_algorithm": "SHA256 of sorted-key compact UTF-8 JSON of branch/base_sha/head/origin_main/entries; entries ordered by path, SHA256 of exact file bytes"
+}

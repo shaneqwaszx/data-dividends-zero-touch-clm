@@ -530,17 +530,17 @@ def test_schema_version_is_explicit_and_unknown_version_is_rejected() -> None:
         created_at=now,
         updated_at=now,
     )
-    assert snapshot.schema_version == 7
+    assert snapshot.schema_version == 8
 
     store = object.__new__(MongoCaseStore)
     raw = snapshot.model_dump(mode="json")
     raw["_id"] = str(snapshot.case_id)
-    raw["schema_version"] = 8
+    raw["schema_version"] = 9
     with pytest.raises(PersistenceSchemaUnsupportedError):
         store._decode(raw)  # noqa: SLF001 - direct corruption boundary test
 
 
-def test_schema_v6_decodes_to_v7_with_recovery_fields_absent() -> None:
+def test_schema_v6_decodes_to_current_with_recovery_fields_absent() -> None:
     onboarding = build_onboarding_service(settings=Settings(_env_file=None))
     case = onboarding.create_staged_case("202400001A")
     now = datetime.now(UTC)
@@ -562,7 +562,7 @@ def test_schema_v6_decodes_to_v7_with_recovery_fields_absent() -> None:
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 7
+    assert decoded.schema_version == 8
     assert decoded.revision == 4
     assert decoded.onboarding.identity_corrections == ()
     assert decoded.onboarding.initial_target_search_attempts == ()
@@ -1129,7 +1129,7 @@ def test_schema_v2_read_receives_legacy_policy_snapshot_without_rewrite() -> Non
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 7
+    assert decoded.schema_version == 8
     assert decoded.onboarding.policy_snapshot.snapshot_label == "LEGACY_PHASE13_DEFAULTS_V1"
     assert decoded.onboarding.registry_evidence_binding is None
     assert str(decoded.onboarding.policy_snapshot.idp_review_confidence_threshold) == "0.85"
@@ -1164,7 +1164,7 @@ def test_schema_v3_read_has_absent_binding_without_rewrite() -> None:
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 7
+    assert decoded.schema_version == 8
     assert decoded.onboarding.registry_evidence_binding is None
     assert raw == original
 
@@ -1197,7 +1197,7 @@ def test_schema_v4_read_has_no_intelligence_record_and_is_not_rewritten() -> Non
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
-    assert decoded.schema_version == 7
+    assert decoded.schema_version == 8
     assert decoded.intelligence is None
     assert decoded.onboarding.policy_snapshot.intelligence is None
     assert raw == original

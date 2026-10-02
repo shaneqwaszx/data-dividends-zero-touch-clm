@@ -1,4 +1,4 @@
-# Zero-Touch Automation Policy — Phase 06 POC
+# Zero-Touch Automation Policy â€” Phase 06 POC
 
 **Classification:** PROJECT-DEFINED / PROVISIONAL / NOT SPONSOR-APPROVED
 
@@ -107,3 +107,35 @@ The case lock and composed review/reconciliation transitions are single-process 
 guarantees. Mongo envelope revision CAS detects stale durable writes, and the target
 ledger prevents known replay paths; distributed transaction or exactly-once claims are
 not made.
+
+
+## Stage recovery dependency projection (Phase 24B-STAGE-RECOVERY candidate)
+
+Audit exception order and creation timestamps do not select a workflow stage.
+ZeroTouchOrchestrator normalizes only proven obsolete registry ownership dependencies
+using the existing generation/currentness owner, retains unrelated current blockers,
+and restores a missing dependency from an authoritative current REVIEW_REQUIRED
+ownership result. It chooses the earliest OPEN stage in the record's existing v1/v2
+stage order, including correction, review and recovery paths. Retirement and restoration
+are accepted as one automation CAS checkpoint. History order and decisions are preserved.
+ANALYZED current ownership does not authorize cancelling an unproven current/future or
+legacy dependency; existing fail-closed provenance rules still apply.
+A repository-rejected internal domain transition surfaces only the fixed safe
+ZERO_TOUCH_TRANSITION_REJECTED infrastructure error. The rejected checkpoint is not
+accepted, and no target progression is dispatched. Normal supported mixed stages must
+not rely on that error path. Completed/submitted cases and target no-replay remain frozen.
+This is project POC recovery behavior, not a sponsor approval or new workflow order.
+
+
+Stage-recovery round1 also proves uncompleted prerequisites strictly before the
+semantic earliest OPEN blocker through the existing progression branches. Each
+completed prerequisite retains WAITING_FOR_REVIEW and the same earliest OPEN stage;
+no unresolved human decision is crossed. Missing/LOADED ownership and a previously
+completed checkpoint whose authoritative current ownership is now absent/unfinished
+are re-evaluated after document reconciliation. Later independent decisions remain
+OPEN. Final confirmation is raised by the existing readiness owner before an
+independent later target blocker. Historical v1 progression uses its existing upgrade
+owner and evaluates retained Search proof, rather than manufacturing completion.
+Both identity correction API aliases project rejected infrastructure transitions
+through the existing sanitized503 boundary. Already accepted parent/Search writes
+remain monotonic and recoverable; the rejected automation candidate is not stored.

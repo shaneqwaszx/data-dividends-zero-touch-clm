@@ -43,6 +43,7 @@ class Role(StrEnum):
 class Capability(StrEnum):
     POLICY_VIEW = "POLICY_VIEW"
     POLICY_MUTATE = "POLICY_MUTATE"
+    POLICY_APPROVE = "POLICY_APPROVE"
     CASE_ACCESS = "CASE_ACCESS"
     CASE_GLOBAL = "CASE_GLOBAL"
     IDENTITY_ADMIN = "IDENTITY_ADMIN"
@@ -54,12 +55,12 @@ class Capability(StrEnum):
 ROLE_CAPABILITIES: dict[Role, frozenset[Capability]] = {
     Role.CLIENT_ONBOARDER: frozenset({Capability.POLICY_VIEW, Capability.CASE_ACCESS}),
     Role.RELATIONSHIP_MANAGER: frozenset(
-        {Capability.POLICY_VIEW, Capability.POLICY_MUTATE, Capability.CASE_ACCESS}
+        {Capability.POLICY_VIEW, Capability.CASE_ACCESS}
     ),
     Role.DIRECTOR: frozenset(
         {
             Capability.POLICY_VIEW,
-            Capability.POLICY_MUTATE,
+            Capability.POLICY_APPROVE,
             Capability.CASE_ACCESS,
             Capability.CASE_GLOBAL,
             Capability.TARGET_RECOVERY,
@@ -68,6 +69,7 @@ ROLE_CAPABILITIES: dict[Role, frozenset[Capability]] = {
     Role.HR: frozenset(
         {
             Capability.POLICY_VIEW,
+            Capability.POLICY_MUTATE,
             Capability.IDENTITY_ADMIN,
             Capability.TEAM_ADMIN,
             Capability.PROVIDER_SANDBOX_TEST,

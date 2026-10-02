@@ -1,0 +1,165 @@
+{
+  "stage": "PHASE_24B_POST_GATE_REMEDIATION_ROUND_1_OF_2",
+  "branch": "feat/phase24-registry-identity-ownership-ubo",
+  "head": "039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c",
+  "prior_mini_content_id": "705139993fc21db5bde7f6fadb56454f9574250dfa64431b82d58d4b6cd31682",
+  "content_id": "2c92c076f4ea6c84c51e603d234d36bc196413b3f27a0e1d86f3483c365c74f8",
+  "entries": [
+    {
+      "path": ".ai-pipeline/001_planner/PHASE_24B_PLAN.md",
+      "sha256": "a85ba681811d939e29145ffd9e6aaa208732090b0730f5597beb241570614bd5",
+      "entry_sha256": "a85ba681811d939e29145ffd9e6aaa208732090b0730f5597beb241570614bd5"
+    },
+    {
+      "path": ".ai-pipeline/reports/PHASE_24B_REMEDIATION_ROUND_1_DELTA.patch",
+      "sha256": "73fca2299b9038a90968871497e8e181160e44a28141b55018cd26509a8cf1ec",
+      "entry_sha256": null
+    },
+    {
+      "path": ".ai-pipeline/reports/PHASE_24B_REMEDIATION_ROUND_1_HANDOFF.md",
+      "sha256": "47bd9bf3256bbc25db0acd6b44ea539b12c97c9cb8a4666004b20781bb381b51",
+      "entry_sha256": null
+    },
+    {
+      "path": ".ai-pipeline/reports/PHASE_24B_REMEDIATION_ROUND_1_SCOPE.md",
+      "sha256": "13d6b1d526954e9cb81ed01726c814ee436c04315b145c4c90479485b954d81d",
+      "entry_sha256": null
+    },
+    {
+      "path": "apps/backend/app/domain/ownership.py",
+      "sha256": "c49e258b95360fd7464c04c4cf49e6b1414f90254040870389705a169c8cc757",
+      "entry_sha256": "c49e258b95360fd7464c04c4cf49e6b1414f90254040870389705a169c8cc757"
+    },
+    {
+      "path": "apps/backend/app/domain/zero_touch.py",
+      "sha256": "558c5e6fb928f9c3b4d363197ebc3564448553b564043582824680093e29f467",
+      "entry_sha256": "558c5e6fb928f9c3b4d363197ebc3564448553b564043582824680093e29f467"
+    },
+    {
+      "path": "apps/backend/app/services/ownership_analysis.py",
+      "sha256": "55b7ed54896d65b172082b536fbb9a64a5abf841d1de99203c869976744885dc",
+      "entry_sha256": "230f68331d822ed8551491746c4366cf969e6b62c1876a91cf844afe7a39eb9d"
+    },
+    {
+      "path": "apps/backend/app/services/ownership_repository.py",
+      "sha256": "b4d37ec86518890583865c498b13f4cb655ac0f49d26574bc82cc243c5b354b8",
+      "entry_sha256": "12d1b22493deaf300bb6476a15a7a53463d812aac75ee006cad7bdfb9d6b2284"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "sha256": "e16f68861bfaa61bdc92c7d23fda60a3221e501ee6e9ed194931d291a5fdef32",
+      "entry_sha256": "2faa412e25e949d3d5c87bd2a05e50949b27efb0e9a8ce311d9505c9c3374fa3"
+    },
+    {
+      "path": "apps/backend/tests/test_phase24b_interrupted_retry.py",
+      "sha256": "241d79a96813d0830b45c97d0a48644ec8aa33b4892e8e1ee3ae899d7ac5fbeb",
+      "entry_sha256": null
+    },
+    {
+      "path": "apps/backend/tests/test_phase24b_p2_regressions.py",
+      "sha256": "98a8f84e883d28ccd1a5254522ef0f7da9f526186f99a41a84c7a0b93b4a03de",
+      "entry_sha256": "98a8f84e883d28ccd1a5254522ef0f7da9f526186f99a41a84c7a0b93b4a03de"
+    },
+    {
+      "path": "apps/backend/tests/test_provider_identity_real_mongo.py",
+      "sha256": "22cba16e06a27859eb9a2ee45e555ce086e10ff4267fa769c88a7851b006c2fd",
+      "entry_sha256": "f4079ef08635013019f1d1c03aca913e76d3ba6a36729b645d86c2e5057a1764"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.test.tsx",
+      "sha256": "eaf4b736589aff7734ced5513c953199cc6ff61461de54ef4640426cddab9774",
+      "entry_sha256": "eaf4b736589aff7734ced5513c953199cc6ff61461de54ef4640426cddab9774"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.tsx",
+      "sha256": "2814a8ebe519100a0a275b53d60ab8c6bc5f0deff82e7949eb52a737da40dae6",
+      "entry_sha256": "2814a8ebe519100a0a275b53d60ab8c6bc5f0deff82e7949eb52a737da40dae6"
+    },
+    {
+      "path": "docs/contracts/OWNERSHIP_UBO_PROFILE.md",
+      "sha256": "244950436e73672cb942adc1a96dc675682388099119c068242b263c205a1ba0",
+      "entry_sha256": "0c3fa53e6c5d3a654a7ab8857afd9b963e957a2ead20d86835facf1200072b91"
+    }
+  ],
+  "preserved_entry_paths": {
+    "apps/backend/app/api_models.py": "72632ad10930848a9d0761bf77caf7f59f4640e3d9a74905afe56cd04f7a2e29",
+    "apps/backend/app/composition.py": "410f3f3c9a586e535ab16efdf07c7f999b38b096c1f2971a81a6e9372d759ed4",
+    "apps/backend/app/connectors/acra_bizfile_sandbox.py": "8f03d0c07516e7595dbbf5c2c6d909ebe2092db359d34fcbb35ceb97e9e57f2f",
+    "apps/backend/app/connectors/ownership.py": "c8c5259cd569ce01ebce52b49baf601adc743c58509c9c8bed0c4ae11648cc55",
+    "apps/backend/app/connectors/registry.py": "7c0e1095f6d55b594bf71634cf60cd7ce18f873ab2b1d55321a1f2abca6aae2f",
+    "apps/backend/app/connectors/registry_ownership.py": "62881e2d0605a07b0b5ff5415bbca9b6292be706aa26588c1aef3cab1ebd635c",
+    "apps/backend/app/domain/models.py": "56bf65d48f58adba1ebccfd86565563e72ac1dbcec2dea494fec28a6cefedcfd",
+    "apps/backend/app/domain/ownership.py": "c49e258b95360fd7464c04c4cf49e6b1414f90254040870389705a169c8cc757",
+    "apps/backend/app/domain/zero_touch.py": "558c5e6fb928f9c3b4d363197ebc3564448553b564043582824680093e29f467",
+    "apps/backend/app/main.py": "5f9fae435537045ac436137e34149b459fd61bb8fbb942e76085d1048e528a56",
+    "apps/backend/app/persistence/mongo_case_store.py": "888d6b8d49182fc1637f07339d696c2dce7af688f47bdf53a08a9bcb1b298bd6",
+    "apps/backend/app/persistence/repositories.py": "d91de867d8d02b84602f0aaaacf80ae040b1ab8596696ed5abb2f2aaddaf40c5",
+    "apps/backend/app/services/authorization.py": "e869db0cf7dc155fec4f3a63ed8e32bfaeb745babe27516ff4dd763bd5a5bbb0",
+    "apps/backend/app/services/blocker_decision_policy.py": "9b61ecc261433e4f456ae58047001c1225aa4a5bb967347529441ba07d900bc3",
+    "apps/backend/app/services/onboarding.py": "beadd1387d2a21f2005c9522b6b2fb2f6a7f3811b3c1b65ecb6f1d2c4e366a80",
+    "apps/backend/app/services/repository.py": "642262dcfb89e37b1eef0ea3707284c5370c66d687250c4b6bf77c3c33902a75",
+    "apps/backend/tests/test_acra_api_marketplace_mock_connector.py": "2fe35e1577bb6142f9d2bd504c294fcc43a9cddf498e4c560df69f47662618c8",
+    "apps/backend/tests/test_blocker_decision_policy.py": "5bfbdeeb11a2723f31933f83465d6a25a877bd5152d895bc02e29ed8b33373c3",
+    "apps/backend/tests/test_goldtier_xpi_sandbox.py": "2e60ebddac00d510e4950f4dd6fbdd714ad37e7887bd3b38a0b845cec73b2c3c",
+    "apps/backend/tests/test_phase10_registry_acquisition.py": "b8f3bbdffeceba396c47b8828dcbf6e2bf5d197c1be79e861a5465c194fd0b03",
+    "apps/backend/tests/test_phase13_auth_rbac.py": "d91be11ca96116ca3b27531483774568fcafcc02819e4566ea7b301a9648ed61",
+    "apps/backend/tests/test_zero_touch_exception_remediation.py": "91fd3d82b5cc34ffcca608753314dc2d821116337f300117d84bdfb348d138ee",
+    "apps/frontend/e2e/authenticated-zero-touch.e2e.ts": "be90a2ed215497839b8c8fbd7df5a27233f7e4438b59319962e6a4aea598b882",
+    "apps/frontend/e2e/garden-happy-path.e2e.ts": "1007d689cc051744cb1fd44bd9d578f4f35034a8c3d16dbb0ccc20a4af924dc8",
+    "apps/frontend/e2e/responsive-layout.e2e.ts": "acca6d417f0cd65ed8c571cdb0103ddce34fa09b5d01bf920abeb84473c7f5fd",
+    "apps/frontend/e2e/zero-touch-exception.e2e.ts": "ac40efcd11b8fa7cf23d5b7c22779d7b75b35d44e4da4c968a17527519ea7e17",
+    "apps/frontend/src/EvidenceWorkbenchIsolation.test.tsx": "2cae2071da02eac50128dd80f1ae0e1ed71dc24f44fbd61593d981494b11ece8",
+    "apps/frontend/src/api.ts": "d431a06942fbc3e8527c57f2f76c876487db0b8ddb7d898df8bacc448b66bbe6",
+    "apps/frontend/src/caseQueries.ts": "4f7a66a033e7bb170da725ac8dbb1b634e19eb47d5e705f2ab1bcd321323918a",
+    "apps/frontend/src/pages/CaseDetail.tsx": "a156758a81e8295b2131a26615c9d80f087f3ac772c378bba2cb87ad3ff85285",
+    "apps/frontend/src/pages/CaseStatePanels.test.tsx": "eaf4b736589aff7734ced5513c953199cc6ff61461de54ef4640426cddab9774",
+    "apps/frontend/src/pages/CaseStatePanels.tsx": "2814a8ebe519100a0a275b53d60ab8c6bc5f0deff82e7949eb52a737da40dae6",
+    "apps/frontend/src/pages/HumanInterventionPanel.tsx": "c11a9519080b2c02b35eef7b73e2e035026363468eae1a9dca586bdcf1028165",
+    "apps/frontend/src/pages/IdentityCorrectionForm.test.tsx": "1cadb9c6034cc7e0a2e35c88a7f097bf047d6d1592ebedb2a62ff5ba42bd24c1",
+    "apps/frontend/src/pages/IdentityCorrectionForm.tsx": "2190368afb82bdcf1936a08105b5aaeb89990af3b11dfacb0645bc6776d7dacc",
+    "apps/frontend/src/pages/OwnershipPathExplorer.tsx": "3f0b65fedf542da90232146dc01b692cba73fcd3c916c18d33587afb626ce86b",
+    "apps/frontend/src/styles.css": "45b66a605b96fc59b0ce3d92d5e8c47fc0a196bede6d98a0a3ef9b7b12fd89dc",
+    "apps/frontend/src/types.ts": "931335f7418f122dc9b67bbe4c648191b501ecd695af3cbeae1116939ac4048e",
+    "docs/ARCHITECTURE.md": "539bc4b2f21b47c430e38ba9f88156d7336773af22934871ad3853929a0b9748",
+    "docs/PROJECT_STATE.md": "d5a1a07bc35307e515908262e372ae8dbf2ca5640cd248ca24bb5f2b3432865f",
+    "docs/contracts/ACRA_MOCK_API_PROFILE.md": "2d8fc14c31537524cf6a9b8299b43cffb7849ee37a20a2a6f781e5440e64f8ec",
+    "docs/decisions/DECISION_LOG.md": "0e1024ef9b0cb86b3966c9490e784f073e069586011ac7aaa3386a2a12364d43",
+    ".ai-pipeline/001_planner/PHASE_24B_PLAN.md": "a85ba681811d939e29145ffd9e6aaa208732090b0730f5597beb241570614bd5",
+    ".ai-pipeline/001_planner/PHASE_24_PLAN.md": "b3d352dee0fb4a0d5df94d7fd1216f4a3bf19030e8f7d4739bcc0459842a1d88",
+    ".ai-pipeline/reports/PHASE_24B_IMPLEMENTATION_HANDOFF.md": "5bc163540e08324a884ab49d5b441aae2f1f244fa568df5cbd450b7399642de2",
+    ".ai-pipeline/reports/PHASE_24B_MINI_MANIFEST.json": "4de754feb2121f6c7fcd36d9df0beac27b6c5fa51c86870efb6f38a116fd054b",
+    ".ai-pipeline/reports/PHASE_24B_MINI_QUALITY_GATE.md": "49edb537ffdb53c1ae42bca94314bfe5c53be0e8bd0fe9b55aa2aef54a67c168",
+    ".ai-pipeline/reports/PHASE_24_CANDIDATE_MANIFEST.json": "b5ef0191d7a54601583eba12c89080e2eb901097a2793014d2b50d1f6319227c",
+    ".ai-pipeline/reports/PHASE_24_CANDIDATE_MANIFEST_ROUND_1.json": "2100f3cc99bc5e1dc248a1d0c4d0f146c4d8e942d81badeba0937e28f819bcd8",
+    ".ai-pipeline/reports/PHASE_24_CANDIDATE_MANIFEST_ROUND_2.json": "93cb86f51bec68a5469ffc47fa9550855511d74b708e7e6102539885896b41e8",
+    ".ai-pipeline/reports/PHASE_24_IMPLEMENTATION_HANDOFF.md": "c127e8d281e464014412396cf3cc5c6ac19a30930158267841f4937b403ef692",
+    ".ai-pipeline/reports/PHASE_24_QUALITY_GATE.md": "a1da27f878b63b03e2d06e166d6b7ceca71b3a68b3bc4f14ac8b75dbcfe713c1",
+    ".ai-pipeline/reports/PHASE_24_QUALITY_GATE_ROUND_1.md": "dcb9572b0a0cbbe6b35fda5b7f493db5320bc782fbb16bc5519e0df531b045c7",
+    ".ai-pipeline/reports/PHASE_24_QUALITY_GATE_ROUND_2.md": "ef86e7b3f00ed349a9b54b2cf13c26165ecbd721df50866e9f231e22a24506d6",
+    "apps/backend/app/domain/ownership_evidence.py": "09503eddfdf417acef895e5ada9ddb7e9de4182d8d31e921c35374d90122274d",
+    "apps/backend/app/domain/registry_legal_form.py": "e307a8aec86953f22887bc5de3d38ea1b7a4adc94b41915a49fce7eeb89c132d",
+    "apps/backend/app/services/ownership_evidence_tagger.py": "bda484144b5f621b5386e07aeedcf1428ec0831d108454679e76acc2b0704453",
+    "apps/backend/tests/test_phase24_identity.py": "21213750571e5c3d690f8ebc872a3f8b4544adfcc1cc5c7fa857ef1b66540e27",
+    "apps/backend/tests/test_phase24_ownership_evidence.py": "6be37e5db47bc8018e992d4856d3cad9981195ab8fb2dd7096efda903a72f1a0",
+    "apps/backend/tests/test_phase24b_p2_regressions.py": "98a8f84e883d28ccd1a5254522ef0f7da9f526186f99a41a84c7a0b93b4a03de",
+    "apps/frontend/e2e/phase24-identity.e2e.ts": "67d6ccbc8ea7d8a457f83ff3a9bfcb8b2a5d5e8de5d8b09a87c1e33603e85a26",
+    "apps/frontend/e2e/stage-disclosures.ts": "d10b242356030efd35de4d9e086d1d7839ca3ccfee0a7b2a6638fcd67f861c32",
+    "apps/frontend/src/pages/StageDisclosure.test.tsx": "20672181eb049c13029d9cc12d276319fb54f9d54bfacc2c7cbc4d0396e46dd5",
+    "apps/frontend/src/pages/StageDisclosure.tsx": "6bce75832d1398eeac5224a17c9701aeb05bc352b7422c8ae708debcf2f0a45d",
+    "docs/decisions/ADR-008_OWNERSHIP_EVIDENCE_TAGGING.md": "a284b741ccf6aa67acec935c942fe40a2de4cac67d2e1e0741bfa378a5fd25ae",
+    "docs/development/PHASE_24_ACRA_DISCOVERY.md": "910bc30c7353c62a81673116e19c0ea61489714e8c218e88023fc0b67728c053",
+    "scripts/phase24_acra_mock_discovery.py": "15281fd8c756439405bc557d5c3968292263decc3486e39ed1f8f770f22de077"
+  },
+  "changed_existing_paths": [
+    "apps/backend/app/services/ownership_analysis.py",
+    "apps/backend/app/services/ownership_repository.py",
+    "apps/backend/app/services/zero_touch_orchestration.py",
+    "apps/backend/tests/test_provider_identity_real_mongo.py",
+    "docs/contracts/OWNERSHIP_UBO_PROFILE.md"
+  ],
+  "new_implementation_paths": [
+    "apps/backend/tests/test_phase24b_interrupted_retry.py"
+  ],
+  "old_failure": "6 failed /2 passed before production edits",
+  "review_report": ".ai-pipeline/reports/PHASE_24B_MINI_QUALITY_GATE_ROUND_1.md"
+}

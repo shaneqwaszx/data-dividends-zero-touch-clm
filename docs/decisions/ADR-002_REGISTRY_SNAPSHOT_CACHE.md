@@ -147,3 +147,16 @@ where multi-process single-flight is required.
 - [Decision log](DECISION_LOG.md), especially D-029, D-033, D-040, D-042, and D-044
 - [Open sponsor questions](../sponsor-questions/OPEN_QUESTIONS.md), especially Q-012,
   Q-013, Q-015, and Q-016
+
+## Amendment — 2026-10-02 Phase24C owner-authorized scope
+
+D-064 extends the existing coordinator/adapter/repository only: explicit schema2 allows
+normalized successful operation prefixes and definitive NOT_FOUND; COMPLETE remains the
+only case-bound bundle. Case-frozen ACTIVE policy supplies freshness/negative TTL with
+90-day/600s defaults. The official API Marketplace Mock receives a separate exact
+namespace; Sandbox/Live remain prohibited. Exact-key bounded exception/cancellation-safe
+single-flight stays process-local and cannot promise distributed exactly-once. Provider
+failure/empty required operation cannot become successful evidence or a negative hit.
+No raw payload store, second resolver, cache-to-target mapping, database fallback,
+provider write, TTL deletion, forced refresh or historical case reassessment is added.
+The amended REGISTRY_CACHE_FRESHNESS_PROFILE.md is current for these changed clauses.

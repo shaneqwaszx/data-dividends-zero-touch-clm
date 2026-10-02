@@ -44,6 +44,12 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("POST", "/api/admin/profiles", RouteAccess.ACTOR_ONLY),
     RoutePolicy("PATCH", "/api/admin/profiles/{user_id}", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/policies", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/policies/classifier-benchmark", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("GET", "/api/policies/proposals/{proposal_id}/impact", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/policies/proposals", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("PATCH", "/api/policies/proposals/{proposal_id}", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/policies/proposals/{proposal_id}/submit", RouteAccess.ACTOR_ONLY),
+    RoutePolicy("POST", "/api/policies/proposals/{proposal_id}/decision", RouteAccess.ACTOR_ONLY),
     RoutePolicy("GET", "/api/policies/{policy_id}", RouteAccess.ACTOR_ONLY),
     RoutePolicy("POST", "/api/policies", RouteAccess.ACTOR_ONLY),
     RoutePolicy("PATCH", "/api/policies/{policy_id}", RouteAccess.ACTOR_ONLY),
@@ -172,6 +178,11 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy(
         "POST",
         "/api/clm/zero-touch/cases/{case_id}/identity-search-recheck",
+        RouteAccess.CASE_SCOPED,
+    ),
+    RoutePolicy(
+        "POST",
+        "/api/clm/zero-touch/cases/{case_id}/registry-identity",
         RouteAccess.CASE_SCOPED,
     ),
     RoutePolicy(

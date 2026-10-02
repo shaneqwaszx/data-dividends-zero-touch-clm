@@ -54,6 +54,39 @@ def _imports(text: str) -> set[str]:
     return found
 
 
+def _is_scalar_ownership_evidence_model(text: str) -> bool:
+    """Recognize the documented model carrier, never another ownership engine."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return False
+    classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    if not classes or any(
+        len(node.bases) != 1
+        or not isinstance(node.bases[0], ast.Name)
+        or node.bases[0].id not in {"BaseModel", "StrEnum"}
+        for node in classes
+    ):
+        return False
+    model_methods = {
+        id(member)
+        for model in classes
+        for member in model.body
+        if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    return all(
+        id(node) in model_methods
+        and any(
+            isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Name)
+            and decorator.func.id in {"field_validator", "model_validator"}
+            for decorator in node.decorator_list
+        )
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    )
+
+
 def _instantiates_imported_symbol(text: str, qualified_name: str) -> bool:
     tree = ast.parse(text)
     bindings: dict[str, str] = {}
@@ -245,6 +278,10 @@ def check(root: Path) -> list[Finding]:
             and path.endswith(".py")
             and "ownership" in Path(path).stem
             and path != owner
+            and not (
+                path == "apps/backend/app/domain/ownership_evidence.py"
+                and _is_scalar_ownership_evidence_model(_read_text(root / path))
+            )
         ):
             findings.append(
                 Finding(

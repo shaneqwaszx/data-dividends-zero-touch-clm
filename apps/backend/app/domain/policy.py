@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
+from hashlib import sha256
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -216,6 +218,11 @@ class PolicyAuditEvent(BaseModel):
 
     event_id: Annotated[str, Field(pattern=r"^[A-F0-9]{24}$")]
     action: Literal[
+        "POLICY_PROPOSAL_CREATED",
+        "POLICY_PROPOSAL_EDITED",
+        "POLICY_PROPOSAL_SUBMITTED",
+        "POLICY_PROPOSAL_APPROVED",
+        "POLICY_PROPOSAL_REJECTED",
         "POLICY_CREATED",
         "POLICY_UPDATED",
         "POLICY_RESET_DEFAULT",
@@ -279,9 +286,111 @@ class PolicyRule(BaseModel):
         return self
 
 
-class PolicyCatalogue(BaseModel):
+class RegistryPolicySnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+    freshness_seconds: Annotated[int, Field(strict=True, ge=60, le=31_536_000)] = 7_776_000
+    negative_seconds: Annotated[int, Field(strict=True, ge=1, le=3_600)] = 600
 
+
+class EvidenceClassifierPolicy(BaseModel):
+    """POC semantic scoring only; never ownership arithmetic or legal findings."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    kind_weight: Annotated[Decimal, Field(ge=0, le=1)] = Decimal("0.50")
+    binding_weight: Annotated[Decimal, Field(ge=0, le=1)] = Decimal("0.25")
+    confidence_weight: Annotated[Decimal, Field(ge=0, le=1)] = Decimal("0.25")
+    threshold: Annotated[Decimal, Field(ge=0, le=1)] = Decimal("0.50")
+
+    @model_validator(mode="after")
+    def unit_sum(self) -> EvidenceClassifierPolicy:
+        if self.kind_weight + self.binding_weight + self.confidence_weight != Decimal("1"):
+            raise ValueError("classifier weights must total one")
+        return self
+
+
+class PolicyProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    proposal_id: Annotated[str, Field(pattern=r"^[A-F0-9]{24}$")]
+    version: Annotated[int, Field(strict=True, ge=1)] = 1
+    base_active_version: Annotated[int, Field(strict=True, ge=1)]
+    proposer_id: Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{2,31}$")]
+    status: Literal["DRAFT", "PENDING_APPROVAL", "APPROVED", "REJECTED"] = "DRAFT"
+    rules: Annotated[tuple[PolicyRule, ...], Field(min_length=8, max_length=64)]
+    reason: Annotated[str, Field(min_length=10, max_length=240)]
+    created_at: datetime
+    updated_at: datetime
+    decided_by: Annotated[str | None, Field(pattern=r"^[a-z][a-z0-9-]{2,31}$")] = None
+    decided_at: datetime | None = None
+    decision_reason: Annotated[str | None, Field(min_length=10, max_length=240)] = None
+    activated_version: Annotated[int | None, Field(strict=True, ge=1)] = None
+
+    @field_validator("reason", "decision_reason")
+    @classmethod
+    def safe_reason(cls, value: str | None) -> str | None:
+        return normalize_safe_policy_text(value) if value is not None else None
+
+    @field_validator("created_at", "updated_at", "decided_at")
+    @classmethod
+    def utc_time(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (
+            value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value)
+        ):
+            raise ValueError("policy proposal timestamp must be UTC")
+        return value
+
+    @model_validator(mode="after")
+    def valid_decision(self) -> PolicyProposal:
+        if len({rule.policy_id for rule in self.rules}) != len(self.rules):
+            raise ValueError("duplicate proposed rule")
+        decided = self.status in {"APPROVED", "REJECTED"}
+        facts = (self.decided_by, self.decided_at, self.decision_reason)
+        if decided != all(value is not None for value in facts):
+            raise ValueError("proposal decision evidence is inconsistent")
+        if not decided and any(value is not None for value in facts):
+            raise ValueError("undecided proposal cannot retain decision evidence")
+        if self.decided_by == self.proposer_id:
+            raise ValueError("self decision is forbidden")
+        if (self.status == "APPROVED") != (self.activated_version is not None):
+            raise ValueError("activation version does not match decision")
+        if self.updated_at < self.created_at or (
+            self.decided_at is not None and self.decided_at != self.updated_at
+        ):
+            raise ValueError("proposal chronology is invalid")
+        return self
+
+
+class PolicyVersionRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    version: Annotated[int, Field(strict=True, ge=1)]
+    status: Literal["SUPERSEDED"] = "SUPERSEDED"
+    rules: Annotated[tuple[PolicyRule, ...], Field(min_length=8, max_length=64)]
+    superseded_at: datetime
+
+    @field_validator("superseded_at")
+    @classmethod
+    def utc_timestamp(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("supersession timestamp must be UTC")
+        return value
+
+    @model_validator(mode="after")
+    def valid_rules(self) -> PolicyVersionRecord:
+        if len({r.policy_id for r in self.rules}) != len(self.rules):
+            raise ValueError("duplicate superseded rule identity")
+        if any(r.updated_at > self.superseded_at for r in self.rules):
+            raise ValueError("supersession precedes rule update")
+        return self
+
+
+class PolicyCatalogue(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    catalogue_schema_version: Literal[1, 2] = 2
+    active_version: Annotated[int, Field(strict=True, ge=1)] = 1
+    active_origin: Literal["DEFAULT", "APPROVED"] = "DEFAULT"
+    active_effective_at: datetime | None = None
+    proposals: Annotated[tuple[PolicyProposal, ...], Field(max_length=64)] = ()
+    superseded_versions: Annotated[tuple[PolicyVersionRecord, ...], Field(max_length=64)] = ()
     catalogue_id: Literal["GLOBAL_POLICY_CATALOGUE"] = "GLOBAL_POLICY_CATALOGUE"
     version: Annotated[int, Field(ge=1)]
     rules: Annotated[tuple[PolicyRule, ...], Field(min_length=8, max_length=64)]
@@ -290,8 +399,88 @@ class PolicyCatalogue(BaseModel):
     updated_by: Annotated[str, Field(min_length=3, max_length=32)]
     audit_events: Annotated[tuple[PolicyAuditEvent, ...], Field(max_length=256)] = ()
 
+    @model_validator(mode="before")
+    @classmethod
+    def read_historical_active_catalogue(cls, value: object) -> object:
+        if isinstance(value, dict) and "catalogue_schema_version" not in value:
+            value = dict(value)
+            value["catalogue_schema_version"] = 1
+            value["active_version"] = value.get("version")
+            value["active_effective_at"] = value.get("updated_at")
+        return value
+
+    @field_validator("created_at", "updated_at", "active_effective_at")
+    @classmethod
+    def utc_timestamp(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (
+            value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value)
+        ):
+            raise ValueError("catalogue timestamp must be UTC")
+        return value
+
+    @field_validator("catalogue_schema_version", mode="before")
+    @classmethod
+    def strict_schema(cls, value: object) -> object:
+        if type(value) is not int:
+            raise ValueError("catalogue schema must be an integer")
+        return value
+
+    @property
+    def active_identity(self) -> str:
+        value = {
+            "version": self.active_version,
+            "rules": [r.model_dump(mode="json") for r in self.rules],
+        }
+        return sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
     @model_validator(mode="after")
     def validate_catalogue(self) -> PolicyCatalogue:
+        if self.active_version > self.version:
+            raise ValueError("active policy version exceeds aggregate version")
+        if self.catalogue_schema_version == 1 and (self.proposals or self.superseded_versions):
+            raise ValueError("historical catalogue cannot contain proposals")
+        if len({item.proposal_id for item in self.proposals}) != len(self.proposals):
+            raise ValueError("duplicate proposal identity")
+        if any(item.base_active_version > self.active_version for item in self.proposals):
+            raise ValueError("proposal base is in the future")
+        versions = [item.version for item in self.superseded_versions]
+        if versions != sorted(set(versions)) or any(v >= self.active_version for v in versions):
+            raise ValueError("superseded policy version order is invalid")
+        if self.active_origin == "APPROVED" and not any(
+            p.status == "APPROVED"
+            and p.activated_version == self.active_version
+            and p.rules == self.rules
+            for p in self.proposals
+        ):
+            raise ValueError("active policy has no matching approval")
+        if (
+            self.active_effective_at is not None
+            and not self.created_at <= self.active_effective_at <= self.updated_at
+        ):
+            raise ValueError("active effective timestamp is invalid")
+        if any(
+            p.created_at < self.created_at or p.updated_at > self.updated_at for p in self.proposals
+        ):
+            raise ValueError("proposal chronology exceeds catalogue")
+        approved = [p for p in self.proposals if p.status == "APPROVED"]
+        activations = [p.activated_version for p in approved]
+        if len(set(activations)) != len(activations):
+            raise ValueError("duplicate activation version")
+        retained = {v.version: v.rules for v in self.superseded_versions}
+        retained[self.active_version] = self.rules
+        for proposal in approved:
+            if (
+                proposal.activated_version not in retained
+                or retained[proposal.activated_version] != proposal.rules
+            ):
+                raise ValueError("approved version has no matching retained rules")
+        if self.active_origin == "APPROVED" and not any(
+            p.activated_version == self.active_version and p.decided_at == self.active_effective_at
+            for p in approved
+        ):
+            raise ValueError("active effective timestamp differs from approval")
+        if self.active_origin == "DEFAULT" and (approved or self.superseded_versions):
+            raise ValueError("baseline cannot contain activation history")
         ids = [rule.policy_id for rule in self.rules]
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate policy ID")
@@ -464,7 +653,23 @@ class CasePolicySnapshot(BaseModel):
     comparator: Literal["GREATER_THAN_OR_EQUAL_TO"] = "GREATER_THAN_OR_EQUAL_TO"
     intelligence: IntelligencePolicySnapshot | None = None
     goldtier_target: GoldTierTargetPolicySnapshot | None = None
+    registry: RegistryPolicySnapshot | None = None
+    evidence_classifier: EvidenceClassifierPolicy | None = None
+    policy_identity: Annotated[str | None, Field(pattern=r"^[0-9a-f]{64}$")] = None
     bound_at: datetime
+
+    @model_validator(mode="after")
+    def approved_parameters_are_bound(self) -> CasePolicySnapshot:
+        fields = (self.registry, self.evidence_classifier, self.policy_identity)
+        if any(value is not None for value in fields) and (
+            not all(value is not None for value in fields) or self.catalogue_version < 1
+        ):
+            raise ValueError("approved case policy requires complete versioned parameters")
+        if self.bound_at.tzinfo is None or self.bound_at.utcoffset() != UTC.utcoffset(
+            self.bound_at
+        ):
+            raise ValueError("case policy binding timestamp must be UTC")
+        return self
 
 
 class CasePolicyRebindAudit(BaseModel):

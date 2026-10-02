@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { openStage } from "./stage-disclosures";
 import {
   createBrowserNetworkPolicy,
   handleBrowserRoute,
@@ -267,18 +268,14 @@ test.afterEach(() => {
 });
 
 async function expectPolicyMutationControls(page: Page, visible: boolean) {
-  const displayOnlyRule = page.getByText("Add display-only rule", { exact: true });
-  const edit = page.getByRole("button", { name: "Edit" });
-  const reset = page.getByRole("button", { name: "Reset to default" });
+  const draft = page.getByRole("heading", { name: "Prepare policy proposal" });
+  const edit = page.getByRole("button", { name: "Propose change", exact: true });
+  const reset = page.getByRole("button", { name: "Reset to default", exact: true });
+  await expect(page.getByText("Add display-only rule", { exact: true })).toHaveCount(0);
   if (visible) {
-    await expect(displayOnlyRule).toBeVisible();
-    await expect(edit.first()).toBeVisible();
-    await expect(reset.first()).toBeVisible();
-    return;
+    await expect(draft).toBeVisible(); await expect(edit.first()).toBeVisible(); await expect(reset.first()).toBeVisible(); return;
   }
-  await expect(displayOnlyRule).toHaveCount(0);
-  await expect(edit).toHaveCount(0);
-  await expect(reset).toHaveCount(0);
+  await expect(draft).toHaveCount(0); await expect(edit).toHaveCount(0); await expect(reset).toHaveCount(0);
 }
 
 async function expectAuthoritativeReviewReady(page: Page, caseId: string) {
@@ -380,6 +377,9 @@ test("responsive cases and representative routes preserve tables, priorities, an
           ? /\/new-onboarding(?:\/[0-9a-f-]{36})?(?:$|\?)/i
           : new RegExp(`${route.replaceAll("/", "\\/")}(?:$|\\?)`);
         await expect(page).toHaveURL(expectedRoute);
+        if (route === `/cases/${completedCaseId}`) {
+          await openStage(page, "Documents & reconciliation");
+        }
         if (heading) await expect(page.getByRole("heading", { name: heading })).toBeVisible();
         await expectShellContained(page);
         if (route === "/cases" || route === "/onboarded" || route === "/audit" || route === "/policy") {
@@ -471,12 +471,12 @@ test("responsive review case exposes only supported authoritative review control
   await expect(page.getByRole("button", { name: /replay|retry target/i })).toHaveCount(0);
 });
 
-test("responsive Relationship Manager controls contain policy and delete dialog", async ({ page }) => {
+test("responsive Relationship Manager policy view and delete dialog", async ({ page }) => {
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 360, height: 900 });
   await login(page, "ethan-tan");
   await openWorkspaceTab(page, "Policy");
-  await expectPolicyMutationControls(page, true);
+  await expectPolicyMutationControls(page, false);
   const completedCaseId = await openNewCase(page, cleanFixture);
   await confirmMockTarget(page);
   await waitForCaseStatus(page, completedCaseId, ["COMPLETED"]);
@@ -489,15 +489,15 @@ test("responsive Relationship Manager controls contain policy and delete dialog"
   await page.getByRole("button", { name: "Cancel" }).click();
 });
 
-test("responsive Director policy exposes mutation controls", async ({ page }) => {
+test("responsive Director policy separates decision authority", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 900 });
   await login(page, "olivia-koh");
   await openWorkspaceTab(page, "Policy");
-  await expectPolicyMutationControls(page, true);
+  await expectPolicyMutationControls(page, false);
   await expectShellContained(page);
 });
 
-test("responsive HR administration contains representative routes without policy mutation", async ({ page }) => {
+test("responsive HR administration contains proposal-only policy controls", async ({ page }) => {
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 360, height: 900 });
   await login(page, "hr-admin");
@@ -508,7 +508,7 @@ test("responsive HR administration contains representative routes without policy
       await expect(page.getByRole("heading", { name: heading })).toBeVisible();
       await expectShellContained(page);
       if (tab === "Policy") {
-        await expectPolicyMutationControls(page, false);
+        await expectPolicyMutationControls(page, true);
       }
     }
   }

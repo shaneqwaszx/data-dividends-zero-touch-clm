@@ -119,8 +119,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_registry_cache(self) -> "Settings":
         if self.registry_cache_mode == "mock":
-            if self.acra_connector_mode != "mock":
-                raise ValueError("registry cache is supported only for Mock ACRA")
+            if self.acra_connector_mode not in {"mock", "api_marketplace_mock"}:
+                raise ValueError("registry cache is supported only for explicit Mock ACRA lanes")
             if self.registry_cache_freshness_seconds != 7_776_000:
                 raise ValueError("enabled Mock registry cache requires 7,776,000 freshness seconds")
             collections = {

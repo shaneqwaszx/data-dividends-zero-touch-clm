@@ -15,6 +15,7 @@ from app.connectors.acra_api_marketplace_auth import (
 )
 from app.connectors.acra_api_marketplace_mock import (
     ACRA_API_MARKETPLACE_MOCK_BASE_URL,
+    ACRA_API_MARKETPLACE_MOCK_DATASET_NAMESPACE,
     ACRA_API_MARKETPLACE_MOCK_RESPONSE_MAX_BYTES,
     AcraApiMarketplaceMockConnection,
     AcraApiMarketplaceMockConnector,
@@ -140,7 +141,11 @@ def build_onboarding_service(
             provider=SourceSystem.ACRA,
             environment=SourceEnvironment.MOCK,
             acquisition_contract_version=(AcraRegistryProviderAdapter.ACQUISITION_CONTRACT_VERSION),
-            dataset_namespace=MOCK_ACRA_DATASET_NAMESPACE,
+            dataset_namespace=(
+                ACRA_API_MARKETPLACE_MOCK_DATASET_NAMESPACE
+                if active_settings.acra_connector_mode == "api_marketplace_mock"
+                else MOCK_ACRA_DATASET_NAMESPACE
+            ),
         )
         if active_settings.registry_cache_mode == "mock"
         else None
@@ -148,6 +153,7 @@ def build_onboarding_service(
     registry_provider = AcraRegistryProviderAdapter(
         active_acra,
         cache_identity=cache_identity,
+        company_shareholders_only=active_settings.acra_connector_mode == "api_marketplace_mock",
     )
     registry_coordinator = None
     if active_settings.registry_cache_mode == "mock":

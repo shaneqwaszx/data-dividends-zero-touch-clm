@@ -18,6 +18,8 @@ from app.domain.policy import (
     legacy_phase13_policy_snapshot,
 )
 
+IDENTITY_RECHECK_HISTORY_LIMIT = 16
+
 
 class WorkflowState(StrEnum):
     """Application workflow states exposed to the user."""
@@ -182,7 +184,19 @@ class RegistryOwnershipParty(BaseModel):
     registration_identifier: str | None = Field(default=None, max_length=64)
     country: str | None = Field(default=None, pattern=r"^[A-Z]{2,3}$")
     ownership_percentage: RegistryOwnershipPercent | None = None
+    source_category: str | None = Field(default=None, min_length=1, max_length=64)
+    source_status: str | None = Field(default=None, min_length=1, max_length=64)
+    share_allotted: Decimal | None = Field(
+        default=None, ge=0, allow_inf_nan=False, max_digits=18, decimal_places=6
+    )
     provenance: RegistryEvidenceProvenance
+
+    @field_validator("share_allotted", mode="before")
+    @classmethod
+    def exact_share_units(cls, value: object) -> object:
+        if isinstance(value, (float, bool)):
+            raise ValueError("share units must be exact")
+        return value
 
 
 class RegistryRelationship(BaseModel):
@@ -478,12 +492,18 @@ class RegistryFreshnessPolicy(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    policy_id: Literal["MOCK_ACRA_FIXED_90D"] = "MOCK_ACRA_FIXED_90D"
-    version: Literal[1] = 1
-    duration_seconds: Literal[7_776_000] = 7_776_000
-    comparator: Literal["EVALUATION_NOW_LT_EXPIRES_AT"] = (
-        "EVALUATION_NOW_LT_EXPIRES_AT"
-    )
+    policy_id: Literal["MOCK_ACRA_FIXED_90D", "MOCK_ACRA_APPROVED_POLICY"] = "MOCK_ACRA_FIXED_90D"
+    version: int = Field(default=1, strict=True, ge=1)
+    duration_seconds: int = Field(default=7_776_000, strict=True, ge=60, le=31_536_000)
+    comparator: Literal["EVALUATION_NOW_LT_EXPIRES_AT"] = "EVALUATION_NOW_LT_EXPIRES_AT"
+
+    @model_validator(mode="after")
+    def fixed_policy_is_exact(self) -> "RegistryFreshnessPolicy":
+        if self.policy_id == "MOCK_ACRA_FIXED_90D" and (
+            self.version != 1 or self.duration_seconds != 7_776_000
+        ):
+            raise ValueError("fixed historical registry policy cannot be reinterpreted")
+        return self
 
     @property
     def fingerprint(self) -> str:
@@ -503,11 +523,12 @@ class RegistrySnapshotEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
-    cache_schema_version: Literal[1] = 1
+    cache_schema_version: Literal[1, 2] = 1
     cache_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     key: RegistryCacheKey
     revision: int = Field(ge=0)
-    acquisition: RegistryAcquisitionBundle
+    acquisition: RegistryAcquisitionBundle | None
+    negative_result: Literal["NOT_FOUND"] | None = None
     freshness_anchor: datetime
     provider_effective_at: datetime | None = None
     written_at: datetime
@@ -517,27 +538,55 @@ class RegistrySnapshotEntry(BaseModel):
     def timestamps_must_be_utc(cls, value: datetime | None) -> datetime | None:
         return _require_utc(value) if value is not None else None
 
+    @field_validator("cache_schema_version", mode="before")
+    @classmethod
+    def strict_cache_schema(cls, value: object) -> object:
+        if type(value) is not int:
+            raise ValueError("cache schema must be an integer")
+        return value
+
     @model_validator(mode="after")
     def validate_entry(self) -> "RegistrySnapshotEntry":
         if self.cache_id != self.key.digest:
             raise ValueError("registry cache identity does not match its key")
-        if self.acquisition.status != RegistryAcquisitionStatus.COMPLETE:
+        if (
+            self.key.provider_identity.environment != SourceEnvironment.MOCK
+            and self.cache_schema_version == 2
+        ):
+            raise ValueError("operation and negative cache require explicit Mock identity")
+        if self.negative_result is not None:
+            if (
+                self.cache_schema_version != 2
+                or self.acquisition is not None
+                or self.freshness_anchor != self.written_at
+                or self.provider_effective_at is not None
+            ):
+                raise ValueError("negative cache contains inconsistent evidence")
+            return self
+        if self.acquisition is None:
+            raise ValueError("registry cache requires acquisition or definitive absence")
+        if (
+            self.cache_schema_version == 1
+            and self.acquisition.status != RegistryAcquisitionStatus.COMPLETE
+        ):
             raise ValueError("registry cache entries require complete acquisition evidence")
         if self.acquisition.requested_identifier != self.key.normalized_identifier:
             raise ValueError("registry cache key does not match the acquisition identifier")
-        provenances = tuple(
-            result.provenance for result in self.acquisition.operation_results
-        )
-        if any(provenance is None for provenance in provenances):
+        provenances = tuple(result.provenance for result in self.acquisition.operation_results)
+        if self.cache_schema_version == 1 and any(provenance is None for provenance in provenances):
             raise ValueError("complete registry cache evidence requires all provenances")
         complete_provenances = tuple(
-            provenance for provenance in provenances if provenance is not None
+            result.provenance
+            for result in self.acquisition.operation_results
+            if result.provenance is not None
+            and result.status in {RegistryOperationStatus.COMPLETE, RegistryOperationStatus.EMPTY}
         )
         identity = self.key.provider_identity
         if any(
             provenance.provider != identity.provider
             or provenance.environment != identity.environment
-            for provenance in complete_provenances
+            for provenance in provenances
+            if provenance is not None
         ):
             raise ValueError("registry cache identity does not match acquisition provenance")
         if self.freshness_anchor != min(
@@ -670,9 +719,8 @@ class InitialGoldTierSearchEvidence(BaseModel):
 
     @model_validator(mode="after")
     def validate_initial_search(self) -> "InitialGoldTierSearchEvidence":
-        if (
-            self.candidate_count != len(self.candidate_party_ids)
-            or self.candidate_count != len(self.candidate_legal_names)
+        if self.candidate_count != len(self.candidate_party_ids) or self.candidate_count != len(
+            self.candidate_legal_names
         ):
             raise ValueError("Initial Search candidate evidence must remain aligned")
         if (self.disposition == "EXACT_MATCH") != (self.selected_party_id is not None):
@@ -687,10 +735,15 @@ class IdentityCorrectionEvidence(BaseModel):
 
     correction_id: UUID
     actor_id: str = Field(min_length=3, max_length=32, pattern=r"^[a-z][a-z0-9-]{2,31}$")
-    evidence_type: Literal[
-        "OPERATOR_VERIFIED_SOURCE", "USER_SUPPLIED_CORRECTION_POC"
-    ] = "USER_SUPPLIED_CORRECTION_POC"
+    evidence_type: Literal["OPERATOR_VERIFIED_SOURCE", "USER_SUPPLIED_CORRECTION_POC"] = (
+        "USER_SUPPLIED_CORRECTION_POC"
+    )
     previous_identity: InitialCustomerIdentity | None = None
+    previous_entity: CanonicalLegalEntity | None = None
+    previous_registry_acquisition: RegistryAcquisitionBundle | None = None
+    choice: Literal["ENTERED", "DOCUMENT", "OTHER"] = "OTHER"
+    source_document_id: UUID | None = None
+    source_document_event_count: int | None = Field(default=None, ge=0)
     corrected_identity: InitialCustomerIdentity
     previous_search_request_id: UUID | None = None
     corrected_at: datetime
@@ -750,18 +803,16 @@ class OnboardingCase(BaseModel):
     initial_identity: InitialCustomerIdentity | None = None
     initial_target_search: InitialGoldTierSearchEvidence | None = None
     identity_corrections: tuple[IdentityCorrectionEvidence, ...] = Field(
-        default=(), max_length=16
+        default=(), max_length=IDENTITY_RECHECK_HISTORY_LIMIT
     )
     initial_target_search_attempts: tuple[InitialGoldTierSearchAttempt, ...] = Field(
-        default=(), max_length=16
+        default=(), max_length=IDENTITY_RECHECK_HISTORY_LIMIT
     )
     existing_target_state: ExistingTargetStateProvenance | None = None
     target_dispatch_confirmation: TargetDispatchConfirmation | None = None
     policy_snapshot: CasePolicySnapshot = Field(default_factory=legacy_phase13_policy_snapshot)
     policy_snapshot_revision: int = Field(default=1, ge=1)
-    policy_rebind_history: tuple[CasePolicyRebindAudit, ...] = Field(
-        default=(), max_length=8
-    )
+    policy_rebind_history: tuple[CasePolicyRebindAudit, ...] = Field(default=(), max_length=8)
     team_id: TeamId | None = None
     priority: CasePriority | None = None
     jurisdiction_resolution: JurisdictionResolution | None = None
@@ -805,9 +856,7 @@ class OnboardingCase(BaseModel):
             raise ValueError("registry evidence binding does not match the case identifier")
         if binding.bundle_retrieved_at != acquisition.retrieved_at:
             raise ValueError("registry evidence binding does not match the bundle timestamp")
-        provenances = tuple(
-            result.provenance for result in acquisition.operation_results
-        )
+        provenances = tuple(result.provenance for result in acquisition.operation_results)
         if any(provenance is None for provenance in provenances):
             raise ValueError("bound registry evidence requires every operation provenance")
         complete_provenances = tuple(

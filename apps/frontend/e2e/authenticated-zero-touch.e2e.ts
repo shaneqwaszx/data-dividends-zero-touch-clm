@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { openStage } from "./stage-disclosures";
 import {
   createBrowserNetworkPolicy,
   handleBrowserRoute,
@@ -268,6 +269,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await caseLink.click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.getByRole("heading", { name: "Action required" })).toBeVisible();
+  await page.locator(".intervention-card summary").filter({ hasText: "Why is this blocked?" }).first().click();
   await expect(page.getByText(/INITIAL_IDENTITY_INCOMPLETE/).first()).toBeVisible();
   const identityStage = page.locator(".onboarding-progress__stage--actionable > button").filter({
     hasText: "Initial identity",
@@ -352,6 +354,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   expect((await replacementResponse).status()).toBe(200);
 
   const classification = page.getByRole("heading", { name: "Target classification" });
+  await openStage(page, "Classification & readiness");
   await expect(classification).toBeVisible({ timeout: 120_000 });
   const kyc = page.getByLabel("KYC customer type");
   const segment = page.getByLabel("Client segment");
@@ -473,7 +476,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
 
   await review.getByRole("button", { name: "Edit company details" }).click();
   await expect(page.locator("#case-identity-correction")).toBeFocused();
-  await expect(page.getByRole("heading", { name: "Complete company details" })).toBeVisible();
+  await expect(page.locator("#case-identity-correction").getByRole("heading", { name: "Registry identity" })).toBeVisible();
   await review.getByRole("button", { name: "Edit classification" }).click();
   await expect(page.locator("#case-target-classification")).toBeFocused();
   await review.getByRole("button", { name: "Edit documents" }).click();
@@ -595,9 +598,10 @@ test("authorized manual ownership action focuses the real evidence form and next
 
   await page.goto(`/cases/${caseId}`);
   const review = page.locator(".review-and-send");
-  await expect(review.getByRole("button", { name: "Edit ownership" })).toBeVisible();
+  await expect(review).toHaveCount(0);
+  await expect(page.locator(".stage-disclosure--final")).toContainText("Not yet available");
   await expect(page.getByRole("heading", { name: "Provide reviewed ownership declaration" })).toBeVisible();
-  await review.getByRole("button", { name: "Edit ownership" }).click();
+  await page.locator(".intervention-card").getByRole("button", { name: "Add structured ownership details" }).click();
   await expect(page.locator("#case-manual-ownership-evidence")).toBeFocused();
   await expect(page.getByRole("button", { name: "Submit manual ownership evidence" })).toBeVisible();
 });
@@ -685,6 +689,7 @@ test("onboarding progress is visible while backend-authored stages advance", asy
   await expect.poll(() => caseReadCount).toBeGreaterThanOrEqual(2);
   showObservedProgress = false;
   await confirmMockTarget(page);
+  await openStage(page, "Target preparation / submission state");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
   await testInfo.attach("progress-completed-endpoint", {
     body: await page.screenshot(),
@@ -964,6 +969,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect(ownershipResponse.status()).toBe(200);
   expect((await ownershipResponse.json() as { candidates: unknown[] }).candidates.length)
     .toBeGreaterThan(0);
+  await openStage(page, "Target preparation / submission state");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 30_000 });
   const operationalTiming = page.getByRole("region", { name: "Operational timing" });
   await expect(operationalTiming).toBeVisible();
@@ -978,9 +984,12 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(operationalTiming.getByText(/do not represent human waiting time/i)).toBeVisible();
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
   await expect(page.getByText(/not production approval or Ready-for-Approval/i)).toBeVisible();
+  await openStage(page, "Registry identity");
   await expect(page.getByRole("heading", { name: "Registry provenance" })).toBeVisible();
   await expect(page.getByText("Case evidence binding not recorded.")).toBeVisible();
+  await openStage(page, "Ownership & UBO");
   await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
+  await page.getByText("Backend execution details", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "Why this case is in its current state" })).toBeVisible();
 
   const interactionRequestBaseline = caseRequests.length;
@@ -1150,8 +1159,11 @@ test("current document review progresses authoritatively and keeps superseded hi
   }, { timeout: 120_000 }).toBe(1);
 
   await page.goto(`/cases/${caseId}`);
+  await openStage(page, "Documents & reconciliation");
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({ timeout: 30_000 });
   const focusRequestBaseline = reviewRequests.length + resumeRequests.length;
+  await openStage(page, "Target preparation / submission state");
+  await page.getByText("Backend execution details", { exact: true }).click();
   await page.getByRole("button", { name: "Focus documents evidence" }).click();
   await expect(page.locator("#case-evidence-documents")).toBeFocused();
   expect(reviewRequests.length + resumeRequests.length).toBe(focusRequestBaseline);
@@ -1196,6 +1208,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   expect(reviewRequests).toHaveLength(1);
   expect(JSON.parse(reviewRequests[0])).toEqual({ field_key: "legal_name", decision: "ACCEPTED" });
   expect(resumeRequests).toHaveLength(0);
+  await openStage(page, "Documents & reconciliation");
   await expect(page.getByText("4 final / 4 fields")).toBeVisible({ timeout: 30_000 });
   reviewMilestone("REVIEW_RENDERED_COUNT", 4);
   await expect.poll(async () => {
@@ -1213,6 +1226,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(replacementInput).toBeFocused();
   await replacementInput.setInputFiles(cleanFixture);
   await confirmMockTarget(page);
+  await openStage(page, "Target preparation / submission state");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
   await expect.poll(async () => {
     const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
@@ -1222,6 +1236,7 @@ test("current document review progresses authoritatively and keeps superseded hi
       && documents.filter((document) => document.superseded_by_document_id === null).length === 1
       && documents.filter((document) => document.superseded_by_document_id !== null).length === 1;
   }, { timeout: 120_000 }).toBe(true);
+  await openStage(page, "Documents & reconciliation");
   const history = page.getByText(/Evidence history \(1\)/);
   await history.click();
   const historicalCard = page.locator(".document-card--history");
@@ -1231,6 +1246,7 @@ test("current document review progresses authoritatively and keeps superseded hi
 
   await page.reload();
   await expect(page).toHaveURL(`/cases/${caseId}`);
+  await openStage(page, "Documents & reconciliation");
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({
     timeout: 30_000,
   });
@@ -1239,6 +1255,8 @@ test("current document review progresses authoritatively and keeps superseded hi
   await reloadedHistory.click();
   await expect(page.locator(".document-card--history")).toBeVisible();
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
+  await openStage(page, "Target preparation / submission state");
+  await page.getByText("Backend execution details", { exact: true }).click();
   await expect(page.getByText(/Ready-for-Approval: NOT AVAILABLE/i)).toBeVisible();
   expect(resumeRequests).toHaveLength(0);
 });
@@ -1357,6 +1375,8 @@ test("Cases filters exact open business-exception types without hiding other att
   await expect(openLink).toHaveAttribute("href", `/cases/${ownershipCycleCaseId}`);
   await openLink.click();
   await expect(page).toHaveURL(`/cases/${ownershipCycleCaseId}`);
+  await openStage(page, "Target preparation / submission state");
+  await page.getByText("Backend execution details", { exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Why this case is in its current state" }),
   ).toBeVisible();

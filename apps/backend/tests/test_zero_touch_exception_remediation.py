@@ -1,6 +1,6 @@
 """Zero-touch rules exercised through existing owners, without provider transport."""
 
-from datetime import date
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -349,7 +349,7 @@ def ownership_request(current, document):
         "root_registration_number": "11111999A",
         "evidence_document_id": document["document_id"],
         "evidence_document_version": len(document["events"]),
-        "as_of_date": date.today().isoformat(),
+        "as_of_date": datetime.now(UTC).date().isoformat(),
         "rationale": "Reviewed synthetic client economic interest declaration.",
         "root_party_id": "ROOT",
         "parties": [
