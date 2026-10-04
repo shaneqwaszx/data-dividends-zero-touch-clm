@@ -5,13 +5,13 @@ tests, contracts, and decisions remain higher authority for their respective fac
 Phase architecture documents provide detail and history; they do not silently override
 this current map.
 
-The inspected main baseline is merged PR #68 at
-`1d426e0ceddc32d80b0aaec293c62fb761f2fecf`. Historical gates and execution receipts
-retain their own identities. The current post-merge branch is described separately below:
-Sessions 1 and 2 have exact independent PASS on their recorded candidate identities.
-Session 3 has one bounded actual synthetic parent-customer Sandbox delivery. The
-current cumulative candidate and fresh combined acceptance are recorded separately
-in the program's final manifest/check index and independent final gate.
+The inspected main baseline is merged PR #69 at
+`73967401379378927c810d6227b0c7aa95fba061` (2026-10-05). Historical gates and
+execution receipts retain their own identities, including the prior combined FAIL
+and subsequent narrow P2 remediation PASS. Sessions1–3 described below are merged
+source behavior. Phase25 independently validated retained-data compatibility on this
+source without mutating original data. Phase26 updates current documentation and demo
+evidence; it introduces no owner, dependency, trust boundary or runtime change.
 
 ## 1. Purpose and scope
 
@@ -157,7 +157,7 @@ TTL deletion, eviction, retained-keyspace bound or retention policy is claimed.
 
 ## 6. Document/IDP architecture
 
-Media validation occurs before provider extraction. The S2 candidate extends the same
+Media validation occurs before provider extraction. Merged S2 extends the same
 local provider with native-first PDF/DOCX/TXT and bounded local Tesseract OCR for scanned
 PDF pages and PNG/JPEG/TIFF. Pillow/PDFium decode/render in a process with generated
 temporary paths and deadlines. Mock IDP remains for isolated demo/fault behavior. No
@@ -390,9 +390,9 @@ terminal records are not retroactively relabelled. Restart recovery treats attem
 not-completed mutations as uncertain, does not upgrade that state, and preserves the
 existing no-replay stop.
 
-The S2 candidate uses schema v9, retaining Phase24 extensions plus strict creator/OCR/
-ownership source bindings. The inspected main baseline used schema v8.
-Strict schema-v1 through schema-v7 readers preserve valid historical facts without rewrite. Schema v6 added bounded initial-customer identity and
+Current main uses schema v9, retaining Phase24 extensions plus strict creator/OCR/
+ownership source bindings. Strict schema-v1 through schema-v8 readers preserve valid
+historical facts without rewrite. Schema v6 added bounded initial-customer identity and
 GoldTier-first Search evidence, verified existing-target provenance, separate definitive
 and lifecycle-resolved operation markers, and an explicit provider-verified recovery
 fact. Schema v7 adds bounded identity-correction/Search-recheck attempts, policy-rebind
@@ -685,7 +685,7 @@ cache and direct policy-edit descriptions. PolicyManagementService owns proposal
 under one lock and repository CAS; existing capability owner grants HR proposal and
 Director decision. Cases freeze ACTIVE identity/values. RegistryAcquisitionCoordinator
 owns schema2 operation reuse/definitive negatives and bounded process-local single-flight;
-current case schema8 remains the sole envelope. OwnershipEvidenceTagger owns parameterized
+Phase24C introduced case schema8; current schema9 remains the sole case envelope. OwnershipEvidenceTagger owns parameterized
 deterministic semantic classification/14-example synthetic metrics; the single Decimal
 ownership engine keeps arithmetic authority. PolicyRules renders the five categories,
 proposal/reset/decision and synthetic before-after impact. No new state, auth, policy,
@@ -719,10 +719,10 @@ A–G PASS and the human merge through PR #68. This does not certify later candi
 ## Post-merge Session 1 owner extensions — independent PASS, 2026-10-04
 
 The [current program planner](../.ai-pipeline/001_planner/ONBOARDING_INTELLIGENCE_GOLDTIER_SANDBOX_PLAN.md)
-extends existing owners on `feat/onboarding-intelligence-goldtier-sandbox`; this section
-describes the owner-authorized branch work, not accepted main or new provider evidence.
-Session 1 independently passed its exact frozen candidate; changed Session 2 content
-requires the separate current gate and does not borrow that acceptance.
+records the existing-owner extensions merged through PR #69. Historical session
+gates apply to their exact recorded content; the later narrow P2 remediation PASS
+closed the two final findings before human integration. No new external evidence is
+created by this documentation refresh.
 
 `DocumentProcessingService.refresh_current_comparisons` preserves retained structured
 extraction, provenance and human decisions after accepted identity correction. It compares
@@ -747,11 +747,12 @@ ledger/provider facts. Stable internal stage/operation identifiers and historica
 order remain. Risk assessment is labelled bounded POC advisory. Later OCR/intelligence
 implementation was added by Session 2 and received fresh independent round1 PASS;
 Session 3 completed one owner-authorized synthetic parent-customer Shell/Policy/exact-ID
-readback; final combined acceptance remains pending. Camunda remains unimplemented
+readback. Historical combined failure and subsequent P2 remediation acceptance
+remain separate, as linked from PROJECT_STATE. Camunda remains unimplemented
 and outside this program. No new orchestration, document, authorization, persistence,
 query-client, ownership or target-ledger owner is introduced.
 
-## 21. S2 local OCR and creator-reviewed ownership candidate — 2026-10-04
+## 21. Merged S2 local OCR and creator-reviewed ownership — 2026-10-04
 
 [ADR-009](decisions/ADR-009_LOCAL_OCR_AND_REVIEWED_OWNERSHIP.md) records the owner map.
 IDP outputs remain untrusted DTOs before document normalization; all constructed/copied

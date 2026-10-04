@@ -1,5 +1,29 @@
 # GoldTier current contract and screening reconciliation
 
+## Current submission evidence — 2026-10-05
+
+Merged PR #69 retains backend/ledger-authored NOT_SUBMITTED, SENDING,
+SUBMISSION_CONFIRMED, SUBMISSION_FAILED, SUBMISSION_OUTCOME_UNCERTAIN and
+FINALIZATION_PENDING states. Preparing GoldTier Submission precedes Final review &
+send; Review & Send is final local human approval, not external KYC/compliance approval.
+Reopening an unresolved attempt cannot manufacture Sending or confirmation. One
+authorized read-only status check observes customer identity; it neither completes
+Policy nor replays writes.
+
+The historical S3 [external receipt](../../.ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S3_EXTERNAL_RECEIPT.json)
+and [durable proof](../../.ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S3_DURABLE_ACCEPTANCE_PROOF.json)
+record one synthetic parent-customer XPI Sandbox lifecycle: Search2, Shell1, Policy1,
+exact-ID readback1, Amend0 (not required), all HTTP200, with confirmed state retained
+across restart. The parent route remains PARTIAL Sandbox. Historical Garden Amend
+remains failed. Neither receipt proves KYC, screening clearance, RFA, related-party
+submission, original-document upload, Production or Live operation. Phase25/26 makes
+zero new external calls; offline status tests do not become new interoperability proof.
+
+The 233-row S3 field matrix remains a dated pre-execution inventory; pending values
+there are not current runtime results. Its prepared/external receipts supply actual
+execution facts. Earlier readiness statements below remain dated reconciliation
+history, not a new prohibition or provider-activation permission.
+
 ## Superseding original-artifact reconciliation — 2026-10-01
 
 The subsequent original-artifact investigation found both current XPI originals in

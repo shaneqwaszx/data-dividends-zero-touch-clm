@@ -1,9 +1,9 @@
 # Final POC Architecture
 
 Current owner map: [ARCHITECTURE](../ARCHITECTURE.md). Source baseline is merged
-PR #67; post-Phase24 A–G additions are a separately reviewed feature-branch candidate.
-See the [release summary](../demo/FINAL_POST_PHASE24_RELEASE_SUMMARY.md) for actual
-execution and review identities.
+PR #69 / `73967401379378927c810d6227b0c7aa95fba061`. See
+[PROJECT_STATE](../PROJECT_STATE.md) for current source and separately attributed
+historical gates, external receipts and post-merge validation.
 
 ## Sponsor flow
 
@@ -15,7 +15,8 @@ Authenticated request -> backend actor/team/capability -> frozen ACTIVE case pol
   -> registry or reviewed LOCAL ownership evidence -> one Decimal engine
   -> advisory intelligence -> readiness -> explicit Review & Send
   -> target ledger: new Shell/Policy or verified prior-target reuse, required operations/readback
-  -> COMPLETED / MOCK_GOLDTIER_SUBMITTED -> unresolved human approval boundary
+  -> COMPLETED / Mock submission or confirmed bounded Sandbox submission
+     (Review & Send is final local approval; external/regulatory approval is separate)
 ```
 
 Ambiguous/failed Search permits independent eligible case evidence while all target
@@ -30,7 +31,9 @@ analysis is silently copied.
 - Onboarding and RegistryAcquisitionCoordinator own canonical acquisition, evidence freshness
   and exact namespace reuse; external DTOs never map directly to GoldTier.
 - Document/reconciliation owners retain current observations, bounded authorized decisions
-  and superseded history. LOCAL text extraction is not OCR or a sponsor confidence policy.
+  and superseded history. Native-first LOCAL extraction and optional local Tesseract
+  OCR retain proposed ownership observations; extraction scores are not probabilities
+  or sponsor confidence policy. Wrong-UEN correction preserves structured originals.
 - OwnershipAnalysisService owns deterministic Decimal graph/path/aggregation. The semantic
   tagger explains evidence; it cannot create percentages, legal control or approval.
 - ZeroTouchOrchestrator owns stages, current typed blockers and bounded continuation.
@@ -46,7 +49,7 @@ analysis is silently copied.
 | Surface | Current supported composition | Expansion requires |
 |---|---|---|
 | Registry | Synthetic Mock default; official Marketplace Mock opt-in; generic sandbox Partial; BizFile Dormant | Contract, access, strict source DTO/canonical mapping and independent acceptance |
-| IDP | LOCAL bounded PDF/DOCX/TXT text extraction; Mock fault seam | Approved document/OCR profile, privacy/security and provider authority |
+| IDP | LOCAL native PDF/DOCX/TXT and bounded Tesseract scanned PDF/PNG/JPEG/TIFF; Mock fault seam | Approved document/OCR profile, privacy/security and provider authority |
 | Ownership | Registry/manual LOCAL evidence into one Decimal engine; synthetic fault seams | Quantitative legal-form/hierarchy contract and full legal/control policy |
 | GoldTier | Enhanced project-owned local Mock default; separate XPI SANDBOX_PARTIAL | Current operation/mapping/auth authority and separately authorized interoperability |
 | Workflow/policy | Application orchestration and versioned POC policy control plane | Production placement, handoff, role and operational decisions |
@@ -55,9 +58,9 @@ No Camunda runtime, trained semantic ML, production compliance engine or second 
 
 ## State and trust
 
-Memory mode is process-local. Explicit Mongo mode retains structured schema8 cases,
+Memory mode is process-local. Explicit Mongo mode retains structured schema9 cases,
 target ledgers and supported administration/cache aggregates with strict identity/revision CAS.
-Valid schemas1..7 decode in memory without read rewrite; policy/cache schema2 are separate.
+Valid schemas1..8 decode in memory without read rewrite; policy/cache schema2 are separate.
 Sessions, locks, single-flight and Mock provider customer facts remain process-local.
 Durable ledgers cannot reconstruct lost provider facts or replay uncertain mutations.
 These are bounded single-process POC guarantees, not distributed exactly-once or regulatory audit.
@@ -71,4 +74,7 @@ Mock, Local, Partial, Dormant and Live remain distinct. Official Marketplace Moc
 observations and synthetic offline protocol replay have different evidence identities.
 XPI is Sandbox Partial; no current path is Live. Completion/readback proves POC submission,
 not Ready-for-Approval, screening clearance, final legal UBO, customer or regulatory approval.
-The original four retained clm_poc records require owner-run validation after integration.
+Phase25 inspected three retained original clm_poc cases read-only and rendered all
+three through normal startup against an exact disposable clone. No original writes
+occurred; the clone was removed after independent acceptance. This proves bounded
+reader/render compatibility, not new recovery, migration or production durability.

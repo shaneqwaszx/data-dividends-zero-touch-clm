@@ -15,7 +15,7 @@ review rules. Q-003 and Q-014 await sponsor confirmation.
 | `registered_address` | conservative single-line registered address | canonical registered address join | Project-defined, provisional |
 | `country_of_incorporation` | incorporation country/code | canonical `country_of_incorporation` | Project-defined, provisional |
 
-The four identity keys remain closed. The 2026-10-04 S2 candidate additionally retains
+The four identity keys remain closed. The S2 implementation merged through PR #69 additionally retains
 proposed ownership observations under the existing ownership owner; see ADR-009.
 
 ## Extraction evidence and review
@@ -25,8 +25,11 @@ proposed ownership observations under the existing ownership owner; see ADR-009.
 - The development attention threshold defaults to `0.85` and is configurable.
 - Low extraction evidence requires review; source agreement and verification state
   are separate and cannot change the original extraction score.
-- Every field requires an explicit `ACCEPTED`, `REJECTED`, or `CORRECTED` decision,
-  regardless of confidence.
+- The integrated zero-touch owner may auto-confirm current, unambiguous matching
+  observations that meet the case-frozen threshold and cross-document guards. Missing
+  optional fields are not fabricated. Other current exceptions require the supported
+  `ACCEPTED`, `REJECTED`, or `CORRECTED` review path; review does not manufacture an
+  extraction score. The legacy standalone review lane remains explicit.
 - Extraction evidence never approves a customer, compliance decision, or GoldTier state.
 
 All thresholds and completion rules are project-defined and await sponsor confirmation.
