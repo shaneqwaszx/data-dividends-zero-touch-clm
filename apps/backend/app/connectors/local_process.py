@@ -26,7 +26,9 @@ def run_bounded_process(
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             shell=False,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            creationflags=(
+                int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if sys.platform == "win32" else 0
+            ),
         )
     except OSError:
         raise LocalDocumentProcessingError(unavailable_code) from None

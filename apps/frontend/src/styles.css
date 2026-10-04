@@ -3404,6 +3404,10 @@ dd {
   .policy-rebind__receipt { border-color: CanvasText; }
 }
 
+.case-technical-failure {
+  overflow-wrap: anywhere;
+}
+
 .review-and-send {
   min-width: 0;
   margin: 20px 0;
