@@ -417,7 +417,7 @@ def test_three_document_call_counts_and_read_only_listing_do_not_trigger_work() 
     assert ownership.calls == 1
     assert zero_touch._clm.attempted_target_operations(  # noqa: SLF001
         case_id=created.case_id
-    ) == ("SEARCH", "SHELL", "POLICY", "AMEND")
+    ) == ('SEARCH', 'SHELL', 'POLICY', 'AMEND', 'READBACK')
 
 
 def test_multi_document_conflict_stops_ownership_and_goldtier_calls() -> None:

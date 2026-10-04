@@ -307,3 +307,99 @@ def test_exact_key_dataset_isolation_is_a_miss(isolated_settings: Settings) -> N
         assert store.get(adjacent_key) is None
     finally:
         client.close()
+
+def test_physical_exact_target_reuse_retains_current_cache_evidence_after_repository_restart(
+    isolated_settings: Settings,
+) -> None:
+    from uuid import uuid4
+
+    from test_slice_d_mock_goldtier import NAME, prepared
+    from test_slice_d_real_mongo import RecordingMock
+
+    from app.connectors.registry import RegistryProviderRouter
+    from app.domain.target_submission import GoldTierOperationMarker
+    from app.persistence.mongo_case_store import MongoCaseStore
+    from app.persistence.repositories import (
+        MongoOnboardingCaseRepository,
+        MongoTargetExecutionRepository,
+    )
+    from app.services.onboarding import OnboardingService
+
+    clock = MutableClock()
+    connector = CountingConnector(clock)
+    target = RecordingMock()
+
+    def open_owner():
+        client, snapshots = _store(isolated_settings)
+        store = MongoCaseStore(
+            client, database=isolated_settings.mongo_database,
+            collection=isolated_settings.mongo_case_collection,
+        )
+        store.initialize()
+        owner = OnboardingService(
+            acra=None, goldtier=target,
+            repository=MongoOnboardingCaseRepository(store),
+            target_execution_repository=MongoTargetExecutionRepository(store),
+            registry_router=RegistryProviderRouter(_provider(connector, clock)),
+            registry_acquisition_coordinator=RegistryAcquisitionCoordinator(
+                snapshots, RegistryFreshnessPolicy(), clock=clock,
+            ),
+            clock=clock,
+        )
+        return client, store, owner
+
+    first_client, first_store, first_owner = open_owner()
+    try:
+        first_submission = prepared(first_owner)
+        first_receipt = first_owner.execute_submission_input(first_submission)
+        assert first_receipt.classification.value == "SUCCESS"
+        assert connector.calls == 4
+    finally:
+        first_client.close()
+    second_client, second_store, restarted = open_owner()
+    try:
+        before_target = list(target.calls)
+        case = restarted.create_staged_case_with_identity(
+            uuid4(), uuid4(), VALID_UEN, "SG", legal_name=NAME,
+        )
+        assert case.existing_target_state.source_case_id == first_submission.case_id
+        assert case.initial_target_search.disposition == "EXACT_MATCH"
+        assert case.registry_evidence_binding.disposition == RegistryEvidenceDisposition.CACHE_HIT
+        assert case.registry_acquisition.status.value == "COMPLETE"
+        assert case.entity == case.registry_acquisition.entity_profile
+        assert connector.calls == 4
+        assert target.calls == before_target + ["SEARCH"]
+        assert second_store.get(case.case_id).onboarding == case
+        case = restarted.repair_initial_identity_and_recheck(
+            case_id=case.case_id, actor_id="g-local-physical",
+            legal_name=NAME, registration_number=VALID_UEN,
+            country_of_incorporation="SG", expected_case_event_count=len(case.events),
+        )
+        assert case.initial_target_search_attempts[-1].status == "COMPLETED"
+        assert case.entity == case.registry_acquisition.entity_profile
+        assert case.registry_evidence_binding.disposition == RegistryEvidenceDisposition.CACHE_HIT
+        assert second_store.get(case.case_id).onboarding == case
+        assert connector.calls == 4
+        assert target.calls == before_target + ["SEARCH", "SEARCH"]
+        restarted.confirm_target_dispatch(
+            case_id=case.case_id, actor_id="g-local-physical",
+            expected_case_event_count=len(case.events), clm_version=None,
+            destination="GOLDTIER_MOCK",
+        )
+        current = restarted.get_case(case.case_id)
+        submission = restarted.build_submission_input(current, provider_mode="MOCK")
+        receipt = restarted.execute_submission_input(submission)
+        assert receipt.classification.value == "SUCCESS"
+        assert receipt.result.party_id == first_receipt.result.party_id
+        assert receipt.result.readback_status == "VERIFIED"
+        assert connector.calls == 4
+        assert target.calls.count("SHELL") == target.calls.count("POLICY") == 1
+        assert restarted.get_attempted_target_operations(submission.submission_id) == (
+            GoldTierOperationMarker.SEARCH, GoldTierOperationMarker.AMEND,
+            GoldTierOperationMarker.READBACK,
+        )
+        retained = second_store.get(case.case_id)
+        assert retained.onboarding.registry_evidence_binding == case.registry_evidence_binding
+        assert retained.onboarding.registry_acquisition == case.registry_acquisition
+    finally:
+        second_client.close()

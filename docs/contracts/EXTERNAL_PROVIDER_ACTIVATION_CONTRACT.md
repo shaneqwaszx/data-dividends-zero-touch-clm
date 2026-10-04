@@ -75,8 +75,9 @@ the current machine-vocabulary authority for the exact 17 KYC Customer Types and
 Client Segments; older conflicting lists are quarantined rather than unioned. KYC type
 and segment are validated write-once case selections with `USER_AUTHORIZED_POC`
 authority. Optional unconfirmed `accountEntityType` and `productType` serialize empty.
-Sandbox completion requires a post-Amend Search by retained GoldTier ID and exact ID
-equality. Related-party mutation remains blocked by child-ID lifecycle and
+Sandbox completion requires ledger-owned Search/readback by retained GoldTier ID and exact
+ID equality. D-063 permits AMEND_NOT_REQUIRED when no supported reviewed enrichment exists;
+Mock D2 continues to require Amend. Historical attempted/failed Amend evidence remains unchanged. Related-party mutation remains blocked by child-ID lifecycle and
 relationship-authority gaps. The adapter is not PingFed or production authentication.
 
 Promotion beyond this bounded state remains: unresolved contract and business authority

@@ -5,6 +5,9 @@ sanitized authority and arrange secret delivery through the approved out-of-repo
 channel. Do not email, commit, paste into an issue/PR, or place secret values in this
 packet.
 
+Current amendments below distinguish later observed Mock/Sandbox facts from the historical
+Phase21 activation boundary. They do not authorize new access, writes or Production promotion.
+
 ## A. ACRA
 
 Already implemented: Mock ACRA is the default; a generic HTTPS sandbox-shaped seam is
@@ -31,8 +34,11 @@ What we will implement: reconcile authority, strict source DTO/decoder/mapper te
 bounded connector behavior, redacted errors, and authorized evidence if the parent task
 explicitly reauthorizes runtime integration.
 
-Cannot claim: subscribed access, sandbox success, Live ACRA, OAuth/BizFile behavior,
-pagination, retries, or mappings not supplied by authority.
+The separate official ACRA Marketplace Mock is MOCK / MOCK_INTEROPERABILITY_OBSERVED:
+bounded token request/strict response/raw-token header and approved operation observations
+are established. Synthetic Mock and official Mock namespaces remain separate.
+Cannot claim subscriber/Production OAuth, generic sandbox success, Live ACRA, Dormant BizFile
+runtime, pagination/retries or mappings not supplied by authority.
 
 ## B. GoldTier
 
@@ -62,7 +68,8 @@ relationship and child-ID lifecycle decisions before any further mutation proof.
 remains the default; XPI is selected only by explicit sandbox configuration and
 preserves ledger ownership.
 
-Cannot claim: Live/production GoldTier, sponsor-approved target values, approval,
+Bounded D-056/D-062 POC mappings/workflow clarifications are recorded.
+Cannot claim Live/production GoldTier, universal production mappings, approval,
 Ready-for-Approval, OAuth flow, token cache, retries, mTLS, or Mock fallback.
 
 ## C. PingFed

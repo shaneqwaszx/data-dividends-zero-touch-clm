@@ -4,7 +4,7 @@
 |---|---|---|---|---|---|---|
 | Q-001 | Ready-for-Approval / approval owner | CLM readiness and target ledger | `UNKNOWN_BLOCKED` | CLM/target orchestration under confirmed GoldTier contract | transition, auth, idempotency, failure/recovery, Mock distinction | Exact action/state and owner absent |
 | Q-003 | Document scope/fields | document intake/extraction | `UNKNOWN_BLOCKED` | document profile/IDP contract | accepted types/fields, validation, privacy, browser/API contract | Final document contract absent |
-| Q-004 | Final legal UBO rule | Decimal ownership engine | `PROJECT_DEFINED_PROVISIONAL` | ownership policy configuration, not a second engine | threshold/control cases, uncertainty, legal terminology | Final rule absent |
+| Q-004 | Final legal UBO rule | Decimal ownership engine | D-062 `SPONSOR_CONFIRMED` bounded >=25% default; complete legal/control policy unresolved | ownership policy configuration, not a second engine | threshold/control cases, uncertainty, legal terminology | Complete legal/control/evidence rule absent |
 | Q-005 | Validation responsibility | reconciliation/readiness | `PROJECT_DEFINED_PROVISIONAL` | orchestration/GoldTier validation boundary | rule ownership, rejection/failure, contract tests | Responsibility split absent |
 | Q-013 | Privacy/retention/access | minimized document and case persistence | `UNKNOWN_BLOCKED` | persistence/security/governance owners | storage, encryption, access, deletion, retention, audit/recovery | Policy absent |
 | Q-014 | Reviewer/confidence/separation | document review and backend capability owners | `UNKNOWN_BLOCKED` except D-009 human-exception principle | authentication/authorization plus review service | role/action matrix, self-review, four-eyes, evidence, concurrency | Exact reviewer policy absent |
@@ -26,5 +26,5 @@ CAS. Frozen case policy feeds RegistryAcquisitionCoordinator, document/reconcili
 OwnershipAnalysisService, advisory intelligence and OwnershipEvidenceTagger. Semantic
 metrics/simulation use 14 labelled synthetic examples and never claim trained-model/legal
 accuracy or mutate cases/providers. Runtime validation couples weights/thresholds and
-forbids arbitrary/invariant proposals. Independent combined acceptance is required for
-this implementation candidate. Production/sponsor activation gates stay separate.
+forbids arbitrary/invariant proposals. Phase24C is accepted on inspected main through PR #67; the later Slice-E impact extension has
+feature-branch independent PASS. Final A–G evidence and publication remain separately gated. Production/sponsor activation gates stay separate.

@@ -1778,3 +1778,43 @@ describe("Phase 15C intake and mutation safety", () => {
     expect(requiredCapabilityForPath(paths.caseDetail(CASE_A))).toBe("CASE_ACCESS");
   });
 });
+
+
+it("does not apply a deferred A processing-focus action to the routed B case", async () => {
+  const queryClient = testClient();
+  seedCaseDetail(queryClient, CASE_A, "CASE A");
+  seedCaseDetail(queryClient, CASE_B, "CASE B");
+  const value = caseDetailFixture(CASE_A, "CASE A");
+  value.processing_pipeline = [{ node_id: "DOCUMENT_IDP", label: "Documents review",
+    status: "REVIEW_REQUIRED", children: [] }];
+  queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A), value);
+  const callbacks: (() => void)[] = [];
+  const originalTimeout = window.setTimeout.bind(window);
+  vi.spyOn(window, "setTimeout").mockImplementation(((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+    if (timeout === 50 && typeof handler === "function") {
+      callbacks.push(() => handler(...args));
+      return 0;
+    }
+    return originalTimeout(handler, timeout, ...args);
+  }) as typeof window.setTimeout);
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 0; });
+  await act(async () => root?.render(
+    <MemoryRouter initialEntries={[paths.caseDetail(CASE_A)]}>
+      <QueryClientProvider client={queryClient}>
+        <CaseDetailRouteHarness onBack={() => undefined} />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  ));
+  const focusAction = container?.querySelector<HTMLButtonElement>(".onboarding-progress__stages button");
+  expect(focusAction).toBeTruthy();
+  await act(async () => focusAction?.click());
+  expect(callbacks).toHaveLength(1);
+  const openB = [...container!.querySelectorAll<HTMLAnchorElement>("a")].find((item) => item.textContent === "Open B")!;
+  await act(async () => openB.click());
+  await vi.waitFor(() => expect(container?.querySelector("h1")?.textContent).toBe("CASE B"));
+  const currentSection = container!.querySelector<HTMLElement>("#case-evidence-documents")!;
+  expect(currentSection).toBeTruthy();
+  const focus = vi.spyOn(currentSection, "focus");
+  await act(async () => callbacks.forEach((callback) => callback()));
+  expect(focus).not.toHaveBeenCalled();
+});

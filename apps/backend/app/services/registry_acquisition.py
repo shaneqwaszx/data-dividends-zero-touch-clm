@@ -34,6 +34,18 @@ from app.services.registry_cache_repository import (
 )
 
 
+def registry_cache_window_is_fresh(expires_at: datetime, evaluation_now: datetime) -> bool:
+    """Shared exclusive expiry predicate; caller retains normalized-input ownership."""
+    return evaluation_now < expires_at
+
+
+def registry_negative_cache_is_fresh(
+    anchor: datetime, evaluation_now: datetime, ttl_seconds: int
+) -> bool:
+    """Definitive NOT_FOUND window; never applies to uncertain provider failures."""
+    return registry_cache_window_is_fresh(anchor + timedelta(seconds=ttl_seconds), evaluation_now)
+
+
 class RegistryCacheError(RuntimeError):
     code = "REGISTRY_CACHE_FAILURE"
     public_message = "Registry evidence could not be prepared safely."
@@ -159,7 +171,8 @@ class RegistryAcquisitionCoordinator:
                         and operation.provenance is not None
                     )
                     if successful and all(
-                        now < policy.expires_at(p.retrieved_at) for p in successful
+                        registry_cache_window_is_fresh(policy.expires_at(p.retrieved_at), now)
+                        for p in successful
                     ):
                         return RegistryAcquisitionResult(
                             acquisition=acquisition.model_copy(deep=True), binding=None
@@ -194,12 +207,15 @@ class RegistryAcquisitionCoordinator:
         if entry is not None:
             self._validate_entry_for_use(entry, key, now)
             if entry.negative_result == "NOT_FOUND":
-                if now < entry.freshness_anchor + timedelta(seconds=negative_seconds):
+                if registry_negative_cache_is_fresh(entry.freshness_anchor, now, negative_seconds):
                     return RegistryAcquisitionResult(acquisition=None, binding=None)
             elif entry.acquisition is not None:
                 reuse = entry.acquisition
-                if reuse.status == RegistryAcquisitionStatus.COMPLETE and now < policy.expires_at(
-                    entry.freshness_anchor
+                if (
+                    reuse.status == RegistryAcquisitionStatus.COMPLETE
+                    and registry_cache_window_is_fresh(
+                        policy.expires_at(entry.freshness_anchor), now
+                    )
                 ):
                     return self._bound_result(
                         entry,
@@ -212,7 +228,9 @@ class RegistryAcquisitionCoordinator:
                     for operation in reuse.operation_results
                     if operation.status == RegistryOperationStatus.COMPLETE
                     and operation.provenance is not None
-                    and now < policy.expires_at(operation.provenance.retrieved_at)
+                    and registry_cache_window_is_fresh(
+                        policy.expires_at(operation.provenance.retrieved_at), now
+                    )
                 }
                 # EMPTY officers are a successful optional operation. Empty required
                 # ownership/relationships remain missing and must be reacquired.
@@ -222,7 +240,9 @@ class RegistryAcquisitionCoordinator:
                 if (
                     officer.status == RegistryOperationStatus.EMPTY
                     and officer.provenance is not None
-                    and now < policy.expires_at(officer.provenance.retrieved_at)
+                    and registry_cache_window_is_fresh(
+                        policy.expires_at(officer.provenance.retrieved_at), now
+                    )
                 ):
                     reusable.add(RegistryOperation.OFFICERS)
                 if RegistryOperation.ENTITY_PROFILE not in reusable:

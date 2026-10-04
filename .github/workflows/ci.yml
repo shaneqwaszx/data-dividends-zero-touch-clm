@@ -79,10 +79,10 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # 26 selectors * (60s lifecycle + 120s bounded cleanup/dispatch) + 60s
-    # discovery = 79 minutes worst-case; reserve 11 minutes for tool installation.
-    # Normal runtime is minutes. Reassess this outer bound if discovery grows.
-    timeout-minutes: 90
+    # 49 discovered lifecycles * (60s execution + 120s bounded cleanup/dispatch)
+    # + 60s discovery = 148 minutes; preserve 14 minutes for tool installation.
+    # A-F inventory integration changes the job budget only; execution stays 60s.
+    timeout-minutes: 162
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

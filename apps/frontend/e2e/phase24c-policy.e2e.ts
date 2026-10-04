@@ -55,7 +55,7 @@ for (const width of [320,360,768,1280,1440,1920]) {
     await login(page,"olivia-koh"); await expect(page.getByRole("heading",{name:"Prepare policy proposal",exact:true})).toHaveCount(0);
     const review=page.locator(".policy-proposal").first();
     await expect(review).toContainText("Proposer: hr-admin");
-    await review.getByRole("button",{name:"Evaluate synthetic impact",exact:true}).click();
+    await review.getByRole("button",{name:"Simulate impact",exact:true}).click();
     await expect(review.getByRole("region",{name:"Policy impact comparison"})).toBeVisible();
     await expect(review).toContainText("Before: active policy"); await expect(review).toContainText("After: proposed policy");
     const metrics=review.locator(".policy-metrics").first(); await keyboardToggle(metrics.locator("summary").first(),page);

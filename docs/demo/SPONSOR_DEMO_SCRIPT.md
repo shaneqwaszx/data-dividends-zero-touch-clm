@@ -1,5 +1,9 @@
 # Sponsor Demo Script (5–10 minutes)
 
+Current sponsor entry point: [Final Sponsor Demo Runbook](FINAL_SPONSOR_DEMO_RUNBOOK.md)
+and [Final UAT Acceptance Matrix](FINAL_UAT_ACCEPTANCE_MATRIX.md). The retained instructions
+below preserve their historical fixture/evidence boundaries.
+
 ## Before the room
 
 Run `scripts/start_demo_windows.bat`, confirm both URLs, select only files under

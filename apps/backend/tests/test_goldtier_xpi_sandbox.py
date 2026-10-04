@@ -2130,7 +2130,8 @@ def test_goldtier_first_exact_match_reuses_verified_target_state_and_skips_shell
     )
 
     assert second.state == "VALIDATED"
-    assert second.registry_acquisition is None
+    assert second.registry_acquisition is not None
+    assert second.entity == second.registry_acquisition.entity_profile
     assert second.existing_target_state is not None
     assert second.existing_target_state.target_party_id == "12345"
     assert second.initial_target_search is not None

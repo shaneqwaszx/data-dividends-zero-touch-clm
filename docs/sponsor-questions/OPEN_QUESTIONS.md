@@ -3,6 +3,16 @@
 Remove or mark a question resolved only after an explicit sponsor answer. These
 questions do not block credential-free Phase 01 mock development unless stated.
 
+## Final closeout decision packet — 2026-10-04
+
+The current question/status/proved/unproved/minimum-input/action table is in
+[Final POC limitations and next steps](../demo/FINAL_POC_LIMITATIONS_AND_NEXT_STEPS.md#sponsor-decision-packet).
+Historical phase-specific questions below retain their original evidence and dates.
+POC authentication/review, bounded D-056 values, D-062 >=25% and D-064 HR/Director
+activation are implemented; production authority and broader contracts remain separate.
+An answer requires a new explicit implementation assignment and never implicitly
+authorizes external mutation.
+
 ## Current clarification — 2026-10-01 / D-062
 
 The owner relayed sponsor confirmation of aggregated ownership `>= 25%` with
@@ -132,6 +142,21 @@ same-entity capital/share-class denominator semantics, relationship/control sema
 and all subscriber Sandbox, Production, and Live contracts. The canonical
 `api_marketplace_mock` lane is opt-in `MOCK_INTEROPERABILITY_OBSERVED`; it is not
 Sandbox or Live, and missing ownership relationships continue to fail closed.
+
+Slice B rechecked the supplied seven-page Entity Information Query sample catalogue
+as candidate discovery only. SECOND_OFFICIAL_COMPANY = BLOCKED_BY_SAMPLE_AUTHORITY.
+The catalogue supplies no coherent same-UEN basic/profile pair; prior observed second
+basic identities classify OTHER or BUSINESS_PARTNERSHIP without a retained full profile
+contract suitable for deterministic onboarding. Shareholder/member/group and capital
+sample identifiers with empty basic identities cannot be combined across UENs.
+
+Please supply a coherent same-UEN basic/profile sample with legal name, legal form,
+required address/country semantics and supported operation/empty/unsupported behavior.
+Quantitative ownership is not a prerequisite when reviewed LOCAL supplementary ownership
+is used. Garden remains PARTNERSHIP; officer roles are not percentage/control/UBO authority.
+Partnership ownership, relationship/control schemas and same-entity denominator semantics
+remain OPEN. Slice B made zero external calls and substitutes an explicitly labelled
+existing SYNTHETIC MOCK second journey.
 
 ## JURISDICTION EVIDENCE AUTHORITY
 

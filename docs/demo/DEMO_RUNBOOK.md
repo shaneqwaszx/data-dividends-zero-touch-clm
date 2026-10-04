@@ -1,5 +1,9 @@
 # Demo Runbook
 
+Current sponsor entry point: [Final Sponsor Demo Runbook](FINAL_SPONSOR_DEMO_RUNBOOK.md)
+and [Final UAT Acceptance Matrix](FINAL_UAT_ACCEPTANCE_MATRIX.md). The retained instructions
+below preserve their historical fixture/evidence boundaries.
+
 ## Prerequisites
 
 - Windows with PowerShell/cmd.

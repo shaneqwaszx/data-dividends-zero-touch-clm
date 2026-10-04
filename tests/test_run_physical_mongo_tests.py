@@ -94,6 +94,19 @@ class PhysicalMongoRunnerTests(unittest.TestCase):
         self.assertNotIn("MONGO_DATABASE", environment)
         self.assertNotIn("clm_poc", " ".join(environment.values()))
 
+    def test_slice_c_partial_reconciliation_restart_is_a_required_physical_suite(self) -> None:
+        self.assertIn("test_slice_c_real_mongo.py", {path.name for path in RUNNER.PHYSICAL_SUITES})
+
+    def test_current_phase24c_and_slice_d_e_suites_are_required(self) -> None:
+        names = {path.name for path in RUNNER.PHYSICAL_SUITES}
+        for name in (
+            "test_phase24c_real_mongo.py",
+            "test_slice_d_real_mongo.py",
+            "test_slice_e_real_mongo.py",
+        ):
+            with self.subTest(suite=name):
+                self.assertIn(name, names)
+
     def test_all_owned_suites_are_selected_and_success_requires_execution(self) -> None:
         execution = completed(0, "....")
         output = io.StringIO()

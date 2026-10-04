@@ -258,15 +258,16 @@ def test_uen_drives_independent_ownership_and_target_outcomes() -> None:
     assert ownership_cycle["active_exceptions"][0]["blocker_code"] == "OWNERSHIP_CYCLE"
 
     existing_party = start(client, "202400005E", matching_fields("202400005E"))
-    assert existing_party["status"] == "COMPLETED"
-    assert existing_party["current_stage"] == "COMPLETE"
-    assert existing_party["active_exceptions"] == []
-    assert existing_party["target_operations"] == [
-        {"operation": "SEARCH", "status": "MATCH_FOUND"},
-        {"operation": "SHELL", "status": "SKIPPED"},
-        {"operation": "POLICY", "status": "SKIPPED"},
-        {"operation": "AMEND", "status": "SUCCESS"},
-    ]
+    assert existing_party["status"] == "WAITING_FOR_REVIEW"
+    assert existing_party["current_stage"] == "GOLDTIER_SEARCH"
+    assert existing_party["active_exceptions"][0]["blocker_code"] == (
+        "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
+    )
+    assert all(
+        operation["status"] != "SUCCESS"
+        for operation in existing_party["target_operations"]
+        if operation["operation"] in {"SHELL", "POLICY", "AMEND"}
+    )
 
 
 def test_cycle_uen_fixture_passes_document_before_input_driven_cycle() -> None:

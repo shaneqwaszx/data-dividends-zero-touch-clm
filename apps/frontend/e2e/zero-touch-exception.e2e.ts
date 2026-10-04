@@ -129,6 +129,14 @@ test("Zero-touch Golden STP normal UI has zero exception interventions", async (
   await expect(page.locator(".document-field .tag", { hasText: "AUTO CONFIRMED" })).toHaveCount(4);
   expect((await summary(page, caseId)).metrics.human_interventions).toBe(0);
   const ready = await summary(page, caseId);
+  const search = ready.processing_pipeline.find((item: any) => item.node_id === "GOLDTIER_SEARCH");
+  expect(search.status).toBe("COMPLETE");
+  expect(search.safe_result).toBe("No existing customer found. Continuing as a new customer.");
+  expect(ready.active_exceptions.some((item: any) => item.stage === "GOLDTIER_SEARCH")).toBe(false);
+  expect(ready.target_operations.find((item: any) => item.operation === "AMEND").status).toBe("NOT_ATTEMPTED");
+  await openStage(page, "Historical / resolved issues");
+  await page.getByRole("button", { name: "Show processing details", exact: true }).click();
+  await expect(page.getByText("No existing customer found. Continuing as a new customer.", { exact: true }).first()).toBeVisible();
   expect(ready.target_classification.kyc_customer_type.selected_value).toBe("Company - Private");
   expect(ready.target_classification.client_segment.selected_value).toBe("Corporate");
   const measure = await boundedMutation(page, info, "/target-confirmation", async () => {
@@ -173,7 +181,7 @@ for (const conflict of [false, true]) {
     await openStage(page, "Registry identity");
     await expect(page.getByText("Ownership unavailable from current registry evidence", { exact: true })).toBeVisible();
     await expect(ownershipStage.locator(".intervention-card")).toHaveCount(1);
-    await expect(ownershipStage.getByRole("heading", { name: /^Ownership and UBO.+needs input$/ })).toBeVisible();
+    await expect(ownershipStage.getByRole("heading", { name: "Ownership and UBO — needs input", exact: true })).toBeVisible();
     await expect(page.getByText("Identity retrieved", { exact: true })).toBeVisible();
     await capture(page, info, "ownership-gap");
     const baseline = requests.length;

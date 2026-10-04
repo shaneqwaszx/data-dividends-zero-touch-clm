@@ -1,5 +1,7 @@
 """Repository-level Phase 07 handoff and synthetic-fixture checks."""
 
+import hashlib
+import re
 import unittest
 from pathlib import Path
 
@@ -41,8 +43,25 @@ class Phase07DeliveryAssetsTests(unittest.TestCase):
             "invalid-document.pdf",
             "garden-business-clean-onboarding-profile.pdf",
             "garden-business-conflicting-onboarding-profile.pdf",
+            "garden-partnership-reviewed-client.pdf",
+            "multiple-owner-demo-client.pdf",
         }
         self.assertEqual({path.name for path in fixture_root.glob("*.pdf")}, expected)
+        index = (fixture_root / "README.md").read_text(encoding="utf-8")
+        indexed = dict(
+            re.findall(
+                r"^\| \x60([^\x60]+\.pdf)\x60 \|.*?\| \x60([a-f0-9]{64})\x60 \|",
+                index,
+                re.MULTILINE,
+            )
+        )
+        self.assertEqual(set(indexed), expected)
+        for name in expected:
+            self.assertEqual(
+                indexed[name],
+                hashlib.sha256((fixture_root / name).read_bytes()).hexdigest(),
+            )
+
         for path in fixture_root.glob("*.pdf"):
             with self.subTest(path=path.name):
                 content = path.read_bytes()
@@ -58,7 +77,9 @@ class Phase07DeliveryAssetsTests(unittest.TestCase):
                     self.assertTrue(content.rstrip().endswith(b"%%EOF"))
                     self.assertIn(b"SYNTHETIC TEST DATA", content)
 
-    def test_windows_demo_scripts_use_known_processes_and_supported_poc_defaults(self) -> None:
+    def test_windows_demo_scripts_use_known_processes_and_supported_poc_defaults(
+        self,
+    ) -> None:
         start = (ROOT / "scripts/start_demo_windows.bat").read_text(encoding="utf-8")
         stop = (ROOT / "scripts/stop_demo_windows.bat").read_text(encoding="utf-8")
         reset = (ROOT / "scripts/reset_demo_windows.bat").read_text(encoding="utf-8")
@@ -88,7 +109,10 @@ class Phase07DeliveryAssetsTests(unittest.TestCase):
         self.assertIn("Wait-DemoHealthy", lifecycle)
         self.assertIn("Wait-ForOwnedShutdown", lifecycle)
         self.assertIn("Normalize-ChildProcessEnvironment", lifecycle)
-        self.assertIn('[Environment]::SetEnvironmentVariable("PATH", $effectivePath, "Process")', lifecycle)
+        self.assertIn(
+            '[Environment]::SetEnvironmentVariable("PATH", $effectivePath, "Process")',
+            lifecycle,
+        )
         self.assertIn("Demo started and verified healthy", lifecycle)
         self.assertIn("Demo stopped: the launcher-owned", lifecycle)
         self.assertIn("Demo reset verified", lifecycle)
@@ -101,9 +125,9 @@ class Phase07DeliveryAssetsTests(unittest.TestCase):
     def test_runtime_metadata_is_ignored_and_app_name_is_documented(self) -> None:
         gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
         env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
-        configuration = (ROOT / "docs/integration/CONFIGURATION_REFERENCE.md").read_text(
-            encoding="utf-8"
-        )
+        configuration = (
+            ROOT / "docs/integration/CONFIGURATION_REFERENCE.md"
+        ).read_text(encoding="utf-8")
         self.assertIn(".runtime/", gitignore)
         self.assertIn("APP_NAME=Zero-Touch CLM API", env_example)
         self.assertIn("`APP_NAME`", configuration)

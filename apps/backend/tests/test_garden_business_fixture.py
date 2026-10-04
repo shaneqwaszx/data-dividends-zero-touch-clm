@@ -239,9 +239,7 @@ def test_garden_reaches_normal_mock_completion_without_external_network() -> Non
     assert completed.status_code == 200
     review = completed.json()
     assert review["status"] == "WAITING_FOR_REVIEW"
-    assert review["active_exceptions"][0]["exception_type"] == (
-        "TARGET_CONFIRMATION_REQUIRED"
-    )
+    assert review["active_exceptions"][0]["exception_type"] == ("TARGET_CONFIRMATION_REQUIRED")
     assert [item["status"] for item in review["target_operations"]] == [
         "NO_MATCH",
         "NOT_ATTEMPTED",
@@ -256,24 +254,18 @@ def test_garden_reaches_normal_mock_completion_without_external_network() -> Non
         "AMEND",
     ]
     by_operation = {item["operation"]: item for item in preview["operations"]}
-    assert {
-        field["target_field"] for field in by_operation["SHELL"]["fields"]
-    } >= {
+    assert {field["target_field"] for field in by_operation["SHELL"]["fields"]} >= {
         "party.names.legalName",
         "party.nonIndividualProfile.countryOfIncorporation",
         "sourceContext.sourceCaseId",
     }
-    assert {
-        field["target_field"] for field in by_operation["POLICY"]["fields"]
-    } >= {
+    assert {field["target_field"] for field in by_operation["POLICY"]["fields"]} >= {
         "goldTierId",
         "customerExternalSystem",
         "customerExternalSystemKey",
         "policyDetails.policy",
     }
-    assert {
-        field["target_field"] for field in by_operation["AMEND"]["fields"]
-    } >= {
+    assert {field["target_field"] for field in by_operation["AMEND"]["fields"]} >= {
         "party.names.legalName",
         "party.addresses[0].addressLine1",
         "party.addresses[0].postalCode",
@@ -296,13 +288,26 @@ def test_garden_reaches_normal_mock_completion_without_external_network() -> Non
         "SHELL",
         "POLICY",
         "AMEND",
+        "READBACK",
     ]
     assert [item["status"] for item in payload["target_operations"]] == [
         "NO_MATCH",
         "CREATED",
         "CREATED",
         "SUCCESS",
+        "SUCCESS",
     ]
+    assert payload["case"]["goldtier_result"]["readback_status"] == "VERIFIED"
+    assert (
+        payload["case"]["goldtier_result"]["readback_party_id"]
+        == payload["case"]["goldtier_result"]["party_id"]
+    )
+    assert (
+        next(item for item in payload["target_operations"] if item["operation"] == "READBACK")[
+            "status"
+        ]
+        == "SUCCESS"
+    )
     assert payload["stage_order_version"] == 2
     pipeline = payload["processing_pipeline"]
     assert [item["node_id"] for item in pipeline] == [
@@ -332,6 +337,7 @@ def test_garden_reaches_normal_mock_completion_without_external_network() -> Non
     ]
     assert pipeline[3]["retained_goldtier_id"] is None
     assert [item["status"] for item in pipeline[10]["children"]] == [
+        "COMPLETE",
         "COMPLETE",
         "COMPLETE",
         "COMPLETE",

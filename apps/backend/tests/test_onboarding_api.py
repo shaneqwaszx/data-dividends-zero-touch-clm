@@ -127,5 +127,5 @@ async def test_well_formed_unknown_uen_is_a_registry_outcome_not_input_error() -
         response = await client.post("/api/onboarding/cases", json={"uen": "999999999Z"})
 
     assert response.status_code == 201
-    assert response.json()["state"] == "FAILED"
+    assert response.json()["state"] == "REVIEW_REQUIRED"
     assert response.json()["error"]["code"] == "ACRA_ENTITY_NOT_FOUND"

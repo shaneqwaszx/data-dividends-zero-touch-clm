@@ -13,8 +13,9 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
+from app.domain.access import ROLE_CAPABILITIES, Capability, Role
 from app.domain.zero_touch import (
     AutomationStage,
     BlockerDecisionAction,
@@ -145,7 +146,10 @@ _DOCUMENT_EXCEPTION_TYPES = frozenset(
 
 _RULE_SPECS: tuple[_RuleSpec, ...] = (
     _RuleSpec(
-        codes=frozenset({"INITIAL_IDENTITY_INCOMPLETE", "REGISTRY_IDENTIFIER_NOT_ELIGIBLE"}),
+        codes=frozenset({
+            "INITIAL_IDENTITY_INCOMPLETE", "REGISTRY_IDENTIFIER_NOT_ELIGIBLE",
+            "INITIAL_IDENTITY_NOT_ELIGIBLE", "ACRA_ENTITY_NOT_FOUND",
+        }),
         exception_types=frozenset(
             {
                 BusinessExceptionType.REGISTRY_REVIEW_REQUIRED,
@@ -166,6 +170,44 @@ _RULE_SPECS: tuple[_RuleSpec, ...] = (
         explanation=(
             "Correct the same-case canonical identity, then run the authorized read-only "
             "Search recheck; identity-dependent evidence is not reused automatically."
+        ),
+    ),
+    _RuleSpec(
+        codes=frozenset({"REGISTRY_RECHECK_INCOMPLETE"}),
+        exception_types=frozenset({BusinessExceptionType.REGISTRY_REVIEW_REQUIRED}),
+        classification=BlockerDecisionClassification.USER_ACTION_REQUIRED,
+        rule_version="BPD-REGISTRY-RECTIFICATION-1",
+        owner=BlockerDecisionOwner.IDENTITY_REVIEW_OWNER,
+        minimum_inputs=(
+            BlockerMinimumInput.CURRENT_CASE_VERSION,
+            BlockerMinimumInput.CORRECTED_IDENTITY_WITH_RATIONALE,
+            BlockerMinimumInput.CURRENT_REGISTRY_EVIDENCE,
+        ),
+        permitted_actions=(BlockerDecisionAction.CORRECT_INITIAL_IDENTITY,),
+        resume_stage=AutomationStage.REGISTRY,
+        resume_transition=ResumeTransition.RECHECK_FROM_STAGE,
+        invalidated_dependencies=_IDENTITY_INVALIDATIONS,
+        explanation=(
+            "The retained registry evidence is incomplete. An eligible same-case UEN may be "
+            "verified through the owning correction path; missing provider data cannot be "
+            "overridden or treated as verified evidence."
+        ),
+    ),
+    _RuleSpec(
+        codes=frozenset({"CANONICAL_DATA_INCOMPLETE"}),
+        exception_types=frozenset({BusinessExceptionType.REGISTRY_REVIEW_REQUIRED}),
+        classification=BlockerDecisionClassification.HARD_STOP,
+        rule_version="BPD-CANONICAL-INCOMPLETE-1",
+        owner=BlockerDecisionOwner.REGISTRY_INTEGRATION_OWNER,
+        minimum_inputs=(BlockerMinimumInput.CURRENT_REGISTRY_EVIDENCE,),
+        permitted_actions=(BlockerDecisionAction.ESCALATE_TO_OWNER,),
+        resume_stage=AutomationStage.REGISTRY,
+        resume_transition=ResumeTransition.NO_AUTOMATIC_RESUME,
+        invalidated_dependencies=_IDENTITY_INVALIDATIONS[2:],
+        explanation=(
+            "Canonical presence validation failed. There is no generic browser canonical-data "
+            "override; retain the registry evidence for the owning review. A separate guarded "
+            "identity correction cannot fabricate missing provider fields."
         ),
     ),
     _RuleSpec(
@@ -383,6 +425,7 @@ _RULE_SPECS: tuple[_RuleSpec, ...] = (
                 "OWNERSHIP_DENOMINATOR_REQUIRED",
                 "UBO_REVIEW_REQUIRED",
                 "OWNERSHIP_METHOD_UNSUPPORTED",
+                "CONTRADICTORY_OWNERSHIP_EVIDENCE",
             }
         ),
         exception_types=frozenset(
@@ -831,3 +874,446 @@ def _unknown_decision(
         ),
         unknowns=(unknown,),
     )
+
+# Descriptive catalogue metadata lives beside the existing policy. It does not
+# participate in authorization, persistence, exception resolution, or progression.
+@dataclass(frozen=True)
+class BlockerActionPath:
+    action: BlockerDecisionAction
+    browser_control: str | None
+    backend_owner: str | None
+    current_action_predicate: str
+    no_action_reason: str
+    capability: Capability | None = None
+    roles: tuple[Role, ...] = ()
+    backend_source: str | None = None
+    browser_source: str | None = None
+
+
+@dataclass(frozen=True)
+class BlockerCatalogueEntry:
+    code: str
+    exception_types: tuple[BusinessExceptionType, ...]
+    domain_stage: str
+    classification: str
+    policy_classification: BlockerDecisionClassification
+    rule_version: str
+    owner: BlockerDecisionOwner
+    explanation: str
+    required_inputs: tuple[BlockerMinimumInput, ...]
+    declared_actions: tuple[BlockerDecisionAction, ...]
+    action_paths: tuple[BlockerActionPath, ...]
+    current_action_predicate: str
+    no_action_reason: str
+    resume_stage: AutomationStage | None
+    resume_transition: ResumeTransition
+    invalidated_dependencies: tuple[InvalidatedDependency, ...]
+    auto_resume: str
+    external_dependency: str
+    local_demo_scenario: str
+    test_coverage: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class UnknownBlockerGuidance:
+    code: str
+    classification: str = "HARD_STOP"
+    action_paths: tuple[BlockerActionPath, ...] = ()
+    resume_transition: ResumeTransition = ResumeTransition.NO_AUTOMATIC_RESUME
+    no_action_reason: str = (
+        "An unknown technical/provider code has no authorized local corrective action or "
+        "automatic retry. Retain the sanitized code and correlation/history evidence for "
+        "the owning operator; never infer a business waiver or replay a target write."
+    )
+
+
+_CASE_ROLES = tuple(
+    role
+    for role, capabilities in ROLE_CAPABILITIES.items()
+    if Capability.CASE_ACCESS in capabilities
+)
+_ZERO_TOUCH_SOURCE = "apps/backend/app/services/zero_touch_orchestration.py"
+_CASE_DETAIL_SOURCE = "apps/frontend/src/pages/CaseDetail.tsx"
+_CASE_SCOPE = (
+    "Authenticated CASE_ACCESS actor in the case team (Director may use CASE_GLOBAL); "
+    "backend reauthorization inside the owning lock; current expected revisions; "
+    "no completed case, target confirmation, target result, or frozen submission."
+)
+
+
+def _local_action(
+    action: BlockerDecisionAction,
+    control: str,
+    owner: str,
+    predicate: str,
+    absence: str,
+) -> BlockerActionPath:
+    return BlockerActionPath(
+        action=action,
+        browser_control=control,
+        backend_owner=owner,
+        current_action_predicate=f"{_CASE_SCOPE} {predicate}",
+        no_action_reason=absence,
+        capability=Capability.CASE_ACCESS,
+        roles=_CASE_ROLES,
+        backend_source=_ZERO_TOUCH_SOURCE,
+        browser_source=_CASE_DETAIL_SOURCE,
+    )
+
+
+def _unavailable_action(
+    action: BlockerDecisionAction,
+    reason: str,
+    *,
+    owner: str | None = None,
+    capability: Capability | None = None,
+) -> BlockerActionPath:
+    return BlockerActionPath(
+        action=action,
+        browser_control=None,
+        backend_owner=owner,
+        current_action_predicate="No browser mutation is implemented for this declared action.",
+        no_action_reason=reason,
+        capability=capability,
+        roles=tuple(
+            role for role, capabilities in ROLE_CAPABILITIES.items()
+            if capability is not None and capability in capabilities
+        ),
+    )
+
+
+_ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = MappingProxyType({
+    BlockerDecisionAction.CORRECT_INITIAL_IDENTITY: _local_action(
+        BlockerDecisionAction.CORRECT_INITIAL_IDENTITY,
+        "Registry identity > IdentityCorrectionForm > verify/correct identity",
+        "ZeroTouchOrchestrator.repair_initial_identity_and_recheck > "
+        "OnboardingService.repair_initial_identity_and_recheck",
+        "Use registry-identity for a retained registry/UEN issue: eligible SG UEN is verified "
+        "before canonical mutation. DOCUMENT choice requires current document ID/event count, "
+        "eligible non-rejected UEN and sufficient reviewed/confident field. Initial missing "
+        "identity uses identity-search-recheck. Histories must each have room below 16 entries.",
+        "Unavailable when identity is frozen, versions/history are stale/full, the chosen "
+        "document is unusable, or registry verification cannot validate the supplied UEN.",
+    ),
+    BlockerDecisionAction.RUN_READ_ONLY_SEARCH_RECHECK: _local_action(
+        BlockerDecisionAction.RUN_READ_ONLY_SEARCH_RECHECK,
+        "Registry identity > IdentityCorrectionForm > identity Search recheck",
+        "ZeroTouchOrchestrator.repair_initial_identity_and_recheck",
+        "identity-search-recheck requires a retained completed/failed/review Search checkpoint "
+        "or INITIAL_IDENTITY_INCOMPLETE with no initial identity. It is a bounded read-only "
+        "Search, not candidate confirmation or target approval.",
+        "No recheck when checkpoint/initial-identity guard, frozen-state, history capacity "
+        "or expected versions fail; provider failure is not NO_MATCH.",
+    ),
+    BlockerDecisionAction.RESOLVE_JURISDICTION_EVIDENCE: _local_action(
+        BlockerDecisionAction.RESOLVE_JURISDICTION_EVIDENCE,
+        "Registry identity > IdentityCorrectionForm > explicit SG correction",
+        "ZeroTouchOrchestrator.repair_initial_identity_and_recheck",
+        "Only explicit SG correction can be verified via registry-identity; "
+        "the operator must provide eligible UEN/name/country. No source precedence is inferred.",
+        "No arbitrary-jurisdiction resolver or unsupported registry route is available; "
+        "an unresolved non-SG case remains blocked.",
+    ),
+    BlockerDecisionAction.UPLOAD_DOCUMENT: _local_action(
+        BlockerDecisionAction.UPLOAD_DOCUMENT,
+        "Documents & reconciliation > Upload supporting document",
+        "ZeroTouchOrchestrator.intake_document / start",
+        "PENDING_INPUTS or _allows_retained_evidence_intake, or the guarded pre-confirmation "
+        "OWNERSHIP review; required failed-document reuploads must be resolved first. "
+        "Pending intake exposes the exact Continue/Start action; upload alone is not start.",
+        "Intake closes outside its owning stage; invalid media is rejected before extraction.",
+    ),
+    BlockerDecisionAction.UPLOAD_REPLACEMENT_DOCUMENT: _local_action(
+        BlockerDecisionAction.UPLOAD_REPLACEMENT_DOCUMENT,
+        "Documents & reconciliation > DocumentEvidencePanel > Replace document / targeted reupload",
+        "ZeroTouchOrchestrator.replace_document / retry_intake_document",
+        "Current non-superseded document at DOCUMENT review, or the exact interrupted intake "
+        "record via targeted reupload; server validates evidence and refreshes checkpoints.",
+        "No replacement of historical evidence or unrelated record during interrupted intake; "
+        "failed replacement exposes targeted reupload/Continue instead of silently progressing.",
+    ),
+    BlockerDecisionAction.COMPLETE_DOCUMENT_REVIEW: _local_action(
+        BlockerDecisionAction.COMPLETE_DOCUMENT_REVIEW,
+        "Documents & reconciliation > DocumentEvidencePanel > review required field",
+        "ZeroTouchOrchestrator.review_document_field > DocumentProcessingService.review_field",
+        "Current pending field at PENDING_INPUTS/DOCUMENT review or guarded OWNERSHIP review; "
+        "the document owner permits the chosen confirm/correct/reject decision. Final identical "
+        "review is idempotent; low confidence/missing value cannot authorize source selection.",
+        "Unverifiable/rejected evidence requires replacement; stale or superseded document "
+        "review cannot mutate the current case.",
+    ),
+    **{
+        action: _local_action(
+            action,
+            "Documents & reconciliation > current discrepancy decision",
+            "ZeroTouchOrchestrator.resolve_exception > ReconciliationService.resolve_discrepancy",
+            "OPEN DOCUMENT exception with current automation version, evidence version/digest "
+            "and discrepancy fingerprint; action must be in exception.available_actions. "
+            "Each decision is field-bound; no silent winner or blanket precedence.",
+            "No value-selection action for unverifiable/invalid evidence; absent authorized "
+            "resolution actions leaves the exception hard-stopped.",
+        )
+        for action in (
+            BlockerDecisionAction.KEEP_REGISTRY_VALUE,
+            BlockerDecisionAction.USE_DOCUMENT_VALUE,
+            BlockerDecisionAction.REQUEST_ADDITIONAL_INFORMATION,
+        )
+    },
+    BlockerDecisionAction.PROVIDE_CORRECTED_OWNERSHIP_EVIDENCE: _local_action(
+        BlockerDecisionAction.PROVIDE_CORRECTED_OWNERSHIP_EVIDENCE,
+        "Ownership & UBO > ManualOwnershipEvidenceForm > submit reviewed declaration",
+        "ZeroTouchOrchestrator.submit_manual_ownership_evidence > "
+        "OwnershipAnalysisService.replace_review_required_source",
+        "WAITING_FOR_REVIEW at OWNERSHIP with active ownership exception and current "
+        "REVIEW_REQUIRED analysis; browser manual_evidence_action=MANUAL_OWNERSHIP_EVIDENCE. "
+        "Provide structured percentages/parties/relationships plus current reviewed supporting "
+        "document or resolved reconciliation and reviewer receipt; Decimal engine recalculates.",
+        "No generic skip/retry; absent current reviewed evidence, stale analysis, frozen "
+        "target state or unsupported declaration stays blocking.",
+    ),
+    BlockerDecisionAction.SELECT_TARGET_CLASSIFICATION: _local_action(
+        BlockerDecisionAction.SELECT_TARGET_CLASSIFICATION,
+        "Classification & readiness > TargetClassificationPanel > save classification",
+        "ZeroTouchOrchestrator.bind_target_classification > "
+        "OnboardingService.bind_goldtier_case_classification",
+        "Backend target_classification exposes current case-bound editable vocabulary values; "
+        "expected automation/case revisions and valid selected customer type/segment are required.",
+        "Invalid vocabulary and frozen/confirmed/submitted state cannot be overridden.",
+    ),
+    BlockerDecisionAction.CONFIRM_FROZEN_TARGET_SUBMISSION: _local_action(
+        BlockerDecisionAction.CONFIRM_FROZEN_TARGET_SUBMISSION,
+        "Review & Send > confirm reviewed target dispatch",
+        "ZeroTouchOrchestrator.confirm_target_dispatch > OnboardingService.confirm_target_dispatch",
+        "Current readiness, review digest, automation/CLM/case revisions and required "
+        "document/classification evidence; confirmation-time Search must satisfy resolver rules. "
+        "Changed Search/plan returns a new explicit review; this is not final approval.",
+        "No confirmation while an authoritative prerequisite is unresolved, stale, or invalid.",
+    ),
+    BlockerDecisionAction.FINALIZE_RETAINED_TARGET_OUTCOME: BlockerActionPath(
+        action=BlockerDecisionAction.FINALIZE_RETAINED_TARGET_OUTCOME,
+        browser_control="Target preparation / submission state > Complete safe recovery",
+        backend_owner="ZeroTouchOrchestrator.start / _advance_locked_impl > "
+        "ClmOrchestrationService.submit > OnboardingService.finalize_recorded_execution",
+        current_action_predicate="CASE_ACCESS and current case scope; status=RECOVERY_PENDING "
+        "with retained target outcome. The owning ledger permits finalization without replay.",
+        no_action_reason="No safe finalization when retained outcome is absent or uncertain; "
+        "this control never reconstructs/replays an attempted write.",
+        capability=Capability.CASE_ACCESS,
+        roles=_CASE_ROLES,
+        backend_source=_ZERO_TOUCH_SOURCE,
+        browser_source=_CASE_DETAIL_SOURCE,
+    ),
+    BlockerDecisionAction.WAIT_FOR_CURRENT_PROCESSING: _unavailable_action(
+        BlockerDecisionAction.WAIT_FOR_CURRENT_PROCESSING,
+        "In-flight document processing is not a retry/waiver. Wait for the owner to finish; "
+        "an interrupted record needs its explicit targeted reupload path.",
+        owner="DocumentProcessingService",
+    ),
+    BlockerDecisionAction.RERUN_OWNERSHIP_ANALYSIS: _unavailable_action(
+        BlockerDecisionAction.RERUN_OWNERSHIP_ANALYSIS,
+        "No independent browser rerun exists for this declared action. A valid reviewed "
+        "manual declaration invokes the existing Decimal engine through its owning mutation.",
+        owner="OwnershipAnalysisService",
+    ),
+    BlockerDecisionAction.PROVIDE_REGISTRY_EVIDENCE: _unavailable_action(
+        BlockerDecisionAction.PROVIDE_REGISTRY_EVIDENCE,
+        "No direct registry-evidence upload/override exists. Same-case identity verification "
+        "cannot manufacture missing registry ownership/provider evidence.",
+        owner="RegistryAcquisitionCoordinator",
+    ),
+    BlockerDecisionAction.ENABLE_SUPPORTED_REGISTRY_PROVIDER: _unavailable_action(
+        BlockerDecisionAction.ENABLE_SUPPORTED_REGISTRY_PROVIDER,
+        "Only SG ACRA is implemented; no browser provider-enablement mutation exists.",
+    ),
+    BlockerDecisionAction.REVIEW_ENTITY_IDENTITY: _unavailable_action(
+        BlockerDecisionAction.REVIEW_ENTITY_IDENTITY,
+        "No advisory-candidate confirmation/manual target-ID assignment exists. The separate "
+        "bounded identity/Search correction may be used only when its own guards authorize it.",
+    ),
+    BlockerDecisionAction.REVIEW_MOCK_RISK: _unavailable_action(
+        BlockerDecisionAction.REVIEW_MOCK_RISK,
+        "Sponsor risk-review/waiver policy is unresolved; no local risk approval or waiver exists.",
+    ),
+    BlockerDecisionAction.VERIFY_TARGET_OUTCOME_WITHOUT_REPLAY: _unavailable_action(
+        BlockerDecisionAction.VERIFY_TARGET_OUTCOME_WITHOUT_REPLAY,
+        "No provider-verification browser form is implemented. The target-recovery API requires "
+        "Director TARGET_RECOVERY, retained submission/ledger and verified provider evidence; "
+        "it never permits replay. External verification is outside this offline Slice C.",
+        owner="OnboardingService.recover_uncertain_shell_from_provider / "
+        "recover_uncertain_policy_from_provider",
+        capability=Capability.TARGET_RECOVERY,
+    ),
+    BlockerDecisionAction.DIAGNOSE_PROVIDER_VALIDATION: _unavailable_action(
+        BlockerDecisionAction.DIAGNOSE_PROVIDER_VALIDATION,
+        "No local provider diagnosis/target retry mutation exists; inspect sanitized retained "
+        "outcome and obtain the owner's contract/evidence decision.",
+    ),
+    BlockerDecisionAction.ESCALATE_TO_OWNER: _unavailable_action(
+        BlockerDecisionAction.ESCALATE_TO_OWNER,
+        "Escalation is descriptive guidance, not an in-product action, authorization, or waiver.",
+    ),
+})
+
+# These are documentation categories only. Durable metadata keeps its existing enum.
+_OPERATOR_REVIEW_RULES = frozenset({
+    "BPD-REGISTRY-EVIDENCE-1",
+    "BPD-DOCUMENT-REVIEW-1",
+    "BPD-RECONCILIATION-CONFLICT-1",
+    "BPD-ENTITY-REVIEW-1",
+    "BPD-EXISTING-PARTY-1",
+})
+_RULE_SCENARIOS: Final[Mapping[str, str]] = MappingProxyType({
+    "BPD-IDENTITY-1": "wrong_uen",
+    "BPD-REGISTRY-RECTIFICATION-1": "registry_incomplete",
+    "BPD-CANONICAL-INCOMPLETE-1": "canonical_incomplete",
+    "BPD-JURISDICTION-1": "jurisdiction",
+    "BPD-REGISTRY-PROVIDER-1": "unsupported_registry",
+    "BPD-REGISTRY-EVIDENCE-1": "registry_evidence_missing",
+    "BPD-REGISTRY-REVIEW-1": "registry_review",
+    "BPD-REGISTRY-FAILURE-1": "registry_failure",
+    "BPD-DOCUMENT-REQUIRED-1": "document_required",
+    "BPD-DOCUMENT-REPLACEMENT-1": "document_replacement",
+    "BPD-DOCUMENT-REVIEW-1": "document_review",
+    "BPD-DOCUMENT-PROCESSING-1": "document_processing",
+    "BPD-RECONCILIATION-CONFLICT-1": "document_discrepancy",
+    "BPD-RECONCILIATION-INVALID-1": "reconciliation_invalid",
+    "BPD-OWNERSHIP-REQUIRED-1": "ownership",
+    "BPD-OWNERSHIP-REVIEW-1": "ownership",
+    "BPD-OWNERSHIP-FAILURE-1": "ownership_failure",
+    "BPD-SEARCH-AMBIGUITY-1": "search_review",
+    "BPD-SEARCH-FAILURE-1": "search_failure",
+    "BPD-ENTITY-REVIEW-1": "advisory_review",
+    "BPD-MOCK-RISK-1": "risk_review",
+    "BPD-TARGET-CLASSIFICATION-1": "classification",
+    "BPD-TARGET-CONFIRMATION-1": "confirmation",
+    "BPD-EXISTING-PARTY-1": "existing_party",
+    "BPD-TARGET-PARTIAL-1": "target_partial",
+    "BPD-TARGET-CONTRACT-1": "target_contract",
+    "BPD-TARGET-UNCERTAIN-1": "target_uncertain",
+    "BPD-TARGET-FINALIZATION-1": "target_finalization",
+})
+_POLICY_TEST = "apps/backend/tests/test_blocker_decision_policy.py"
+_CATALOGUE_TEST = "apps/backend/tests/test_slice_c_blocker_catalogue.py"
+_ORCHESTRATION_TEST = "apps/backend/tests/test_zero_touch_orchestration.py"
+_SCENARIO_TESTS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType({
+    "wrong_uen": (
+        "apps/backend/tests/test_phase24_identity.py",
+        "apps/frontend/e2e/phase24-identity.e2e.ts",
+        "apps/frontend/e2e/slice-c-recovery.e2e.ts",
+    ),
+    "registry_incomplete": ("apps/backend/tests/test_phase24_identity.py",),
+    "jurisdiction": ("apps/backend/tests/test_phase09_jurisdiction_gateway.py",),
+    "document_required": (_ORCHESTRATION_TEST, "apps/frontend/e2e/authenticated-zero-touch.e2e.ts"),
+    "document_replacement": (
+        _ORCHESTRATION_TEST, "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
+    ),
+    "document_review": (_ORCHESTRATION_TEST, "apps/frontend/e2e/slice-c-recovery.e2e.ts"),
+    "document_discrepancy": (
+        _ORCHESTRATION_TEST,
+        "apps/backend/tests/test_phase11_reconciliation.py",
+        "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+        "apps/frontend/e2e/slice-c-recovery.e2e.ts",
+    ),
+    "ownership": (
+        _ORCHESTRATION_TEST,
+        "apps/backend/tests/test_phase24_ownership_evidence.py",
+        "apps/backend/tests/test_slice_b_registry_demo.py",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts",
+        "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
+    ),
+    "search_review": (_ORCHESTRATION_TEST, "apps/frontend/e2e/authenticated-zero-touch.e2e.ts"),
+    "search_failure": (_ORCHESTRATION_TEST, "apps/frontend/e2e/slice-c-recovery.e2e.ts"),
+    "classification": (_ORCHESTRATION_TEST, "apps/frontend/e2e/slice-c-recovery.e2e.ts"),
+    "confirmation": (
+        _ORCHESTRATION_TEST,
+        "apps/frontend/e2e/slice-c-recovery.e2e.ts",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts",
+    ),
+    "target_finalization": (_ORCHESTRATION_TEST,),
+    "existing_party": (_ORCHESTRATION_TEST,),
+})
+
+
+def blocker_catalogue() -> tuple[BlockerCatalogueEntry, ...]:
+    """Describe every supported OPEN rule without declaring a current case action.
+
+    All decision facts come from _RULE_SPECS through its validated index. Paths are
+    traceable documentation, not predicates executed as a second workflow owner.
+    """
+    entries = []
+    for code, spec in sorted(_RULE_INDEX.items()):
+        scenario = _RULE_SCENARIOS[spec.rule_version]
+        classification = spec.classification.value
+        if spec.rule_version in _OPERATOR_REVIEW_RULES:
+            classification = "OPERATOR_REVIEW_REQUIRED"
+        if spec.rule_version == "BPD-TARGET-FINALIZATION-1":
+            classification = "AUTOMATIC_RECOVERY"
+        paths = tuple(_ACTION_PATHS[action] for action in spec.permitted_actions)
+        controls = tuple(path for path in paths if path.browser_control is not None)
+        automatic = (
+            "No. A required local action is not implemented; retain the blocker."
+            if not controls
+            else "Conditional. The owning mutation re-evaluates current evidence and automatically "
+            "continues when its predicates pass; otherwise the exact remaining action is shown."
+        )
+        if scenario == "document_required":
+            automatic = "No on initial upload alone. Use the authorized Continue/Start action."
+        if scenario == "target_finalization":
+            automatic = (
+                "Bounded automatic finalization attempts use the retained outcome without replay. "
+                "If RECOVERY_PENDING remains, use Complete safe recovery; no replay occurs."
+            )
+        external = (
+            "Yes. Required provider/contract evidence remains unavailable; no local waiver."
+            if spec.classification == BlockerDecisionClassification.EXTERNAL_DEPENDENCY
+            else "This catalogue authorizes no external call. Mock/LOCAL recovery stays local; "
+            "registry/Search correction uses the configured provider under its existing guards."
+        )
+        if scenario == "target_uncertain":
+            external = (
+                "Yes. Exact verified provider evidence is required before the Director "
+                "TARGET_RECOVERY API can retain an outcome; no browser verification or replay."
+            )
+        entries.append(BlockerCatalogueEntry(
+            code=code,
+            exception_types=tuple(sorted(spec.exception_types, key=str)),
+            domain_stage=(
+                "REGISTRY > GOLDTIER_SEARCH"
+                if scenario in {"wrong_uen", "registry_incomplete", "jurisdiction"}
+                else spec.resume_stage.value if spec.resume_stage is not None else "TARGET_CONTRACT"
+            ),
+            classification=classification,
+            policy_classification=spec.classification,
+            rule_version=spec.rule_version,
+            owner=spec.owner,
+            explanation=spec.explanation,
+            required_inputs=spec.minimum_inputs,
+            declared_actions=spec.permitted_actions,
+            action_paths=paths,
+            current_action_predicate=(
+                "Declared capability is not a currently valid action. Decision metadata intersects "
+                "declared actions with owner-supplied available actions (or current reconciliation "
+                "allowed_actions). Required inputs control resume_ready. Browser mutations also "
+                "require the current backend summary/action and the owning guards below."
+            ),
+            no_action_reason=(
+                "When those current guards fail, no mutation/automatic resume is authorized. "
+                "See each declared action's absence reason; do not invent a retry or waiver."
+            ),
+            resume_stage=spec.resume_stage,
+            resume_transition=spec.resume_transition,
+            invalidated_dependencies=spec.invalidated_dependencies,
+            auto_resume=automatic,
+            external_dependency=external,
+            local_demo_scenario=scenario,
+            test_coverage=(_POLICY_TEST, _CATALOGUE_TEST, *_SCENARIO_TESTS.get(scenario, ())),
+        ))
+    return tuple(entries)
+
+
+def unknown_blocker_guidance(code: str) -> UnknownBlockerGuidance:
+    """Constrain an unknown safe code; never accept or repeat free-text failure details."""
+    safe_code = TypeAdapter(SafeBlockerCode).validate_python(code)
+    if safe_code in SUPPORTED_BLOCKER_CODES:
+        raise ValueError("supported blocker code must use its catalogue entry")
+    return UnknownBlockerGuidance(code=safe_code)

@@ -97,3 +97,11 @@ describe("CaseStateExplanationPanel", () => {
     const { view } = render(summary()); expect(view.querySelector("form")).toBeNull(); expect(view.querySelector("a")).toBeNull(); expect(view.querySelector("input, select, textarea")).toBeNull();
   });
 });
+
+it.each(["SKIPPED", "RECOVERED", "REVIEW_REQUIRED"] as const)(
+  "recognizes retained target operation %s without inventing an unknown status", (status) => {
+    const { view } = render({ ...summary(), target_operations: [{ operation: "AMEND", status }] });
+    expect(view.textContent).toContain("AMEND: " + status);
+    expect(view.textContent).not.toContain("Unknown target operation status");
+  },
+);

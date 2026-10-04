@@ -287,7 +287,7 @@ export function ProcessingBlockerPanels({ summary, stage }: { summary: ZeroTouch
           <p className="card-kicker">Read-only diagnostic</p>
           <h2 id="case-search-diagnostic-heading">GoldTier Search</h2>
           <ProcessingExplanation node={search}>
-            A failed Search does not prove that the customer is absent. Target identity remains unresolved, so no target mutation or browser retry is available.
+            A failed Search does not prove that the customer is absent. A bounded read-only Search recheck may be available through Registry identity under the current case state. Target mutation remains prohibited until authoritative prerequisites are met. A recheck confirms identity only when its result satisfies the existing resolver rules.
           </ProcessingExplanation>
         </section>
       )}
@@ -605,14 +605,17 @@ export function registryPresentation(
     : summary.case.jurisdiction_resolution?.status === "UNRESOLVED"
       ? "JURISDICTION_UNRESOLVED"
       : null;
+  const registryTechnicalFailure = summary.current_stage === "REGISTRY"
+    ? summary.technical_failure
+    : null;
   const code = registryException?.blocker_code
-    ?? summary.technical_failure?.code
+    ?? registryTechnicalFailure?.code
     ?? issue?.code
     ?? operationError?.code
     ?? routeCode
     ?? jurisdictionCode;
   const message = registryException?.explanation
-    ?? summary.technical_failure?.message
+    ?? registryTechnicalFailure?.message
     ?? issue?.message
     ?? operationError?.message
     ?? (jurisdictionCode ? "Jurisdiction must be resolved before a registry route can be selected." : null);
@@ -622,6 +625,23 @@ export function registryPresentation(
     || acquisition?.operation_results.some(
       (operation) => operation.operation === "ENTITY_PROFILE" && operation.status === "COMPLETE",
     ) === true;
+
+  if (!registryException && !registryTechnicalFailure
+    && summary.case.registry_evidence_binding?.disposition === "CACHE_HIT") {
+    return {
+      heading: "Registry evidence reused",
+      description: "Reused fresh registry evidence — no ACRA request required.",
+      tag: "CACHE_HIT",
+      provider,
+      connection: "No ACRA request required",
+      entity,
+      issue: "None reported",
+      action: "Continue workflow",
+      attention: false,
+      code: null,
+      message: null,
+    };
+  }
 
   if (!acquisition && registryNode?.status === "NOT_REACHED") {
     return {
@@ -702,6 +722,22 @@ export function registryPresentation(
     };
   }
 
+  if (registryTechnicalFailure) {
+    return {
+      heading: "Registry technical failure",
+      description: "Registry processing stopped after a technical failure reported by the backend.",
+      tag: "Technical failure",
+      provider,
+      connection: "Not confirmed",
+      entity,
+      issue: "Registry technical failure",
+      action: "Operator review required",
+      attention: true,
+      code,
+      message,
+    };
+  }
+
   if (code) {
     return {
       heading: "Registry review required",
@@ -725,7 +761,7 @@ export function registryPresentation(
         ? "Registry data acquired"
         : "Reading the registry",
     description: "Jurisdiction routing and bounded ACRA acquisition operations are reported from backend state.",
-    tag: summary.status.replaceAll("_", " "),
+    tag: acquisition?.status ?? registryNode?.status ?? "Not reached",
     provider,
     connection: acquisition ? "Successful / data retrieved" : "In progress",
     entity,

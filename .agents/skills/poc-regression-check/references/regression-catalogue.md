@@ -28,7 +28,7 @@ single-instance durable POC, not a distributed exactly-once or Ready-for-Approva
 | `202400002B` | Registered address absent; human review before target processing | `REVIEW_REQUIRED` | ACRA fetch only | No GoldTier call; no completion |
 | `202400003C` | Deterministic policy validation failure | `FAILED` | ACRA fetch; search `NO_MATCH`; shell; policy | No amend or completion |
 | `202400004D` | Amend returns representative partial outcome | `REVIEW_REQUIRED` | ACRA fetch; search `NO_MATCH`; shell; policy; amend | No completion |
-| `999999999Z` or another well-formed unknown synthetic UEN | Registry record not found | `FAILED` with safe `ACRA_ENTITY_NOT_FOUND` | ACRA fetch only | No GoldTier call; no completion |
+| `999999999Z` or another well-formed unknown synthetic UEN | Definitive registry absence; Slice C supersedes the earlier technical-failure label with business identity review | `REVIEW_REQUIRED` with safe `ACRA_ENTITY_NOT_FOUND`; zero-touch retains same-case UEN correction | ACRA fetch only in the identifier-only legacy lane | No mapping, target mutation, or completion; actual provider failure remains technical |
 
 Whitespace-only, over-length, or characters outside the bounded alphanumeric/hyphen
 registration-identifier grammar are rejected before case creation. Padded lowercase
@@ -475,3 +475,17 @@ refresh, sandbox/live caching, or production cross-team sharing authority.
 | Phase 05 final remediation | Preserved all prior scenarios; moved recovery evidence before rich receipt mapping and added four-outcome receipt/mapping fault recovery plus deterministic concurrent finalization with one logical Mock execution |
 | Phase 05 target-response remediation | Preserved the receipt-recovery design; added immediate strict Mock response validation, aligned retained bounds, sanitized malformed-response stopping, operation-owner exit convergence, constant-only outcome fallback, and no-replay recovery regressions |
 | Phase 06 implementation | Preserved every Phase 01–05 scenario and historical manual document rule; added verified zero-intervention orchestration, narrow integrated auto-confirmation, typed multi-blocker exceptions, version-bound resolution and auto-resume, duplicate/concurrent start/resume, provider conformance, loop/malformed-response stopping, sponsor-facing read-only progress, and Demo/Test Controls separation |
+
+## Slice D2 superseding local Mock verification — 2026-10-03
+
+For newly executed D2 Mock successes, required Amend is followed by ledger-owned
+READBACK before success/finalization. New-customer order is SEARCH/SHELL/POLICY/AMEND/
+READBACK; actual same-customer reuse is SEARCH/AMEND/READBACK only after existing
+identity resolution plus prior same-identity/same-ID case and finalized verified
+readback ledger proof. Constructor matches alone remain review-only. Failed Policy
+stops before Amend/readback; partial or failed Amend stops before readback. A fresh
+connector loses runtime provider facts, cannot invent missing operation success and
+cannot replay an uncertain durable attempt. Retained outcomes permit finalization only.
+This supersedes the successful four-operation Mock call counts above for new D2
+execution, not historical ledgers, retained outcomes, Sandbox/XPI contracts or approval
+semantics. D2 adds no runtime seed/reset endpoint or provider persistence/workflow owner.

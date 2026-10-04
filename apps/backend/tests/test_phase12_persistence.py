@@ -749,7 +749,7 @@ def test_base_schema_v5_pending_restart_runs_search_before_later_stages(
     assert completed.status_code == 200
     assert completed.json()["status"] == AutomationStatus.COMPLETED.value
     assert goldtier_calls == {
-        "search": calls_before_restart["search"] + 2,
+        "search": calls_before_restart["search"] + 3,
         "shell": calls_before_restart["shell"] + 1,
         "policy": calls_before_restart["policy"] + 1,
         "amend": calls_before_restart["amend"] + 1,
@@ -815,7 +815,7 @@ def test_base_schema_v5_review_resolution_rebases_before_target_writes(
     assert resumed.status_code == 200
     assert resumed.json()["status"] == AutomationStatus.COMPLETED.value
     assert goldtier_calls == {
-        "search": calls_before_restart["search"] + 2,
+        "search": calls_before_restart["search"] + 3,
         "shell": calls_before_restart["shell"] + 1,
         "policy": calls_before_restart["policy"] + 1,
         "amend": calls_before_restart["amend"] + 1,
@@ -946,7 +946,10 @@ def test_schema_v5_accepts_matching_plan_and_execution_provider(mode: GoldTierPr
     assert decoded.clm.submission_snapshot.target_input.provider_mode == mode
 
 
-def test_schema_v6_round_trips_provider_verified_amend_failure_without_completion() -> None:
+@pytest.mark.parametrize("version", [6, 7, 8])
+def test_schema_v6_round_trips_provider_verified_amend_failure_without_completion(
+    version: int,
+) -> None:
     snapshot = _provider_bound_snapshot(
         plan_mode=GoldTierProviderMode.SANDBOX,
         execution_mode=GoldTierProviderMode.SANDBOX,
@@ -1012,6 +1015,13 @@ def test_schema_v6_round_trips_provider_verified_amend_failure_without_completio
         update={"target_executions": (retained,)}, deep=True
     ).model_dump(mode="json")
     raw["_id"] = str(snapshot.case_id)
+    raw["schema_version"] = version
+    if version == 6:
+        for field in (
+            "identity_corrections", "initial_target_search_attempts",
+            "target_dispatch_confirmation", "policy_snapshot_revision", "policy_rebind_history",
+        ):
+            raw["onboarding"].pop(field)
 
     decoded = object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
@@ -2012,7 +2022,7 @@ def test_memory_mode_preserves_safe_pending_and_completed_resume_behavior(
         )
         assert terminal.status_code == 200
         assert terminal.json()["status"] == "COMPLETED"
-        assert goldtier_calls == {"search": 3, "shell": 1, "policy": 1, "amend": 1}
+        assert goldtier_calls == {'search': 4, 'shell': 1, 'policy': 1, 'amend': 1}
         calls_before_completed_resume = goldtier_calls.copy()
 
         completed_resume = client.post(f"/api/clm/zero-touch/cases/{completed_id}/resume")

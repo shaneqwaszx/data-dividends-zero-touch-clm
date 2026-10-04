@@ -20,18 +20,20 @@ Proof of concept for Delta Capita's Singapore new-to-bank flow:
 The current POC accepts an optional country/jurisdiction, a company registration
 identifier (Singapore UEN for the implemented path), and a bounded set of synthetic
 PDF, DOCX, or UTF-8 TXT documents. It resolves
-jurisdiction before registry selection, then automatically runs registry validation,
-deterministic document comparison, source-neutral reconciliation, ownership/UBO analysis,
-readiness, and a Mock GoldTier sequence. It pauses only for a typed exception and
-automatically resumes after a permitted resolution.
+jurisdiction before an eligible read-only GoldTier Search, then acquires required registry
+evidence, compares documents, reconciles source observations, and calculates ownership/UBO.
+Clean evidence reaches an explicit Review & Send confirmation before the ledger-owned Mock
+GoldTier sequence. Permitted blocker resolutions resume through the same backend owners.
 
-`COMPLETED / MOCK_GOLDTIER_SUBMITTED` means the credential-free synthetic path
-completed. It is not customer/compliance approval, Ready-for-Approval, a legal UBO
+`COMPLETED / MOCK_GOLDTIER_SUBMITTED` means configured POC stages and the accepted
+Mock target operations/readback completed. Registry evidence retains its synthetic Mock
+or official Marketplace Mock identity. It is not customer/compliance approval, Ready-for-Approval, a legal UBO
 determination, or live ACRA/GoldTier interoperability.
 
 ## Current capabilities
 
-- Clean straight-through journey with `Human interventions after Start: 0`.
+- Clean evidence preparation with zero exception-resolution interventions; explicit Review & Send
+  still confirms the prepared target submission.
 - Document discrepancy, low-confidence, and multiple-blocker review behavior.
 - Decimal direct/indirect ownership paths, cycle/incomplete safety, and provisional UBO
   candidates.
@@ -58,8 +60,8 @@ determination, or live ACRA/GoldTier interoperability.
   selected byte total against the 25 MiB technical limit.
 
 Live ACRA, live hierarchy, PingFed/real GoldTier, final document/UBO policy, related-
-party writes, authenticated reviewer roles, and Ready-for-Approval remain blocked or
-unconfirmed. See the [sponsor dependency matrix](docs/sponsor-questions/PHASE_07_SPONSOR_DEPENDENCY_MATRIX.md).
+party writes, production reviewer policy, and Ready-for-Approval remain blocked or
+unconfirmed. Authenticated POC reviewer roles and backend capability/team checks are implemented. See the [sponsor dependency matrix](docs/sponsor-questions/PHASE_07_SPONSOR_DEPENDENCY_MATRIX.md).
 
 ## Quick start — Windows sponsor demo
 
@@ -114,7 +116,7 @@ unowned port occupants are never killed. For recovery and expected outputs, use 
    **Start CLM onboarding** once.
 3. Observe Registry → Document Verification → Ownership & UBO → Readiness → Mock
    GoldTier.
-4. For the clean case, confirm zero human interventions.
+4. For a clean case, inspect zero exception-resolution interventions, then explicitly Review & Send.
 5. Reuse the same UEN with `address-mismatch.pdf` to see PDF-derived source conflict;
    upload `clean-company-profile.pdf` as a replacement to show supersession and
    automatic resume.
@@ -201,13 +203,14 @@ configured service is required and reachable; a missing URI or unreachable servi
 fails the diagnostic without exposing the URI or driver error. The report similarly
 shows only ACRA credential presence and the composed connector class.
 
-Synthetic Mock ACRA snapshot reuse is separately opt-in with
-`REGISTRY_CACHE_MODE=mock` and the exact provisional POC setting
-`REGISTRY_CACHE_FRESHNESS_SECONDS=7776000`. Disabled mode retains one acquisition per
-case and has no cache startup dependency. Enabled mode shares complete normalized Mock
-bundles only, using a separate memory/Mongo repository and exact provider, environment,
-contract, dataset, and identifier identity. It adds no API or frontend control and does
-not cache documents, reconciliation, ownership, case state, or target outcomes. See the
+Registry snapshot reuse is explicitly opt-in with `REGISTRY_CACHE_MODE=mock` and an
+`REGISTRY_CACHE_FRESHNESS_SECONDS=7776000` startup setting. New cases freeze the ACTIVE freshness/definitive-negative
+TTL policy; historical snapshots keep their original rules. Schema2 reuses successful operation
+prefixes and definitive NOT_FOUND evidence across exact provider/environment/contract/dataset/
+identifier keys in separate memory/Mongo repositories. Only COMPLETE acquisitions bind to cases;
+stale or missing supported operations are fetched through the existing coordinator. Fresh complete
+or negative evidence adds zero provider calls. Disabled mode acquires required evidence per case.
+Documents, ownership analyses, reconciliation, case state and target outcomes are never cached. See the
 [registry cache freshness profile](docs/contracts/REGISTRY_CACHE_FRESHNESS_PROFILE.md).
 
 Mongo storage requires the document `_id` to be the canonical UUID string for the same
@@ -315,7 +318,8 @@ not validated. Contradictory examples must not become canonical fixtures.
   drive-qualified, traversal-containing, NUL-containing, or backslash-based. These are
   bounded POC checks, not antivirus, CDR, or production document forensics.
 - Production RBAC, PDF antivirus/CDR, durable encrypted audit storage, distributed
-  orchestration, real auth/TLS, and monitoring are not implemented.
+  orchestration, production SSO/PingFed authentication, and monitoring are not implemented.
+  The bounded XPI Sandbox adapter already has verified TLS 1.3 transport; that is not production auth.
 
 See [POC security boundaries](docs/security/POC_SECURITY_BOUNDARIES.md).
 

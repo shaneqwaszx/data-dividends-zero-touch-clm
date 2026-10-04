@@ -117,11 +117,9 @@ class OwnershipEvidenceTagger:
             )
         return OwnershipTaggingResult(tags=tuple(tags))
 
-    def benchmark(
-        self, policy: EvidenceClassifierPolicy, *, policy_version: int
-    ) -> dict[str, object]:
-        """Reproducible synthetic semantic benchmark; not a trained-model evaluation."""
-        definitions = (
+    @staticmethod
+    def benchmark_definitions() -> tuple[tuple[str, str, str, str, bool], ...]:
+        return (
             ("ROLE", "OWNER", "OWNER_ROLE", "1", True),
             ("ROLE", "PARTNER", "PARTNER_ROLE", "1", True),
             ("ROLE", "MEMBER", "MEMBER_ROLE", "1", True),
@@ -137,7 +135,10 @@ class OwnershipEvidenceTagger:
             ("SHARE_UNITS", "10", "SHARE_UNIT_EVIDENCE", "0.20", True),
             ("ROLE", "PARTNER", "PARTNER_ROLE", "0.40", True),
         )
-        evidence = tuple(
+
+    def benchmark_evidence(self) -> tuple[OwnershipEvidence, ...]:
+        definitions = self.benchmark_definitions()
+        return tuple(
             OwnershipEvidence.model_validate(
                 dict(
                     evidence_id=f"benchmark-{i}",
@@ -155,6 +156,13 @@ class OwnershipEvidenceTagger:
             )
             for i, (kind, raw, _, confidence, bound) in enumerate(definitions)
         )
+
+    def benchmark(
+        self, policy: EvidenceClassifierPolicy, *, policy_version: int
+    ) -> dict[str, object]:
+        """Reproducible synthetic semantic benchmark; not a trained-model evaluation."""
+        definitions = self.benchmark_definitions()
+        evidence = self.benchmark_evidence()
         expected = tuple(row[2] for row in definitions)
         predicted = tuple(
             t.tag

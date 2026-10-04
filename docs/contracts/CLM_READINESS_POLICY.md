@@ -21,10 +21,16 @@ Mock base operations completed. Neither status is Ready-for-Approval.
 | Document agreement | Every human-reviewed retained value must deterministically agree with the current canonical registry value for automatic Mock submission. Original extraction and the canonical value captured during Phase 03 remain immutable historical evidence. | **PROJECT-DEFINED / PROVISIONAL** conservative rule |
 | Source conflict | A rejected value, accepted mismatch, or correction that does not agree with canonical ACRA data yields `SOURCE_CONFLICT_REQUIRES_POLICY`; canonical data is not overwritten. | **PROJECT-DEFINED / PROVISIONAL** containment pending Q-005/Q-014 |
 | Ownership prerequisite | The latest case-linked Phase 04 analysis must be `ANALYZED`. `REVIEW_REQUIRED`, `FAILED`, unloaded, loading, loaded-only, or analyzing results block. | **PROJECT-DEFINED / PROVISIONAL** sequencing |
-| Ownership calculation | Decimal path calculation and the configured Phase 04 threshold are used as supporting provisional evidence only. | Technical calculation is project-confirmed; threshold/legal UBO policy remains **UNRESOLVED** under Q-004 |
+| Ownership calculation | Decimal path calculation and the configured Phase 04 threshold are used as supporting provisional evidence only. | Technical calculation is project-confirmed; D-062 confirms the bounded inclusive >=25% default. Complete legal/control and production UBO policy remain **UNRESOLVED** under Q-004 |
 | Mock GoldTier sequence | Search, shell only on `NO_MATCH`, policy, and amend reuse the accepted Mock behavior. | Mock contract implementation under confirmed/provisional baseline |
 | Related-party write | No related-party payload or write is executed. | **UNRESOLVED** under Q-006/Q-007; `PENDING_SPONSOR_CONFIRMATION` |
 | Real integration | Real GoldTier/PingFed, live hierarchy, and approval transition remain unavailable. | **UNRESOLVED / BLOCKED** under Q-001/Q-002/Q-008 and environment dependencies |
+
+Current amendment: the Phase05 base-sequence/history descriptions below are historical.
+Current submission additionally requires exact Review & Send confirmation and ledger-owned
+same-ID readback. D2 Mock requires Amend; D-063 permits conditional AMEND_NOT_REQUIRED only
+for the separately labelled XPI Sandbox lane. Mongo durability does not establish distributed
+idempotency or approval.
 
 ## Lifecycle
 

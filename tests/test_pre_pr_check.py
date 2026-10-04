@@ -95,7 +95,13 @@ class PrePrCheckTests(unittest.TestCase):
         relative = ".ai-pipeline/reports/" + name
         target = self.repo / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes((ROOT / relative).read_bytes() + suffix)
+        canonical = subprocess.run(
+            ["git", "show", f"HEAD:{relative}"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
+        target.write_bytes(canonical + suffix)
         self._git("config", "core.autocrlf", "false")
         (self.repo / "README.md").write_bytes(b"baseline\n")
         return relative

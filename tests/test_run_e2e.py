@@ -779,7 +779,7 @@ console.log(JSON.stringify({
             {"ok": True, "file": "zero-touch-exception.e2e.ts", "line": 145, "tags": ["garden-protocol"]},
             {"ok": True, "file": "zero-touch-exception.e2e.ts", "line": 145, "tags": ["garden-protocol"]},
         ]}]}
-        def discovery(port: int, *, garden_selectors: set[str]) -> list[str]:
+        def discovery(port: int, *, garden_selectors: set[str], registry_selectors: dict[str, str] | None = None, recovery_selectors: dict[str, str] | None = None) -> list[str]:
             return cast(list[str], RUN_E2E._selectors_from_listing(payload, garden_selectors=garden_selectors))
         with (
             patch.object(RUN_E2E, "_list_test_selectors", side_effect=discovery),
@@ -802,6 +802,28 @@ console.log(JSON.stringify({
         ]}]}
         with self.assertRaisesRegex(RuntimeError, "conflicting fixture"):
             RUN_E2E._selectors_from_listing(payload, garden_selectors=set())
+
+    def test_recovery_mode_is_explicit_and_only_exposes_offline_frontend_label(self) -> None:
+        with (
+            patch.object(RUN_E2E.Path, "is_file", return_value=True),
+            patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
+            patch.object(RUN_E2E, "_find_node", return_value="node"),
+            patch.object(RUN_E2E, "_assert_ports_available"),
+            patch.object(RUN_E2E, "_wait_for_http"),
+            patch.object(RUN_E2E, "_wait_for_test", return_value=0),
+            redirect_stdout(io.StringIO()),
+        ):
+            result = RUN_E2E.run(backend_port=8765, frontend_port=4173,
+                                timeout_seconds=60, grep="Slice C optional Amend",
+                                recovery_demo="optional-amend")
+        self.assertEqual(result, 0)
+        backend, frontend, playwright = _FakeOwnedProcess.instances
+        self.assertEqual(backend.env["CLM_E2E_RECOVERY_DEMO"], "optional-amend")
+        self.assertEqual(frontend.env["VITE_E2E_RECOVERY_DEMO"], "optional-amend")
+        self.assertNotIn("CLM_E2E_RECOVERY_DEMO", playwright.env)
+        self.assertNotIn("CLM_E2E_REGISTRY_DEMO", backend.env)
+        self.assertNotIn("GOLDTIER_SANDBOX_USER_ID", frontend.env)
+        self.assertTrue(all(process.stopped for process in _FakeOwnedProcess.instances))
 
 
     def test_derived_suite_safety_overrun_fails_without_claiming_omitted_tests_pass(self) -> None:
@@ -841,11 +863,11 @@ console.log(JSON.stringify({
     def test_ci_outer_bound_covers_current_discovery_and_bounded_cleanup(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         e2e = workflow.split("  e2e:\n", 1)[1].split("  demo-lifecycle-windows:", 1)[0]
-        self.assertIn("timeout-minutes: 90", e2e)
+        self.assertIn("timeout-minutes: 162", e2e)
         self.assertIn("python scripts/run_e2e.py --timeout-seconds 60", e2e)
         self.assertLessEqual(
-            60 + 26 * (60 + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS) + 11 * 60,
-            90 * 60,
+            60 + 49 * (60 + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS) + 14 * 60,
+            162 * 60,
         )
 
 

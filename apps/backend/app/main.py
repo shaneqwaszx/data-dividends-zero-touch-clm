@@ -863,8 +863,6 @@ def create_app(
             GoldTierOperationMarker.POLICY,
             GoldTierOperationMarker.AMEND,
         )
-        if orchestration.submission_plan.environment.value == "SANDBOX":
-            order = (*order, GoldTierOperationMarker.READBACK)
         checkpoint = orchestration.target_search_checkpoint
         attempted = (
             entry.attempted_operations
@@ -882,6 +880,11 @@ def create_app(
             if outcome is not None
             else attempted
         )
+        if (
+            orchestration.submission_plan.environment.value == "SANDBOX"
+            or GoldTierOperationMarker.READBACK in attempted
+        ):
+            order = (*order, GoldTierOperationMarker.READBACK)
         last_attempted = attempted[-1] if attempted else None
         result: list[BrowserTargetOperationEvidence] = []
         for operation in order:
@@ -944,6 +947,15 @@ def create_app(
                     operation_status = "CREATED"
                 else:
                     operation_status = "SUCCESS"
+            elif (
+                operation == GoldTierOperationMarker.AMEND
+                and (
+                    entry.amend_status if entry is not None
+                    else outcome.amend_status if outcome is not None
+                    else None
+                ) == "AMEND_NOT_REQUIRED"
+            ):
+                operation_status = "SKIPPED"
             result.append(
                 BrowserTargetOperationEvidence(
                     operation=operation.value,

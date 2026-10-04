@@ -162,25 +162,6 @@ class RecordingGoldTier:
                 error_code="GT_SEARCH_FAILED",
                 message="Synthetic controlled search failure.",
             )
-        if self._match_found:
-            party_id = "GT-EXISTING-SYNTHETIC"
-            return GoldTierSearchResult(
-                outcome=GoldTierSearchOutcome.MATCH_FOUND,
-                status_code=200,
-                matched_party_id=party_id,
-                candidates=(
-                    GoldTierSearchCandidate(
-                        party_id=party_id,
-                        registration_number=(
-                            request.registration_number
-                            if isinstance(request, SearchPartyRequest)
-                            else "202400001A"
-                        ),
-                        country="SG",
-                    ),
-                ),
-                message="Synthetic existing party candidate.",
-            )
         if isinstance(request, SearchPartyRequest):
             return self._delegate.search_party(request, metadata)
         return GoldTierSearchResult(
@@ -270,7 +251,21 @@ class UntrustedResponseGoldTier(RecordingGoldTier):
         if self._untrusted_stage == "shell":
             self._record("shell", request, metadata)
             assert isinstance(self._untrusted_response, GoldTierOperationResult)
-            return self._untrusted_response
+            response = self._untrusted_response
+            try:
+                identity = GoldTierSearchCandidate(
+                    party_id=response.party_id,
+                    legal_name=request.party.names.legal_name,
+                    country=request.party.non_individual_profile.country_of_incorporation,
+                )
+            except ValidationError:
+                return response
+            actual = self._delegate.create_shell_customer(request, metadata)
+            if actual.party_id is not None:
+                from dataclasses import replace
+                customer = self._delegate._customers.pop(actual.party_id)
+                self._delegate._customers[identity.party_id] = replace(customer, identity=identity)
+            return response
         return super().create_shell_customer(request, metadata)
 
     def create_policy(
@@ -404,6 +399,17 @@ def build_services(
         repository=InMemoryOnboardingCaseRepository(),
         policy_snapshot_provider=policy_snapshot_provider,
     )
+    if target._match_found:  # noqa: SLF001 - explicit local verified-case fixture
+        prior = cases.create_case("202400001A")
+        cases.confirm_target_dispatch(
+            case_id=prior.case_id, actor_id="verified-fixture",
+            expected_case_event_count=len(prior.events), clm_version=None,
+            destination="GOLDTIER_MOCK",
+        )
+        cases.submit_staged_case(prior.case_id)
+        target.calls.clear()
+        target.requests.clear()
+        target.metadata.clear()
     documents = DocumentProcessingService(
         cases=cases,
         idp=MockIdpProvider(),
@@ -503,7 +509,7 @@ def recovery_case_configuration(
             "202400001A",
             RecordingGoldTier(match_found=True),
             ClmStatus.MOCK_GOLDTIER_SUBMITTED,
-            ["search", "search", "amend"],
+            ["search", "search", "amend", "search"],
             None,
         )
     if outcome == "policy":
@@ -526,7 +532,7 @@ def recovery_case_configuration(
         "202400001A",
         RecordingGoldTier(),
         ClmStatus.MOCK_GOLDTIER_SUBMITTED,
-        ["search", "search", "shell", "policy", "amend"],
+        ["search", "search", "shell", "policy", "amend", "search"],
         None,
     )
 
@@ -653,7 +659,7 @@ def test_happy_end_to_end_snapshot_plan_and_mock_submission() -> None:
     assert submitted.related_party_preparation is not None
     assert submitted.related_party_preparation.mapping_status == "PENDING_SPONSOR_CONFIRMATION"
     assert submitted.related_party_preparation.write_status == "RELATED_PARTY_WRITE_NOT_EXECUTED"
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     assert cases.get_case(case_id).state == "GT_ENRICHED"  # type: ignore[arg-type,union-attr]
 
 
@@ -693,7 +699,7 @@ def test_target_mutation_requires_durable_cas_bound_confirmation() -> None:
 
     submitted = clm.submit(case_id=case.case_id)
     assert submitted.status == ClmStatus.MOCK_GOLDTIER_SUBMITTED
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 def test_confirmed_snapshot_exactly_matches_reviewed_request_preview() -> None:
@@ -1098,7 +1104,7 @@ def test_exact_match_skips_shell_and_policy_then_amends_existing_party() -> None
     submitted = clm.submit(case_id=case_id)  # type: ignore[arg-type]
     assert submitted.status == ClmStatus.MOCK_GOLDTIER_SUBMITTED
     assert submitted.error is None
-    assert target.calls == ["search", "search", "amend"]
+    assert target.calls == ['search', 'search', 'amend', 'search']
 
 
 @pytest.mark.parametrize(
@@ -1349,7 +1355,7 @@ def test_shell_party_identifier_boundary_stops_before_policy(party_id: str, acce
     if accepted:
         submitted = clm.submit(case_id=case_id)  # type: ignore[arg-type]
         assert submitted.status == ClmStatus.MOCK_GOLDTIER_SUBMITTED
-        assert target.calls == ["search", "search", "shell", "policy", "amend"]
+        assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     else:
         with pytest.raises(ClmInfrastructureError) as failure:
             clm.submit(case_id=case_id)  # type: ignore[arg-type]
@@ -1383,7 +1389,7 @@ def test_normal_outcome_construction_failure_uses_constant_fallback(
     assert cases.get_execution_state(submission_id) == (
         GoldTierExecutionLedgerState.TARGET_OUTCOME_RECORDED
     )
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
     with pytest.raises(ClmInfrastructureError) as recovery_signal:
         clm.submit(case_id=case_id)  # type: ignore[arg-type]
@@ -1392,7 +1398,7 @@ def test_normal_outcome_construction_failure_uses_constant_fallback(
     assert recovered.status == ClmStatus.FAILED
     assert recovered.error is not None
     assert recovered.error.code == "GT_TARGET_OUTCOME_RECORDING_FAILED"
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     assert cases.get_execution_state(submission_id) == GoldTierExecutionLedgerState.FINALIZED
     combined = first.value.public_message + outcome.model_dump_json() + recovered.model_dump_json()
     assert "PRIVATE_NORMAL_OUTCOME_CONSTRUCTION_SENTINEL" not in combined
@@ -1445,7 +1451,7 @@ def test_duplicate_and_concurrent_submissions_execute_business_operations_once()
     duplicate = clm.submit(case_id=case_id)  # type: ignore[arg-type]
     assert results == {ClmStatus.MOCK_GOLDTIER_SUBMITTED}
     assert duplicate.status == ClmStatus.MOCK_GOLDTIER_SUBMITTED
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     assert [event.event_type for event in duplicate.events].count("MOCK_SUBMISSION_STARTED") == 1
 
 
@@ -1609,7 +1615,7 @@ def test_two_concurrent_retries_after_pre_receipt_failure_finalize_once(
         ClmStatus.MOCK_GOLDTIER_SUBMITTED,
     ]
     assert recovered is not None
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     event_types = [event.event_type for event in recovered.events]
     assert event_types.count("MOCK_SUBMISSION_STARTED") == 1
     assert event_types.count("MOCK_TARGET_EXECUTION_RECORDED") == 1
@@ -1624,14 +1630,14 @@ def test_two_concurrent_retries_after_pre_receipt_failure_finalize_once(
             "success",
             "202400001A",
             ClmStatus.MOCK_GOLDTIER_SUBMITTED,
-            ["search", "search", "shell", "policy", "amend"],
+            ["search", "search", "shell", "policy", "amend", "search"],
             None,
         ),
         (
             "match",
             "202400001A",
             ClmStatus.MOCK_GOLDTIER_SUBMITTED,
-            ["search", "search", "amend"],
+            ["search", "search", "amend", "search"],
             None,
         ),
         (
@@ -1711,12 +1717,12 @@ def test_post_target_completion_clock_failure_is_retryable_without_duplicate_cal
         clm.submit(case_id=case_id)  # type: ignore[arg-type]
     assert first.value.code == "CLM_FINALIZATION_RETRY_REQUIRED"
     assert "PRIVATE_COMPLETION_CLOCK_SENTINEL" not in first.value.public_message
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
     recovered = clm.submit(case_id=case_id)  # type: ignore[arg-type]
     assert clock.failed
     assert recovered.status == ClmStatus.MOCK_GOLDTIER_SUBMITTED
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 def test_post_target_terminal_event_construction_failure_is_retryable(
@@ -1749,7 +1755,7 @@ def test_post_target_terminal_event_construction_failure_is_retryable(
     assert "PRIVATE_TERMINAL_EVENT_SENTINEL" not in first.value.public_message
     recovered = clm.submit(case_id=case_id)  # type: ignore[arg-type]
     assert recovered.status == ClmStatus.MOCK_GOLDTIER_SUBMITTED
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 @pytest.mark.parametrize(
@@ -1770,12 +1776,12 @@ def test_post_target_repository_failures_recover_without_reexecution(
         clm.submit(case_id=case_id)  # type: ignore[arg-type]
     assert first.value.code == "CLM_FINALIZATION_RETRY_REQUIRED"
     assert "PRIVATE_TERMINAL_REPOSITORY_SENTINEL" not in first.value.public_message
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
     recovered = clm.submit(case_id=case_id)  # type: ignore[arg-type]
     assert repository.failed
     assert recovered.status == ClmStatus.MOCK_GOLDTIER_SUBMITTED
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     assert [event.event_type for event in recovered.events].count("MOCK_SUBMISSION_COMPLETED") == 1
 
 
@@ -1821,6 +1827,7 @@ def test_case_evidence_and_submission_are_isolated() -> None:
         "shell",
         "policy",
         "amend",
+        "search",
     ]
 
 
@@ -1914,7 +1921,7 @@ async def test_pre_receipt_failure_api_and_recovery_projection_are_sanitized(
     assert recovered.status_code == 200
     assert recovered.json()["status"] == "MOCK_GOLDTIER_SUBMITTED"
     assert current.json() == recovered.json()
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     combined = first.text + recovered.text + current.text
     assert "PRIVATE_API_RECEIPT_SENTINEL" not in combined
     assert "target_outcome" not in combined

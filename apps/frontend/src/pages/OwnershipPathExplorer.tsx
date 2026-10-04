@@ -83,7 +83,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
       <div className="kv-row"><span className="kv-label">Analysis state</span><span className="kv-value">{record.state}</span></div>
       <div className="kv-row"><span className="kv-label">Threshold</span><span className="kv-value">{record.threshold_comparator} {record.threshold_percent}</span></div>
       <p className="control-help">Source: {record.provider_name ?? "not available"} · {record.provider_environment ?? "not available"}</p>
-      {clientSupplied && <p className="control-help">Client-supplied ownership evidence · LOCAL · not ACRA-derived. This declaration is retained for local analysis, not independently verified ownership.</p>}
+      {clientSupplied && <p className="control-help">Client-supplied ownership evidence · LOCAL · USER_SUPPLIED_DECLARATION · MANUAL_DECLARATION_POC · not ACRA-derived. This declaration is retained for local analysis, not independently verified ownership.</p>}
       {registryEmpty && !primaryBlockerVisible && <div className="ds-banner ds-banner-warn" role="note">
         <strong>Ownership information required</strong>
         <span>Ownership is unavailable from current registry evidence. Use Add structured ownership details or Upload ownership evidence to provide reviewed client evidence for UBO analysis.</span>

@@ -621,6 +621,13 @@ class MongoTargetExecutionRepository:
                 return entry.model_copy(deep=True)
         return None
 
+    def list_for_case(self, case_id: UUID) -> tuple[GoldTierExecutionLedgerEntry, ...]:
+        snapshot = self._store.get(case_id)
+        return (
+            tuple(entry.model_copy(deep=True) for entry in snapshot.target_executions)
+            if snapshot is not None else ()
+        )
+
     def create(self, entry: GoldTierExecutionLedgerEntry) -> None:
         case_id = entry.submission_input.case_id
         with self._store.locked():
