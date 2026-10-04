@@ -17,6 +17,12 @@ class OwnershipRepositoryConflictError(Exception):
 
 
 class OwnershipAnalysisRepository(Protocol):
+    def replace_document_bound(
+        self,
+        record: OwnershipAnalysisRecord,
+        *,
+        expected_version: int,
+    ) -> OwnershipAnalysisRecord: ...
     def replace_identity_bound(
         self, record: OwnershipAnalysisRecord, *, expected_version: int,
     ) -> OwnershipAnalysisRecord: ...
@@ -89,6 +95,20 @@ class InMemoryOwnershipAnalysisRepository:
             self._records[record.case_id] = persisted
             return persisted.model_copy(deep=True)
 
+    def replace_document_bound(
+        self,
+        record: OwnershipAnalysisRecord,
+        *,
+        expected_version: int,
+    ) -> OwnershipAnalysisRecord:
+        with self._lock:
+            current = self._records.get(record.case_id)
+            if not _is_valid_document_replacement(current, record, expected_version):
+                raise OwnershipRepositoryConflictError
+            persisted = record.model_copy(update={"version": expected_version + 1}, deep=True)
+            self._records[record.case_id] = persisted
+            return persisted.model_copy(deep=True)
+
     def get_for_case(self, case_id: UUID) -> OwnershipAnalysisRecord | None:
         with self._lock:
             record = self._records.get(case_id)
@@ -118,7 +138,8 @@ def _is_valid_review_replacement(
     if (
         current is None
         or current.version != expected_version
-        or current.state != OwnershipAnalysisState.REVIEW_REQUIRED
+        or current.state
+        not in {OwnershipAnalysisState.REVIEW_REQUIRED, OwnershipAnalysisState.ANALYZED}
         or replacement.version != expected_version
         or replacement.analysis_id == current.analysis_id
         or replacement.state != OwnershipAnalysisState.LOADING
@@ -128,6 +149,30 @@ def _is_valid_review_replacement(
         return False
     retained = replacement.prior_analyses[-1]
     return retained.analysis_id == current.analysis_id and retained.version == current.version
+
+
+def _is_valid_document_replacement(
+    current: OwnershipAnalysisRecord | None,
+    replacement: OwnershipAnalysisRecord,
+    expected_version: int,
+) -> bool:
+    if (
+        current is None
+        or current.version != expected_version
+        or current.case_id != replacement.case_id
+        or replacement.version != expected_version
+        or current.state
+        not in {OwnershipAnalysisState.REVIEW_REQUIRED, OwnershipAnalysisState.ANALYZED}
+        or replacement.state != OwnershipAnalysisState.LOADING
+        or replacement.analysis_id == current.analysis_id
+        or replacement.identity_registration_number != ownership_identity(current)
+        or replacement.identity_correction_version != current.identity_correction_version
+        or replacement.document_bindings == current.document_bindings
+        or not replacement.prior_analyses
+    ):
+        return False
+    prior = replacement.prior_analyses[-1]
+    return prior.analysis_id == current.analysis_id and prior.version == current.version
 
 
 def ownership_identity(

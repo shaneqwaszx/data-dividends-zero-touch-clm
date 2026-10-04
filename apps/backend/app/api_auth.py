@@ -284,6 +284,8 @@ def build_case_reauthorizer(
     cases: OnboardingService,
     case_id: UUID,
     required_capability: Capability | None = None,
+    *,
+    require_creator: bool = False,
 ) -> Callable[[], None]:
     """Capture request credentials for a fresh check inside the case mutation lock."""
 
@@ -295,7 +297,7 @@ def build_case_reauthorizer(
         except AuthenticationError:
             raise _unauthorized() from None
         try:
-            access.require_case_access(session.actor, case_id, cases)
+            case = access.require_case_access(session.actor, case_id, cases)
         except CaseNotAvailableError:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -304,6 +306,16 @@ def build_case_reauthorizer(
                     "message": "The requested case was not found.",
                 },
             ) from None
+        if (
+            require_creator and not access.can_decide_evidence(session.actor, case)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "CASE_EVIDENCE_DECISION_FORBIDDEN",
+                    "message": "This evidence decision requires the creating onboarding user.",
+                },
+            )
         if (
             required_capability is not None
             and required_capability not in ROLE_CAPABILITIES[session.actor.profile.role]

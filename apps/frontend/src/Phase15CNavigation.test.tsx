@@ -139,7 +139,10 @@ function summaryFixture(caseId: string, label = "SYNTHETIC CASE"): ZeroTouchCase
       requested_uen: label,
       priority: 5,
       client_scope_label: "DBS",
+      created_by_actor_id: actor.user_id,
     },
+    evidence_decision_authorized: true,
+    ownership_edit_authorized: false,
     status: "PENDING_INPUTS",
     current_stage: "DOCUMENT",
     completed_stages: ["REGISTRY"],
@@ -237,7 +240,10 @@ function caseDetailFixture(caseId: string, label: string): ZeroTouchCaseSummary 
       jurisdiction_resolution: null,
       registry_acquisition: null,
       goldtier_result: null,
+      created_by_actor_id: relationshipActor.user_id,
     },
+    evidence_decision_authorized: true,
+    ownership_edit_authorized: false,
     status: "WAITING_FOR_REVIEW",
     current_stage: "DOCUMENT",
     completed_stages: ["REGISTRY"],
@@ -384,6 +390,16 @@ function testClient(): QueryClient {
 }
 
 async function selectIntakeFileAndSubmit(fileName = "race-package.pdf") {
+  const uenInput = container?.querySelector<HTMLInputElement>("#home-uen");
+  const nameInput = container?.querySelector<HTMLInputElement>("#home-legal-name");
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  await act(async () => {
+    for (const [input, value] of [[uenInput, "202400001A"], [nameInput, "SYNTHETIC NAVIGATION PTE. LTD."]] as const) {
+      if (!input) continue;
+      setValue.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
   const file = new File(["synthetic"], fileName, { type: "application/pdf", lastModified: 1 });
   const fileInput = Array.from(container?.querySelectorAll<HTMLInputElement>("input[type='file']") ?? [])
     .find((input) => !input.hasAttribute("webkitdirectory"));
@@ -995,7 +1011,10 @@ describe("Phase 15C case-bound action lifetime", () => {
     });
     const queryClient = testClient();
     seedCaseDetail(queryClient, CASE_A, "CASE A");
-    queryClient.setQueryData(caseQueryKeys.detail(replacementActor.user_id, CASE_A), caseDetailFixture(CASE_A, "CASE A REPLACEMENT ACTOR"));
+    queryClient.setQueryData(caseQueryKeys.detail(replacementActor.user_id, CASE_A), {
+      ...caseDetailFixture(CASE_A, "CASE A REPLACEMENT ACTOR"),
+      evidence_decision_authorized: false,
+    });
     queryClient.setQueryData(caseQueryKeys.documents(replacementActor.user_id, CASE_A), [documentFixture(CASE_A)]);
     queryClient.setQueryData(caseQueryKeys.ownership(replacementActor.user_id, CASE_A), null);
 
@@ -1022,6 +1041,11 @@ describe("Phase 15C case-bound action lifetime", () => {
     });
 
     expect(container?.textContent).toContain("CASE A REPLACEMENT ACTOR");
+    expect(container?.textContent).toContain("Evidence decisions are read-only for this viewer.");
+    const replacementAccept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    expect(replacementAccept.disabled).toBe(true);
+    act(() => replacementAccept.click());
     expect(container?.textContent).not.toContain("Old actor uncertain review");
     expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
@@ -1284,7 +1308,7 @@ describe("Phase 15C auth, cache, and adverse navigation", () => {
     expect(queryClient.getQueryData(caseQueryKeys.detail(actor.user_id, CASE_A))).toBeUndefined();
   });
 
-  it("P15C-NAV-07 keeps the intended same-origin route through restore and login", async () => {
+  it("P15C-NAV-07 preserves an anonymous deep link until interactive login resets to root", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.endsWith("/api/auth/me")) return unavailable(401);
@@ -1318,7 +1342,7 @@ describe("Phase 15C auth, cache, and adverse navigation", () => {
       new Event("submit", { bubbles: true, cancelable: true }),
     ));
     await vi.waitFor(() => expect(container?.textContent).toContain("authenticated:maya-lim"));
-    expect(container?.querySelector("[data-testid='auth-location']")?.textContent).toBe(intended);
+    expect(container?.querySelector("[data-testid='auth-location']")?.textContent).toBe(paths.root);
     expect(request.mock.calls.some(([url]) => String(url).includes(intended))).toBe(false);
   });
 
@@ -1558,7 +1582,7 @@ describe("Phase 15C intake and mutation safety", () => {
       }
       if (url.endsWith("/api/system/execution-profile")) return unavailable();
       if (url.endsWith("/api/clm/zero-touch/cases") && method === "POST") return pendingCreate.promise;
-      if (url.includes("/api/clm/zero-touch/dashboard")) return json({});
+      if (url.includes("/api/clm/zero-touch/dashboard")) return unavailable();
       if (url === "/api/clm/zero-touch/cases" || url.startsWith("/api/clm/zero-touch/cases?")) return json([]);
       return unavailable();
     });
@@ -1578,7 +1602,7 @@ describe("Phase 15C intake and mutation safety", () => {
       await pendingCreate.promise;
       await Promise.resolve();
     });
-    expect(container?.querySelector("[data-testid='location']")?.textContent).toBe(paths.newOnboarding);
+    expect(container?.querySelector("[data-testid='location']")?.textContent).toBe(paths.dashboard);
     expect(container?.textContent).toContain(replacementActor.display_name);
     expect(container?.textContent).not.toContain("ACTOR ONE PRIVATE");
     expect(container?.textContent).not.toContain("actor-one-create.pdf");
@@ -1607,7 +1631,7 @@ describe("Phase 15C intake and mutation safety", () => {
           return pendingStage === "upload" ? pendingOperation.promise : json(documentFixture(CASE_A), 201);
         }
         if (url.endsWith(`/${CASE_A}/intake/complete`) && method === "POST") return pendingOperation.promise;
-        if (url.includes("/api/clm/zero-touch/dashboard")) return json({});
+        if (url.includes("/api/clm/zero-touch/dashboard")) return unavailable();
         if (url === "/api/clm/zero-touch/cases" || url.startsWith("/api/clm/zero-touch/cases?")) return json([]);
         return unavailable();
       });

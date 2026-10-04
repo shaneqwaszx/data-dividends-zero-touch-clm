@@ -1021,7 +1021,7 @@ def test_request_preview_is_network_free_authority_labelled_and_policy_versioned
     assert preview.dispatch_ready is False
     shell = next(item for item in preview.operations if item.operation == "SHELL")
     fields = {item.target_field: item for item in shell.fields}
-    assert fields["legalName"].provenance == "REGISTRY"
+    assert fields["legalName"].provenance == "CANONICAL_EVIDENCE"
     assert fields["legalName"].authority == "CANONICAL_EVIDENCE"
     assert fields["kycCustomerType"].provenance == "POLICY"
     assert fields["kycCustomerType"].authority == "TBD_SPONSOR"

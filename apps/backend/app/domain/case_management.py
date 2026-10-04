@@ -1,7 +1,7 @@
 """Strict lightweight case-management portfolio contracts."""
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from enum import StrEnum
 from uuid import UUID
 
@@ -286,6 +286,8 @@ class CasePortfolioQuery(BaseModel):
     attention_type: BusinessExceptionType | None = None
     jurisdiction: JurisdictionCode | None = None
     search: str | None = Field(default=None, max_length=128)
+    created_from_at: datetime | None = None
+    created_to_at: datetime | None = None
     limit: int = Field(default=50, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=10_000)
 
@@ -296,6 +298,54 @@ class CasePortfolioQuery(BaseModel):
             return value
         normalized = value.strip()
         return normalized or None
+
+    @field_validator("created_from_at", "created_to_at")
+    @classmethod
+    def normalize_created_utc(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("created timestamps must include an explicit timezone")
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_created_window(self) -> "CasePortfolioQuery":
+        if (
+            self.created_from_at is not None
+            and self.created_to_at is not None
+            and self.created_from_at >= self.created_to_at
+        ):
+            raise ValueError("created from timestamp must be earlier than to timestamp")
+        return self
+
+
+def case_created_date_bounds(
+    created_from: date | None,
+    created_to: date | None,
+) -> tuple[datetime | None, datetime | None]:
+    """Convert inclusive Singapore calendar dates to a half-open UTC window.
+
+    The POC uses Singapore's UTC+08:00 calendar-day convention. This explicit
+    offset keeps Windows and Linux behavior identical without system tzdata.
+    """
+
+    if created_from is not None and created_to is not None and created_from > created_to:
+        raise ValueError("created from date must not follow created to date")
+    singapore = timezone(timedelta(hours=8), name="Asia/Singapore")
+    try:
+        start = (
+            datetime.combine(created_from, time.min, singapore).astimezone(UTC)
+            if created_from is not None
+            else None
+        )
+        end = (
+            datetime.combine(created_to + timedelta(days=1), time.min, singapore).astimezone(UTC)
+            if created_to is not None
+            else None
+        )
+    except (OverflowError, ValueError):
+        raise ValueError("created date range is not representable") from None
+    return start, end
 
 
 class CasePortfolioPage(BaseModel):
@@ -336,6 +386,10 @@ def case_portfolio_matches(record: CasePortfolioRecord, query: CasePortfolioQuer
     """Apply the composed non-scope portfolio predicates."""
 
     if query.status is not None and record.status != query.status:
+        return False
+    if query.created_from_at is not None and record.created_at < query.created_from_at:
+        return False
+    if query.created_to_at is not None and record.created_at >= query.created_to_at:
         return False
     if query.priority_filter == PriorityFilter.PRIORITISED and record.priority is None:
         return False

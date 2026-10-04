@@ -1,0 +1,970 @@
+{
+  "mode": "EXTERNAL_SANDBOX",
+  "synthetic_name": "ZERO TOUCH POC ACCEPTANCE 9CD9A457",
+  "synthetic_uen": "202655266Z",
+  "database": "clm_p12_ab341ce202b34b36a112ea10",
+  "original_clm_poc_touched": false,
+  "configuration": {
+    "backend_required_fields_present": true,
+    "authorized_sandbox_origin_verified": true,
+    "private_environment_edited": false,
+    "explicit_process_mode": "sandbox",
+    "explicit_process_writes_enabled": true
+  },
+  "case_id": "74af14cb-c691-485a-bfc0-ca89de40dc65",
+  "prepared": {
+    "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+    "document_state": "REVIEWED",
+    "ownership": {
+      "case_id": "74af14cb-c691-485a-bfc0-ca89de40dc65",
+      "evidence": [],
+      "document_observations": [
+        {
+          "extraction_method": "NATIVE_TXT_TEXT",
+          "extraction_quality": "HIGH",
+          "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+          "score_formula": "LABEL_SCORE",
+          "raw_ocr_mean_confidence": null,
+          "raw_ocr_word_count": null,
+          "page_number": 1,
+          "source_reference": "PAGE_1_OWNERSHIP_ROW_6",
+          "evidence_score": 0.97,
+          "owner_name": "POC Synthetic Owner A",
+          "owner_type": "NATURAL_PERSON",
+          "owner_registration_identifier": null,
+          "owned_entity_name": null,
+          "owned_entity_registration_identifier": "202655266Z",
+          "share_count": null,
+          "explicit_percentage": "70",
+          "explicit_total_shares": null,
+          "share_class": null,
+          "as_of_date": "2026-10-04",
+          "decision_state": "PROPOSED",
+          "observation_id": "3d33571c-b0c6-4178-b5ea-b14de97927cf",
+          "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+          "document_version": 1
+        },
+        {
+          "extraction_method": "NATIVE_TXT_TEXT",
+          "extraction_quality": "HIGH",
+          "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+          "score_formula": "LABEL_SCORE",
+          "raw_ocr_mean_confidence": null,
+          "raw_ocr_word_count": null,
+          "page_number": 1,
+          "source_reference": "PAGE_1_OWNERSHIP_ROW_7",
+          "evidence_score": 0.97,
+          "owner_name": "POC Synthetic Owner B",
+          "owner_type": "NATURAL_PERSON",
+          "owner_registration_identifier": null,
+          "owned_entity_name": null,
+          "owned_entity_registration_identifier": "202655266Z",
+          "share_count": null,
+          "explicit_percentage": "30",
+          "explicit_total_shares": null,
+          "share_class": null,
+          "as_of_date": "2026-10-04",
+          "decision_state": "PROPOSED",
+          "observation_id": "13c05382-017b-436d-bf49-bc3290bd86a1",
+          "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+          "document_version": 1
+        }
+      ],
+      "document_bindings": [
+        {
+          "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+          "event_count": 9
+        }
+      ],
+      "document_discrepancies": [
+        {
+          "observation_id": "3d33571c-b0c6-4178-b5ea-b14de97927cf",
+          "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+          "document_version": 1,
+          "agreement": "MATCH",
+          "compared_relationship_ids": [
+            "SYNTHETIC_REL_A"
+          ],
+          "current_percentage": "70",
+          "proposed_percentage": "70",
+          "reason_code": "OWNERSHIP_PROPOSAL_REVIEW_REQUIRED",
+          "verification_state": "REVIEWED"
+        },
+        {
+          "observation_id": "13c05382-017b-436d-bf49-bc3290bd86a1",
+          "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+          "document_version": 1,
+          "agreement": "MATCH",
+          "compared_relationship_ids": [
+            "SYNTHETIC_REL_B"
+          ],
+          "current_percentage": "30",
+          "proposed_percentage": "30",
+          "reason_code": "OWNERSHIP_PROPOSAL_REVIEW_REQUIRED",
+          "verification_state": "REVIEWED"
+        }
+      ],
+      "source_classification": "SINGLE_SOURCE",
+      "prior_analyses": [
+        {
+          "version": 5,
+          "analysis_id": "1d08f96d-10fd-428d-b292-12be0376a122",
+          "root_party_id": "ENTITY_202655266Z",
+          "provider_name": "ACRA_REGISTRY_ACQUISITION",
+          "provider_environment": "MOCK",
+          "state": "REVIEW_REQUIRED",
+          "parties": [
+            {
+              "party_id": "ENTITY_202655266Z",
+              "display_name": "ZERO TOUCH POC ACCEPTANCE 9CD9A457",
+              "party_type": "LEGAL_ENTITY",
+              "registration_number": "202655266Z",
+              "country": "SG"
+            },
+            {
+              "party_id": "SYNTHETIC_A",
+              "display_name": "POC Synthetic Owner A",
+              "party_type": "NATURAL_PERSON",
+              "registration_number": null,
+              "country": "SG"
+            },
+            {
+              "party_id": "SYNTHETIC_B",
+              "display_name": "POC Synthetic Owner B",
+              "party_type": "NATURAL_PERSON",
+              "registration_number": null,
+              "country": "SG"
+            }
+          ],
+          "relationships": [
+            {
+              "relationship_id": "SYNTHETIC_REL_A",
+              "parent_party_id": "ENTITY_202655266Z",
+              "child_party_id": "SYNTHETIC_A",
+              "ownership_percent": "70",
+              "relationship_type": "OWNERSHIP",
+              "basis": "SHARE_OWNERSHIP",
+              "provenance": {
+                "provider": "ACRA_REGISTRY_ACQUISITION",
+                "environment": "MOCK",
+                "sourced_at": "2026-10-04T11:12:08.147287Z"
+              }
+            },
+            {
+              "relationship_id": "SYNTHETIC_REL_B",
+              "parent_party_id": "ENTITY_202655266Z",
+              "child_party_id": "SYNTHETIC_B",
+              "ownership_percent": "30",
+              "relationship_type": "OWNERSHIP",
+              "basis": "SHARE_OWNERSHIP",
+              "provenance": {
+                "provider": "ACRA_REGISTRY_ACQUISITION",
+                "environment": "MOCK",
+                "sourced_at": "2026-10-04T11:12:08.147287Z"
+              }
+            }
+          ],
+          "candidates": [
+            {
+              "party": {
+                "party_id": "SYNTHETIC_A",
+                "display_name": "POC Synthetic Owner A",
+                "party_type": "NATURAL_PERSON",
+                "registration_number": null,
+                "country": "SG"
+              },
+              "direct_ownership_percent": "70.0",
+              "indirect_ownership_percent": "0",
+              "aggregated_ownership_percent": "70.0",
+              "threshold_percent": "25.000000",
+              "threshold_comparator": "GREATER_THAN_OR_EQUAL_TO",
+              "threshold_result": "INDETERMINATE",
+              "classification": "REVIEW_REQUIRED",
+              "paths": [
+                {
+                  "path_id": "path-v1-5387bc8ebc2246890c42be6ed39e02d27b6b023b5ac4a34303c06f1df0fa099f",
+                  "edges": [
+                    {
+                      "relationship_id": "SYNTHETIC_REL_A",
+                      "parent_party_id": "ENTITY_202655266Z",
+                      "parent_display_name": "ZERO TOUCH POC ACCEPTANCE 9CD9A457",
+                      "child_party_id": "SYNTHETIC_A",
+                      "child_display_name": "POC Synthetic Owner A",
+                      "ownership_percent": "70"
+                    }
+                  ],
+                  "effective_ownership_percent": "70.0",
+                  "is_direct": true,
+                  "calculation": "70% = 70%"
+                }
+              ]
+            },
+            {
+              "party": {
+                "party_id": "SYNTHETIC_B",
+                "display_name": "POC Synthetic Owner B",
+                "party_type": "NATURAL_PERSON",
+                "registration_number": null,
+                "country": "SG"
+              },
+              "direct_ownership_percent": "30.0",
+              "indirect_ownership_percent": "0",
+              "aggregated_ownership_percent": "30.0",
+              "threshold_percent": "25.000000",
+              "threshold_comparator": "GREATER_THAN_OR_EQUAL_TO",
+              "threshold_result": "INDETERMINATE",
+              "classification": "REVIEW_REQUIRED",
+              "paths": [
+                {
+                  "path_id": "path-v1-1b552210c1703de3d238d6f28659cac0225ef01d7a4bafad15ab8841c7f2aeb0",
+                  "edges": [
+                    {
+                      "relationship_id": "SYNTHETIC_REL_B",
+                      "parent_party_id": "ENTITY_202655266Z",
+                      "parent_display_name": "ZERO TOUCH POC ACCEPTANCE 9CD9A457",
+                      "child_party_id": "SYNTHETIC_B",
+                      "child_display_name": "POC Synthetic Owner B",
+                      "ownership_percent": "30"
+                    }
+                  ],
+                  "effective_ownership_percent": "30.0",
+                  "is_direct": true,
+                  "calculation": "30% = 30%"
+                }
+              ]
+            }
+          ],
+          "issues": [
+            {
+              "code": "UBO_REVIEW_REQUIRED",
+              "message": "Proposed document ownership needs a current creator decision; source agreement is retained separately.",
+              "affected_party_ids": []
+            }
+          ],
+          "evidence": [
+            {
+              "evidence_id": "e-19da4861d81c5a8f09480e6e1c9ca42d92e30ca28fa14ef4",
+              "entity_identifier": "202655266Z",
+              "party_id": "SYNTHETIC_A",
+              "kind": "DIRECT_PERCENTAGE",
+              "raw_value": "70",
+              "numeric_value": "70",
+              "source_operation": "RELATIONSHIPS",
+              "provider": "ACRA_REGISTRY_ACQUISITION",
+              "environment": "MOCK",
+              "retrieved_at": "2026-10-04T11:12:08.147287Z",
+              "as_of": null,
+              "share_class": null,
+              "unit_type": null,
+              "source_status": null,
+              "authoritative": false,
+              "confidence": "1",
+              "determination_basis": "PROVIDER_PERCENTAGE",
+              "evidence_version": 4
+            },
+            {
+              "evidence_id": "e-beeab4a7642b6db968a9bf75803e8f29002485083705ed31",
+              "entity_identifier": "202655266Z",
+              "party_id": "SYNTHETIC_B",
+              "kind": "DIRECT_PERCENTAGE",
+              "raw_value": "30",
+              "numeric_value": "30",
+              "source_operation": "RELATIONSHIPS",
+              "provider": "ACRA_REGISTRY_ACQUISITION",
+              "environment": "MOCK",
+              "retrieved_at": "2026-10-04T11:12:08.147287Z",
+              "as_of": null,
+              "share_class": null,
+              "unit_type": null,
+              "source_status": null,
+              "authoritative": false,
+              "confidence": "1",
+              "determination_basis": "PROVIDER_PERCENTAGE",
+              "evidence_version": 4
+            },
+            {
+              "evidence_id": "e-9bf6858d7df3c273b6ba683098fa766e52c936ca7be03b44",
+              "entity_identifier": "202655266Z",
+              "party_id": "OFFICER_A",
+              "kind": "ROLE",
+              "raw_value": "DIRECTOR",
+              "numeric_value": null,
+              "source_operation": "OFFICERS",
+              "provider": "ACRA_REGISTRY_ACQUISITION",
+              "environment": "MOCK",
+              "retrieved_at": "2026-10-04T11:12:08.147287Z",
+              "as_of": null,
+              "share_class": null,
+              "unit_type": null,
+              "source_status": null,
+              "authoritative": false,
+              "confidence": "1",
+              "determination_basis": "SOURCE_SCALAR",
+              "evidence_version": 4
+            }
+          ],
+          "document_observations": [
+            {
+              "extraction_method": "NATIVE_TXT_TEXT",
+              "extraction_quality": "HIGH",
+              "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+              "score_formula": "LABEL_SCORE",
+              "raw_ocr_mean_confidence": null,
+              "raw_ocr_word_count": null,
+              "page_number": 1,
+              "source_reference": "PAGE_1_OWNERSHIP_ROW_6",
+              "evidence_score": 0.97,
+              "owner_name": "POC Synthetic Owner A",
+              "owner_type": "NATURAL_PERSON",
+              "owner_registration_identifier": null,
+              "owned_entity_name": null,
+              "owned_entity_registration_identifier": "202655266Z",
+              "share_count": null,
+              "explicit_percentage": "70",
+              "explicit_total_shares": null,
+              "share_class": null,
+              "as_of_date": "2026-10-04",
+              "decision_state": "PROPOSED",
+              "observation_id": "3d33571c-b0c6-4178-b5ea-b14de97927cf",
+              "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+              "document_version": 1
+            },
+            {
+              "extraction_method": "NATIVE_TXT_TEXT",
+              "extraction_quality": "HIGH",
+              "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+              "score_formula": "LABEL_SCORE",
+              "raw_ocr_mean_confidence": null,
+              "raw_ocr_word_count": null,
+              "page_number": 1,
+              "source_reference": "PAGE_1_OWNERSHIP_ROW_7",
+              "evidence_score": 0.97,
+              "owner_name": "POC Synthetic Owner B",
+              "owner_type": "NATURAL_PERSON",
+              "owner_registration_identifier": null,
+              "owned_entity_name": null,
+              "owned_entity_registration_identifier": "202655266Z",
+              "share_count": null,
+              "explicit_percentage": "30",
+              "explicit_total_shares": null,
+              "share_class": null,
+              "as_of_date": "2026-10-04",
+              "decision_state": "PROPOSED",
+              "observation_id": "13c05382-017b-436d-bf49-bc3290bd86a1",
+              "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+              "document_version": 1
+            }
+          ],
+          "document_bindings": [
+            {
+              "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+              "event_count": 9
+            }
+          ],
+          "document_discrepancies": [
+            {
+              "observation_id": "3d33571c-b0c6-4178-b5ea-b14de97927cf",
+              "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+              "document_version": 1,
+              "agreement": "MATCH",
+              "compared_relationship_ids": [
+                "SYNTHETIC_REL_A"
+              ],
+              "current_percentage": "70",
+              "proposed_percentage": "70",
+              "reason_code": "OWNERSHIP_PROPOSAL_REVIEW_REQUIRED",
+              "verification_state": "REVIEW_REQUIRED"
+            },
+            {
+              "observation_id": "13c05382-017b-436d-bf49-bc3290bd86a1",
+              "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+              "document_version": 1,
+              "agreement": "MATCH",
+              "compared_relationship_ids": [
+                "SYNTHETIC_REL_B"
+              ],
+              "current_percentage": "30",
+              "proposed_percentage": "30",
+              "reason_code": "OWNERSHIP_PROPOSAL_REVIEW_REQUIRED",
+              "verification_state": "REVIEW_REQUIRED"
+            }
+          ],
+          "source_classification": "SINGLE_SOURCE",
+          "manual_review_receipt": null,
+          "supplemental_parties": [],
+          "supplemental_relationships": [],
+          "supplemental_evidence": [],
+          "created_at": "2026-10-04T11:12:08.630942Z",
+          "analyzed_at": "2026-10-04T11:12:08.703985Z"
+        }
+      ],
+      "supplemental_parties": [],
+      "supplemental_relationships": [],
+      "supplemental_evidence": [],
+      "tagging": null,
+      "legal_form": null,
+      "version": 9,
+      "analysis_id": "5ec50e67-25fc-40a9-9c87-6a7a6ee6a8b1",
+      "correlation_id": "0516a70e-9134-4f32-a9bc-08ed63ee3ba4",
+      "root_party_id": "ENTITY_202655266Z",
+      "provider_name": "MANUAL_DECLARATION_POC",
+      "provider_environment": "LOCAL",
+      "state": "ANALYZED",
+      "parties": [
+        {
+          "party_id": "ENTITY_202655266Z",
+          "display_name": "ZERO TOUCH POC ACCEPTANCE 9CD9A457",
+          "party_type": "LEGAL_ENTITY",
+          "registration_number": "202655266Z",
+          "country": "SG"
+        },
+        {
+          "party_id": "SYNTHETIC_A",
+          "display_name": "POC Synthetic Owner A",
+          "party_type": "NATURAL_PERSON",
+          "registration_number": null,
+          "country": "SG"
+        },
+        {
+          "party_id": "SYNTHETIC_B",
+          "display_name": "POC Synthetic Owner B",
+          "party_type": "NATURAL_PERSON",
+          "registration_number": null,
+          "country": "SG"
+        }
+      ],
+      "relationships": [
+        {
+          "relationship_id": "SYNTHETIC_REL_A",
+          "parent_party_id": "ENTITY_202655266Z",
+          "child_party_id": "SYNTHETIC_A",
+          "ownership_percent": "70",
+          "relationship_type": "OWNERSHIP",
+          "basis": "ECONOMIC_INTEREST",
+          "provenance": {
+            "provider": "MANUAL_DECLARATION_POC",
+            "environment": "LOCAL",
+            "sourced_at": "2026-10-04T11:12:09.424867Z"
+          }
+        },
+        {
+          "relationship_id": "SYNTHETIC_REL_B",
+          "parent_party_id": "ENTITY_202655266Z",
+          "child_party_id": "SYNTHETIC_B",
+          "ownership_percent": "30",
+          "relationship_type": "OWNERSHIP",
+          "basis": "ECONOMIC_INTEREST",
+          "provenance": {
+            "provider": "MANUAL_DECLARATION_POC",
+            "environment": "LOCAL",
+            "sourced_at": "2026-10-04T11:12:09.424867Z"
+          }
+        }
+      ],
+      "candidates": [
+        {
+          "party": {
+            "party_id": "SYNTHETIC_A",
+            "display_name": "POC Synthetic Owner A",
+            "party_type": "NATURAL_PERSON",
+            "registration_number": null,
+            "country": "SG"
+          },
+          "direct_ownership_percent": "70.0",
+          "indirect_ownership_percent": "0",
+          "aggregated_ownership_percent": "70.0",
+          "threshold_percent": "25.000000",
+          "threshold_comparator": "GREATER_THAN_OR_EQUAL_TO",
+          "threshold_result": "MET",
+          "classification": "PROVISIONAL_UBO_CANDIDATE",
+          "paths": [
+            {
+              "path_id": "path-v1-5387bc8ebc2246890c42be6ed39e02d27b6b023b5ac4a34303c06f1df0fa099f",
+              "edges": [
+                {
+                  "relationship_id": "SYNTHETIC_REL_A",
+                  "parent_party_id": "ENTITY_202655266Z",
+                  "parent_display_name": "ZERO TOUCH POC ACCEPTANCE 9CD9A457",
+                  "child_party_id": "SYNTHETIC_A",
+                  "child_display_name": "POC Synthetic Owner A",
+                  "ownership_percent": "70"
+                }
+              ],
+              "effective_ownership_percent": "70.0",
+              "is_direct": true,
+              "calculation": "70% = 70%"
+            }
+          ]
+        },
+        {
+          "party": {
+            "party_id": "SYNTHETIC_B",
+            "display_name": "POC Synthetic Owner B",
+            "party_type": "NATURAL_PERSON",
+            "registration_number": null,
+            "country": "SG"
+          },
+          "direct_ownership_percent": "30.0",
+          "indirect_ownership_percent": "0",
+          "aggregated_ownership_percent": "30.0",
+          "threshold_percent": "25.000000",
+          "threshold_comparator": "GREATER_THAN_OR_EQUAL_TO",
+          "threshold_result": "MET",
+          "classification": "PROVISIONAL_UBO_CANDIDATE",
+          "paths": [
+            {
+              "path_id": "path-v1-1b552210c1703de3d238d6f28659cac0225ef01d7a4bafad15ab8841c7f2aeb0",
+              "edges": [
+                {
+                  "relationship_id": "SYNTHETIC_REL_B",
+                  "parent_party_id": "ENTITY_202655266Z",
+                  "parent_display_name": "ZERO TOUCH POC ACCEPTANCE 9CD9A457",
+                  "child_party_id": "SYNTHETIC_B",
+                  "child_display_name": "POC Synthetic Owner B",
+                  "ownership_percent": "30"
+                }
+              ],
+              "effective_ownership_percent": "30.0",
+              "is_direct": true,
+              "calculation": "30% = 30%"
+            }
+          ]
+        }
+      ],
+      "issues": [],
+      "threshold_percent": "25.000000",
+      "threshold_comparator": "GREATER_THAN_OR_EQUAL_TO",
+      "events": [
+        {
+          "sequence": 1,
+          "event_type": "OWNERSHIP_SOURCE_REPLACED",
+          "state": "LOADING",
+          "outcome": "SUCCEEDED",
+          "timestamp": "2026-10-04T11:12:09.467326Z",
+          "case_id": "74af14cb-c691-485a-bfc0-ca89de40dc65",
+          "analysis_id": "5ec50e67-25fc-40a9-9c87-6a7a6ee6a8b1",
+          "correlation_id": "0516a70e-9134-4f32-a9bc-08ed63ee3ba4",
+          "code": "MANUAL_OWNERSHIP_EVIDENCE_ACCEPTED",
+          "message": "Reviewed manual ownership evidence replaced the prior source.",
+          "party_count": 3,
+          "relationship_count": 2,
+          "candidate_count": null
+        },
+        {
+          "sequence": 2,
+          "event_type": "OWNERSHIP_LOADED",
+          "state": "LOADED",
+          "outcome": "SUCCEEDED",
+          "timestamp": "2026-10-04T11:12:09.518468Z",
+          "case_id": "74af14cb-c691-485a-bfc0-ca89de40dc65",
+          "analysis_id": "5ec50e67-25fc-40a9-9c87-6a7a6ee6a8b1",
+          "correlation_id": "0516a70e-9134-4f32-a9bc-08ed63ee3ba4",
+          "code": null,
+          "message": "Manual ownership source data loaded and validated.",
+          "party_count": 3,
+          "relationship_count": 2,
+          "candidate_count": null
+        },
+        {
+          "sequence": 3,
+          "event_type": "OWNERSHIP_ANALYSIS_STARTED",
+          "state": "ANALYZING",
+          "outcome": "SUCCEEDED",
+          "timestamp": "2026-10-04T11:12:09.552869Z",
+          "case_id": "74af14cb-c691-485a-bfc0-ca89de40dc65",
+          "analysis_id": "5ec50e67-25fc-40a9-9c87-6a7a6ee6a8b1",
+          "correlation_id": "0516a70e-9134-4f32-a9bc-08ed63ee3ba4",
+          "code": null,
+          "message": "Deterministic ownership analysis started.",
+          "party_count": null,
+          "relationship_count": null,
+          "candidate_count": null
+        },
+        {
+          "sequence": 4,
+          "event_type": "OWNERSHIP_ANALYSIS_COMPLETED",
+          "state": "ANALYZED",
+          "outcome": "SUCCEEDED",
+          "timestamp": "2026-10-04T11:12:09.574388Z",
+          "case_id": "74af14cb-c691-485a-bfc0-ca89de40dc65",
+          "analysis_id": "5ec50e67-25fc-40a9-9c87-6a7a6ee6a8b1",
+          "correlation_id": "0516a70e-9134-4f32-a9bc-08ed63ee3ba4",
+          "code": null,
+          "message": "Deterministic ownership analysis completed.",
+          "party_count": null,
+          "relationship_count": null,
+          "candidate_count": 2
+        }
+      ],
+      "error": null,
+      "manual_review_receipt": {
+        "case_id": "74af14cb-c691-485a-bfc0-ca89de40dc65",
+        "actor_id": "maya-lim",
+        "reviewed_at": "2026-10-04T11:12:09.424867Z",
+        "rationale": "Synthetic acceptance creator reviewed both matching explicit document owners.",
+        "evidence_document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+        "evidence_document_version": 9,
+        "evidence_reference": "MANUAL_DOC_ed3b0b9a36c041d2b09c56249217d527_V9",
+        "source_type": "USER_SUPPLIED_DECLARATION",
+        "source_selection": "CURRENT_EVIDENCE",
+        "observed_document_versions": [
+          {
+            "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+            "event_count": 9
+          }
+        ],
+        "selected_observation_ids": [],
+        "replaced_analysis_id": "1d08f96d-10fd-428d-b292-12be0376a122",
+        "replaced_ownership_version": 5,
+        "provider_name": "MANUAL_DECLARATION_POC",
+        "provider_environment": "LOCAL",
+        "as_of_date": "2026-10-04"
+      },
+      "created_at": "2026-10-04T11:12:09.467326Z",
+      "loaded_at": "2026-10-04T11:12:09.467326Z",
+      "analyzed_at": "2026-10-04T11:12:09.574388Z",
+      "updated_at": "2026-10-04T11:12:09.574388Z"
+    },
+    "preview": {
+      "environment": "SANDBOX",
+      "policy_version": 1,
+      "operations": [
+        {
+          "operation": "SEARCH",
+          "fields": [
+            {
+              "target_field": "legalName",
+              "value": "ZERO TOUCH POC ACCEPTANCE 9CD9A457",
+              "provenance": "CANONICAL_EVIDENCE",
+              "authority": "CANONICAL_EVIDENCE",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "countryOfIncorporation",
+              "value": "SG",
+              "provenance": "CANONICAL_EVIDENCE",
+              "authority": "CANONICAL_EVIDENCE",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            }
+          ],
+          "missing_fields": [],
+          "validation": "VALID"
+        },
+        {
+          "operation": "SHELL",
+          "fields": [
+            {
+              "target_field": "legalName",
+              "value": "ZERO TOUCH POC ACCEPTANCE 9CD9A457",
+              "provenance": "CANONICAL_EVIDENCE",
+              "authority": "CANONICAL_EVIDENCE",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "kycCustomerType",
+              "value": "Company - Private",
+              "provenance": "POLICY",
+              "authority": "USER_AUTHORIZED_POC",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "clientSegment",
+              "value": "Corporate",
+              "provenance": "POLICY",
+              "authority": "USER_AUTHORIZED_POC",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "systemReference.customerExternalSystem",
+              "value": "DSD",
+              "provenance": "POLICY",
+              "authority": "SPONSOR_DOCUMENTED",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "systemReference.customerExternalSystemKey",
+              "value": "FYP-74AF14CBC691485ABFC0CA89DE40DC65",
+              "provenance": "SYSTEM_DERIVED",
+              "authority": "PROJECT_DEFINED_PROVISIONAL",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "legalRegisteredAddress.street1",
+              "value": "1 SYNTHETIC ACCEPTANCE WAY",
+              "provenance": "CANONICAL_EVIDENCE",
+              "authority": "CANONICAL_EVIDENCE",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "legalRegisteredAddress.street2",
+              "value": "#01-01",
+              "provenance": "CANONICAL_EVIDENCE",
+              "authority": "CANONICAL_EVIDENCE",
+              "required": false,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "legalRegisteredAddress.countryIso2",
+              "value": "SG",
+              "provenance": "CANONICAL_EVIDENCE",
+              "authority": "CANONICAL_EVIDENCE",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "legalRegisteredAddress.zip",
+              "value": "018956",
+              "provenance": "CANONICAL_EVIDENCE",
+              "authority": "CANONICAL_EVIDENCE",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "registration.registrationType",
+              "value": "ACRA",
+              "provenance": "POLICY",
+              "authority": "USER_AUTHORIZED_POC",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "registration.countryIso2",
+              "value": "SG",
+              "provenance": "CANONICAL_EVIDENCE",
+              "authority": "CANONICAL_EVIDENCE",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "registration.registrationNumber",
+              "value": "202655266Z",
+              "provenance": "CANONICAL_EVIDENCE",
+              "authority": "CANONICAL_EVIDENCE",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "countryOfIncorporation",
+              "value": "SG",
+              "provenance": "CANONICAL_EVIDENCE",
+              "authority": "CANONICAL_EVIDENCE",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            }
+          ],
+          "missing_fields": [],
+          "validation": "VALID"
+        },
+        {
+          "operation": "POLICY",
+          "fields": [
+            {
+              "target_field": "customerExternalSystem",
+              "value": "DSD",
+              "provenance": "POLICY",
+              "authority": "SPONSOR_DOCUMENTED",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "customerExternalSystemKey",
+              "value": "FYP-74AF14CBC691485ABFC0CA89DE40DC65",
+              "provenance": "SYSTEM_DERIVED",
+              "authority": "PROJECT_DEFINED_PROVISIONAL",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "goldTierId",
+              "value": "BOUND_FROM_SEARCH_OR_SHELL",
+              "provenance": "SYSTEM_DERIVED",
+              "authority": "PROJECT_DEFINED_PROVISIONAL",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "policy",
+              "value": "Singapore",
+              "provenance": "POLICY",
+              "authority": "SPONSOR_DOCUMENTED",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "bookingEntity",
+              "value": "ANZBGL (Singapore Branch)",
+              "provenance": "POLICY",
+              "authority": "USER_AUTHORIZED_POC",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "accountEntityType",
+              "value": "",
+              "provenance": "POLICY",
+              "authority": "PROJECT_DEFINED_PROVISIONAL",
+              "required": false,
+              "missing": false,
+              "validation": "VALID"
+            },
+            {
+              "target_field": "productType",
+              "value": "",
+              "provenance": "POLICY",
+              "authority": "TBD_SPONSOR",
+              "required": false,
+              "missing": false,
+              "validation": "VALID"
+            }
+          ],
+          "missing_fields": [],
+          "validation": "VALID"
+        },
+        {
+          "operation": "READBACK",
+          "fields": [
+            {
+              "target_field": "goldTierID",
+              "value": "BOUND_FROM_SEARCH_OR_SHELL",
+              "provenance": "SYSTEM_DERIVED",
+              "authority": "PROJECT_DEFINED_PROVISIONAL",
+              "required": true,
+              "missing": false,
+              "validation": "VALID"
+            }
+          ],
+          "missing_fields": [],
+          "validation": "VALID"
+        }
+      ],
+      "dispatch_ready": true
+    }
+  },
+  "phase": "ATTEMPT_RETAINED",
+  "calls": {
+    "SEARCH": 2,
+    "SHELL": 1,
+    "POLICY": 1,
+    "AMEND": 0,
+    "READBACK": 1
+  },
+  "events": [
+    {
+      "operation": "SEARCH",
+      "attempt": 1,
+      "http_status": 200
+    },
+    {
+      "operation": "SEARCH",
+      "attempt": 2,
+      "http_status": 200
+    },
+    {
+      "operation": "SHELL",
+      "attempt": 1,
+      "http_status": 200
+    },
+    {
+      "operation": "POLICY",
+      "attempt": 1,
+      "http_status": 200
+    },
+    {
+      "operation": "READBACK",
+      "attempt": 1,
+      "http_status": 200
+    }
+  ],
+  "final_status": "COMPLETED",
+  "target_submission": {
+    "submission_id": "a22958ca-dace-4793-abba-d214eed68d87",
+    "state": "SUBMISSION_CONFIRMED",
+    "goldtier_id": "143887",
+    "status_check_available": false
+  },
+  "target_operations": [
+    {
+      "operation": "SEARCH",
+      "status": "NO_MATCH"
+    },
+    {
+      "operation": "SHELL",
+      "status": "CREATED"
+    },
+    {
+      "operation": "POLICY",
+      "status": "CREATED"
+    },
+    {
+      "operation": "AMEND",
+      "status": "SKIPPED"
+    },
+    {
+      "operation": "READBACK",
+      "status": "SUCCESS"
+    }
+  ],
+  "target_error": null,
+  "restart": {
+    "target_submission": {
+      "submission_id": "a22958ca-dace-4793-abba-d214eed68d87",
+      "state": "SUBMISSION_CONFIRMED",
+      "goldtier_id": "143887",
+      "status_check_available": false
+    },
+    "target_operations": [
+      {
+        "operation": "SEARCH",
+        "status": "NO_MATCH"
+      },
+      {
+        "operation": "SHELL",
+        "status": "CREATED"
+      },
+      {
+        "operation": "POLICY",
+        "status": "CREATED"
+      },
+      {
+        "operation": "AMEND",
+        "status": "SKIPPED"
+      },
+      {
+        "operation": "READBACK",
+        "status": "SUCCESS"
+      }
+    ],
+    "provider_calls_unchanged": true,
+    "document_evidence_retained": true,
+    "ownership_evidence_retained": true
+  },
+  "preparation_diagnostics": {}
+}

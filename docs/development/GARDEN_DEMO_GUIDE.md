@@ -23,6 +23,16 @@ structured operator review. A current official-Mock demonstration needs a client
 matching that case's actually observed canonical fields; do not assume the offline
 synthetic address is official evidence.
 
+S2 candidate: explicitly enable GARDEN_SUPPLEMENT_ENABLED only with the official
+Marketplace Mock lane to combine successful compatible official/cache evidence with
+the unchanged known Garden local fixture. This is separately LOCAL_SYNTHETIC_SUPPLEMENT,
+never official ownership or network failure fallback. Current exact counts/derivation
+are in OWNERSHIP_UBO_PROFILE. A current uploaded conflicting proposal requires the case
+creator's rationale and version-bound source choice. Calculable ownership may be edited
+before final Send; original graphs/receipts remain. The structure/calculation disclosure
+starts collapsed. Manual forms require deliberate type, date, country and percentage;
+no silent 60/40 or date/type default is supplied. OCR setup is in LOCAL_OCR_SETUP.md.
+
 ## Clean journey
 
 1. Sign in as an authorized case operator and choose New onboarding.

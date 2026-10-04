@@ -6,9 +6,14 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domain.documents import (
+    DocumentFieldCandidate,
     DocumentFieldKey,
+    DocumentPageEvidence,
     DocumentProfile,
+    ExtractionMetadata,
+    ExtractionQuality,
     IdpEnvironment,
+    OwnershipObservationValues,
     SafeProviderName,
     SafeSourceReference,
 )
@@ -27,20 +32,21 @@ class IdpDocumentInput:
 class IdpProviderMetadata(BaseModel):
     """Provider-neutral identity validated before provider output is retained."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", revalidate_instances="always")
 
     provider_name: SafeProviderName
     environment: IdpEnvironment
 
 
-class IdpSourceField(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class IdpSourceField(ExtractionMetadata):
+    model_config = ConfigDict(extra="forbid", revalidate_instances="always")
 
     field_key: DocumentFieldKey
     value: str | None = Field(default=None, max_length=512)
     confidence: float = Field(ge=0.0, le=1.0)
     page_number: int | None = Field(default=None, ge=1, le=500)
     source_reference: SafeSourceReference
+    candidates: tuple[DocumentFieldCandidate, ...] = Field(default=(), max_length=32)
 
     @field_validator("value")
     @classmethod
@@ -54,14 +60,29 @@ class IdpSourceField(BaseModel):
             raise ValueError("source value must not contain control characters")
         return normalized
 
+    @model_validator(mode="after")
+    def candidate_value_agrees(self) -> "IdpSourceField":
+        values = {candidate.value for candidate in self.candidates}
+        if len(values) > 1 and (
+            self.value is not None or self.extraction_quality != ExtractionQuality.AMBIGUOUS
+        ):
+            raise ValueError("ambiguous source candidates cannot select a value")
+        if values and self.value is not None and self.value not in values:
+            raise ValueError("source value must agree with candidate evidence")
+        return self
+
 
 class IdpSourceResult(BaseModel):
     """Strict four-field provisional result; not a sponsor-approved contract."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", revalidate_instances="always")
 
     profile: DocumentProfile
     fields: list[IdpSourceField] = Field(min_length=4, max_length=4)
+    pages: tuple[DocumentPageEvidence, ...] = Field(default=(), max_length=10)
+    ownership_observations: tuple[OwnershipObservationValues, ...] = Field(
+        default=(), max_length=128
+    )
 
     @model_validator(mode="after")
     def require_each_provisional_field_once(self) -> "IdpSourceResult":
@@ -70,6 +91,16 @@ class IdpSourceResult(BaseModel):
             raise ValueError("source field keys must be unique")
         if set(keys) != set(DocumentFieldKey):
             raise ValueError("source result must contain the provisional four-field profile")
+        page_numbers = [page.page_number for page in self.pages]
+        if len(page_numbers) != len(set(page_numbers)):
+            raise ValueError("source page evidence must be unique")
+        bound_pages = set(page_numbers)
+        if any(observation.page_number not in bound_pages for observation
+               in self.ownership_observations):
+            raise ValueError("ownership observations require page evidence")
+        if any(candidate.page_number not in bound_pages for item in self.fields
+               for candidate in item.candidates):
+            raise ValueError("field candidates require page evidence")
         return self
 
 
@@ -88,3 +119,16 @@ class IdpProviderError(Exception):
 
 class IdpProcessingError(IdpProviderError):
     """Controlled provider failure with an application-owned public projection."""
+
+
+class LocalDocumentProcessingError(IdpProcessingError):
+    """Application-owned processing code, never derived from engine error output."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code if code in {
+            "DOCUMENT_RUNTIME_UNAVAILABLE", "DOCUMENT_PROCESSING_TIMEOUT",
+            "DOCUMENT_STRUCTURE_INVALID", "DOCUMENT_OUTPUT_LIMIT_EXCEEDED",
+            "OCR_RUNTIME_UNAVAILABLE", "OCR_PROCESSING_TIMEOUT", "OCR_PROCESSING_FAILED",
+            "OCR_OUTPUT_INVALID",
+        } else "IDP_PROCESSING_FAILED"
+        super().__init__(self.code)

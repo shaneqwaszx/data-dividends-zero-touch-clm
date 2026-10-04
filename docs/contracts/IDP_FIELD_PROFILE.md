@@ -15,18 +15,35 @@ review rules. Q-003 and Q-014 await sponsor confirmation.
 | `registered_address` | conservative single-line registered address | canonical registered address join | Project-defined, provisional |
 | `country_of_incorporation` | incorporation country/code | canonical `country_of_incorporation` | Project-defined, provisional |
 
-No additional document fields are part of Phase 03.
+The four identity keys remain closed. The 2026-10-04 S2 candidate additionally retains
+proposed ownership observations under the existing ownership owner; see ADR-009.
 
-## Confidence and review
+## Extraction evidence and review
 
-- Each field has independent confidence from `0.0` to `1.0`.
+- The legacy API key `confidence` is an extraction evidence score in `[0, 1]`, not a
+  calibrated probability. Historical extraction method/quality is explicitly UNKNOWN.
 - The development attention threshold defaults to `0.85` and is configurable.
-- Low confidence is visually highlighted and requires review.
+- Low extraction evidence requires review; source agreement and verification state
+  are separate and cannot change the original extraction score.
 - Every field requires an explicit `ACCEPTED`, `REJECTED`, or `CORRECTED` decision,
   regardless of confidence.
-- Confidence never approves a customer, compliance decision, or GoldTier state.
+- Extraction evidence never approves a customer, compliance decision, or GoldTier state.
 
 All thresholds and completion rules are project-defined and await sponsor confirmation.
+
+Native primary/alternate labels score `0.97`/`0.90`; absent values score `0` and
+ambiguous distinct values have no chosen value and score at most `0.40`. OCR uses
+`label score × arithmetic mean of valid Tesseract word confidences / 100`; structural
+TSV rows with confidence `-1` are excluded. Raw OCR mean/count are retained separately.
+Native labelled quality is HIGH; OCR is HIGH at raw mean >=85, otherwise LOW, with
+UNAVAILABLE for no usable words. These deterministic quality bands are technical POC
+descriptors, not a business-policy or accuracy claim. Multiple candidates retain page,
+method, quality and opaque reference, and remain replacement-required even for address.
+
+Ownership observations retain document ID/version, page/reference, extraction metadata,
+explicit name/type/identifier, share count/percentage/denominator, share class, owned
+entity and ISO as-of date where actually supplied. Missing values remain null. They are
+PROPOSED and never infer provider IDs, integration constants, party type or denominator.
 
 ## Normalization and comparison
 

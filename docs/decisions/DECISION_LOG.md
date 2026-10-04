@@ -90,3 +90,51 @@ This supersedes only D-058's source-free ACRA skip in the current normal reuse p
 Search-first ordering, frozen policies, historical ledgers, schemas and valid legacy reads remain.
 Authority: USER_AUTHORIZED_POC / combined Slice-G integration closure; no new sponsor rule,
 provider API/schema/retry semantics, production access, target mutation permission or approval.
+
+## D-066 — post-merge Session 1 recovery and application submission boundary
+
+The explicit 2026-10-04 owner program starts from merged PR #68, main baseline
+`1d426e0ceddc32d80b0aaec293c62fb761f2fecf`. Session 1 extends existing document,
+reconciliation, orchestration and case-query owners. Identity correction retains
+structured document observations/provenance and recomputes dependent comparisons;
+successful recovery advances to the next authoritative blocker without target replay.
+Created-date filtering on Cases and Onboarded uses server-owned automation `created_at`,
+backend actor/team scope and filtering before portfolio paging. Inclusive calendar days
+use the explicit project-defined Singapore UTC+08:00 convention: from midnight inclusive
+through the day after Created to at midnight exclusive, with both bounds in query identity.
+
+D-062's `USER_AUTHORIZED_POC` workflow clarification is reaffirmed: Review & Send is
+the final local human approval for reviewed submission. No second unresolved local
+approval stage is required. This does not close GoldTier-internal/Ready-for-Approval,
+regulatory, legal/controller or production-policy questions. See the
+[ADR-007 amendment](ADR-007_RECOVERABLE_ONBOARDING_AND_FINAL_CONFIRMATION.md#amendment---2026-10-04-post-merge-session-1-candidate).
+
+Authority: `USER_AUTHORIZED_POC` current owner program; date treatment is
+`PROJECT_DEFINED_POC`. Status: Session 1 independently PASS for candidate
+`acc325730273d83d1bb39bbc066a89584b21dad7eebd2f8baee0afe73aed6bff` after one
+documentation remediation. Later candidates require their own gates. Sessions 2/3
+remain conditional on preceding gates; current-program
+external Sandbox delivery are not proved, Camunda is out of scope, and no publication,
+merge, new sponsor rule or external mutation authority follows from this record.
+
+## D-067 — bounded local OCR and creator-reviewed ownership candidate
+
+The 2026-10-04 owner program permits the S2 extension in ADR-009 through existing
+document/IDP, access, ownership Decimal, reconciliation, orchestration, policy and
+persistence owners. Native-first extraction plus optional bounded local Tesseract retains
+page/method/quality and nonprobability evidence scores. Proposed ownership observations
+require current creator-controlled source decisions; original observations, graphs,
+supplements and receipts are retained. Calculable pre-submission evidence is editable,
+readiness/confirmation becomes stale, and existing progression resumes. Retained target
+attempts/submissions remain frozen and no replay is added.
+
+Explicit Garden supplementation is known-case/successful-official-Mock only, separately
+LOCAL_SYNTHETIC_SUPPLEMENT, never a failure fallback or official quantity claim. Schema9
+owns new creator/provenance/source bindings; strict schema1..8 remains read-compatible
+without writes or metadata/creator inference. Existing 0.85 frozen extraction threshold
+and D-062 inclusive >=25% remain; no new INDUSTRY_PRACTICE_POC default is introduced.
+Authority: USER_AUTHORIZED_POC; parser/quality/processing limits PROJECT_DEFINED_POC.
+Status: implemented S2 candidate; fresh independent round1 PASS on the recorded
+147-path candidate. Later S3 changes require their own combined review.
+No external OCR, current-program external Sandbox proof, Live, legal compliance,
+production reviewer policy, publication or merge follows from this decision.

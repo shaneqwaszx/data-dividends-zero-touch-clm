@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openStage } from "./stage-disclosures";
+import type { PolicyCatalogue } from "../src/types";
 import {
   createBrowserNetworkPolicy,
   handleBrowserRoute,
@@ -71,6 +72,65 @@ async function login(page: Page, userId = "maya-lim") {
   await page.getByLabel("Password").fill(ephemeralCredential);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("navigation", { name: "Main workspace" })).toBeVisible({ timeout: 30_000 });
+}
+
+// A single explicit alias label scores 0.90 under the deterministic native parser.
+// Freeze a higher approved POC threshold to retain a genuine low-score suggestion,
+// independently of the historical PDF's separate ambiguity fixture.
+const singleValueReviewFixture = {
+  name: "single-value-low-score.txt",
+  mimeType: "text/plain",
+  buffer: Buffer.from([
+    "UEN: 202400001A",
+    "Company: MERLION CIRCULAR LABS PTE. LTD.",
+    "Registered Address: 18 INNOVATION WAY, #04-01, 018956, SG",
+    "Country: SG",
+  ].join("\n")),
+};
+
+async function prepareSingleValueReviewPolicy(page: Page) {
+  const loginSetupActor = async (userId: string, credential = requiredEnvironment("CLM_E2E_PASSWORD")) => {
+    const response = await page.request.post("/api/auth/login", {
+      data: { user_id: userId, password: credential },
+    });
+    expect(response.status()).toBe(200);
+    return await response.json() as { csrf_token: string };
+  };
+  const proposer = await loginSetupActor("hr-admin");
+  const proposerHeaders = { "X-CSRF-Token": proposer.csrf_token };
+  const currentResponse = await page.request.get("/api/policies");
+  expect(currentResponse.status()).toBe(200);
+  const current = await currentResponse.json() as PolicyCatalogue;
+  const reason = "Synthetic single-value evidence score review fixture";
+  const draftResponse = await page.request.post("/api/policies/proposals", {
+    data: { expected_catalogue_version: current.version,
+      changes: { DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD: { type: "DECIMAL", value: "0.92" } }, reason },
+    headers: proposerHeaders,
+  });
+  expect(draftResponse.status()).toBe(201);
+  const draft = await draftResponse.json() as PolicyCatalogue;
+  const proposal = draft.proposals!.find((item) => item.reason === reason)!;
+  expect(proposal).toBeDefined();
+  const submittedResponse = await page.request.post(`/api/policies/proposals/${proposal.proposal_id}/submit`, {
+    data: { expected_catalogue_version: draft.version, expected_proposal_version: proposal.version },
+    headers: proposerHeaders,
+  });
+  expect(submittedResponse.status()).toBe(200);
+  const submitted = await submittedResponse.json() as PolicyCatalogue;
+  const pending = submitted.proposals!.find((item) => item.proposal_id === proposal.proposal_id)!;
+  expect((await page.request.post("/api/auth/logout", { headers: proposerHeaders })).status()).toBe(204);
+  const director = await loginSetupActor("olivia-koh");
+  const directorHeaders = { "X-CSRF-Token": director.csrf_token };
+  const approvedResponse = await page.request.post(`/api/policies/proposals/${proposal.proposal_id}/decision`, {
+    data: { expected_catalogue_version: submitted.version, expected_proposal_version: pending.version,
+      approve: true, reason: "Independent synthetic Director approval for one-value review coverage" },
+    headers: directorHeaders,
+  });
+  expect(approvedResponse.status()).toBe(200);
+  const approved = await approvedResponse.json() as PolicyCatalogue;
+  expect(approved.rules.find((rule) => rule.policy_id === "DOCUMENT_IDP_REVIEW_CONFIDENCE_THRESHOLD")?.value)
+    .toEqual({ type: "DECIMAL", value: "0.92" });
+  expect((await page.request.post("/api/auth/logout", { headers: directorHeaders })).status()).toBe(204);
 }
 
 async function openWorkspaceTab(page: Page, name: string) {
@@ -269,8 +329,12 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await caseLink.click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.getByRole("heading", { name: "Action required" })).toBeVisible();
-  await page.locator(".intervention-card summary").filter({ hasText: "Why is this blocked?" }).first().click();
-  await expect(page.getByText(/INITIAL_IDENTITY_INCOMPLETE/).first()).toBeVisible();
+  const identityInterventionDetails = page.locator(".intervention-card .evidence-details")
+    .filter({ hasText: "INITIAL_IDENTITY_INCOMPLETE" });
+  await expect(identityInterventionDetails).toHaveCount(1);
+  await identityInterventionDetails.getByText("Why is this blocked?", { exact: true }).click();
+  await expect(identityInterventionDetails.locator(":scope > code")).toHaveText("INITIAL_IDENTITY_INCOMPLETE");
+  await expect(identityInterventionDetails.locator(":scope > code")).toBeVisible();
   const identityStage = page.locator(".onboarding-progress__stage--actionable > button").filter({
     hasText: "Initial identity",
   });
@@ -283,7 +347,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   const actionableStage = identityStage;
   await expect(actionableStage).toBeVisible();
   await expect(actionableStage.locator(".onboarding-progress__stage-label")).toHaveText(
-    "Initial identity correction required for a retained Singapore case",
+    "Initial identity",
   );
   for (const width of [320, 360] as const) {
     await page.setViewportSize({ width, height: 900 });
@@ -335,12 +399,20 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
 
   for (const field of ["registration number", "legal name", "registered address", "country of incorporation"]) {
-    const action = page.getByRole("button", { name: `Accept ${field} suggestion` });
-    await expect(action).toBeVisible();
     const reviewResponse = page.waitForResponse((response) => (
       response.request().method() === "POST" && response.url().endsWith("/reviews")
     ));
-    await action.click();
+    if (field === "legal name") {
+      await expect(page.getByRole("button", { name: "Accept legal name suggestion" })).toHaveCount(0);
+      await page.getByRole("button", { name: "Record legal name correction" }).click();
+      await page.locator(".document-correction").getByLabel("Correction", { exact: true })
+        .fill(legalNameForUen("202400001A"));
+      await page.getByRole("button", { name: "Save legal name correction" }).click();
+    } else {
+      const action = page.getByRole("button", { name: `Accept ${field} suggestion` });
+      await expect(action).toBeVisible();
+      await action.click();
+    }
     expect((await reviewResponse).status()).toBe(200);
   }
 
@@ -354,7 +426,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   expect((await replacementResponse).status()).toBe(200);
 
   const classification = page.getByRole("heading", { name: "Target classification" });
-  await openStage(page, "Classification & readiness");
+  await openStage(page, "Readiness check");
   await expect(classification).toBeVisible({ timeout: 120_000 });
   const kyc = page.getByLabel("KYC customer type");
   const segment = page.getByLabel("Client segment");
@@ -382,6 +454,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   const classificationResult = await classificationResponse;
   expect(classificationResult.status()).toBe(200);
   const classificationProjection = await classificationResult.json() as {
+    ownership_edit_authorized: boolean;
     clm: {
       submission_plan: {
         request_preview: {
@@ -455,8 +528,9 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await expect(review.getByRole("button", { name: "Edit company details" })).toBeVisible();
   await expect(review.getByRole("button", { name: "Edit classification" })).toBeVisible();
   await expect(review.getByRole("button", { name: "Edit documents" })).toBeVisible();
-  await expect(review.getByRole("button", { name: "Edit ownership" })).toHaveCount(0);
-  await expect(review.getByText("Ownership source is review-only; no correction action is currently authorized.")).toBeVisible();
+  expect(classificationProjection.ownership_edit_authorized).toBe(true);
+  await expect(review.getByRole("button", { name: "Edit ownership" })).toBeEnabled();
+  await expect(review.getByText("Ownership source is review-only; no correction action is currently authorized.")).toHaveCount(0);
   const presentedFieldLabel = (value: string) => value
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replaceAll("_", " ")
@@ -481,6 +555,8 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await expect(page.locator("#case-target-classification")).toBeFocused();
   await review.getByRole("button", { name: "Edit documents" }).click();
   await expect(page.locator("#case-evidence-documents")).toBeFocused();
+  await review.getByRole("button", { name: "Edit ownership" }).click();
+  await expect(page.locator("#case-manual-ownership-evidence")).toBeFocused();
 
   const printButton = review.getByRole("button", { name: "Print / save PDF" });
   for (const width of [320, 360, 768, 1280, 1440, 1920] as const) {
@@ -571,7 +647,7 @@ test("authorized manual ownership action focuses the real evidence form and next
 
   await openFreshOnboarding(page);
   await page.getByLabel("Jurisdiction").selectOption("SG");
-  await page.getByLabel("Legal name").fill(legalNameForUen("202400006F"));
+  await page.getByLabel("Company Legal Name").fill(legalNameForUen("202400006F"));
   await page.getByLabel("Registration ID / UEN").fill("202400006F");
   await page.locator("#home-document").setInputFiles(ownershipCycleFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -600,7 +676,7 @@ test("authorized manual ownership action focuses the real evidence form and next
   const review = page.locator(".review-and-send");
   await expect(review).toHaveCount(0);
   await expect(page.locator(".stage-disclosure--final")).toContainText("Not yet available");
-  await expect(page.getByRole("heading", { name: "Provide reviewed ownership declaration" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review or edit ownership evidence" })).toBeVisible();
   await page.locator(".intervention-card").getByRole("button", { name: "Add structured ownership details" }).click();
   await expect(page.locator("#case-manual-ownership-evidence")).toBeFocused();
   await expect(page.getByRole("button", { name: "Submit manual ownership evidence" })).toBeVisible();
@@ -663,7 +739,7 @@ test("onboarding progress is visible while backend-authored stages advance", asy
   await login(page);
   await openFreshOnboarding(page);
   await page.getByLabel("Jurisdiction").selectOption("SG");
-  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Company Legal Name").fill(legalNameForUen("202400001A"));
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(cleanFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -677,19 +753,19 @@ test("onboarding progress is visible while backend-authored stages advance", asy
     contentType: "image/png",
   });
 
-  await expect(progress.getByText("Document and IDP", { exact: true })).toBeVisible();
-  await expect(progress.getByText("Current:").locator("..")).toContainText("Document and IDP — In progress");
+  await expect(progress.getByText("Document verification", { exact: true })).toBeVisible();
+  await expect(progress.getByText("Current:").locator("..")).toContainText("Document verification — In progress");
   await expect.poll(() => caseReadCount).toBeGreaterThanOrEqual(1);
   await testInfo.attach("progress-document-stage-active", {
     body: await page.screenshot(),
     contentType: "image/png",
   });
 
-  await expect(progress.getByText("Current:").locator("..")).toContainText("Ownership and UBO — In progress");
+  await expect(progress.getByText("Current:").locator("..")).toContainText("Ownership & UBO — In progress");
   await expect.poll(() => caseReadCount).toBeGreaterThanOrEqual(2);
   showObservedProgress = false;
   await confirmMockTarget(page);
-  await openStage(page, "Target preparation / submission state");
+  await openStage(page, "Preparing GoldTier Submission");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
   await testInfo.attach("progress-completed-endpoint", {
     body: await page.screenshot(),
@@ -710,7 +786,7 @@ test("Director explicitly selects either team and journey or actor reset clears 
 
   await team.selectOption("TEAM_A");
   await page.getByLabel("Jurisdiction").selectOption("SG");
-  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Company Legal Name").fill(legalNameForUen("202400001A"));
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(cleanFixture);
   const alphaResponse = page.waitForResponse((response) => (
@@ -729,7 +805,7 @@ test("Director explicitly selects either team and journey or actor reset clears 
 
   await team.selectOption("TEAM_B");
   await page.getByLabel("Jurisdiction").selectOption("SG");
-  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Company Legal Name").fill(legalNameForUen("202400001A"));
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(cleanFixture);
   const betaResponse = page.waitForResponse((response) => (
@@ -768,7 +844,7 @@ test("problem pipeline stages preserve intent and keyboard-focus real diagnostic
   await login(page);
   await openFreshOnboarding(page);
   await page.getByLabel("Jurisdiction").selectOption("SG");
-  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Company Legal Name").fill(legalNameForUen("202400001A"));
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(cleanFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -790,7 +866,7 @@ test("problem pipeline stages preserve intent and keyboard-focus real diagnostic
       if (node.node_id === "GOLDTIER_SEARCH") return { ...node, status: "FAILED", blocker_code: "SEARCH_TIMEOUT", safe_result: "Customer existence remains unresolved." };
       if (node.node_id === "TARGET_CLASSIFICATION") return { ...node, status: "REVIEW_REQUIRED" };
       if (node.node_id === "GOLDTIER_TARGET") return { ...node, status: "BLOCKED", blocker_code: "GOLDTIER_SEARCH_FAILED" };
-      if (node.node_id === "HUMAN_APPROVAL") return { ...node, status: "REVIEW_REQUIRED" };
+      if (node.node_id === "FINAL_REVIEW_SEND") return { ...node, status: "NOT_REACHED", blocker_code: null, safe_result: "Final review awaits authoritative readiness" };
       return node;
     });
     if (!body.processing_pipeline.some((node: Record<string, unknown>) => node.node_id === "TARGET_CLASSIFICATION")) {
@@ -823,7 +899,7 @@ test("problem pipeline stages preserve intent and keyboard-focus real diagnostic
   await page.goto(`/cases/${caseId}?focus=GOLDTIER_SEARCH`);
   await expect.poll(() => interceptedDetailReads).toBeGreaterThan(0);
   const progress = page.getByRole("region", { name: "Onboarding progress" });
-  await expect(progress).toContainText("GoldTier search");
+  await expect(progress).toContainText("Existing-customer search");
   await expect(progress).toContainText("Failed");
 
   await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}\?focus=GOLDTIER_SEARCH$/i);
@@ -831,21 +907,25 @@ test("problem pipeline stages preserve intent and keyboard-focus real diagnostic
   await expect(page.locator("#case-search-diagnostic")).toBeFocused();
   await expect(page.locator("#case-search-diagnostic")).toContainText("does not prove that the customer is absent");
 
-  await expect(page.getByRole("button", { name: "Open details for ACRA registry" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open details for Registry verification" })).toHaveCount(1);
   const classificationStage = page.getByRole("button", { name: "Open details for Target classification" });
   await classificationStage.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#case-target-classification")).toBeFocused();
 
-  const targetStage = page.getByRole("button", { name: "Open details for GoldTier target" });
+  const targetStage = page.getByRole("button", { name: "Open details for Preparing GoldTier Submission" });
   await targetStage.focus();
   await page.keyboard.press("Space");
   await expect(page.locator("#case-target-blocker")).toBeFocused();
 
-  const approvalStage = page.getByRole("button", { name: "Open details for Human approval (unresolved)" });
+  const approvalStage = page.getByRole("button", { name: "Open details for Final review & send" });
   await approvalStage.focus();
   await page.keyboard.press("Enter");
-  await expect(page.locator("#case-human-approval-boundary")).toBeFocused();
+  await expect(approvalStage).toBeFocused();
+  await expect(page.getByRole("region", { name: "Final review & send details", exact: true }))
+    .toContainText("Final review awaits authoritative readiness");
+  await expect(page.locator("#case-review-and-send")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Confirm and send to/ })).toHaveCount(0);
 });
 
 test("Garden partial registry evidence is presented as incomplete, not unavailable", async ({ page }, testInfo) => {
@@ -921,7 +1001,7 @@ test("Garden partial registry evidence is presented as incomplete, not unavailab
   await login(page);
   await openFreshOnboarding(page);
   await page.getByLabel("Jurisdiction").selectOption("SG");
-  await page.getByLabel("Legal name").fill("GARDEN BUSINESS");
+  await page.getByLabel("Company Legal Name").fill("GARDEN BUSINESS");
   await page.getByLabel("Registration ID / UEN").fill("11111999A");
   await page.locator("#home-document").setInputFiles(cleanFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -944,7 +1024,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await newOnboardingLink.click();
 
   await page.getByLabel("Jurisdiction").selectOption("SG");
-  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Company Legal Name").fill(legalNameForUen("202400001A"));
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(cleanFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -969,7 +1049,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect(ownershipResponse.status()).toBe(200);
   expect((await ownershipResponse.json() as { candidates: unknown[] }).candidates.length)
     .toBeGreaterThan(0);
-  await openStage(page, "Target preparation / submission state");
+  await openStage(page, "Preparing GoldTier Submission");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 30_000 });
   const operationalTiming = page.getByRole("region", { name: "Operational timing" });
   await expect(operationalTiming).toBeVisible();
@@ -984,7 +1064,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(operationalTiming.getByText(/do not represent human waiting time/i)).toBeVisible();
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
   await expect(page.getByText(/not production approval or Ready-for-Approval/i)).toBeVisible();
-  await openStage(page, "Registry identity");
+  await openStage(page, "Registry verification");
   await expect(page.getByRole("heading", { name: "Registry provenance" })).toBeVisible();
   await expect(page.getByText("Case evidence binding not recorded.")).toBeVisible();
   await openStage(page, "Ownership & UBO");
@@ -997,6 +1077,9 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
     local: { ...localStorage },
     session: { ...sessionStorage },
   }));
+  const ownershipStructure = page.locator(".s2-ownership-structure");
+  await expect(ownershipStructure).not.toHaveAttribute("open", "");
+  await ownershipStructure.getByText("View ownership structure and calculations", { exact: true }).click();
   const candidate = page.locator('[aria-label="Ownership candidates"] button').first();
   await expect(candidate).toBeVisible();
   await candidate.click();
@@ -1090,13 +1173,14 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
 });
 
 test("review-ready actions render after authoritative current document evidence loads", async ({ page }) => {
+  await prepareSingleValueReviewPolicy(page);
   await page.goto("/");
   await login(page);
   await page.getByRole("link", { name: "New onboarding" }).click();
   await page.getByLabel("Jurisdiction").selectOption("SG");
-  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Company Legal Name").fill(legalNameForUen("202400001A"));
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
-  await page.locator("#home-document").setInputFiles(lowConfidenceFixture);
+  await page.locator("#home-document").setInputFiles(singleValueReviewFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
   await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
   const caseId = page.url().split("/").at(-1)!;
@@ -1128,7 +1212,7 @@ test("review-ready actions render after authoritative current document evidence 
   ]);
   const pendingField = currentDocument?.fields.find((field) => field.field_key === "legal_name");
   expect(pendingField?.comparison_status).toBe("MATCH");
-  expect(pendingField?.confidence).toBe(0.4);
+  expect(pendingField?.confidence).toBe(0.9);
   expect(currentDocument?.fields.every((field) => field.original_extracted_value !== null)).toBe(true);
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Accept .* suggestion/ }).first()).toBeVisible();
@@ -1146,7 +1230,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await login(page);
   await page.getByRole("link", { name: "New onboarding" }).click();
   await page.getByLabel("Jurisdiction").selectOption("SG");
-  await page.getByLabel("Legal name").fill(legalNameForUen("202400001A"));
+  await page.getByLabel("Company Legal Name").fill(legalNameForUen("202400001A"));
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(mismatchFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -1159,10 +1243,10 @@ test("current document review progresses authoritatively and keeps superseded hi
   }, { timeout: 120_000 }).toBe(1);
 
   await page.goto(`/cases/${caseId}`);
-  await openStage(page, "Documents & reconciliation");
+  await openStage(page, "Document verification");
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({ timeout: 30_000 });
   const focusRequestBaseline = reviewRequests.length + resumeRequests.length;
-  await openStage(page, "Target preparation / submission state");
+  await openStage(page, "Preparing GoldTier Submission");
   await page.getByText("Backend execution details", { exact: true }).click();
   await page.getByRole("button", { name: "Focus documents evidence" }).click();
   await expect(page.locator("#case-evidence-documents")).toBeFocused();
@@ -1185,11 +1269,15 @@ test("current document review progresses authoritatively and keeps superseded hi
   };
   const reviewedCount = async (response: import("@playwright/test").Response) => {
     const documents = await response.json() as Array<{
-      fields: Array<{ review_status: string }>;
+      fields: Array<{ field_key: string; review_status: string; comparison_status: string; extraction_quality: string }>;
       superseded_by_document_id: string | null;
     }>;
-    return documents.find((document) => document.superseded_by_document_id === null)
-      ?.fields.filter((item) => item.review_status !== "PENDING").length ?? 0;
+    const current = documents.find((document) => document.superseded_by_document_id === null);
+    const reviewedMismatch = current?.fields.find((field) => field.field_key === "legal_name");
+    expect(reviewedMismatch?.review_status).toBe("ACCEPTED");
+    expect(reviewedMismatch?.comparison_status).toBe("MISMATCH");
+    expect(reviewedMismatch?.extraction_quality).toBe("HIGH");
+    return current?.fields.filter((item) => item.review_status !== "PENDING").length ?? 0;
   };
 
   const acceptLegalName = page.getByRole("button", { name: "Accept legal name suggestion" });
@@ -1208,7 +1296,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   expect(reviewRequests).toHaveLength(1);
   expect(JSON.parse(reviewRequests[0])).toEqual({ field_key: "legal_name", decision: "ACCEPTED" });
   expect(resumeRequests).toHaveLength(0);
-  await openStage(page, "Documents & reconciliation");
+  await openStage(page, "Document verification");
   await expect(page.getByText("4 final / 4 fields")).toBeVisible({ timeout: 30_000 });
   reviewMilestone("REVIEW_RENDERED_COUNT", 4);
   await expect.poll(async () => {
@@ -1217,7 +1305,8 @@ test("current document review progresses authoritatively and keeps superseded hi
     const documents = await response.json() as Array<{ state: string; superseded_by_document_id: string | null }>;
     return documents.find((document) => document.superseded_by_document_id === null)?.state ?? null;
   }, { timeout: 120_000 }).toBe("REVIEWED");
-  await expect(page.getByText("REVIEWED", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".document-card:not(.document-card--history) .document-card__header .tag"))
+    .toHaveText("Document processed", { timeout: 30_000 });
   expect(reviewRequests).toHaveLength(1);
   expect(resumeRequests).toHaveLength(0);
 
@@ -1226,7 +1315,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(replacementInput).toBeFocused();
   await replacementInput.setInputFiles(cleanFixture);
   await confirmMockTarget(page);
-  await openStage(page, "Target preparation / submission state");
+  await openStage(page, "Preparing GoldTier Submission");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
   await expect.poll(async () => {
     const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
@@ -1236,7 +1325,7 @@ test("current document review progresses authoritatively and keeps superseded hi
       && documents.filter((document) => document.superseded_by_document_id === null).length === 1
       && documents.filter((document) => document.superseded_by_document_id !== null).length === 1;
   }, { timeout: 120_000 }).toBe(true);
-  await openStage(page, "Documents & reconciliation");
+  await openStage(page, "Document verification");
   const history = page.getByText(/Evidence history \(1\)/);
   await history.click();
   const historicalCard = page.locator(".document-card--history");
@@ -1246,7 +1335,7 @@ test("current document review progresses authoritatively and keeps superseded hi
 
   await page.reload();
   await expect(page).toHaveURL(`/cases/${caseId}`);
-  await openStage(page, "Documents & reconciliation");
+  await openStage(page, "Document verification");
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({
     timeout: 30_000,
   });
@@ -1255,7 +1344,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await reloadedHistory.click();
   await expect(page.locator(".document-card--history")).toBeVisible();
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
-  await openStage(page, "Target preparation / submission state");
+  await openStage(page, "Preparing GoldTier Submission");
   await page.getByText("Backend execution details", { exact: true }).click();
   await expect(page.getByText(/Ready-for-Approval: NOT AVAILABLE/i)).toBeVisible();
   expect(resumeRequests).toHaveLength(0);
@@ -1268,7 +1357,7 @@ test("Cases filters exact open business-exception types without hiding other att
   async function createPausedCase(uen: string, fixture: string): Promise<string> {
     await openFreshOnboarding(page);
     await page.getByLabel("Jurisdiction").selectOption("SG");
-    await page.getByLabel("Legal name").fill(legalNameForUen(uen));
+    await page.getByLabel("Company Legal Name").fill(legalNameForUen(uen));
     await page.getByLabel("Registration ID / UEN").fill(uen);
     await page.locator("#home-document").setInputFiles(fixture);
     await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -1286,6 +1375,14 @@ test("Cases filters exact open business-exception types without hiding other att
 
   const lowConfidenceCaseId = await createPausedCase("202400001A", lowConfidenceFixture);
   const ownershipCycleCaseId = await createPausedCase("202400006F", ownershipCycleFixture);
+  const ambiguitySummaryResponse = await page.request.get(`/api/clm/zero-touch/cases/${lowConfidenceCaseId}`);
+  expect(ambiguitySummaryResponse.status()).toBe(200);
+  const ambiguitySummary = await ambiguitySummaryResponse.json() as {
+    active_exceptions: Array<{ exception_type: string; blocker_code: string }>;
+  };
+  expect(ambiguitySummary.active_exceptions).toEqual(expect.arrayContaining([
+    expect.objectContaining({ exception_type: "DOCUMENT_REVIEW_REQUIRED", blocker_code: "DOCUMENT_AMBIGUOUS_EXTRACTION" }),
+  ]));
 
   await openWorkspaceTab(page, "Cases");
   await expect(page.getByRole("heading", { name: "Cases" })).toBeVisible();
@@ -1303,9 +1400,9 @@ test("Cases filters exact open business-exception types without hiding other att
   const lowConfidenceResponse = page.waitForResponse((response) => (
     new URL(response.url()).pathname === "/api/clm/zero-touch/case-portfolio"
       && new URL(response.url()).searchParams.get("attention_type")
-        === "DOCUMENT_LOW_CONFIDENCE"
+        === "DOCUMENT_REVIEW_REQUIRED"
   ));
-  await attentionFilter.selectOption("DOCUMENT_LOW_CONFIDENCE");
+  await attentionFilter.selectOption("DOCUMENT_REVIEW_REQUIRED");
   const lowConfidencePage = await lowConfidenceResponse;
   expect(lowConfidencePage.status()).toBe(200);
   expect((await lowConfidencePage.json() as { items: Array<{ case_id: string }> }).items)
@@ -1315,7 +1412,7 @@ test("Cases filters exact open business-exception types without hiding other att
   await expect(page.getByText("202400001A", { exact: true })).toBeVisible();
   await expect(page.getByText("202400006F", { exact: true })).toHaveCount(0);
   await expect(
-    page.getByLabel("Cases table").getByText("Document low confidence", { exact: true }),
+    page.getByLabel("Cases table").getByText("Document review required", { exact: true }),
   ).toBeVisible();
 
   const ownershipResponse = page.waitForResponse((response) => (
@@ -1342,7 +1439,7 @@ test("Cases filters exact open business-exception types without hiding other att
   expect(filterRequests).toEqual(expect.arrayContaining([
     {
       method: "GET",
-      path: "/api/clm/zero-touch/case-portfolio?attention_type=DOCUMENT_LOW_CONFIDENCE",
+      path: "/api/clm/zero-touch/case-portfolio?attention_type=DOCUMENT_REVIEW_REQUIRED",
     },
     {
       method: "GET",
@@ -1375,7 +1472,7 @@ test("Cases filters exact open business-exception types without hiding other att
   await expect(openLink).toHaveAttribute("href", `/cases/${ownershipCycleCaseId}`);
   await openLink.click();
   await expect(page).toHaveURL(`/cases/${ownershipCycleCaseId}`);
-  await openStage(page, "Target preparation / submission state");
+  await openStage(page, "Preparing GoldTier Submission");
   await page.getByText("Backend execution details", { exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Why this case is in its current state" }),

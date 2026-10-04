@@ -51,6 +51,8 @@ export const caseQueryKeys = {
       attentionType: filters.attentionType ?? absent,
       jurisdiction: filters.jurisdiction ?? absent,
       search: filters.search?.trim() || absent,
+      createdFrom: filters.createdFrom || absent,
+      createdTo: filters.createdTo || absent,
       offset: filters.offset ?? 0,
       limit: filters.limit ?? 50,
     },
@@ -62,12 +64,16 @@ export const caseQueryKeys = {
     prioritySort: PrioritySort,
     teamFilter?: string,
     attentionType?: BusinessExceptionType,
+    createdFrom?: string,
+    createdTo?: string,
   ) => ["auth", userId, "cases", "list", {
     status: status ?? absent,
     priorityFilter: priority,
     prioritySort,
     teamFilter: teamFilter ?? absent,
     attentionType: attentionType ?? absent,
+    createdFrom: createdFrom || absent,
+    createdTo: createdTo || absent,
   }] as const,
   caseResources: (userId: string, caseId: string) =>
     ["auth", userId, "cases", "resources", caseId] as const,
@@ -113,6 +119,8 @@ export function caseListQueryOptions(
   prioritySort: PrioritySort,
   teamFilter?: string,
   attentionType?: BusinessExceptionType,
+  createdFrom?: string,
+  createdTo?: string,
 ) {
   return {
     queryKey: caseQueryKeys.caseList(
@@ -122,9 +130,11 @@ export function caseListQueryOptions(
       prioritySort,
       teamFilter,
       attentionType,
+      createdFrom,
+      createdTo,
     ),
     queryFn: ({ signal }: { signal: AbortSignal }) =>
-      fetchZeroTouchCases(status, priority, prioritySort, teamFilter, signal, attentionType),
+      fetchZeroTouchCases(status, priority, prioritySort, teamFilter, signal, attentionType, createdFrom, createdTo),
   };
 }
 

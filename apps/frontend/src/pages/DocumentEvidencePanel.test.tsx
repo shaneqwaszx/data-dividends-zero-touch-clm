@@ -23,6 +23,7 @@ function summary(status: ZeroTouchCaseSummary["status"] = "WAITING_FOR_REVIEW"):
   return {
     case: { case_id: CASE_ID, policy_snapshot: { idp_review_confidence_threshold: "0.85" } },
     status,
+    evidence_decision_authorized: true,
     current_stage: "DOCUMENT",
     timeline: [],
   } as unknown as ZeroTouchCaseSummary;

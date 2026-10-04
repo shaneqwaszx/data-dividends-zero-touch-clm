@@ -68,11 +68,11 @@ reconciliation. The 24 September closure overlay is authoritative for current co
 
 | Resulting target field | Current value/source | Classification | Dispatch treatment |
 |---|---|---|---|
-| `legalName` | Canonical legal name from the official ACRA Marketplace Mock entity profile | `ACRA_PROVIDER_EVIDENCE` | Required; no sample substitution |
-| `registration.registrationNumber` | Canonical Singapore UEN, unchanged | `ACRA_PROVIDER_EVIDENCE` | Required; never converted to ABN |
-| `countryOfIncorporation`, `registration.countryIso2` | Canonical Singapore jurisdiction `SG` | `ACRA_PROVIDER_EVIDENCE` | Required |
+| `legalName` | Case-owned canonical legal name after registry/document reconciliation, with original source lineage retained | `CANONICAL_EVIDENCE` | Required; no sample substitution |
+| `registration.registrationNumber` | Case-owned canonical Singapore UEN, unchanged | `CANONICAL_EVIDENCE` | Required; never converted to ABN |
+| `countryOfIncorporation`, `registration.countryIso2` | Case-owned canonical Singapore jurisdiction `SG` | `CANONICAL_EVIDENCE` | Required |
 | `registration.registrationType` | `ACRA` | `USER_AUTHORIZED_POC` | Required for this bounded POC; UEN remains the unchanged registration number and ABN is prohibited |
-| `legalRegisteredAddress` | Canonical ACRA registered address when available | `ACRA_PROVIDER_EVIDENCE` | Required by the current local canonical minimum |
+| `legalRegisteredAddress` | Canonical represented address after case-owned registry/document reconciliation | `CANONICAL_EVIDENCE` | Required by the current local canonical minimum; source lineage retained |
 | `customerExternalSystem` | `DSD` | `SPONSOR_DOCUMENTED` | Fixed for this bounded sandbox POC; not ACRA evidence |
 | `kycCustomerType` | One exact corrected OpenAPI 1.0.0 value selected per case | `USER_AUTHORIZED_POC` | Blocks Shell while unresolved; no global default |
 | `clientSegment` | One exact corrected OpenAPI 1.0.0 value selected per case | `USER_AUTHORIZED_POC` | Blocks Shell while unresolved; no global default |
@@ -155,6 +155,17 @@ into either current list. Contradictory examples remain `INVALID / QUARANTINED`.
 | Target enrichment | group-company value | explicit user/policy input only | None | Amend RP | `groupCompanyName` | Omit unless explicitly supplied | Collection example only | Collection supporting evidence | No implicit default | Nonblank when present | Pending | Optional DTO field | `MANUAL_ENRICHMENT` | Requiredness and source |
 
 ## Execution boundary
+
+The 2026-10-04 S3 [complete field inventory](ONBOARDING_INTELLIGENCE_S3_FIELD_MATRIX.md)
+and immutable preparation receipt refine the current projection. Optional street2 is
+represented exactly when transmitted; absent optional fields remain absent. Canonical
+provenance is CANONICAL_EVIDENCE because reviewed document reconciliation may contribute.
+The reserved acceptance used explicitly synthetic Mock registry and reviewed native
+document evidence; it is not claimed as official ACRA evidence. Its supported parent
+package required no Amend and made no RP/document-upload call. Actual Search2/Shell1/
+Policy1/readback1 all returned HTTP200 and retained customer143887, POLICY_CREATED and
+VERIFIED same-ID readback. Policy ID was absent and remained null; none was invented.
+This observation does not establish production policy, KYC/approval/RFA or Live status.
 
 - Customer Search is the first permitted network action and is read-only.
 - A Shell write is eligible only after an XPI no-match, exact local validation,

@@ -308,6 +308,8 @@ export interface CasePortfolioFilters {
   attentionType?: BusinessExceptionType;
   jurisdiction?: "SG" | "AU" | "MY" | "HK";
   search?: string;
+  createdFrom?: string;
+  createdTo?: string;
   limit?: number;
   offset?: number;
 }
@@ -327,6 +329,8 @@ export async function fetchCasePortfolio(
   }
   if (filters.attentionType) query.set("attention_type", filters.attentionType);
   if (filters.jurisdiction) query.set("jurisdiction", filters.jurisdiction);
+  if (filters.createdFrom) query.set("created_from", filters.createdFrom);
+  if (filters.createdTo) query.set("created_to", filters.createdTo);
   const normalizedSearch = filters.search?.trim();
   if (normalizedSearch) query.set("search", normalizedSearch);
   if (filters.limit !== undefined && filters.limit !== 50) {
@@ -397,6 +401,8 @@ export async function fetchZeroTouchCases(
   teamFilter?: string,
   signal?: AbortSignal,
   attentionType?: BusinessExceptionType,
+  createdFrom?: string,
+  createdTo?: string,
 ): Promise<ZeroTouchCaseListItem[]> {
   const query = new URLSearchParams();
   if (status) query.set("status", status);
@@ -404,6 +410,8 @@ export async function fetchZeroTouchCases(
   if (prioritySort !== "highest_first") query.set("priority_sort", prioritySort);
   if (teamFilter && teamFilter !== "all") query.set("team_filter", teamFilter);
   if (attentionType) query.set("attention_type", attentionType);
+  if (createdFrom) query.set("created_from", createdFrom);
+  if (createdTo) query.set("created_to", createdTo);
   const suffix = query.size ? `?${query.toString()}` : "";
   const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases${suffix}`, { signal });
   return parseResponse<ZeroTouchCaseListItem[]>(response);
@@ -561,6 +569,28 @@ export interface IdentitySearchRecheckInput {
   expected_case_event_count: number;
 }
 
+export interface TargetStatusCheckResult {
+  submission_id: string;
+  checked_at: string;
+  result: "NO_MATCH" | "IDENTITY_UNVERIFIED" | "CUSTOMER_IDENTITY_VERIFIED"
+    | "AMBIGUOUS" | "CHECK_FAILED";
+  message: string;
+}
+
+export async function checkZeroTouchTargetStatus(
+  caseId: string, submissionId: string, signal?: AbortSignal,
+): Promise<TargetStatusCheckResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/target-status-check`,
+    {
+      method: "POST", signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_submission_id: submissionId }),
+    },
+  );
+  return parseResponse<TargetStatusCheckResult>(response);
+}
+
 export async function recheckZeroTouchIdentitySearch(
   caseId: string,
   input: IdentitySearchRecheckInput,
@@ -589,6 +619,9 @@ export async function correctRegistryIdentity(
 }
 
 export interface ManualOwnershipEvidenceInput {
+  source_selection?: "USER_SUPPLIED_DECLARATION" | "CURRENT_EVIDENCE" | "DOCUMENT_OBSERVATIONS";
+  observed_document_versions?: Array<{ document_id: string; event_count: number }>;
+  selected_observation_ids?: string[];
   root_registration_number: string;
   evidence_document_id: string;
   evidence_document_version: number;

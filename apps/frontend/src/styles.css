@@ -3562,6 +3562,8 @@ dd {
   .ds-shell:has(.review-and-send),
   .ds-content:has(.review-and-send),
   .detail-layout:has(.review-and-send),
+  .processing-workspace:has(.review-and-send),
+  .processing-workspace__content:has(.review-and-send),
   .ds-page:has(.review-and-send) {
     width: auto !important;
     min-height: 0 !important;
@@ -3575,7 +3577,7 @@ dd {
   body { background: #fff !important; color: #000 !important; }
   .ds-shell:has(.review-and-send) > :not(.ds-content),
   .ds-content:has(.review-and-send) > :not(:has(.review-and-send)),
-  .detail-layout:has(.review-and-send) > :not(.ds-page),
+  .detail-layout:has(.review-and-send) > :not(.ds-page):not(:has(.review-and-send)),
   .ds-page:has(.review-and-send) > :not(.review-and-send):not(:has(.review-and-send)) {
     display: none !important;
   }
@@ -3595,6 +3597,7 @@ dd {
   .stage-disclosure--final > div[hidden] { display: block !important; }
   .review-and-send__print,
   .review-and-send__edit,
+  .processing-workspace__overlay,
   .review-and-send__actions { display: none !important; }
   .review-and-send__summary > div,
   .review-and-send__grid > section,
@@ -4013,3 +4016,47 @@ dd {
 .policy-proposal { margin-block: 1rem; }
 .policy-metrics .table-scroll { max-width: 100%; overflow-x: auto; }
 .policy-metrics table { width: max-content; min-width: 100%; }
+
+.processing-workspace { position: relative; flex: 1; min-width: 0; }
+.processing-workspace__content { width: 100%; min-width: 0; }
+.processing-workspace--active .processing-workspace__content { opacity: .35; }
+.processing-workspace__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: rgba(245, 249, 247, .85);
+  color: #12291f;
+}
+.processing-workspace__spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #c4d6cb;
+  border-top-color: #147653;
+  border-radius: 50%;
+  animation: onboarding-spin .9s linear infinite;
+}
+@keyframes onboarding-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .processing-workspace__spinner { animation: none; }
+}
+
+/* Session 2 reviewed ownership and page evidence. */
+.s2-ownership-structure { min-width: 0; }
+.s2-ownership-structure > summary { cursor: pointer; padding: 12px 0; font-weight: 600; }
+.s2-ownership-structure .table-scroll { max-width: 100%; overflow-x: auto; }
+.s2-ownership-structure td, .s2-document-observations dd, .manual-ownership .control-help { overflow-wrap: anywhere; }
+.s2-observation-choice { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; overflow-wrap: anywhere; }
+.s2-observation-choice input { flex: 0 0 auto; margin-top: 3px; }
+.s2-ownership-receipt { padding: 12px 0; }
+@media (max-width: 640px) {
+  .manual-ownership__fields { grid-template-columns: minmax(0, 1fr); }
+  .manual-ownership__fields label, .manual-ownership__fields .input { min-width: 0; }
+  .s2-ownership-structure dl, .s2-document-observations dl { overflow-wrap: anywhere; }
+}

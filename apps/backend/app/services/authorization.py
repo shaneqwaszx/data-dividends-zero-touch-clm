@@ -167,6 +167,11 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     ),
     RoutePolicy(
         "POST",
+        "/api/clm/zero-touch/cases/{case_id}/target-status-check",
+        RouteAccess.CASE_SCOPED,
+    ),
+    RoutePolicy(
+        "POST",
         "/api/clm/zero-touch/cases/{case_id}/target-recovery",
         RouteAccess.CASE_SCOPED,
     ),
@@ -260,6 +265,18 @@ class CaseAccessPolicy:
         if case is None or not self.can_access(actor, case):
             raise CaseNotAvailableError
         return case
+
+    def can_decide_evidence(self, actor: AuthenticatedActor, case: OnboardingCase) -> bool:
+        """The creating onboarding user owns bounded case evidence decisions.
+
+        An unknown legacy creator grants no decision authority. Team/global access
+        remains a prerequisite and does not substitute for this actor binding.
+        """
+        return bool(
+            self.can_access(actor, case)
+            and case.created_by_actor_id is not None
+            and case.created_by_actor_id == actor.profile.user_id
+        )
 
     def portfolio_scope(self, actor: AuthenticatedActor) -> CasePortfolioScope:
         """Translate only the authenticated server profile into a repository scope."""

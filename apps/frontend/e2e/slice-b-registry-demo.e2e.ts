@@ -45,7 +45,7 @@ async function create(page: Page, company: typeof garden, fresh = false) {
     await expect(page).toHaveURL(/\/new-onboarding$/);
   }
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
-  await page.getByLabel("Legal name", { exact: true }).fill(company.name);
+  await page.getByLabel("Company Legal Name", { exact: true }).fill(company.name);
   await page.getByLabel("Registration ID / UEN").fill(company.uen);
   await page.locator("#home-document").setInputFiles(path.join(fixtures, company.pdf));
   // Normal authenticated classification input before intake. No routing/state override.
@@ -76,21 +76,21 @@ async function create(page: Page, company: typeof garden, fresh = false) {
 async function complete(page: Page, caseId: string) {
   await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("COMPLETED");
-  await openStage(page, "Target preparation / submission state");
+  await openStage(page, "Preparing GoldTier Submission");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
   const done = await summary(page, caseId);
   expect(done.active_exceptions).toEqual([]);
   expect(done.case.goldtier_result.readback_status).toBe("VERIFIED");
   expect(done.case.goldtier_result.readback_party_id).toBe(done.case.goldtier_result.party_id);
   expect(done.target_operations.find((item: any) => item.operation === "READBACK").status).toBe("SUCCESS");
-  const target = done.processing_pipeline.find((node: any) => node.node_id === "GOLDTIER_TARGET");
+  const target = done.processing_pipeline.find((node: any) => node.node_id === "FINAL_REVIEW_SEND");
   expect(target.children.find((node: any) => node.node_id === "GOLDTIER_READBACK").status).toBe("COMPLETE");
 
 }
 
 test("Slice B Garden partnership declaration completes truthfully", { tag: "@slice-b-garden-partnership" }, async ({ page }) => {
   const caseId = await create(page, garden);
-  await openStage(page, "Registry identity");
+  await openStage(page, "Registry verification");
   await expect(page.getByText(/ACRA Marketplace protocol · synthetic offline test evidence \| GoldTier/) ).toBeVisible();
   await expect(page.getByText(/not an authoritative partnership-ownership source/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Registry officers and roles", exact: true })).toBeVisible();
@@ -105,12 +105,18 @@ test("Slice B Garden partnership declaration completes truthfully", { tag: "@sli
   await page.getByRole("button", { name: "Add structured ownership details", exact: true }).click();
   const form = page.locator(".manual-ownership");
   await expect(form).toContainText("USER_SUPPLIED_DECLARATION");
+  await form.getByLabel("As-of date").fill("2026-10-04");
+  await form.getByLabel("Owner type", { exact: true }).nth(0).selectOption("NATURAL_PERSON");
+  await form.getByLabel("Owner type", { exact: true }).nth(1).selectOption("NATURAL_PERSON");
+  await form.getByLabel("Economic interest %", { exact: true }).nth(0).fill("60");
+  await form.getByLabel("Economic interest %", { exact: true }).nth(1).fill("40");
   await form.getByLabel("Review rationale").fill("Reviewed the fictional client declaration of exact sixty and forty percent economic interest.");
   await form.getByLabel("Owner name", { exact: true }).nth(0).fill("Synthetic Garden Partner A");
   await form.getByLabel("Owner name", { exact: true }).nth(1).fill("Synthetic Garden Partner B");
   await form.getByRole("button", { name: "Submit manual ownership evidence" }).click();
   await expect(page.getByRole("button", { name: "Add structured ownership details", exact: true })).toHaveCount(0);
   await openStage(page, "Ownership & UBO");
+  await page.getByText("View ownership structure and calculations", { exact: true }).click();
   await expect(page.getByText(/Client-supplied ownership evidence.*USER_SUPPLIED_DECLARATION.*MANUAL_DECLARATION_POC/)).toBeVisible();
   const current = await summary(page, caseId);
   expect(current.active_exceptions.map((item: any) => item.blocker_code)).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
@@ -126,7 +132,7 @@ test("Slice B Garden partnership declaration completes truthfully", { tag: "@sli
 
 test("Slice B second synthetic company completes", { tag: "@slice-b-synthetic-cache" }, async ({ page }) => {
   const caseId = await create(page, second);
-  await openStage(page, "Registry identity");
+  await openStage(page, "Registry verification");
   await expect(page.getByText(/ACRA Local Mock \| GoldTier/)).toBeVisible();
   expect(await counts(page)).toEqual(operations.map((operation) => [operation, second.uen]));
   expect((await summary(page, caseId)).case.registry_acquisition.status).toBe("COMPLETE");
@@ -142,7 +148,7 @@ test("Slice B Merlion fresh cache makes zero new ACRA calls", { tag: "@slice-b-s
   const caseId = await create(page, merlion, true);
   expect(caseId).not.toBe(warmId);
   expect(await counts(page)).toEqual(before);
-  await openStage(page, "Registry identity");
+  await openStage(page, "Registry verification");
   await expect(page.getByText("Reused fresh registry evidence — no ACRA request required.", { exact: true }).first()).toBeVisible();
   const bindingView = page.getByLabel("Case evidence binding", { exact: true });
   const hit = await summary(page, caseId);
@@ -164,7 +170,8 @@ test("Slice F same-process verified target reuse retains readback", { tag: "@sli
   expect(nextId).not.toBe(firstId);
   const reused = await summary(page, nextId);
   expect(reused.clm.target_search_checkpoint.disposition).toBe("EXACT_MATCH");
-  expect(reused.processing_pipeline.find((node: any) => node.node_id === "EXISTING_TARGET_STATE").status).toBe("COMPLETE");
+  const search = reused.processing_pipeline.find((node: any) => node.node_id === "GOLDTIER_SEARCH");
+  expect(search.children.find((node: any) => node.node_id === "EXISTING_TARGET_STATE").status).toBe("COMPLETE");
   expect(await counts(page)).toEqual(before);
   await complete(page, nextId);
   const done = await summary(page, nextId);
@@ -180,7 +187,7 @@ test("Slice F same-process verified target reuse retains readback", { tag: "@sli
 test("Slice F ambiguous target match pauses without mutation", { tag: "@slice-f-target-ambiguity" }, async ({ page }) => {
   await page.getByRole("link", { name: "New onboarding", exact: true }).click();
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
-  await page.getByLabel("Legal name", { exact: true }).fill(merlion.name);
+  await page.getByLabel("Company Legal Name", { exact: true }).fill(merlion.name);
   await page.getByLabel("Registration ID / UEN").fill(merlion.uen);
   await page.locator("#home-document").setInputFiles(path.join(fixtures, merlion.pdf));
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();

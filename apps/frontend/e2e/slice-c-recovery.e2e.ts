@@ -54,7 +54,7 @@ function textProfile(overrides: Record<string, string> = {}) {
 async function create(page: Page, file: string | ReturnType<typeof textProfile> = "clean-company-profile.pdf", uen = cleanUen, status = "WAITING_FOR_REVIEW") {
   await page.getByRole("link", { name: "New onboarding", exact: true }).click();
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
-  await page.getByLabel("Legal name", { exact: true }).fill(cleanName);
+  await page.getByLabel("Company Legal Name", { exact: true }).fill(cleanName);
   await page.getByLabel("Registration ID / UEN").fill(uen);
   await page.locator("#home-document").setInputFiles(typeof file === "string" ? path.join(fixtures, file) : file);
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
@@ -83,7 +83,7 @@ async function classify(page: Page, caseId: string) {
     await navigateAction(page, caseId, "CLASSIFICATION");
     await expect(page.locator("#case-target-classification")).toBeFocused();
   }
-  await openStage(page, "Classification & readiness");
+  await openStage(page, "Readiness check");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   const response = page.waitForResponse((result) => result.request().method() === "PUT"
@@ -95,7 +95,7 @@ async function classify(page: Page, caseId: string) {
 async function confirm(page: Page, caseId: string, sandbox = false) {
   await expect.poll(async () => (await summary(page, caseId)).active_exceptions.map((item: any) => item.blocker_code))
     .toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
-  await openStage(page, "Review & Send");
+  await openStage(page, "Final review & send");
   await expect(page.locator("#case-review-and-send")).toBeVisible();
   const response = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/target-confirmation"));
@@ -130,7 +130,7 @@ test("Slice C optional Amend and NO_MATCH complete with neutral progress", { tag
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("COMPLETED");
   const done = await summary(page, caseId);
   expect(done.case.goldtier_result.amend_status).toBe("AMEND_NOT_REQUIRED");
-  const target = done.processing_pipeline.find((node: any) => node.node_id === "GOLDTIER_TARGET");
+  const target = done.processing_pipeline.find((node: any) => node.node_id === "FINAL_REVIEW_SEND");
   expect(target.children.find((node: any) => node.node_id === "GOLDTIER_AMEND").status).toBe("SKIPPED");
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
   expect((await metadata(page)).operations).toEqual(["SEARCH", "SEARCH", "SHELL", "POLICY", "READBACK"]);
@@ -142,7 +142,7 @@ test("Slice C stale policy rebind preserves selection and resumes", { tag: "@sli
   await classify(page, caseId);
   const before = await summary(page, caseId);
   expect(before.case.policy_rebind.configuration_status).toBe("REQUIRES_REBIND");
-  await openStage(page, "Classification & readiness");
+  await openStage(page, "Readiness check");
   await page.getByLabel("Rebind rationale", { exact: true }).fill("Replace synthetic retained legacy target configuration.");
   const response = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/policy-rebind"));
@@ -164,17 +164,27 @@ test("Slice C retained finalization recovery makes no target replay", { tag: "@s
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("RECOVERY_PENDING");
   const before = await metadata(page);
   expect(before.operations).toEqual(["SEARCH", "SEARCH", "SHELL", "POLICY", "READBACK"]);
-  await openStage(page, "Target preparation / submission state");
+  expect((await summary(page, caseId)).target_submission.state).toBe("FINALIZATION_PENDING");
+  let resumeCalls = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/resume")) resumeCalls += 1;
+  });
+  await openStage(page, "Final review & send");
+  await expect(page.getByText("Retained target operations are resolved. Backend recovery can finish the approved submission without repeating them.", { exact: true })).toBeVisible();
+  expect(resumeCalls).toBe(0);
+  await openStage(page, "Preparing GoldTier Submission");
   const resume = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/resume"));
-  await page.getByRole("button", { name: "Complete safe recovery", exact: true }).click();
+  await page.getByRole("button", { name: "Complete safe recovery", exact: true }).focus();
+  await page.keyboard.press("Enter");
   const resumed = await resume;
   expect(resumed.status()).toBe(200);
   expect((await resumed.json()).status).toBe("COMPLETED");
+  expect(resumeCalls).toBe(1);
   // Completion retires the active target stage; its receipt must be revealed explicitly.
-  await expect(page.getByRole("button", { name: /^Target preparation \/ submission state/ }))
+  await expect(page.getByRole("button", { name: /^Preparing GoldTier Submission/ }))
     .toHaveAttribute("aria-expanded", "false");
-  await openStage(page, "Target preparation / submission state");
+  await openStage(page, "Preparing GoldTier Submission");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
   expect((await metadata(page)).operations).toEqual(before.operations);
   expect((await summary(page, caseId)).active_exceptions).toEqual([]);
@@ -187,7 +197,7 @@ test("Slice C failed Search exposes bounded read-only recheck", { tag: "@slice-c
   const blocked = await summary(page, caseId);
   expect(blocked.clm.target_search_checkpoint.disposition).toBe("FAILED");
   expect((await metadata(page)).operations).toEqual(["SEARCH"]);
-  await openStage(page, "Registry identity");
+  await openStage(page, "Registry verification");
   expect(blocked.case.registry_acquisition.status).toBe("COMPLETE");
   expect(blocked.processing_pipeline.find((node: any) => node.node_id === "ACRA_REGISTRY").status)
     .toBe("COMPLETE");
@@ -262,7 +272,7 @@ async function replaceAfterCorrection(page: Page, scenario: { file: string; fiel
     await assertHistorical(page, caseId, codes);
 }
 
-test("Slice C low confidence correction retains blocker until replacement evidence", async ({ page }) => {
+test("Slice C ambiguous extraction correction retains blocker until replacement evidence", async ({ page }) => {
   await replaceAfterCorrection(page, { file: "low-confidence.pdf", field: "legal_name", value: cleanName });
 });
 test("Slice C missing field correction retains blocker until replacement evidence", async ({ page }) => {
@@ -272,7 +282,7 @@ test("Slice C missing field correction retains blocker until replacement evidenc
 
 test("Slice C resolved mixed sibling leaves only current missing-field policy", async ({ page }) => {
   const caseId = await create(page, textProfile({ "Legal Name": "OTHER NAME", Country: "" }));
-  await openStage(page, "Documents & reconciliation");
+  await openStage(page, "Document verification");
   const response = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/resolve"));
   await page.getByRole("button", { name: "Keep registry value", exact: true }).click();
@@ -290,7 +300,7 @@ test("Slice C resolved mixed sibling leaves only current missing-field policy", 
   await expect(current).not.toContainText("retained hard stop");
   expect(pending.historical_exceptions.some((item: any) =>
     item.blocker_code === "DOCUMENT_SOURCE_CONFLICT" && item.status === "RESOLVED")).toBe(true);
-  await openStage(page, "Documents & reconciliation");
+  await openStage(page, "Document verification");
   const replacement = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().includes("/replace"));
   await page.getByLabel("Replace current document", { exact: true })

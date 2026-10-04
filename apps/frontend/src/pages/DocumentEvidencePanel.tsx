@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } fro
 
 import type {
   DocumentFieldKey,
+  ExtractionMetadata,
   DocumentProcessingRecord,
   ReviewDecision,
   ZeroTouchCaseSummary,
 } from "../types";
 
-const ACCEPTED_DOCUMENTS = "application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt";
+const ACCEPTED_DOCUMENTS = "application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt,image/png,.png,image/jpeg,.jpg,.jpeg,image/tiff,.tif,.tiff";
 
 type DocumentField = DocumentProcessingRecord["fields"][number];
 
@@ -91,6 +92,27 @@ function correctionStillRequiresReplacement(field: DocumentField, summary: ZeroT
   return Number.isFinite(threshold) && field.confidence < threshold;
 }
 
+export function documentStatusLabel(document: DocumentProcessingRecord): string {
+  if (document.state === "FAILED") return "Document processing failed";
+  if (document.state === "UPLOADED") return "Document uploaded";
+  if (document.state === "PROCESSING") return "Processing document";
+  if (document.state === "REVIEW_REQUIRED" && !document.semantic_completion) return "Document review required";
+  const verified = document.state === "REVIEWED" && document.fields.length > 0
+    && document.fields.every((field) => field.review_status === "ACCEPTED" && field.comparison_status === "MATCH");
+  return verified ? "Document verified" : "Document processed";
+}
+
+function ExtractionDetails({ metadata, score }: { metadata: ExtractionMetadata; score?: number }) {
+  return <>
+    <div><dt>Extraction quality</dt><dd>{metadata.extraction_quality ?? "UNKNOWN"}</dd></div>
+    <div><dt>Extraction method</dt><dd>{metadata.extraction_method ?? "UNKNOWN"}</dd></div>
+    {score !== undefined && <div><dt>Evidence score</dt><dd>{score} · {metadata.score_kind ?? "LEGACY_UNSPECIFIED"} · not a probability</dd></div>}
+    <div><dt>Score formula</dt><dd>{metadata.score_formula ?? "LEGACY_UNSPECIFIED"}</dd></div>
+    {metadata.raw_ocr_mean_confidence != null && <div><dt>Raw OCR mean</dt><dd>{metadata.raw_ocr_mean_confidence} · OCR engine word confidence mean, not probability of correctness</dd></div>}
+    {metadata.raw_ocr_word_count != null && <div><dt>Raw OCR word count</dt><dd>{metadata.raw_ocr_word_count}</dd></div>}
+  </>;
+}
+
 function DocumentCard({
   document,
   summary,
@@ -118,7 +140,7 @@ function DocumentCard({
   const correctionTrigger = useRef<HTMLButtonElement | null>(null);
   const pendingCount = document.fields.filter((field) => field.review_status === "PENDING").length;
   const finalCount = document.fields.length - pendingCount;
-  const controlsDisabled = busy || mutationBlocked;
+  const controlsDisabled = busy || mutationBlocked || summary.evidence_decision_authorized !== true;
 
   useEffect(() => {
     if (editingField) correctionInput.current?.focus();
@@ -169,14 +191,15 @@ function DocumentCard({
           <p className="card-kicker">{historical ? "Historical evidence" : "Current evidence"}</p>
           <h5>{document.display_name}</h5>
         </div>
-        <span className="tag tag-neutral">{(document.semantic_completion ?? document.state).replaceAll("_", " ")}</span>
+        <span className="tag tag-neutral">{documentStatusLabel(document)}</span>
       </header>
       <p className="control-help">
         {document.provider_environment ?? "Provider unavailable"} · {finalCount} {document.semantic_completion ? "source field reviews final" : "final"} / {document.fields.length} fields
         {document.supersedes_document_id ? ` · replaces ${document.supersedes_document_id}` : ""}
         {document.superseded_by_document_id ? ` · replaced by ${document.superseded_by_document_id}` : ""}
       </p>
-      {document.semantic_completion && <p className="control-help">Document checkpoint completed by the retained operator reconciliation decisions. Original extraction and field review evidence is preserved.</p>}
+      {document.completion_method && <p className="control-help">Completion method: {document.completion_method.replaceAll("_", " ").toLowerCase()}</p>}
+      {document.semantic_completion && <p className="control-help">Reconciliation status: {document.semantic_completion.replaceAll("_", " ")}. Document checkpoint completed by the retained operator reconciliation decisions. Original extraction and field review evidence is preserved.</p>}
       {!historical && !document.semantic_completion && pendingCount > 0 && (
         <div className="ds-banner">
           {pendingCount} field{pendingCount === 1 ? " remains" : "s remain"} for review. Independent readiness blockers remain authoritative until the refreshed case clears them.
@@ -202,14 +225,23 @@ function DocumentCard({
               <dl className="document-field__evidence">
                 <div><dt>Suggestion</dt><dd>{evidenceValue(field.original_extracted_value)}</dd></div>
                 <div><dt>Canonical</dt><dd>{evidenceValue(field.canonical_value)}</dd></div>
-                <div><dt>Comparison</dt><dd>{field.comparison_status.replaceAll("_", " ")}</dd></div>
-                <div><dt>Confidence</dt><dd>{Math.round(field.confidence * 100)}%</dd></div>
-                <div><dt>Provenance</dt><dd>{field.provenance.provider} {field.provenance.environment} · {field.provenance.source_reference}</dd></div>
+                <div><dt>Source agreement</dt><dd>{field.comparison_status.replaceAll("_", " ")}</dd></div>
+                <div><dt>Verification state</dt><dd>{document.semantic_completion && isPending ? "OPERATOR RESOLVED" : autoConfirmed ? "AUTO CONFIRMED" : field.review_status}</dd></div>
+                <ExtractionDetails metadata={field} score={field.confidence} />
+                <div><dt>Provenance</dt><dd>{field.provenance.provider} {field.provenance.environment} · {field.provenance.source_reference} · page {field.provenance.page_number ?? "UNKNOWN"}</dd></div>
                 {!isPending && <div><dt>Final value</dt><dd>{field.review_status === "CORRECTED" ? evidenceValue(field.reviewed_value) : field.review_status}</dd></div>}
                 {field.review_note && <div><dt>Review note</dt><dd>{field.review_note}</dd></div>}
               </dl>
+              {!!field.candidates?.length && <details className="evidence-details"><summary>Page-local extraction candidates ({field.candidates.length})</summary>
+                <p className="control-help">Candidates are retained source observations. Ambiguous candidates require an explicit decision.</p>
+                {field.candidates.map((candidate, index) => <dl className="document-field__evidence" key={`${candidate.source_reference}:${index}`}>
+                  <div><dt>Candidate value</dt><dd>{candidate.value}</dd></div>
+                  <div><dt>Candidate source</dt><dd>Page {candidate.page_number} · {candidate.source_reference}</dd></div>
+                  <ExtractionDetails metadata={candidate} />
+                </dl>)}
+              </details>}
               {correctionStillRequiresReplacement(field, summary) && (
-                <p className="ds-banner ds-banner-warn">Correction retained, but replacement evidence is still required because the original suggestion was missing or below the case-bound confidence threshold.</p>
+                <p className="ds-banner ds-banner-warn">Correction retained, but replacement evidence is still required because the original suggestion was missing or below the case-bound evidence-score threshold.</p>
               )}
               {canDecide && (
                 <div className="document-field__actions">
@@ -239,6 +271,29 @@ function DocumentCard({
         })}
       </div>
 
+      {!!document.pages?.length && <details className="evidence-details"><summary>Page extraction provenance ({document.pages.length})</summary>
+        {document.pages.map((page) => <dl className="document-field__evidence" key={page.page_number}>
+          <div><dt>Page source</dt><dd>Page {page.page_number} · {page.source_reference} · document version {document.document_version ?? "UNKNOWN"}</dd></div>
+          <ExtractionDetails metadata={page} />
+        </dl>)}
+      </details>}
+      {!!document.ownership_observations?.length && <details className="evidence-details s2-document-observations"><summary>Proposed ownership observations ({document.ownership_observations.length})</summary>
+        <p className="control-help">PROPOSED source observations require the case creator's review. Extraction quality, agreement and ownership verification are separate.</p>
+        {document.ownership_observations.map((observation) => <section key={observation.observation_id}>
+          <h6>{observation.owner_name} · {observation.decision_state}</h6>
+          <dl className="document-field__evidence">
+            <div><dt>Owner type / identifier</dt><dd>{observation.owner_type ?? "Not supplied"} · {observation.owner_registration_identifier ?? "Not supplied"}</dd></div>
+            <div><dt>Owned entity</dt><dd>{observation.owned_entity_name ?? "Not supplied"} · {observation.owned_entity_registration_identifier ?? "Not supplied"}</dd></div>
+            <div><dt>Explicit percentage</dt><dd>{observation.explicit_percentage !== null ? `${observation.explicit_percentage}%` : "Not supplied"}</dd></div>
+            <div><dt>Share units / explicit denominator</dt><dd>{observation.share_count ?? "Not supplied"} / {observation.explicit_total_shares ?? "Not supplied — no percentage inferred"}</dd></div>
+            <div><dt>Share class / as-of date</dt><dd>{observation.share_class ?? "Not supplied"} · {observation.as_of_date ?? "Not supplied"}</dd></div>
+            <div><dt>Immutable source binding</dt><dd>{observation.document_id} · document version {observation.document_version} · page {observation.page_number} · {observation.source_reference}</dd></div>
+            <div><dt>Observation ID</dt><dd>{observation.observation_id}</dd></div>
+            <ExtractionDetails metadata={observation} score={observation.evidence_score} />
+          </dl>
+        </section>)}
+      </details>}
+
       {!historical && isCurrentDocument(document) && (
         <div className="document-card__actions">
           {isDocumentReuploadRequired(document) ? (
@@ -264,6 +319,8 @@ export default function DocumentEvidencePanel({
   busy,
   busyLabel,
   mutationBlocked,
+  loading = false,
+  loadFailed = false,
   onReview,
   onReplace,
   onRetry,
@@ -278,6 +335,8 @@ export default function DocumentEvidencePanel({
   onReview: (document: DocumentProcessingRecord, request: DocumentReviewRequest, repair: boolean) => void;
   onReplace: (document: DocumentProcessingRecord, file: File) => void;
   onRetry: (document: DocumentProcessingRecord, file: File) => void;
+  loading?: boolean;
+  loadFailed?: boolean;
   onContinue: () => void;
   onRefresh: () => void;
 }) {
@@ -286,12 +345,15 @@ export default function DocumentEvidencePanel({
   const canContinue = canContinueRecoveredIntake(summary, documents);
 
   return (
-    <section className="evidence-section-block document-evidence-panel" aria-labelledby="documents-heading" aria-busy={busy}>
+    <section className="evidence-section-block document-evidence-panel" aria-labelledby="documents-heading" aria-busy={busy || loading}>
       <div className="document-evidence-panel__title"><div><p className="card-kicker">Local/Mock evidence · not approval</p><h4 id="documents-heading">Document evidence and review</h4></div>{busyLabel && <span role="status">{busyLabel}</span>}</div>
+      {summary.evidence_decision_authorized !== true && <p className="control-help">Evidence decisions are read-only for this viewer. The backend authorizes the case creator before applying any decision.</p>}
       {mutationBlocked && <div className="ds-banner ds-banner-warn"><strong>Evidence reload could not be confirmed.</strong><span>Last-confirmed information remains visible. Refresh before attempting another case mutation.</span><button type="button" className="btn btn-secondary" disabled={busy} onClick={onRefresh}>Refresh case evidence</button></div>}
-      {current.length === 0 && <p className="text-muted">No current document evidence is available.</p>}
+      {loadFailed && <p className="ds-banner ds-banner-warn" role="alert">Document information could not be loaded. {documents.length > 0 && "Last-confirmed document information remains visible."}</p>}
+      {loading && !loadFailed && <p className="text-muted" role="status">Loading document information…</p>}
+      {!loading && !loadFailed && current.length === 0 && <p className="text-muted">{history.length > 0 ? "No current document is retained; historical evidence is shown below." : "No document uploaded"}</p>}
       {current.map((document) => <DocumentCard key={document.document_id} document={document} summary={summary} historical={false} busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} />)}
-      {canContinue && <div className="ds-banner"><strong>Recovered intake is ready to be re-evaluated.</strong><span>The replacement lineage is current and the case remains at the document intake checkpoint.</span><button type="button" className="btn btn-primary" disabled={busy || mutationBlocked} onClick={onContinue}>Continue recovered intake</button></div>}
+      {canContinue && <div className="ds-banner"><strong>Recovered intake is ready to be re-evaluated.</strong><span>The replacement lineage is current and the case remains at the document intake checkpoint.</span><button type="button" className="btn btn-primary" disabled={busy || mutationBlocked || summary.evidence_decision_authorized !== true} onClick={onContinue}>Continue recovered intake</button></div>}
       {history.length > 0 && <details className="evidence-history"><summary>Evidence history ({history.length})</summary>{history.map((document) => <DocumentCard key={document.document_id} document={document} summary={summary} historical busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} />)}</details>}
     </section>
   );

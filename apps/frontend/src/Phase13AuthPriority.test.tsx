@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { OperatorAccount } from "./App";
@@ -160,7 +161,8 @@ describe("Phase 13 authenticated frontend boundary", () => {
         onCountryChange={() => undefined}
         documentFiles={[]}
         onDocumentFilesChange={() => undefined}
-        caseTeamDisplayName="Select a team above"
+        caseTeamDisplayName="Team unavailable"
+        creationTeamSelection={{ teamId: "", options: [], onChange: () => undefined }}
         priority=""
         onPriorityChange={() => undefined}
         isSubmitting={false}
@@ -182,7 +184,8 @@ describe("Phase 13 authenticated frontend boundary", () => {
 
     expect(markup).toContain('type="submit"');
     expect(markup).toContain('disabled=""');
-    expect(markup).toContain("Select a team above");
+    expect(markup).toContain("Select a team");
+    expect(markup).not.toContain("Select a team above");
   });
 
   it("shows retained-case open and delete controls only when deletion is authorized", () => {
@@ -474,8 +477,8 @@ describe("Phase 13 authenticated frontend boundary", () => {
     expect(renderToStaticMarkup(<PriorityBadge priority={null} />)).toContain("Unprioritised");
   });
 
-  it("presents person-like login IDs and Director global scope without a password hint", () => {
-    const loginMarkup = renderToStaticMarkup(<AuthProvider><LoginPage /></AuthProvider>);
+  it("presents an empty login form and Director global scope without a password hint", () => {
+    const loginMarkup = renderToStaticMarkup(<MemoryRouter><AuthProvider><LoginPage /></AuthProvider></MemoryRouter>);
     const director: AuthenticatedProfile = {
       user_id: "olivia-koh",
       display_name: "Olivia Koh",
@@ -491,7 +494,9 @@ describe("Phase 13 authenticated frontend boundary", () => {
       <OperatorAccount profile={director} onLogout={() => undefined} />,
     );
 
-    expect(loginMarkup).toContain('placeholder="maya-lim"');
+    expect(loginMarkup).not.toContain("maya-lim");
+    expect(loginMarkup).toContain('id="user-id"');
+    expect(loginMarkup).toContain('value=""');
     expect(loginMarkup).not.toContain("runtime-only-password");
     expect(account).toContain("Olivia Koh");
     expect(account).toContain("Global scope");

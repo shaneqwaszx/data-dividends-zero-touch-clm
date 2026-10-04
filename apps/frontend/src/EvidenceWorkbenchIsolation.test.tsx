@@ -71,6 +71,8 @@ function summaryFixture(caseId: string, label = "EVIDENCE CASE"): ZeroTouchCaseS
       registry_evidence_binding: null,
       goldtier_result: null,
     },
+    evidence_decision_authorized: true,
+    ownership_edit_authorized: false,
     automation_id: `${caseId}-automation`,
     version: 1,
     status: "WAITING_FOR_REVIEW",
@@ -312,6 +314,59 @@ async function clickAndFlush(label: string): Promise<void> {
 }
 
 describe("Evidence workbench integration isolation", () => {
+  it.each([true, false, undefined])("uses the backend ownership edit capability for calculable evidence (%s)", (authorized) => {
+    const client = createTestClient();
+    seedCase(client, actorA, CASE_A, "analysis-1", "CALCULABLE");
+    const summary = summaryFixture(CASE_A);
+    summary.evidence_decision_authorized = authorized;
+    summary.ownership_edit_authorized = authorized;
+    summary.ownership_recovery = { analysis_id: "analysis-1", version: 3, state: "ANALYZED", manual_evidence_action: null, review_receipt: null };
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    const reviewed = { ...documentFixture(CASE_A), state: "REVIEWED" } as DocumentProcessingRecord;
+    client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), [reviewed]);
+    renderCase(client, actorA, CASE_A);
+    expect(container!.querySelector(".manual-ownership") !== null).toBe(authorized === true);
+    if (authorized !== true) {
+      expect(container!.textContent).toContain("Evidence decisions are read-only");
+      expect(container!.querySelector("#identity-registration-number")).toBeNull();
+    }
+  });
+
+  it("waits for the matching ownership analysis before initializing an editable graph", async () => {
+    const client = createTestClient();
+    seedCase(client, actorA, CASE_A, "old-analysis", "OLD");
+    const summary = summaryFixture(CASE_A);
+    summary.ownership_edit_authorized = true;
+    summary.ownership_recovery = { analysis_id: "new-analysis", version: 5, state: "ANALYZED", manual_evidence_action: null, review_receipt: null };
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), [{ ...documentFixture(CASE_A), state: "REVIEWED" }]);
+    renderCase(client, actorA, CASE_A);
+    expect(container!.querySelector(".manual-ownership")).toBeNull();
+    const current = { ...ownershipFixture(CASE_A, "new-analysis", "CURRENT"), version: 5 };
+    await act(async () => { client.setQueryData(caseQueryKeys.ownership(actorA.user_id, CASE_A), current); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(container!.querySelector(".manual-ownership")).not.toBeNull();
+  });
+
+  it("resets ownership decision drafts when the actor or analysis version changes", () => {
+    const client = createTestClient();
+    for (const actor of [actorA, actorB]) {
+      seedCase(client, actor, CASE_A, "analysis-1", "CURRENT");
+      const summary = summaryFixture(CASE_A);
+      summary.ownership_edit_authorized = true;
+      summary.ownership_recovery = { analysis_id: "analysis-1", version: 3, state: "ANALYZED", manual_evidence_action: null, review_receipt: null };
+      client.setQueryData(caseQueryKeys.detail(actor.user_id, CASE_A), summary);
+      client.setQueryData(caseQueryKeys.documents(actor.user_id, CASE_A), [{ ...documentFixture(CASE_A), state: "REVIEWED" }]);
+    }
+    renderCase(client, actorA, CASE_A);
+    const rationale = container!.querySelector<HTMLTextAreaElement>('[name="rationale"]')!;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(rationale, "Actor A unsaved decision."); rationale.dispatchEvent(new Event("input", { bubbles: true })); });
+    renderCase(client, actorB, CASE_A);
+    expect(container!.querySelector<HTMLTextAreaElement>('[name="rationale"]')!.value).toBe("");
+    const next = client.getQueryData<ZeroTouchCaseSummary>(caseQueryKeys.detail(actorB.user_id, CASE_A))!;
+    act(() => client.setQueryData(caseQueryKeys.detail(actorB.user_id, CASE_A), { ...next, version: 2, ownership_recovery: { ...next.ownership_recovery, version: 4 } }));
+    expect(container!.querySelector<HTMLTextAreaElement>('[name="rationale"]')!.value).toBe("");
+  });
+
   it.each(["WAITING_FOR_REVIEW", "PENDING_INPUTS", "TECHNICAL_FAILURE"] as const)(
     "retires identity-dependent cached ownership at %s, including a late old GET",
     async (status) => {
@@ -543,9 +598,9 @@ describe("Evidence workbench integration isolation", () => {
     renderCase(client, actorA, CASE_A);
     const sections = Array.from(container!.querySelectorAll(".stage-disclosure"));
     expect(sections.map((section) => section.querySelector("h2 button span")?.textContent)).toEqual([
-      "Registry identity", "Documents & reconciliation", "Ownership & UBO",
-      "Classification & readiness", "Target preparation / submission state",
-      "Historical / resolved issues", "Review & Send",
+      "Registry verification", "Document verification", "Ownership & UBO",
+      "Readiness check", "Preparing GoldTier Submission",
+      "Historical / resolved issues", "Final review & send",
     ]);
     expect(sections[1].querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
     expect(sections[5].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");

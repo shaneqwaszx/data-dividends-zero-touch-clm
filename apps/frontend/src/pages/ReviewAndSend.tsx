@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 
+import type { TargetStatusCheckResult } from "../api";
+
 import type {
   AuthenticatedProfile,
   DocumentProcessingRecord,
@@ -108,6 +110,10 @@ export default function ReviewAndSend({
   onEditClassification,
   onEditDocuments,
   onEditOwnership,
+  statusChecking = false,
+  statusCheckResult,
+  statusCheckError,
+  onCheckStatus,
 }: {
   summary: ZeroTouchCaseSummary;
   documents: DocumentProcessingRecord[];
@@ -122,6 +128,10 @@ export default function ReviewAndSend({
   onEditClassification: () => void;
   onEditDocuments: () => void;
   onEditOwnership: () => void;
+  statusChecking?: boolean;
+  statusCheckResult?: TargetStatusCheckResult | null;
+  statusCheckError?: string | null;
+  onCheckStatus?: () => void;
 }) {
   const technicalDetailsRef = useRef<HTMLDetailsElement>(null);
   const technicalDetailsWasOpen = useRef(false);
@@ -156,14 +166,51 @@ export default function ReviewAndSend({
     blocking: false as const,
     authority: "PROJECT_ADVISORY_ONLY" as const,
   };
-  const projectionFrozen = Boolean(clm.submission || confirmation);
+  const submission = summary.target_submission;
+  const submissionStarted = Boolean(submission && submission.state !== "NOT_SUBMITTED");
+  const projectionFrozen = Boolean(clm.submission || confirmation || submissionStarted);
+  const submissionCopy = submission ? {
+    NOT_SUBMITTED: {
+      title: "Submission not started",
+      detail: "The backend has not started target execution for this reviewed submission.",
+    },
+    SENDING: {
+      title: "Sending to GoldTier",
+      detail: "The reviewed submission is running. Retained target operations determine its outcome.",
+    },
+    SUBMISSION_CONFIRMED: {
+      title: "Submission confirmed",
+      detail: "The reviewed submission and required customer readback are confirmed. GoldTier approval and KYC completion remain separate.",
+    },
+    SUBMISSION_FAILED: {
+      title: "Submission failed",
+      detail: "The submission has a definitive retained failure. Previously completed operations and target identifiers remain recorded.",
+    },
+    SUBMISSION_OUTCOME_UNCERTAIN: {
+      title: statusChecking
+        ? "Submission outcome uncertain — checking GoldTier status"
+        : "Submission outcome uncertain",
+      detail: "An attempted target operation has no definitive retained outcome. Status checking does not resend this submission.",
+    },
+    FINALIZATION_PENDING: {
+      title: "Submission finalization pending",
+      detail: "Retained target operations are resolved. Backend recovery can finish the approved submission without repeating them.",
+    },
+  }[submission.state] : projectionFrozen ? {
+    title: "Submission status unavailable",
+    detail: "This retained review has no current backend submission-state projection. Inspect the retained execution evidence.",
+  } : null;
+  const matchingStatusCheck = statusCheckResult?.submission_id === submission?.submission_id
+    ? statusCheckResult : null;
+  const canCheckStatus = submission?.state === "SUBMISSION_OUTCOME_UNCERTAIN"
+    && submission.status_check_available && Boolean(onCheckStatus);
   const confirmationRequired = summary.active_exceptions.some(
     (exception) => exception.exception_type === "TARGET_CONFIRMATION_REQUIRED",
   );
   const canAccessCase = actor.capabilities.includes("CASE_ACCESS");
   const canEditReview = canAccessCase && !projectionFrozen;
-  const canEditOwnership = canEditReview
-    && summary.ownership_recovery?.manual_evidence_action === "MANUAL_OWNERSHIP_EVIDENCE";
+  const canEditEvidence = canEditReview && summary.evidence_decision_authorized === true;
+  const canEditOwnership = canEditReview && summary.ownership_edit_authorized === true;
   const eligibleForConfirmation = confirmationRequired
     && preview?.dispatch_ready
     && (clm.readiness?.blockers?.length ?? 0) === 0;
@@ -215,7 +262,7 @@ export default function ReviewAndSend({
             {projectionFrozen ? "Frozen server review projection" : "Current server review projection"}
           </p>
           <h2 id="review-and-send-title">Review and send</h2>
-          <p>Review exactly what this case will send. This confirmation is not final approval.</p>
+          <p>Review exactly what this case will send. Send is the final human approval in this application; subsequent GoldTier approval is outside this workflow.</p>
         </div>
         <button type="button" className="btn btn-ghost review-and-send__print" onClick={() => window.print()}>
           Print / save PDF
@@ -223,6 +270,21 @@ export default function ReviewAndSend({
       </header>
 
       {error && <p className="ds-banner ds-banner-warn" role="alert">{error}</p>}
+      {submissionCopy && (
+        <section className="ds-banner" aria-labelledby="submission-state-title" aria-live="polite" aria-atomic="true">
+          <h3 id="submission-state-title">{submissionCopy.title}</h3>
+          <p>{submissionCopy.detail}</p>
+          {submission?.goldtier_id && <p>Retained GoldTier ID: {submission.goldtier_id}</p>}
+          {matchingStatusCheck && (
+            <div>
+              <p>{matchingStatusCheck.message}</p>
+              <p>Checked at {new Date(matchingStatusCheck.checked_at).toLocaleString()}.</p>
+              <p>Customer identity checking does not establish Policy completion, GoldTier approval or KYC completion.</p>
+            </div>
+          )}
+          {statusCheckError && <p role="alert">{statusCheckError}</p>}
+        </section>
+      )}
       {checkpoint && checkpoint.status !== "COMPLETED" && (
         <p className="ds-banner ds-banner-warn" role="status">
           Target search evidence is {label(checkpoint.status)}. Review outstanding items before confirming.
@@ -239,7 +301,7 @@ export default function ReviewAndSend({
         <section>
           <div className="review-and-send__section-heading">
             <h3>Customer identity</h3>
-            {canEditReview && <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditIdentity}>Edit company details</button>}
+            {canEditEvidence && <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditIdentity}>Edit company details</button>}
           </div>
           <dl>
             <div><dt>Legal name</dt><dd>{identity?.legal_name ?? "Not provided"}</dd></div>
@@ -293,9 +355,9 @@ export default function ReviewAndSend({
         <section>
           <div className="review-and-send__section-heading">
             <h3>Evidence and limitations</h3>
-            {canEditReview && (
+            {(canEditEvidence || canEditOwnership) && (
               <div className="review-and-send__section-actions">
-                <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditDocuments}>Edit documents</button>
+                {canEditEvidence && <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditDocuments}>Edit documents</button>}
                 {canEditOwnership ? (
                   <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditOwnership}>Edit ownership</button>
                 ) : (
@@ -374,13 +436,18 @@ export default function ReviewAndSend({
       </details>
 
       <div className="review-and-send__actions">
-        {eligibleForConfirmation && canAccessCase && !confirmation ? (
+        {eligibleForConfirmation && canAccessCase && !projectionFrozen ? (
           <button type="button" className="btn btn-primary" disabled={busy} onClick={onConfirm}>{confirmationLabel}</button>
-        ) : (
+        ) : !projectionFrozen ? (
           <>
             <button type="button" className="btn btn-secondary" disabled={busy} onClick={onSaveDraft}>Save draft</button>
             <button type="button" className="btn btn-ghost" disabled={busy} onClick={onReviewOutstanding}>Review outstanding items</button>
           </>
+        ) : null}
+        {canCheckStatus && canAccessCase && (
+          <button type="button" className="btn btn-secondary" disabled={busy || statusChecking} onClick={onCheckStatus}>
+            Check GoldTier status
+          </button>
         )}
         {!canAccessCase && <p role="status">You do not have the case capability required to confirm this dispatch.</p>}
         {confirmation && <p role="status">Dispatch confirmation is retained. The reviewed version cannot be confirmed again.</p>}

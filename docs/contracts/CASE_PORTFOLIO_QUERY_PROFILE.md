@@ -5,8 +5,8 @@
 This project-defined POC contract covers `GET /api/clm/zero-touch/case-portfolio`.
 It is an authorized, bounded read of current case summaries. It does not add assignment,
 risk, SLA, approval, escalation, analytics, workflow, provider, retention, or Live
-integration behavior. The compatible `GET /api/clm/zero-touch/cases` array contract
-remains unchanged.
+integration behavior. The compatible `GET /api/clm/zero-touch/cases` array response
+remains unchanged and accepts the same optional creation-date bounds.
 
 `CaseQueryService` owns actor/team scope and typed query composition. The existing
 portfolio repository owns the memory or Mongo read. The endpoint returns the existing
@@ -25,8 +25,15 @@ execution, registry cache, or a persistence write.
 | `attention_type` | Optional exact existing `BusinessExceptionType`; only a correlated OPEN exception matches. |
 | `jurisdiction` | Optional exact existing `JurisdictionCode`. A label does not activate a provider route. |
 | `search` | Optional trimmed literal case-insensitive substring over requested registration ID, legal name, and canonical case UUID; maximum 128 characters. |
+| `created_from` | Optional ISO date; includes midnight at the start of this Singapore UTC+08:00 calendar day. |
+| `created_to` | Optional ISO date; includes this Singapore UTC+08:00 day through the instant before the next midnight. |
 | `limit` | Integer 1–100; default 50. |
 | `offset` | Integer 0–10000; default 0. |
+
+Creation bounds use authoritative `automation.created_at`, normalized to UTC for reads.
+An omitted bound is open-ended. Reversed, malformed or unrepresentable bounds return
+safe 422 errors. Scope is resolved first; bounds intersect before sorting/pagination
+in memory and Mongo. No schema, index, case timestamp or write behavior changes.
 
 All filters intersect before paging. “All” is omission except for the existing explicit
 priority defaults. Whitespace-only search becomes absent. Search is never interpreted as
@@ -80,7 +87,8 @@ returned, and no error is converted to an empty or partial page.
 
 The Cases page uses a fixed page size of 50 and a 300 ms search debounce. Its query key
 contains authenticated user, status, priority filter, priority sort, team, attention
-type, jurisdiction, normalized search, offset, and limit. Changing any presentation
+type, jurisdiction, normalized search, both creation-date bounds, offset, and limit.
+Onboarded uses both bounds in its authenticated list key and server request. Changing any presentation
 dimension resets the offset. Previous-key rows are hidden while a new search is being
 debounced; GET cancellation retains `AbortSignal`.
 

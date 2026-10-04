@@ -1,10 +1,11 @@
 """Every approved document uses current intake and LOCAL extraction boundaries."""
 
+import shutil
 from pathlib import Path
 
 import pytest
 
-from app.connectors.idp import IdpDocumentInput, IdpSourceResult
+from app.connectors.idp import IdpDocumentInput, IdpSourceResult, LocalDocumentProcessingError
 from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.domain.documents import DocumentProfile
 from app.services.document_errors import DocumentRequestError
@@ -38,6 +39,14 @@ def test_pack_uses_current_intake_and_extraction(name):
         assert error.value.code == "DOCUMENT_STRUCTURE_INVALID"
         return
     routed = router.extract(display_name=name, content_type="application/pdf", content=content)
+    if name == "no-text.pdf" and shutil.which("tesseract") is None:
+        with pytest.raises(LocalDocumentProcessingError, match="OCR_RUNTIME_UNAVAILABLE"):
+            LocalPdfTextIdpProvider().process(
+                IdpDocumentInput(
+                    profile=DocumentProfile.PROVISIONAL_CORPORATE, content=routed.content,
+                )
+            )
+        return
     extracted = IdpSourceResult.model_validate(
         LocalPdfTextIdpProvider().process(
             IdpDocumentInput(profile=DocumentProfile.PROVISIONAL_CORPORATE, content=routed.content)

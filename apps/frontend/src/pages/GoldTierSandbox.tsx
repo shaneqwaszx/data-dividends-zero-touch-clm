@@ -102,6 +102,10 @@ export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile
       setValidationError("Enter at least one bounded search criterion.");
       return;
     }
+    if (!statusQuery.data?.configured) {
+      setValidationError("Sandbox is unavailable in the effective backend configuration.");
+      return;
+    }
     setValidationError(null);
     searchMutation.mutate(input);
   }
@@ -162,6 +166,7 @@ export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile
             <div><dt>Vocabulary</dt><dd>{status.vocabulary_version}</dd></div>
           </dl>
         )}
+        {status && !status.configured && <p role="status" className="control-help">Sandbox is unavailable in the effective backend configuration. No connection was attempted. The backend owner should verify GOLDTIER_CONNECTOR_MODE, GOLDTIER_SANDBOX_BASE_URL, GOLDTIER_SANDBOX_ENVIRONMENT, GOLDTIER_SANDBOX_USER_ID and GOLDTIER_SANDBOX_ALLOW_WRITES. Configuration values are not displayed here.</p>}
         {status && (
           <div className="provider-readiness" aria-label="Backend-authored GoldTier operation readiness">
             <article className="ds-banner">
@@ -240,7 +245,7 @@ export default function GoldTierSandbox({ actor }: { actor: AuthenticatedProfile
           </div>
         </div>
         {validationError && <div className="ds-banner ds-banner-warn" role="alert">{validationError}</div>}
-        <button type="submit" className="btn btn-primary" disabled={searchMutation.isPending}>
+        <button type="submit" className="btn btn-primary" disabled={searchMutation.isPending || !status?.configured}>
           {searchMutation.isPending ? "Searching…" : "Search Sandbox"}
         </button>
         {searchMutation.isError && (

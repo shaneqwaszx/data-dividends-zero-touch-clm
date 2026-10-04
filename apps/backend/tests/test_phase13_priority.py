@@ -32,6 +32,7 @@ from app.services.repository import CaseTeamImmutableError, InMemoryOnboardingCa
 
 def _legacy_case(case: OnboardingCase) -> LegacyOnboardingCaseV1:
     value = case.model_dump()
+    value.pop("created_by_actor_id")
     value.pop("team_id")
     value.pop("priority")
     value.pop("policy_snapshot")
@@ -121,7 +122,7 @@ def test_schema_v1_reads_as_unassigned_null_priority_without_rewrite() -> None:
     decoded = store._decode(raw)  # noqa: SLF001
 
     assert raw == before
-    assert decoded.schema_version == 8
+    assert decoded.schema_version == 9
     assert decoded.revision == 7
     assert decoded.onboarding.team_id is None
     assert decoded.onboarding.priority is None
@@ -143,7 +144,7 @@ def test_schema_v7_is_written_and_invalid_metadata_fails_closed() -> None:
     store = object.__new__(MongoCaseStore)
     raw = store._encode(snapshot)  # noqa: SLF001
 
-    assert raw["schema_version"] == 8
+    assert raw["schema_version"] == 9
     assert store._decode(raw) == snapshot  # noqa: SLF001
 
     bad_team = copy.deepcopy(raw)
@@ -225,8 +226,8 @@ def test_schema_discriminator_accepts_only_supported_raw_integers() -> None:
 
     assert type(raw_current["schema_version"]) is int
     assert type(raw_legacy["schema_version"]) is int
-    assert store._decode(raw_current).schema_version == 8  # noqa: SLF001
-    assert store._decode(raw_legacy).schema_version == 8  # noqa: SLF001
+    assert store._decode(raw_current).schema_version == 9  # noqa: SLF001
+    assert store._decode(raw_legacy).schema_version == 9  # noqa: SLF001
 
 
 def test_team_id_is_immutable_in_memory_and_mongo_adapters() -> None:

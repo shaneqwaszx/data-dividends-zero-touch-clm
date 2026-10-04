@@ -36,9 +36,9 @@ for (const width of [320,360,768,1280,1440,1920]) {
     await login(page,"hr-admin"); await contained(page);
     if (width===320 || width===1280) await page.screenshot({path:`${process.env.TEMP}/clm-phase24c-policy-${width}.png`});
     const active=await page.getByRole("heading",{name:/Active policy/}).textContent();
-    const card=page.locator(".policy-parameter").filter({has:page.getByRole("heading",{name:"IDP review confidence threshold",exact:true})});
+    const card=page.locator(".policy-parameter").filter({has:page.getByRole("heading",{name:"IDP extraction evidence score threshold",exact:true})});
     await card.getByRole("button",{name:"Propose change",exact:true}).click();
-    await card.getByLabel("Proposed value for IDP review confidence threshold").fill("0.90");
+    await card.getByLabel("Proposed value for IDP extraction evidence score threshold").fill("0.90");
     await card.getByRole("button",{name:"Use proposed value",exact:true}).click();
     await page.getByLabel("Change reason",{exact:true}).fill("Synthetic policy review with a deliberately long reason for responsive layout and independent Director approval; existing in-flight and completed cases retain their frozen values.");
     await page.getByRole("button",{name:"Save draft",exact:true}).click();

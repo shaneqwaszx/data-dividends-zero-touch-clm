@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TargetValueProvenance(StrEnum):
+    CANONICAL_EVIDENCE = "CANONICAL_EVIDENCE"
     REGISTRY = "REGISTRY"
     DOCUMENT = "DOCUMENT"
     ENTITY_RESOLUTION = "ENTITY_RESOLUTION"

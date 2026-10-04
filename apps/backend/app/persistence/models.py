@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.access import CasePriority, TeamId
 from app.domain.clm import ClmOrchestrationRecord
-from app.domain.documents import DocumentProcessingRecord
+from app.domain.documents import DocumentFieldKey, DocumentProcessingRecord
 from app.domain.jurisdiction import JurisdictionResolution, RegistryRoutingDecision
 from app.domain.models import (
     CanonicalLegalEntity,
@@ -26,11 +26,15 @@ from app.domain.models import (
 from app.domain.onboarding_intelligence import OnboardingIntelligenceRecord
 from app.domain.ownership import OwnershipAnalysisRecord
 from app.domain.policy import CasePolicySnapshot, legacy_phase13_policy_snapshot
-from app.domain.reconciliation import ReconciliationCaseRecord
+from app.domain.reconciliation import (
+    ObservationValidity,
+    ReconciliationCaseRecord,
+    ReconciliationField,
+)
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[8] = 8
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[9] = 9
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -89,9 +93,15 @@ class DurableCaseSnapshotV1(BaseModel):
         _validate_case_bindings(self)
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_session2_legacy_fields(value)
+        return value
+
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=8,
+            schema_version=9,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -147,9 +157,15 @@ class DurableCaseSnapshotV2(BaseModel):
         _validate_case_bindings(self)
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_session2_legacy_fields(value)
+        return value
+
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=8,
+            schema_version=9,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -203,9 +219,15 @@ class DurableCaseSnapshotV3(BaseModel):
         _validate_case_bindings(self)
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_session2_legacy_fields(value)
+        return value
+
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=8,
+            schema_version=9,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -247,9 +269,15 @@ class DurableCaseSnapshotV4(BaseModel):
             raise ValueError("schema-v4 policy snapshot cannot contain intelligence policy")
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_session2_legacy_fields(value)
+        return value
+
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=8,
+            schema_version=9,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -291,9 +319,15 @@ class DurableCaseSnapshotV5(BaseModel):
         _validate_case_bindings(self)
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_session2_legacy_fields(value)
+        return value
+
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=8,
+            schema_version=9,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -373,9 +407,15 @@ class DurableCaseSnapshotV6(BaseModel):
         _validate_case_bindings(self)
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_session2_legacy_fields(value)
+        return value
+
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=8,
+            schema_version=9,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -417,9 +457,65 @@ class DurableCaseSnapshotV7(BaseModel):
         _validate_case_bindings(self)
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_session2_legacy_fields(value)
+        return value
+
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=8,
+            schema_version=9,
+            case_id=self.case_id,
+            revision=self.revision,
+            onboarding=self.onboarding,
+            documents=self.documents,
+            ownership=self.ownership,
+            reconciliation=self.reconciliation,
+            clm=self.clm,
+            automation=self.automation,
+            target_executions=self.target_executions,
+            demo_scenario=self.demo_scenario,
+            intelligence=self.intelligence,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
+
+
+class DurableCaseSnapshotV8(BaseModel):
+    """Bounded authoritative structured state; never raw source/upload payloads."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[8] = 8
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_session2_legacy_fields(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV8":
+        _validate_case_bindings(self)
+        return self
+
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot(
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -441,7 +537,7 @@ class DurableCaseSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[8] = 8
+    schema_version: Literal[9] = 9
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase
@@ -462,6 +558,61 @@ class DurableCaseSnapshot(BaseModel):
         return self
 
 
+def _explicit_fields(value: Any) -> dict[str, Any]:
+    if isinstance(value, BaseModel):
+        return {name: getattr(value, name) for name in value.model_fields_set}
+    return value if isinstance(value, dict) else {}
+
+
+def reject_session2_legacy_fields(value: Any) -> None:
+    """Reject later evidence in exact historical envelope versions, even if null."""
+    raw = _explicit_fields(value)
+    reconciliation = _explicit_fields(raw.get("reconciliation"))
+    for result in (*reconciliation.get("fields", ()), *reconciliation.get("discrepancies", ())):
+        for observation in _explicit_fields(result).get("observations", ()):
+            fields = _explicit_fields(observation)
+            if (
+                fields.get("validity") == "AMBIGUOUS"
+                or fields.get("evidence_reference") == "DOCUMENT_AMBIGUOUS_EXTRACTION"
+            ):
+                raise ValueError(
+                    "Historical schema cannot contain ambiguous extraction observations."
+                )
+    if "created_by_actor_id" in _explicit_fields(raw.get("onboarding")):
+        raise ValueError("Historical schema cannot contain a creator binding.")
+    metadata = {
+        "extraction_method", "extraction_quality", "score_kind", "score_formula",
+        "raw_ocr_mean_confidence", "raw_ocr_word_count", "candidates",
+    }
+    for document in raw.get("documents", ()):
+        doc = _explicit_fields(document)
+        if {"document_version", "pages", "ownership_observations"} & doc.keys():
+            raise ValueError("Historical schema cannot contain later document evidence.")
+        if doc.get("media_type") not in {
+            "application/pdf", "text/plain",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }:
+            raise ValueError("Historical schema cannot contain image intake.")
+        if any(metadata & _explicit_fields(field).keys() for field in doc.get("fields", ())):
+            raise ValueError("Historical schema cannot contain later extraction metadata.")
+    ownership = _explicit_fields(raw.get("ownership"))
+    new_ownership = {
+        "document_observations", "document_bindings", "document_discrepancies",
+        "source_classification",
+        "supplemental_parties", "supplemental_relationships", "supplemental_evidence",
+    }
+    new_receipt = {
+        "source_selection", "observed_document_versions", "selected_observation_ids",
+        "replaced_analysis_id", "replaced_ownership_version",
+    }
+    for index, record in enumerate((ownership, *ownership.get("prior_analyses", ()))):
+        fields = _explicit_fields(record)
+        if new_ownership & fields.keys() or (index and "manual_review_receipt" in fields):
+            raise ValueError("Historical schema cannot contain later ownership evidence.")
+        if new_receipt & _explicit_fields(fields.get("manual_review_receipt")).keys():
+            raise ValueError("Historical schema cannot contain later ownership decisions.")
+
+
 def _validate_case_bindings(snapshot: Any) -> None:
     if snapshot.onboarding.case_id != snapshot.case_id:
         raise ValueError("onboarding case does not match envelope")
@@ -480,6 +631,82 @@ def _validate_case_bindings(snapshot: Any) -> None:
     )
     if any(item.case_id != snapshot.case_id for item in records):
         raise ValueError("nested record does not match envelope")
+    documents = {item.document_id: item for item in snapshot.documents}
+    if len(documents) != len(snapshot.documents):
+        raise ValueError("duplicate document identity")
+    observations = {}
+    for document in snapshot.documents:
+        for observation in document.ownership_observations:
+            if (
+                observation.document_id != document.document_id
+                or observation.document_version != document.document_version
+                or observation.observation_id in observations
+            ):
+                raise ValueError("document ownership observation binding does not match")
+            observations[observation.observation_id] = observation
+    if snapshot.ownership is not None:
+        for record in (snapshot.ownership, *snapshot.ownership.prior_analyses):
+            for observation in record.document_observations:
+                if observations.get(observation.observation_id) != observation:
+                    raise ValueError(
+                        "ownership observation differs from original document evidence"
+                    )
+            for binding in record.document_bindings:
+                document = documents.get(binding.document_id)
+                if document is None or binding.event_count > len(document.events):
+                    raise ValueError("ownership decision version exceeds retained document")
+            record_observations = {
+                item.observation_id: item for item in record.document_observations
+            }
+            receipt = record.manual_review_receipt
+            if receipt is not None:
+                original_document = documents.get(receipt.evidence_document_id)
+                if (
+                    original_document is None
+                    or receipt.evidence_document_version > len(original_document.events)
+                    or (
+                        snapshot.onboarding.created_by_actor_id is not None
+                        and receipt.actor_id != snapshot.onboarding.created_by_actor_id
+                    )
+                    or receipt.evidence_reference != (
+                        f"MANUAL_DOC_{receipt.evidence_document_id.hex}"
+                        f"_V{receipt.evidence_document_version}"
+                    )
+                ):
+                    raise ValueError("manual receipt lacks its retained document provenance")
+                for binding in receipt.observed_document_versions:
+                    document = documents.get(binding.document_id)
+                    if document is None or binding.event_count > len(document.events):
+                        raise ValueError("manual receipt exceeds retained document version")
+                if any(identifier not in record_observations
+                       for identifier in receipt.selected_observation_ids):
+                    raise ValueError("manual receipt lacks its original observation")
+            for discrepancy in record.document_discrepancies:
+                observation = record_observations.get(discrepancy.observation_id)
+                if (
+                    observation is None
+                    or observation.document_id != discrepancy.document_id
+                    or observation.document_version != discrepancy.document_version
+                ):
+                    raise ValueError("ownership discrepancy lacks retained observation")
+    if snapshot.reconciliation is not None:
+        field_keys = {
+            ReconciliationField.LEGAL_NAME: DocumentFieldKey.LEGAL_NAME,
+            ReconciliationField.REGISTRATION_IDENTIFIER: DocumentFieldKey.REGISTRATION_NUMBER,
+            ReconciliationField.REGISTERED_ADDRESS: DocumentFieldKey.REGISTERED_ADDRESS,
+            ReconciliationField.COUNTRY_OF_INCORPORATION: DocumentFieldKey.COUNTRY_OF_INCORPORATION,
+        }
+        for result in (*snapshot.reconciliation.fields, *snapshot.reconciliation.discrepancies):
+            for observation in result.observations:
+                if observation.validity != ObservationValidity.AMBIGUOUS:
+                    continue
+                document = documents.get(observation.source_record_id)
+                extracted = next((item for item in document.fields
+                                  if item.field_key == field_keys[observation.field_name]), None) \
+                    if document is not None else None
+                if extracted is None or extracted.extraction_quality != "AMBIGUOUS" \
+                        or len({item.value for item in extracted.candidates}) < 2:
+                    raise ValueError("ambiguous reconciliation lacks original candidates")
     intelligence = getattr(snapshot, "intelligence", None)
     if intelligence is not None:
         if intelligence.case_id != snapshot.case_id:

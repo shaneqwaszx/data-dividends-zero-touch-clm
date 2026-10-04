@@ -10,19 +10,27 @@ Q-013, and Q-014 remain open.
 
 `IdpProvider.process(IdpDocumentInput) -> object` isolates provider-specific behavior.
 The provider exposes provider-neutral metadata separately and its returned object is
-validated as `IdpSourceResult` before use. `IdpDocumentInput` contains only the profile
-and transient bytes; it has no Mock scenario. Metadata contains a bounded provider name
+validated as `IdpSourceResult` before use, including nested constructed/copied models.
+`IdpDocumentInput` contains profile, transient bytes/media and optional transient native
+text; it has no Mock scenario. Metadata contains a bounded provider name
 and generic environment. The result must contain the `PROVISIONAL_CORPORATE` profile
 and all four unique provisional fields. Each source field has a fixed field key,
 nullable bounded value, confidence in `[0, 1]`, optional page number in `[1, 500]`, and
 bounded source reference. Extra properties, missing/duplicate fields, invalid
-confidence, blank values, control characters, and invalid provenance are malformed
+evidence scores, blank values, control characters, and invalid provenance are malformed
 output.
+
+S2 adds at most ten page records, 32 candidates per identity field and 128 proposed
+ownership observations. Candidate/ownership page bindings must exist, all four identity
+fields remain unique, and the server authors document/observation IDs and document
+version 1. Providers cannot supply those identities. Extraction method, quality,
+deterministic score/formula and raw OCR mean/count remain distinct from comparison and
+review. Multiple distinct identity candidates select no value and remain a blocker.
 
 ## Upload and retrieval
 
-The generic upload request is a bounded raw PDF body with `Content-Type:
-application/pdf` and a safe display-only `X-Document-Name`. The dedicated local demo
+The generic upload request is a bounded raw body with the format-specific MIME in
+MULTI_DOCUMENT_INTAKE_PROFILE and a safe display-only `X-Document-Name`. The local demo
 upload endpoint additionally accepts a fixed Mock scenario and selects a configured
 Mock provider outside the business/domain contract. Bytes and raw output are transient.
 The display name is returned but is never used as a path. Streamed chunks are rejected
@@ -66,8 +74,14 @@ Original extracted values and provider provenance remain immutable. `ACCEPTED` r
 the original suggestion, `REJECTED` makes that field unusable, and `CORRECTED` records a
 separate reviewed value. Under the current provisional rule, a correction can become
 effective reconciliation evidence only when the original suggestion was present and met
-the case-bound confidence threshold. Missing and low-confidence originals remain
-replacement-required even when a correction is recorded.
+the case-bound extraction evidence threshold. Missing, low-evidence and ambiguous
+originals remain replacement-required even when a correction is recorded.
+
+New cases retain immutable server-authored creator identity. Evidence decisions require
+current CASE_ACCESS/team scope and that creator, reauthorized inside the case lock/CAS
+boundary. Other accessible users receive 403; inaccessible cases retain safe 404.
+Unknown historical creators are not assigned or inferred. Browser capability booleans
+describe this authority; the backend enforces it independently.
 
 ## State and event contract
 

@@ -1,0 +1,596 @@
+{
+  "branch": "feat/onboarding-intelligence-goldtier-sandbox",
+  "base_sha": "1d426e0ceddc32d80b0aaec293c62fb761f2fecf",
+  "head": "1d426e0ceddc32d80b0aaec293c62fb761f2fecf",
+  "origin_main": "1d426e0ceddc32d80b0aaec293c62fb761f2fecf",
+  "scope": "Cumulative uncommitted Session 1 + Session 2; fresh Session 2 gate, no Session 3 implementation/external acceptance",
+  "remediation_round": 0,
+  "excluded_manifest_self": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S2_MANIFEST.json",
+  "excluded_review_output": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S2_QUALITY_GATE.md",
+  "aggregate_algorithm": "SHA256(UTF8(json.dumps(files, sort_keys=True, separators=(comma,colon)))); files sorted by case-sensitive relative POSIX path; raw-byte per-file SHA256",
+  "candidate_sha256": "0a002f10fc37244cd009854aab8b6e007d2de3d4112a98dca4d48304c0008d20",
+  "tracked_changed_path_count": 111,
+  "task_owned_new_path_count_excluding_manifest_and_gate": 33,
+  "reviewed_path_count": 144,
+  "verification_receipt": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S2_IMPLEMENTATION.md",
+  "windows_evidence": "29 passing cases in complete 31-case run plus both unchanged timing failures passing exclusive 2-case recheck; complete run itself not PASS",
+  "external_calls_this_program": 0,
+  "files": [
+    {
+      "path": ".ai-pipeline/001_planner/ONBOARDING_INTELLIGENCE_GOLDTIER_SANDBOX_PLAN.md",
+      "sha256": "0d8e3f9cddfc1ba467d041d171664a35e391cdcb4300424462dbae07d35bd075"
+    },
+    {
+      "path": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S1_IMPLEMENTATION.md",
+      "sha256": "f86e8c7f6d73d44f56fbf7d63b0969c29c1e9edc95e20aa63ced7b405756f4fc"
+    },
+    {
+      "path": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S1_MANIFEST.json",
+      "sha256": "a45c8f84978c55be2785ed9578c4dbd4f60863b83a7431c7e883a1cfb6d947c9"
+    },
+    {
+      "path": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S1_QUALITY_GATE.md",
+      "sha256": "813c495bdca13531204b4ed8e8f054c3855952fc4f9ba0ce13038ce398b202e4"
+    },
+    {
+      "path": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S2_IMPLEMENTATION.md",
+      "sha256": "2c6cac224208c2568944ac1a70a58804f1a4b7ffd474b39f0c642e630668509a"
+    },
+    {
+      "path": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S2_OCR_BROWSER_RECEIPT.md",
+      "sha256": "d942fce0b0aee5498f6645df47208046607d0a2b9c90caab3a2d9439fa439088"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "27ff5ab29ab3109a9bbd1fc73e2d37cf4765fd3b3eab233d6ed6fb930ab4e69d"
+    },
+    {
+      "path": "apps/backend/app/api_auth.py",
+      "sha256": "73f91f09bef7d589f80581e24a29063477b1fda81ead7aef2331d9eebfdd3649"
+    },
+    {
+      "path": "apps/backend/app/api_models.py",
+      "sha256": "45293e012d59b07664bcbb165ed0afb196c38f6bd24abafb90a9bb01d7418ae1"
+    },
+    {
+      "path": "apps/backend/app/api_policies.py",
+      "sha256": "57da796d89b179b8c2fcd5f3ddc6b0da24138723fa4ba136072450f9f728b308"
+    },
+    {
+      "path": "apps/backend/app/composition.py",
+      "sha256": "192d4bd17ff4ad34e4d71c1b6ae641f470f367f442c2ee8f0ae02935130a6b43"
+    },
+    {
+      "path": "apps/backend/app/config.py",
+      "sha256": "020a73ea045ab62496abf6e41cd775aa48dcabdc1bf3ddaf8e61726990acd670"
+    },
+    {
+      "path": "apps/backend/app/connectors/document_ownership_parser.py",
+      "sha256": "d1c4a5a4c0c74e72eab417e1a886f24c6c8ba2393d8f94abb6e73b937f50e7a5"
+    },
+    {
+      "path": "apps/backend/app/connectors/idp.py",
+      "sha256": "992af18a2376d78fe3b7276ea77560ba2407c799e06f465c69749e921c3df527"
+    },
+    {
+      "path": "apps/backend/app/connectors/local_document_runtime.py",
+      "sha256": "fef50405d96224f59d1e5d2c6b1dd3405290a4b05ef3829b16851b57ba76edde"
+    },
+    {
+      "path": "apps/backend/app/connectors/local_document_worker.py",
+      "sha256": "85696951ea27fcc7ddda75544e7be8ef9e7297caaae6e02ccf0667b1173fe9a4"
+    },
+    {
+      "path": "apps/backend/app/connectors/local_ocr.py",
+      "sha256": "bb2af8374e64d94945ca3c4d5be4d445201b440727d4feb5f113b3f2654ea2b6"
+    },
+    {
+      "path": "apps/backend/app/connectors/local_pdf_idp.py",
+      "sha256": "64e9453a9b24b9df5eade24ff92c6f949fc2a7fb8fca76a00961bc79561a86e4"
+    },
+    {
+      "path": "apps/backend/app/connectors/local_process.py",
+      "sha256": "a29155fcefa01263743ec702d57b2ee75c95e30a013805fa4a1c28173c657817"
+    },
+    {
+      "path": "apps/backend/app/connectors/ownership.py",
+      "sha256": "5455ac3092b56309d2c63564029b9354bdecccb9bc2754339a81cec63a4d6c8f"
+    },
+    {
+      "path": "apps/backend/app/connectors/registry_ownership.py",
+      "sha256": "0978fe2463847558d7156ededd43c1dbdba8ab56074b92fb96efdc3e632a11bf"
+    },
+    {
+      "path": "apps/backend/app/domain/case_management.py",
+      "sha256": "f26736991075afa518eb6cda4549577a555499d148a0eba5ee2e3b3f572e9c88"
+    },
+    {
+      "path": "apps/backend/app/domain/documents.py",
+      "sha256": "f186918a6c17f8dda1476656c9d37d08482b601a099a2f3bedd68ec721049fdc"
+    },
+    {
+      "path": "apps/backend/app/domain/models.py",
+      "sha256": "7176b65193f75a5c128ade9979bb1d526fc2d2e2397cd48b5ac717ed2cb04ef0"
+    },
+    {
+      "path": "apps/backend/app/domain/ownership.py",
+      "sha256": "422575beebd1c3b3afc058f584ffada98bba2ecf7c4572f94061107ffcbe5d46"
+    },
+    {
+      "path": "apps/backend/app/domain/reconciliation.py",
+      "sha256": "6ef0cfadb1f38359f2b3aee29483cabaeb2683d3c837a5e16a4437961513bf9f"
+    },
+    {
+      "path": "apps/backend/app/main.py",
+      "sha256": "60a4fb6f9e06ad4d2d37d2f8e94b26a7ef3d40b2af6a877007ee91163c2f6b7b"
+    },
+    {
+      "path": "apps/backend/app/persistence/models.py",
+      "sha256": "305983e18f3ea7c6cba8ea96f1cea0ce96a6ddd5951674385d26b36e9712beba"
+    },
+    {
+      "path": "apps/backend/app/persistence/mongo_case_store.py",
+      "sha256": "9be769d49b6fb59271c943eb68ccc01c2f54493fb4a15338b787858f3af03f12"
+    },
+    {
+      "path": "apps/backend/app/persistence/repositories.py",
+      "sha256": "1f0f429f463c2d6626448331044298030228a7631971b8050874a2bc678bceb5"
+    },
+    {
+      "path": "apps/backend/app/services/authorization.py",
+      "sha256": "7065045bf0caede1fc3a40518ef847aa51fc4a704e455b8248ce1994bddc134b"
+    },
+    {
+      "path": "apps/backend/app/services/blocker_decision_policy.py",
+      "sha256": "bbc03cdeea56bf08ce197abc5c423c707ccab66eebb6c172329b851f6084dcc3"
+    },
+    {
+      "path": "apps/backend/app/services/case_query.py",
+      "sha256": "f3d8e98d6c2d57c381c2551efad85b8ce835dbcbdf3e1b6a92cd3a92438f6dc4"
+    },
+    {
+      "path": "apps/backend/app/services/clm_orchestration.py",
+      "sha256": "0147229630307bc68acc9cf7246c3e2b193620586a526749718f43618a18ef5f"
+    },
+    {
+      "path": "apps/backend/app/services/document_media.py",
+      "sha256": "6b7f27c1f007cf598c9713e7834ccc2fe92e8105e4a820605f2fcfd66afe3f35"
+    },
+    {
+      "path": "apps/backend/app/services/document_ownership.py",
+      "sha256": "a09115243994948fb4e34b87d51141eb4a64ab318a268e490710288cc1105e05"
+    },
+    {
+      "path": "apps/backend/app/services/document_processing.py",
+      "sha256": "ff88316757b338d6c7517031b77b997d7ab1f0c8d9442d6dac3e4272d9aacc44"
+    },
+    {
+      "path": "apps/backend/app/services/manual_ownership_evidence.py",
+      "sha256": "24a39b5ed343c5e42466823332638e866e4e8f85f07a8b4986f2e7c0ee48163f"
+    },
+    {
+      "path": "apps/backend/app/services/onboarding.py",
+      "sha256": "59126fc5a46cc31cd3e15ad5e7be1ded0f169120b35063901c1f9dca0d63b8c2"
+    },
+    {
+      "path": "apps/backend/app/services/ownership_analysis.py",
+      "sha256": "fd11283de9efd23d2225e10ecb046b9620eb9ce57fea54ce56ff7238dd3f92d9"
+    },
+    {
+      "path": "apps/backend/app/services/ownership_repository.py",
+      "sha256": "4ba8fc921ea7d0c0e206a1b81dded175c2f04a07069a5708528a090c2fcc7274"
+    },
+    {
+      "path": "apps/backend/app/services/policy_management.py",
+      "sha256": "6f564dc2eaf72d180ecb68e7c059ea9f13633e795a44707aff838c492f0f84d9"
+    },
+    {
+      "path": "apps/backend/app/services/reconciliation.py",
+      "sha256": "cf365e63038ae613426a7d4cdae806d83fc075092e3c75effb74916b03ef0941"
+    },
+    {
+      "path": "apps/backend/app/services/repository.py",
+      "sha256": "81ee9eca64da26f81d8785f43c257c8f6ef0dcbdce0f88b27d7aeab16f2dc5ff"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "sha256": "0e81ee33f7fe43b153bed4601b7904c520ca0b10954fc762b487acfb7298bc99"
+    },
+    {
+      "path": "apps/backend/pyproject.toml",
+      "sha256": "b13b424d4cb3926e88d7212cbc1a68ab31540827d8216b22ff3ca26e50a80851"
+    },
+    {
+      "path": "apps/backend/tests/s1_date_filter_fixtures.py",
+      "sha256": "6a6e1128828c69e86071371bab62fa3f75ba2942b072b65534a7b657be1b1158"
+    },
+    {
+      "path": "apps/backend/tests/s2_legacy_schema_fixtures.py",
+      "sha256": "6bbd2d417f35e2c9d05b0392f5f40b4f004ef67eb13f0780ec13a15cb97957b2"
+    },
+    {
+      "path": "apps/backend/tests/test_garden_business_fixture.py",
+      "sha256": "80763aadadb2c6989bf606d8103f1eb8506fe360a1a13fbcd2eb63309d1c23bf"
+    },
+    {
+      "path": "apps/backend/tests/test_manual_ownership_evidence.py",
+      "sha256": "0df4f0761a5cee63741aa02ab7e681a8033464ec68e6e84b7dbf80bbf1823e13"
+    },
+    {
+      "path": "apps/backend/tests/test_phase11_reconciliation.py",
+      "sha256": "b120b69a054fd417631cfc7a356284e95a940e6c3e74e71db4014b1bf9822eb4"
+    },
+    {
+      "path": "apps/backend/tests/test_phase12_persistence.py",
+      "sha256": "7638f05c6a603d14e06da6d424be1d44c8cf115a5e05b69f367b2deb7144a6d6"
+    },
+    {
+      "path": "apps/backend/tests/test_phase12_real_mongo.py",
+      "sha256": "831b0de3fdc4f72ddc09e9ee53fac2f8388952f7d2e52266c52328cf3aead1e7"
+    },
+    {
+      "path": "apps/backend/tests/test_phase13_priority.py",
+      "sha256": "3c20ced8e5f21c4376599be97c6e21c60434d7ccb7bcbe25daa5ca4477e28550"
+    },
+    {
+      "path": "apps/backend/tests/test_phase13_real_mongo.py",
+      "sha256": "d35efa78da309d965bed4d78ab2205197555cded505db5fbbaec6d409bef4e25"
+    },
+    {
+      "path": "apps/backend/tests/test_phase14_5_real_mongo.py",
+      "sha256": "87f7b0568a557f8c431683f413dd8b32ff9770751574749477672c93ed301c3e"
+    },
+    {
+      "path": "apps/backend/tests/test_phase24_identity.py",
+      "sha256": "7c2b0a5a22f86fb2dec46c0564803ea709906e32a77527dc2e37e258fdb6c3d9"
+    },
+    {
+      "path": "apps/backend/tests/test_phase24b_stage_recovery_round1.py",
+      "sha256": "6d4e299868c109a895678183e0decba658aa1649d57171485c450e2bb0be5ff9"
+    },
+    {
+      "path": "apps/backend/tests/test_phase24c_real_mongo.py",
+      "sha256": "33a2b5afb01edbfed2a3cc1228ff66195c2830a0048a5a0e1da730c658b06dcc"
+    },
+    {
+      "path": "apps/backend/tests/test_phase_08_input_driven.py",
+      "sha256": "98d6cb007bf18ae61fd5068b616390d7a34a1974d43e98424ff18cc5130c4b1d"
+    },
+    {
+      "path": "apps/backend/tests/test_pre_phase12_workspace_multidoc.py",
+      "sha256": "edc114bf919d3f07722afa687fd6d53c04ee2adae953a5d398c371516f0c166b"
+    },
+    {
+      "path": "apps/backend/tests/test_s1_date_filters.py",
+      "sha256": "f1924d8c5953d74df343d74f52441c345cf2dcaca7041bff994c78f40285b9de"
+    },
+    {
+      "path": "apps/backend/tests/test_s1_date_filters_real_mongo.py",
+      "sha256": "7a180ff63719b718c9007e0c3c976d639c01e8f10fb9c777f0bfbfe01d7ee8ca"
+    },
+    {
+      "path": "apps/backend/tests/test_s1_pipeline_projection.py",
+      "sha256": "409f90959f11d0892d7adb6018b4ec6785af14604ba194a289f6d5d965d74ae5"
+    },
+    {
+      "path": "apps/backend/tests/test_s2_intelligence_real_mongo.py",
+      "sha256": "0f2e587364877c07123bb4c30aadaf8d7208aa5d58ea83696bb08745d3be8928"
+    },
+    {
+      "path": "apps/backend/tests/test_s2_local_ocr.py",
+      "sha256": "67a78d7ff03e05a50985ffeb88ce0c2d8d31b9c221b840d3dd7d4f9c80330ab8"
+    },
+    {
+      "path": "apps/backend/tests/test_s2_ownership_intelligence.py",
+      "sha256": "0f0ae00c1e3b2b66779c3b2a7aebd611e1130034e20ab8c7fad7136a48ae76c6"
+    },
+    {
+      "path": "apps/backend/tests/test_s2_persistence_security.py",
+      "sha256": "5a00fc19418d6ec3e9a18e970f54462d565607b1c88b37a73b81bceb28754519"
+    },
+    {
+      "path": "apps/backend/tests/test_slice_a_legacy_compatibility.py",
+      "sha256": "8abeee539dbb7c3381cf35bff43c064b2f985cdaa4862da4a78a3df71f8ebe81"
+    },
+    {
+      "path": "apps/backend/tests/test_slice_c_blocker_catalogue.py",
+      "sha256": "ab3fb28ebe84a305aff212e857dc64fcd99e4ab2a58dcc9a23c07a151307a50b"
+    },
+    {
+      "path": "apps/backend/tests/test_slice_c_blocker_recovery.py",
+      "sha256": "5efa8b98e484495df39fc2891e61c447cf4c115add6cf34c9543a49eb5894892"
+    },
+    {
+      "path": "apps/backend/tests/test_slice_c_real_mongo.py",
+      "sha256": "232788926ee9e65e1f6ed4b9edd67bef415a4a6900efc884bff4be718c6e6603"
+    },
+    {
+      "path": "apps/backend/tests/test_slice_f_document_pack.py",
+      "sha256": "2ec033b2dc8fcb28a6136317e3898cd50eb483b207fa915d3551eec88318bcd1"
+    },
+    {
+      "path": "apps/backend/tests/test_zero_touch_orchestration.py",
+      "sha256": "b3455abab206440a96bd93197da850d6de593f5612941af3699b90e323f5ee37"
+    },
+    {
+      "path": "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
+      "sha256": "3a34d7d72f2dd455eb9dcc035ec1a80113492321b83962cecfda45d15a13cb7e"
+    },
+    {
+      "path": "apps/frontend/e2e/garden-happy-path.e2e.ts",
+      "sha256": "79bc98b27408438d17aaa4902a1a2c223697d2a5e73348316970c294a86e6e2f"
+    },
+    {
+      "path": "apps/frontend/e2e/onboarding-recovery.e2e.ts",
+      "sha256": "374ef18ebea04d5c1dd9d81285d761b8b4789c27f00ef77b9b4a905a9f5a9519"
+    },
+    {
+      "path": "apps/frontend/e2e/phase24-identity.e2e.ts",
+      "sha256": "0fff8b2bacb5b6aa37c4a2a8e938c399082a31059482a9437093db3f3c3cd8f7"
+    },
+    {
+      "path": "apps/frontend/e2e/phase24c-policy.e2e.ts",
+      "sha256": "9dba173fc217097f8c3961935e370601da64217c4663f3093970e8580aad24c1"
+    },
+    {
+      "path": "apps/frontend/e2e/responsive-layout.e2e.ts",
+      "sha256": "721870ad30307a127ed09d9c132e8e7da4ae4405b05a698511f6bd940312e9cf"
+    },
+    {
+      "path": "apps/frontend/e2e/s1-workspace-session.e2e.ts",
+      "sha256": "649b1de8a7b7b2de7e662c08880552a2d2496c27c56df8524486dc15b5891c38"
+    },
+    {
+      "path": "apps/frontend/e2e/s2-ownership.e2e.ts",
+      "sha256": "c97927ca11d059af3b4c9ae4f7f24f7581a449c4e4541700b791ae61a710ddc6"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-b-registry-demo.e2e.ts",
+      "sha256": "89534e4258502f0240a466cd4ba71bed542972589f47f1cae21017e8c1af4493"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-c-recovery.e2e.ts",
+      "sha256": "1cf3b68d92aaf97604bf60e4c60f427396f5a8a28b1e1514f0da496574e45a01"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-e-policy.e2e.ts",
+      "sha256": "ca98425ded12b01b3f669fd5040cd9aaafcea4d05e95ebc9519438fabf588377"
+    },
+    {
+      "path": "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+      "sha256": "6fa8e31ce412bfb11a023fb1670d74f691f126448568e9750b0d46e924332b73"
+    },
+    {
+      "path": "apps/frontend/src/App.test.tsx",
+      "sha256": "78bde354d02d4cba68fa01b78c45df47dc6a7682ee42dff54f6bfe21c6623971"
+    },
+    {
+      "path": "apps/frontend/src/App.tsx",
+      "sha256": "eab42f74cb1e068c2d4333f48fe171f4fa62fe519cc0c890496cd873034af07e"
+    },
+    {
+      "path": "apps/frontend/src/AuthSessionOrdering.test.tsx",
+      "sha256": "b3e581e5c716dd0c60b3a10d3bcb3d43b58eef27cd87ce566e6d2bf4ca51ff5e"
+    },
+    {
+      "path": "apps/frontend/src/DemoPerformance.test.tsx",
+      "sha256": "54f5f459d2acddfe88e532b2a758e632c054bffa450e07a2fba802ab5e93ca1c"
+    },
+    {
+      "path": "apps/frontend/src/EvidenceWorkbenchIsolation.test.tsx",
+      "sha256": "09c09db1bce92c8e0c0f1575dd41056e1a8cf6806be34d0bc6961bb4dd251e4d"
+    },
+    {
+      "path": "apps/frontend/src/GoldTierSandbox.test.tsx",
+      "sha256": "895c15c13025ff698d3227bc7c1db43d4771ae54bdedb9d6f93865e40343869e"
+    },
+    {
+      "path": "apps/frontend/src/Phase13AuthPriority.test.tsx",
+      "sha256": "72fa2e31a547632848a6b7425eadfbcfe1f713a6cb700d26363e732eaed537f0"
+    },
+    {
+      "path": "apps/frontend/src/Phase15CNavigation.test.tsx",
+      "sha256": "88d54346778b02d9f1ce7d421d2a6a433acdcdd83f7665357e105077c5105e32"
+    },
+    {
+      "path": "apps/frontend/src/S1CreatedDateFilters.test.tsx",
+      "sha256": "af32bab90f8fa197338fed6f116232871b7e90427545cba4b04a9d25f2e82193"
+    },
+    {
+      "path": "apps/frontend/src/S1FormsSession.test.tsx",
+      "sha256": "c66d271645e821b969dcf04f4a39629765665d42f07b29fdb20af0a046482af5"
+    },
+    {
+      "path": "apps/frontend/src/api.ts",
+      "sha256": "40ea68be74f35dd8544320c99f3e3df641df3323198a7c27799cd7213ae752a7"
+    },
+    {
+      "path": "apps/frontend/src/auth.tsx",
+      "sha256": "3725f907612a8c70450b3ecce10ac2f153621707b4303e0be977df97abe5e85d"
+    },
+    {
+      "path": "apps/frontend/src/caseQueries.ts",
+      "sha256": "4efb45d6486feb4d62f81bb61c65627dedd0508092111f76534504be2ce83c2a"
+    },
+    {
+      "path": "apps/frontend/src/pages/AcraDiagnostics.test.tsx",
+      "sha256": "19bbe154bb2edb910cf9c642af1a5be648be24a6ec023b75d363571a67cecd21"
+    },
+    {
+      "path": "apps/frontend/src/pages/AcraDiagnostics.tsx",
+      "sha256": "150510e78743815c5bf26f2574f908d527357e1f848fde0bb6a7f562c739c24e"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseDetail.tsx",
+      "sha256": "d1b72b77f8f891f63f5f2ad21476efe6bcb408418e0df440b8a33948959cd207"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseQueue.tsx",
+      "sha256": "16247365134cca957d5b0b6c0290b867cad5bc6732fe4e2e8c6bc09332382c9c"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.test.tsx",
+      "sha256": "20e2e20cdb3b04a05ac7ecdf5a79ee59ddee30afda7041663c66234e53b69b9b"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.tsx",
+      "sha256": "31ee6e173923010b0678d3bd54ee95b9a5d017426e5cf7752a837aaf663b8c9c"
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx",
+      "sha256": "38b851549cd2a4498469994fd308128ad34243327fb521ee8aa62e2c7fed6de9"
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.tsx",
+      "sha256": "b3513a98c4f22aa879f67921582d45df21ab484388672f8d745d1448366e8ae9"
+    },
+    {
+      "path": "apps/frontend/src/pages/GoldTierSandbox.tsx",
+      "sha256": "307c3c883bdf3439dcddb19a2d71110948e8de20f4d6ab954d0218b4f67ee1bb"
+    },
+    {
+      "path": "apps/frontend/src/pages/HomeOnboarding.tsx",
+      "sha256": "9a03578891d35f5c7e663eec5f7b24d3c87d25689296d680f1227285332a72ff"
+    },
+    {
+      "path": "apps/frontend/src/pages/LoginPage.tsx",
+      "sha256": "9a7f37c4964feaf9c43b01698513b281075927da2f7e598aff8f74fb72ce8b7e"
+    },
+    {
+      "path": "apps/frontend/src/pages/ManualOwnershipEvidenceForm.test.tsx",
+      "sha256": "55dbfa21bd053690bad084238919a40cfce825de9f4a173f81d630f4197e72bd"
+    },
+    {
+      "path": "apps/frontend/src/pages/ManualOwnershipEvidenceForm.tsx",
+      "sha256": "5719a3db21b0f3307fddb2573f509be40fe4c21d3da137b42ba2b6458f3309c4"
+    },
+    {
+      "path": "apps/frontend/src/pages/OnboardedClients.tsx",
+      "sha256": "bb8eb0fd58da6321220edf451a1b1d36cfd3f12792918937fb40e6e3ddd5449c"
+    },
+    {
+      "path": "apps/frontend/src/pages/OnboardingWorkspace.tsx",
+      "sha256": "9b540d1101af970bda4f80a9ebf5057ae74ac890f6bbfcfd14ece3f103509832"
+    },
+    {
+      "path": "apps/frontend/src/pages/OwnershipPathExplorer.tsx",
+      "sha256": "cf4c14847558b5225b51ca47d8132596063234dc3f064cca827c3c620567a5c3"
+    },
+    {
+      "path": "apps/frontend/src/pages/ReviewAndSend.test.tsx",
+      "sha256": "2aa1e369c5383d22b753d4c43641d193ba388473ad94fbbe60ae2b60f8307c0d"
+    },
+    {
+      "path": "apps/frontend/src/pages/ReviewAndSend.tsx",
+      "sha256": "447c19b76f964ae90eb326b635a1b8441d4863a12afd325adb647a4aace4a8f7"
+    },
+    {
+      "path": "apps/frontend/src/pages/S1PipelineWorkspace.test.tsx",
+      "sha256": "f023aec3c58800c3abf0aaa99c75b556e3cdca60a544178312cb2356f931b81d"
+    },
+    {
+      "path": "apps/frontend/src/pages/S2OwnershipReview.test.tsx",
+      "sha256": "8db09465e89bcc2ba19c369c4a4b71102fed2f814cdc30186afadd446b6c066c"
+    },
+    {
+      "path": "apps/frontend/src/styles.css",
+      "sha256": "edd58626d9be52570abae010647be7ca59ad52a92cd38b19ea66b3b9a7e5f034"
+    },
+    {
+      "path": "apps/frontend/src/types.ts",
+      "sha256": "a61cd110eb64e281e748c19d7700b87082bc7855683c49b8bcc7b7b36b1f6d7d"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "2a4a2761e180cae998668ee618195a6bd65d433e70663143baf2c4f57d1c8e18"
+    },
+    {
+      "path": "docs/PROJECT_STATE.md",
+      "sha256": "7e6efef44ff4857984454ca570e6abc0bb3ab052bf87991bbb40d0dfa53d553d"
+    },
+    {
+      "path": "docs/contracts/CASE_PORTFOLIO_QUERY_PROFILE.md",
+      "sha256": "0081ef9cb96f99672abe77a6c4f9dd4b8649ed65fec8839d37261247ccea005f"
+    },
+    {
+      "path": "docs/contracts/CLM_READINESS_POLICY.md",
+      "sha256": "c23c65848a1bd23eaaadcaf31b2c3cd37b88eb78aff1a67886a7b17a33e7b857"
+    },
+    {
+      "path": "docs/contracts/IDP_FIELD_PROFILE.md",
+      "sha256": "64a24ea2f0219ee9c8559ce1858f1df93c09cca428c7c2bfbda0e6396001760a"
+    },
+    {
+      "path": "docs/contracts/IDP_REVIEW_CONTRACT.md",
+      "sha256": "50ec8cde1265b226d3181828d1ea51041ca7c166d8a5bedbc3137943eca8170a"
+    },
+    {
+      "path": "docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md",
+      "sha256": "713647c99139e161657578e40c59da866773d428e89330b0dc32c4445253de19"
+    },
+    {
+      "path": "docs/contracts/OWNERSHIP_UBO_PROFILE.md",
+      "sha256": "e06b09489694f1d797a893c77765cacc04c7380e5c8207850011cf0ba150f01e"
+    },
+    {
+      "path": "docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md",
+      "sha256": "39780127386b6d3db4a632777e27f646d993ab4d7a27b10e82f3b9c2c9297df5"
+    },
+    {
+      "path": "docs/contracts/POLICY_ACTIVATION_CONTRACT.md",
+      "sha256": "16367107f83a51aa636377c54bf58665456b88baad23f78ddacf9422c07374c6"
+    },
+    {
+      "path": "docs/decisions/ADR-007_RECOVERABLE_ONBOARDING_AND_FINAL_CONFIRMATION.md",
+      "sha256": "255bedba05f3a84a82dc0c5772160839c8f60cb71fffa002bb51bf0bd0de57ff"
+    },
+    {
+      "path": "docs/decisions/ADR-009_LOCAL_OCR_AND_REVIEWED_OWNERSHIP.md",
+      "sha256": "e9ec3cd0c0d7d893630342367d92fd945d1f8fefc3d6b649ef6ad554658aa189"
+    },
+    {
+      "path": "docs/decisions/DECISION_LOG.md",
+      "sha256": "0d9aadd47d2cf8a9218a979b2c55788f53622c55ad3e6f40c8386066a50ef2b1"
+    },
+    {
+      "path": "docs/demo/BLOCKER_RECTIFICATION_GUIDE.md",
+      "sha256": "af480f46bd7d1a2386a8e7dd2d894ae9a9f448212c7357960b00a99ee539a872"
+    },
+    {
+      "path": "docs/development/GARDEN_DEMO_GUIDE.md",
+      "sha256": "9732f402c2d71c0cf213ede55125539f95cde2220702346edc8251449a2db21b"
+    },
+    {
+      "path": "docs/development/LOCAL_OCR_SETUP.md",
+      "sha256": "0bcbd6e13c07e908ab266139cc02edcabe2d9b45ead04d4af726aa95fa765ec4"
+    },
+    {
+      "path": "docs/sponsor-questions/OPEN_QUESTIONS.md",
+      "sha256": "c5af6f300e1f4d5517ff62283417ece99a06856bbbd1a6ccd9c91b254d58cb92"
+    },
+    {
+      "path": "scripts/ocr_validation.Dockerfile",
+      "sha256": "d2301392c8e2a8b27bec5c4bf84eacc52a4b2ec97916e16ae68a7cb289ee021a"
+    },
+    {
+      "path": "scripts/ocr_validation.Dockerfile.dockerignore",
+      "sha256": "0f9ae7f6f6f926053c9295f4b011004a33c6de5a2dff6bd83231d54c48033cfe"
+    },
+    {
+      "path": "scripts/run_physical_mongo_tests.py",
+      "sha256": "40824f2b2e045352a3b95ff07443f06e3349b3738ea480774b2203a88586c949"
+    },
+    {
+      "path": "tests/test_check_tooling_config.py",
+      "sha256": "4e33e9ace742618299aaa746de658bbab200b7fbdcba8daa0f13ba36fc27d8b3"
+    },
+    {
+      "path": "tests/test_run_e2e.py",
+      "sha256": "27bce53899d667cd90f582a3ad88236ad7729be3becd50e39603ea5337d6ec75"
+    },
+    {
+      "path": "tests/test_run_physical_mongo_tests.py",
+      "sha256": "ad56e0271c8cecaf504e44bacb8b90e0c103badc468279c8d8f408adf7f70df2"
+    }
+  ]
+}

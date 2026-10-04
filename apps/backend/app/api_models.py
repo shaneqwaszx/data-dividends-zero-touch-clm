@@ -30,11 +30,15 @@ from app.domain.clm import (
 from app.domain.documents import (
     ComparisonStatus,
     DocumentCompletionMethod,
+    DocumentFieldCandidate,
     DocumentFieldKey,
+    DocumentOwnershipObservation,
+    DocumentPageEvidence,
     DocumentProcessingRecord,
     DocumentProcessingState,
     DocumentProfile,
     DocumentWorkflowEvent,
+    ExtractionMetadata,
     FieldReviewStatus,
     IdpEnvironment,
 )
@@ -75,6 +79,8 @@ from app.domain.ownership import (
     OwnershipAnalysisState,
     OwnershipBasis,
     OwnershipCandidate,
+    OwnershipDocumentBinding,
+    OwnershipDocumentDiscrepancy,
     OwnershipEnvironment,
     OwnershipRelationshipType,
     OwnershipWorkflowEvent,
@@ -376,6 +382,7 @@ class OnboardingCaseResponse(BaseModel):
     policy_snapshot_revision: int
     policy_rebind: BrowserPolicyRebindMetadata
     team_id: TeamId | None = None
+    created_by_actor_id: str | None = None
     priority: CasePriority | None = None
     client_scope_label: str | None = None
     jurisdiction_resolution: BrowserJurisdictionResolution | None = None
@@ -442,7 +449,7 @@ class BrowserFieldProvenance(BaseModel):
     source_reference: str
 
 
-class BrowserExtractedField(BaseModel):
+class BrowserExtractedField(ExtractionMetadata):
     """Provider suggestion, comparison, and separately retained human decision."""
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
@@ -458,6 +465,7 @@ class BrowserExtractedField(BaseModel):
     reviewed_value: str | None
     reviewed_at: datetime | None
     review_note: str | None
+    candidates: tuple[DocumentFieldCandidate, ...] = ()
 
 
 class DocumentProcessingResponse(BaseModel):
@@ -467,6 +475,7 @@ class DocumentProcessingResponse(BaseModel):
 
     case_id: UUID
     document_id: UUID
+    document_version: Literal[1] | None = None
     correlation_id: UUID
     display_name: str
     media_type: str
@@ -475,6 +484,8 @@ class DocumentProcessingResponse(BaseModel):
     provider_environment: IdpEnvironment | None
     state: DocumentProcessingState
     fields: list[BrowserExtractedField]
+    pages: tuple[DocumentPageEvidence, ...] = ()
+    ownership_observations: tuple[DocumentOwnershipObservation, ...] = ()
     events: list[DocumentWorkflowEvent]
     error: SafeError | None = None
     created_at: datetime
@@ -500,6 +511,16 @@ class OwnershipAnalysisResponse(BaseModel):
 
     case_id: UUID
     evidence: tuple[OwnershipEvidence, ...] = ()
+    document_observations: tuple[DocumentOwnershipObservation, ...] = ()
+    document_bindings: tuple[OwnershipDocumentBinding, ...] = ()
+    document_discrepancies: tuple[OwnershipDocumentDiscrepancy, ...] = ()
+    source_classification: Literal[
+        "SINGLE_SOURCE", "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
+    ] = "SINGLE_SOURCE"
+    prior_analyses: tuple["BrowserPriorOwnershipSnapshot", ...] = ()
+    supplemental_parties: tuple[Party, ...] = ()
+    supplemental_relationships: tuple["BrowserOwnershipRelationship", ...] = ()
+    supplemental_evidence: tuple[OwnershipEvidence, ...] = ()
     tagging: OwnershipTaggingResult | None = None
     legal_form: RegistryLegalForm | None = None
     version: int
@@ -550,6 +571,35 @@ class BrowserOwnershipRelationship(BaseModel):
     relationship_type: OwnershipRelationshipType
     basis: OwnershipBasis
     provenance: BrowserOwnershipProvenance
+
+
+class BrowserPriorOwnershipSnapshot(BaseModel):
+    """Retained safe graph and decisions for explainable pre-submission revisions."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+    version: int
+    analysis_id: UUID
+    root_party_id: str | None
+    provider_name: str | None
+    provider_environment: OwnershipEnvironment | None
+    state: OwnershipAnalysisState
+    parties: list[Party]
+    relationships: list[BrowserOwnershipRelationship]
+    candidates: list[OwnershipCandidate]
+    issues: list[OwnershipAnalysisIssue]
+    evidence: tuple[OwnershipEvidence, ...] = ()
+    document_observations: tuple[DocumentOwnershipObservation, ...] = ()
+    document_bindings: tuple[OwnershipDocumentBinding, ...] = ()
+    document_discrepancies: tuple[OwnershipDocumentDiscrepancy, ...] = ()
+    source_classification: Literal[
+        "SINGLE_SOURCE", "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
+    ] = "SINGLE_SOURCE"
+    manual_review_receipt: ManualOwnershipReviewReceipt | None = None
+    supplemental_parties: tuple[Party, ...] = ()
+    supplemental_relationships: tuple[BrowserOwnershipRelationship, ...] = ()
+    supplemental_evidence: tuple[OwnershipEvidence, ...] = ()
+    created_at: datetime
+    analyzed_at: datetime | None
 
 
 OwnershipAnalysisResponse.model_rebuild()
@@ -1284,6 +1334,20 @@ class BrowserOwnershipRecovery(BaseModel):
     review_receipt: ManualOwnershipReviewReceipt | None = None
 
 
+class BrowserTargetSubmissionEvidence(BaseModel):
+    """Derived presentation only; the existing target ledger owns completion."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    submission_id: UUID | None
+    state: Literal[
+        "NOT_SUBMITTED", "SENDING", "SUBMISSION_CONFIRMED", "SUBMISSION_FAILED",
+        "SUBMISSION_OUTCOME_UNCERTAIN", "FINALIZATION_PENDING",
+    ]
+    goldtier_id: str | None = Field(default=None, max_length=96)
+    status_check_available: bool = False
+
+
 class ZeroTouchCaseSummaryResponse(BaseModel):
     """Sponsor-facing authoritative automation and bounded CLM summary."""
 
@@ -1304,11 +1368,14 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     technical_failure: SafeError | None
     metrics: AutomationMetrics
     target_operations: tuple["BrowserTargetOperationEvidence", ...]
+    target_submission: BrowserTargetSubmissionEvidence | None = None
     stage_order_version: Literal[1, 2]
     processing_pipeline: tuple[BrowserProcessingNode, ...]
     target_classification: BrowserTargetClassification
     classification_consistency: ClassificationConsistencyAdvisory
     ownership_recovery: BrowserOwnershipRecovery | None
+    evidence_decision_authorized: bool = False
+    ownership_edit_authorized: bool = False
     timeline: list[AutomationEvent]
     created_at: datetime
     updated_at: datetime
@@ -1323,13 +1390,18 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         timing: "CaseDetailTimingResponse",
         reconciliation: ReconciliationCaseRecord | None = None,
         target_operations: tuple["BrowserTargetOperationEvidence", ...] = (),
+        target_submission: BrowserTargetSubmissionEvidence | None = None,
         processing_pipeline: tuple[BrowserProcessingNode, ...] = (),
         team: TeamRecord | None = None,
         ownership: OwnershipAnalysisRecord | None = None,
+        evidence_decision_authorized: bool = False,
+        ownership_edit_authorized: bool = False,
     ) -> "ZeroTouchCaseSummaryResponse":
         target_classification = BrowserTargetClassification.from_case(case)
         return cls(
             case=OnboardingCaseResponse.from_domain(case, team),
+            evidence_decision_authorized=evidence_decision_authorized,
+            ownership_edit_authorized=ownership_edit_authorized,
             clm=ClmCaseSummaryResponse.from_domain(clm_record, case, team),
             automation_id=record.automation_id,
             version=record.version,
@@ -1362,6 +1434,7 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
             technical_failure=record.technical_failure,
             metrics=record.metrics,
             target_operations=target_operations,
+            target_submission=target_submission,
             stage_order_version=record.stage_order_version,
             processing_pipeline=processing_pipeline,
             target_classification=target_classification,
@@ -1569,6 +1642,7 @@ class BrowserTargetOperationEvidence(BaseModel):
     status: Literal[
         "NOT_ATTEMPTED",
         "IN_PROGRESS",
+        "OUTCOME_UNCERTAIN",
         "NO_MATCH",
         "MATCH_FOUND",
         "SKIPPED",
@@ -1588,6 +1662,7 @@ def project_processing_pipeline(
     reconciliation: ReconciliationCaseRecord | None,
     target_operations: tuple[BrowserTargetOperationEvidence, ...],
     retained_goldtier_id: str | None,
+    target_submission: BrowserTargetSubmissionEvidence | None = None,
 ) -> tuple[BrowserProcessingNode, ...]:
     """Build the exact, presentation-safe workflow order from retained backend facts."""
 
@@ -1634,6 +1709,7 @@ def project_processing_pipeline(
         return {
             "NOT_ATTEMPTED": "NOT_REACHED",
             "IN_PROGRESS": "IN_PROGRESS",
+            "OUTCOME_UNCERTAIN": "BLOCKED",
             "NO_MATCH": "COMPLETE",
             "MATCH_FOUND": "COMPLETE",
             "SKIPPED": "SKIPPED",
@@ -1739,7 +1815,11 @@ def project_processing_pipeline(
         and automation.current_stage == AutomationStage.GOLDTIER_SEARCH
     ):
         search_status = stage_status(AutomationStage.GOLDTIER_SEARCH)
-    elif checkpoint is None and initial_identity is None:
+    elif (
+        checkpoint is None
+        and initial_identity is None
+        and search_evidence.status == "NOT_ATTEMPTED"
+    ):
         search_status = "BLOCKED"
     search_event_timestamps = [
         item.timestamp
@@ -1970,7 +2050,7 @@ def project_processing_pipeline(
                 "SHELL": "Customer shell",
                 "POLICY": "Customer policy",
                 "AMEND": "Customer amendment",
-                "READBACK": "Post-amend read-back",
+                "READBACK": "Customer identity readback",
             }[item.operation],
             status=operation_status(item.status),
             provider="GOLDTIER",
@@ -2035,14 +2115,14 @@ def project_processing_pipeline(
     common_prefix = (
         BrowserProcessingNode(
             node_id="CASE_START",
-            label="Case start",
+            label="Case created",
             status="COMPLETE",
             timestamp=automation.created_at,
             safe_result="Automation record created",
         ),
         BrowserProcessingNode(
             node_id="JURISDICTION",
-            label="Jurisdiction decision",
+            label="Jurisdiction",
             status=jurisdiction_status,
             timestamp=jurisdiction_timestamp,
             safe_result=jurisdiction_result,
@@ -2050,7 +2130,7 @@ def project_processing_pipeline(
         ),
         BrowserProcessingNode(
             node_id="ACRA_REGISTRY",
-            label="ACRA registry",
+            label="Registry verification",
             status=registry_status,
             provider=registry_provider or "ACRA",
             environment=registry_environment,
@@ -2084,7 +2164,7 @@ def project_processing_pipeline(
     )
     early_search = BrowserProcessingNode(
         node_id="GOLDTIER_SEARCH",
-        label="GoldTier search",
+        label="Existing-customer search",
         status=search_status,
         provider="GOLDTIER",
         environment=clm.submission_plan.environment.value,
@@ -2109,7 +2189,11 @@ def project_processing_pipeline(
     initial_identity_node = BrowserProcessingNode(
         node_id="INITIAL_IDENTITY",
         label="Initial identity",
-        status="COMPLETE" if initial_identity is not None else "REVIEW_REQUIRED",
+        status=(
+            "COMPLETE" if initial_identity is not None
+            else "NOT_REACHED" if automation.status == AutomationStatus.COMPLETED
+            else "REVIEW_REQUIRED"
+        ),
         timestamp=getattr(case, "created_at", None) if initial_identity is not None else None,
         safe_result=(
             "Legal name, registration ID, and country retained"
@@ -2139,10 +2223,74 @@ def project_processing_pipeline(
             else "No existing target state hydrated"
         ),
     )
+    confirmation = getattr(case, "target_dispatch_confirmation", None)
+    final_review_required = any(
+        item.exception_type.value == "TARGET_CONFIRMATION_REQUIRED"
+        for item in automation.active_exceptions
+    )
+    package_prepared = (
+        confirmation is not None
+        or final_review_required
+        or automation.status == AutomationStatus.COMPLETED
+    )
+    final_review_status: ProcessingNodeStatus = "NOT_REACHED"
+    final_review_result = "Final review awaits authoritative readiness"
+    if confirmation is not None:
+        if target_submission is not None and target_submission.state != "NOT_SUBMITTED":
+            submission_states: dict[str, tuple[ProcessingNodeStatus, str]] = {
+                "SENDING": ("IN_PROGRESS", "Sending to GoldTier"),
+                "SUBMISSION_CONFIRMED": (
+                    "COMPLETE",
+                    "Submission confirmed; provider outcome and local completion retained",
+                ),
+                "SUBMISSION_FAILED": ("FAILED", "Submission failed; retained provider failure"),
+                "SUBMISSION_OUTCOME_UNCERTAIN": (
+                    "BLOCKED",
+                    "Submission outcome uncertain; read-only verification required, no replay",
+                ),
+                "FINALIZATION_PENDING": (
+                    "BLOCKED",
+                    "Retained target operations resolved; safe finalization pending without replay",
+                ),
+            }
+            final_review_status, final_review_result = submission_states[target_submission.state]
+        elif automation.status == AutomationStatus.COMPLETED:
+            final_review_status = "COMPLETE"
+            final_review_result = "Reviewed submission completed; provider outcome retained"
+        elif automation.status == AutomationStatus.RECOVERY_PENDING:
+            final_review_status = "BLOCKED"
+            final_review_result = (
+                "Submission recovery pending; retained target "
+                "outcomes must be inspected and must not be replayed"
+            )
+        elif target_status == "FAILED" or automation.status == AutomationStatus.TECHNICAL_FAILURE:
+            final_review_status = "FAILED"
+            final_review_result = (
+                "Reviewed submission stopped; retained "
+                "failure requires inspection"
+            )
+        else:
+            final_review_status = target_status
+            final_review_result = (
+                "Final approval retained; ledger-owned submission "
+                "outcome remains authoritative"
+            )
+    elif final_review_required:
+        final_review_status = "REVIEW_REQUIRED"
+        final_review_result = (
+            "Review & Send is this application's final "
+            "approval before target submission"
+        )
+    elif automation.status == AutomationStatus.COMPLETED:
+        final_review_result = (
+            "Historical target completion retained; no "
+            "application review confirmation recorded"
+        )
+
     common_suffix = (
         BrowserProcessingNode(
             node_id="DOCUMENT_IDP",
-            label="Document and IDP",
+            label="Document verification",
             status=readiness_status(clm.readiness.document.status.value),
             backend_stage=AutomationStage.DOCUMENT,
             timestamp=stage_timestamp(AutomationStage.DOCUMENT),
@@ -2151,7 +2299,7 @@ def project_processing_pipeline(
         ),
         BrowserProcessingNode(
             node_id="RECONCILIATION",
-            label="Evidence reconciliation",
+            label="Data reconciliation",
             status=reconciliation_status,
             backend_stage=AutomationStage.DOCUMENT,
             timestamp=reconciliation_timestamp,
@@ -2160,7 +2308,7 @@ def project_processing_pipeline(
         ),
         BrowserProcessingNode(
             node_id="OWNERSHIP_UBO",
-            label="Ownership and UBO",
+            label="Ownership & UBO",
             status=readiness_status(clm.readiness.ownership.status.value),
             backend_stage=AutomationStage.OWNERSHIP,
             timestamp=stage_timestamp(AutomationStage.OWNERSHIP),
@@ -2169,18 +2317,19 @@ def project_processing_pipeline(
         ),
         BrowserProcessingNode(
             node_id="ADVISORY",
-            label="Advisory evaluation",
+            label="Risk assessment",
             status=advisory_status,
             backend_stage=AutomationStage.OWNERSHIP,
             timestamp=advisory_timestamp,
             safe_result=(
-                "Advisory result retained" if intelligence_events else "Advisory not reached"
+                "Bounded POC advisory assessment retained; not production AML/KYC risk"
+                if intelligence_events
+                else "Bounded POC advisory assessment not reached; not production AML/KYC risk"
             ),
         ),
-        *classification_nodes,
         BrowserProcessingNode(
             node_id="READINESS",
-            label="Readiness decision",
+            label="Readiness check",
             status=projected_readiness_status,
             backend_stage=AutomationStage.READINESS,
             timestamp=clm.readiness.evaluated_at,
@@ -2190,56 +2339,56 @@ def project_processing_pipeline(
                 else f"{len(clm.readiness.blockers)} blocker(s) retained"
             ),
             blocker_code=(clm.readiness.blockers[0].value if clm.readiness.blockers else None),
+            children=classification_nodes,
         ),
         BrowserProcessingNode(
             node_id="GOLDTIER_TARGET",
-            label="GoldTier target",
-            status=target_status,
+            label="Preparing GoldTier Submission",
+            status="COMPLETE" if package_prepared else projected_readiness_status,
+            provider="GOLDTIER",
+            environment=clm.submission_plan.environment.value,
+            backend_stage=AutomationStage.READINESS,
+            timestamp=clm.readiness.evaluated_at,
+            safe_result=(
+                "Prepared target plan retained" if package_prepared
+                else "Submission preparation awaits authoritative readiness"
+            ),
+            blocker_code=(clm.readiness.blockers[0].value if clm.readiness.blockers else None),
+        ),
+        BrowserProcessingNode(
+            node_id="FINAL_REVIEW_SEND",
+            label="Final review & send",
+            status=final_review_status,
             provider="GOLDTIER",
             environment=clm.submission_plan.environment.value,
             backend_stage=AutomationStage.MOCK_GOLDTIER,
-            timestamp=stage_timestamp(AutomationStage.MOCK_GOLDTIER),
-            safe_result="Ledger-owned target sequence",
+            timestamp=(
+                automation.completed_at
+                or getattr(confirmation, "confirmed_at", None)
+            ),
+            safe_result=final_review_result,
             blocker_code=(
-                str(checkpoint.code)
-                if checkpoint is not None
-                and checkpoint.disposition
-                in {
-                    GoldTierSearchDisposition.FAILED,
-                    GoldTierSearchDisposition.REVIEW_REQUIRED,
-                }
-                else exception_code(AutomationStage.MOCK_GOLDTIER)
+                exception_code(AutomationStage.MOCK_GOLDTIER)
+                if confirmation is not None
+                else "TARGET_CONFIRMATION_REQUIRED" if final_review_required else None
             ),
             retained_goldtier_id=retained_goldtier_id,
             children=target_children,
         ),
-        BrowserProcessingNode(
-            node_id="HUMAN_APPROVAL",
-            label="Human approval (unresolved)",
-            status=(
-                "REVIEW_REQUIRED" if completed_status == "COMPLETE" else "NOT_REACHED"
-            ),
-            timestamp=automation.completed_at,
-            safe_result=(
-                "Sandbox lifecycle completed; approval is not implemented"
-                if completed_status == "COMPLETE"
-                else "Approval boundary not reached; transition is not implemented"
-            ),
-            blocker_code="READY_FOR_APPROVAL_NOT_IMPLEMENTED",
-        ),
     )
-    if automation.stage_order_version == LEGACY_AUTOMATION_STAGE_ORDER_VERSION:
-        return (*common_prefix, *common_suffix)
-    prefix: tuple[BrowserProcessingNode, ...] = (
+    # Business-stage presentation does not change historical event/operation order.
+    search_with_state = early_search.model_copy(update={
+        "children": (*search_children, existing_target_node)
+        if existing_target_state is not None else search_children,
+    })
+    return (
         common_prefix[0],
         initial_identity_node,
         common_prefix[1],
-        early_search,
+        search_with_state,
         common_prefix[2],
+        *common_suffix,
     )
-    if existing_target_state is not None:
-        prefix = (*prefix, existing_target_node)
-    return (*prefix, *common_suffix)
 
 
 ZeroTouchCaseSummaryResponse.model_rebuild()

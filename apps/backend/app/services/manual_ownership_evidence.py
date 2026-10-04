@@ -35,6 +35,7 @@ from app.domain.models import OnboardingCase
 from app.domain.ownership import (
     ManualOwnershipReviewReceipt,
     OwnershipBasis,
+    OwnershipDocumentBinding,
     OwnershipEnvironment,
     OwnershipPercent,
     OwnershipProvenance,
@@ -156,6 +157,13 @@ class ManualOwnershipDeclaration(BaseModel):
     source_type: Literal["USER_SUPPLIED_DECLARATION"] = MANUAL_OWNERSHIP_SOURCE_TYPE
     as_of_date: date
     rationale: SafeReviewText
+    source_selection: Literal[
+        "USER_SUPPLIED_DECLARATION", "CURRENT_EVIDENCE", "DOCUMENT_OBSERVATIONS"
+    ] = "USER_SUPPLIED_DECLARATION"
+    observed_document_versions: tuple[OwnershipDocumentBinding, ...] = Field(
+        default=(), max_length=32
+    )
+    selected_observation_ids: tuple[UUID, ...] = Field(default=(), max_length=128)
     root_party_id: SafePartyId
     parties: tuple[Party, ...] = Field(min_length=2, max_length=MAX_MANUAL_PARTIES)
     relationships: tuple[ManualEconomicInterest, ...] = Field(
@@ -203,7 +211,15 @@ class ManualOwnershipDeclaration(BaseModel):
             totals[pair[0]] += relationship.ownership_percent
             adjacency[pair[0]].append(pair[1])
 
-        if any(total != Decimal("100") for total in totals.values()):
+        # Retaining current evidence must not infer missing percentages. The owning
+        # service still validates and compares the exact current graph before replacement.
+        if self.source_selection == "CURRENT_EVIDENCE" and any(
+            total > Decimal("100") for total in totals.values()
+        ):
+            raise ValueError("each retained parent economic-interest total must not exceed 100")
+        if self.source_selection != "CURRENT_EVIDENCE" and any(
+            total != Decimal("100") for total in totals.values()
+        ):
             raise ValueError("each declared parent economic-interest total must equal 100")
         _reject_cycles(adjacency, known)
         _reject_disconnected(self.root_party_id, adjacency, known)
@@ -240,6 +256,9 @@ class ManualOwnershipEvidenceProvider:
             evidence_document_version=declaration.evidence_document_version,
             evidence_reference=_evidence_reference(declaration),
             as_of_date=declaration.as_of_date,
+            source_selection=declaration.source_selection,
+            observed_document_versions=declaration.observed_document_versions,
+            selected_observation_ids=declaration.selected_observation_ids,
         )
         self._source = _build_source(declaration, reviewed_at)
 

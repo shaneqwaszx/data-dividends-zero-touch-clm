@@ -34,6 +34,7 @@ PROCESS_STOP_TIMEOUT_SECONDS = 5.0
 LIFECYCLE_OVERHEAD_SECONDS = 120.0
 DISCOVERY_TIMEOUT_SECONDS = 60.0
 RECOVERY_DEMO_MODES = ("optional-amend", "stale-policy", "retained-recovery", "search-recheck")
+SANDBOX_DEMO_MODES = ("success", "uncertain-policy", "failed-policy")
 _URI_PATTERN = re.compile(r"(?i)(?:mongodb(?:\+srv)?|https?)://[^\s\]\[<>{}\"']+")
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)\b(password|secret|token|authorization|cookie)\s*[:=]\s*[^\s,;]+"
@@ -349,6 +350,7 @@ def _selectors_from_listing(
     payload: object, *, garden_selectors: set[str] | None = None,
     registry_selectors: dict[str, str] | None = None,
     recovery_selectors: dict[str, str] | None = None,
+    sandbox_selectors: dict[str, str] | None = None,
 ) -> list[str]:
     if not isinstance(payload, dict):
         raise TypeError("Playwright test discovery returned an invalid document")
@@ -356,7 +358,7 @@ def _selectors_from_listing(
         raise RuntimeError("Playwright test discovery reported configuration errors")
 
     selectors: list[str] = []
-    fixture_modes: dict[str, tuple[bool, str | None, str | None]] = {}
+    fixture_modes: dict[str, tuple[bool, str | None, str | None, str | None]] = {}
 
     def visit(suites: object) -> None:
         if not isinstance(suites, list):
@@ -398,15 +400,22 @@ def _selectors_from_listing(
                     raise RuntimeError("Playwright test discovery returned an unknown target fixture")
                 recovery_modes = [mode for mode in RECOVERY_DEMO_MODES
                                   if f"slice-c-{mode}" in tags]
+                sandbox_modes = [mode for mode in SANDBOX_DEMO_MODES
+                                 if f"s3-sandbox-{mode}" in tags]
+                if any(tag.startswith("s3-sandbox-") and tag not in {
+                    f"s3-sandbox-{mode}" for mode in SANDBOX_DEMO_MODES
+                } for tag in tags):
+                    raise RuntimeError("Playwright discovery returned an unknown Sandbox fixture")
                 if any(tag.startswith("slice-c-") and tag not in {
                     f"slice-c-{mode}" for mode in RECOVERY_DEMO_MODES
                 } for tag in tags):
                     raise RuntimeError("Playwright test discovery returned an unknown recovery fixture")
-                if (len(registry_modes) + len(recovery_modes) + int(garden)) > 1:
+                if (len(registry_modes) + len(recovery_modes) + len(sandbox_modes) + int(garden)) > 1:
                     raise RuntimeError("Playwright test discovery returned conflicting fixture modes")
                 registry_mode = registry_modes[0] if registry_modes else None
                 recovery_mode = recovery_modes[0] if recovery_modes else None
-                mode_identity = (garden, registry_mode, recovery_mode)
+                sandbox_mode = sandbox_modes[0] if sandbox_modes else None
+                mode_identity = (garden, registry_mode, recovery_mode, sandbox_mode)
                 if selector in fixture_modes and fixture_modes[selector] != mode_identity:
                     raise RuntimeError("Playwright test discovery returned conflicting fixture modes")
                 fixture_modes[selector] = mode_identity
@@ -416,6 +425,8 @@ def _selectors_from_listing(
                     garden_selectors.add(selector)
                 if recovery_mode and recovery_selectors is not None:
                     recovery_selectors[selector] = recovery_mode
+                if sandbox_mode and sandbox_selectors is not None:
+                    sandbox_selectors[selector] = sandbox_mode
                 if selector not in selectors:
                     selectors.append(selector)
             visit(suite.get("suites", []))
@@ -430,6 +441,7 @@ def _list_test_selectors(
     frontend_port: int, *, garden_selectors: set[str] | None = None,
     registry_selectors: dict[str, str] | None = None,
     recovery_selectors: dict[str, str] | None = None,
+    sandbox_selectors: dict[str, str] | None = None,
 ) -> list[str]:
     node = _find_node()
     playwright_cli = FRONTEND_ROOT / "node_modules" / "@playwright" / "test" / "cli.js"
@@ -470,7 +482,8 @@ def _list_test_selectors(
         raise RuntimeError("Playwright test discovery returned invalid JSON") from exc
     return _selectors_from_listing(payload, garden_selectors=garden_selectors,
                                    registry_selectors=registry_selectors,
-                                   recovery_selectors=recovery_selectors)
+                                   recovery_selectors=recovery_selectors,
+                                   sandbox_selectors=sandbox_selectors)
 
 
 def run(
@@ -485,7 +498,12 @@ def run(
     garden_protocol: bool = False,
     registry_demo: str | None = None,
     recovery_demo: str | None = None,
+    sandbox_demo: str | None = None,
 ) -> int:
+    if sandbox_demo not in {None, *SANDBOX_DEMO_MODES}:
+        raise ValueError("Unknown isolated Sandbox fixture")
+    if sandbox_demo and (not (grep or selection) or garden_protocol or registry_demo or recovery_demo):
+        raise ValueError("Sandbox fixture requires focused selection and separate composition")
     if registry_demo not in {None, "garden-partnership", "synthetic-cache", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
         raise ValueError("Unknown Slice-B registry fixture")
     if registry_demo is not None and (not (grep or selection) or garden_protocol):
@@ -521,6 +539,7 @@ def run(
         **({"CLM_E2E_GARDEN_PROTOCOL": "1"} if garden_protocol else {}),
         **({"CLM_E2E_REGISTRY_DEMO": registry_demo} if registry_demo else {}),
         **({"CLM_E2E_RECOVERY_DEMO": recovery_demo} if recovery_demo else {}),
+        **({"CLM_E2E_SANDBOX_DEMO": sandbox_demo} if sandbox_demo else {}),
     }
     frontend_environment = {
         **common,
@@ -658,9 +677,11 @@ def run_isolated_suite(
         garden_selectors: set[str] = set()
         registry_selectors: dict[str, str] = {}
         recovery_selectors: dict[str, str] = {}
+        sandbox_selectors: dict[str, str] = {}
         selectors = _list_test_selectors(frontend_port, garden_selectors=garden_selectors,
                                          registry_selectors=registry_selectors,
-                                         recovery_selectors=recovery_selectors)
+                                         recovery_selectors=recovery_selectors,
+                                         sandbox_selectors=sandbox_selectors)
         lifecycle_ports = _allocate_lifecycle_ports(
             backend_port,
             frontend_port,
@@ -705,6 +726,7 @@ def run_isolated_suite(
                 or selection.startswith("e2e/garden-happy-path.e2e.ts:")),
             registry_demo=registry_selectors.get(selection),
             recovery_demo=recovery_selectors.get(selection),
+            sandbox_demo=sandbox_selectors.get(selection),
         )
         elapsed = time.monotonic() - selection_started
         print(f"E2E LIFECYCLE TIMING: selection={index}/{len(selectors)}; elapsed_seconds={elapsed:.3f}")
@@ -754,6 +776,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Isolated synthetic offline Slice-C fixture; requires focused --grep.",
     )
     parser.add_argument(
+        "--sandbox-demo", choices=SANDBOX_DEMO_MODES,
+        help="Isolated offline XPI Sandbox protocol; requires focused --grep.",
+    )
+    parser.add_argument(
         "--diagnostics",
         action="store_true",
         help="Emit payload-free E2E upload boundary milestones.",
@@ -768,6 +794,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "unfiltered suite safety budget scales with discovered selectors.",
     )
     args = parser.parse_args(argv)
+    if args.sandbox_demo and (
+        not args.grep or args.garden_protocol or args.registry_demo or args.recovery_demo
+    ):
+        parser.error("--sandbox-demo requires --grep and a separate fixture composition")
     if args.registry_demo and (not args.grep or args.garden_protocol):
         parser.error("--registry-demo requires --grep and cannot combine with --garden-protocol")
     if args.recovery_demo and (not args.grep or args.garden_protocol or args.registry_demo):
@@ -787,6 +817,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             garden_protocol=args.garden_protocol,
             registry_demo=args.registry_demo,
             recovery_demo=args.recovery_demo,
+            sandbox_demo=args.sandbox_demo,
         )
     return run_isolated_suite(
         backend_port=args.backend_port,

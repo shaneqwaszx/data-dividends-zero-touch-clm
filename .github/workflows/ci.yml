@@ -30,6 +30,21 @@ jobs:
       - run: python -m unittest discover -s ../../tests/contract -p "test_*.py"
       - run: python -m unittest discover -s ../../tests -p "test_phase_07_delivery_assets.py"
 
+  local-ocr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f scripts/ocr_validation.Dockerfile -t clm-local-ocr-validation .
+      - name: Real local OCR acceptance with networking disabled
+        run: >-
+          docker run --rm --network none --read-only
+          --tmpfs /tmp:rw,nosuid,size=256m --cap-drop ALL
+          --security-opt no-new-privileges --pids-limit 128
+          --memory 1g --cpus 2 --user 65534:65534
+          clm-local-ocr-validation python -B -m pytest
+          apps/backend/tests/test_s2_local_ocr.py -q -p no:cacheprovider
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -79,10 +94,10 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # 49 discovered lifecycles * (60s execution + 120s bounded cleanup/dispatch)
-    # + 60s discovery = 148 minutes; preserve 14 minutes for tool installation.
-    # A-F inventory integration changes the job budget only; execution stays 60s.
-    timeout-minutes: 162
+    # 59 discovered lifecycles * (60s execution + 120s bounded cleanup/dispatch)
+    # + 60s discovery = 178 minutes; preserve 14 minutes for tool installation.
+    # Session 1/2/3 inventory changes the job budget only; execution stays 60s.
+    timeout-minutes: 192
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from s2_legacy_schema_fixtures import assert_retained_legacy_content, omit_session2_fields
 from test_phase11_reconciliation import FieldOverrideIdp, attach, current_discrepancy
 from test_phase12_persistence import _pending_automation_record, _provider_bound_snapshot
 from test_zero_touch_orchestration import build_system, policy_rebind_snapshots, start_demo
@@ -44,6 +45,7 @@ def populated_v7_raw() -> dict[str, Any]:
     )
     raw = object.__new__(MongoCaseStore)._encode(snapshot)  # noqa: SLF001
     raw["schema_version"] = 7
+    omit_session2_fields(raw)
     return raw
 
 
@@ -59,7 +61,7 @@ def test_populated_v7_conversion_retains_required_excluded_binding() -> None:
 
     current = legacy.to_current()
 
-    assert current.schema_version == 8
+    assert current.schema_version == 9
     assert current.automation is not None
     assert current.automation.ownership_provider_binding_id == "a" * 32
     assert raw == original
@@ -69,6 +71,7 @@ def historical_raw(version: int) -> dict[str, Any]:
     """Explicit version-specific absent fields, rather than fabricated newer evidence."""
     raw = populated_v7_raw()
     raw["schema_version"] = version
+    omit_session2_fields(raw)
     onboarding = raw["onboarding"]
     historical_policy, _ = policy_rebind_snapshots()
     onboarding["policy_snapshot"] = historical_policy.model_dump(mode="json")
@@ -135,7 +138,7 @@ def test_schema_matrix_preserves_history_without_active_policy_or_read_rewrite(
     current = store.get(UUID(raw["case_id"]))
 
     assert current is not None
-    assert current.schema_version == 8 and current.revision == raw["revision"]
+    assert current.schema_version == 9 and current.revision == raw["revision"]
     assert str(current.case_id) == raw["_id"]
     assert current.created_at.isoformat().replace("+00:00", "Z") == raw["created_at"]
     assert current.updated_at.isoformat().replace("+00:00", "Z") == raw["updated_at"]
@@ -265,15 +268,18 @@ def test_actual_v7_preserves_populated_hidden_evidence_and_confirmation(scenario
     codec = object.__new__(MongoCaseStore)
     raw = codec._encode(snapshot)  # noqa: SLF001
     raw["schema_version"] = 7
+    omit_session2_fields(raw)
     original = deepcopy(raw)
     legacy = DurableCaseSnapshotV7.model_validate(
         {key: value for key, value in raw.items() if key != "_id"}
     )
     current = codec._decode(raw)  # noqa: SLF001
 
-    assert current == snapshot
+    assert_retained_legacy_content(current, snapshot)
     assert raw == original
-    assert codec._encode(current) == {**original, "schema_version": 8}  # noqa: SLF001
+    rewritten = codec._encode(current)  # noqa: SLF001
+    omit_session2_fields(rewritten)
+    assert rewritten == {**original, "schema_version": 9}
     assert legacy.automation is not None and current.automation is not None
     assert current.automation.ownership_provider_binding_id
     assert current.automation.exceptions
@@ -353,10 +359,11 @@ def test_old_envelopes_reject_semantic_v2_tag_even_when_nested(version: int) -> 
         object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
 
-@pytest.mark.parametrize("version", [None, True, "7", 7.0, 0, 9])
+@pytest.mark.parametrize("version", [None, True, "7", 7.0, 0, 10])
 def test_invalid_schema_discriminators_fail_closed(version: object) -> None:
     raw = populated_v7_raw()
     raw["schema_version"] = version
+    omit_session2_fields(raw)
     with pytest.raises((PersistenceDataInvalidError, PersistenceSchemaUnsupportedError)):
         object.__new__(MongoCaseStore)._decode(raw)  # noqa: SLF001
 
@@ -368,6 +375,7 @@ def test_actual_envelopes_reject_forged_target_provider_binding(version: int) ->
     )
     raw = object.__new__(MongoCaseStore)._encode(snapshot)  # noqa: SLF001
     raw["schema_version"] = version
+    omit_session2_fields(raw)
     if version == 6:
         allowed = LegacyOnboardingCaseV6.model_fields
         raw["onboarding"] = {
@@ -387,9 +395,10 @@ def test_actual_v7_preserves_identity_corrections_search_and_pending_confirmatio
     codec = object.__new__(MongoCaseStore)
     raw = codec._encode(snapshot)  # noqa: SLF001
     raw["schema_version"] = 7
+    omit_session2_fields(raw)
     original = deepcopy(raw)
     current = codec._decode(raw)  # noqa: SLF001
-    assert current == snapshot
+    assert_retained_legacy_content(current, snapshot)
     assert raw == original
 
 
@@ -398,6 +407,7 @@ def test_populated_v7_rejects_missing_mandatory_excluded_evidence(missing: str) 
     codec = object.__new__(MongoCaseStore)
     raw = codec._encode(rich_v7_snapshot("RECONCILIATION"))  # noqa: SLF001
     raw["schema_version"] = 7
+    omit_session2_fields(raw)
     if missing == "digest":
         raw["automation"]["exceptions"][0].pop("authoritative_evidence_digest")
     elif missing == "record":
@@ -441,6 +451,7 @@ def test_actual_semantic_v2_tag_is_valid_in_v8_but_forbidden_in_v7() -> None:
     }
     assert codec._decode(raw).ownership is not None  # noqa: SLF001
     raw["schema_version"] = 7
+    omit_session2_fields(raw)
     with pytest.raises(PersistenceDataInvalidError):
         codec._decode(raw)  # noqa: SLF001
 

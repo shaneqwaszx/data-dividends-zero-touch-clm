@@ -538,7 +538,8 @@ def test_media_validation_rejects_malformed_docx_binary_txt_and_unsupported_imag
     cases = [
         ("bad.docx", DOCX_MEDIA, b"PK-not-a-docx", "DOCUMENT_STRUCTURE_INVALID"),
         ("bad.txt", "text/plain", b"text\x00binary", "DOCUMENT_TEXT_INVALID"),
-        ("image.png", "image/png", b"\x89PNG", "DOCUMENT_NAME_INVALID"),
+        ("image.png", "image/png", b"\x89PNG", "DOCUMENT_STRUCTURE_INVALID"),
+        ("image.gif", "image/gif", b"GIF89a", "DOCUMENT_NAME_INVALID"),
         ("archive.zip", "application/zip", b"PK", "DOCUMENT_NAME_INVALID"),
     ]
     for name, media_type, content, expected_code in cases:
@@ -634,7 +635,7 @@ def test_fake_marker_only_pdf_is_a_bounded_client_error_not_503() -> None:
     assert response.status_code != 503
     assert response.json()["detail"] == {
         "code": "DOCUMENT_STRUCTURE_INVALID",
-        "message": "The uploaded PDF does not pass the configured structure checks.",
+        "message": "The uploaded document could not pass the bounded local structure checks.",
     }
 
 

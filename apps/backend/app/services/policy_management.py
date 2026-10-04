@@ -841,8 +841,9 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
         decimal_rule(
             IDP_POLICY_ID,
             "Document",
-            "IDP review confidence threshold",
-            "Minimum confidence for provisional automated document continuation.",
+            "IDP extraction evidence score threshold",
+            "Minimum deterministic extraction evidence score for provisional document "
+            "continuation; not a probability or source-agreement measure.",
             "0.85",
             "0",
             "1",
@@ -890,9 +891,9 @@ def default_policy_catalogue(now: datetime) -> PolicyCatalogue:
             "Document",
             "Supported document media types",
             "Current bounded technical document formats.",
-            StringListPolicyValue(value=("PDF", "DOCX", "UTF-8 TXT")),
+            StringListPolicyValue(value=("PDF", "DOCX", "UTF-8 TXT", "PNG", "JPEG", "TIFF")),
             (derived, project),
-            ("PDF", "DOCX", "UTF-8 TXT"),
+            ("PDF", "DOCX", "UTF-8 TXT", "PNG", "JPEG", "TIFF"),
         ),
         fixed(
             "WORKFLOW_SUPPORTED_STAGES",

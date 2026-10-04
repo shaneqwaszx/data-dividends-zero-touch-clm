@@ -133,7 +133,10 @@ def test_isolated_suite_dispatches_slice_c_mode_without_changing_normal_or_slice
         "e2e/slice-c-recovery.e2e.ts:3",
     ]
 
-    def discovery(port, *, garden_selectors, registry_selectors, recovery_selectors):
+    def discovery(
+        port, *, garden_selectors, registry_selectors, recovery_selectors, sandbox_selectors,
+    ):
+        assert sandbox_selectors == {}
         registry_selectors[selectors[1]] = "synthetic-cache"
         recovery_selectors[selectors[2]] = "optional-amend"
         return selectors
@@ -159,6 +162,11 @@ def test_isolated_suite_dispatches_slice_c_mode_without_changing_normal_or_slice
     assert [item.kwargs["registry_demo"] for item in dispatch.call_args_list] == [
         None,
         "synthetic-cache",
+        None,
+    ]
+    assert [item.kwargs["sandbox_demo"] for item in dispatch.call_args_list] == [
+        None,
+        None,
         None,
     ]
 

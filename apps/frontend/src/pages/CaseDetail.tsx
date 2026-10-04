@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   ApiError,
+  checkZeroTouchTargetStatus,
+  type TargetStatusCheckResult,
   confirmZeroTouchTargetDispatch,
   correctRegistryIdentity,
   deleteZeroTouchCase,
@@ -73,8 +75,9 @@ import TargetClassificationPanel from "./TargetClassificationPanel";
 import HumanInterventionPanel from "./HumanInterventionPanel";
 import ReviewAndSend from "./ReviewAndSend";
 import StageDisclosure, { revealStage } from "./StageDisclosure";
+import OnboardingWorkspace, { onboardingExecutionMessage, onboardingIsExecuting } from "./OnboardingWorkspace";
 import IdentityCorrectionForm from "./IdentityCorrectionForm";
-import ManualOwnershipEvidenceForm, { shouldShowManualOwnershipEvidence } from "./ManualOwnershipEvidenceForm";
+import ManualOwnershipEvidenceForm from "./ManualOwnershipEvidenceForm";
 import PolicyRebindPanel from "./PolicyRebindPanel";
 
 const EVIDENCE_TARGET_IDS: Record<EvidenceFocusTarget, string> = {
@@ -93,6 +96,17 @@ interface CaseActionIdentity {
   readonly generation: number;
   readonly caseId: string;
   readonly actorUserId: string;
+}
+
+interface RetainedTargetStatusCheck {
+  attempted: true;
+  result: TargetStatusCheckResult | null;
+  error: string | null;
+}
+
+interface TargetStatusCheckView extends RetainedTargetStatusCheck {
+  identity: string;
+  checking: boolean;
 }
 
 interface EvidenceFocusNotice {
@@ -138,6 +152,16 @@ export default function CaseDetail({
   const [caseUnavailable, setCaseUnavailable] = useState(false);
   const [evidenceFocusNotice, setEvidenceFocusNotice] = useState<EvidenceFocusNotice | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<CaseActionIdentity | null>(null);
+  const [targetStatusCheck, setTargetStatusCheck] = useState<TargetStatusCheckView | null>(null);
+  const targetStatusController = useRef<AbortController | null>(null);
+  const targetSubmission = summary?.target_submission;
+  const targetSubmissionId = targetSubmission?.submission_id ?? null;
+  const targetStatusIdentity = `${evidenceIdentity}:${targetSubmissionId ?? "none"}`;
+  const canCheckTargetStatus = targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN"
+    && targetSubmission.status_check_available
+    && targetSubmissionId !== null
+    && actor.capabilities.includes("CASE_ACCESS")
+    && !caseUnavailable && !mutationBlocked && !detailQuery.isError;
   const generation = useRef(0);
   const mounted = useRef(false);
   const mutationPending = useRef<CaseActionIdentity | null>(null);
@@ -236,6 +260,7 @@ export default function CaseDetail({
     return () => {
       mounted.current = false;
       generation.current += 1;
+      targetStatusController.current?.abort();
     };
   }, []);
 
@@ -249,8 +274,76 @@ export default function CaseDetail({
     setCaseUnavailable(false);
     setDeleteDialogOpen(null);
     mutationPending.current = null;
-    return () => { generation.current = current + 1; };
+    return () => {
+      generation.current = current + 1;
+      targetStatusController.current?.abort();
+    };
   }, [actor.user_id, caseId]);
+
+  const runTargetStatusCheck = useCallback(async (automatic: boolean) => {
+    if (!canCheckTargetStatus || !targetSubmissionId || isBusy || mutationPending.current
+      || targetStatusController.current) return;
+    const action = captureCaseAction();
+    const key = [
+      ...caseDetailQueryOptions(action.actorUserId, action.caseId).queryKey,
+      "target-status-check", targetSubmissionId,
+    ];
+    if (automatic && queryClient.getQueryData<RetainedTargetStatusCheck>(key)?.attempted) return;
+    const previous = queryClient.getQueryData<RetainedTargetStatusCheck>(key);
+    const retained: RetainedTargetStatusCheck = {
+      attempted: true, result: previous?.result ?? null, error: null,
+    };
+    // One automatic attempt per frozen submission in this session; logout clears the cache.
+    queryClient.setQueryDefaults(key, { gcTime: Infinity, retry: false });
+    queryClient.setQueryData(key, retained);
+    const controller = new AbortController();
+    targetStatusController.current = controller;
+    setTargetStatusCheck({ ...retained, identity: targetStatusIdentity, checking: true });
+    try {
+      const result = await checkZeroTouchTargetStatus(action.caseId, targetSubmissionId, controller.signal);
+      if (controller.signal.aborted || !isCurrentCaseAction(action)) return;
+      const next: RetainedTargetStatusCheck = result.submission_id === targetSubmissionId
+        ? { attempted: true, result, error: null }
+        : { attempted: true, result: null, error: "The status check did not match this submission. The retained outcome remains uncertain." };
+      queryClient.setQueryData(key, next);
+      setTargetStatusCheck({ ...next, identity: targetStatusIdentity, checking: false });
+    } catch (checkError) {
+      if (controller.signal.aborted || !isCurrentCaseAction(action)) return;
+      if (checkError instanceof ApiError && [401, 403, 404].includes(checkError.status)) {
+        queryClient.removeQueries({ queryKey: key, exact: true });
+        setMutationBlocked(true);
+        if (checkError.status === 404) setCaseUnavailable(true);
+      }
+      const next: RetainedTargetStatusCheck = {
+        attempted: true, result: previous?.result ?? null,
+        error: "GoldTier status could not be checked. The retained submission outcome remains uncertain.",
+      };
+      if (!(checkError instanceof ApiError && [401, 403, 404].includes(checkError.status))) {
+        queryClient.setQueryData(key, next);
+      }
+      setTargetStatusCheck({ ...next, identity: targetStatusIdentity, checking: false });
+    } finally {
+      if (targetStatusController.current === controller) targetStatusController.current = null;
+    }
+  }, [actor.user_id, caseId, queryClient, canCheckTargetStatus, targetSubmissionId, targetStatusIdentity, isBusy]);
+
+  useEffect(() => {
+    const key = [
+      ...caseDetailQueryOptions(actor.user_id, caseId).queryKey,
+      "target-status-check", targetSubmissionId,
+    ];
+    const retained = targetSubmissionId
+      ? queryClient.getQueryData<RetainedTargetStatusCheck>(key) : undefined;
+    setTargetStatusCheck(retained ? { ...retained, identity: targetStatusIdentity, checking: false } : null);
+    return () => {
+      targetStatusController.current?.abort();
+      targetStatusController.current = null;
+    };
+  }, [actor.user_id, caseId, queryClient, targetSubmissionId, targetStatusIdentity, targetSubmission?.state, canCheckTargetStatus]);
+
+  useEffect(() => {
+    if (canCheckTargetStatus) void runTargetStatusCheck(true);
+  }, [canCheckTargetStatus, runTargetStatusCheck]);
 
   useEffect(() => {
     if (!summary || !shouldPollAutomation(summary.status)) return;
@@ -562,6 +655,9 @@ export default function CaseDetail({
       await deleteZeroTouchCase(action.caseId);
       if (!isCurrentCaseAction(action)) return;
       await caseDeletedEffect(queryClient, action.actorUserId, action.caseId);
+      queryClient.removeQueries({
+        queryKey: [...caseDetailQueryOptions(action.actorUserId, action.caseId).queryKey, "target-status-check"],
+      });
       if (!isCurrentCaseAction(action)) return;
       setDeleteDialogOpen(null);
       onBack();
@@ -587,7 +683,7 @@ export default function CaseDetail({
   const identityIncomplete = summary.active_exceptions.some(
     (exception) => exception.blocker_code === "INITIAL_IDENTITY_INCOMPLETE",
   );
-  const identityEditable = actor.capabilities.includes("CASE_ACCESS")
+  const identityEditable = summary.evidence_decision_authorized === true
     && summary.status !== "COMPLETED"
     && !summary.case.goldtier_result
     && !summary.case.target_dispatch_confirmation
@@ -598,7 +694,7 @@ export default function CaseDetail({
     EVIDENCE_TARGET_IDS.ownership,
     "case-search-diagnostic",
     "case-target-blocker",
-    "case-human-approval-boundary",
+    "case-review-and-send",
     ...(identityIncomplete || identityEditable ? [EVIDENCE_TARGET_IDS.identity] : []),
     ...(summary.reconciliation && summary.current_stage === "DOCUMENT"
       ? [EVIDENCE_TARGET_IDS.reconciliation]
@@ -612,7 +708,7 @@ export default function CaseDetail({
           summary={summary}
           stages={stages}
           historyOnly={historyOnly}
-          isBusy={isBusy || mutationBlocked}
+          isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
           onEvidenceAction={(target) => {
             const targetIds = {
               DOCUMENTS: EVIDENCE_TARGET_IDS.documents,
@@ -641,6 +737,11 @@ export default function CaseDetail({
   const stageIsActive = (stages: readonly string[]) => summary.status !== "COMPLETED"
     && stages.includes(summary.interventions?.find((item) => item.blocker_code !== "TARGET_CONFIRMATION_REQUIRED")?.owning_stage ?? summary.current_stage ?? "REGISTRY");
   const reviewReady = summary.active_exceptions.some((item) => item.exception_type === "TARGET_CONFIRMATION_REQUIRED");
+  const frozenReview = Boolean(summary.case.target_dispatch_confirmation || summary.clm.submission
+    || (targetSubmission && targetSubmission.state !== "NOT_SUBMITTED"));
+  const showFinalReview = reviewReady || frozenReview || summary.status === "COMPLETED";
+  const currentTargetStatusCheck = targetStatusCheck?.identity === targetStatusIdentity
+    ? targetStatusCheck : null;
   const remainingIssueCount = summary.active_exceptions.filter(
     (item) => item.exception_type !== "TARGET_CONFIRMATION_REQUIRED",
   ).length + (summary.technical_failure ? 1 : 0);
@@ -669,6 +770,7 @@ export default function CaseDetail({
         </div>
       </div>
 
+      <OnboardingWorkspace active={onboardingIsExecuting(summary, isBusy, error ?? (loadError ? "Evidence load failed" : null))} message={onboardingExecutionMessage(summary, busyLabel)}>
       <div className="ds-page" style={{ flex: 1 }}>
         <div className="ds-page-header"><div><p className="card-kicker">{summary.case.requested_uen} · {summary.case.jurisdiction_resolution?.resolved_jurisdiction ?? "—"} · {summary.case.client_scope_label ?? "Legacy unassigned"}</p><h1>{entity?.legal_name ?? summary.case.requested_uen}</h1></div><div className="case-header-actions"><PriorityBadge priority={summary.case.priority} /><PriorityControl priority={summary.case.priority} disabled={isBusy || mutationBlocked} onSave={runPriorityMutation} />{(actor.role === "DIRECTOR" || actor.role === "RELATIONSHIP_MANAGER") && <button type="button" className="btn btn-danger" disabled={isBusy || mutationBlocked} onClick={() => { if (!mutationPending.current && !mutationBlocked) setDeleteDialogOpen(captureCaseAction()); }}>Delete case</button>}<span className="tag tag-accent-2">{summary.status.replaceAll("_", " ")}</span></div></div>
         {error && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}>{error}</div>}
@@ -677,6 +779,7 @@ export default function CaseDetail({
           summary={summary}
           onStageActivate={focusProcessingNode}
           availableFocusTargets={availableFocusTargets}
+          initialFocusNodeId={initialFocusNodeId}
         />
 
 
@@ -687,7 +790,7 @@ export default function CaseDetail({
           </div>
         )}
 
-        <StageDisclosure title="Registry identity" active={identityConflict || stageIsActive(["REGISTRY", "GOLDTIER_SEARCH"])}>
+        <StageDisclosure title="Registry verification" active={identityConflict || stageIsActive(["REGISTRY", "GOLDTIER_SEARCH"])}>
           {renderInterventions(["REGISTRY", "GOLDTIER_SEARCH"])}
         {(identityIncomplete || identityEditable) && (
           <div
@@ -700,7 +803,7 @@ export default function CaseDetail({
               onboardingCase={summary.case}
               registryRecovery={!identityIncomplete}
               documentCandidates={documentUenCandidates}
-              disabled={isBusy || mutationBlocked}
+              disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
               onSubmit={(values) => void runMutation(
                 () => {
                   const identityInput = {
@@ -746,28 +849,31 @@ export default function CaseDetail({
         )}
 
         </StageDisclosure>
-        <StageDisclosure title="Documents & reconciliation" active={!identityConflict && stageIsActive(["DOCUMENT"])}>
+        <StageDisclosure title="Document verification" active={!identityConflict && stageIsActive(["DOCUMENT"])}>
           {renderInterventions(["DOCUMENT"])}
         {summary.reconciliation && summary.current_stage === "DOCUMENT" && (
           <div key={`${evidenceIdentity}:reconciliation`} id={EVIDENCE_TARGET_IDS.reconciliation} className="evidence-focus-target" tabIndex={-1}>
-            <ConfirmDetailsPanel summary={summary} isBusy={isBusy || mutationBlocked} />
+            <ConfirmDetailsPanel summary={summary} isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true} />
           </div>
         )}
         <div key={`${evidenceIdentity}:documents`} id={EVIDENCE_TARGET_IDS.documents} className="evidence-focus-target" tabIndex={-1}>
-          <DocumentEvidencePanel key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />
+          <DocumentEvidencePanel key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />
         </div>
 
         </StageDisclosure>
         <StageDisclosure title="Ownership & UBO" active={stageIsActive(["OWNERSHIP"])}>
           {renderInterventions(["OWNERSHIP"])}
-        {ownershipRecovery && shouldShowManualOwnershipEvidence(ownershipRecovery.manual_evidence_action) && (
+        {ownershipRecovery && summary.ownership_edit_authorized === true
+          && ownership?.analysis_id === ownershipRecovery.analysis_id
+          && (ownership.version === undefined || ownership.version === ownershipRecovery.version) && (
           <div id={MANUAL_OWNERSHIP_TARGET_ID} className="evidence-focus-target" tabIndex={-1}>
             <ManualOwnershipEvidenceForm
-              key={`${summary.case.case_id}:${ownershipRecovery.analysis_id}:${ownershipRecovery.version}`}
+              key={`${evidenceIdentity}:${ownershipRecovery.analysis_id}:${ownershipRecovery.version}:${ownership.analysis_id}:${ownership.version ?? "unknown"}:${documents.map((document) => `${document.document_id}:${document.events.length}`).join("|")}`}
               canonicalRootUen={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen}
               initialRootLegalName={summary.case.entity?.legal_name ?? summary.case.initial_identity?.legal_name ?? ""}
               documents={documents}
-              disabled={isBusy || mutationBlocked}
+              ownership={ownership}
+              disabled={isBusy || mutationBlocked || summary.ownership_edit_authorized !== true}
               onUploadEvidence={(file) => void settleEvidenceMutation(
                 () => intakeZeroTouchDocument(caseId, file, false),
                 "Validating client-supplied ownership evidence…",
@@ -781,25 +887,13 @@ export default function CaseDetail({
                   as_of_date: values.as_of_date,
                   rationale: values.rationale,
                   root_party_id: values.root_party_id,
-                  parties: [
-                    {
-                      party_id: values.root_party_id,
-                      display_name: values.root_display_name,
-                      party_type: "LEGAL_ENTITY",
-                      registration_number: summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen,
-                      country: "SG",
-                    },
-                    ...values.owners.map((owner) => ({
-                      party_id: owner.party_id,
-                      display_name: owner.display_name,
-                      party_type: owner.party_type,
-                      registration_number: owner.registration_number || null,
-                      country: owner.country || null,
-                    })),
-                  ],
+                  source_selection: values.source_selection,
+                  observed_document_versions: values.observed_document_versions,
+                  selected_observation_ids: values.selected_observation_ids,
+                  parties: values.parties,
                   relationships: values.owners.map((owner) => ({
                     relationship_id: owner.relationship_id,
-                    parent_party_id: values.root_party_id,
+                    parent_party_id: owner.parent_party_id,
                     child_party_id: owner.party_id,
                     ownership_percent: owner.ownership_percent,
                     relationship_type: "DIRECT_ECONOMIC_INTEREST",
@@ -818,7 +912,7 @@ export default function CaseDetail({
             <OwnershipPathExplorer key={`${evidenceIdentity}:${ownership?.analysis_id ?? "none"}`} record={ownership} acquisition={acquisition} primaryBlockerVisible={summary.active_exceptions.some((item) => item.stage === "OWNERSHIP")} />
           </div>
         </StageDisclosure>
-        <StageDisclosure title="Classification & readiness" active={stageIsActive(["READINESS"])}>
+        <StageDisclosure title="Readiness check" active={stageIsActive(["READINESS"])}>
           {renderInterventions(["READINESS"])}
         {summary.case.policy_rebind && (
           <PolicyRebindPanel
@@ -856,10 +950,11 @@ export default function CaseDetail({
           </div>
         )}
         </StageDisclosure>
-        <StageDisclosure title="Target preparation / submission state" active={stageIsActive(["MOCK_GOLDTIER"])}>
+        <StageDisclosure title="Preparing GoldTier Submission" active={stageIsActive(["MOCK_GOLDTIER"])}>
           {renderInterventions(["MOCK_GOLDTIER"])}
         <ProcessingBlockerPanels summary={summary} stage="TARGET" />
-        {summary.status === "RECOVERY_PENDING" && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
+        {summary.status === "RECOVERY_PENDING"
+          && (!targetSubmission || targetSubmission.state === "FINALIZATION_PENDING") && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
         {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
         <OperationalTiming summary={summary} />
@@ -889,13 +984,13 @@ export default function CaseDetail({
           <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
         <h4 style={{ marginTop: 24 }}>Automation timeline</h4><div className="table-card"><table className="table"><thead><tr><th>Timestamp</th><th>Stage</th><th>Event</th><th>Outcome</th></tr></thead><tbody>{summary.timeline.map((event) => <tr key={event.sequence}><td>{formatTimestamp(event.timestamp)}</td><td>{event.stage}</td><td>{event.message}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>          {intelligence && <details className="evidence-details"><summary>Advisory intelligence</summary><IntelligencePanel record={intelligence} /></details>}
         </StageDisclosure>
-        <StageDisclosure title="Review & Send" final active={reviewReady}
-          summary={!reviewReady && summary.status !== "COMPLETED" ? (
+        <StageDisclosure title="Final review & send" final active={showFinalReview}
+          summary={!showFinalReview ? (
             remainingIssueCount > 0
               ? `Not yet available — resolve ${remainingIssueCount} remaining issues.`
               : "Not yet available — complete the current stage."
           ) : undefined}>
-        {(reviewReady || summary.status === "COMPLETED") && <ReviewAndSend
+        {showFinalReview && <ReviewAndSend
           summary={summary}
           documents={documents}
           ownership={ownership}
@@ -911,6 +1006,10 @@ export default function CaseDetail({
             "Confirming reviewed target dispatch…",
             "target-confirmation",
           )}
+          statusChecking={currentTargetStatusCheck?.checking}
+          statusCheckResult={currentTargetStatusCheck?.result}
+          statusCheckError={currentTargetStatusCheck?.error}
+          onCheckStatus={canCheckTargetStatus ? () => void runTargetStatusCheck(false) : undefined}
           onSaveDraft={onBack}
           onReviewOutstanding={() => focusEvidence("recovery")}
           onEditIdentity={() => focusEvidence("identity")}
@@ -920,6 +1019,7 @@ export default function CaseDetail({
         />}
         </StageDisclosure>
       </div>
+      </OnboardingWorkspace>
 
       {deleteDialogOpen && isCurrentCaseAction(deleteDialogOpen) && <DeleteCaseDialog caseId={deleteDialogOpen.caseId} companyName={entity?.legal_name ?? summary.case.requested_uen} requestedUen={summary.case.requested_uen} mutationDisabled={isBusy || mutationBlocked} onCancel={() => setDeleteDialogOpen(null)} onConfirm={() => deleteCase(deleteDialogOpen)} />}
     </div>

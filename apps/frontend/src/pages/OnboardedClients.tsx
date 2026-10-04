@@ -35,17 +35,23 @@ export default function OnboardedClients({
   const [prioritySort, setPrioritySort] = useState<PrioritySort>("highest_first");
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState("all");
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
+  const createdRangeInvalid = Boolean(createdFrom && createdTo && createdFrom > createdTo);
   const queryClient = useQueryClient();
-  const query = useQuery(caseListQueryOptions(
+  const query = useQuery({ ...caseListQueryOptions(
     actor.user_id,
     "COMPLETED",
     priority,
     prioritySort,
     teamFilter,
-  ));
+    undefined,
+    createdFrom || undefined,
+    createdTo || undefined,
+  ), enabled: !createdRangeInvalid });
   const clients = useMemo(
-    () => (query.data ?? []).map(mapCompletedCaseToOnboardedRow),
-    [query.data],
+    () => (createdRangeInvalid ? [] : query.data ?? []).map(mapCompletedCaseToOnboardedRow),
+    [query.data, createdRangeInvalid],
   );
 
   async function refreshAfterPriorityUpdate(): Promise<void> {
@@ -110,16 +116,42 @@ export default function OnboardedClients({
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search client, UEN / ACN, or company…"
         />
+        <label className="attention-filter">
+          <span>Created from</span>
+          <input
+            className="input"
+            type="date"
+            value={createdFrom}
+            max={createdTo || undefined}
+            aria-describedby="onboarded-created-date-help"
+            onChange={(event) => setCreatedFrom(event.target.value)}
+          />
+        </label>
+        <label className="attention-filter">
+          <span>Created to</span>
+          <input
+            className="input"
+            type="date"
+            value={createdTo}
+            min={createdFrom || undefined}
+            aria-describedby="onboarded-created-date-help"
+            onChange={(event) => setCreatedTo(event.target.value)}
+          />
+        </label>
       </div>
+      <p id="onboarded-created-date-help" className="control-help">
+        Creation dates include both selected days in Singapore (Asia/Singapore, UTC+08:00).
+      </p>
+      {createdRangeInvalid && <p className="ds-banner ds-banner-warn" role="alert">Created from must be on or before Created to.</p>}
       <p id="risk-filter-help" className="control-help">
         Risk assessment is not connected in this POC; risk and next-review values remain unavailable.
       </p>
 
       {query.isError && !query.data && <div className="ds-banner ds-banner-warn">{query.error instanceof Error ? query.error.message : "The onboarded client list is unavailable."}</div>}
       {query.isError && query.data && <div className="ds-banner ds-banner-warn">Refresh failed; cached clients remain visible.</div>}
-      {query.isPending && <p className="text-muted">Loading clients…</p>}
+      {query.isPending && !createdRangeInvalid && <p className="text-muted">Loading clients…</p>}
       {query.isFetching && !query.isPending && <p className="refreshing-indicator">Refreshing…</p>}
-      {!query.isError && !query.isPending && filteredClients.length === 0 && (
+      {!createdRangeInvalid && !query.isError && !query.isPending && filteredClients.length === 0 && (
         <p className="text-muted">No clients match these filters.</p>
       )}
       {filteredClients.length > 0 && (

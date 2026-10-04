@@ -62,7 +62,8 @@ once. Legal entities are never final candidates.
 - Configuration: `UBO_OWNERSHIP_THRESHOLD_PERCENT`
 - Default: `25%`
 - Comparator: `aggregated ownership >= configured threshold`
-- Value and inclusivity: **PROJECT-DEFINED / PROVISIONAL / PENDING Q-004**
+- Value and inclusivity: **SPONSOR-CONFIRMED bounded numeric POC rule, D-062**;
+  broader legal/control/jurisdiction policy remains pending Q-004
 - Precision: the same finite, six-decimal `(0, 100]` contract as source ownership
   percentages; invalid configuration fails before service operation
 
@@ -126,6 +127,55 @@ classification.
 4. Q-007: Singapore fields/value lists.
 
 No Phase 04 Mock field or rule may become a real GoldTier assertion without confirmation.
+
+## S2 document-assisted source decisions — 2026-10-04 candidate
+
+The existing Decimal engine remains the only calculator. Document extraction produces
+PROPOSED observations with immutable document/version/page/reference, method/quality,
+raw OCR and deterministic score, explicit owner/type/identifier/count/percentage/class,
+owned entity and as-of date where supplied. No missing type, percentage or denominator
+is invented. Counts compare with original scalar evidence; arbitrary holder sums are
+never used as a denominator. Complete explicit percentages feed the existing graph.
+
+Current discrepancies compare registry graph, original local supplement, documents and
+existing manual graph. MATCH still requires a creator source decision for a proposal;
+MISMATCH, NOT_COMPARABLE and AMBIGUOUS retain originals and block automatic progression.
+Creator-only decisions require current access/session/team within the owning lock/CAS.
+Unknown historical creators are read-only for these decisions. Rationale, actor/time,
+case/document event versions, selected immutable observations, chosen source/graph and
+replaced analysis/version are retained. CURRENT_EVIDENCE requires the exact current
+graph, including supported partial parent totals without inventing missing percentages.
+The exact-100 declaration rule applies to USER_SUPPLIED_DECLARATION and
+DOCUMENT_OBSERVATIONS; it does not alter retained CURRENT_EVIDENCE.
+DOCUMENT_OBSERVATIONS requires selected current rows to match every graph edge;
+manual additions/corrections require USER_SUPPLIED_DECLARATION. These choices do not
+establish automatic source precedence or legal verification.
+
+ANALYZED evidence is editable before any retained target attempt/submission. Accepted
+revisions preserve bounded prior analyses and receipts, recalculate paths, invalidate
+readiness/confirmation and auto-resume to the next real blocker. A changed document
+retires only proven obsolete dependency checkpoints. Submitted content is frozen.
+The ownership tree is collapsed by default with a concise provisional-candidate summary;
+keyboard expansion shows sources, direct/effective interests, each path/calculation and
+unresolved branches. The frontend displays Decimal strings and cannot recalculate.
+
+### Explicit official-Mock plus local Garden supplement
+
+`GARDEN_SUPPLEMENT_ENABLED=false` by default. When explicitly enabled with
+`ACRA_CONNECTOR_MODE=api_marketplace_mock`, the existing coordinator checks fresh
+compatible official/cache evidence or acquires it. Only successful known Garden
+`11111999A` evidence permits the separately labelled LOCAL_SYNTHETIC_SUPPLEMENT/LOCAL.
+Official entity/address/officers and empty/unsupported quantitative evidence remain
+unchanged. Failure cannot select the fixture. Future nonempty official quantity is
+retained and compared, not added to local percentages. Upload conflicts require review.
+
+The unchanged current fixture has active Garden counts SIM LIM 5000 and LIM CHOON HUAT
+3000: denominator 8000, direct 62.500000% and 37.500000%. SIM LIM active counts are
+ABCD123 900, TAN WEI LING 100 and EFGH2345 100: denominator 1100, rounded edge percentages
+81.818182%, 9.090909%, 9.090909%. Withdrawn FORMER OWNER 10000 is excluded only under
+this explicit known synthetic fixture. ABCD123 effective interest is 51.13636375%; LIM
+CHOON HUAT is 37.500000%. Both meet >=25%. TAN WEI LING and EFGH2345 each have
+5.681818125%. This is local synthetic derivation, not official ACRA or legal ownership.
 
 ## Separate ML-assisted advisory
 

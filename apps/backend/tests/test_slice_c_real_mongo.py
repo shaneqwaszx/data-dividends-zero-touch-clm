@@ -277,7 +277,7 @@ def test_mixed_reconciliation_retires_resolved_sibling_across_mongo_restart(
             assert physical_receipt is not None
             assert physical_receipt.evidence_fingerprint == conflict["evidence_fingerprint"]
             raw = store._collection.find_one({"_id": str(case_id)})  # noqa: SLF001
-            assert raw is not None and raw["schema_version"] == 8
+            assert raw is not None and raw["schema_version"] == 9
         finally:
             store.close()
     calls_after_resolution = dict(counters)

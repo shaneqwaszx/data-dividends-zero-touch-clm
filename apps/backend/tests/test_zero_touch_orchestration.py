@@ -768,7 +768,7 @@ def test_policy_rebind_preserves_case_choices_and_audits_previous_snapshot() -> 
     )
     codec = object.__new__(MongoCaseStore)
     round_trip = codec._decode(codec._encode(durable))  # noqa: SLF001
-    assert round_trip.schema_version == 8
+    assert round_trip.schema_version == 9
     assert round_trip.onboarding.policy_rebind_history == persisted.policy_rebind_history
 
     stale = client.post(
@@ -1016,6 +1016,7 @@ def test_missing_initial_identity_is_repaired_and_searched_on_the_same_case(
     paused = zero.create_case(
         identifier,
         legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        created_by_actor_id="maya-lim",
         team_id=TeamId.TEAM_A,
     )
     before = client.get(f"/api/clm/zero-touch/cases/{paused.case_id}").json()
@@ -1066,6 +1067,7 @@ def test_missing_identity_action_survives_independent_document_blocker() -> None
     created = zero.create_case(
         "202400001A",
         legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        created_by_actor_id="maya-lim",
         team_id=TeamId.TEAM_A,
     )
     document = zero.intake_document(
@@ -1200,6 +1202,7 @@ def test_identity_recheck_stale_versions_and_in_lock_reauthorization_do_not_sear
         "202400001A",
         "SG",
         legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        created_by_actor_id="maya-lim",
         team_id=TeamId.TEAM_A,
     )
     before_case = zero._cases.get_case(paused.case_id)  # noqa: SLF001
@@ -1295,7 +1298,7 @@ def test_failed_initial_search_keeps_case_evidence_flow_and_blocks_target_mutati
         ("ADVISORY", "NOT_REACHED"),
         ("READINESS", "BLOCKED"),
         ("GOLDTIER_TARGET", "BLOCKED"),
-        ("HUMAN_APPROVAL", "NOT_REACHED"),
+        ("FINAL_REVIEW_SEND", "NOT_REACHED"),
     ]
     readiness = next(
         node for node in terminal["processing_pipeline"] if node["node_id"] == "READINESS"
@@ -2621,7 +2624,7 @@ def test_reviewed_manual_ownership_replaces_blocked_source_without_target_write(
     identifier: str,
 ) -> None:
     client, zero, documents, target, _ = build_system(require_confirmation=True)
-    created = zero.create_case(identifier, team_id=TeamId.TEAM_A)
+    created = zero.create_case(identifier, team_id=TeamId.TEAM_A, created_by_actor_id="maya-lim")
     paused = zero.attach_document(
         case_id=created.case_id,
         display_name="ownership-declaration.pdf",

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     acra_connector_mode: Literal["mock", "api_marketplace_mock", "sandbox"] = "mock"
     goldtier_connector_mode: Literal["mock", "sandbox"] = "mock"
     idp_connector_mode: Literal["mock", "local_pdf_text"] = "local_pdf_text"
+    local_ocr_executable: str | None = Field(default=None, max_length=512)
+    local_ocr_timeout_seconds: float = Field(default=12.0, gt=0, le=20.0)
+    garden_supplement_enabled: bool = False
     ownership_connector_mode: Literal["mock"] = "mock"
     demo_controls_enabled: bool = False
     zero_touch_max_transitions_per_run: int = Field(default=12, ge=1, le=32)
@@ -104,6 +107,29 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @field_validator("local_ocr_executable")
+    @classmethod
+    def validate_local_ocr_executable(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        path = Path(value)
+        if (
+            not path.is_absolute()
+            or path.name.casefold() not in {"tesseract", "tesseract.exe"}
+            or value.startswith(("\\\\", "//"))
+            or any(ord(character) < 32 for character in value)
+        ):
+            raise ValueError("Local OCR requires an absolute local Tesseract executable path.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_garden_supplement(self) -> "Settings":
+        if self.garden_supplement_enabled and self.acra_connector_mode != "api_marketplace_mock":
+            raise ValueError(
+                "Garden supplement requires the explicit official Marketplace Mock lane."
+            )
+        return self
 
     @field_validator("acra_connector_mode", mode="before")
     @classmethod

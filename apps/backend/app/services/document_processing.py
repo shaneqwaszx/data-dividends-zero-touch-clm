@@ -16,6 +16,7 @@ from app.connectors.idp import (
     IdpProvider,
     IdpProviderMetadata,
     IdpSourceResult,
+    LocalDocumentProcessingError,
 )
 from app.domain.documents import (
     ComparisonStatus,
@@ -24,12 +25,14 @@ from app.domain.documents import (
     DocumentCompletionMethod,
     DocumentEventType,
     DocumentFieldKey,
+    DocumentOwnershipObservation,
     DocumentProcessingRecord,
     DocumentProcessingState,
     DocumentProfile,
     DocumentSourceConflictResolution,
     DocumentWorkflowEvent,
     ExtractedField,
+    ExtractionQuality,
     FieldProvenance,
     FieldReviewStatus,
     ReviewDecision,
@@ -89,6 +92,49 @@ class DocumentProcessingService:
         self._media_router = media_router or DocumentMediaRouter()
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory or uuid4
+
+    def refresh_current_comparisons(self, *, case_id: UUID) -> None:
+        """Recompare retained observations after an accepted identity correction.
+
+        Extraction/provenance and human decisions remain evidence. No provider is
+        called, no document is replaced, and comparison alone grants no authority.
+        The caller owns the case lock and identity/currentness acceptance.
+        """
+        parent = self._cases.get_case(case_id)
+        if parent is None or parent.entity is None:
+            raise DocumentRequestError(
+                code="ONBOARDING_CASE_NOT_FOUND",
+                message="Current canonical comparison evidence is unavailable.",
+            )
+        for record in self.list_documents(case_id=case_id):
+            if not record.is_current_evidence or record.state not in {
+                DocumentProcessingState.REVIEW_REQUIRED, DocumentProcessingState.REVIEWED,
+            }:
+                continue
+            candidate = record.model_copy(deep=True)
+            changed = False
+            for field in candidate.fields:
+                canonical = validate_canonical_comparison_value(
+                    canonical_value_for_field(parent.entity, field.field_key)
+                )
+                comparison = compare_values(
+                    field.field_key, field.original_extracted_value, canonical,
+                )
+                changed |= (
+                    field.canonical_value != canonical or field.comparison_status != comparison
+                )
+                field.canonical_value = canonical
+                field.comparison_status = comparison
+            if changed:
+                self._record(
+                    candidate, event_type=DocumentEventType.DOCUMENT_PROCESSED,
+                    state=candidate.state, outcome=EventOutcome.SUCCEEDED,
+                    code="DOCUMENT_COMPARISON_RECOMPUTED",
+                    message=(
+                        "Retained document observations were compared "
+                        "with current registry evidence."
+                    ),
+                )
 
     def review_confidence_threshold_for_case(self, case_id: UUID) -> float:
         """Return the immutable IDP threshold captured when the case was created."""
@@ -255,6 +301,7 @@ class DocumentProcessingService:
             media_type=extracted_content.media_type,
             size_bytes=len(content),
             profile=DocumentProfile.CERTIFICATE_OF_INCORPORATION_POC,
+            document_version=1,
             state=DocumentProcessingState.UPLOADED,
             created_at=now,
             updated_at=now,
@@ -310,6 +357,11 @@ class DocumentProcessingService:
                         extracted_text=extracted_content.extracted_text,
                     )
                 )
+            except LocalDocumentProcessingError as error:
+                self._raise_terminal_failure(
+                    record, code=error.code,
+                    message="Bounded local document processing could not be completed.",
+                )
             except IdpProcessingError:
                 self._raise_terminal_failure(
                     record,
@@ -329,6 +381,14 @@ class DocumentProcessingService:
                 self._build_field(item, parent_case.entity, metadata)
                 for item in source_result.fields
             ]
+            record.pages = source_result.pages
+            record.ownership_observations = tuple(
+                DocumentOwnershipObservation(
+                    **item.model_dump(), observation_id=self._uuid_factory(),
+                    document_id=record.document_id, document_version=1,
+                )
+                for item in source_result.ownership_observations
+            )
             record.processed_at = self._clock()
             record = self._record(
                 record,
@@ -777,6 +837,13 @@ class DocumentProcessingService:
             original_extracted_value=item.value,
             normalized_value=normalized_value,
             confidence=item.confidence,
+            candidates=item.candidates,
+            extraction_method=item.extraction_method,
+            extraction_quality=item.extraction_quality,
+            score_kind=item.score_kind,
+            score_formula=item.score_formula,
+            raw_ocr_mean_confidence=item.raw_ocr_mean_confidence,
+            raw_ocr_word_count=item.raw_ocr_word_count,
             provenance=FieldProvenance(
                 provider=metadata.provider_name,
                 environment=metadata.environment,
@@ -891,6 +958,8 @@ class DocumentProcessingService:
     ) -> Never:
         failed_record = record.model_copy(deep=True)
         failed_record.fields = []
+        failed_record.pages = ()
+        failed_record.ownership_observations = ()
         failed_record.processed_at = None
         failed_record.reviewed_at = None
         failed_record.error = SafeError(code=code, message=message)
@@ -941,6 +1010,8 @@ def document_semantic_assessment(
     required_fields = required_document_fields(record.profile)
     for field_key in DocumentFieldKey:
         field = fields_by_key.get(field_key)
+        if field is not None and field.extraction_quality == ExtractionQuality.AMBIGUOUS:
+            block(DocumentAutoClearBlocker.AMBIGUOUS_EXTRACTION)
         if field is None or field.original_extracted_value is None:
             if field_key in required_fields:
                 block(DocumentAutoClearBlocker.REQUIRED_FIELD_MISSING)

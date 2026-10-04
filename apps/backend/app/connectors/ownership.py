@@ -1,7 +1,8 @@
 """Replaceable ownership provider boundary and strict provider result contract."""
 
 from dataclasses import dataclass
-from typing import Protocol
+from datetime import datetime
+from typing import Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -33,6 +34,22 @@ class OwnershipProviderMetadata(BaseModel):
     environment: OwnershipEnvironment
 
 
+class GardenOwnershipSupplement(BaseModel):
+    """One explicit local component, never an official registry operation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    provider_name: Literal["LOCAL_SYNTHETIC_SUPPLEMENT"] = "LOCAL_SYNTHETIC_SUPPLEMENT"
+    environment: Literal["LOCAL"] = "LOCAL"
+    registration_number: Literal["11111999A"] = "11111999A"
+    official_retrieved_at: datetime
+    identity_correction_version: int = Field(ge=0)
+    root_party_id: SafePartyId
+    parties: list[Party] = Field(min_length=1, max_length=100)
+    relationships: list[OwnershipRelationship] = Field(min_length=1, max_length=200)
+    evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=256)
+    original_share_evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=16)
+
+
 class OwnershipSourceResult(BaseModel):
     """Validated provider graph; service-configured safety limits are applied later."""
 
@@ -43,6 +60,7 @@ class OwnershipSourceResult(BaseModel):
     relationships: list[OwnershipRelationship] = Field(default_factory=list, max_length=2000)
     evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=256)
     legal_form: RegistryLegalForm | None = None
+    garden_supplement: GardenOwnershipSupplement | None = None
 
     @model_validator(mode="after")
     def validate_graph_references(self) -> "OwnershipSourceResult":

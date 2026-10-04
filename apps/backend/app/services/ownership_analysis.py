@@ -19,6 +19,7 @@ from app.connectors.ownership import (
     OwnershipProviderRequest,
     OwnershipSourceResult,
 )
+from app.domain.documents import DocumentOwnershipObservation, DocumentProcessingRecord
 from app.domain.models import EventOutcome, OnboardingCase, SafeError
 from app.domain.ownership import (
     ManualOwnershipReviewReceipt,
@@ -27,6 +28,7 @@ from app.domain.ownership import (
     OwnershipAnalysisState,
     OwnershipCandidate,
     OwnershipCandidateClassification,
+    OwnershipDocumentBinding,
     OwnershipEnvironment,
     OwnershipEventType,
     OwnershipIssueCode,
@@ -43,6 +45,7 @@ from app.domain.ownership import (
 )
 from app.domain.ownership_evidence import OwnershipEvidence
 from app.domain.registry_legal_form import RegistryLegalForm
+from app.services.document_ownership import compare_document_ownership, current_document_inputs
 from app.services.ownership_errors import (
     OwnershipInfrastructureError,
     OwnershipRequestError,
@@ -209,6 +212,10 @@ def quantify_ownership_evidence(source: OwnershipSourceResult) -> OwnershipSourc
 
 class OnboardingCaseReader(Protocol):
     def get_case(self, case_id: UUID) -> OnboardingCase | None: ...
+
+
+class OwnershipDocumentReader(Protocol):
+    def list_documents(self, *, case_id: UUID) -> list[DocumentProcessingRecord]: ...
 
 
 class OwnershipGraphError(Exception):
@@ -475,6 +482,8 @@ class OwnershipAnalysisService:
         provider: OwnershipProvider,
         repository: OwnershipAnalysisRepository,
         threshold_percent: Decimal,
+        documents: OwnershipDocumentReader | None = None,
+        garden_supplement_enabled: bool = False,
         max_parties: int,
         max_relationships: int,
         max_depth: int,
@@ -503,6 +512,8 @@ class OwnershipAnalysisService:
         self._cases = cases
         self._provider = provider
         self._repository = repository
+        self._documents = documents
+        self._garden_supplement_enabled = garden_supplement_enabled
         self.threshold_percent = validated_threshold
         self.max_parties = max_parties
         self.max_relationships = max_relationships
@@ -531,8 +542,9 @@ class OwnershipAnalysisService:
         provider: OwnershipProvider,
         review_receipt: ManualOwnershipReviewReceipt,
         expected_version: int,
+        before_replace: Callable[[], object] | None = None,
     ) -> OwnershipAnalysisRecord:
-        """Replace one current review-required source and analyze it under the case lock."""
+        """Revise terminal pre-submission evidence, retaining the source and decision."""
 
         with self._case_lock(case_id):
             current = self._repository.get_for_case(case_id)
@@ -542,10 +554,19 @@ class OwnershipAnalysisService:
                     code="ONBOARDING_CASE_NOT_FOUND",
                     message="The onboarding case was not found.",
                 )
-            if current is None or current.state != OwnershipAnalysisState.REVIEW_REQUIRED:
+            if current is None or current.state not in {
+                OwnershipAnalysisState.REVIEW_REQUIRED,
+                OwnershipAnalysisState.ANALYZED,
+            }:
                 raise OwnershipRequestError(
                     code="OWNERSHIP_MANUAL_REPLACEMENT_NOT_ALLOWED",
-                    message="Manual evidence may replace only a current review-required analysis.",
+                    message=("Manual evidence may replace only current "
+                             "pre-submission terminal analysis."),
+                )
+            if parent.goldtier_result is not None or not ownership_is_current(current, parent):
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_MANUAL_REPLACEMENT_NOT_ALLOWED",
+                    message="Submitted or obsolete ownership evidence cannot be revised.",
                 )
             if current.version != expected_version:
                 raise OwnershipRequestError(
@@ -595,6 +616,71 @@ class OwnershipAnalysisService:
                     message="Ownership source data could not be validated safely.",
                 ) from None
 
+            observations, bindings = self._document_inputs(case_id)
+            if review_receipt.observed_document_versions != bindings:
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_MANUAL_REPLACEMENT_STALE",
+                    message="Current document ownership evidence changed before the decision.",
+                )
+            if review_receipt.source_selection == "CURRENT_EVIDENCE" and (
+                source.root_party_id != current.root_party_id
+                or source.parties != current.parties
+                or sorted(
+                    (edge.parent_party_id, edge.child_party_id, edge.ownership_percent)
+                    for edge in source.relationships
+                )
+                != sorted(
+                    (edge.parent_party_id, edge.child_party_id, edge.ownership_percent)
+                    for edge in current.relationships
+                )
+            ):
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_SELECTED_SOURCE_MISMATCH",
+                    message="Keeping current evidence requires the exact current ownership graph.",
+                )
+            known_observations = {item.observation_id for item in observations}
+            if not set(review_receipt.selected_observation_ids).issubset(known_observations):
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_MANUAL_REPLACEMENT_STALE",
+                    message="Selected document observations are no longer current.",
+                )
+            if (
+                review_receipt.source_selection == "DOCUMENT_OBSERVATIONS"
+                and not review_receipt.selected_observation_ids
+            ):
+                raise OwnershipRequestError(
+                    code="OWNERSHIP_SELECTED_SOURCE_MISMATCH",
+                    message="Choosing document evidence requires current observation references.",
+                )
+            if review_receipt.source_selection == "DOCUMENT_OBSERVATIONS":
+                selected = tuple(
+                    item
+                    for item in observations
+                    if item.observation_id in review_receipt.selected_observation_ids
+                )
+                compared = compare_document_ownership(
+                    selected, source.parties, source.relationships, source.evidence
+                )
+                covered_edges = {
+                    identifier for item in compared for identifier in item.compared_relationship_ids
+                }
+                if (
+                    any(item.agreement != "MATCH" for item in compared)
+                    or covered_edges != {edge.relationship_id for edge in source.relationships}
+                ):
+                    raise OwnershipRequestError(
+                        code="OWNERSHIP_SELECTED_SOURCE_MISMATCH",
+                        message=(
+                            "Selected document values must match the declaration; "
+                            "ambiguous or corrected evidence requires manual evidence."
+                        ),
+                    )
+            review_receipt = review_receipt.model_copy(
+                update={
+                    "replaced_analysis_id": current.analysis_id,
+                    "replaced_ownership_version": current.version,
+                }
+            )
             now = self._clock()
             snapshot = _snapshot_prior_analysis(current)
             replacement = OwnershipAnalysisRecord(
@@ -629,6 +715,14 @@ class OwnershipAnalysisService:
                 ],
                 prior_analyses=(*current.prior_analyses[-3:], snapshot),
                 manual_review_receipt=review_receipt,
+                document_observations=observations,
+                document_bindings=bindings,
+                document_discrepancies=tuple(
+                    item.model_copy(update={"verification_state": "REVIEWED"})
+                    for item in compare_document_ownership(
+                        observations, current.parties, current.relationships, current.evidence
+                    )
+                ),
                 created_at=now,
                 loaded_at=now,
                 updated_at=now,
@@ -640,6 +734,8 @@ class OwnershipAnalysisService:
                     "correlation_id": replacement.correlation_id,
                 }
             )
+            if before_replace is not None:
+                before_replace()
             try:
                 persisted = self._repository.replace_review_required(
                     replacement, expected_version=expected_version
@@ -670,12 +766,14 @@ class OwnershipAnalysisService:
                 message="The onboarding case was not found.",
             )
         previous = self._repository.get_for_case(case_id)
+        observations, bindings = self._document_inputs(case_id)
+        documents_changed = previous is not None and previous.document_bindings != bindings
         identity_changed = (
             previous is not None
             and parent.entity is not None
             and not ownership_is_current(previous, parent)
         )
-        if previous is not None and not identity_changed:
+        if previous is not None and not identity_changed and not documents_changed:
             raise OwnershipRequestError(
                 code="OWNERSHIP_ALREADY_LOADED",
                 message="Ownership data has already been loaded for this case.",
@@ -689,6 +787,8 @@ class OwnershipAnalysisService:
         now = self._clock()
         record = OwnershipAnalysisRecord(
             case_id=case_id,
+            document_observations=observations,
+            document_bindings=bindings,
             identity_registration_number=parent.entity.registration_number,
             identity_correction_version=len(parent.identity_corrections),
             version=previous.version if previous is not None else 0,
@@ -705,6 +805,10 @@ class OwnershipAnalysisService:
         try:
             record = (
                 self._repository.replace_identity_bound(record, expected_version=previous.version)
+                if previous is not None and identity_changed
+                else self._repository.replace_document_bound(
+                    record, expected_version=previous.version
+                )
                 if previous is not None
                 else self._repository.save(record, expected_version=None)
             )
@@ -757,6 +861,15 @@ class OwnershipAnalysisService:
                     message="Ownership source data could not be validated safely.",
                 )
             self._validate_source(source, metadata, parent.entity.registration_number)
+            if source.garden_supplement is not None:
+                record.supplemental_parties = tuple(source.garden_supplement.parties)
+                record.supplemental_relationships = tuple(source.garden_supplement.relationships)
+                record.supplemental_evidence = (
+                    *source.garden_supplement.evidence,
+                    *source.garden_supplement.original_share_evidence,
+                )
+                source = self._merge_garden_supplement(source, metadata, parent)
+                record.source_classification = "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
             source = quantify_ownership_evidence(source)
             record.provider_name = metadata.provider_name
             record.provider_environment = metadata.environment
@@ -771,6 +884,10 @@ class OwnershipAnalysisService:
             )
             record.parties = [party.model_copy(deep=True) for party in source.parties]
             record.relationships = [item.model_copy(deep=True) for item in source.relationships]
+            record.document_discrepancies = compare_document_ownership(
+                observations, record.parties, record.relationships,
+                (*record.evidence, *record.supplemental_evidence)
+            )
             record.loaded_at = self._clock()
             record = self._record(
                 record,
@@ -879,6 +996,56 @@ class OwnershipAnalysisService:
             )
             aggregated = aggregate_ownership_paths(calculation)
             record.issues = list(calculation.issues)
+            if any(
+                item.verification_state == "REVIEW_REQUIRED"
+                for item in record.document_discrepancies
+            ):
+                record.issues.append(
+                    OwnershipAnalysisIssue(
+                        code=OwnershipIssueCode.CONTRADICTORY_OWNERSHIP_EVIDENCE
+                        if any(
+                            item.agreement == "MISMATCH" for item in record.document_discrepancies
+                        )
+                        else OwnershipIssueCode.UBO_REVIEW_REQUIRED,
+                        message=(
+                            "Proposed document ownership needs a current creator decision; "
+                            "source agreement is retained separately."
+                        ),
+                    )
+                )
+            if record.supplemental_relationships and any(
+                edge.provenance.provider == "ACRA_REGISTRY_ACQUISITION"
+                for edge in record.relationships
+            ):
+
+                def interest_key(
+                    edge: OwnershipRelationship, parties: list[Party]
+                ) -> tuple[str, str]:
+                    by_id = {party.party_id: party for party in parties}
+
+                    def identity(party: Party) -> str:
+                        return party.registration_number or party.display_name.casefold().strip()
+
+                    return identity(by_id[edge.parent_party_id]), identity(
+                        by_id[edge.child_party_id]
+                    )
+
+                official = {
+                    interest_key(edge, record.parties): edge.ownership_percent
+                    for edge in record.relationships
+                }
+                local = {
+                    interest_key(edge, list(record.supplemental_parties)): edge.ownership_percent
+                    for edge in record.supplemental_relationships
+                }
+                if official != local:
+                    record.issues.append(
+                        OwnershipAnalysisIssue(
+                            code=OwnershipIssueCode.CONTRADICTORY_OWNERSHIP_EVIDENCE,
+                            message=("Official and local supplemental quantities/relationships "
+                                     "disagree; originals are retained for creator review."),
+                        )
+                    )
             entities = {party.party_id: party.registration_number for party in record.parties}
             unquantified: list[OwnershipEvidence] = []
             contradictory: list[OwnershipEvidence] = []
@@ -1046,6 +1213,8 @@ class OwnershipAnalysisService:
             parent = self._cases.get_case(case_id)
             if parent is not None and not ownership_is_current(record, parent):
                 return None
+            if record.document_bindings != self._document_inputs(case_id)[1]:
+                return None
             return record
         if self._cases.get_case(case_id) is None:
             raise OwnershipRequestError(
@@ -1088,6 +1257,24 @@ class OwnershipAnalysisService:
                     )
             return False
 
+    def document_dependency_is_obsolete(
+        self, *, case_id: UUID, evidence_version: str,
+    ) -> bool:
+        """Prove that a retained ownership checkpoint uses superseded document inputs."""
+        with self._case_lock(case_id):
+            retained = self._repository.get_for_case(case_id)
+            if retained is None:
+                return False
+            current_bindings = self._document_inputs(case_id)[1]
+            analyses: tuple[OwnershipAnalysisRecord | PriorOwnershipAnalysisSnapshot, ...] = (
+                retained, *retained.prior_analyses
+            )
+            return any(
+                evidence_version == f"ownership:{analysis.analysis_id}:{analysis.version}"
+                and analysis.document_bindings != current_bindings
+                for analysis in analyses
+            )
+
     def current_registry_dependency_generation(
         self,
         *,
@@ -1107,6 +1294,121 @@ class OwnershipAnalysisService:
             ):
                 return None
             return len(parent.identity_corrections)
+
+    def _document_inputs(
+        self, case_id: UUID
+    ) -> tuple[tuple[DocumentOwnershipObservation, ...], tuple[OwnershipDocumentBinding, ...]]:
+        return (
+            current_document_inputs(self._documents.list_documents(case_id=case_id))
+            if self._documents is not None
+            else ((), ())
+        )
+
+    def _merge_garden_supplement(
+        self,
+        source: OwnershipSourceResult,
+        metadata: OwnershipProviderMetadata,
+        parent: OnboardingCase,
+    ) -> OwnershipSourceResult:
+        # Only this explicitly enabled, proof-bound component may carry different provenance.
+        from app.connectors.registry_ownership import (
+            build_garden_supplement,
+            garden_official_evidence_is_eligible,
+        )
+
+        supplement = source.garden_supplement
+        now = self._clock()
+        if (
+            not self._garden_supplement_enabled
+            or supplement is None
+            or metadata.provider_name != "ACRA_REGISTRY_ACQUISITION"
+            or metadata.environment != OwnershipEnvironment.MOCK
+            or not garden_official_evidence_is_eligible(parent, now)
+            or parent.registry_acquisition is None
+            or supplement.official_retrieved_at != parent.registry_acquisition.retrieved_at
+            or supplement.identity_correction_version != len(parent.identity_corrections)
+            or supplement.root_party_id != source.root_party_id
+        ):
+            raise OwnershipGraphError
+        local = OwnershipSourceResult(
+            root_party_id=supplement.root_party_id,
+            parties=supplement.parties,
+            relationships=supplement.relationships,
+            evidence=supplement.evidence,
+        )
+        self._validate_source(
+            local,
+            OwnershipProviderMetadata(
+                provider_name="LOCAL_SYNTHETIC_SUPPLEMENT", environment=OwnershipEnvironment.LOCAL
+            ),
+            parent.requested_uen,
+        )
+        expected = build_garden_supplement(parent, now)
+
+        def edge_values(edges: list[OwnershipRelationship]) -> list[tuple[object, ...]]:
+            return [
+                (
+                    item.relationship_id,
+                    item.parent_party_id,
+                    item.child_party_id,
+                    item.ownership_percent,
+                    item.provenance.source_reference,
+                )
+                for item in edges
+            ]
+
+        def scalar_values(items: tuple[OwnershipEvidence, ...]) -> list[tuple[object, ...]]:
+            return [
+                (
+                    item.evidence_id,
+                    item.entity_identifier,
+                    item.party_id,
+                    item.kind,
+                    item.numeric_value,
+                    item.determination_basis,
+                )
+                for item in items
+            ]
+
+        if (
+            supplement.parties != expected.parties
+            or edge_values(supplement.relationships) != edge_values(expected.relationships)
+            or scalar_values(supplement.evidence) != scalar_values(expected.evidence)
+            or scalar_values(supplement.original_share_evidence)
+            != scalar_values(expected.original_share_evidence)
+            or any(edge.provenance.sourced_at > now for edge in supplement.relationships)
+            or any(item.retrieved_at > now for item in supplement.evidence)
+            or any(
+                item.provider != "LOCAL_SYNTHETIC_SUPPLEMENT"
+                or item.environment != "LOCAL"
+                or item.retrieved_at > now
+                for item in supplement.original_share_evidence
+            )
+        ):
+            raise OwnershipGraphError
+        if source.relationships or any(
+            item.kind in {"DIRECT_PERCENTAGE", "SHARE_UNITS"} for item in source.evidence
+        ):
+            # Retain independent components outside arithmetic until agreement or creator decision.
+            return source.model_copy(update={"garden_supplement": None}, deep=True)
+        by_id = {item.party_id: item for item in source.parties}
+        for party in supplement.parties:
+            if party.party_id in by_id and by_id[party.party_id] != party:
+                raise OwnershipGraphError
+            by_id[party.party_id] = party
+        merged = OwnershipSourceResult(
+            root_party_id=source.root_party_id,
+            parties=list(by_id.values()),
+            relationships=[*source.relationships, *supplement.relationships],
+            evidence=(*source.evidence, *supplement.evidence),
+            legal_form=source.legal_form,
+        )
+        if (
+            len(merged.parties) > self.max_parties
+            or len(merged.relationships) > self.max_relationships
+        ):
+            raise OwnershipGraphError
+        return merged
 
     def _case_lock(self, case_id: UUID) -> AbstractContextManager[object]:
         lock_factory = getattr(self._cases, "case_lock", None)
@@ -1260,6 +1562,14 @@ def _snapshot_prior_analysis(record: OwnershipAnalysisRecord) -> PriorOwnershipA
     return PriorOwnershipAnalysisSnapshot(
         version=record.version,
         evidence=record.evidence,
+        document_observations=record.document_observations,
+        document_bindings=record.document_bindings,
+        document_discrepancies=record.document_discrepancies,
+        source_classification=record.source_classification,
+        supplemental_parties=record.supplemental_parties,
+        supplemental_relationships=record.supplemental_relationships,
+        supplemental_evidence=record.supplemental_evidence,
+        manual_review_receipt=record.manual_review_receipt,
         tagging=record.tagging,
         identity_registration_number=record.identity_registration_number,
         identity_correction_version=record.identity_correction_version,

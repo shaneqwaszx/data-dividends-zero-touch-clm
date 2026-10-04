@@ -133,3 +133,20 @@ Classifier policy-version context is explicit: before uses the actual ACTIVE/ret
 base; an unapproved proposal uses the next aggregate version as PROSPECTIVE_UNRESERVED
 (no reservation or activation guarantee). An approved proposal uses its retained actual
 activated_version as ACTIVATED_PROPOSAL. Numeric outcomes never grant activation.
+
+## S2 extraction semantics — 2026-10-04 candidate
+
+The existing IDP threshold remains the same versioned business parameter and default
+0.85, frozen per case. Its display is "IDP extraction evidence score threshold";
+the legacy API/key name is compatible and no probability is implied. Native label
+scores and OCR aggregation are documented in IDP_FIELD_PROFILE. Raw OCR quality,
+registry agreement and human verification are distinct. Existing HR Admin proposal and
+independent Director approval govern changes; cases are not rewritten from ACTIVE.
+No new industry-practice source priority/tolerance/age/review default was introduced.
+The >=25% inclusive numeric POC rule retains D-062 authority and legal limitations.
+
+New bootstrap technical-format snapshots include PNG/JPEG/TIFF. Older retained
+catalogue values are not silently rewritten: response descriptions identify them as
+retained technical snapshots and describe current bounded runtime support. This changes
+neither business activation nor stored version/value. Format, byte/pixel/page/deadline,
+RBAC/schema/CAS/no-replay/secret controls remain non-editable safeguards.
