@@ -1,0 +1,131 @@
+{
+  "slice": "B",
+  "review_scope": "working-tree delta atop unchanged independently accepted Slice A",
+  "branch": "feat/post-phase24-stability-provider-hardening",
+  "head": "707765b1d51172c64b851c9e46e68b3c23006789",
+  "base_sha": "707765b1d51172c64b851c9e46e68b3c23006789",
+  "origin_main": "707765b1d51172c64b851c9e46e68b3c23006789",
+  "candidate_sha256": "2ca42b853d0666fad262eb33c525e01473e2685c39e6e714bd070b361dd5b421",
+  "aggregate_algorithm": "SHA256(sorted path/sha256 entries; JSON sort_keys=True separators comma/colon; raw file bytes)",
+  "slice_a": {
+    "candidate_sha256": "814336c9b05288ae56d9f9e962e3486e315a963568aa9146432cae58ce7d09fd",
+    "manifest_path": ".ai-pipeline/reports/POST_PHASE24_SLICE_A_CANDIDATE.json",
+    "manifest_sha256": "ba6cf6882bdefd4afbd2a5d4cb60b73645f5e5aa3f4238fb1f922af2b9b2b15a",
+    "gate_path": ".ai-pipeline/reports/POST_PHASE24_SLICE_A_MINI_GATE.md",
+    "gate_sha256": "2ea5249f59c5641f6331f938b1967ff19276fcdd74b2b78cfa674c18d10c558a",
+    "frozen_paths_unchanged": true
+  },
+  "files": [
+    {
+      "path": ".ai-pipeline/reports/POST_PHASE24_SLICE_B_IMPLEMENTATION.md",
+      "sha256": "7c3d5cdfd0d8f2cd3dbbd7d4ff83b34b1eb0c47e72fc31dad78694f250fb7689"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "7cf1475500f96e480f1a0cda94137541667d2eb2d9e6df2704b3ad2a2b470507"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/README.md",
+      "sha256": "4516c74f1a920495b8383708ac65244854820e9a7ec709dc4338eafe47ecd0b2"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/garden-partnership-reviewed-client.pdf",
+      "sha256": "13f8d74a84bb5acd84f03c38c91cb6aadbc676c9652d051c5117aa20bc96fc6a"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/multiple-owner-demo-client.pdf",
+      "sha256": "ff7b89563b6ac4767d695dffc09e7aa947eba66481a57cb312f0b81c3522d870"
+    },
+    {
+      "path": "apps/backend/tests/test_slice_b_registry_demo.py",
+      "sha256": "741602f80205a161a2f4c6d7c5111c1ffc39d91572ca847f34bd46284523b3a2"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-b-registry-demo.e2e.ts",
+      "sha256": "75575caca4e702598732aacc64c6889f443e0edc85c0f3dacb35045c9b0f8ef2"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseDetail.tsx",
+      "sha256": "1f8c076a670dac720cd3a5a64110a75dc63856c5580010f5ba6c2ba8a5aaa49f"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.test.tsx",
+      "sha256": "31a96e78fd6d965e8edf9c46ed3ecb80f518da761b50ef8e664b50e93df59732"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.tsx",
+      "sha256": "1b0d3c91da850920db75403759fe403737e343553126c3e1e2d0ded9b42a5a0c"
+    },
+    {
+      "path": "apps/frontend/src/pages/HomeOnboarding.tsx",
+      "sha256": "6c94cfd5fe1510d602a3eac41c1cc11cabbb0573236caac9035e281ca377217d"
+    },
+    {
+      "path": "apps/frontend/src/pages/ManualOwnershipEvidenceForm.tsx",
+      "sha256": "6e095e55c7a30650510851eb61712383b57f0fb794e00c025440253d7c2530bd"
+    },
+    {
+      "path": "apps/frontend/src/pages/OwnershipPathExplorer.tsx",
+      "sha256": "31afb6d8566f388d79c3ccfe946b8132eb23fd68471fa7678ebfbee0862b7390"
+    },
+    {
+      "path": "apps/frontend/src/pages/RegistryProvenancePanel.test.tsx",
+      "sha256": "8316e47678a109e5faa39dccf032a29b63d4a6a405825076e85a43acc9c505a3"
+    },
+    {
+      "path": "apps/frontend/src/pages/RegistryProvenancePanel.tsx",
+      "sha256": "f78c5d5244a564017006fe6e5b2eb4765128febb704a666de9972de03c764076"
+    },
+    {
+      "path": "apps/frontend/src/types.ts",
+      "sha256": "cf7cf6e3f332552d08f32dc3f33f44825ed78037d3db13c3e5d293284a7d0c1e"
+    },
+    {
+      "path": "docs/demo/POST_PHASE24_DEMO_MATRIX.md",
+      "sha256": "03333e70706a0c7515faea947482e70371b2d6c0fde1bf609369ad96272514c2"
+    },
+    {
+      "path": "docs/sponsor-questions/OPEN_QUESTIONS.md",
+      "sha256": "144ae9911c8f74177755ada739191c9a763e4dd9cd63849a9a83e7162800f299"
+    },
+    {
+      "path": "scripts/e2e_backend_server.py",
+      "sha256": "3128a1d41cca520a681ddd9e4583c5ee215d69fc2db2b10be2cd9c0d51b10f23"
+    },
+    {
+      "path": "scripts/generate_slice_b_demo_pdfs.py",
+      "sha256": "617028e0c88ce92eeb68c18e91a7ba913863a570f78c7766691374ab4be3d19d"
+    },
+    {
+      "path": "scripts/run_e2e.py",
+      "sha256": "1153d92b843b50a0c871928eb181da09cac01dbbce86c68dde6efdd25880b54c"
+    },
+    {
+      "path": "scripts/slice_b_registry_fixture.py",
+      "sha256": "bce927874659d4cc922a3902dfc79840d46d1b3c9c0d752035b657d56a8ab2f6"
+    },
+    {
+      "path": "tests/test_run_e2e.py",
+      "sha256": "809c278e983fb721aa6b3ba7ebc171ea1f3ae2bae3f7c142cd05d59b8483203c"
+    },
+    {
+      "path": "tests/test_slice_b_e2e_fixture_routing.py",
+      "sha256": "3bac2d4ecbcbfc8af439ee062de92996511b43662a3817a8f2dd00e6d617f177"
+    }
+  ],
+  "evidence": {
+    "backend_focused": 351,
+    "generation_lifecycle_governance": 167,
+    "contracts": 44,
+    "frontend_unit": 397,
+    "physical_mongo_selected": 13,
+    "browser_slice_b_paths": 3,
+    "browser_slice_a_floor": 1,
+    "external_acra_calls": 0,
+    "external_goldtier_calls": 0
+  },
+  "excluded": {
+    "self": ".ai-pipeline/reports/POST_PHASE24_SLICE_B_CANDIDATE.json",
+    "independent_gate": ".ai-pipeline/reports/POST_PHASE24_SLICE_B_MINI_GATE.md"
+  }
+}
