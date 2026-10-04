@@ -1,0 +1,49 @@
+{
+  "branch": "feat/post-phase24-stability-provider-hardening",
+  "head": "707765b1d51172c64b851c9e46e68b3c23006789",
+  "base_sha": "707765b1d51172c64b851c9e46e68b3c23006789",
+  "origin_main": "707765b1d51172c64b851c9e46e68b3c23006789",
+  "candidate_sha256": "814336c9b05288ae56d9f9e962e3486e315a963568aa9146432cae58ce7d09fd",
+  "files": [
+    {
+      "path": ".ai-pipeline/001_planner/POST_PHASE24_STABILITY_PROVIDER_HARDENING_PLAN.md",
+      "sha256": "35100c0976d55b60769e10e9955646c76e86173aacee241e6e73094d6e5c72da"
+    },
+    {
+      "path": ".ai-pipeline/reports/POST_PHASE24_SLICE_A_IMPLEMENTATION.md",
+      "sha256": "334d0eacba82f4a37791ce93fa8841a3e7180f4df7bafa373cefbc1b88645fbc"
+    },
+    {
+      "path": "apps/backend/app/api_models.py",
+      "sha256": "079d785b21228896f3cadb050949ab029bd71675fb905e1ea36cd20c8aab23f3"
+    },
+    {
+      "path": "apps/backend/app/persistence/models.py",
+      "sha256": "b86bdce651b7bfdd078eb1c22564d8bfae6a78d0130c278fbe64f9053e662737"
+    },
+    {
+      "path": "apps/backend/tests/test_active_text_encoding.py",
+      "sha256": "1011b497ba5f740008cc8e81891e0610ef05dcf749265d28d79fc7bb1b48a87e"
+    },
+    {
+      "path": "apps/backend/tests/test_phase12_persistence.py",
+      "sha256": "d9c8894e020bcd6809a9e7f392f4d11cf3cd4b4b997c43836e2eae855729a9c2"
+    },
+    {
+      "path": "apps/backend/tests/test_phase12_real_mongo.py",
+      "sha256": "6b6ad737387f66c86db9347e6ef338abe3758c3378e7d713a63c39e480660464"
+    },
+    {
+      "path": "apps/backend/tests/test_slice_a_legacy_compatibility.py",
+      "sha256": "95bfa18a2889211cc2fb71fec3ce04548d0b35cb5b624f5ac90a3ad9a4ed29fb"
+    },
+    {
+      "path": "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+      "sha256": "feb64f4f1f02430aa31c9666ec2d494f4cbaa9a5e739099a827fd0771caefa18"
+    },
+    {
+      "path": "docs/contracts/ZERO_TOUCH_AUTOMATION_POLICY.md",
+      "sha256": "69326864a2a773b5ec7cc87ac381d407d584709e7d3ea2aaea58312d43620ff1"
+    }
+  ]
+}

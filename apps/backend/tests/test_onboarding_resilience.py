@@ -15,6 +15,7 @@ from app.connectors.goldtier_models import (
     GoldTierOperationResult,
     GoldTierOutcome,
     GoldTierRequestMetadata,
+    GoldTierSearchCandidate,
     GoldTierSearchOutcome,
     GoldTierSearchResult,
     SearchPartyRequest,
@@ -81,6 +82,7 @@ class RecordingGoldTierConnector:
         self.raise_at = raise_at
         self.search_outcome = search_outcome
         self.calls: list[str] = []
+        self.identity: GoldTierSearchCandidate | None = None
 
     def _record(self, stage: GoldTierStage) -> None:
         self.calls.append(stage)
@@ -90,8 +92,17 @@ class RecordingGoldTierConnector:
     def search_party(
         self, request: SearchPartyRequest, metadata: GoldTierRequestMetadata
     ) -> GoldTierSearchResult:
-        del request, metadata
+        del metadata
         self._record("search")
+        if (
+            self.identity is not None
+            and self.identity.registration_number == request.registration_number
+        ):
+            return GoldTierSearchResult(
+                outcome=GoldTierSearchOutcome.MATCH_FOUND, status_code=200,
+                matched_party_id=self.identity.party_id, candidates=(self.identity,),
+                message="Synthetic provider readback.",
+            )
         if self.search_outcome == GoldTierSearchOutcome.MATCH_FOUND:
             return GoldTierSearchResult(
                 outcome=self.search_outcome,
@@ -128,8 +139,13 @@ class RecordingGoldTierConnector:
     def create_policy(
         self, request: CreatePolicyRequest, metadata: GoldTierRequestMetadata
     ) -> GoldTierOperationResult:
-        del request, metadata
+        del metadata
         self._record("policy")
+        self.identity = GoldTierSearchCandidate(
+            party_id=request.goldtier_id,
+            registration_number=request.customer_external_system_key,
+            country="SG",
+        )
         return GoldTierOperationResult(
             outcome=GoldTierOutcome.SUCCESS,
             status_code=201,
@@ -363,10 +379,10 @@ async def test_no_match_allows_shell_and_full_happy_path() -> None:
 
     assert response.status_code == 201
     assert result.state == WorkflowState.COMPLETED
-    assert goldtier.calls == ["search", "shell", "policy", "amend"]
+    assert goldtier.calls == ['search', 'shell', 'policy', 'amend', 'search']
     with pytest.raises(ValueError, match="not eligible"):
         service.submit_staged_case(case_id, complete_legacy_flow=True)
-    assert goldtier.calls == ["search", "shell", "policy", "amend"]
+    assert goldtier.calls == ['search', 'shell', 'policy', 'amend', 'search']
 
 
 @pytest.mark.anyio
@@ -419,7 +435,7 @@ def test_multiple_cases_are_isolated_and_events_obey_terminal_invariants() -> No
         WorkflowState.REVIEW_REQUIRED,
         WorkflowState.FAILED,
         WorkflowState.REVIEW_REQUIRED,
-        WorkflowState.FAILED,
+        WorkflowState.REVIEW_REQUIRED,
     ]
     assert len({case.case_id for case in cases}) == len(cases)
     for case in cases:

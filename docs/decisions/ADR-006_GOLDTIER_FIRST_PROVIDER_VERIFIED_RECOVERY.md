@@ -4,6 +4,12 @@
 
 Proposed
 
+Current amendments: D-061 permits independent registry evidence during ambiguous or failed
+Search while target writes remain blocked. D-065 requires current registry evidence
+for new and rechecked exact-reuse cases; only duplicate Shell and new Policy are
+skipped. The source-free bootstrap language below records the original decision.
+These amendments preserve valid historical reads and the ledger's no-replay rules.
+
 ## Date
 
 2026-09-28

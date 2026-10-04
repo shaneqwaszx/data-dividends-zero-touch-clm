@@ -23,6 +23,7 @@ from app.connectors.goldtier_models import (
     GoldTierOperationResult,
     GoldTierOutcome,
     GoldTierRequestMetadata,
+    GoldTierSearchCandidate,
     GoldTierSearchOutcome,
     GoldTierSearchResult,
     SearchPartyRequest,
@@ -347,9 +348,21 @@ class LocalTargetAdapter:
 
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.identity: GoldTierSearchCandidate | None = None
 
     def search_party(self, request: Any, metadata: Any) -> GoldTierSearchResult:
         self.calls.append("search")
+        if (
+            self.identity is not None
+            and self.identity.registration_number == request.registration_number
+        ):
+            return GoldTierSearchResult(
+                outcome=GoldTierSearchOutcome.MATCH_FOUND,
+                status_code=200,
+                matched_party_id=self.identity.party_id,
+                candidates=(self.identity,),
+                message="Local contract stub retained this identity.",
+            )
         return GoldTierSearchResult(
             outcome=GoldTierSearchOutcome.NO_MATCH,
             status_code=200,
@@ -368,6 +381,11 @@ class LocalTargetAdapter:
 
     def create_policy(self, request: Any, metadata: Any) -> GoldTierOperationResult:
         self.calls.append("policy")
+        self.identity = GoldTierSearchCandidate(
+            party_id=request.goldtier_id,
+            registration_number=request.customer_external_system_key,
+            country="SG",
+        )
         return GoldTierOperationResult(
             outcome=GoldTierOutcome.SUCCESS,
             status_code=201,
@@ -386,7 +404,6 @@ class LocalTargetAdapter:
             status="ENRICHED",
             message="Local contract stub amended the party.",
         )
-
 
 def _build_local_zero(registry: object) -> tuple[ZeroTouchOrchestrator, LocalTargetAdapter]:
     target = LocalTargetAdapter()
@@ -579,7 +596,7 @@ def test_P06_QG_009_R2_ORDINARY_SPACES_NORMALIZE_AND_COMPLETE() -> None:
     assert created.status == "PENDING_INPUTS"
     assert completed.status == "COMPLETED"
     assert completed.metrics.human_interventions == 0
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 def test_P06_QG_009_WRONG_RETURNED_UEN() -> None:
@@ -687,7 +704,7 @@ def test_alternate_local_adapters_complete_the_full_zero_touch_path() -> None:
     completed = _confirm_target_dispatch(zero, waiting)
     assert completed.status == "COMPLETED"
     assert completed.metrics.human_interventions == 0
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     assert documents.list_documents(case_id=created.case_id)[0].provider_environment == "SANDBOX"
     analyzed = ownership.get(case_id=created.case_id)
     assert analyzed is not None and analyzed.provider_environment == "SANDBOX"

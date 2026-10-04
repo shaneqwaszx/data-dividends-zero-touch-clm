@@ -5,6 +5,14 @@ It is not a sponsor contract, phase report, or substitute for current source and
 
 ## Verification metadata
 
+The current main source baseline was inspected on 2026-10-04 at
+`707765b1d51172c64b851c9e46e68b3c23006789` (merged PR #67, Phase24/24C).
+This establishes source/contract metadata, not a newly executed main runtime suite.
+The cumulative post-Phase24 A–G work is unmerged on
+`feat/post-phase24-stability-provider-hardening`; exact candidate tests and independent
+gates belong to that branch and their manifests. Original checkout data is untouched.
+
+
 PR #65 was human squash-merged on 2026-10-01 at
 `4a206a3a3c4c91b06cec99e26a44016a74d8d2ce`. Its inspected tree
 `01bd239ee8dcd05ca663e9aaadfe6518c3c4940e` exactly matches the accepted
@@ -30,8 +38,8 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 {
   "schema_version": 1,
   "case_envelope_schema_version": 8,
-  "verified_date": "2026-10-01",
-  "verified_main_sha": "4a206a3a3c4c91b06cec99e26a44016a74d8d2ce",
+  "verified_date": "2026-10-04",
+  "verified_main_sha": "707765b1d51172c64b851c9e46e68b3c23006789",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -65,15 +73,14 @@ persistence constant.
 
 ## Current status
 
-### Phase 24 working candidate (not accepted)
+### Phase 24 accepted on inspected main
 
-An isolated uncommitted candidate based on main `039101b69772c4c9ae4ca7b4a7ca3e4c19b03f4c`
-adds same-case registry verification and entered/document/other UEN choices, dependency
+The Phase24/24C package merged through PR #67 adds same-case registry verification and entered/document/other UEN choices, dependency
 recomputation with identity-bound ownership history, bounded scalar evidence and a
 deterministic semantic tagger (`ML_RUNTIME_NOT_AVAILABLE`), and seven accessible ordered
 disclosures ending in Review & Send. Its source/test/review identity and verification
-limits are owned by the Phase 24 handoff and independent gate; this paragraph does not
-upgrade the accepted baseline metadata or provider classifications.
+limits remain attributed to the Phase24 handoff and independent gates; their execution evidence
+is not silently transferred to the later A–G branch. Provider classifications remain unchanged.
 
 Actual October 1-2 official ACRA Marketplace Mock discovery made 24 token/read attempts:
 22 HTTP responses and two pre-response TLS failures. The private seven-page sample
@@ -167,10 +174,11 @@ Major implemented phases are:
   schema-v1 through schema-v5 reads remain supported without rewrite.
 - The current main checkpoint moves the first read-only GoldTier Search ahead of
   ACRA bootstrap by retaining bounded initial legal-name/UEN/country identity. Exact
-  existing customers reuse only a prior same-ID verified canonical target state and skip
-  ACRA/Shell/new-policy creation before same-ID Amend/read-back; no-match cases alone
-  acquire ACRA and may later create Shell then Policy; ambiguous candidates stop before
-  ACRA and all mutation. Provider-verified recovery retains the
+  existing customers reuse only prior finalized same-ID target proof and skip duplicate
+  Shell/new Policy. The G branch acquires required current registry/cache evidence before
+  ownership, validates it against the searched identity, and preserves failure precedence.
+  No-match may later create Shell/Policy after readiness/confirmation. Ambiguous/failed
+  Search permits independent evidence under D-061 while all target mutations stay blocked. Provider-verified recovery retains the
   original uncertain Shell attempt and later exact provider identity as separate durable
   facts; it never represents the recovered ID as a Shell response. Shell, Policy, Amend,
   and read-back remain under the one target ledger and uncertain mutations are not
@@ -288,12 +296,13 @@ authenticated browser/API request
   -> immutable case policy snapshot
   -> bounded initial identity plus jurisdiction observations and resolver
   -> early read-only GoldTier Search
-     -> exact verified prior target: hydrate existing state; skip ACRA/Shell/new Policy
+     -> exact verified prior target: retain same-ID proof; skip Shell/new Policy;
+        acquire required current registry/cache evidence and validate searched identity
      -> no match: closed SG registry router and optional exact-key Mock cache
         -> configured synthetic Mock, official API Marketplace Mock, or generic sandbox-shaped acquisition
         -> canonical legal entity and normalized registry evidence
-     -> ambiguous: retain case documents/evidence while customer identity stays under
-        review; stop before ACRA and every target mutation
+     -> ambiguous: independent eligible registry/documents/evidence may continue;
+        customer identity remains under review and every target mutation is blocked
      -> technical Search failure: retain case and continue independent ACRA, document,
         reconciliation, and ownership evidence; target identity remains unresolved,
         then terminate at the Search blocker with no Shell/Policy/Amend mutation
@@ -303,8 +312,9 @@ authenticated browser/API request
   -> versioned advisory entity resolution, UBO assistance, and mock risk
   -> readiness and immutable target snapshot
   -> incremental GoldTier Mock-default or explicit XPI-sandbox target checkpoints:
-     Shell/Policy/Amend for new customers, Amend for exact existing customers, then
-     same-ID read-back, all with the same retained no-replay recovery ledger
+     Shell/Policy for new customers; Amend when required (always for D2 Mock,
+     conditional under D-063 for XPI); same-ID read-back after required operations,
+     all with the same retained no-replay recovery ledger
   -> authorized bounded case portfolio/dashboard/activity and detailed evidence views
 ```
 
@@ -313,13 +323,29 @@ Technical composition is centered in `apps/backend/app/main.py`,
 Business behavior stays in domain/services; adapters stay at connector/persistence
 boundaries.
 
+## Slice-D D2 local Mock candidate — 2026-10-03
+
+The uncommitted D2 candidate adds bounded customer facts inside the existing Mock
+connector and uses the existing target ledger for successful identity readback after
+required Amend. Policy remains technical POLICY_CREATED with accepted ACRA external-key
+binding. Prior verified-case reuse also requires finalized same-ID readback ledger proof;
+a configured provider match alone requires review. A fresh connector loses runtime
+provider facts and cannot fabricate missing Policy/Amend/readback success or replay an
+uncertain ledger attempt. No runtime seed/reset endpoint, provider history, database,
+workflow/task/RFA/approval state, Sandbox fallback or external call is added. Mock remains
+PROJECT_OWNED / LOCAL / IN_PROCESS / NO_HTTP / NO_AUTH / PROCESS_LOCAL. D1 observed only
+NO_MATCH and established no new API semantics. Exact D2 verification/review provenance
+belongs to [the D2 report](../.ai-pipeline/reports/POST_PHASE24_SLICE_D2_IMPLEMENTATION.md);
+earlier main/phase acceptance remains attributed to its original tree. D2 received feature-branch independent PASS. The subsequent explicit combined F/G owner
+authorization permits final integration and conditional publication; human merge remains required.
+
 ## Current External Integration Truth
 
 | Boundary | Active/default | Other implemented seam | Classification | What is proved |
 |---|---|---|---|---|
 | ACRA | `mock` | generic `sandbox` connector | Mock active; sandbox partial | Synthetic ACRA-shaped behavior and adapter isolation |
 | ACRA API Marketplace Mock | explicit opt-in | fixed official Mock token/entity/shareholder transport with no fallback | Mock / Observed interoperability | Authorized token plus strict entity/shareholder success; Garden shareholders empty; no ownership-percentage authority and not Live |
-| Registry cache | disabled | opt-in synthetic and official API Marketplace Mock | User-authorized POC candidate | Normalized operation-prefix/definitive-negative schema2, frozen ACTIVE freshness/TTL, COMPLETE-only binding and bounded process-local single-flight; current independent combined gate pending |
+| Registry cache | disabled | opt-in synthetic and official API Marketplace Mock | User-authorized POC, Phase24C accepted main | Normalized operation-prefix/definitive-negative schema2, frozen ACTIVE freshness/TTL, COMPLETE-only binding and bounded process-local single-flight; branch extensions require exact cumulative gate |
 | ACRA BizFile | none | module exists but is not composed | Dormant | Focused adapter code/tests only, not runtime availability |
 | IDP/OCR | `local_pdf_text` | Mock fault/demo provider | Local POC / Mock | Deterministic extraction from supported synthetic documents |
 | Ownership | registry evidence into local engine | Mock fault/demo provider | Local / Mock support | Deterministic Decimal graph analysis, not an external service |
@@ -418,8 +444,9 @@ unknown or blocked.
 - PDF, DOCX and UTF-8 TXT technical intake with strict size/structure handling.
 - Deterministic local extraction and field provenance.
 - Source-neutral reconciliation with explicit bounded actions and resume, including
-  case-scoped comparison against retained prior-case canonical evidence when an exact
-  verified existing target is reused and fresh ACRA bootstrap is skipped.
+  case-scoped comparison against current registry acquisition evidence. Exact verified
+  Mock target reuse skips duplicate Shell/Policy while the existing acquisition/cache
+  owner supplies current evidence under the case's frozen registry policy.
 - Deterministic Decimal direct/indirect ownership paths and provisional UBO candidates.
 - Immutable per-case IDP/UBO, advisory-intelligence, registry TTL and deterministic
   classifier policy snapshot with approved active-version identity.
@@ -449,7 +476,8 @@ unknown or blocked.
 - No proven live ACRA, PingFed, GoldTier, external ownership, vendor OCR, production
   SSO/IdP, or Camunda connection.
 - No sandbox/live registry caching, production sharing/retention policy, forced refresh,
-  existing-case reassessment, background refresh, TTL, or cache administration API.
+  existing-case reassessment, background refresh, TTL deletion, or cache administration API.
+  Frozen POC definitive-negative evidence TTL is implemented and is distinct from deletion/retention.
 - No ASIC/Malaysia/Hong Kong registry adapter in active runtime.
 - No `createRelationship` or multi-level hierarchy creation through GoldTier.
 - No sponsor-approved final UBO, document, source-authority, RBAC, retention, deletion,
@@ -534,16 +562,17 @@ production-host history fallback remains unverified and outside Phase 15C scope.
 
 ## Current open sponsor blockers
 
-- Q-012 is partially resolved for official Mock request-side token facts; it still
-  blocks authoritative/live ACRA binding, successful operation and token-response
-  schemas, downstream token semantics, access/secret delivery, errors, rate/retry
-  limits, TLS/mTLS/private-CA requirements, related operations, and sandbox proof.
+- Q-012 is partially resolved for bounded official Mock token request/response, raw-token header,
+  and successful profile/officer/sample operations. It remains open for authoritative subscriber/
+  Production contracts, partner/member ownership denominators, broader not-found/errors, rate/retry,
+  TLS/mTLS/private-CA and approved access. Garden role evidence is not numeric partnership ownership.
 - Q-008/D-018 blocks real GoldTier/PingFed authentication material and containment.
 - Q-001/Q-002/Q-006/Q-007 block Ready-for-Approval, hierarchy retrieval, related-party
   semantics, and final Singapore target mappings.
 - Q-003/Q-005/Q-013/Q-014/Q-015 block final document scope, validation/source authority,
   privacy/retention, confidence/reviewer policy, and jurisdiction/reconciliation authority.
-- Q-004 blocks final legal UBO threshold/control policy.
+- Q-004 remains partially resolved: D-062 confirms the bounded inclusive >=25% default;
+  complete legal/control/evidence and production UBO policy remain open.
 - Q-016 blocks production identity, role, assignment, prioritization, and admin policy.
 - Q-017 blocks supplied LOW/MEDIUM/HIGH risk input authority: its producer/source,
   validation/provenance, update authority, workflow reactions, EDD/approval, and
@@ -592,7 +621,7 @@ screenshot, declaration, README, or validation artefact may be invented.
 Every new package requires a bounded planner handoff, change classification, relevant
 skill, proportional verification, and independent quality gate.
 
-## Phase24C candidate delta — 2026-10-02
+## Phase24C accepted-main delta — 2026-10-02
 
 D-064 implements HR proposal/edit/default-reset/submit and independent Director decision
 through existing policy/capability/repository owners. RM/onboarder are policy-view only;
@@ -605,5 +634,33 @@ synthetic metrics and read-only impact simulation are not trained-model/legal ac
 Policy UI uses the five specified business categories and before-after Director review.
 Case schema8 reads1..7 in memory without rewrite; policy/cache schema2 stay separate under
 existing strict CAS. Sandbox/Live cache and final autonomous approval remain unavailable.
-No external provider call or publication occurred in this continuation. Implementer
-checks are in progress; a fresh independent combined gate is required before acceptance.
+Phase24C is accepted through merged PR #67 at the inspected main baseline. Its original
+implementation, gate and external evidence retain their own execution identities.
+
+## Slice E implementation candidate — 2026-10-03
+
+The Policy tab now offers on-demand deterministic explainable comparison beneath the
+existing PolicyManagementService. Eight core editable parameters receive authoritative
+synthetic scenario evaluation;13 active intelligence parameters expose changed values/
+coupling and NOT_ASSESSED. Six fixed technical definitions and eight protected target
+parameters remain outside editable impact behavior. The fixed inclusive ownership
+comparator is preserved. Positive Decimal thresholds use the existing engine; zero is
+explicitly unknown because the current policy and engine domains disagree.
+
+The named bounded fixture pack supplies document/registry/negative/ownership outcomes
+and the existing14-example classifier. Before/after counts and macro/micro metric deltas
+are synthetic only. The UI shows current/default/base/proposed, descriptive materiality,
+reason codes, stages, transitions, unknowns and approval boundary in accessible details.
+HR and different Director use the same comparison evidence at the same aggregate
+revision. No automatic policy/case approval, production forecast, persistent monitor,
+case-population scan or external provider call is added. Historical comparison never
+rebases a stale proposal; existing cases remain frozen on activation.
+
+Implementation evidence and exact candidate identity are recorded in
+.ai-pipeline/reports/POST_PHASE24_SLICE_E_IMPLEMENTATION.md and the Slice-E manifest.
+Slice E received independent PASS on its exact cumulative feature-branch candidate; A/B/C/D
+accepted anchors are preserved. Slice F then closed the inherited Phase07 exact-asset allowlist
+blocker and received fresh remediation-round-1 PASS. Historical reports preserve earlier failures.
+Mock/Local/Sandbox/Live classifications and all provider runtime status remain unchanged.
+Slice E alone granted no publication authority. The later explicit combined F/G authorization
+now governs G verification, exact final independent PASS, conditional publication and human merge.

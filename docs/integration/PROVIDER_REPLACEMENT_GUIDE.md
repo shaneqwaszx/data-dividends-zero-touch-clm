@@ -4,18 +4,20 @@
 
 ```text
 ZeroTouchOrchestrator
-  +-- AcraConnector ------ MockAcraConnector / AcraSandboxConnector / future approved ACRA
-  +-- IdpProvider -------- MockIdpProvider / future approved OCR-IDP
-  +-- OwnershipProvider -- MockOwnershipProvider / future hierarchy adapter
-  `-- GoldTierConnector -- MockGoldTierConnector / future PingFed-GoldTier adapter
+  +-- AcraConnector ------ synthetic Mock / official Marketplace Mock / generic sandbox Partial
+  +-- IdpProvider -------- LocalPdfTextIdpProvider / explicit Mock fault seam
+  +-- OwnershipProvider -- RegistryAcquisitionOwnershipProvider / reviewed LOCAL / synthetic fault seam
+  `-- GoldTierConnector -- enhanced local Mock / separate XPI SANDBOX_PARTIAL
 ```
 
-Generic stage order, document assessment, Decimal ownership calculation, readiness,
-and target recovery remain unchanged.
+Preserve the existing registry acquisition/cache identity, frozen policies, backend
+capability/team scope, Decimal engine and target ledger/no-replay controls. Provider replacement
+must not create a second owner or silently change generic workflow semantics.
 
 ## Replacement procedure for every provider
 
-1. Implement the existing protocol in `apps/backend/app/connectors/`.
+1. Obtain explicit assignment, versioned contract/mapping authority, and approved access first;
+   then implement the existing protocol in `apps/backend/app/connectors/`.
 2. Create dedicated external request/response DTOs; never pass provider payloads into
    business services.
 3. Validate transport status, size/content type, shape, semantic minimums, identity,
@@ -35,8 +37,8 @@ and target recovery remain unchanged.
 |---|---|---|---|
 | Registry | `connectors/acra.py` | `composition.build_acra_connector` | New approved connector/decoder/authorizer beside `acra_sandbox.py` |
 | IDP | `connectors/idp.py` | `composition.build_document_processing_service` | New provider beside `mock_idp.py` |
-| Ownership | `connectors/ownership.py` | `composition.build_ownership_analysis_service` | New provider beside `mock_ownership.py` |
-| GoldTier | `connectors/goldtier.py` | `composition.build_onboarding_service` | New transport/auth connector beside `mock_goldtier.py` |
+| Ownership | `connectors/ownership.py` | `composition.build_ownership_analysis_service` | Source adapter beside `registry_ownership.py`, feeding the existing Decimal engine |
+| GoldTier | `connectors/goldtier.py` | `composition.build_onboarding_service` | Assigned transport/auth boundary beside `goldtier_xpi.py`; preserve the target ledger |
 
 Phase 06 alternate-adapter tests in
 `apps/backend/tests/test_phase06_provider_conformance.py` prove that independent local

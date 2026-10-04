@@ -69,6 +69,19 @@ def main() -> int:
     frontend_origin = _loopback_origin(_required("CLM_E2E_FRONTEND_ORIGIN"))
     diagnostics_enabled = os.environ.get("CLM_E2E_DIAGNOSTICS") == "1"
     garden_protocol_fixture = os.environ.get("CLM_E2E_GARDEN_PROTOCOL") == "1"
+    registry_demo = os.environ.get("CLM_E2E_REGISTRY_DEMO")
+    recovery_demo = os.environ.get("CLM_E2E_RECOVERY_DEMO")
+    sys.path.insert(0, str(ROOT))
+    from scripts.run_e2e import RECOVERY_DEMO_MODES
+
+    if recovery_demo not in {None, *RECOVERY_DEMO_MODES}:
+        raise RuntimeError("Unknown isolated recovery fixture")
+    if recovery_demo and (registry_demo or garden_protocol_fixture):
+        raise RuntimeError("Recovery fixtures require separate compositions")
+    if registry_demo not in {None, "garden-partnership", "synthetic-cache", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
+        raise RuntimeError("Unknown isolated registry fixture")
+    if registry_demo and garden_protocol_fixture:
+        raise RuntimeError("Registry fixtures require separate compositions")
 
     system_environment = {
         key: os.environ[key] for key in _SYSTEM_ENV_KEYS if key in os.environ
@@ -134,7 +147,12 @@ def main() -> int:
         setting_values[credential_setting_key(user_id).lower()] = encoded
     settings = Settings(_env_file=None, **setting_values)
     fixture_connector = None
-    if garden_protocol_fixture:
+    protocol_fixture = garden_protocol_fixture or registry_demo == 'garden-partnership'
+    if registry_demo:
+        settings = settings.model_copy(update={
+            'registry_cache_mode': 'mock', 'registry_cache_freshness_seconds': 7776000,
+        })
+    if protocol_fixture:
         import secrets
 
         from app.composition import build_acra_connector
@@ -146,16 +164,70 @@ def main() -> int:
             "acra_api_marketplace_mock_client_id": SecretStr(secrets.token_urlsafe(32)),
             "acra_api_marketplace_mock_secret_key": SecretStr(secrets.token_urlsafe(32)),
         })
-        transport = OfflineGardenProtocolTransport()
+        if registry_demo == "garden-partnership":
+            from scripts.slice_b_registry_fixture import (
+                GardenPartnershipProtocolTransport,
+            )
+
+            transport: OfflineGardenProtocolTransport = GardenPartnershipProtocolTransport()
+        else:
+            transport = OfflineGardenProtocolTransport()
         fixture_connector = build_acra_connector(
             settings, transport=transport, marketplace_token_transport=transport,
         )
+    if registry_demo == "synthetic-cache":
+        from scripts.slice_b_registry_fixture import CountingSyntheticRegistry
+
+        fixture_connector = CountingSyntheticRegistry()
+    recovery_fixture = None
+    if recovery_demo:
+        from scripts.slice_c_recovery_fixture import build_offline_recovery_fixture
+
+        recovery_fixture = build_offline_recovery_fixture(settings, recovery_demo)
+        settings = recovery_fixture.settings
+    ambiguity_fixture = None
+    if registry_demo == "synthetic-target-ambiguity":
+        from scripts.slice_f_target_fixture import build_local_ambiguity_fixture
+        ambiguity_fixture = build_local_ambiguity_fixture(settings)
+        fixture_connector = ambiguity_fixture.registry
+    reuse_fixture = None
+    if registry_demo == "synthetic-target-reuse":
+        from scripts.slice_f_target_fixture import build_local_reuse_fixture
+        reuse_fixture = build_local_reuse_fixture(settings)
+        fixture_connector = reuse_fixture.registry
     application = application_module.create_app(
         settings=settings,
+        onboarding_service=(recovery_fixture.onboarding if recovery_fixture else
+                            ambiguity_fixture.onboarding if ambiguity_fixture else
+                            reuse_fixture.onboarding if reuse_fixture else None),
+        ownership_analysis_service=reuse_fixture.ownership if reuse_fixture else None,
         acra_connector=fixture_connector,
-        e2e_acra_protocol_fixture=garden_protocol_fixture,
-        e2e_portfolio_seed_count=0 if garden_protocol_fixture else 105,
+        e2e_acra_protocol_fixture=protocol_fixture,
+        e2e_portfolio_seed_count=0 if protocol_fixture or registry_demo or recovery_demo else 105,
     )
+
+    if ambiguity_fixture:
+        @application.get("/api/__slice_f/target-metadata", include_in_schema=False)
+        def target_metadata() -> dict[str, object]:
+            assert ambiguity_fixture is not None
+            return ambiguity_fixture.metadata()
+
+    if recovery_fixture:
+        @application.get("/api/__slice_c/recovery-metadata", include_in_schema=False)
+        def recovery_metadata() -> dict[str, object]:
+            assert recovery_fixture is not None
+            return recovery_fixture.metadata()
+
+    if registry_demo:
+        # This endpoint exists only in this isolated test server, never app.main.
+        # It returns synthetic safe counters, no payload/authentication/provider details.
+        @application.get("/api/__slice_b/registry-counts", include_in_schema=False)
+        def registry_counts() -> dict[str, object]:
+            if registry_demo == "garden-partnership":
+                return {"fixture": registry_demo, "calls": list(transport.calls), "external_calls": 0}
+            from scripts.slice_b_registry_fixture import CountingSyntheticRegistry
+            assert isinstance(fixture_connector, CountingSyntheticRegistry)
+            return {"fixture": registry_demo, "calls": list(fixture_connector.calls), "external_calls": 0}
 
     import uvicorn
 

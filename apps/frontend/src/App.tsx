@@ -354,6 +354,14 @@ function blockerExplanation(blockerCode: string): string {
 }
 
 export function SimulationBanner({ profile }: { profile: SimulationProfile | null }) {
+  if (import.meta.env.VITE_E2E_RECOVERY_DEMO) {
+    return (
+      <div className="environment-banner" role="status">
+        Slice C synthetic offline recovery fixture · zero external provider calls.
+        Local registry/document evidence and inert XPI transport; no interoperability is demonstrated.
+      </div>
+    );
+  }
   const sourceLabel = profile
     ? profile.registry_provider_mode === "API_MARKETPLACE_PROTOCOL_TEST"
       ? "ACRA Marketplace protocol · synthetic offline test evidence"
@@ -366,7 +374,7 @@ export function SimulationBanner({ profile }: { profile: SimulationProfile | nul
           : `${profile.registry_system} ${titleCaseEnvironment(profile.registry_environment)}`
     : null;
   const fullLabel = profile
-    ? `${sourceLabel} | GoldTier ${titleCaseEnvironment(profile.target_environment)}${profile.target_environment === "SANDBOX" ? ` (${profile.target_provider_classification})` : ""} | IDP ${titleCaseEnvironment(profile.idp_environment)} (${profile.idp_provider}) | Ownership Mock | External access is backend-managed`
+    ? `${sourceLabel} | GoldTier ${titleCaseEnvironment(profile.target_environment)}${profile.target_environment === "SANDBOX" ? ` (${profile.target_provider_classification})` : ""} | IDP ${titleCaseEnvironment(profile.idp_environment)} (${profile.idp_provider}) | Ownership POC · Decimal engine | External access is backend-managed`
     : "Loading backend connector profile...";
   return (
     <div className="environment-banner" role="status" title={fullLabel}>

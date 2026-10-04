@@ -1,5 +1,11 @@
 # Project Context
 
+Current operational truth is [PROJECT_STATE](PROJECT_STATE.md) and
+[ARCHITECTURE](ARCHITECTURE.md): merged PR #67 supplies Phase24/schema8 and the
+35-rule versioned HR-proposal/distinct-Director policy control plane. Later A–G
+extensions are separately reviewed branch candidates. Older phase sections below
+describe historical stages; they do not define current auth, schema or composition.
+
 ## Project
 
 **Zero-Touch Onboarding - Client Lifecycle Management (CLM)**  

@@ -73,6 +73,7 @@ from app.services.admin_repository import (
     new_event_id,
 )
 from app.services.ownership_evidence_tagger import OwnershipEvidenceTagger
+from app.services.policy_impact_advisor import ImpactPolicy, PolicyImpactAdvisor
 
 
 class PolicyForbiddenError(Exception):
@@ -419,7 +420,6 @@ class PolicyManagementService:
             )
 
     def classifier_benchmark(self) -> dict[str, object]:
-        from app.services.ownership_evidence_tagger import OwnershipEvidenceTagger
 
         with self._lock:
             current = self.catalogue()
@@ -428,59 +428,54 @@ class PolicyManagementService:
             )
 
     def proposal_impact(self, proposal_id: str) -> dict[str, object]:
-        """Read-only synthetic fixtures, without any case/provider mutation path."""
+        """Read-only synthetic comparison against the retained proposal base."""
         with self._lock:
             current = self.catalogue()
             proposal = next((p for p in current.proposals if p.proposal_id == proposal_id), None)
             if proposal is None:
                 raise PolicyNotFoundError
-            proposed = current.model_copy(update={"rules": proposal.rules})
+            stale = proposal.base_active_version != current.active_version
+            base = current
+            if stale:
+                historical = next(
+                    (
+                        v
+                        for v in current.superseded_versions
+                        if v.version == proposal.base_active_version
+                    ),
+                    None,
+                )
+                if historical is None:
+                    raise PolicyValidationError
+                base = current.model_copy(
+                    update={"rules": historical.rules, "active_version": historical.version}
+                )
+            proposed = base.model_copy(update={"rules": proposal.rules})
             self._validate_runtime(proposed)
-            tagger = OwnershipEvidenceTagger()
-            before = tagger.benchmark(
-                self._classifier_snapshot(current), policy_version=current.active_version
-            )
-            after = tagger.benchmark(
-                self._classifier_snapshot(proposed), policy_version=current.version + 1
-            )
 
-            def runtime(catalogue: PolicyCatalogue) -> dict[str, object]:
-                registry = self._registry_snapshot(catalogue)
-                document = self._runtime_decimal(catalogue, IDP_POLICY_ID)
-                ownership = self._runtime_decimal(catalogue, UBO_POLICY_ID)
-                return dict(
-                    registry_freshness_seconds=registry.freshness_seconds,
-                    not_found_ttl_seconds=registry.negative_seconds,
-                    document_auto_confirm=[
-                        confidence >= document
-                        for confidence in (Decimal("0.84"), Decimal("0.85"), Decimal("0.90"))
-                    ],
-                    ownership_numeric_candidates=[
-                        percent >= ownership
-                        for percent in (Decimal("24.999999"), Decimal("25"), Decimal("30"))
-                    ],
+            def snapshot(catalogue: PolicyCatalogue, version: int) -> ImpactPolicy:
+                return ImpactPolicy(
+                    catalogue=catalogue,
+                    registry=self._registry_snapshot(catalogue),
+                    classifier=self._classifier_snapshot(catalogue),
+                    document=self._runtime_decimal(catalogue, IDP_POLICY_ID),
+                    ownership=self._runtime_decimal(catalogue, UBO_POLICY_ID),
+                    version=version,
                 )
 
-            changes = [
-                dict(
-                    policy_id=rule.policy_id,
-                    current=base.value.model_dump(mode="json"),
-                    default=base.default_value.model_dump(mode="json"),
-                    proposed=rule.value.model_dump(mode="json"),
+            try:
+                result = PolicyImpactAdvisor.evaluate(
+                    before=snapshot(base, proposal.base_active_version),
+                    after=snapshot(proposed, proposal.activated_version or current.version + 1),
+                    current=current,
+                    proposal_id=proposal_id,
+                    proposal_version=proposal.version,
+                    stale=stale,
+                    after_is_activated=proposal.activated_version is not None,
                 )
-                for rule in proposal.rules
-                if (base := current.rule(rule.policy_id)) is not None and rule.value != base.value
-            ]
-            return dict(
-                proposal_id=proposal_id,
-                base_active_version=proposal.base_active_version,
-                current_active_version=current.active_version,
-                stale=proposal.base_active_version != current.active_version,
-                label="Read-only synthetic policy impact; no real case or provider mutation",
-                changes=changes,
-                before=dict(classifier=before, runtime=runtime(current)),
-                after=dict(classifier=after, runtime=runtime(proposed)),
-            )
+            except ValueError:
+                raise PolicyValidationError from None
+            return result.model_dump(mode="json")
 
     def _expected(self, version: int) -> PolicyCatalogue:
         current = self.catalogue()

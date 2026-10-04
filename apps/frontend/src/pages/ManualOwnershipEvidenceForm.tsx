@@ -157,7 +157,7 @@ export default function ManualOwnershipEvidenceForm({
       <p className="card-kicker">Ownership recovery · local proof of concept</p>
       <h2 id="manual-ownership-title">Provide reviewed ownership declaration</h2>
       <p className="manual-ownership__source">
-        Supplementary client-supplied evidence · operator review · LOCAL · MANUAL_DECLARATION_POC
+        Supplementary client-supplied evidence · operator review · LOCAL · MANUAL_DECLARATION_POC · USER_SUPPLIED_DECLARATION
       </p>
       <p>
         This declaration is not ACRA evidence or verified ownership. It replaces only the

@@ -2,6 +2,12 @@
 
 ## Status and authority
 
+Current behavior is the Phase24C amendment below: schema2 operation-prefix and
+definitive-negative reuse, frozen ACTIVE per-case freshness/negative-TTL policy,
+and separate synthetic-Mock/official-Marketplace-Mock dataset namespaces. Earlier
+Phase16 schema1/complete-only/fixed-policy paragraphs record compatibility history;
+they do not override that amendment. Sandbox/Live cache remains prohibited.
+
 This is a project-owner-approved, provisional POC profile for synthetic Mock ACRA data.
 It is not an ACRA contract, a sponsor-confirmed validity or retention policy, production
 licensing authority, or evidence of live interoperability. Sandbox and live registry

@@ -111,7 +111,8 @@ proposed values/reason/submit; Director sees before-after synthetic impact and d
 ## Runtime snapshot boundary
 
 Each new case binds the IDP confidence and UBO percentage rules plus all 13 intelligence
-rules, the fixed inclusive comparator, catalogue label/version, and UTC `bound_at` into
+rules, registry freshness/definitive-negative TTL, semantic classifier parameters, the fixed
+inclusive comparator, ACTIVE identity/catalogue label/version and UTC `bound_at` into
 an immutable case snapshot before registry processing. Entity resolution, UBO advice,
 and mock advisory risk persist their policy-derived weights, thresholds, model versions,
 and readiness flag consistently with that snapshot. Later catalogue mutations affect

@@ -534,11 +534,15 @@ export default function CaseDetail({
       return;
     }
     setEvidenceFocusNotice(null);
+    const action = captureCaseAction();
     window.setTimeout(() => {
+      if (!isCurrentCaseAction(action)) return;
       const currentSection = document.getElementById(targetId!);
       if (!currentSection) return;
       revealStage(currentSection);
-      requestAnimationFrame(() => currentSection.focus({ preventScroll: true }));
+      requestAnimationFrame(() => {
+        if (isCurrentCaseAction(action)) currentSection.focus({ preventScroll: true });
+      });
       const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
       currentSection.scrollIntoView?.({
         block: "start",
@@ -725,11 +729,11 @@ export default function CaseDetail({
         <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} />
         <ProcessingBlockerPanels summary={summary} stage="REGISTRY" />
         <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>
-          <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} />
+          <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} />
         </div>
         <div className="ds-two-col case-corporate-evidence"><div><h4>Corporate particulars</h4><div>
           <div className="kv-row"><span className="kv-label">Company name</span><span className="kv-value">{entity?.legal_name ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration ID</span><span className="kv-value">{entity?.registration_number ?? summary.case.requested_uen}</span></div><div className="kv-row"><span className="kv-label">Entity type</span><span className="kv-value">{entity?.party_type ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registry status</span><span className="kv-value">{entity?.entity_status ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration date</span><span className="kv-value">{entity?.registration_date ?? "—"}</span></div>
-        </div></div><div><h4>Directors</h4>{acquisition && acquisition.officers.length > 0 ? <div className="table-card"><table className="table"><tbody>{acquisition.officers.map((officer) => <tr key={officer.officer_id}><td>{officer.name}</td><td>{officer.role}</td></tr>)}</tbody></table></div> : <p className="text-muted" style={{ fontSize: 12 }}>Not available.</p>}</div></div>
+        </div></div><div><h4>Registry officers and roles</h4>{acquisition && acquisition.officers.length > 0 ? <div className="table-card"><table className="table"><tbody>{acquisition.officers.map((officer) => <tr key={officer.officer_id}><td>{officer.name}</td><td>{officer.role}</td></tr>)}</tbody></table></div> : <p className="text-muted" style={{ fontSize: 12 }}>Not available.</p>}</div></div>
 
         {acquisition && (
           <details className="evidence-details registry-evidence-details">

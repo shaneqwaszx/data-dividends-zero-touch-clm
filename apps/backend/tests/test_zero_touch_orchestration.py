@@ -552,7 +552,7 @@ def test_straight_through_pauses_for_confirmation_before_target_mutation() -> No
     assert pipeline["GOLDTIER_SEARCH"]["safe_result"] == (
         "No existing customer found. Continuing as a new customer."
     )
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     document = documents.list_documents(case_id=case_id)[0]
     assert document.completion_method == "AUTO_CONFIRMED"
 
@@ -1434,7 +1434,8 @@ def test_same_customer_can_have_distinct_cases_without_duplicate_shell() -> None
     assert domain_a.goldtier_result.party_id == domain_b.goldtier_result.party_id
     assert domain_b.existing_target_state is not None
     assert domain_b.existing_target_state.source_case_id == case_a.case_id
-    assert domain_b.registry_acquisition is None
+    assert domain_b.registry_acquisition is not None
+    assert domain_b.entity == domain_b.registry_acquisition.entity_profile
     assert [item.display_name for item in documents.list_documents(case_id=case_a.case_id)] == [
         "case-a-profile.pdf"
     ]
@@ -1451,7 +1452,7 @@ def test_same_customer_can_have_distinct_cases_without_duplicate_shell() -> None
     assert target.calls.count("policy") == 1
 
 
-def test_exact_existing_customer_conflict_names_retained_baseline_not_registry() -> None:
+def test_exact_existing_customer_conflict_names_current_registry_evidence() -> None:
     connector = ExistingAfterFirstRecordingMockGoldTier()
     _, zero, _, target, _ = build_system(connector=connector)
     case_a = zero.create_case(
@@ -1498,15 +1499,14 @@ def test_exact_existing_customer_conflict_names_retained_baseline_not_registry()
         for item in paused_b.active_exceptions
         if item.blocker_code == "DOCUMENT_SOURCE_CONFLICT"
     )
-    assert "Retained existing-customer baseline" in conflict.explanation
-    assert "Registry" not in conflict.explanation
+    assert "Registry and document observations disagree" in conflict.explanation
     reconciliation = zero._reconciliation.get(case_id=case_b.case_id)  # noqa: SLF001
     assert reconciliation is not None
     address = next(
         item for item in reconciliation.fields if item.field_name == "registered_address"
     )
     assert {item.source_kind.value for item in address.observations} == {
-        "EXISTING_CASE",
+        "REGISTRY",
         "DOCUMENT_IDP",
     }
     assert target.calls.count("shell") == 1
@@ -1537,7 +1537,7 @@ def test_coi_missing_address_remains_registry_only_and_completes() -> None:
     )
     assert address.outcome == ReconciliationOutcome.REGISTRY_ONLY
     assert address.document_required is False
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 def test_coi_supplied_mismatching_address_remains_reviewable() -> None:
@@ -1629,7 +1629,7 @@ def test_registry_complete_restart_runs_search_before_document() -> None:
         AutomationStage.GOLDTIER_SEARCH,
         AutomationStage.DOCUMENT,
     )
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 def test_case_bound_high_mock_risk_can_pause_readiness_without_compliance_decision() -> None:
@@ -1691,16 +1691,8 @@ def test_cache_hit_journey_preserves_target_order_and_counts(
     assert first["status"] == second["status"] == "COMPLETED"
     assert registry.calls == ["entity", "officers", "ownership", "relationships"]
     assert target.calls == [
-        "search",
-        "search",
-        "shell",
-        "policy",
-        "amend",
-        "search",
-        "search",
-        "shell",
-        "policy",
-        "amend",
+        "search", "search", "shell", "policy", "amend", "search",
+        "search", "search", "amend", "search",
     ]
 
 
@@ -1788,7 +1780,7 @@ def test_document_source_conflict_resolution_is_one_intervention_and_auto_resume
     assert result["status"] == "COMPLETED", result["technical_failure"]
     assert result["metrics"]["human_interventions"] == 1
     assert result["metrics"]["exceptions_resolved"] == 2
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 def test_low_confidence_has_no_unconfirmed_resolution_action() -> None:
@@ -1812,12 +1804,13 @@ def test_low_confidence_has_no_unconfirmed_resolution_action() -> None:
     assert target.calls == ["search"]
 
 
-def test_existing_party_skips_shell_and_continues_to_completion() -> None:
+def test_seeded_existing_party_requires_verified_case_before_writes() -> None:
     client, _, _, target, _ = build_system()
     result = start_demo(client, "EXISTING_PARTY")
-    assert result["status"] == "COMPLETED"
-    assert result["active_exceptions"] == []
-    assert target.calls == ["search", "search", "amend"]
+    assert result["status"] == "WAITING_FOR_REVIEW"
+    assert result["current_stage"] == "GOLDTIER_SEARCH"
+    assert result["active_exceptions"]
+    assert target.calls == ["search"]
 
 
 def test_provider_and_target_failures_are_technical_not_business_review() -> None:
@@ -1870,7 +1863,7 @@ def test_duplicate_and_concurrent_start_do_not_repeat_completed_work() -> None:
     resumed = client.post(f"/api/clm/zero-touch/cases/{case.case_id}/resume")
     assert resumed.status_code == 200
     assert resumed.json()["version"] == version
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 def test_low_confidence_conflict_is_one_unverifiable_review_checkpoint() -> None:
@@ -1947,7 +1940,7 @@ def test_matching_fields_auto_confirm_then_one_safe_correction_resumes_once() ->
     assert partial.status == "COMPLETED"
     assert partial.active_exceptions == []
     assert partial.version > paused.version
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     assert sum(event.code == "DOCUMENT_FIELD_AUTO_CONFIRMED" for event in document.events) == 3
 
     completed = zero.get(case_id=created.case_id)
@@ -1959,7 +1952,7 @@ def test_matching_fields_auto_confirm_then_one_safe_correction_resumes_once() ->
     )
     assert legal_name.original_extracted_value == original_name
     assert legal_name.reviewed_value == "MERLION CIRCULAR LABS PTE. LTD."
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
     zero.review_document_field(
         case_id=created.case_id,
@@ -1969,7 +1962,7 @@ def test_matching_fields_auto_confirm_then_one_safe_correction_resumes_once() ->
         corrected_value="MERLION CIRCULAR LABS PTE. LTD.",
     )
     assert zero.get(case_id=created.case_id).version == completed.version  # type: ignore[union-attr]
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 def test_failed_replacement_returns_to_targeted_intake_and_resumes_once() -> None:
@@ -2022,9 +2015,9 @@ def test_failed_replacement_returns_to_targeted_intake_and_resumes_once() -> Non
     assert retried.is_current_evidence
     completed = zero.start(case_id=created.case_id)
     assert completed.status == "COMPLETED", completed.technical_failure
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     assert zero.start(case_id=created.case_id).version == completed.version
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 def test_replacement_repository_failure_does_not_enter_reupload_recovery(
@@ -2148,14 +2141,29 @@ def test_explicit_resume_repairs_interrupted_review_checkpoint_without_replay() 
         refresh_document_checkpoint=True,
     )
     assert repaired.status == "COMPLETED"
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     repeated = zero.start(
         case_id=created.case_id,
         refresh_document_checkpoint=True,
     )
     assert repeated.version == repaired.version
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
+
+def _verified_existing_fixture(zero, target, uen="202400005E"):
+    """Test-local actual accepted execution; never invent a prior ledger/history."""
+    target._customers.pop(f"GT-MOCK-EXISTING-{uen}", None)
+    prior = zero._cases.create_case(uen)
+    zero._cases.confirm_target_dispatch(
+        case_id=prior.case_id,
+        actor_id="verified-fixture",
+        expected_case_event_count=len(prior.events),
+        clm_version=None,
+        destination="GOLDTIER_MOCK",
+    )
+    receipt = zero._cases.submit_staged_case(prior.case_id)
+    assert receipt.goldtier_result.readback_status == "VERIFIED"
+    target.calls.clear()
 
 def _prepare_final_document_review(
     zero: ZeroTouchOrchestrator,
@@ -2164,6 +2172,8 @@ def _prepare_final_document_review(
     uen: str = "202400001A",
     demo: Any | None = None,
 ) -> tuple[UUID, UUID, int]:
+    if uen == "202400005E":
+        _verified_existing_fixture(zero, zero._cases._goldtier)
     created = zero.create_case(uen, team_id=TeamId.TEAM_A)
     case = zero._cases.get_case(created.case_id)  # noqa: SLF001
     assert case is not None and case.entity is not None
@@ -2270,7 +2280,7 @@ def test_reconciliation_conflict_after_review_fails_closed_then_repeat_repairs_o
     assert completed.current_stage == "COMPLETE"
     assert repeated is not None and len(repeated.events) == durable_event_count
     assert ownership_calls["count"] == 1
-    assert target.calls == ["search", "search", "amend"]
+    assert target.calls == ['search', 'search', 'amend', 'search']
 
 
 def test_reconciliation_infrastructure_failure_after_review_resume_repairs_once(
@@ -2315,7 +2325,7 @@ def test_reconciliation_infrastructure_failure_after_review_resume_repairs_once(
     completed = zero.start(case_id=case_id, refresh_document_checkpoint=True)
     assert completed.status == "COMPLETED"
     assert ownership_calls["count"] == 1
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 @pytest.mark.parametrize("recovery", ["repeat", "resume"])
@@ -2378,7 +2388,7 @@ def test_automation_checkpoint_rejection_stops_progress_and_is_recoverable(
     assert completed is not None and completed.status == "COMPLETED"
     assert reviewed is not None and len(reviewed.events) == durable_event_count
     assert ownership_calls["count"] == 1
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 def test_reconciliation_failure_preserves_an_independent_document_blocker(
@@ -2816,7 +2826,7 @@ def test_phase05_finalization_recovery_completes_without_target_replay(
         content=PDF,
     )
     assert completed.status == "COMPLETED"
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
     assert "PRIVATE_FINALIZATION_SENTINEL" not in completed.model_dump_json()
 
 
@@ -3022,7 +3032,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_RESOLVED_BY_KEEP_REGISTRY() -> None:
     assert reconciliation.discrepancies[0].decision is not None
     assert reconciliation.discrepancies[0].decision.action == "KEEP_REGISTRY_VALUE"
     assert completed.metrics.human_interventions == 1
-    assert target.calls == ["search", "search", "shell", "policy", "amend"]
+    assert target.calls == ['search', 'search', 'shell', 'policy', 'amend', 'search']
 
 
 def test_P06_QG_005_REVIEWED_LOW_CONFIDENCE_REMAINS_BLOCKED() -> None:
@@ -3052,6 +3062,8 @@ def _exercise_repeated_finalization_recovery(
     expected_calls: list[str],
 ) -> None:
     _, zero, _, target, demo = build_system()
+    if uen == "202400005E":
+        _verified_existing_fixture(zero, target)
     original = zero._cases._build_execution_receipt  # type: ignore[attr-defined]  # noqa: SLF001
     fault_enabled = True
 
@@ -3112,7 +3124,7 @@ def test_P06_QG_006_REPEATED_SUCCESS_FINALIZATION_RETRY(
         uen="202400001A",
         expected_status="COMPLETED",
         expected_code=None,
-        expected_calls=["search", "search", "shell", "policy", "amend"],
+        expected_calls=["search", "search", "shell", "policy", "amend", "search"],
     )
 
 
@@ -3124,7 +3136,7 @@ def test_P06_QG_006_REPEATED_MATCH_FOUND_FINALIZATION_RETRY(
         uen="202400005E",
         expected_status="COMPLETED",
         expected_code=None,
-        expected_calls=["search", "search", "amend"],
+        expected_calls=["search", "search", "amend", "search"],
     )
 
 
@@ -3160,7 +3172,7 @@ def test_P06_QG_006_RECOVERY_PENDING_NOT_LOOP_GUARD(
         uen="202400001A",
         expected_status="COMPLETED",
         expected_code=None,
-        expected_calls=["search", "search", "shell", "policy", "amend"],
+        expected_calls=["search", "search", "shell", "policy", "amend", "search"],
     )
 
 

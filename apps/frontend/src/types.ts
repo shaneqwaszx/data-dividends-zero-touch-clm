@@ -451,7 +451,7 @@ export interface RegistryEvidenceBinding {
   expires_at: string;
   freshness_policy_id: "MOCK_ACRA_FIXED_90D" | "MOCK_ACRA_APPROVED_POLICY";
   freshness_policy_version: number;
-  freshness_duration_seconds: 7776000;
+  freshness_duration_seconds: number;
   freshness_comparator: "EVALUATION_NOW_LT_EXPIRES_AT";
 }
 
@@ -1588,14 +1588,47 @@ export interface ClassifierBenchmark {
   macro: { precision: number; recall: number; f1: number };
   micro: { precision: number; recall: number; f1: number };
 }
+export type ImpactMateriality = "NO_OBSERVED_CHANGE" | "LOW" | "MODERATE" | "HIGH" | "NOT_ASSESSED";
+export interface ImpactOutcome {
+  label: string; value: string | null; score: string | null; threshold: string | null;
+  reason_codes: string[]; automatic: boolean | null; review_required: boolean | null;
+  provisional_candidate: boolean | null; cache_reuse: boolean | null;
+}
+export interface ImpactScenario {
+  fixture_id: string; stage: "REGISTRY" | "DOCUMENT" | "OWNERSHIP" | "CLASSIFIER" | "INTELLIGENCE" | "READINESS";
+  effect: "AUTOMATIC_REVIEW" | "PROVISIONAL_CANDIDATE" | "CACHE_ONLY" | "ADVISORY";
+  before: ImpactOutcome; after: ImpactOutcome;
+}
+export interface ImpactChange {
+  policy_id: string; name: string; current: PolicyValue; base: PolicyValue;
+  default: PolicyValue; proposed: PolicyValue; direction: "INCREASE" | "DECREASE" | "VALUE_CHANGE";
+  stages: ImpactScenario["stage"][]; assessment: "ASSESSED" | "NOT_ASSESSED";
+  materiality: ImpactMateriality; effect: ImpactScenario["effect"] | "NOT_ASSESSED";
+  scenario_ids: string[]; coupled_policy_ids: string[]; reason_codes: string[]; limitations: string[];
+}
+export type PolicyImpactVersionContext = "ACTIVE_BASE" | "RETAINED_BASE" | "PROSPECTIVE_UNRESERVED" | "ACTIVATED_PROPOSAL";
 export interface PolicyImpact {
-  proposal_id: string; base_active_version: number; current_active_version: number;
-  stale: boolean; label: string;
-  changes: Array<{ policy_id: string; current: PolicyValue; default: PolicyValue; proposed: PolicyValue }>;
-  before: { classifier: ClassifierBenchmark; runtime: PolicyRuntimeImpact };
-  after: { classifier: ClassifierBenchmark; runtime: PolicyRuntimeImpact };
+  proposal_id: string; proposal_version: number; catalogue_version: number;
+  base_active_version: number; current_active_version: number; stale: boolean;
+  comparison_basis: "ACTIVE_PROPOSAL_BASE" | "RETAINED_PROPOSAL_BASE"; comparison_identity: string;
+  label: string; changes: ImpactChange[];
+  before: { policy_version_context: PolicyImpactVersionContext; classifier: ClassifierBenchmark; runtime: PolicyRuntimeImpact };
+  after: { policy_version_context: PolicyImpactVersionContext; classifier: ClassifierBenchmark; runtime: PolicyRuntimeImpact };
+  advisor: {
+    fixture_set_id: "SYNTHETIC_POLICY_IMPACT_V1"; fixture_set_hash: string;
+    scope: string; classifier_scope: string; materiality: ImpactMateriality; reason_codes: string[];
+    scenarios: ImpactScenario[];
+    automation_delta: Record<string, { before: number | null; after: number | null; delta: number | null }>;
+    automation_direction: "MORE_AUTOMATIC" | "LESS_AUTOMATIC" | "NO_OBSERVED_CHANGE" | "NOT_ASSESSED";
+    review_direction: "MORE_REVIEW" | "LESS_REVIEW" | "NO_OBSERVED_CHANGE" | "NOT_ASSESSED";
+    registry_reuse_direction: "MORE_RESTRICTIVE_REUSE" | "LESS_RESTRICTIVE_REUSE" | "NO_OBSERVED_CHANGE";
+    negative_reuse_direction: "MORE_RESTRICTIVE_REUSE" | "LESS_RESTRICTIVE_REUSE" | "NO_OBSERVED_CHANGE";
+    classifier_metric_delta: Record<string, number>;
+    unknown_impacts: Array<{ concept: string; status: "NOT_ASSESSED"; reason_code: "IMPACT_NOT_ASSESSED"; limitation: string }>;
+    limits: Record<string, number>;
+  };
 }
 export interface PolicyRuntimeImpact {
   registry_freshness_seconds: number; not_found_ttl_seconds: number;
-  document_auto_confirm: boolean[]; ownership_numeric_candidates: boolean[];
+  document_auto_confirm: boolean[]; ownership_numeric_candidates: (boolean | null)[];
 }

@@ -815,7 +815,7 @@ def project_human_interventions(
             # Submission control is rendered in Review and Send, separately from exceptions.
             continue
         required: tuple[str, ...] = ("Review the retained evidence identified by the blocker.",)
-        title = f"Action required â€” {_INTERVENTION_STAGE_LABELS[exception.stage]}"
+        title = f"Action required — {_INTERVENTION_STAGE_LABELS[exception.stage]}"
         explanation = exception.explanation
         expected = (
             "Use only a backend-authorized action below. The owning service will "
@@ -897,6 +897,27 @@ def project_human_interventions(
             )
             no_action = None
             identity_correction_action = "IDENTITY_SEARCH_RECHECK"
+        elif (
+            exception.blocker_code in {
+                "INITIAL_IDENTITY_NOT_ELIGIBLE",
+                "REGISTRY_IDENTIFIER_NOT_ELIGIBLE",
+                "ACRA_ENTITY_NOT_FOUND",
+                "REGISTRY_RECHECK_INCOMPLETE",
+            }
+            and case.target_dispatch_confirmation is None
+            and case.goldtier_result is None
+            and clm.submission_snapshot is None
+            and automation.status != AutomationStatus.COMPLETED
+        ):
+            title = "Registry identity requires correction"
+            classification = "RECOVERABLE_INPUT"
+            required = ("A valid Singapore UEN and current same-case identity.",)
+            expected = (
+                "Correct the UEN on this case. The registry owner verifies it and invalidates "
+                "identity-dependent evidence before the bounded read-only Search recheck."
+            )
+            no_action = None
+            identity_correction_action = "IDENTITY_SEARCH_RECHECK"
         elif exception.blocker_code in {
             "UNCERTAIN_TARGET_MUTATION",
             "TARGET_OPERATION_OUTCOME_UNCERTAIN",
@@ -936,7 +957,7 @@ def project_human_interventions(
             and clm.submission_snapshot is None
             and clm.status != ClmStatus.SUBMITTING
         ):
-            title = "Ownership and UBO â€” needs input"
+            title = "Ownership and UBO — needs input"
             classification = "RECOVERABLE_INPUT"
             required = (
                 "Case-bound ownership percentages, as-of date and "
@@ -979,7 +1000,7 @@ def project_human_interventions(
                 and case.target_dispatch_confirmation is None
             ):
                 classification = "RECOVERABLE_INPUT"
-                title = "Target classification â€” needs input"
+                title = "Target classification — needs input"
                 evidence_actions = (
                     BrowserInterventionEvidenceAction(
                         target="CLASSIFICATION", label="Set target classification"
@@ -1699,7 +1720,9 @@ def project_processing_pipeline(
             ),
             "FAILED": "FAILED",
         }[acquisition.status.value]
-    elif existing_target_state is not None:
+    elif existing_target_state is not None and (
+        registry_status == "COMPLETE" or automation.status == AutomationStatus.COMPLETED
+    ):
         registry_status = "SKIPPED"
     elif initial_search_disposition == "REVIEW_REQUIRED" or initial_identity is None:
         registry_status = "NOT_REACHED"
@@ -1897,7 +1920,7 @@ def project_processing_pipeline(
             ),
             backend_stage=AutomationStage.READINESS,
             timestamp=classification_timestamp,
-            safe_result=(f"{item.value} Â· {item.authority.value}" if item is not None else None),
+            safe_result=(f"{item.value} · {item.authority.value}" if item is not None else None),
             blocker_code=(
                 "GOLDTIER_CLASSIFICATION_REQUIRED"
                 if item is None
@@ -1955,8 +1978,8 @@ def project_processing_pipeline(
             operation=item.operation,
             backend_stage=AutomationStage.MOCK_GOLDTIER,
             safe_result=(
-                "Recovered from provider verification Â· Original transport outcome: "
-                "Uncertain Â· Replay: No"
+                "Recovered from provider verification · Original transport outcome: "
+                "Uncertain · Replay: No"
                 if item.status == "RECOVERED"
                 else item.status.replace("_", " ").title()
             ),
@@ -2035,7 +2058,11 @@ def project_processing_pipeline(
             timestamp=registry_timestamp,
             safe_result=(
                 "ACRA skipped after exact verified GoldTier match"
-                if existing_target_state is not None
+                if registry_status == "SKIPPED"
+                else "Registry acquisition failed"
+                if registry_status == "FAILED"
+                else "Required registry evidence is unavailable"
+                if registry_status == "REVIEW_REQUIRED" and acquisition is None
                 else "Waiting for GoldTier customer identity resolution"
                 if initial_search_disposition == "REVIEW_REQUIRED"
                 else "Registry identity validated; source ownership evidence remains partial"
@@ -2046,7 +2073,9 @@ def project_processing_pipeline(
                 else "Registry acquisition not reached"
             ),
             blocker_code=(
-                "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
+                case.error.code
+                if registry_status == "FAILED" and case.error is not None
+                else "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
                 if initial_search_disposition == "REVIEW_REQUIRED"
                 else exception_code(AutomationStage.REGISTRY)
             ),

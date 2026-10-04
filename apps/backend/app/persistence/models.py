@@ -418,7 +418,22 @@ class DurableCaseSnapshotV7(BaseModel):
         return self
 
     def to_current(self) -> "DurableCaseSnapshot":
-        return DurableCaseSnapshot.model_validate({**self.model_dump(), "schema_version": 8})
+        return DurableCaseSnapshot(
+            schema_version=8,
+            case_id=self.case_id,
+            revision=self.revision,
+            onboarding=self.onboarding,
+            documents=self.documents,
+            ownership=self.ownership,
+            reconciliation=self.reconciliation,
+            clm=self.clm,
+            automation=self.automation,
+            target_executions=self.target_executions,
+            demo_scenario=self.demo_scenario,
+            intelligence=self.intelligence,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
 
 
 class DurableCaseSnapshot(BaseModel):

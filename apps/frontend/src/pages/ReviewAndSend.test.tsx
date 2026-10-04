@@ -418,3 +418,8 @@ describe("targetConfirmationMutationEffect", () => {
     expect(remove.mock.calls.every(([filters]) => JSON.stringify(filters?.queryKey).includes("case-user"))).toBe(true);
   });
 });
+
+
+it("provides an accessible focus destination for the existing Review and Send control", () => {
+  expect(render()).toMatch(/id="case-review-and-send"[^>]*tabindex="-1"/);
+});

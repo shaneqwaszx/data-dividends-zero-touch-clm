@@ -109,3 +109,13 @@ describe("Garden action performance boundaries", () => {
     expect(registryOperationProgressState("EMPTY")).toBe("SUCCESS");
   });
 });
+
+
+it("labels the isolated Slice C inert XPI seam as synthetic offline evidence", () => {
+  vi.stubEnv("VITE_E2E_RECOVERY_DEMO", "optional-amend");
+  try {
+    const html = renderToStaticMarkup(<SimulationBanner profile={null} />);
+    expect(html).toContain("Slice C synthetic offline recovery fixture");
+    expect(html).toContain("zero external provider calls");
+  } finally { vi.unstubAllEnvs(); }
+});

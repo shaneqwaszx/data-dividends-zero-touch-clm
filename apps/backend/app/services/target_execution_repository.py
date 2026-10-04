@@ -14,6 +14,8 @@ class TargetExecutionRepositoryConflictError(Exception):
 class TargetExecutionRepository(Protocol):
     def get(self, submission_id: UUID) -> GoldTierExecutionLedgerEntry | None: ...
 
+    def list_for_case(self, case_id: UUID) -> tuple[GoldTierExecutionLedgerEntry, ...]: ...
+
     def create(self, entry: GoldTierExecutionLedgerEntry) -> None: ...
 
     def replace(
@@ -37,6 +39,13 @@ class InMemoryTargetExecutionRepository:
         with self._lock:
             entry = self._entries.get(submission_id)
             return entry.model_copy(deep=True) if entry is not None else None
+
+    def list_for_case(self, case_id: UUID) -> tuple[GoldTierExecutionLedgerEntry, ...]:
+        with self._lock:
+            return tuple(
+                entry.model_copy(deep=True) for entry in self._entries.values()
+                if entry.submission_input.case_id == case_id
+            )
 
     def create(self, entry: GoldTierExecutionLedgerEntry) -> None:
         submission_id = entry.submission_input.submission_id

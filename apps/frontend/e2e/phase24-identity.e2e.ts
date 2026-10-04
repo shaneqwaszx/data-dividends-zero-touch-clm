@@ -83,6 +83,9 @@ async function choose(page: Page, caseId: string, label: string) {
 test("Phase24 invalid registry identity corrects the same case and keeps final review last", async ({ page }) => {
   const headers = await login(page);
   const created = await create(page, headers, "99999999Z");
+  expect(created.status).toBe("WAITING_FOR_REVIEW");
+  expect(created.technical_failure).toBeNull();
+  expect(created.active_exceptions.map((item: any) => item.blocker_code)).toEqual(["ACRA_ENTITY_NOT_FOUND"]);
   const caseId = created.case.case_id;
   await page.goto(`/cases/${caseId}`);
   await expect(page.getByText("Registry verification could not verify this UEN.", { exact: true })).toBeVisible();
@@ -92,6 +95,24 @@ test("Phase24 invalid registry identity corrects the same case and keeps final r
   expect(corrected.case.case_id).toBe(caseId);
   expect(corrected.case.entity.registration_number).toBe("202400001A");
   expect(corrected.case.identity_corrections.at(-1).previous_identity.registration_number).toBe("99999999Z");
+  expect(corrected.historical_exceptions.some((item: any) => item.blocker_code === "ACRA_ENTITY_NOT_FOUND"
+    && item.status === "CANCELLED")).toBe(true);
+  let previous = corrected;
+  for (const uen of ["202400009I", "202400001A", "202400001A"]) {
+    await openStage(page, "Registry identity");
+    await page.getByRole("button", { name: "Edit UEN", exact: true }).click();
+    await page.getByLabel("Singapore UEN").fill(uen);
+    const next = await choose(page, caseId, "Verify UEN and resume");
+    expect(next.case.case_id).toBe(caseId);
+    expect(next.case.requested_uen).toBe(uen);
+    expect(next.case.registry_acquisition.requested_identifier).toBe(uen);
+    expect(next.case.identity_corrections).toHaveLength(previous.case.identity_corrections.length + 1);
+    expect(next.case.identity_corrections.at(-1).previous_identity.registration_number)
+      .toBe(previous.case.requested_uen);
+    expect(next.version).toBeGreaterThan(previous.version);
+    expect(next.active_exceptions.some((item: any) => item.blocker_code === "ACRA_ENTITY_NOT_FOUND")).toBe(false);
+    previous = next;
+  }
   await expect(page.locator(".stage-disclosure > h2 > button").last()).toHaveText("Review & Send+");
   await expect(page.locator(".stage-disclosure--final")).toContainText("Not yet available");
   await expect(page.getByText(/Not yet available —/)).toBeVisible();

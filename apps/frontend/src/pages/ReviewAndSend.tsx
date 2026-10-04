@@ -208,7 +208,7 @@ export default function ReviewAndSend({
   const importantNotes = [...notesByTitle.values()];
 
   return (
-    <section id="case-review-and-send" className="review-and-send" aria-labelledby="review-and-send-title">
+    <section id="case-review-and-send" tabIndex={-1} className="review-and-send" aria-labelledby="review-and-send-title">
       <header className="review-and-send__header">
         <div>
           <p className="card-kicker">

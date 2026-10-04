@@ -27,8 +27,8 @@ flowchart LR
     E --> F[Canonical entity and registry evidence]
     F --> G[Document intake and extraction]
     GS -->|Exact verified prior target| ES[Hydrated existing target state]
-    ES --> G
-    GS -->|Ambiguous candidates| R
+    ES --> E
+    GS -->|Ambiguous candidates; target blocked| E
     G --> H[Reconciliation]
     H --> I[Decimal ownership and UBO analysis]
     I --> IA[Case-bound advisory intelligence]
@@ -159,7 +159,7 @@ it never silently changes the canonical entity.
 
 ## 7. Ownership/UBO architecture
 
-Phase 24 working candidate (uncommitted, not accepted): the registry normalizer retains
+Phase 24 is accepted on inspected main through PR #67: the registry normalizer retains
 bounded original unit/role evidence in `domain/ownership_evidence.py`; the single
 `OwnershipEvidenceTagger` labels it using versioned deterministic semantic rules.
 It cannot calculate percentages, establish legal control, authorize a workflow action,
@@ -253,6 +253,19 @@ reuse one exact identifier/country match through the existing advisory resolver;
 multiple, probable, conflicting, or otherwise non-exact candidate stops at human review
 with no mutation.
 
+The Slice-D D2 candidate retains only bounded accepted synthetic customer identity and
+technical Policy/Amend facts inside the existing process-local Mock connector. Exact
+registration Search reads those facts; Shell does not derive registration from case
+identity. Successful Policy establishes the accepted external-key binding. Mock Amend
+remains required, followed by the same ledger-owned identity readback as the existing
+Sandbox path. No provider workflow, task, approval, audit, retry or persistence owner is
+added. A fresh connector loses runtime customers; missing provider facts fail closed.
+Retained durable outcomes still support finalization without reconstructing provider
+state. Mock reuse additionally requires a prior same-identity/same-ID case and finalized
+successful same-ID READBACK ledger proof, read through the existing memory/Mongo ledger
+repositories. Constructor matches never create that proof. This is PROJECT_OWNED /
+LOCAL / IN_PROCESS / NO_HTTP / NO_AUTH / PROCESS_LOCAL, not Sandbox interoperability.
+
 The retained `GoldTierSubmissionPlan` is the single provider-identity owner for one CLM
 submission. Its environment and provider classification are an immutable compatible
 pair. A later configuration change may select the default for a new plan, but it may
@@ -275,8 +288,10 @@ Singapore eligibility validation and before optional ACRA bootstrap, document,
 reconciliation, or ownership work. Bounded candidates are evaluated only by the
 existing entity-resolution owner. An exact match is reusable only when it binds to a
 prior same-ID verified case; it retains the GoldTier party ID, hydrates verified target
-state, and skips ACRA, Shell and new-policy creation. A no-match checkpoint alone
-permits ACRA bootstrap and, after ordinary readiness prerequisites, Shell then Policy.
+state and skips Shell and new-policy creation. Required current registry evidence is acquired
+through the existing registry/cache coordinator before ownership; fresh COMPLETE cache evidence
+adds zero ACRA calls. Current registry identity must match the identity that Search actually
+verified. No-match permits Shell then Policy only after ordinary readiness and confirmation.
 Both branches may Amend and perform same-ID read-back. Any ambiguous, conflicting,
 failed, stale, or uncertain state blocks target mutation. Neither ambiguous nor failed
 Search means no-match: both may continue through independent eligible ACRA, document,
@@ -318,8 +333,10 @@ dispatch. The collection sends `accountEntityType` and `productType` as explicit
 strings, so those fields are optional for this bounded XPI sandbox request only.
 The HR-only provider console may construct ephemeral `SANDBOX_TEST_ONLY` previews, but
 it cannot mutate the global catalogue or bypass the case-bound target ledger.
-Sandbox success additionally requires a ledger-owned post-Amend Search by retained
-`goldTierID`; only one exact candidate with that same ID is accepted as verified.
+Sandbox success additionally requires ledger-owned same-ID Search/readback after all
+required operations. D-063 permits `AMEND_NOT_REQUIRED` only for the labelled XPI lane;
+D2 Mock requires Amend. Only one exact candidate with the retained `goldTierID` is
+accepted as verified.
 
 ## 12. Persistence and concurrency architecture
 
@@ -359,7 +376,8 @@ terminal records are not retroactively relabelled. Restart recovery treats attem
 not-completed mutations as uncertain, does not upgrade that state, and preserves the
 existing no-replay stop.
 
-Schema v7 is the current case envelope. Schema v6 added bounded initial-customer identity and
+Schema v8 is the current case envelope; it retains the Phase24 identity/evidence extensions.
+Strict schema-v1 through schema-v7 readers preserve valid historical facts without rewrite. Schema v6 added bounded initial-customer identity and
 GoldTier-first Search evidence, verified existing-target provenance, separate definitive
 and lifecycle-resolved operation markers, and an explicit provider-verified recovery
 fact. Schema v7 adds bounded identity-correction/Search-recheck attempts, policy-rebind
@@ -375,9 +393,10 @@ Policy or Amend can proceed.
 Case bootstrap begins with a backend-owned legal-name, registration-number and country
 identity. Eligible Singapore identity is searched against GoldTier before ACRA. Exact
 match is accepted only when one provider candidate binds to a prior durable same-ID
-post-Amend read-back; that case hydrates verified canonical target state, skips ACRA and
-Shell, then continues document reconciliation against the same target ID. No-match uses
-the ordinary ACRA bootstrap path. Ambiguous and failed Search retain their true typed
+same-ID read-back; that case hydrates verified target state, skips Shell/new Policy, and
+acquires required current registry/cache evidence before document reconciliation and ownership.
+Identity conflict invalidates exact-target binding; a failed required source operation retains
+technical-failure precedence. No-match uses the ordinary ACRA acquisition path. Ambiguous and failed Search retain their true typed
 dispositions and may continue independent eligible ACRA and case-evidence collection,
 but cannot call Shell, Policy, Amend, or any other target mutation.
 
@@ -443,7 +462,7 @@ validity before projection and projects only portfolio fields; it does
 not decode whole envelopes or fan out into detail reads. The page has no total and no
 constant-scan-cost or snapshot-isolation claim. The compatible array endpoint remains.
 
-The Phase 19 candidate keeps factual timing in the existing case-management/query owner.
+Accepted Phase 19 keeps factual timing in the existing case-management/query owner.
 One server clock read is taken after each portfolio repository page read and used for all
 rows; `observed_at` appears once at page level. The existing Mongo aggregation projects
 only retained `started_at` and total-duration scalars in addition to Phase 18 fields, so
@@ -656,4 +675,27 @@ deterministic semantic classification/14-example synthetic metrics; the single D
 ownership engine keeps arithmetic authority. PolicyRules renders the five categories,
 proposal/reset/decision and synthetic before-after impact. No new state, auth, policy,
 persistence, target execution, provider or frontend query-client owner is introduced.
-Implementation candidate; fresh independent combined gate pending.
+Phase24C is accepted on inspected main through PR #67. Later A–G changes remain a separately
+reviewed feature-branch candidate until publication and human merge.
+
+## Slice E policy impact owner extension — 2026-10-03
+
+PolicyManagementService.proposal_impact remains the public policy comparison owner.
+PolicyImpactAdvisor is a pure owner-local evaluation helper; policy_impact_fixtures
+defines only controlled synthetic inputs and policy_impact defines bounded ephemeral
+API models. It consumes document_semantic_assessment, registry-owner exclusive expiry
+predicates, existing Decimal graph/path/aggregate/candidate functions and
+OwnershipEvidenceTagger.tag/benchmark. The previous inline ownership/document Boolean
+comparison is retired. Benchmark input construction is exposed by the existing tagger,
+without a second classifier or arithmetic implementation. No new persistence, runtime
+composition, approval, cache, scheduler or provider owner exists.
+
+The current impact endpoint projects this typed comparison; PolicyImpactComparison
+renders server explanations and never calculates policy outcomes. ProposalReview aborts
+requests and rejects incompatible proposal/catalogue revisions, with actor/role/team/
+capability scoped component state. Existing global auth/query-client lifecycle remains
+authoritative. Retained base comparison is prospective and read-only; stale submission/
+decision CAS and frozen case policy remain unchanged. See POLICY_ACTIVATION_CONTRACT
+for explicit zero-threshold NOT_ASSESSED/type-widening limitation and evaluation bounds.
+Slice E received exact independent PASS on the feature branch. Final cumulative A–G acceptance
+and publication remain governed by the combined owner authorization.

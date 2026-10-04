@@ -1726,6 +1726,21 @@ describe("Phase 08 sponsor evidence refresh and causal visibility", () => {
     expect(readiness).toContain("Documents");
   });
 
+  it("labels the ownership calculation without claiming a Mock graph source", () => {
+    const profile = {
+      ...simulation,
+      registry_provider_mode: "API_MARKETPLACE_MOCK" as const,
+      idp_environment: "LOCAL" as const,
+      idp_provider: "LOCAL_PDF_TEXT" as const,
+      persistence: "Mongo-backed durable POC" as const,
+    };
+    const markup = renderToStaticMarkup(<SimulationBanner profile={profile} />);
+    expect(markup).toContain("ACRA API Marketplace Mock");
+    expect(markup).toContain("GoldTier Mock");
+    expect(markup).toContain("Ownership POC · Decimal engine");
+    expect(markup).not.toContain("Ownership Mock");
+  });
+
   it("labels the normal provider as the local POC PDF provider", () => {
     const local = { ...simulation, idp_environment: "LOCAL" as const, idp_provider: "LOCAL_PDF_TEXT" as const };
     const markup = renderToStaticMarkup(<SimulationBanner profile={local} />);

@@ -105,17 +105,23 @@ def test_presenter_presets_reach_truthful_review_boundaries(
 def test_multiple_document_blockers_remain_visible_and_stop_target() -> None:
     client = _client()
     result = _start(client, "MULTIPLE_DOCUMENT_BLOCKERS")
-    exception = result["active_exceptions"][0]
+    exceptions = result["active_exceptions"]
+    active_codes = {code for item in exceptions for code in item["blocker_codes"]}
 
-    assert set(exception["blocker_codes"]) == {
+    assert active_codes == {
         "DOCUMENT_SOURCE_CONFLICT",
         "DOCUMENT_LOW_CONFIDENCE",
     }
+    assert all(item["blocker_codes"] == [item["blocker_code"]] for item in exceptions)
+    assert all(
+        [decision["metadata"]["blocker_code"] for decision in item["decisions"]]
+        == [item["blocker_code"]] for item in exceptions
+    )
     evidence = client.get(
         f"/api/demo/clm/zero-touch/cases/{result['case']['case_id']}/uat-evidence"
     ).json()
     assert evidence["target_calls"] == ["SEARCH"]
-    assert set(evidence["active_blockers"]) == set(exception["blocker_codes"])
+    assert set(evidence["active_blockers"]) == active_codes
 
 
 def test_multiple_ownership_paths_complete_with_server_authored_candidate_summary() -> None:
@@ -129,7 +135,7 @@ def test_multiple_ownership_paths_complete_with_server_authored_candidate_summar
         f"/api/demo/clm/zero-touch/cases/{result['case']['case_id']}/uat-evidence"
     ).json()
     assert evidence["uat_case_id"] == "UAT-07"
-    assert evidence["target_calls"] == ["SEARCH", "SHELL", "POLICY", "AMEND"]
+    assert evidence["target_calls"] == ['SEARCH', 'SHELL', 'POLICY', 'AMEND', 'READBACK']
 
 
 def test_recovery_preset_is_pending_then_finalizes_without_target_replay() -> None:
@@ -140,7 +146,7 @@ def test_recovery_preset_is_pending_then_finalizes_without_target_replay() -> No
     assert pending["status"] == "RECOVERY_PENDING"
     first_evidence = client.get(f"/api/demo/clm/zero-touch/cases/{case_id}/uat-evidence").json()
     assert first_evidence["uat_case_id"] == "UAT-11"
-    assert first_evidence["target_calls"] == ["SEARCH", "SHELL", "POLICY", "AMEND"]
+    assert first_evidence["target_calls"] == ['SEARCH', 'SHELL', 'POLICY', 'AMEND', 'READBACK']
 
     recovered = client.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
     assert recovered.status_code == 200

@@ -268,7 +268,8 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
   await reviewedOwnership(page, caseId);
   await openStage(page, "Documents & reconciliation");
   await openStage(page, "Registry identity");
-  for (const width of [360, 768, 1280, 1440, 1920]) {
+  await openStage(page, "Ownership & UBO");
+  for (const width of [320, 360, 768, 1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier" })).toBeEnabled();
     expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);

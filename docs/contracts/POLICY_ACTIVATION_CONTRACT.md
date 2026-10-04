@@ -77,3 +77,59 @@ preserve frozen business policy identity/version/time. No new rebind feature is 
 Security/provider/target contract invariants are fixed. This is USER_AUTHORIZED_POC,
 not sponsor/production RBAC or regulatory approval. Q-001/Q-004/Q-014/Q-015/Q-016/Q-017
 remain open for their separate production, legal, source, reviewer and risk questions.
+
+## Slice E prospective synthetic impact candidate — 2026-10-03
+
+PolicyManagementService remains the sole proposal/activation owner. Its existing
+GET /api/policies/proposals/{proposal_id}/impact now uses a pure PolicyImpactAdvisor
+helper and strict PolicyImpactResponse. No new endpoint, repository, durable monitor,
+background job, provider call, case scan or approval capability is introduced.
+Comparison resolves the exact proposal base from ACTIVE or bounded retained history;
+missing history fails closed. Stale proposals remain stale and existing submission/
+decision CAS rejects them. Before/after evaluate identical controlled inputs.
+
+The response retains before/after classifier and runtime fields and current/default/
+proposed changes; adds base values, proposal/catalogue revisions, comparison identity,
+direction, stages, named scenarios, materiality, coupling, reason codes, bounded
+counts/deltas and explicit unknowns. Positive ownership legacy Boolean outcomes remain
+compatible. For zero, ownership_numeric_candidates widens to three nullable outcomes:
+null means NOT_ASSESSED, never false or zero candidates. This is an explicit type
+widening for an existing contract disagreement: policy catalogue accepts zero while
+the ownership engine/current/prior/candidate types and OWNERSHIP_UBO_PROFILE require
+(0,100]. Slice E does not reconcile or activate a new zero-threshold runtime behavior.
+
+SYNTHETIC_POLICY_IMPACT_V1 contains at most64 named scenarios: document semantic
+confidence/boundaries and blockers; registry and definitive-negative ages/strict expiry;
+Decimal direct/boundary/multipath/incomplete/synthetic60/40 ownership; the existing
+14-example SYNTHETIC_SEMANTIC_V1 classifier. Dynamic boundary inputs are constructed
+once for both policies. SHA-256 binds the exact controlled input definitions; benchmark
+hash/rule identity remains owned by OwnershipEvidenceTagger. No raw inputs are projected.
+
+HIGH describes document action, provisional candidate or freshness transitions;
+MODERATE describes semantic labels or definitive-negative cache transitions; LOW
+describes classifier score changes without label changes; NO_OBSERVED_CHANGE means
+no supplied outcome/score transition. NOT_ASSESSED means an unsupported/unmodelled
+effect, including the13 active intelligence parameters and unsupported zero ownership.
+These categories never assess compliance. Counts are stage-specific supplied scenarios,
+including coincident boundary inputs; they are not production-volume forecasts.
+Registry permissiveness compares configured windows without predicting ACRA traffic.
+Classifier macro/micro precision/recall/F1 retain current14-example authority, with no
+trained-model, legal or workflow-approval claim. Legal UBO, Ready-for-Approval, sanctions/
+PEP, production volume/load/retry and GoldTier approval remain NOT_ASSESSED.
+
+Bounds: existing64-rule catalogue/change maximum,64 projected scenarios,14 classifier
+examples and262144 UTF-8 response bytes. No real case population is evaluated. Existing
+HR proposal/edit/submit and independent Director approve/reject remain unchanged;
+impact never changes eligibility or cases. Existing cases keep frozen snapshots, new
+cases bind ACTIVE. Frontend comparison is session-memory only, aborts replaced requests,
+and validates proposal/catalogue identity before rendering. No query-client/auth owner
+or mutation retry changes.
+
+Slice E received independent PASS for its exact frozen branch candidate;
+cumulative G acceptance and publication remain separately gated. It establishes no sponsor policy,
+production interoperability or final publication readiness.
+
+Classifier policy-version context is explicit: before uses the actual ACTIVE/retained
+base; an unapproved proposal uses the next aggregate version as PROSPECTIVE_UNRESERVED
+(no reservation or activation guarantee). An approved proposal uses its retained actual
+activated_version as ACTIVATED_PROPOSAL. Numeric outcomes never grant activation.

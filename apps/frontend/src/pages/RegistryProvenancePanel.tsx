@@ -1,14 +1,21 @@
-import type { RegistryAcquisition, RegistryEvidenceBinding } from "../types";
+import type { RegistryAcquisition, RegistryEvidenceBinding, SimulationProfile } from "../types";
 
 export default function RegistryProvenancePanel({
   acquisition,
   binding,
+  entityType,
+  providerMode,
 }: {
   acquisition?: RegistryAcquisition | null;
   binding?: RegistryEvidenceBinding | null;
+  entityType?: string | null;
+  providerMode?: SimulationProfile["registry_provider_mode"];
 }) {
   const identity = acquisition?.operation_results.find((result) => result.operation === "ENTITY_PROFILE");
   const ownership = acquisition?.operation_results.find((result) => result.operation === "OWNERSHIP_PARTIES");
+  const partnershipUnsupported = ownership?.status === "UNSUPPORTED"
+    && entityType === "PARTNERSHIP"
+    && ["API_MARKETPLACE_MOCK", "API_MARKETPLACE_PROTOCOL_TEST"].includes(providerMode ?? "");
   return (
     <section className="evidence-section-block" aria-labelledby="registry-provenance-heading">
       <p className="card-kicker">Case-bound registry evidence</p>
@@ -26,6 +33,11 @@ export default function RegistryProvenancePanel({
                     : ownership?.status === "NOT_ATTEMPTED" ? "Ownership retrieval was not attempted"
                       : "Registry ownership status is not available"}</dd></div>
           </dl>
+          {partnershipUnsupported && <p className="control-help">
+            Registry identity retrieved. The available official Mock company-shareholder operation
+            is not an authoritative partnership-ownership source. Reviewed supplementary ownership
+            evidence is required.
+          </p>}
           <div className="kv-row"><span className="kv-label">Acquisition status</span><span className="kv-value">{acquisition.status}</span></div>
           <div className="kv-row"><span className="kv-label">Acquisition retrieved at</span><span className="kv-value">{acquisition.retrieved_at}</span></div>
           <ul aria-label="Original registry operations">
@@ -45,12 +57,13 @@ export default function RegistryProvenancePanel({
 
       {binding ? (
         <div aria-label="Case evidence binding">
-          <div className="kv-row"><span className="kv-label">Case use</span><span className="kv-value">{binding.disposition === "CACHE_HIT" ? "Reused cached snapshot" : "Original provider fetch"}</span></div>
+          <div className="kv-row"><span className="kv-label">Case use</span><span className="kv-value">{binding.disposition === "CACHE_HIT" ? "Reused fresh registry evidence — no ACRA request required." : "Original provider fetch"}</span></div>
           <div className="kv-row"><span className="kv-label">Disposition</span><span className="kv-value">{binding.disposition}</span></div>
           <div className="kv-row"><span className="kv-label">Bound to this case at</span><span className="kv-value">{binding.bound_to_case_at}</span></div>
           <div className="kv-row"><span className="kv-label">Valid-at-use expiry</span><span className="kv-value">{binding.expires_at}</span></div>
           <div className="kv-row"><span className="kv-label">Policy</span><span className="kv-value">{binding.freshness_policy_id} version {binding.freshness_policy_version}</span></div>
-          <div className="kv-row"><span className="kv-label">Retained duration</span><span className="kv-value">{binding.freshness_duration_seconds} seconds — 90 elapsed 24-hour periods</span></div>
+          <div className="kv-row"><span className="kv-label">Retained duration</span><span className="kv-value">{binding.freshness_duration_seconds} seconds</span></div>
+          <div className="kv-row"><span className="kv-label">Freshness comparator</span><span className="kv-value">{binding.freshness_comparator}</span></div>
           <p className="control-help">Provisional Mock POC policy recorded when this evidence was bound. This is not a current validity assessment or an ACRA validity guarantee.</p>
         </div>
       ) : (

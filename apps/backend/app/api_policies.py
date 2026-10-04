@@ -22,6 +22,7 @@ from app.domain.policy import (
     PolicyValueType,
     PolicyVersionRecord,
 )
+from app.domain.policy_impact import PolicyImpactResponse
 from app.persistence.errors import PersistenceUnavailableError
 from app.services.admin_repository import (
     AdministrationAuditCapacityError,
@@ -187,7 +188,7 @@ def build_policy_router(
     def classifier_benchmark() -> dict[str, object]:
         return _policy_call(service.classifier_benchmark)
 
-    @router.get("/proposals/{proposal_id}/impact")
+    @router.get("/proposals/{proposal_id}/impact", response_model=PolicyImpactResponse)
     def proposal_impact(proposal_id: str) -> dict[str, object]:
         return _policy_call(lambda: service.proposal_impact(proposal_id))
 

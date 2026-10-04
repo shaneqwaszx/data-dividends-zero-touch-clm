@@ -3,6 +3,7 @@
 import os
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import UTC, datetime
 from io import BytesIO
 from threading import Barrier
@@ -17,6 +18,7 @@ from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
     generate_ephemeral_mongo_database,
 )
+from test_slice_a_legacy_compatibility import rich_v7_snapshot
 
 import app.composition as composition
 from app.composition import (
@@ -61,7 +63,7 @@ from app.persistence.errors import (
     PersistenceConflictError,
     PersistenceDataInvalidError,
 )
-from app.persistence.models import DurableCaseSnapshot
+from app.persistence.models import DurableCaseSnapshot, DurableCaseSnapshotV7
 from app.persistence.mongo_case_store import MongoCaseStore
 from app.persistence.repositories import (
     MongoDocumentProcessingRepository,
@@ -491,7 +493,7 @@ def test_real_mongo_failed_replacement_restart_requires_retry_without_replay(
         completed = _confirm_target_dispatch(second, case_id, pending)
         assert completed["status"] == "COMPLETED"
 
-    assert counters == {"registry": 4, "idp": 3, "ownership": 1, "goldtier": 5}
+    assert counters == {"registry": 4, "idp": 3, "ownership": 1, "goldtier": 6}
 
 
 def _install_counting_connectors(
@@ -752,7 +754,7 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
             "registry": 8,
             "idp": 3,
             "ownership": 1,
-            "goldtier": 6,
+            "goldtier": 7,
         }
 
         with TestClient(create_app(settings)) as second:
@@ -1564,3 +1566,121 @@ Country: SG
         assert blocked.status_code == 409
         assert blocked.json()["detail"]["code"] == "CLM_TARGET_CONFIRMATION_REQUIRED"
     assert counters == before_restart
+
+
+@pytest.mark.parametrize("scenario", ["RECONCILIATION", "PENDING", "CONFIRMED", "IDENTITY"])
+def test_real_mongo_populated_actual_v7_restart_has_no_rewrite_or_provider_replay(
+    isolated_mongo_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    scenario: str,
+) -> None:
+    """Historical bytes survive fresh store and application composition unchanged."""
+    snapshot = rich_v7_snapshot(scenario)
+    settings = isolated_mongo_settings
+    counters = _install_counting_connectors(monkeypatch)
+    store = _open_store(settings)
+    try:
+        raw = store._encode(snapshot)  # noqa: SLF001
+        raw["schema_version"] = 7
+        DurableCaseSnapshotV7.model_validate(
+            {key: value for key, value in raw.items() if key != "_id"}
+        )
+        before = deepcopy(raw)
+        store._collection.insert_one(raw)  # noqa: SLF001 - historical synthetic write
+    finally:
+        store.close()
+
+    restarted_store = _open_store(settings)
+    try:
+        current = restarted_store.get(snapshot.case_id)
+        assert current == snapshot
+        assert restarted_store._collection.find_one(  # noqa: SLF001
+            {"_id": str(snapshot.case_id)}
+        ) == before
+    finally:
+        restarted_store.close()
+
+    with TestClient(create_app(settings)) as restarted_app:
+        response = restarted_app.get(f"/api/clm/zero-touch/cases/{snapshot.case_id}")
+        assert response.status_code == 200
+        public = response.json()
+        assert "ownership_provider_binding_id" not in str(public)
+        assert "authoritative_evidence_digest" not in str(public)
+        if scenario in {"PENDING", "IDENTITY"}:
+            assert public["case"]["target_dispatch_confirmation"] is None
+        if scenario == "IDENTITY":
+            assert public["case"]["identity_corrections"]
+        if scenario == "CONFIRMED":
+            assert public["case"]["target_dispatch_confirmation"] is not None
+    assert counters == {"registry": 0, "idp": 0, "ownership": 0, "goldtier": 0}
+    final_store = _open_store(settings, initialize=False)
+    try:
+        assert final_store.get(snapshot.case_id) == snapshot
+        assert final_store._collection.find_one(  # noqa: SLF001
+            {"_id": str(snapshot.case_id)}
+        ) == before
+    finally:
+        final_store.close()
+
+
+def test_real_mongo_actual_v7_uncertain_target_recovery_never_replays(
+    isolated_mongo_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup recovery may write its checkpoint; ordinary conversion cannot replay."""
+    snapshot = rich_v7_snapshot("CONFIRMED")
+    assert snapshot.automation is not None and snapshot.target_executions
+    running = snapshot.automation.model_copy(
+        update={
+            "status": AutomationStatus.RUNNING,
+            "current_stage": AutomationStage.MOCK_GOLDTIER,
+            "completed_stages": (
+                AutomationStage.REGISTRY, AutomationStage.GOLDTIER_SEARCH,
+                AutomationStage.DOCUMENT, AutomationStage.OWNERSHIP, AutomationStage.READINESS,
+            ),
+            "completed_at": None,
+        },
+        deep=True,
+    )
+    running.metrics.final_outcome = None
+    uncertain = GoldTierExecutionLedgerEntry(
+        submission_input=snapshot.target_executions[0].submission_input,
+        state=GoldTierExecutionLedgerState.IN_PROGRESS,
+        attempted_operations=(GoldTierOperationMarker.SEARCH,),
+    )
+    interrupted = snapshot.model_copy(
+        update={"automation": running, "target_executions": (uncertain,)}, deep=True
+    )
+    counters = _install_counting_connectors(monkeypatch)
+    settings = isolated_mongo_settings
+    store = _open_store(settings)
+    try:
+        raw = store._encode(interrupted)  # noqa: SLF001
+        raw["schema_version"] = 7
+        DurableCaseSnapshotV7.model_validate(
+            {key: value for key, value in raw.items() if key != "_id"}
+        )
+        store._collection.insert_one(raw)  # noqa: SLF001
+    finally:
+        store.close()
+    with TestClient(create_app(settings)) as restarted:
+        detail = restarted.get(f"/api/clm/zero-touch/cases/{snapshot.case_id}")
+        resumed = [
+            restarted.post(f"/api/clm/zero-touch/cases/{snapshot.case_id}/resume")
+            for _ in range(3)
+        ]
+        assert detail.status_code == 200
+        assert detail.json()["status"] == "RECOVERY_PENDING"
+        assert all(item.status_code == 200 for item in resumed)
+        assert all(item.json()["status"] == "RECOVERY_PENDING" for item in resumed)
+    assert counters == {"registry": 0, "idp": 0, "ownership": 0, "goldtier": 0}
+    final_store = _open_store(settings)
+    try:
+        retained = final_store.get(snapshot.case_id)
+        assert retained is not None
+        assert retained.target_executions == (uncertain,)
+        assert retained.onboarding.target_dispatch_confirmation == (
+            snapshot.onboarding.target_dispatch_confirmation
+        )
+    finally:
+        final_store.close()

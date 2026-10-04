@@ -472,3 +472,112 @@ describe("registry presentation taxonomy", () => {
     expect(markup).not.toContain("Registry unavailable");
   });
 });
+
+it("projects retained CACHE_HIT as no request without inventing a connection result", () => {
+  const summary = summaryWithPipeline([]);
+  summary.case.registry_evidence_binding = {
+    disposition: "CACHE_HIT", bound_to_case_at: "2026-10-02T00:00:00Z",
+    expires_at: "2026-12-01T00:00:00Z", freshness_policy_id: "MOCK_ACRA_FIXED_90D",
+    freshness_policy_version: 1, freshness_duration_seconds: 7776000,
+    freshness_comparator: "EVALUATION_NOW_LT_EXPIRES_AT",
+  };
+  const presentation = registryPresentation(summary, "LOCAL_MOCK");
+  expect(presentation.heading).toBe("Registry evidence reused");
+  expect(presentation.connection).toBe("No ACRA request required");
+  expect(presentation.description).toBe("Reused fresh registry evidence — no ACRA request required.");
+  expect(presentation.attention).toBe(false);
+  expect(presentation.provider).toBe("Synthetic local ACRA Mock");
+});
+
+it("keeps CACHE_HIT acquisition truth when an independent target failure occurs later", () => {
+  const summary = summaryWithPipeline([]);
+  summary.case.registry_evidence_binding = {
+    disposition: "CACHE_HIT", bound_to_case_at: "2026-10-02T00:00:00Z",
+    expires_at: "2026-12-01T00:00:00Z", freshness_policy_id: "MOCK_ACRA_FIXED_90D",
+    freshness_policy_version: 1, freshness_duration_seconds: 7776000,
+    freshness_comparator: "EVALUATION_NOW_LT_EXPIRES_AT",
+  };
+  summary.status = "TECHNICAL_FAILURE";
+  summary.current_stage = "MOCK_GOLDTIER";
+  summary.technical_failure = { code: "GOLDTIER_SERVICE_UNAVAILABLE", message: "Target unavailable." };
+  expect(registryPresentation(summary, "LOCAL_MOCK").connection).toBe("No ACRA request required");
+});
+
+it("describes the existing bounded read-only Search recheck without a mutation bypass", () => {
+  const summary = summaryWithPipeline([processingNode("GOLDTIER_SEARCH", "GoldTier Search", "FAILED")]);
+  const markup = renderToStaticMarkup(<ProcessingBlockerPanels summary={summary} stage="REGISTRY" />);
+  expect(markup).toContain("bounded read-only Search recheck may be available");
+  expect(markup).toContain("Registry identity");
+  expect(markup).toContain("Target mutation remains prohibited");
+  expect(markup).not.toContain("no target mutation or browser retry is available");
+});
+
+
+it.each([
+  ["new customer NO_MATCH", ["COMPLETE", "COMPLETE", "NOT_REACHED", "NOT_REACHED"], 50],
+  ["existing customer", ["COMPLETE", "SKIPPED", "SKIPPED", "REVIEW_REQUIRED"], 75],
+  ["fresh cache reuse", ["COMPLETE", "COMPLETE", "REVIEW_REQUIRED", "NOT_REACHED"], 50],
+  ["optional Amend", ["COMPLETE", "SKIPPED", "COMPLETE", "REVIEW_REQUIRED"], 75],
+  ["Garden ownership review", ["COMPLETE", "COMPLETE", "REVIEW_REQUIRED", "BLOCKED"], 50],
+  ["document review", ["COMPLETE", "REVIEW_REQUIRED", "BLOCKED", "NOT_REACHED"], 25],
+  ["technical failure", ["COMPLETE", "FAILED", "BLOCKED", "NOT_REACHED"], 25],
+] as const)("counts only satisfied stages for %s", (_scenario, statuses, expected) => {
+  const summary = summaryWithPipeline(statuses.map((status, index) =>
+    processingNode("SCENARIO_" + index, "Stage " + index, status)));
+  const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />);
+  expect(markup).toContain('aria-valuenow="' + expected + '"');
+});
+
+it.each([
+  ["MOCK_GOLDTIER", "GT_POLICY_VALIDATION_FAILED"],
+  ["DOCUMENT", "IDP_PROCESSING_FAILED"],
+] as const)("keeps fetched registry evidence neutral after unrelated %s failure", (stage, code) => {
+  const summary = summaryWithPipeline([processingNode("ACRA_REGISTRY", "ACRA registry", "COMPLETE")]);
+  summary.case.registry_acquisition = {
+    requested_identifier: "202400001A", status: "COMPLETE", officers: [],
+    ownership_parties: [], relationships: [], operation_results: [], issues: [],
+    retrieved_at: "2026-10-02T00:00:00Z",
+  };
+  summary.status = "TECHNICAL_FAILURE";
+  summary.current_stage = stage;
+  summary.technical_failure = { code, message: "Safe unrelated technical failure." };
+  const presentation = registryPresentation(summary, "LOCAL_MOCK");
+  expect(presentation.heading).toBe("Registry data acquired");
+  expect(presentation.tag).toBe("COMPLETE");
+  expect(presentation.attention).toBe(false);
+  expect(presentation.code).toBeNull();
+  expect(presentation.message).toBeNull();
+  expect(renderToStaticMarkup(<RegistryStatePanel summary={summary} />)).toBe("");
+  expect(summary.technical_failure.code).toBe(code);
+});
+
+it("keeps an owning registry failure visible despite a retained cache binding", () => {
+  const summary = summaryWithPipeline([processingNode("ACRA_REGISTRY", "ACRA registry", "FAILED")]);
+  summary.case.registry_evidence_binding = {
+    disposition: "CACHE_HIT", bound_to_case_at: "2026-10-02T00:00:00Z",
+    expires_at: "2026-12-01T00:00:00Z", freshness_policy_id: "MOCK_ACRA_FIXED_90D",
+    freshness_policy_version: 1, freshness_duration_seconds: 7776000,
+    freshness_comparator: "EVALUATION_NOW_LT_EXPIRES_AT",
+  };
+  summary.status = "TECHNICAL_FAILURE";
+  summary.current_stage = "REGISTRY";
+  summary.technical_failure = { code: "REGISTRY_OPERATION_TIMEOUT", message: "Safe registry stop." };
+  const presentation = registryPresentation(summary, "LOCAL_MOCK");
+  expect(presentation.heading).toBe("Registry unavailable");
+  expect(presentation.attention).toBe(true);
+  expect(presentation.code).toBe("REGISTRY_OPERATION_TIMEOUT");
+  expect(renderToStaticMarkup(<RegistryStatePanel summary={summary} />)).toContain("Registry unavailable");
+});
+
+it("keeps an unclassified registry-owned technical code technical", () => {
+  const summary = summaryWithPipeline([processingNode("ACRA_REGISTRY", "ACRA registry", "FAILED")]);
+  summary.status = "TECHNICAL_FAILURE";
+  summary.current_stage = "REGISTRY";
+  summary.technical_failure = { code: "ZERO_TOUCH_UNEXPECTED_FAILURE", message: "Safe unexpected stop." };
+  const presentation = registryPresentation(summary, "LOCAL_MOCK");
+  expect(presentation.heading).toBe("Registry technical failure");
+  expect(presentation.tag).toBe("Technical failure");
+  expect(presentation.attention).toBe(true);
+  expect(presentation.code).toBe("ZERO_TOUCH_UNEXPECTED_FAILURE");
+  expect(presentation.action).toBe("Operator review required");
+});

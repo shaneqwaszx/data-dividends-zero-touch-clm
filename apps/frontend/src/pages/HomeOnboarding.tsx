@@ -419,7 +419,7 @@ export default function HomeOnboarding({
             </div>
           </div>
           <div style={{ width: 320 }}>
-            <h4>Directors</h4>
+            <h4>Registry officers and roles</h4>
             {acquisition && acquisition.officers.length > 0 ? (
               <div className="table-card">
                 <table className="table">

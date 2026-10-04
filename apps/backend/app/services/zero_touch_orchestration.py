@@ -80,6 +80,7 @@ from app.services.document_errors import (
     DocumentRequestError,
 )
 from app.services.document_processing import DocumentProcessingService
+from app.services.errors import OnboardingInfrastructureError
 from app.services.manual_ownership_evidence import (
     ManualOwnershipDeclaration,
     ManualOwnershipEvidenceError,
@@ -388,7 +389,11 @@ class ZeroTouchOrchestrator:
                 code=search.code,
                 message=search.message,
             )
-        elif registry_failed:
+        if registry_failed:
+            record.status = AutomationStatus.TECHNICAL_FAILURE
+            record.current_stage = AutomationStage.REGISTRY
+            for item in record.active_exceptions:
+                item.status = BusinessExceptionStatus.CANCELLED
             record = self._append_event(
                 record,
                 event_type=AutomationEventType.AUTOMATION_TECHNICAL_FAILURE,
@@ -396,7 +401,7 @@ class ZeroTouchOrchestrator:
                 code=(case.error.code if case.error is not None else "REGISTRY_FAILED"),
                 message="Registry automation stopped after a technical failure.",
             )
-        else:
+        elif not registry_ready:
             blocker_code = case.error.code if case.error is not None else "REGISTRY_REVIEW_REQUIRED"
             exception_types = {
                 "JURISDICTION_UNRESOLVED": BusinessExceptionType.JURISDICTION_UNRESOLVED,
@@ -1463,6 +1468,11 @@ class ZeroTouchOrchestrator:
                         )
             changed_uen = bool(current_case and
                                current_case.requested_uen != registration_number.strip().upper())
+            failure_base = record.model_copy(deep=True)
+            failure_base.status = AutomationStatus.RESUMING
+            failure_base.completed_stages = ()
+            failure_base.metrics.automated_stages_completed = 0
+            failure_base.technical_failure = None
             try:
                 self._cases.repair_initial_identity_and_recheck(
                     case_id=case_id,
@@ -1482,6 +1492,18 @@ class ZeroTouchOrchestrator:
                     case_id=case_id,
                     expected_clm_version=expected_clm_version,
                 )
+            except OnboardingInfrastructureError as exc:
+                self._clm.refresh_initial_search_after_recheck(
+                    case_id=case_id, expected_clm_version=expected_clm_version
+                )
+                failed = self._technical_failure(
+                    failure_base, stage=AutomationStage.REGISTRY,
+                    code=exc.code, message=exc.public_message,
+                )
+                raise ZeroTouchInfrastructureError(
+                    case_id=failed.case_id, automation_id=failed.automation_id,
+                    code=exc.code, message=exc.public_message,
+                ) from None
             except (ValueError, ClmRequestError) as exc:
                 raise ZeroTouchRequestError(
                     code=(
@@ -1491,6 +1513,17 @@ class ZeroTouchOrchestrator:
                     ),
                     message=(exc.public_message if isinstance(exc, ClmRequestError) else str(exc)),
                 ) from None
+
+            acquired_case = self._cases.get_case(case_id)
+            if (
+                acquired_case is not None
+                and acquired_case.state == WorkflowState.FAILED
+                and acquired_case.error is not None
+            ):
+                return self._technical_failure(
+                    failure_base, stage=AutomationStage.REGISTRY,
+                    code=acquired_case.error.code, message=acquired_case.error.message,
+                )
 
             candidate = record.model_copy(deep=True)
             documents_available = bool(self._current_documents(case_id))
@@ -1508,13 +1541,40 @@ class ZeroTouchOrchestrator:
                         AutomationStage.DOCUMENT, AutomationStage.OWNERSHIP,
                         AutomationStage.READINESS
                     })
-                    or (verify_registry and item.stage == AutomationStage.REGISTRY)
+                    or (
+                        item.stage == AutomationStage.REGISTRY
+                        and acquired_case is not None
+                        and acquired_case.state == WorkflowState.VALIDATED
+                        and acquired_case.registry_acquisition is not None
+                    )
                     or item.blocker_code == "INITIAL_IDENTITY_INCOMPLETE"
                     or item.exception_type
                     == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
                 ):
                     item.status = BusinessExceptionStatus.CANCELLED
                     item.resolved_at = self._clock()
+            if (
+                acquired_case is not None
+                and acquired_case.registry_acquisition is None
+                and acquired_case.error is not None
+                and acquired_case.error.code == "ACRA_ENTITY_NOT_FOUND"
+            ):
+                for item in candidate.active_exceptions:
+                    if item.stage == AutomationStage.REGISTRY:
+                        item.status = BusinessExceptionStatus.CANCELLED
+                        item.resolved_at = self._clock()
+                candidate.completed_stages = ()
+                candidate.metrics.automated_stages_completed = 0
+                candidate.technical_failure = None
+                candidate.metrics.final_outcome = None
+                candidate = self._add_exception(
+                    candidate, exception_type=BusinessExceptionType.REGISTRY_REVIEW_REQUIRED,
+                    stage=AutomationStage.REGISTRY, blocker_code=acquired_case.error.code,
+                    explanation="Required registry evidence is unavailable.",
+                    evidence_version=f"case:{case_id}:{len(acquired_case.events)}",
+                    evidence=(), actions=(), persist=False,
+                )
+                return self._save(record, candidate)
             if verify_registry and documents_available:
                 try:
                     reconciliation = self._reconciliation.reconcile_current(case_id=case_id)
@@ -1860,6 +1920,12 @@ class ZeroTouchOrchestrator:
                     continue
                 active.evidence_version = self._reconciliation_evidence_version(
                     reconciliation, remaining_discrepancy
+                )
+                active.blocker_codes = (active.blocker_code,)
+                active.decisions = tuple(
+                    decision.model_copy(update={"evidence_version": active.evidence_version})
+                    for decision in active.decisions
+                    if decision.metadata.blocker_code == active.blocker_code
                 )
                 active.authoritative_evidence_digest = self._authoritative_evidence_digest(
                     case_id=candidate.case_id,
@@ -2718,9 +2784,6 @@ class ZeroTouchOrchestrator:
                 return "DOCUMENT_REVIEW_REQUIRED"
             return outcome_codes[item.outcome]
 
-        aggregate_codes = tuple(
-            dict.fromkeys(code_for(item) for item in reconciliation.open_discrepancies)
-        )
         for discrepancy in reconciliation.open_discrepancies:
             if any(
                 item.exception_id == discrepancy.discrepancy_id for item in record.active_exceptions
@@ -2820,7 +2883,7 @@ class ZeroTouchOrchestrator:
                     ExceptionResolutionAction(action.value)
                     for action in discrepancy.allowed_actions
                 ),
-                blocker_codes=aggregate_codes,
+                blocker_codes=(code,),
                 exception_id=discrepancy.discrepancy_id,
             )
         return record

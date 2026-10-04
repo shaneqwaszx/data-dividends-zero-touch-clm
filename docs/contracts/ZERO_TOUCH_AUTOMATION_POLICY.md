@@ -1,4 +1,4 @@
-# Zero-Touch Automation Policy â€” Phase 06 POC
+# Zero-Touch Automation Policy — Phase 06 POC
 
 **Classification:** PROJECT-DEFINED / PROVISIONAL / NOT SPONSOR-APPROVED
 
@@ -100,8 +100,10 @@ not a no-match or reviewer decision. Independent ACRA, document, reconciliation,
 ownership evidence may continue while the aggregate is still collecting evidence. Once
 that safe evidence path is complete, the automation terminates as `TECHNICAL_FAILURE`
 at `GOLDTIER_SEARCH`; Shell, Policy, Amend, and every other target mutation remain
-blocked. No browser or operator retry is exposed until a safe late exact-match
-transition is proved.
+blocked. The existing same-case identity-correction owner may permit a bounded read-only
+Search recheck under the current case state. It preserves resolver rules and grants no
+mutation or approval authority; an accepted current result and every other authoritative
+prerequisite remain required before target mutation.
 
 The case lock and composed review/reconciliation transitions are single-process POC
 guarantees. Mongo envelope revision CAS detects stale durable writes, and the target

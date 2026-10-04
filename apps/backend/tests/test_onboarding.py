@@ -104,12 +104,14 @@ def test_happy_path_progresses_in_order_and_is_persisted() -> None:
 def test_unknown_uen_fails_safely_before_registry_mapping() -> None:
     case = build_service().create_case("999999999Z")
 
-    assert case.state == WorkflowState.FAILED
+    assert case.state == WorkflowState.REVIEW_REQUIRED
     assert case.entity is None
     assert case.goldtier_result is None
     assert case.error is not None
     assert case.error.code == "ACRA_ENTITY_NOT_FOUND"
-    assert stages(case) == [WorkflowState.REQUESTED, WorkflowState.REQUESTED, WorkflowState.FAILED]
+    assert stages(case) == [
+        WorkflowState.REQUESTED, WorkflowState.REQUESTED, WorkflowState.REVIEW_REQUIRED,
+    ]
     assert case.events[1].code == "GOLDTIER_SEARCH_SKIPPED_UNSUPPORTED_IDENTIFIER"
 
 

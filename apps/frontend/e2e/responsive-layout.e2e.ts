@@ -19,7 +19,7 @@ const lowConfidenceFixture = path.resolve(
   "../../backend/tests/fixtures/uat/low-confidence.pdf",
 );
 
-const VIEWPORTS = [360, 390, 480, 768, 1024, 1280, 1440] as const;
+const VIEWPORTS = [320, 360, 390, 480, 768, 1024, 1280, 1440, 1920] as const;
 const REPRESENTATIVE_VIEWPORTS = [360, 768, 1440] as const;
 const TILE_VIEWPORTS = [320, 360, 768, 1280, 1440, 1920] as const;
 

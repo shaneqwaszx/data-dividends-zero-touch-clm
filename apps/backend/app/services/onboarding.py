@@ -21,6 +21,7 @@ from app.connectors.goldtier import GoldTierConnector, GoldTierRequestMapper
 from app.connectors.goldtier_models import (
     GoldTierOutcome,
     GoldTierRequestMetadata,
+    GoldTierSearchCandidate,
     GoldTierSearchOutcome,
     GoldTierSearchResult,
     SearchPartyRequest,
@@ -28,6 +29,7 @@ from app.connectors.goldtier_models import (
 from app.connectors.goldtier_xpi_models import XpiCustomerSearchRequest
 from app.connectors.registry import (
     AcraRegistryProviderAdapter,
+    RegistryProvider,
     RegistryProviderRouter,
 )
 from app.domain.access import CasePriority, TeamId
@@ -396,6 +398,120 @@ class OnboardingService:
     def target_provider_mode(self) -> GoldTierProviderMode:
         return self._goldtier_mapper.environment
 
+
+    def _find_verified_target_case(
+        self,
+        *,
+        registration_number: str,
+        legal_name: str,
+        country_of_incorporation: str,
+        party_id: str,
+        candidate: GoldTierSearchCandidate | None = None,
+    ) -> OnboardingCase | None:
+        """Keep Mock reuse subordinate to the existing case and finalized ledger."""
+        prior = self._repository.find_verified_target_case(
+            registration_number=registration_number,
+            legal_name=legal_name,
+            country_of_incorporation=country_of_incorporation,
+            party_id=party_id,
+        )
+        if prior is None or self.target_provider_mode != GoldTierProviderMode.MOCK:
+            return prior
+        if (
+            prior.state not in {WorkflowState.GT_ENRICHED, WorkflowState.COMPLETED}
+            or prior.goldtier_result is None
+            or prior.goldtier_result.readback_status != "VERIFIED"
+        ):
+            return None
+        for entry in self._target_executions.list_for_case(prior.case_id):
+            outcome = entry.target_outcome
+            if (
+                entry.state == GoldTierExecutionLedgerState.FINALIZED
+                and entry.submission_input.provider_mode == GoldTierProviderMode.MOCK
+                and entry.receipt is not None
+                and entry.receipt.classification == GoldTierExecutionClassification.SUCCESS
+                and entry.receipt.result is not None
+                and entry.receipt.result.party_id == party_id
+                and entry.receipt.result.readback_party_id == party_id
+                and entry.receipt.result.readback_status == "VERIFIED"
+                and outcome is not None
+                and outcome.classification == GoldTierExecutionClassification.SUCCESS
+                and outcome.party_id == party_id
+                and outcome.readback_party_id == party_id
+                and outcome.readback_status == "VERIFIED"
+                and GoldTierOperationMarker.READBACK in entry.definitively_completed_operations
+                and GoldTierOperationMarker.AMEND in entry.definitively_completed_operations
+                and entry.amend_status == "ENRICHED"
+                # Finalized labels alone do not bind proof to this immutable submission.
+                and entry.submission_input.case_id == prior.case_id
+                and entry.receipt.case_id == entry.submission_input.case_id
+                and entry.receipt.submission_id == entry.submission_input.submission_id
+                and entry.receipt.correlation_id == entry.submission_input.correlation_id
+                and outcome.case_id == entry.submission_input.case_id
+                and outcome.submission_id == entry.submission_input.submission_id
+                and outcome.correlation_id == entry.submission_input.correlation_id
+                and entry.receipt.input_fingerprint
+                == _submission_fingerprint(entry.submission_input)
+                == outcome.input_fingerprint
+                and outcome.idempotency_fingerprint
+                == _idempotency_fingerprint(entry.submission_input)
+                and entry.resolved_party_id == party_id
+                and entry.readback_party_id == party_id
+                and entry.readback_status == "VERIFIED"
+                and entry.shell_status == outcome.shell_status
+                and entry.policy_id == outcome.policy_id
+                and entry.policy_status == outcome.policy_status
+                and entry.amend_status == outcome.amend_status
+                and entry.receipt.onboarding_state == outcome.onboarding_state
+                and entry.receipt.error is None
+                and not entry.receipt.infrastructure_failure
+                and entry.receipt.result.shell_status == outcome.shell_status
+                and entry.receipt.result.policy_id == outcome.policy_id
+                and entry.receipt.result.policy_status == outcome.policy_status
+                and entry.receipt.result.amend_status == outcome.amend_status
+                and prior.goldtier_result.model_dump() == entry.receipt.result.model_dump()
+                and " ".join(entry.submission_input.canonical_entity.legal_name.split()).casefold()
+                == " ".join(legal_name.split()).casefold()
+                and entry.submission_input.canonical_entity.registration_number.upper()
+                == registration_number.upper()
+                and entry.submission_input.canonical_entity.country_of_incorporation.upper()
+                == country_of_incorporation.upper()
+                and (
+                    candidate is None
+                    or _readback_identity_matches(
+                        entry.submission_input,
+                        GoldTierSearchResult(
+                            outcome=GoldTierSearchOutcome.MATCH_FOUND,
+                            status_code=200,
+                            matched_party_id=party_id,
+                            candidates=(candidate,),
+                            message="Current local provider identity.",
+                        ),
+                        party_id,
+                    )
+                )
+            ):
+                return prior
+        return None
+
+    def _mock_reuse_is_verified(
+        self,
+        submission_input: GoldTierSubmissionInput,
+        party_id: str,
+        candidate: GoldTierSearchCandidate | None = None,
+    ) -> bool:
+        if submission_input.provider_mode != GoldTierProviderMode.MOCK:
+            return True
+        entity = submission_input.canonical_entity
+        prior = self._find_verified_target_case(
+            registration_number=entity.registration_number,
+            legal_name=entity.legal_name,
+            country_of_incorporation=entity.country_of_incorporation,
+            party_id=party_id,
+            candidate=candidate,
+        )
+        return prior is not None and prior.case_id != submission_input.case_id
+
     def confirm_target_dispatch(
         self,
         *,
@@ -726,13 +842,7 @@ class OnboardingService:
             )
             completed.error = None
             if reused_case is not None and reused_case.entity is not None:
-                completed.entity = reused_case.entity.model_copy(deep=True)
-                completed.existing_target_state = ExistingTargetStateProvenance(
-                    source_case_id=reused_case.case_id,
-                    target_party_id=evidence.selected_party_id or "",
-                    verified_at=completed_at,
-                )
-                final_state = WorkflowState.VALIDATED
+                final_state = WorkflowState.GT_SEARCHED
                 outcome = EventOutcome.SUCCEEDED
                 code = "GOLDTIER_SEARCH_RECHECK_EXACT_MATCH"
             elif evidence.disposition == "NO_MATCH":
@@ -771,8 +881,29 @@ class OnboardingService:
             )
             validated = OnboardingCase.model_validate(completed.model_dump())
             self._repository.save(validated)
-            if evidence.disposition == "NO_MATCH" and validated.entity is None:
-                return self._acquire_registry_after_identity_recheck(validated, identity)
+            if evidence.disposition in {"NO_MATCH", "EXACT_MATCH"}:
+                retained = (
+                    (validated.registry_acquisition, validated.registry_evidence_binding)
+                    if validated.registry_acquisition is not None
+                    else None
+                )
+                acquired = self._acquire_registry_after_identity_recheck(
+                    validated, identity, verified=retained
+                )
+                if (
+                    acquired.state == WorkflowState.VALIDATED
+                    and reused_case is not None
+                    and acquired.initial_target_search is not None
+                    and acquired.initial_target_search.disposition == "EXACT_MATCH"
+                ):
+                    acquired.existing_target_state = ExistingTargetStateProvenance(
+                        source_case_id=reused_case.case_id,
+                        target_party_id=evidence.selected_party_id or "",
+                        verified_at=completed_at,
+                    )
+                    acquired = OnboardingCase.model_validate(acquired.model_dump())
+                    self._repository.save(acquired)
+                return acquired.model_copy(deep=True)
             return validated.model_copy(deep=True)
 
     def _run_initial_identity_search(
@@ -818,11 +949,12 @@ class OnboardingService:
             disposition = "FAILED"
         elif result.outcome == GoldTierSearchOutcome.MATCH_FOUND and len(result.candidates) == 1:
             candidate = result.candidates[0]
-            reused_case = self._repository.find_verified_target_case(
+            reused_case = self._find_verified_target_case(
                 registration_number=identity.registration_number,
                 legal_name=identity.legal_name,
                 country_of_incorporation=identity.country_of_incorporation,
                 party_id=candidate.party_id,
+                candidate=candidate,
             )
             if reused_case is not None and reused_case.entity is not None:
                 disposition = "EXACT_MATCH"
@@ -869,57 +1001,12 @@ class OnboardingService:
         )
         if provider is None:
             raise ValueError("Singapore registry provider is unavailable")
-        coordinated = (
-            self._registry_acquisition_coordinator.acquire(
-                provider,
-                identity.registration_number,
-                case_policy=case.policy_snapshot.registry,
-                policy_version=case.policy_snapshot.catalogue_version,
-            )
-            if self._registry_acquisition_coordinator is not None and verified is None
-            else None
-        )
-        acquisition = (
-            verified[0]
-            if verified is not None
-            else coordinated.acquisition
-            if coordinated is not None
-            else provider.retrieve_acquisition(identity.registration_number)
-        )
-        if (
-            acquisition is None
-            or acquisition.status
-            not in {RegistryAcquisitionStatus.COMPLETE, RegistryAcquisitionStatus.PARTIAL}
-            or validate_entity(acquisition.entity_profile)
-        ):
-            return self._terminate(
-                case,
-                WorkflowState.REVIEW_REQUIRED,
-                EventOutcome.REVIEW_REQUIRED,
-                "REGISTRY_RECHECK_INCOMPLETE",
-                "Registry evidence could not be completed after identity correction.",
-            )
         updated = case.model_copy(deep=True)
         updated.jurisdiction_resolution = resolution
         updated.registry_route = route
-        updated.registry_acquisition = acquisition
-        updated.registry_evidence_binding = (
-            verified[1]
-            if verified is not None
-            else coordinated.binding
-            if coordinated is not None
-            else None
+        return self._acquire_required_registry_evidence(
+            updated, provider, identity.registration_number, verified=verified
         )
-        updated.entity = acquisition.entity_profile
-        updated.error = None
-        self._record(
-            updated,
-            WorkflowState.VALIDATED,
-            EventOutcome.SUCCEEDED,
-            "Registry evidence was reacquired after identity correction.",
-            "IDENTITY_CORRECTION_REGISTRY_REACQUIRED",
-        )
-        return updated.model_copy(deep=True)
 
     def _verify_registry_correction(
         self,
@@ -1463,11 +1550,12 @@ class OnboardingService:
                 result.outcome == GoldTierSearchOutcome.MATCH_FOUND and len(result.candidates) == 1
             ):
                 candidate = result.candidates[0]
-                prior = self._repository.find_verified_target_case(
+                prior = self._find_verified_target_case(
                     registration_number=normalised_uen,
                     legal_name=legal_name,
                     country_of_incorporation=explicit_jurisdiction.value,
                     party_id=candidate.party_id,
+                    candidate=candidate,
                 )
                 if prior is not None and prior.entity is not None:
 
@@ -1513,12 +1601,11 @@ class OnboardingService:
                     WorkflowState.VALIDATED,
                     EventOutcome.SUCCEEDED,
                     (
-                        "Exact existing GoldTier target state was hydrated; ACRA and Shell "
-                        "are skipped."
+                        "Exact existing GoldTier target state was hydrated; Shell and new "
+                        "Policy are skipped while required registry evidence is acquired."
                     ),
                     "GOLDTIER_FIRST_EXACT_MATCH",
                 )
-                return case.model_copy(deep=True)
             if disposition == "REVIEW_REQUIRED":
                 self._record(
                     case,
@@ -1591,17 +1678,35 @@ class OnboardingService:
                 "The identifier is not eligible for Singapore ACRA retrieval.",
             )
 
-        self._record(
-            case,
-            case.state,
-            EventOutcome.SUCCEEDED,
-            "Exact registration-identifier GoldTier lookup is unsupported; "
-            "registry resolution continues.",
-            "GOLDTIER_SEARCH_SKIPPED_UNSUPPORTED_IDENTIFIER",
+        if legal_name is None:
+            self._record(
+                case,
+                case.state,
+                EventOutcome.SUCCEEDED,
+                "Exact registration-identifier GoldTier lookup is unsupported; "
+                "registry resolution continues.",
+                "GOLDTIER_SEARCH_SKIPPED_UNSUPPORTED_IDENTIFIER",
+            )
+        return self._acquire_required_registry_evidence(
+            case, registry_provider, normalised_uen
         )
-        binding = None
+
+    def _acquire_required_registry_evidence(
+        self,
+        case: OnboardingCase,
+        registry_provider: RegistryProvider,
+        normalised_uen: str,
+        *,
+        verified: tuple[RegistryAcquisitionBundle, RegistryEvidenceBinding | None] | None = None,
+    ) -> OnboardingCase:
+        """Acquire or validate current case evidence through the single registry owner."""
+
+        acquisition: RegistryAcquisitionBundle | None
+        binding = verified[1] if verified is not None else None
         registry_coordinator = self._registry_acquisition_coordinator
-        if registry_coordinator is None:
+        if verified is not None:
+            acquisition = verified[0]
+        elif registry_coordinator is None:
             acquisition = self._run_required_stage(
                 case,
                 code="ACRA_RETRIEVAL_UNEXPECTED_FAILURE",
@@ -1625,8 +1730,8 @@ class OnboardingService:
         if acquisition is None:
             return self._terminate(
                 case,
-                WorkflowState.FAILED,
-                EventOutcome.FAILED,
+                WorkflowState.REVIEW_REQUIRED,
+                EventOutcome.REVIEW_REQUIRED,
                 "ACRA_ENTITY_NOT_FOUND",
                 "No ACRA entity was found for this UEN.",
             )
@@ -1635,6 +1740,43 @@ class OnboardingService:
         entity = acquisition.entity_profile
         case.entity = entity
         case.registry_evidence_binding = binding
+        registry_identity_conflict = False
+        if (
+            case.initial_target_search is not None
+            and case.initial_target_search.disposition == "EXACT_MATCH"
+        ):
+            identity = case.initial_identity
+            if (
+                identity is None
+                or entity.registration_number.strip().upper() != identity.registration_number
+                or " ".join((entity.legal_name or "").split()).casefold()
+                != " ".join(identity.legal_name.split()).casefold()
+                or (entity.country_of_incorporation or "").strip().upper()
+                != identity.country_of_incorporation
+            ):
+                # Never relabel an earlier Search as proof of a different registry identity.
+                case.existing_target_state = None
+                if case.initial_target_search is not None:
+                    case.initial_target_search = InitialGoldTierSearchEvidence.model_validate(
+                        {
+                            **case.initial_target_search.model_dump(),
+                            "disposition": "REVIEW_REQUIRED",
+                            "selected_party_id": None,
+                        }
+                    )
+                if (
+                    case.initial_target_search_attempts
+                    and case.initial_target_search is not None
+                    and case.initial_target_search_attempts[-1].request_id
+                    == case.initial_target_search.request_id
+                ):
+                    case.initial_target_search_attempts = (
+                        *case.initial_target_search_attempts[:-1],
+                        case.initial_target_search_attempts[-1].model_copy(
+                            update={"result": case.initial_target_search}
+                        ),
+                    )
+                registry_identity_conflict = True
         self._record(
             case,
             WorkflowState.REGISTRY_FETCHED,
@@ -1666,6 +1808,14 @@ class OnboardingService:
                     if failure is not None
                     else "Registry acquisition could not be completed."
                 ),
+            )
+        if registry_identity_conflict:
+            return self._terminate(
+                case,
+                WorkflowState.REVIEW_REQUIRED,
+                EventOutcome.REVIEW_REQUIRED,
+                "GT_SEARCH_IDENTITY_REVIEW_REQUIRED",
+                "Current registry identity differs from the verified target identity.",
             )
         # Acquisition completeness includes ownership evidence. Its absence does not
         # invalidate registry identity; the ownership owner retains that separate gap.
@@ -1884,11 +2034,20 @@ class OnboardingService:
             incorporated_on=entity.registration_date,
             source_reference=f"case:{submission_input.case_id}",
         )
-        return self._entity_resolver.resolve_entity(
+        resolution = self._entity_resolver.resolve_entity(
             source=source,
             candidates=self._target_candidate_identities(result),
             policy=policy,
         )
+        if (
+            resolution.outcome == EntityResolutionOutcome.EXACT_MATCH
+            and resolution.selected_candidate_id is not None
+            and not self._mock_reuse_is_verified(
+                submission_input, resolution.selected_candidate_id, result.candidates[0]
+            )
+        ):
+            return None
+        return resolution
 
     @staticmethod
     def _target_candidate_identities(
@@ -2057,8 +2216,7 @@ class OnboardingService:
             if entry.amend_status is None:
                 return self._advance_amend(case, submission_input, entry, party_id)
             if (
-                submission_input.provider_mode == GoldTierProviderMode.SANDBOX
-                and entry.readback_status is None
+                entry.readback_status is None
             ):
                 return self._advance_readback(case, submission_input, entry, party_id)
             raise RuntimeError("GoldTier target execution progress is inconsistent")
@@ -2073,6 +2231,8 @@ class OnboardingService:
         if search_resolution == GoldTierSearchResolution.EXACT_MATCH:
             if selected_party_id is None:
                 raise ValueError("Exact target Search requires a selected party")
+            if not self._mock_reuse_is_verified(submission_input, selected_party_id):
+                raise ValueError("Mock customer reuse requires prior finalized readback proof")
             shell_status = "EXISTING_PARTY_REUSED"
         else:
             if selected_party_id is not None:
@@ -2460,39 +2620,6 @@ class OnboardingService:
             policy_status=entry.policy_status,
             amend_status=amend.status,
         )
-        if submission_input.provider_mode == GoldTierProviderMode.SANDBOX:
-            case.goldtier_result = GoldTierResult(
-                party_id=party_id,
-                shell_status=entry.shell_status or "EXISTING_PARTY_REUSED",
-                policy_id=entry.policy_id,
-                policy_status=entry.policy_status,
-                amend_status=amend.status,
-            )
-            existing_party = entry.search_resolution == GoldTierSearchResolution.EXACT_MATCH
-            self._record(
-                case,
-                WorkflowState.VALIDATED if existing_party else WorkflowState.GT_POLICY_CREATED,
-                EventOutcome.SUCCEEDED,
-                (
-                    "Existing GoldTier party amendment succeeded; read-back verification "
-                    "is pending."
-                    if existing_party
-                    else "GoldTier party amendment succeeded; read-back verification is pending."
-                ),
-                "GT_READBACK_PENDING",
-            )
-            return None
-        self._record_target_outcome(
-            submission_input,
-            classification=GoldTierExecutionClassification.SUCCESS,
-            onboarding_state=WorkflowState.GT_ENRICHED,
-            completed_operations=completed,
-            party_id=party_id,
-            shell_status=entry.shell_status,
-            policy_id=entry.policy_id,
-            policy_status=entry.policy_status,
-            amend_status=amend.status,
-        )
         case.goldtier_result = GoldTierResult(
             party_id=party_id,
             shell_status=entry.shell_status or "EXISTING_PARTY_REUSED",
@@ -2500,13 +2627,19 @@ class OnboardingService:
             policy_status=entry.policy_status,
             amend_status=amend.status,
         )
+        existing_party = entry.search_resolution == GoldTierSearchResolution.EXACT_MATCH
         self._record(
             case,
-            WorkflowState.GT_ENRICHED,
+            WorkflowState.VALIDATED if existing_party else WorkflowState.GT_POLICY_CREATED,
             EventOutcome.SUCCEEDED,
-            "GoldTier target submission completed.",
+            (
+                "Existing GoldTier party amendment succeeded; read-back verification is pending."
+                if existing_party
+                else "GoldTier party amendment succeeded; read-back verification is pending."
+            ),
+            "GT_READBACK_PENDING",
         )
-        return self._finalize_recorded_outcome(submission_input)
+        return None
 
     def _advance_readback(
         self,
@@ -3537,7 +3670,13 @@ class OnboardingService:
                     candidates=candidates,
                     policy=case.policy_snapshot.intelligence,
                 )
-                if resolution.outcome == EntityResolutionOutcome.EXACT_MATCH:
+                if (
+                    resolution.outcome == EntityResolutionOutcome.EXACT_MATCH
+                    and resolution.selected_candidate_id is not None
+                    and self._mock_reuse_is_verified(
+                        submission_input, resolution.selected_candidate_id, search.candidates[0]
+                    )
+                ):
                     party_id = resolution.selected_candidate_id
                     shell_status = "EXISTING_PARTY_REUSED"
 
@@ -3827,7 +3966,9 @@ class OnboardingService:
             amend_status = amend.status
         readback_party_id: str | None = None
         readback_status: str | None = None
-        if submission_input.provider_mode == GoldTierProviderMode.SANDBOX:
+        if submission_input.provider_mode in {
+            GoldTierProviderMode.MOCK, GoldTierProviderMode.SANDBOX,
+        }:
             completed_operations.append(GoldTierOperationMarker.READBACK)
             self._mark_operation_attempted(submission_input, GoldTierOperationMarker.READBACK)
             untrusted_readback = self._run_required_stage(
