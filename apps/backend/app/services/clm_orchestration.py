@@ -119,6 +119,7 @@ class ClmOrchestrationService:
         legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
+        created_by_actor_id: str | None = None,
     ) -> ClmOrchestrationRecord:
         """Create a registry-validated staged case and stop before GoldTier."""
 
@@ -131,6 +132,7 @@ class ClmOrchestrationService:
             legal_name=legal_name,
             team_id=team_id,
             priority=priority,
+            created_by_actor_id=created_by_actor_id,
         )
 
     def create_case_with_identity(
@@ -143,6 +145,7 @@ class ClmOrchestrationService:
         legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
+        created_by_actor_id: str | None = None,
     ) -> ClmOrchestrationRecord:
         """Create CLM state for an identity already inside its lifecycle boundary."""
 
@@ -155,6 +158,7 @@ class ClmOrchestrationService:
                 legal_name=legal_name,
                 team_id=team_id,
                 priority=priority,
+                created_by_actor_id=created_by_actor_id,
             )
         except OnboardingInfrastructureError as exc:
             failed_case = self._cases.get_case(exc.case_id)
@@ -220,6 +224,40 @@ class ClmOrchestrationService:
                 outcome=EventOutcome.SUCCEEDED,
                 code="TARGET_CLASSIFICATION_BOUND",
                 message="Case-specific GoldTier target classifications were retained.",
+            )
+
+    def refresh_pre_submission_evidence(self, *, case_id: UUID) -> ClmOrchestrationRecord:
+        """Re-evaluate current evidence and version the preview without target dispatch."""
+        with self._lock_for(case_id):
+            record = self._require_record(case_id)
+            case = self._require_case(case_id)
+            if (
+                record.submission_snapshot is not None
+                or record.execution_receipt is not None
+                or case.goldtier_result is not None
+                or any(
+                    operation != "SEARCH"
+                    for operation in self.attempted_target_operations(case_id=case_id)
+                )
+            ):
+                raise ClmRequestError(
+                    code="CLM_SUBMISSION_FROZEN", message="Submitted evidence cannot be revised."
+                )
+            readiness = self._evaluate_current(
+                case, search_checkpoint=record.target_search_checkpoint
+            )
+            candidate = record.model_copy(deep=True)
+            candidate.submission_plan = self._build_submission_plan(case)
+            candidate.readiness = readiness
+            candidate.status = _status_for_readiness(case, readiness)
+            candidate.error = None
+            return self._record_event(
+                record,
+                candidate,
+                event_type=ClmEventType.READINESS_EVALUATED,
+                outcome=EventOutcome.SUCCEEDED,
+                code="OWNERSHIP_EVIDENCE_REVISED",
+                message="Revised ownership evidence refreshed the pre-submission review.",
             )
 
     def refresh_initial_search_after_recheck(

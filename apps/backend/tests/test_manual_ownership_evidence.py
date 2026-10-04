@@ -303,7 +303,7 @@ def test_review_required_source_replacement_retains_history_receipt_and_cas() ->
     service.load(case_id=CASE_ID)
     previous = service.analyze(case_id=CASE_ID)
     assert previous.state == OwnershipAnalysisState.REVIEW_REQUIRED
-    manual, _, _ = make_provider(case=case)
+    manual, _, retained_documents = make_provider(case=case)
 
     replaced = service.replace_review_required_source(
         case_id=CASE_ID,
@@ -313,7 +313,12 @@ def test_review_required_source_replacement_retains_history_receipt_and_cas() ->
     )
 
     assert replaced.state == OwnershipAnalysisState.ANALYZED
-    assert replaced.manual_review_receipt == manual.review_receipt
+    assert replaced.manual_review_receipt == manual.review_receipt.model_copy(
+        update={
+            "replaced_analysis_id": previous.analysis_id,
+            "replaced_ownership_version": previous.version,
+        }
+    )
     assert replaced.prior_analyses[-1].analysis_id == previous.analysis_id
     assert replaced.prior_analyses[-1].relationships == tuple(previous.relationships)
     assert OwnershipAnalysisRecord.model_validate_json(replaced.model_dump_json()) == replaced
@@ -322,12 +327,13 @@ def test_review_required_source_replacement_retains_history_receipt_and_cas() ->
         revision=7,
         onboarding=case,
         ownership=replaced,
+        documents=(retained_documents.document,),
         created_at=FIXED_TIME,
         updated_at=FIXED_TIME,
     )
     codec = object.__new__(MongoCaseStore)
     durable = codec._decode(codec._encode(snapshot))  # noqa: SLF001
-    assert durable.schema_version == 8
+    assert durable.schema_version == 9
     assert durable.ownership == replaced
     with pytest.raises(OwnershipRequestError) as repeated:
         service.replace_review_required_source(
@@ -336,7 +342,7 @@ def test_review_required_source_replacement_retains_history_receipt_and_cas() ->
             review_receipt=manual.review_receipt,
             expected_version=previous.version,
         )
-    assert repeated.value.code == "OWNERSHIP_MANUAL_REPLACEMENT_NOT_ALLOWED"
+    assert repeated.value.code == "OWNERSHIP_MANUAL_REPLACEMENT_STALE"
 
 
 def test_receipt_is_safe_immutable_and_contains_no_document_body() -> None:

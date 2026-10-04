@@ -544,7 +544,7 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     expect(onboarding).not.toContain("Start an onboarding request");
     expect(onboarding).toContain("multiple=\"\"");
     expect(onboarding).toContain("webkitdirectory=\"\"");
-    expect(onboarding).toContain("PDF, DOCX, and UTF-8 TXT");
+    expect(onboarding).toContain("PDF, DOCX, UTF-8 TXT, PNG, JPEG, and TIFF");
   });
 
   it("validates a bounded multi-format document selection", () => {
@@ -554,17 +554,20 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
         type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       }),
       new File(["text"], "Company Details.txt", { type: "text/plain" }),
+      new File(["png"], "Image Evidence.png", { type: "image/png" }),
+      new File(["jpeg"], "Image Evidence.jpg", { type: "image/jpeg" }),
+      new File(["tiff"], "Image Evidence.tiff", { type: "image/tiff" }),
     ];
     const accepted = validateSelectedDocuments(valid);
-    expect(accepted.accepted).toHaveLength(3);
+    expect(accepted.accepted).toHaveLength(6);
     expect(accepted.errors).toHaveLength(0);
 
     const rejected = validateSelectedDocuments([
       ...valid,
-      new File(["image"], "evidence.png", { type: "image/png" }),
+      new File(["image"], "evidence.gif", { type: "image/gif" }),
       new File(["wrong"], "wrong.txt", { type: "application/pdf" }),
     ]);
-    expect(rejected.accepted).toHaveLength(3);
+    expect(rejected.accepted).toHaveLength(6);
     expect(rejected.errors).toHaveLength(2);
   });
 
@@ -580,8 +583,8 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     Object.defineProperty(folderFile, "webkitRelativePath", {
       value: "supporting/B.txt",
     });
-    const rejectedFile = new File(["ignored"], "image.png", {
-      type: "image/png",
+    const rejectedFile = new File(["ignored"], "image.gif", {
+      type: "image/gif",
     });
 
     const afterAdd = validateSelectedDocuments([
@@ -787,12 +790,13 @@ describe("Phase 04 onboarding, document review, and ownership UI", () => {
     expect(markup).toContain("18 INNOVATION WAY, #04-01, 018956, SG");
   });
 
-  it("makes mismatch and low confidence visually explicit with all field actions", () => {
+  it("makes mismatch and the nonprobability evidence score explicit with all field actions", () => {
     const markup = renderToStaticMarkup(
       <DocumentReviewSummary record={makeDocument()} threshold={0.85} onDecision={() => {}} />,
     );
     expect(markup).toContain("MISMATCH");
-    expect(markup).toContain("61% confidence");
+    expect(markup).toContain("0.61 evidence score (not probability)");
+    expect(markup).not.toContain("61% confidence");
     expect(markup).toContain("IDP suggested");
     expect(markup).toContain("ACRA / canonical");
     expect(markup).toContain("MOCK_IDP / MOCK / page 1");

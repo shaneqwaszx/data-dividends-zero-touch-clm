@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -20,6 +20,8 @@ from app.domain.case_management import (
     ObservedCasePortfolioPage,
     ObservedCasePortfolioRecord,
     PortfolioScopeKind,
+    case_created_date_bounds,
+    case_portfolio_matches,
     order_case_portfolio_records,
     project_case_timing,
 )
@@ -88,15 +90,25 @@ class CaseQueryService:
         priority_sort: PrioritySort = PrioritySort.HIGHEST_FIRST,
         team_filter: str | None = None,
         attention_type: BusinessExceptionType | None = None,
+        created_from: date | None = None,
+        created_to: date | None = None,
     ) -> list[CasePortfolioRecord]:
         scope = self._resolve_scope(actor, team_filter)
+        try:
+            created_from_at, created_to_at = case_created_date_bounds(created_from, created_to)
+            query = CasePortfolioQuery(
+                scope=scope,
+                status=status,
+                priority_filter=priority_filter,
+                priority_sort=priority_sort,
+                attention_type=attention_type,
+                created_from_at=created_from_at,
+                created_to_at=created_to_at,
+            )
+        except ValueError:
+            raise CasePortfolioQueryInvalidError from None
         authorized = self._portfolio_repository.list_authorized(scope, status=status)
-        filtered = [
-            item
-            for item in authorized
-            if _matches_priority(item.priority, priority_filter)
-            and (attention_type is None or attention_type in item.active_exception_types)
-        ]
+        filtered = [item for item in authorized if case_portfolio_matches(item, query)]
         return order_case_portfolio_records(filtered, priority_sort)
 
     def list_portfolio(
@@ -110,11 +122,14 @@ class CaseQueryService:
         attention_type: BusinessExceptionType | None = None,
         jurisdiction: JurisdictionCode | None = None,
         search: str | None = None,
+        created_from: date | None = None,
+        created_to: date | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> ObservedCasePortfolioPage:
         scope = self._resolve_scope(actor, team_filter)
         try:
+            created_from_at, created_to_at = case_created_date_bounds(created_from, created_to)
             query = CasePortfolioQuery(
                 scope=scope,
                 status=status,
@@ -123,10 +138,12 @@ class CaseQueryService:
                 attention_type=attention_type,
                 jurisdiction=jurisdiction,
                 search=search,
+                created_from_at=created_from_at,
+                created_to_at=created_to_at,
                 limit=limit,
                 offset=offset,
             )
-        except ValidationError:
+        except ValueError:
             raise CasePortfolioQueryInvalidError from None
         page = self._portfolio_repository.list_page(query)
         observed_at = self._clock()
@@ -255,13 +272,3 @@ class CaseQueryService:
             )
             self._case_repository.save(updated)
             return updated.model_copy(deep=True)
-
-
-def _matches_priority(priority: CasePriority | None, expected: PriorityFilter) -> bool:
-    if expected == PriorityFilter.ALL:
-        return True
-    if expected == PriorityFilter.PRIORITISED:
-        return priority is not None
-    if expected == PriorityFilter.UNSET:
-        return priority is None
-    return priority == int(expected)

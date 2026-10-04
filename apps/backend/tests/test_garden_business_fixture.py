@@ -322,7 +322,7 @@ def test_garden_reaches_normal_mock_completion_without_external_network() -> Non
         "ADVISORY",
         "READINESS",
         "GOLDTIER_TARGET",
-        "HUMAN_APPROVAL",
+        "FINAL_REVIEW_SEND",
     ]
     assert [item["node_id"] for item in pipeline[4]["children"]] == [
         "ACRA_ENTITY_PROFILE",
@@ -336,21 +336,22 @@ def test_garden_reaches_normal_mock_completion_without_external_network() -> Non
         "SKIPPED",
     ]
     assert pipeline[3]["retained_goldtier_id"] is None
-    assert [item["status"] for item in pipeline[10]["children"]] == [
+    assert [item["status"] for item in pipeline[-1]["children"]] == [
         "COMPLETE",
         "COMPLETE",
         "COMPLETE",
         "COMPLETE",
         "COMPLETE",
     ]
-    assert pipeline[10]["children"][-1]["node_id"] == "GOLDTIER_COMPLETED"
-    assert pipeline[10]["retained_goldtier_id"]
-    assert pipeline[-1]["node_id"] == "HUMAN_APPROVAL"
-    assert pipeline[-1]["status"] == "REVIEW_REQUIRED"
-    assert pipeline[-1]["blocker_code"] == "READY_FOR_APPROVAL_NOT_IMPLEMENTED"
+    assert pipeline[-1]["children"][-1]["node_id"] == "GOLDTIER_COMPLETED"
+    assert pipeline[-1]["retained_goldtier_id"]
+    assert pipeline[-1]["node_id"] == "FINAL_REVIEW_SEND"
+    assert pipeline[-1]["status"] == "COMPLETE"
+    assert pipeline[-1]["blocker_code"] is None
+    assert pipeline[-1]["label"] == "Final review & send"
 
 
-def test_processing_pipeline_preserves_historical_v1_order_and_target_search() -> None:
+def test_processing_pipeline_retains_historical_v1_search_without_inventing_confirmation() -> None:
     automation = SimpleNamespace(
         active_exceptions=(),
         completed_at=NOW,
@@ -395,7 +396,9 @@ def test_processing_pipeline_preserves_historical_v1_order_and_target_search() -
 
     assert [item.node_id for item in pipeline] == [
         "CASE_START",
+        "INITIAL_IDENTITY",
         "JURISDICTION",
+        "GOLDTIER_SEARCH",
         "ACRA_REGISTRY",
         "DOCUMENT_IDP",
         "RECONCILIATION",
@@ -403,16 +406,17 @@ def test_processing_pipeline_preserves_historical_v1_order_and_target_search() -
         "ADVISORY",
         "READINESS",
         "GOLDTIER_TARGET",
-        "HUMAN_APPROVAL",
+        "FINAL_REVIEW_SEND",
     ]
-    assert [item.node_id for item in pipeline[-2].children] == [
+    assert [item.node_id for item in pipeline[-1].children] == [
         "GOLDTIER_SEARCH",
         "GOLDTIER_SHELL",
         "GOLDTIER_POLICY",
         "GOLDTIER_AMEND",
         "GOLDTIER_COMPLETED",
     ]
-    assert pipeline[-1].status == "REVIEW_REQUIRED"
+    assert pipeline[-1].status == "NOT_REACHED"
+    assert pipeline[1].status == "NOT_REACHED"
 
 
 @pytest.mark.parametrize(
@@ -539,18 +543,18 @@ def test_processing_pipeline_projects_exact_existing_customer_branch() -> None:
         retained_goldtier_id="143878",
     )
 
-    assert [item.node_id for item in pipeline[:6]] == [
+    assert [item.node_id for item in pipeline[:5]] == [
         "CASE_START",
         "INITIAL_IDENTITY",
         "JURISDICTION",
         "GOLDTIER_SEARCH",
         "ACRA_REGISTRY",
-        "EXISTING_TARGET_STATE",
     ]
+    assert pipeline[3].children[-1].node_id == "EXISTING_TARGET_STATE"
     assert pipeline[3].retained_goldtier_id == "143878"
     assert pipeline[4].status == "SKIPPED"
-    assert pipeline[5].retained_goldtier_id == "143878"
-    target = next(item for item in pipeline if item.node_id == "GOLDTIER_TARGET")
+    assert pipeline[3].children[-1].retained_goldtier_id == "143878"
+    target = next(item for item in pipeline if item.node_id == "FINAL_REVIEW_SEND")
     assert [(item.node_id, item.status) for item in target.children[:-1]] == [
         ("GOLDTIER_SHELL", "SKIPPED"),
         ("GOLDTIER_POLICY", "SKIPPED"),

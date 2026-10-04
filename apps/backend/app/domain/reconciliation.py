@@ -26,6 +26,7 @@ class ReconciliationSourceKind(StrEnum):
 
 
 class ObservationValidity(StrEnum):
+    AMBIGUOUS = "AMBIGUOUS"
     VALID = "VALID"
     MISSING = "MISSING"
     INVALID = "INVALID"
@@ -91,7 +92,10 @@ def derive_reconciliation_outcome(
         )
     if any(item.validity == ObservationValidity.INVALID for item in observations):
         return ReconciliationOutcome.INVALID
-    if any(item.validity == ObservationValidity.UNVERIFIABLE for item in observations):
+    if any(
+        item.validity in {ObservationValidity.UNVERIFIABLE, ObservationValidity.AMBIGUOUS}
+        for item in observations
+    ):
         return ReconciliationOutcome.UNVERIFIABLE
     baseline_observations = tuple(
         item
@@ -222,7 +226,15 @@ class ReconciliationObservation(BaseModel):
 
     @model_validator(mode="after")
     def validate_value_shape(self) -> "ReconciliationObservation":
-        if self.validity == ObservationValidity.MISSING:
+        if self.validity == ObservationValidity.AMBIGUOUS:
+            if (
+                self.raw_value is not None or self.normalized_value is not None
+                or self.source_kind != ReconciliationSourceKind.DOCUMENT_IDP
+                or self.source_record_id is None
+                or self.evidence_reference != "DOCUMENT_AMBIGUOUS_EXTRACTION"
+            ):
+                raise ValueError("ambiguous document evidence cannot select a canonical value")
+        elif self.validity == ObservationValidity.MISSING:
             if self.raw_value is not None or self.normalized_value is not None:
                 raise ValueError("missing observations cannot retain a value")
         elif self.validity == ObservationValidity.VALID:

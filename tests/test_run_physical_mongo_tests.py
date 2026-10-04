@@ -55,6 +55,10 @@ def run_actual_pytest(source: str) -> tuple[subprocess.CompletedProcess[str], di
         result = RUNNER._run_pytest(
             [
                 str(test_path),
+                "--rootdir",
+                str(Path(directory)),
+                "--confcutdir",
+                str(Path(directory)),
                 "-o",
                 "addopts=",
                 "-p",
@@ -103,6 +107,7 @@ class PhysicalMongoRunnerTests(unittest.TestCase):
             "test_phase24c_real_mongo.py",
             "test_slice_d_real_mongo.py",
             "test_slice_e_real_mongo.py",
+            "test_s3_submission_real_mongo.py",
         ):
             with self.subTest(suite=name):
                 self.assertIn(name, names)

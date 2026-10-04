@@ -27,6 +27,9 @@ PHYSICAL_SUITES = (
     BACKEND_ROOT / "tests" / "test_phase24c_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_slice_d_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_slice_e_real_mongo.py",
+    BACKEND_ROOT / "tests" / "test_s1_date_filters_real_mongo.py",
+    BACKEND_ROOT / "tests" / "test_s2_intelligence_real_mongo.py",
+    BACKEND_ROOT / "tests" / "test_s3_submission_real_mongo.py",
 )
 _SUMMARY_PATTERN = re.compile(
     r"(?P<count>\d+)\s+(?P<kind>passed|failed|skipped|errors?)\b",
@@ -68,7 +71,9 @@ def _child_environment(uri: str, source: Mapping[str, str] | None = None) -> dic
     return environment
 
 
-def _run_pytest(arguments: Sequence[str], *, uri: str, deadline: float) -> subprocess.CompletedProcess[str]:
+def _run_pytest(
+    arguments: Sequence[str], *, uri: str, deadline: float,
+) -> subprocess.CompletedProcess[str]:
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise TimeoutError("physical Mongo test deadline exceeded")

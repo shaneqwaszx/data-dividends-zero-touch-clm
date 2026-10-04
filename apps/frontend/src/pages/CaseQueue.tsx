@@ -55,6 +55,8 @@ export interface CaseQueuePresentationState {
   jurisdiction: string;
   search: string;
   attentionType?: BusinessExceptionType | "";
+  createdFrom?: string;
+  createdTo?: string;
 }
 
 export const DEFAULT_CASE_QUEUE_PRESENTATION: CaseQueuePresentationState = {
@@ -64,6 +66,8 @@ export const DEFAULT_CASE_QUEUE_PRESENTATION: CaseQueuePresentationState = {
   jurisdiction: "",
   search: "",
   attentionType: "",
+  createdFrom: "",
+  createdTo: "",
 };
 
 export default function CaseQueue({
@@ -77,6 +81,9 @@ export default function CaseQueue({
 }) {
   const { status, priority, prioritySort, jurisdiction, search } = presentation;
   const attentionType = presentation.attentionType ?? "";
+  const createdFrom = presentation.createdFrom ?? "";
+  const createdTo = presentation.createdTo ?? "";
+  const createdRangeInvalid = Boolean(createdFrom && createdTo && createdFrom > createdTo);
   const [teamFilter, setTeamFilter] = useState("all");
   const [offset, setOffset] = useState(0);
   const normalizedSearch = search.trim();
@@ -104,14 +111,16 @@ export default function CaseQueue({
         ? jurisdiction as "SG" | "AU" | "MY" | "HK"
         : undefined,
       search: debouncedSearch || undefined,
+      createdFrom: createdFrom || undefined,
+      createdTo: createdTo || undefined,
       offset,
       limit,
     }),
-    enabled: !searchIsDebouncing,
+    enabled: !searchIsDebouncing && !createdRangeInvalid,
   });
   const cases = useMemo(
-    () => (query.data?.items ?? []).map(mapZeroTouchCaseToCaseRow),
-    [query.data],
+    () => (createdRangeInvalid ? [] : query.data?.items ?? []).map(mapZeroTouchCaseToCaseRow),
+    [query.data, createdRangeInvalid],
   );
 
   async function refreshAfterPriorityUpdate(): Promise<void> {
@@ -205,14 +214,40 @@ export default function CaseQueue({
           onChange={(event) => updatePresentation({ search: event.target.value })}
           placeholder="Search case, UEN / ACN, or company…"
         />
+        <label className="attention-filter">
+          <span>Created from</span>
+          <input
+            className="input"
+            type="date"
+            value={createdFrom}
+            max={createdTo || undefined}
+            aria-describedby="case-created-date-help"
+            onChange={(event) => updatePresentation({ createdFrom: event.target.value })}
+          />
+        </label>
+        <label className="attention-filter">
+          <span>Created to</span>
+          <input
+            className="input"
+            type="date"
+            value={createdTo}
+            min={createdFrom || undefined}
+            aria-describedby="case-created-date-help"
+            onChange={(event) => updatePresentation({ createdTo: event.target.value })}
+          />
+        </label>
       </div>
+      <p id="case-created-date-help" className="control-help">
+        Creation dates include both selected days in Singapore (Asia/Singapore, UTC+08:00).
+      </p>
+      {createdRangeInvalid && <p className="ds-banner ds-banner-warn" role="alert">Created from must be on or before Created to.</p>}
 
       {searchIsDebouncing && <p className="text-muted" aria-live="polite">Updating search…</p>}
       {query.isError && !query.data && !searchIsDebouncing && <div className="ds-banner ds-banner-warn">{query.error instanceof Error ? query.error.message : "The case queue is unavailable."}</div>}
       {!searchIsDebouncing && query.isError && query.data && <div className="ds-banner ds-banner-warn">Refresh failed; cached cases remain visible.</div>}
-      {query.isPending && !searchIsDebouncing && <p className="text-muted">Loading cases…</p>}
+      {query.isPending && !searchIsDebouncing && !createdRangeInvalid && <p className="text-muted">Loading cases…</p>}
       {!searchIsDebouncing && query.isFetching && !query.isPending && <p className="refreshing-indicator">Refreshing…</p>}
-      {!searchIsDebouncing && !query.isError && !query.isPending && cases.length === 0 && (
+      {!searchIsDebouncing && !createdRangeInvalid && !query.isError && !query.isPending && cases.length === 0 && (
         <p className="text-muted">No cases match these filters.</p>
       )}
       {!searchIsDebouncing && cases.length > 0 && (
@@ -322,7 +357,7 @@ export default function CaseQueue({
           </table>
         </div>
       )}
-      {!searchIsDebouncing && query.data && (
+      {!searchIsDebouncing && !createdRangeInvalid && query.data && (
         <nav className="activity-pagination" aria-label="Cases pagination">
           <button
             type="button"

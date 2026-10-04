@@ -1,0 +1,14 @@
+**
+!apps/
+!apps/backend/
+!apps/backend/pyproject.toml
+!apps/backend/app/
+!apps/backend/app/**
+!apps/backend/tests/
+!apps/backend/tests/**
+!scripts/
+!scripts/ocr_validation.Dockerfile
+**/__pycache__/**
+**/*.pyc
+**/.env
+**/.env.*

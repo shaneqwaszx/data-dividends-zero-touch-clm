@@ -814,6 +814,9 @@ class OnboardingCase(BaseModel):
     policy_snapshot_revision: int = Field(default=1, ge=1)
     policy_rebind_history: tuple[CasePolicyRebindAudit, ...] = Field(default=(), max_length=8)
     team_id: TeamId | None = None
+    created_by_actor_id: Annotated[
+        str, Field(pattern=r"^[a-z][a-z0-9-]{2,31}$")
+    ] | None = None
     priority: CasePriority | None = None
     jurisdiction_resolution: JurisdictionResolution | None = None
     registry_route: RegistryRoutingDecision | None = None

@@ -191,7 +191,7 @@ async function expectActionableStageTiles(page: Page) {
     expect(tile.labelWordBreak).toBe("normal");
     expect(tile.statusTop).toBeGreaterThanOrEqual(tile.titleBottom - 1);
     expect(tile.actionTop).toBeGreaterThanOrEqual(tile.statusTop);
-    expect(tile.actionText).toBe("Review details");
+    expect(tile.actionText).toBe("View details");
   }
 
   await actionable.hover();
@@ -212,7 +212,7 @@ async function openNewCase(page: Page, fixture: string): Promise<string> {
   if (await startFresh.isVisible()) await startFresh.click();
   await expect(page.getByRole("heading", { name: "Start onboarding" })).toBeVisible();
   await page.getByLabel("Jurisdiction").selectOption("SG");
-  await page.getByLabel("Legal name").fill("MERLION CIRCULAR LABS PTE. LTD.");
+  await page.getByLabel("Company Legal Name").fill("MERLION CIRCULAR LABS PTE. LTD.");
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(fixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();
@@ -289,15 +289,17 @@ async function expectAuthoritativeReviewReady(page: Page, caseId: string) {
   const currentDocument = (await authoritativeDocuments.json() as Array<{
     state: string;
     superseded_by_document_id: string | null;
-    fields: Array<{ review_status: string; original_extracted_value: string | null }>;
+    fields: Array<{ review_status: string; original_extracted_value: string | null; extraction_quality: string; candidates: unknown[] }>;
   }>).find((document) => document.superseded_by_document_id === null);
   expect(currentDocument).toBeDefined();
   expect(currentDocument?.state).toBe("REVIEW_REQUIRED");
   expect(currentDocument?.fields.some((field) => (
-    field.review_status === "PENDING" && field.original_extracted_value !== null
+    field.review_status === "PENDING" && field.original_extracted_value === null
+      && field.extraction_quality === "AMBIGUOUS" && field.candidates.length === 2
   ))).toBe(true);
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Accept .* suggestion/ }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Accept legal name suggestion" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Record legal name correction" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Assign reviewer" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Return for rework" })).toHaveCount(0);
   await expectDocumentContained(page);
@@ -378,7 +380,7 @@ test("responsive cases and representative routes preserve tables, priorities, an
           : new RegExp(`${route.replaceAll("/", "\\/")}(?:$|\\?)`);
         await expect(page).toHaveURL(expectedRoute);
         if (route === `/cases/${completedCaseId}`) {
-          await openStage(page, "Documents & reconciliation");
+          await openStage(page, "Document verification");
         }
         if (heading) await expect(page.getByRole("heading", { name: heading })).toBeVisible();
         await expectShellContained(page);
@@ -424,7 +426,7 @@ test("starting a fresh onboarding after a retained case binds the new case route
   await expect(page).toHaveURL(/\/new-onboarding$/);
 
   await page.getByLabel("Jurisdiction").selectOption("SG");
-  await page.getByLabel("Legal name").fill("MERLION CIRCULAR LABS PTE. LTD.");
+  await page.getByLabel("Company Legal Name").fill("MERLION CIRCULAR LABS PTE. LTD.");
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(cleanFixture);
   await page.getByRole("button", { name: "Create onboarding" }).click();

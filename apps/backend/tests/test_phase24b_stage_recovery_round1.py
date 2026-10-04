@@ -75,7 +75,10 @@ def test_unfinished_current_ownership_precedes_independent_readiness(
 
 def correction_blockers(*, reverse=False):
     client, zero, _, target, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     stages = [AutomationStage.READINESS, AutomationStage.OWNERSHIP]
     if reverse:
         stages.reverse()

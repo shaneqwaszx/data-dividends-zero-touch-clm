@@ -535,6 +535,9 @@ class ReconciliationService:
             environment: str | None = field.provenance.environment.value
             observed_at = document.processed_at or document.updated_at
             evidence_reference = field.provenance.source_reference
+            if field.extraction_quality == "AMBIGUOUS":
+                validity = ObservationValidity.AMBIGUOUS
+                evidence_reference = "DOCUMENT_AMBIGUOUS_EXTRACTION"
             confidence: float | None = field.confidence
             if field.review_status == FieldReviewStatus.REJECTED:
                 raw_value = normalized = None

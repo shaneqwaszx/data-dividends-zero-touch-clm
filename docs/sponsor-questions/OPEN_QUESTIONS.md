@@ -434,3 +434,30 @@ Phase 06 does not close any question above. For sponsor sign-off, please confirm
 
 Until confirmed, `COMPLETED` means only `MOCK_GOLDTIER_SUBMITTED`; it is never a legal,
 compliance, live-system, or Ready-for-Approval claim.
+
+## Post-merge S2 owner boundary — 2026-10-04 candidate
+
+The current explicit owner program permits bounded local OCR, proposed document
+ownership, creator-only evidence decisions, calculable pre-submission editing and the
+distinct known Garden official-Mock/local supplement. D-062 confirms the >=25% inclusive
+numeric POC candidate rule; Review & Send is final approval in this application.
+These owner permissions do not close Q-003/Q-004/Q-005/Q-012/Q-013/Q-014/Q-015/Q-016
+for production document policy, legal/control/denominator/source authority, retention,
+calibrated accuracy, reviewer/maker-checker or Live/provider approval. Existing frozen
+0.85 extraction score is a project parameter, not a probability. No new industry default
+or external OCR disclosure is introduced. S2 gate and fresh bounded XPI execution are
+separate evidence; prior Garden Amend failure remains failed and is never replayed.
+
+## Post-merge S3 bounded observation — 2026-10-04 candidate
+
+The separately authorized synthetic parent acceptance returned HTTP200 for Search2,
+Shell1, Policy1 and exact-ID readback1; customer143887 and POLICY_CREATED are retained
+under a successful finalized ledger. Application restart preserved confirmed state,
+documents and reviewed ownership without new calls. An absent Policy ID remains absent;
+Amend was not required. This closes the actual delivery question for this one bounded
+synthetic parent package only. It does not establish KYC/approval/RFA, RP child lifecycle,
+original-document transfer, production authentication or Live operation, and does not
+close Q-006/Q-008/Q-009/Q-010/Q-011/Q-016/Q-018 at those broader authority boundaries.
+The smallest future RP need remains a sponsor-confirmed child create/search/readback
+lifecycle and relationship semantics; original-file transfer requires an authoritative
+upload contract. Neither is inferred or dispatched by this program.

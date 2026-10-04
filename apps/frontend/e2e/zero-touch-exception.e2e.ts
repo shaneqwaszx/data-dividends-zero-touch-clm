@@ -44,7 +44,7 @@ async function create(page: Page, garden: boolean, conflict = false) {
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.getByRole("link", { name: "New onboarding", exact: true }).click();
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
-  await page.getByLabel("Legal name", { exact: true }).fill(garden ? "GARDEN BUSINESS" : "MERLION CIRCULAR LABS PTE. LTD.");
+  await page.getByLabel("Company Legal Name", { exact: true }).fill(garden ? "GARDEN BUSINESS" : "MERLION CIRCULAR LABS PTE. LTD.");
   await page.getByLabel("Registration ID / UEN").fill(garden ? "11111999A" : "202400001A");
   const file = garden ? `garden-business-${conflict ? "conflicting" : "clean"}-onboarding-profile.pdf` : "clean-company-profile.pdf";
   await page.locator("#home-document").setInputFiles(path.join(fixtures, file));
@@ -77,7 +77,7 @@ async function create(page: Page, garden: boolean, conflict = false) {
 }
 
 async function classification(page: Page) {
-  await openStage(page, "Classification & readiness");
+  await openStage(page, "Readiness check");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   const response = page.waitForResponse((response) => response.request().method() === "PUT"
@@ -142,11 +142,11 @@ test("Zero-touch Golden STP normal UI has zero exception interventions", async (
   const measure = await boundedMutation(page, info, "/target-confirmation", async () => {
     await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
   }, "confirmation");
-  await openStage(page, "Target preparation / submission state");
+  await openStage(page, "Preparing GoldTier Submission");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "100");
-  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuetext", /final human approval remains outside/);
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuetext", "100% — reviewed POC submission complete; retained target outcome remains authoritative.");
   const completed = await summary(page, caseId);
   expect(completed.status).toBe("COMPLETED");
   expect(completed.metrics.human_interventions).toBe(0);
@@ -160,7 +160,7 @@ for (const conflict of [false, true]) {
     const caseId = await create(page, true, conflict);
     await capture(page, info, "before");
     if (conflict) {
-      await openStage(page, "Documents & reconciliation");
+      await openStage(page, "Document verification");
       for (let count = 4; count > 0; count -= 1) {
         await expect(page.getByRole("button", { name: "Keep registry value", exact: true })).toHaveCount(count);
         const measure = await boundedMutation(page, info, "/resolve", async () => {
@@ -178,7 +178,7 @@ for (const conflict of [false, true]) {
     const ownershipStage = page.locator(".stage-disclosure").filter({
       has: page.getByRole("button", { name: /^Ownership & UBO/ }),
     });
-    await openStage(page, "Registry identity");
+    await openStage(page, "Registry verification");
     await expect(page.getByText("Ownership unavailable from current registry evidence", { exact: true })).toBeVisible();
     await expect(ownershipStage.locator(".intervention-card")).toHaveCount(1);
     await expect(ownershipStage.getByRole("heading", { name: "Ownership and UBO — needs input", exact: true })).toBeVisible();
@@ -189,6 +189,12 @@ for (const conflict of [false, true]) {
     await expect(page.locator("#case-manual-ownership-evidence")).toBeFocused();
     expect(requests.length).toBe(baseline);
     const form = page.locator(".manual-ownership");
+    await form.getByLabel("Ownership source decision", { exact: true }).selectOption("USER_SUPPLIED_DECLARATION");
+    await form.getByLabel("As-of date", { exact: true }).fill("2026-09-28");
+    await form.getByLabel("Owner type", { exact: true }).nth(0).selectOption("NATURAL_PERSON");
+    await form.getByLabel("Owner type", { exact: true }).nth(1).selectOption("NATURAL_PERSON");
+    await form.getByLabel("Economic interest %", { exact: true }).nth(0).fill("60");
+    await form.getByLabel("Economic interest %", { exact: true }).nth(1).fill("40");
     await form.getByLabel("Review rationale").fill("Reviewed synthetic client declaration of exact sixty and forty percent economic interest.");
     await form.getByLabel("Owner name", { exact: true }).nth(0).fill("Demo Partner A");
     await form.getByLabel("Owner name", { exact: true }).nth(1).fill("Demo Partner B");
@@ -207,6 +213,7 @@ for (const conflict of [false, true]) {
     expect(owner.provider_environment).toBe("LOCAL");
     const table = page.getByRole("table", { name: "Retained ownership details" });
     await openStage(page, "Ownership & UBO");
+    await page.getByText("View ownership structure and calculations", { exact: true }).click();
     await table.scrollIntoViewIfNeeded();
     await expect(table.getByRole("row")).toHaveCount(3);
     await expect(table).toContainText("Demo Partner A");

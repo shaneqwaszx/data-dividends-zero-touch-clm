@@ -80,6 +80,14 @@ describe("Garden action performance boundaries", () => {
       await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/new-onboarding"]}><App actor={actor} onLogout={() => undefined} /></MemoryRouter></QueryClientProvider>));
       const form = container.querySelector("form")!;
       expect(form).not.toBeNull();
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      await act(async () => {
+        for (const [id, value] of [["#home-uen", "202400001A"], ["#home-legal-name", "SYNTHETIC PERFORMANCE PTE. LTD."]] as const) {
+          const input = container.querySelector<HTMLInputElement>(id)!;
+          setValue.call(input, value);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      });
       const fileInput = container.querySelector<HTMLInputElement>("#home-document")!;
       Object.defineProperty(fileInput, "files", { configurable: true, value: [new File(["synthetic test"], "synthetic.txt", { type: "text/plain" })] });
       await act(async () => fileInput.dispatchEvent(new Event("change", { bubbles: true })));

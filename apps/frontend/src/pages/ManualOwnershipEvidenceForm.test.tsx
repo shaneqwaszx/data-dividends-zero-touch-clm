@@ -63,6 +63,13 @@ describe("ManualOwnershipEvidenceForm", () => {
       <ManualOwnershipEvidenceForm canonicalRootUen="202400001A" initialRootLegalName="Garden synthetic company" documents={[reviewedDocument]} disabled={false} onSubmit={onSubmit} />,
     ));
     act(() => {
+      enter(view.querySelector('[name="as_of_date"]')!, "2026-10-04");
+      enter(view.querySelector('[name="ownership_percent_0"]')!, "60");
+      enter(view.querySelector('[name="ownership_percent_1"]')!, "40");
+      for (const select of view.querySelectorAll<HTMLSelectElement>('select[name^="party_type_"]')) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, "NATURAL_PERSON");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       enter(view.querySelector('[name="rationale"]')!, "Reviewed against signed evidence.");
       enter(view.querySelector('[name="display_name_0"]')!, "Owner A");
       enter(view.querySelector('[name="display_name_1"]')!, "Owner B");
@@ -86,6 +93,13 @@ describe("ManualOwnershipEvidenceForm", () => {
     const { view, onSubmit } = render();
     act(() => {
       enter(view.querySelector('[name="root_party_id"]')!, "GARDEN_ROOT");
+      enter(view.querySelector('[name="as_of_date"]')!, "2026-10-04");
+      enter(view.querySelector('[name="ownership_percent_0"]')!, "60");
+      enter(view.querySelector('[name="ownership_percent_1"]')!, "40");
+      for (const select of view.querySelectorAll<HTMLSelectElement>('select[name^="party_type_"]')) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, "NATURAL_PERSON");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       enter(view.querySelector('[name="rationale"]')!, "Reviewed against the signed declaration.");
       enter(view.querySelector('[name="relationship_id_0"]')!, "GARDEN_DIRECT_60");
       enter(view.querySelector('[name="party_id_0"]')!, "GARDEN_OWNER_A");
@@ -120,6 +134,13 @@ describe("ManualOwnershipEvidenceForm", () => {
 
     const { view, onSubmit } = render();
     act(() => {
+      enter(view.querySelector('[name="as_of_date"]')!, "2026-10-04");
+      enter(view.querySelector('[name="ownership_percent_0"]')!, "60");
+      enter(view.querySelector('[name="ownership_percent_1"]')!, "40");
+      for (const select of view.querySelectorAll<HTMLSelectElement>('select[name^="party_type_"]')) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, "NATURAL_PERSON");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       enter(view.querySelector('[name="rationale"]')!, "Reviewed against signed evidence.");
       enter(view.querySelector('[name="display_name_0"]')!, "Owner A");
       enter(view.querySelector('[name="display_name_1"]')!, "Owner B");

@@ -1,4 +1,4 @@
-import { useId, useState, type CSSProperties } from "react";
+import { useEffect, useId, useState, type CSSProperties } from "react";
 
 import { formatDuration, formatTimestamp } from "../shared";
 import type {
@@ -55,7 +55,7 @@ function pipelineRailState(status: ProcessingNodeStatus): "done" | "now" | "atte
   return "";
 }
 
-export function PipelineRail({ summary }: { summary: ZeroTouchCaseSummary }) {
+export function PipelineRail({ summary, onStageActivate }: { summary: ZeroTouchCaseSummary; onStageActivate?: (node: ProcessingNode) => void }) {
   const pipeline = summary.processing_pipeline ?? [];
   return (
     <div className="ds-stage-rail" aria-label="Backend workflow stages">
@@ -72,7 +72,12 @@ export function PipelineRail({ summary }: { summary: ZeroTouchCaseSummary }) {
               )}
             </div>
             <div className="ds-stage-copy">
-              <div>{node.label}</div>
+              <details>
+                <summary>{node.label} · View details</summary>
+                <ProcessingStageFacts node={node} />
+                {onStageActivate && <button type="button" className="btn btn-ghost" onClick={() => onStageActivate(node)}>Open case stage details</button>}
+              </details>
+              {node.node_id === "ADVISORY" && <p className="control-help">Bounded POC advisory</p>}
               <div className="text-muted">{PROGRESS_STATUS_LABELS[node.status]}</div>
             </div>
           </div>
@@ -251,7 +256,7 @@ export function processingNodeFocusTarget(node: ProcessingNode): string | null {
   if (nodeId === "TARGET_CLASSIFICATION" || nodeId.startsWith("TARGET_CLASSIFICATION_")) return "case-target-classification";
   if (nodeId === "GOLDTIER_SEARCH" || nodeId.startsWith("GOLDTIER_SEARCH_")) return "case-search-diagnostic";
   if (nodeId === "GOLDTIER_TARGET" || nodeId.startsWith("GOLDTIER_")) return "case-target-blocker";
-  if (nodeId === "HUMAN_APPROVAL") return "case-human-approval-boundary";
+  if (nodeId === "FINAL_REVIEW_SEND") return node.status === "REVIEW_REQUIRED" ? "case-review-and-send" : "case-target-blocker";
   return null;
 }
 
@@ -278,8 +283,10 @@ function ProcessingExplanation({ node, children }: { node: ProcessingNode; child
 export function ProcessingBlockerPanels({ summary, stage }: { summary: ZeroTouchCaseSummary; stage?: "REGISTRY" | "TARGET" }) {
   const pipeline = summary.processing_pipeline ?? [];
   const search = findProcessingNode(pipeline, "GOLDTIER_SEARCH");
-  const target = findProcessingNode(pipeline, "GOLDTIER_TARGET");
-  const approval = findProcessingNode(pipeline, "HUMAN_APPROVAL");
+  const finalReview = findProcessingNode(pipeline, "FINAL_REVIEW_SEND");
+  const target = finalReview && NAVIGABLE_PROCESSING_STATUSES.has(finalReview.status)
+    ? finalReview : findProcessingNode(pipeline, "GOLDTIER_TARGET");
+
   return (
     <>
       {stage !== "TARGET" && search && NAVIGABLE_PROCESSING_STATUSES.has(search.status) && (
@@ -296,19 +303,11 @@ export function ProcessingBlockerPanels({ summary, stage }: { summary: ZeroTouch
           <p className="card-kicker">Target safety boundary</p>
           <h2 id="case-target-blocker-heading">GoldTier target operations</h2>
           <ProcessingExplanation node={target}>
-            The server has blocked Shell, Policy, Amend, and downstream target work. This explanation does not provide a bypass or replay action.
+            The retained target ledger controls each operation and stops unsafe downstream work. This explanation does not provide a bypass or replay action.
           </ProcessingExplanation>
         </section>
       )}
-      {stage !== "REGISTRY" && approval && NAVIGABLE_PROCESSING_STATUSES.has(approval.status) && (
-        <section id="case-human-approval-boundary" className="card evidence-focus-target" tabIndex={-1} aria-labelledby="case-human-approval-heading">
-          <p className="card-kicker">POC boundary</p>
-          <h2 id="case-human-approval-heading">Human approval</h2>
-          <ProcessingExplanation node={approval}>
-            Final approval is unresolved and remains outside this POC. Any available case action is shown separately from this read-only boundary.
-          </ProcessingExplanation>
-        </section>
-      )}
+
     </>
   );
 }
@@ -317,19 +316,25 @@ export function OnboardingProgressPanel({
   summary,
   onStageActivate,
   availableFocusTargets,
+  initialFocusNodeId,
 }: {
   summary: ZeroTouchCaseSummary;
   onStageActivate?: (node: ProcessingNode) => void;
   availableFocusTargets?: ReadonlySet<string>;
+  initialFocusNodeId?: string;
 }) {
   const retainedPipeline = summary.processing_pipeline ?? [];
+  const [inspected, setInspected] = useState<{ caseId: string; nodeId: string } | null>(null);
+  useEffect(() => {
+    if (initialFocusNodeId) setInspected({ caseId: summary.case.case_id, nodeId: initialFocusNodeId });
+  }, [initialFocusNodeId, summary.case.case_id]);
   const identityIncomplete = summary.active_exceptions.some(
     (exception) => exception.blocker_code === "INITIAL_IDENTITY_INCOMPLETE",
   );
   const hasTopLevelIdentity = retainedPipeline.some((node) => node.node_id === "INITIAL_IDENTITY");
   const identityCorrectionNode: ProcessingNode = {
         node_id: "INITIAL_IDENTITY",
-        label: "Initial identity correction required for a retained Singapore case",
+        label: "Initial identity",
         status: "REVIEW_REQUIRED",
         backend_stage: null,
         timestamp: summary.updated_at,
@@ -346,6 +351,7 @@ export function OnboardingProgressPanel({
         ))
       : [identityCorrectionNode, ...retainedPipeline]
     : retainedPipeline;
+  const inspectedNode = inspected?.caseId === summary.case.case_id ? findProcessingNode(pipeline, inspected.nodeId) : null;
   const completed = pipeline.filter((node) =>
     node.status === "COMPLETE" || node.status === "EMPTY" || node.status === "SKIPPED"
   ).length;
@@ -389,7 +395,7 @@ export function OnboardingProgressPanel({
         aria-valuemax={100}
         aria-valuenow={percentage}
         aria-valuetext={summary.status === "COMPLETED"
-          ? "100% — POC submission complete; final human approval remains outside this workflow."
+          ? "100% — reviewed POC submission complete; retained target outcome remains authoritative."
           : `${percentage}%; ${completed} of ${pipeline.length} stages complete or skipped; current: ${currentText}`}
       >
         <span style={{ "--onboarding-progress": `${percentage}%` } as CSSProperties} />
@@ -412,19 +418,21 @@ export function OnboardingProgressPanel({
                 <span className="onboarding-progress__stage-label">{node.label}</span>
               </span>
               <span className="onboarding-progress__stage-status">{PROGRESS_STATUS_LABELS[node.status]}</span>
-              {navigable && <span className="onboarding-progress__stage-action">Review details</span>}
+              {node.node_id === "ADVISORY" && <span className="control-help">Bounded POC advisory</span>}
+              <span className="onboarding-progress__stage-action">{navigable && node.status === "REVIEW_REQUIRED" ? "Review" : navigable && ["BLOCKED", "FAILED"].includes(node.status) ? "Resolve issue" : "View details"}</span>
             </>;
             return (
               <li
                 key={node.node_id}
-                className={navigable ? "onboarding-progress__stage onboarding-progress__stage--actionable" : "onboarding-progress__stage"}
+                className="onboarding-progress__stage onboarding-progress__stage--actionable"
                 data-status={node.status}
               >
-                {navigable ? (
-                  <button type="button" onClick={() => onStageActivate?.(node)} aria-label={`Open details for ${node.label}`}>
-                    {content}
-                  </button>
-                ) : <div className="onboarding-progress__stage-content">{content}</div>}
+                <button type="button" onClick={() => {
+                  setInspected({ caseId: summary.case.case_id, nodeId: node.node_id });
+                  if (navigable) onStageActivate?.(node);
+                }} aria-label={`Open details for ${node.label}`} aria-expanded={inspectedNode?.node_id === node.node_id} aria-controls="processing-stage-details">
+                  {content}
+                </button>
               </li>
             );
           })}
@@ -432,9 +440,35 @@ export function OnboardingProgressPanel({
       ) : (
         <p className="empty-copy">The backend has not reported a processing route yet.</p>
       )}
+      {inspectedNode && <section id="processing-stage-details" className="card evidence-focus-target" tabIndex={-1} aria-label={`${inspectedNode.label} details`}>
+        <h3>{inspectedNode.label}</h3>
+        <ProcessingStageFacts node={inspectedNode} nextAction={summary.interventions?.find((item) => (
+          NAVIGABLE_PROCESSING_STATUSES.has(inspectedNode.status) && (
+            (inspectedNode.blocker_code && item.blocker_code === inspectedNode.blocker_code)
+            || (inspectedNode.backend_stage && item.owning_stage === inspectedNode.backend_stage)
+          )
+        ))?.expected_next_step} />
+        {inspectedNode.children.length > 0 && <ol>{inspectedNode.children.map((child) => <ProcessingPipelineNodeView key={child.node_id} node={child} />)}</ol>}
+      </section>}
       <p className="onboarding-progress__updated"><strong>Last updated:</strong> {formatTimestamp(summary.updated_at)}</p>
     </section>
   );
+}
+
+function ProcessingStageFacts({ node, nextAction }: { node: ProcessingNode; nextAction?: string }) {
+  return <>
+    <p><strong>Status:</strong> {PROGRESS_STATUS_LABELS[node.status]}</p>
+    {node.safe_result ? <p><strong>Outcome:</strong> {node.safe_result}</p> : <p className="control-help">The backend has not reported an outcome or explanation for this stage.</p>}
+    {node.provider && <p><strong>Provider:</strong> {node.provider}</p>}
+    {node.environment && <p><strong>Environment:</strong> {node.environment}</p>}
+    {node.operation && <p><strong>Operation:</strong> {node.operation.replaceAll("_", " ")}</p>}
+    {node.timestamp && <p><strong>Recorded at:</strong> {formatTimestamp(node.timestamp)}</p>}
+    {node.blocker_code && <p><strong>Blocker:</strong> {node.blocker_code}</p>}
+    {nextAction && <p><strong>Required next action:</strong> {nextAction}</p>}
+    {node.record_count != null && <p><strong>Records:</strong> {node.record_count}</p>}
+    {node.retained_goldtier_id && <p><strong>Retained GoldTier ID:</strong> {node.retained_goldtier_id}</p>}
+    {node.node_id === "ADVISORY" && <p className="control-help">Bounded POC advisory assessment; not production AML/KYC risk.</p>}
+  </>;
 }
 
 function processingStatusLabel(status: ProcessingNodeStatus): string {
@@ -786,6 +820,13 @@ export function RegistryStatePanel({
   const jurisdictionState = jurisdictionProgressState(resolution?.status);
   const routeState = registryRouteProgressState(route?.status);
   const presentation = registryPresentation(summary, registryProviderMode);
+  const identityCompleteness = resolution?.status === "CONFLICT"
+    ? "CONFLICTING"
+    : summary.case.entity
+      ? "AVAILABLE"
+      : presentation.attention
+        ? "REQUIRED_BUT_UNAVAILABLE"
+        : "MISSING";
 
   const registryNode = (summary.processing_pipeline ?? [])
     .find((item) => item.node_id === "ACRA_REGISTRY");
@@ -834,6 +875,7 @@ export function RegistryStatePanel({
                   <strong>{operation.operation.replaceAll("_", " ").toLowerCase()}</strong>
                   <span>
                     Status: {progressStateLabel(operationState)} · {operation.status} · {operation.record_count} record(s)
+                    {operation.status === "UNSUPPORTED" ? " · Connector capability not implemented; no provider call occurred. Case evidence completeness is evaluated separately." : ""}
                     {operation.provenance ? ` · ${operation.provenance.provider} ${operation.provenance.environment}` : ""}
                   </span>
                 </li>
@@ -843,6 +885,8 @@ export function RegistryStatePanel({
         </div>
         <aside className="card registry-policy-card">
           <p className="card-kicker">Registry boundary</p>
+          <div className="kv-row"><span className="kv-label">This case's registry identity evidence</span><span className="kv-value">{identityCompleteness}</span></div>
+          <p className="control-help">This describes retained case identity and its backend blocker. Unsupported connector operations describe capability limits separately.</p>
           <div className="kv-row"><span className="kv-label">Provider</span><span className="kv-value">{presentation.provider}</span></div>
           <div className="kv-row"><span className="kv-label">Connection</span><span className="kv-value">{presentation.connection}</span></div>
           <div className="kv-row"><span className="kv-label">Entity</span><span className="kv-value">{presentation.entity}</span></div>

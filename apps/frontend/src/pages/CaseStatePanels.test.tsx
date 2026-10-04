@@ -78,19 +78,19 @@ describe("OnboardingProgressPanel", () => {
     expect(markup).toContain("Submitted — no action required.");
     expect(markup).not.toContain("Review and confirm submission");
   });
-  it("announces completed POC progress consistently while final approval stays unresolved", () => {
+  it("announces completed reviewed POC submission consistently", () => {
     const summary = summaryWithPipeline([
       processingNode("GOLDTIER_TARGET", "GoldTier target", "COMPLETE"),
-      processingNode("HUMAN_APPROVAL", "Human approval (unresolved)", "REVIEW_REQUIRED"),
+      processingNode("FINAL_REVIEW_SEND", "Final review & send", "COMPLETE"),
     ]);
     summary.status = "COMPLETED";
     const markup = renderToStaticMarkup(<OnboardingProgressPanel summary={summary} />);
     expect(markup).toContain('aria-valuemax="100"');
     expect(markup).toContain('aria-valuenow="100"');
-    expect(markup).toContain("POC submission complete");
+    expect(markup).toContain("reviewed POC submission complete");
     expect(markup).toContain("100%");
-    expect(markup).toContain("Human approval (unresolved)");
-    expect(markup).toContain("Review required");
+    expect(markup).toContain("Final review &amp; send");
+    expect(markup).not.toContain("Human approval");
   });
   it("renders the backend order, current text, and accessible bounded progress before terminal state", () => {
     const summary = summaryWithPipeline([
@@ -139,7 +139,7 @@ describe("OnboardingProgressPanel", () => {
     expect(markup).toContain("2 of 7 stages complete or skipped");
   });
 
-  it("uses the earliest actionable backend node and exposes only problem stages as buttons", () => {
+  it("uses the earliest actionable backend node and makes every stage inspectable", () => {
     const summary = summaryWithPipeline([
       processingNode("GOLDTIER_SEARCH", "GoldTier search", "FAILED"),
       processingNode("ACRA_REGISTRY", "ACRA registry", "COMPLETE"),
@@ -153,12 +153,14 @@ describe("OnboardingProgressPanel", () => {
     expect(markup).toContain("current: GoldTier search — Failed");
     expect(markup).toContain('aria-label="Open details for GoldTier search"');
     expect(markup).toContain('aria-label="Open details for Target classification"');
-    expect(markup).not.toContain('aria-label="Open details for ACRA registry"');
+    expect(markup).toContain('aria-label="Open details for ACRA registry"');
     expect(markup.match(/onboarding-progress__title-row/g)).toHaveLength(3);
     expect(markup.match(/onboarding-progress__stage-status/g)).toHaveLength(3);
-    expect(markup.match(/onboarding-progress__stage-action/g)).toHaveLength(2);
-    expect(markup.match(/>Review details</g)).toHaveLength(2);
-    expect(markup.match(/<button/g)).toHaveLength(2);
+    expect(markup.match(/onboarding-progress__stage-action/g)).toHaveLength(3);
+    expect(markup).toContain(">View details<");
+    expect(markup).toContain(">Review<");
+    expect(markup).toContain(">Resolve issue<");
+    expect(markup.match(/<button/g)).toHaveLength(3);
   });
 
   it("keeps a long actionable title intact and labels navigation as non-mutating review", () => {
@@ -176,7 +178,7 @@ describe("OnboardingProgressPanel", () => {
 
     expect(markup).toContain("Target classification and client segment verification");
     expect(markup).toContain('aria-label="Open details for Target classification and client segment verification"');
-    expect(markup).toContain(">Review details<");
+    expect(markup).toContain(">Review<");
     expect(markup).not.toContain("Resolve");
   });
 
@@ -195,8 +197,8 @@ describe("OnboardingProgressPanel", () => {
       />,
     );
 
-    expect(markup).toContain("Initial identity correction required for a retained Singapore case");
-    expect(markup).toContain('aria-label="Open details for Initial identity correction required for a retained Singapore case"');
+    expect(markup).toContain("Initial identity");
+    expect(markup).toContain('aria-label="Open details for Initial identity"');
     expect(markup.match(/INITIAL_IDENTITY_INCOMPLETE/g) ?? []).toHaveLength(0);
   });
 
@@ -223,12 +225,12 @@ describe("OnboardingProgressPanel", () => {
       "case-policy-rebind",
     );
     expect(processingNodeFocusTarget(processingNode("GOLDTIER_TARGET", "Target", "BLOCKED"))).toBe("case-target-blocker");
-    expect(processingNodeFocusTarget(processingNode("HUMAN_APPROVAL", "Approval", "REVIEW_REQUIRED"))).toBe("case-human-approval-boundary");
+    expect(processingNodeFocusTarget(processingNode("FINAL_REVIEW_SEND", "Approval", "REVIEW_REQUIRED"))).toBe("case-review-and-send");
     expect(processingNodeFocusTarget(processingNode("ACRA_REGISTRY", "ACRA", "COMPLETE"))).toBeNull();
     expect(processingNodeFocusTarget(processingNode("UNRECOGNISED_NODE", "Unknown", "FAILED"))).toBeNull();
   });
 
-  it("renders dedicated read-only destinations for Search, target, and approval blockers", () => {
+  it("renders dedicated read-only destinations for Search and target blockers without a second approval", () => {
     const search = {
       ...processingNode("GOLDTIER_SEARCH", "GoldTier search", "FAILED"),
       blocker_code: "SEARCH_TIMEOUT",
@@ -238,7 +240,7 @@ describe("OnboardingProgressPanel", () => {
       ...processingNode("GOLDTIER_TARGET", "GoldTier target", "BLOCKED"),
       blocker_code: "GOLDTIER_SEARCH_FAILED",
     };
-    const approval = processingNode("HUMAN_APPROVAL", "Human approval", "REVIEW_REQUIRED");
+    const approval = processingNode("FINAL_REVIEW_SEND", "Final review & send", "REVIEW_REQUIRED");
 
     const markup = renderToStaticMarkup(
       <ProcessingBlockerPanels summary={summaryWithPipeline([search, target, approval])} />,
@@ -248,11 +250,11 @@ describe("OnboardingProgressPanel", () => {
     expect(markup).toContain("does not prove that the customer is absent");
     expect(markup).toContain('id="case-target-blocker"');
     expect(markup).toContain("does not provide a bypass or replay action");
-    expect(markup).toContain('id="case-human-approval-boundary"');
-    expect(markup).toContain("Final approval is unresolved");
+    expect(markup).not.toContain("case-human-approval-boundary");
+    expect(markup).not.toContain("Final approval is unresolved");
   });
 
-  it("does not advertise a stage when its otherwise-valid destination is unavailable", () => {
+  it("keeps details inspectable when an action destination is unavailable", () => {
     const summary = summaryWithPipeline([
       processingNode("TARGET_CLASSIFICATION", "Target classification", "REVIEW_REQUIRED"),
     ]);
@@ -264,7 +266,8 @@ describe("OnboardingProgressPanel", () => {
       />,
     );
 
-    expect(markup).not.toContain("<button");
+    expect(markup).toContain("<button");
+    expect(markup).toContain(">View details<");
   });
 
   it("keeps the technical inspector collapsed independently of primary progress", () => {

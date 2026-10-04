@@ -10,6 +10,7 @@ from threading import Barrier
 import pytest
 from phase24c_policy_workflow import approve_business_change
 from pymongo import MongoClient
+from s2_legacy_schema_fixtures import omit_session2_fields
 from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
     generate_ephemeral_mongo_database,
@@ -113,7 +114,7 @@ def test_policy_activation_restart_preserves_inflight_and_completed_case_freeze(
         raw = client[settings.mongo_database][settings.mongo_case_collection].find_one(
             {"_id": str(new.case_id)}
         )
-        assert raw["schema_version"] == 8
+        assert raw["schema_version"] == 9
     finally:
         second.close()
 
@@ -275,6 +276,7 @@ def test_schema7_case_read_is_legacy_without_rewrite_or_new_parameter_smuggling(
     collection = client[settings.mongo_database][settings.mongo_case_collection]
     raw = collection.find_one({"_id": str(case.case_id)})
     raw["schema_version"] = 7
+    omit_session2_fields(raw)
     parameters = deepcopy(raw["onboarding"]["policy_snapshot"])
     for key in ("registry", "evidence_classifier", "policy_identity"):
         raw["onboarding"]["policy_snapshot"].pop(key)

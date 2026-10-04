@@ -16,7 +16,7 @@ function EdgeList({ edges }: { edges: OwnershipPath["edges"] }) {
   return edges.map((edge) => (
     <li key={edge.relationship_id}>
       <strong>{edge.parent_display_name}</strong> <span aria-label="is owned by">is owned by</span> <strong>{edge.child_display_name}</strong>
-      <span> · {edge.ownership_percent} · {edge.relationship_id}</span>
+      <span> · {edge.ownership_percent}% · {edge.relationship_id}</span>
     </li>
   ));
 }
@@ -88,6 +88,20 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
         <strong>Ownership information required</strong>
         <span>Ownership is unavailable from current registry evidence. Use Add structured ownership details or Upload ownership evidence to provide reviewed client evidence for UBO analysis.</span>
       </div>}
+      <p className="s2-ownership-summary">{record.candidates.length} retained natural-person candidate{record.candidates.length === 1 ? "" : "s"} · {record.parties.length} parties · {record.relationships.length} direct relationships. {record.state === "ANALYZED" ? "Calculable provisional view." : "Incomplete or disputed evidence requires review."}</p>
+      <p className="control-help">{record.candidates.slice(0, 3).map((item) => `${item.party.display_name}: ${item.aggregated_ownership_percent}% effective (${item.classification})`).join("; ") || "No calculable candidate retained."}</p>
+      {record.source_classification === "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT" && <p className="ds-banner">Official Marketplace Mock facts with separately labelled LOCAL_SYNTHETIC_SUPPLEMENT ownership evidence. These sources remain distinct and are not Live registry evidence.</p>}
+      <details key={record.analysis_id} className="evidence-details s2-ownership-structure">
+        <summary>View ownership structure and calculations</summary>
+      {record.parties.length > 0 && <div className="table-scroll" tabIndex={0} aria-label="Ownership parties and retained calculations"><table className="table">
+        <caption>Parties and backend-calculated effective interests</caption>
+        <thead><tr><th>Party</th><th>Type</th><th>Country</th><th>Identifier</th><th>Direct interests in owned entities</th><th>Effective in root</th></tr></thead>
+        <tbody>{record.parties.map((party) => <tr key={party.party_id}>
+          <td>{party.display_name} · {party.party_id}</td><td>{party.party_type.replaceAll("_", " ")}</td><td>{party.country ?? "Not supplied"}</td><td>{party.registration_number ?? "Not supplied"}</td>
+          <td>{record.relationships.filter((edge) => edge.child_party_id === party.party_id).map((edge) => `${edge.ownership_percent}% in ${record.parties.find((item) => item.party_id === edge.parent_party_id)?.display_name ?? edge.parent_party_id}`).join("; ") || "No direct interest retained"}</td>
+          <td>{record.candidates.find((item) => item.party.party_id === party.party_id)?.aggregated_ownership_percent ? `${record.candidates.find((item) => item.party.party_id === party.party_id)!.aggregated_ownership_percent}%` : "Not calculated by retained analysis"}</td>
+        </tr>)}</tbody>
+      </table></div>}
       {record.relationships.length > 0 && <div className="table-scroll">
         <table aria-label="Retained ownership details">
           <caption>Retained ownership parties and direct interests</caption>
@@ -125,13 +139,48 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
       {record.tagging && <details className="evidence-details"><summary>Ownership evidence classification</summary>
         <p>Parameterized deterministic evidence classifier · not a trained ML model · no legal determination</p>
         {record.tagging.tags.map((item) => <section key={`${item.tag}:${item.evidence_ids.join()}`}>
-          <p>{item.tag.replaceAll("_", " ")} · source confidence {item.confidence}</p>
+          <p>{item.tag.replaceAll("_", " ")} · evidence score {item.confidence} · not a probability</p>
           {item.score != null && <p>Score {item.score} · threshold {item.threshold} · policy version {item.policy_version}</p>}
           <p>Rule {item.rule_version} · evidence {item.evidence_ids.join(", ")} · case {item.case_version} / evidence {item.evidence_version}</p>
           <details><summary>Why is this blocked?</summary><p>Classification reasons: {(item.reason_codes?.length ? item.reason_codes : [item.reason_code]).join(" · ")}. A semantic label does not decide arithmetic sufficiency or legal ownership.</p></details>
         </section>)}
       </details>}
       {record.error && !primaryBlockerVisible && <details className="evidence-details"><summary>Why is this blocked?</summary><p>{record.error.code}: {record.error.message}</p></details>}
+
+      {!!record.supplemental_relationships?.length && <details className="evidence-details"><summary>Retained local supplement graph</summary>
+        <p>LOCAL_SYNTHETIC_SUPPLEMENT originals remain separate from conflicting official quantitative evidence. They have not replaced official identity or officer facts.</p>
+        <div className="table-scroll" tabIndex={0}><table className="table"><caption>Original local supplement direct relationships</caption><thead><tr><th>Owned entity</th><th>Owner</th><th>Explicit percentage</th><th>Source</th></tr></thead>
+          <tbody>{record.supplemental_relationships.map((edge) => <tr key={edge.relationship_id}><td>{record.supplemental_parties?.find((party) => party.party_id === edge.parent_party_id)?.display_name ?? edge.parent_party_id}</td><td>{record.supplemental_parties?.find((party) => party.party_id === edge.child_party_id)?.display_name ?? edge.child_party_id}</td><td>{edge.ownership_percent}%</td><td>{edge.provenance.provider} · {edge.provenance.environment}</td></tr>)}</tbody>
+        </table></div>
+        {record.supplemental_evidence?.map((item) => <p key={item.evidence_id}>{item.entity_identifier ?? "Unknown binding"} · {item.kind} · original {item.raw_value} · {item.provider} · {item.environment} · {item.source_operation}</p>)}
+      </details>}
+      {!!record.document_observations?.length && <div className="table-scroll" tabIndex={0}><table className="table"><caption>Proposed document ownership and source comparison</caption>
+        <thead><tr><th>Owner / owned entity</th><th>Explicit source quantities</th><th>Extraction quality / method / evidence score</th><th>Agreement</th><th>Verification</th><th>Immutable source</th></tr></thead>
+        <tbody>{record.document_observations.map((observation) => {
+          const discrepancy = record.document_discrepancies?.find((item) => item.observation_id === observation.observation_id);
+          return <tr key={observation.observation_id}>
+            <td>{observation.owner_name} ({observation.owner_type ?? "Type unknown"}) → {observation.owned_entity_name ?? observation.owned_entity_registration_identifier ?? "Unknown owned entity"}</td>
+            <td>Percentage {observation.explicit_percentage !== null ? `${observation.explicit_percentage}%` : "not supplied"} · shares {observation.share_count ?? "not supplied"} · denominator {observation.explicit_total_shares ?? "not supplied"} · class {observation.share_class ?? "not supplied"} · as of {observation.as_of_date ?? "not supplied"}</td>
+            <td>{observation.extraction_quality ?? "UNKNOWN"} · {observation.extraction_method ?? "UNKNOWN"} · {observation.evidence_score} (not a probability)</td>
+            <td>{discrepancy?.agreement ?? "NOT COMPARED"} · current {discrepancy?.current_percentage ?? "unavailable"} / proposed {discrepancy?.proposed_percentage ?? "unavailable"}{discrepancy && ` · ${discrepancy.reason_code}`}</td>
+            <td>{observation.decision_state} · {discrepancy?.verification_state ?? "REVIEW_REQUIRED"}</td>
+            <td>{observation.document_id} · document version {observation.document_version} · page {observation.page_number} · {observation.source_reference} · {observation.observation_id}</td>
+          </tr>;
+        })}</tbody>
+      </table></div>}
+      {record.manual_review_receipt && <section className="s2-ownership-receipt"><h5>Current ownership decision receipt</h5><p>{record.manual_review_receipt.source_selection ?? record.manual_review_receipt.source_type} · {record.manual_review_receipt.actor_id} · {record.manual_review_receipt.reviewed_at}</p><p>{record.manual_review_receipt.rationale}</p><p>Evidence document {record.manual_review_receipt.evidence_document_id} · review revision {record.manual_review_receipt.evidence_document_version} · as of {record.manual_review_receipt.as_of_date}</p><p>Observed document review revisions: {record.manual_review_receipt.observed_document_versions?.map((item) => `${item.document_id} / ${item.event_count}`).join("; ") || "None recorded"}</p><p>Selected immutable observations: {record.manual_review_receipt.selected_observation_ids?.join(", ") || "None recorded"}</p><p className="control-help">Reviewed client evidence, not independently verified ownership.</p></section>}
+      {!!record.prior_analyses?.length && <details className="evidence-history"><summary>Retained ownership history ({record.prior_analyses.length})</summary>
+        {record.prior_analyses.map((prior) => <section key={prior.analysis_id}><h5>Prior analysis {prior.analysis_id} · version {prior.version ?? "UNKNOWN"}</h5><p>{prior.provider_name} · {prior.provider_environment} · {prior.state}</p>
+          <div className="table-scroll" tabIndex={0}><table className="table"><caption>Prior retained ownership relationships</caption><thead><tr><th>Owned entity</th><th>Owner</th><th>Direct percentage</th><th>Source</th></tr></thead><tbody>{prior.relationships.map((edge) => <tr key={edge.relationship_id}><td>{prior.parties.find((party) => party.party_id === edge.parent_party_id)?.display_name ?? edge.parent_party_id}</td><td>{prior.parties.find((party) => party.party_id === edge.child_party_id)?.display_name ?? edge.child_party_id}</td><td>{edge.ownership_percent}%</td><td>{edge.provenance.provider} · {edge.provenance.environment}</td></tr>)}</tbody></table></div>
+          {prior.evidence?.map((item) => <p key={item.evidence_id}>Original scalar {item.kind} · {item.raw_value} · {item.provider} · {item.environment} · {item.source_operation}</p>)}
+          {prior.supplemental_relationships?.map((edge) => <p key={edge.relationship_id}>Original supplement relationship {edge.parent_party_id} → {edge.child_party_id} · {edge.ownership_percent}% · {edge.provenance.provider} · {edge.provenance.environment}</p>)}
+          {prior.supplemental_evidence?.map((item) => <p key={item.evidence_id}>Original supplement scalar {item.kind} · {item.raw_value} · {item.provider} · {item.environment} · {item.source_operation}</p>)}
+          {prior.candidates.map((item) => <p key={item.party.party_id}>{item.party.display_name} · {item.aggregated_ownership_percent}% effective · {item.classification}</p>)}
+          {prior.manual_review_receipt && <p>Prior decision {prior.manual_review_receipt.source_selection ?? prior.manual_review_receipt.source_type} · {prior.manual_review_receipt.actor_id} · {prior.manual_review_receipt.reviewed_at} · {prior.manual_review_receipt.rationale} · document {prior.manual_review_receipt.evidence_document_id} / review revision {prior.manual_review_receipt.evidence_document_version}</p>}
+          {prior.document_observations?.map((item) => <p key={item.observation_id}>Original proposal {item.owner_name} · {item.explicit_percentage ?? "No percentage"} · shares {item.share_count ?? "not supplied"} / denominator {item.explicit_total_shares ?? "not supplied"} · {item.extraction_quality ?? "UNKNOWN"} · {item.extraction_method ?? "UNKNOWN"} · document {item.document_id} / version {item.document_version} / page {item.page_number} / {item.source_reference} · {item.decision_state}</p>)}
+          {prior.document_discrepancies?.map((item) => <p key={item.observation_id}>Original discrepancy {item.agreement} · {item.reason_code} · {item.verification_state}</p>)}
+        </section>)}
+      </details>}
 
       {record.candidates.length === 0 ? <p className="text-muted">No retained ownership candidates are available. This does not establish that the hierarchy is complete.</p> : (
         <>
@@ -153,9 +202,9 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
             <article aria-label={`Ownership candidate ${candidate.party.display_name}`}>
               <h5>{candidate.party.display_name}</h5>
               <dl>
-                <div><dt>Direct</dt><dd>{candidate.direct_ownership_percent}</dd></div>
-                <div><dt>Indirect</dt><dd>{candidate.indirect_ownership_percent}</dd></div>
-                <div><dt>Aggregated</dt><dd>{candidate.aggregated_ownership_percent}</dd></div>
+                <div><dt>Direct</dt><dd>{candidate.direct_ownership_percent}%</dd></div>
+                <div><dt>Indirect</dt><dd>{candidate.indirect_ownership_percent}%</dd></div>
+                <div><dt>Aggregated</dt><dd>{candidate.aggregated_ownership_percent}%</dd></div>
                 <div><dt>Threshold comparison</dt><dd>{candidate.threshold_comparator} {candidate.threshold_percent} → {candidate.threshold_result}</dd></div>
                 <div><dt>Classification</dt><dd>{candidate.classification}</dd></div>
               </dl>
@@ -164,7 +213,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
                 <div aria-label={`Selected retained path ${path.path_id}`}>
                   <h6>Selected retained path: {path.path_id}</h6>
                   <p>{path.calculation}</p>
-                  <p>Effective ownership: {path.effective_ownership_percent}</p>
+                  <p>Effective ownership: {path.effective_ownership_percent}%</p>
                   <p className="control-help">Semantic direction: owned entity → owner. This selected retained path is not a complete hierarchy.</p>
                   <ol aria-label="Selected ownership path visual">
                     <EdgeList edges={visual!.prefix} />
@@ -181,7 +230,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
                   <tbody>
                     {visiblePaths.map((item) => (
                       <tr key={item.path_id}>
-                        <td>{item.path_id}</td><td>{item.effective_ownership_percent}</td><td>{item.calculation}</td>
+                        <td>{item.path_id}</td><td>{item.effective_ownership_percent}%</td><td>{item.calculation}</td>
                         <td><button type="button" className="btn btn-ghost" aria-pressed={path?.path_id === item.path_id} onClick={() => setPathId(item.path_id)}>Inspect {item.path_id}</button></td>
                       </tr>
                     ))}
@@ -193,6 +242,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
           )}
         </>
       )}
+      </details>
     </section>
   );
 }

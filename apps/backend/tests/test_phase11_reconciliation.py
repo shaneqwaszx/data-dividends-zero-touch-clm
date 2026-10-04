@@ -696,7 +696,9 @@ def test_replacement_document_cancels_old_discrepancy_and_resumes() -> None:
 
 def test_api_exposes_normalized_safe_state_and_explicit_resolution_endpoint() -> None:
     client, zero, _, target, _ = build_system()
-    created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
+    created = zero.create_case(
+        "202400001A", team_id=TeamId.TEAM_A, created_by_actor_id="maya-lim"
+    )
     paused = attach(
         zero,
         created.case_id,

@@ -468,6 +468,7 @@ export interface WorkflowEvent {
 
 export interface OnboardingCase {
   case_id: string;
+  created_by_actor_id?: string | null;
   team_id: TeamId | null;
   priority: number | null;
   client_scope_label: string | null;
@@ -590,15 +591,63 @@ export type FieldReviewStatus = "PENDING" | "ACCEPTED" | "REJECTED" | "CORRECTED
 
 export type ReviewDecision = "ACCEPTED" | "REJECTED" | "CORRECTED";
 
+export interface ExtractionMetadata {
+  extraction_method?: "UNKNOWN" | "NATIVE_PDF_TEXT" | "NATIVE_DOCX_TEXT" | "NATIVE_TXT_TEXT" | "LOCAL_TESSERACT_OCR";
+  extraction_quality?: "UNKNOWN" | "HIGH" | "LOW" | "UNAVAILABLE" | "AMBIGUOUS";
+  score_kind?: "LEGACY_UNSPECIFIED" | "DETERMINISTIC_EVIDENCE_SCORE";
+  score_formula?: "LEGACY_UNSPECIFIED" | "LABEL_SCORE" | "LABEL_SCORE_TIMES_OCR_MEAN_OVER_100";
+  raw_ocr_mean_confidence?: number | null;
+  raw_ocr_word_count?: number | null;
+}
+
+export interface DocumentOwnershipObservation extends ExtractionMetadata {
+  observation_id: string;
+  document_id: string;
+  document_version: 1;
+  page_number: number;
+  source_reference: string;
+  evidence_score: number;
+  owner_name: string;
+  owner_type: "NATURAL_PERSON" | "LEGAL_ENTITY" | null;
+  owner_registration_identifier: string | null;
+  owned_entity_name: string | null;
+  owned_entity_registration_identifier: string | null;
+  share_count: string | null;
+  explicit_percentage: string | null;
+  explicit_total_shares: string | null;
+  share_class: string | null;
+  as_of_date: string | null;
+  decision_state: "PROPOSED";
+}
+
+export interface OwnershipDocumentBinding { document_id: string; event_count: number }
+export interface OwnershipDocumentDiscrepancy {
+  observation_id: string;
+  document_id: string;
+  document_version: 1;
+  agreement: "MATCH" | "MISMATCH" | "NOT_COMPARABLE" | "AMBIGUOUS";
+  compared_relationship_ids: string[];
+  current_percentage: string | null;
+  proposed_percentage: string | null;
+  reason_code: "OWNERSHIP_PROPOSAL_REVIEW_REQUIRED" | "OWNERSHIP_DOCUMENT_CONFLICT" | "OWNERSHIP_DOCUMENT_INCOMPLETE" | "OWNERSHIP_DOCUMENT_AMBIGUOUS";
+  verification_state: "REVIEW_REQUIRED" | "REVIEWED";
+}
+
 export interface DocumentProcessingRecord {
   case_id: string;
   document_id: string;
+  document_version?: 1 | null;
+  pages?: Array<ExtractionMetadata & { page_number: number; source_reference: string }>;
+  ownership_observations?: DocumentOwnershipObservation[];
   correlation_id: string;
   display_name: string;
   media_type:
     | "application/pdf"
     | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    | "text/plain";
+    | "text/plain"
+    | "image/png"
+    | "image/jpeg"
+    | "image/tiff";
   size_bytes?: number;
   profile: "PROVISIONAL_CORPORATE";
   provider_environment: "MOCK" | "LOCAL" | "SANDBOX" | "LIVE" | null;
@@ -606,7 +655,8 @@ export interface DocumentProcessingRecord {
   completion_method?: "AUTO_CONFIRMED" | "HUMAN_REVIEWED" | "EXCEPTION_RESOLVED" | null;
   semantic_completion?: "RECONCILIATION_RESOLVED" | null;
   reconciliation_version?: number | null;
-  fields: Array<{
+  fields: Array<ExtractionMetadata & {
+    candidates?: Array<ExtractionMetadata & { value: string; page_number: number; source_reference: string }>;
     field_key: DocumentFieldKey;
     original_extracted_value: string | null;
     normalized_value: string | null;
@@ -730,6 +780,16 @@ export interface OwnershipCandidate {
 }
 
 export interface OwnershipAnalysisRecord {
+  version?: number;
+  document_observations?: DocumentOwnershipObservation[];
+  document_bindings?: OwnershipDocumentBinding[];
+  document_discrepancies?: OwnershipDocumentDiscrepancy[];
+  source_classification?: "SINGLE_SOURCE" | "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT";
+  supplemental_parties?: OwnershipParty[];
+  supplemental_relationships?: OwnershipRelationship[];
+  supplemental_evidence?: NonNullable<OwnershipAnalysisRecord["evidence"]>;
+  manual_review_receipt?: ManualOwnershipReviewReceipt | null;
+  prior_analyses?: Array<Pick<OwnershipAnalysisRecord, "version" | "analysis_id" | "root_party_id" | "provider_name" | "provider_environment" | "state" | "parties" | "relationships" | "candidates" | "issues" | "created_at" | "analyzed_at" | "evidence" | "manual_review_receipt" | "document_observations" | "document_bindings" | "document_discrepancies" | "source_classification" | "supplemental_parties" | "supplemental_relationships" | "supplemental_evidence">>;
   legal_form?: "COMPANY" | "BUSINESS_PARTNERSHIP" | "LLP" | "LP" | "OTHER" | null;
   evidence?: Array<{
     evidence_id: string; entity_identifier: string | null; party_id: string;
@@ -754,6 +814,7 @@ export interface OwnershipAnalysisRecord {
   candidates: OwnershipCandidate[];
   issues: Array<{
     code:
+      | "CONTRADICTORY_OWNERSHIP_EVIDENCE"
       | "CYCLE_DETECTED"
       | "INCOMPLETE_LEGAL_ENTITY"
       | "OWNERSHIP_DENOMINATOR_REQUIRED"
@@ -775,7 +836,8 @@ export interface OwnershipAnalysisRecord {
       | "OWNERSHIP_ANALYSIS_STARTED"
       | "OWNERSHIP_ANALYSIS_COMPLETED"
       | "OWNERSHIP_REVIEW_REQUIRED"
-      | "OWNERSHIP_ANALYSIS_FAILED";
+      | "OWNERSHIP_ANALYSIS_FAILED"
+      | "OWNERSHIP_SOURCE_REPLACED";
     state: OwnershipAnalysisState;
     outcome: "SUCCEEDED" | "PARTIAL" | "REVIEW_REQUIRED" | "FAILED";
     timestamp: string;
@@ -817,6 +879,11 @@ export interface ManualOwnershipReviewReceipt {
   evidence_document_version: number;
   evidence_reference: string;
   source_type: "USER_SUPPLIED_DECLARATION";
+  source_selection?: "USER_SUPPLIED_DECLARATION" | "CURRENT_EVIDENCE" | "DOCUMENT_OBSERVATIONS";
+  observed_document_versions?: OwnershipDocumentBinding[];
+  selected_observation_ids?: string[];
+  replaced_analysis_id?: string | null;
+  replaced_ownership_version?: number | null;
   provider_name: "MANUAL_DECLARATION_POC";
   provider_environment: "LOCAL";
   as_of_date: string;
@@ -857,6 +924,7 @@ export interface GoldTierPreviewField {
   target_field: string;
   value: string | null;
   provenance:
+    | "CANONICAL_EVIDENCE"
     | "REGISTRY"
     | "DOCUMENT"
     | "ENTITY_RESOLUTION"
@@ -1147,7 +1215,7 @@ export interface ReconciliationObservation {
   document_id?: string | null;
   document_display_name?: string | null;
   confidence: number | null;
-  validity: "VALID" | "MISSING" | "INVALID" | "UNVERIFIABLE";
+  validity: "VALID" | "MISSING" | "INVALID" | "UNVERIFIABLE" | "AMBIGUOUS";
 }
 
 export interface ReconciliationDecision {
@@ -1324,6 +1392,15 @@ export interface ClassificationConsistencyAdvisory {
 }
 
 export interface ZeroTouchCaseSummary {
+  target_submission?: {
+    submission_id: string | null;
+    state: "NOT_SUBMITTED" | "SENDING" | "SUBMISSION_CONFIRMED" | "SUBMISSION_FAILED"
+      | "SUBMISSION_OUTCOME_UNCERTAIN" | "FINALIZATION_PENDING";
+    goldtier_id: string | null;
+    status_check_available: boolean;
+  } | null;
+  evidence_decision_authorized?: boolean;
+  ownership_edit_authorized?: boolean;
   case: OnboardingCase;
   clm: ClmCaseSummary;
   automation_id: string;
@@ -1354,6 +1431,7 @@ export interface ZeroTouchCaseSummary {
     status:
       | "NOT_ATTEMPTED"
       | "IN_PROGRESS"
+      | "OUTCOME_UNCERTAIN"
       | "NO_MATCH"
       | "MATCH_FOUND"
       | "SKIPPED"

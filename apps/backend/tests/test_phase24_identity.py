@@ -37,7 +37,13 @@ def correction(client, zero, record, *, uen="202400009I", choice="OTHER", **extr
 
 def test_not_found_correction_preserves_authoritative_identity_and_makes_no_search():
     client, zero, _, target, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     before = zero._cases.get_case(record.case_id)
     calls = list(target.calls)
     response = correction(client, zero, record, uen="99999999Z")
@@ -51,7 +57,13 @@ def test_not_found_correction_preserves_authoritative_identity_and_makes_no_sear
 
 def test_verified_correction_reuses_case_and_preserves_old_registry_history():
     client, zero, _, target, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     before = zero._cases.get_case(record.case_id)
     response = correction(client, zero, record)
     assert response.status_code == 200
@@ -69,7 +81,13 @@ def test_verified_correction_reuses_case_and_preserves_old_registry_history():
 
 def test_identity_rebind_never_reuses_old_ownership_and_retains_analysis_history():
     client, zero, _, _, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     old = zero._ownership.load(case_id=record.case_id)
     old = zero._ownership.analyze(case_id=record.case_id)
     assert old.candidates[0].aggregated_ownership_percent > Decimal("0")
@@ -85,7 +103,13 @@ def test_identity_rebind_never_reuses_old_ownership_and_retains_analysis_history
 
 def test_document_choice_requires_current_evidence():
     client, zero, _, _, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     response = correction(client, zero, record, choice="DOCUMENT")
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "IDENTITY_DOCUMENT_CHOICE_STALE"
@@ -93,7 +117,13 @@ def test_document_choice_requires_current_evidence():
 
 def test_entered_choice_cannot_substitute_another_uen():
     client, zero, _, _, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     response = correction(client, zero, record, choice="ENTERED")
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "IDENTITY_CHOICE_INVALID"
@@ -130,7 +160,13 @@ def attach_conflict(zero, record, *, low_confidence=False):
 
 def test_entered_choice_without_documents_is_safe_same_case_recovery():
     client, zero, _, target, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     response = correction(client, zero, record, choice="ENTERED", uen="202400001A")
     assert response.status_code == 200
     assert response.json()["case"]["requested_uen"] == "202400001A"
@@ -139,7 +175,13 @@ def test_entered_choice_without_documents_is_safe_same_case_recovery():
 
 def test_entered_choice_resolves_only_identity_and_preserves_unrelated_document_blocker():
     client, zero, _, target, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     record = attach_conflict(zero, record, low_confidence=True)
     response = correction(client, zero, record, choice="ENTERED", uen="202400001A")
     assert response.status_code == 200
@@ -157,7 +199,13 @@ def test_entered_choice_resolves_only_identity_and_preserves_unrelated_document_
 
 def test_document_choice_reverifies_and_retains_selected_document_version():
     client, zero, documents, target, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     record = attach_conflict(zero, record)
     document = documents.list_documents(case_id=record.case_id)[0]
     response = correction(
@@ -182,7 +230,13 @@ def test_document_choice_reverifies_and_retains_selected_document_version():
 
 def test_stale_document_choice_has_no_canonical_or_search_effect():
     client, zero, documents, target, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     record = attach_conflict(zero, record)
     document = documents.list_documents(case_id=record.case_id)[0]
     before = zero._cases.get_case(record.case_id)
@@ -201,11 +255,94 @@ def test_stale_document_choice_has_no_canonical_or_search_effect():
 
 def test_initial_registry_failure_can_correct_without_a_new_case():
     client, zero, _, target, _ = build_system(require_confirmation=True)
-    record = zero.create_case("99999999Z", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "99999999Z",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     response = correction(client, zero, record, uen="202400001A")
     assert response.status_code == 200
     assert response.json()["case"]["case_id"] == str(record.case_id)
     assert response.json()["case"]["entity"]["registration_number"] == "202400001A"
+    assert target.calls == ["search", "search"]
+
+
+def test_wrong_uen_retains_intake_then_recompares_and_auto_resumes():
+    client, zero, documents, target, _ = build_system(require_confirmation=True)
+    record = zero.create_case(
+        "99999999Z",
+        "SG",
+        legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
+    upload = client.post(
+        f"/api/clm/zero-touch/cases/{record.case_id}/intake/documents",
+        content=PDF,
+        headers={"Content-Type": "application/pdf", "X-Document-Name": "synthetic.pdf"},
+    )
+    assert upload.status_code == 201
+    before = documents.list_documents(case_id=record.case_id)[0]
+    response = correction(client, zero, record, uen="202400001A")
+    assert response.status_code == 200
+    body = response.json()
+    after = documents.list_documents(case_id=record.case_id)[0]
+    assert after.document_id == before.document_id
+    assert after.created_at == before.created_at
+    assert after.superseded_by_document_id is None
+    assert [(field.original_extracted_value, field.provenance) for field in after.fields] == [
+        (field.original_extracted_value, field.provenance) for field in before.fields
+    ]
+    assert any(event.code == "DOCUMENT_COMPARISON_RECOMPUTED" for event in after.events)
+    assert body["current_stage"] == "READINESS"
+    assert body["active_exceptions"][0]["blocker_code"] == "TARGET_CONFIRMATION_REQUIRED"
+    assert target.calls == ["search", "search"]
+
+
+@pytest.mark.parametrize(
+    "scenario, expected_stage",
+    [
+        (MockIdpScenario.LOW_CONFIDENCE, "DOCUMENT"),
+        (MockIdpScenario.FIELD_MISMATCH, "DOCUMENT"),
+    ],
+)
+def test_wrong_uen_recovery_retains_independent_document_blockers(scenario, expected_stage):
+    client, zero, documents, target, _ = build_system(require_confirmation=True)
+    record = zero.create_case(
+        "99999999Z",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
+    zero.intake_document(
+        case_id=record.case_id,
+        display_name="synthetic.pdf",
+        content_type="application/pdf",
+        content=PDF,
+        idp_provider=MockIdpProvider(scenario),
+    )
+    before = documents.list_documents(case_id=record.case_id)[0]
+    response = correction(client, zero, record, uen="202400001A")
+    assert response.status_code == 200
+    after = documents.list_documents(case_id=record.case_id)[0]
+    assert after.document_id == before.document_id
+    assert after.is_current_evidence
+    assert response.json()["current_stage"] == expected_stage
+    assert response.json()["status"] == "WAITING_FOR_REVIEW"
+    expected_blocker = (
+        "DOCUMENT_LOW_CONFIDENCE" if scenario == MockIdpScenario.LOW_CONFIDENCE
+        else "DOCUMENT_SOURCE_CONFLICT"
+    )
+    assert expected_blocker in {
+        item["blocker_code"] for item in response.json()["active_exceptions"]
+    }
+    assert all(
+        item["blocker_code"] not in {"ACRA_ENTITY_NOT_FOUND", "NO_CURRENT_DOCUMENT_EVIDENCE"}
+        for item in response.json()["active_exceptions"]
+    )
     assert target.calls == ["search", "search"]
 
 
@@ -292,7 +429,13 @@ def test_composed_registry_ownership_rebind_resumes_with_retained_history():
 
 def test_same_uen_verification_invalidates_registry_derived_analysis_and_retains_history():
     client, zero, _, _, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     provider = RegistryAcquisitionOwnershipProvider(zero._cases)
     zero._ownership.load(case_id=record.case_id, provider=provider)
     old = zero._ownership.analyze(case_id=record.case_id)
@@ -306,7 +449,13 @@ def test_same_uen_verification_invalidates_registry_derived_analysis_and_retains
 
 def test_same_uen_verification_retains_independent_non_registry_evidence():
     client, zero, _, _, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     zero._ownership.load(case_id=record.case_id)
     old = zero._ownership.analyze(case_id=record.case_id)
     assert correction(client, zero, record, choice="ENTERED", uen="202400001A").status_code == 200
@@ -315,7 +464,13 @@ def test_same_uen_verification_retains_independent_non_registry_evidence():
 
 def test_same_uen_verification_allows_independent_loaded_analysis_to_continue():
     client, zero, _, _, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     loaded = zero._ownership.load(case_id=record.case_id)
     assert loaded.state == "LOADED" and loaded.identity_correction_version == 0
     assert correction(client, zero, record, choice="ENTERED", uen="202400001A").status_code == 200
@@ -327,7 +482,13 @@ def test_same_uen_verification_allows_independent_loaded_analysis_to_continue():
 
 def test_identity_roundtrip_keeps_superseded_independent_analysis_historical():
     client, zero, _, _, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     zero._ownership.load(case_id=record.case_id)
     old = zero._ownership.analyze(case_id=record.case_id)
     assert correction(client, zero, record, uen="202400009I").status_code == 200
@@ -344,7 +505,13 @@ def test_identity_roundtrip_keeps_superseded_independent_analysis_historical():
 
 def test_identity_history_limit_rejects_before_registry_search_or_mutation(monkeypatch):
     client, zero, _, target, _ = build_system(require_confirmation=True)
-    record = zero.create_case("202400001A", "SG", legal_name="Synthetic", team_id=TeamId.TEAM_A)
+    record = zero.create_case(
+        "202400001A",
+        "SG",
+        legal_name="Synthetic",
+        team_id=TeamId.TEAM_A,
+        created_by_actor_id="maya-lim",
+    )
     for _ in range(16):
         response = correction(client, zero, record, choice="ENTERED", uen="202400001A")
         assert response.status_code == 200

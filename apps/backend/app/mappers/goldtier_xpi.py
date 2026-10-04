@@ -53,7 +53,7 @@ def _canonical_field(name: str, value: str, *, required: bool = True) -> GoldTie
     return GoldTierPreviewField(
         target_field=name,
         value=value,
-        provenance=TargetValueProvenance.REGISTRY,
+        provenance=TargetValueProvenance.CANONICAL_EVIDENCE,
         authority=TargetFieldAuthority.CANONICAL_EVIDENCE,
         required=required,
         missing=False,
@@ -291,6 +291,12 @@ class GoldTierXpiRequestMapper:
                     submission.target_external_key,
                 ),
                 _canonical_field("legalRegisteredAddress.street1", address.address_line_1),
+                *(
+                    (_canonical_field(
+                        "legalRegisteredAddress.street2", address.address_line_2, required=False
+                    ),)
+                    if address.address_line_2 is not None else ()
+                ),
                 _canonical_field("legalRegisteredAddress.countryIso2", address.country_code),
                 _canonical_field("legalRegisteredAddress.zip", address.postal_code),
                 _policy_field("registration.registrationType", policy.registration_type),

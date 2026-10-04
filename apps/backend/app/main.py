@@ -26,6 +26,7 @@ from app.api_auth import (
 from app.api_intelligence import build_intelligence_router
 from app.api_models import (
     BrowserTargetOperationEvidence,
+    BrowserTargetSubmissionEvidence,
     CaseActivityPageResponse,
     CaseDetailTimingResponse,
     CasePortfolioPageResponse,
@@ -59,6 +60,7 @@ from app.composition import (
 from app.config import Settings, get_settings
 from app.connectors.acra import AcraConnector
 from app.connectors.errors import ConnectorError, public_connector_error
+from app.connectors.goldtier_xpi import GoldTierXpiHttpTransport
 from app.connectors.idp import IdpProvider
 from app.connectors.ownership import OwnershipProvider
 from app.demo.idp_control import MockIdpDemoControl
@@ -87,10 +89,18 @@ from app.domain.dashboard import DashboardSnapshot
 from app.domain.documents import DocumentFieldKey, DocumentProcessingRecord, ReviewDecision
 from app.domain.jurisdiction import JurisdictionCode
 from app.domain.models import EventOutcome
-from app.domain.ownership import OwnershipCandidate, Party, SafePartyId
+from app.domain.ownership import (
+    OwnershipAnalysisState,
+    OwnershipCandidate,
+    OwnershipDocumentBinding,
+    Party,
+    SafePartyId,
+)
 from app.domain.reconciliation import ReconciliationDecisionAction
 from app.domain.target_submission import (
+    GoldTierExecutionClassification,
     GoldTierExecutionLedgerEntry,
+    GoldTierExecutionLedgerState,
     GoldTierOperationMarker,
     GoldTierRecoveryOrigin,
     GoldTierTargetOutcome,
@@ -262,6 +272,27 @@ class TargetClassificationRequest(BaseModel):
     expected_case_event_count: int = Field(ge=1)
 
 
+class TargetStatusCheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_submission_id: UUID
+
+
+class TargetStatusCheckResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    submission_id: UUID
+    checked_at: datetime
+    result: Literal[
+        "NO_MATCH", "IDENTITY_UNVERIFIED", "CUSTOMER_IDENTITY_VERIFIED",
+        "AMBIGUOUS", "CHECK_FAILED",
+    ]
+    message: str = (
+        "Read-only customer Search cannot prove Policy, KYC or full submission completion. "
+        "The retained mutation remains protected from replay."
+    )
+
+
 class TargetDispatchConfirmationRequest(BaseModel):
     """CAS-bound local-POC confirmation; destination and warnings are server-owned."""
 
@@ -400,6 +431,13 @@ class ManualOwnershipEvidenceRequest(BaseModel):
     root_registration_number: CanonicalUen
     evidence_document_id: UUID
     evidence_document_version: int = Field(ge=1)
+    source_selection: Literal[
+        "USER_SUPPLIED_DECLARATION", "CURRENT_EVIDENCE", "DOCUMENT_OBSERVATIONS"
+    ] = "USER_SUPPLIED_DECLARATION"
+    observed_document_versions: tuple[OwnershipDocumentBinding, ...] = Field(
+        default=(), max_length=32
+    )
+    selected_observation_ids: tuple[UUID, ...] = Field(default=(), max_length=128)
     as_of_date: date
     rationale: SafeReviewText
     root_party_id: SafePartyId
@@ -417,6 +455,9 @@ class ManualOwnershipEvidenceRequest(BaseModel):
             root_registration_number=self.root_registration_number,
             evidence_document_id=self.evidence_document_id,
             evidence_document_version=self.evidence_document_version,
+            source_selection=self.source_selection,
+            observed_document_versions=self.observed_document_versions,
+            selected_observation_ids=self.selected_observation_ids,
             as_of_date=self.as_of_date,
             rationale=self.rationale,
             root_party_id=self.root_party_id,
@@ -487,6 +528,7 @@ def create_app(
     authentication_service: AuthenticationService | None = None,
     acra_diagnostic_service: AcraDiagnosticService | None = None,
     acra_connector: AcraConnector | None = None,
+    goldtier_transport: GoldTierXpiHttpTransport | None = None,
     e2e_acra_protocol_fixture: bool = False,
     e2e_portfolio_seed_count: int = 0,
     clock: Callable[[], datetime] | None = None,
@@ -532,6 +574,7 @@ def create_app(
             target_execution_repository=persistence.target_executions,
             policy_snapshot_provider=policy_management.case_snapshot,
             registry_snapshot_repository=persistence.registry_snapshots,
+            goldtier_transport=goldtier_transport,
         )
     else:
         service = onboarding_service
@@ -545,7 +588,7 @@ def create_app(
     )
     demo_idp = idp_demo_control or build_mock_idp_demo_control()
     ownership = ownership_analysis_service or build_ownership_analysis_service(
-        service, active_settings, repository=persistence.ownership
+        service, active_settings, repository=persistence.ownership, documents=documents
     )
     demo_ownership = ownership_demo_control or build_mock_ownership_demo_control()
     reconciliation = (
@@ -850,6 +893,7 @@ def create_app(
         clm_record: object,
         entry: GoldTierExecutionLedgerEntry | None,
         outcome: GoldTierTargetOutcome | None,
+        active: bool = False,
     ) -> tuple[BrowserTargetOperationEvidence, ...]:
         """Project only bounded operation outcomes; never target requests or receipts."""
 
@@ -891,6 +935,7 @@ def create_app(
             operation_status: Literal[
                 "NOT_ATTEMPTED",
                 "IN_PROGRESS",
+                "OUTCOME_UNCERTAIN",
                 "NO_MATCH",
                 "MATCH_FOUND",
                 "SKIPPED",
@@ -933,7 +978,7 @@ def create_app(
                 ):
                     operation_status = "FAILED"
                 elif operation not in completed:
-                    operation_status = "IN_PROGRESS"
+                    operation_status = "IN_PROGRESS" if active else "OUTCOME_UNCERTAIN"
                 elif (
                     outcome is not None
                     and outcome.error_code is not None
@@ -964,19 +1009,78 @@ def create_app(
             )
         return tuple(result)
 
-    def zero_touch_response(record: object) -> ZeroTouchCaseSummaryResponse:
+    def zero_touch_response(
+        record: object, *, actor: AuthenticatedActor
+    ) -> ZeroTouchCaseSummaryResponse:
         automation = ZeroTouchAutomationRecord.model_validate(record)
         case = service.get_case(automation.case_id)
         clm_record = clm.get(case_id=automation.case_id)
         if case is None or clm_record is None:
             raise HTTPException(status_code=404, detail="Zero-touch case not found")
-        target_entry = (
-            service.get_target_execution_entry(clm_record.submission_snapshot.submission_id)
+        target_entry, target_active = (
+            service.get_target_execution_activity_snapshot(clm_record.submission_snapshot.submission_id)
             if clm_record.submission_snapshot is not None
-            else None
+            else (None, False)
         )
         target_outcome = target_entry.target_outcome if target_entry is not None else None
-        target_operations = target_operation_evidence(clm_record, target_entry, target_outcome)
+        target_operations = target_operation_evidence(
+            clm_record, target_entry, target_outcome, target_active
+        )
+        submission_id = (
+            clm_record.submission_snapshot.submission_id
+            if clm_record.submission_snapshot is not None else None
+        )
+        target_state: Literal[
+            "NOT_SUBMITTED", "SENDING", "SUBMISSION_CONFIRMED", "SUBMISSION_FAILED",
+            "SUBMISSION_OUTCOME_UNCERTAIN", "FINALIZATION_PENDING",
+        ] = "NOT_SUBMITTED"
+        target_uncertain = bool(
+            target_entry is not None and not target_active
+            and target_entry.state == GoldTierExecutionLedgerState.IN_PROGRESS
+            and target_entry.attempted_operations != target_entry.lifecycle_resolved_operations
+            and target_outcome is None and target_entry.receipt is None
+        )
+        if target_entry is not None and submission_id is not None:
+            if target_active:
+                target_state = "SENDING"
+            elif target_uncertain:
+                target_state = "SUBMISSION_OUTCOME_UNCERTAIN"
+            elif target_outcome is not None:
+                if target_outcome.classification != GoldTierExecutionClassification.SUCCESS:
+                    target_state = "SUBMISSION_FAILED"
+                elif (
+                    automation.status == AutomationStatus.COMPLETED
+                    and target_entry.receipt is not None
+                    and (
+                        target_entry.receipt.classification
+                        == GoldTierExecutionClassification.SUCCESS
+                    )
+                    and (
+                        clm_record.submission_plan.environment.value == "MOCK"
+                        or (
+                            GoldTierOperationMarker.READBACK in target_outcome.completed_operations
+                            and target_outcome.readback_party_id == target_outcome.party_id
+                            and target_outcome.readback_status == "VERIFIED"
+                            and target_outcome.policy_status is not None
+                        )
+                    )
+                ):
+                    target_state = "SUBMISSION_CONFIRMED"
+                else:
+                    target_state = "FINALIZATION_PENDING"
+            elif automation.status in {
+                AutomationStatus.RUNNING, AutomationStatus.RESUMING
+            }:
+                target_state = "SENDING"
+            elif (
+                automation.status == AutomationStatus.RECOVERY_PENDING
+                and target_entry.attempted_operations
+                and target_entry.attempted_operations == target_entry.lifecycle_resolved_operations
+            ):
+                # Presentation only: existing lock/ledger resume guards still own execution.
+                target_state = "FINALIZATION_PENDING"
+            else:
+                target_state = "SUBMISSION_OUTCOME_UNCERTAIN"
         reconciliation_record = reconciliation.get(case_id=automation.case_id)
         ownership_record = ownership.get(case_id=automation.case_id)
         retained_goldtier_id = (
@@ -987,6 +1091,14 @@ def create_app(
             else None
         )
         observed_at = active_clock()
+        target_submission = BrowserTargetSubmissionEvidence(
+            submission_id=submission_id, state=target_state, goldtier_id=retained_goldtier_id,
+            status_check_available=(
+                target_state == "SUBMISSION_OUTCOME_UNCERTAIN"
+                and clm_record.submission_plan.environment.value == "SANDBOX"
+                and submission_id is not None and target_uncertain
+            ),
+        )
         try:
             timing = project_case_timing(
                 created_at=automation.created_at,
@@ -1014,6 +1126,7 @@ def create_app(
             ),
             reconciliation=reconciliation_record,
             target_operations=target_operations,
+            target_submission=target_submission,
             processing_pipeline=project_processing_pipeline(
                 automation=automation,
                 clm=clm_record,
@@ -1021,9 +1134,21 @@ def create_app(
                 reconciliation=reconciliation_record,
                 target_operations=target_operations,
                 retained_goldtier_id=retained_goldtier_id,
+                target_submission=target_submission,
             ),
             team=administration.directory.get(case.team_id),
             ownership=ownership_record,
+            evidence_decision_authorized=access_policy.can_decide_evidence(actor, case),
+            ownership_edit_authorized=(
+                access_policy.can_decide_evidence(actor, case)
+                and clm_record.submission_snapshot is None
+                and case.goldtier_result is None
+                and ownership_record is not None
+                and ownership_record.state in {
+                    OwnershipAnalysisState.ANALYZED, OwnershipAnalysisState.REVIEW_REQUIRED
+                }
+                and not service.has_retained_target_execution(case.case_id)
+            ),
         )
 
     def load_ownership_request(
@@ -1138,6 +1263,7 @@ def create_app(
                 request.country_of_incorporation,
                 legal_name=request.legal_name,
                 team_id=creation_team(request, actor),
+                    created_by_actor_id=actor.profile.user_id,
             )
             return OnboardingCaseResponse.from_domain(
                 created_case, administration.directory.get(created_case.team_id)
@@ -1186,6 +1312,7 @@ def create_app(
                     request.country_of_incorporation,
                     legal_name=request.legal_name,
                     team_id=creation_team(request, actor),
+                    created_by_actor_id=actor.profile.user_id,
                 )
             )
         except ClmInfrastructureError as exc:
@@ -1562,7 +1689,7 @@ def create_app(
                         request, authentication, access_policy, service, case_id
                     ),
                 )
-            )
+            , actor=authenticated_actor(request))
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
         except ZeroTouchInfrastructureError as exc:
@@ -1625,9 +1752,10 @@ def create_app(
                     request.country_of_incorporation,
                     legal_name=request.legal_name,
                     team_id=creation_team(request, actor),
+                    created_by_actor_id=actor.profile.user_id,
                     priority=request.priority,
                 )
-            )
+            , actor=actor)
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
 
@@ -1650,6 +1778,8 @@ def create_app(
         attention_type: Annotated[
             BusinessExceptionType | None, Query(alias="attention_type")
         ] = None,
+        created_from: Annotated[date | None, Query()] = None,
+        created_to: Annotated[date | None, Query()] = None,
     ) -> list[ZeroTouchCaseListItemResponse]:
         """Project the process-local portfolio without running any workflow stage."""
 
@@ -1662,6 +1792,8 @@ def create_app(
                 priority_sort=priority_sort,
                 team_filter=team_filter,
                 attention_type=attention_type,
+                created_from=created_from,
+                created_to=created_to,
             )
         except CaseTeamFilterForbiddenError:
             raise HTTPException(
@@ -1677,6 +1809,14 @@ def create_app(
                 detail={
                     "code": "TEAM_FILTER_INVALID",
                     "message": "The selected team filter is invalid.",
+                },
+            ) from None
+        except CasePortfolioQueryInvalidError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "CASE_PORTFOLIO_QUERY_INVALID",
+                    "message": "The created-date range is invalid.",
                 },
             ) from None
         return [
@@ -1706,6 +1846,8 @@ def create_app(
         ] = None,
         jurisdiction: Annotated[JurisdictionCode | None, Query(alias="jurisdiction")] = None,
         search: Annotated[str | None, Query(alias="search")] = None,
+        created_from: Annotated[date | None, Query()] = None,
+        created_to: Annotated[date | None, Query()] = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
         offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
     ) -> CasePortfolioPageResponse:
@@ -1719,6 +1861,8 @@ def create_app(
                 attention_type=attention_type,
                 jurisdiction=jurisdiction,
                 search=search,
+                created_from=created_from,
+                created_to=created_to,
                 limit=limit,
                 offset=offset,
             )
@@ -1973,7 +2117,7 @@ def create_app(
             )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
-        return zero_touch_response(record)
+        return zero_touch_response(record, actor=authenticated_actor(request))
 
     @application.post(
         "/api/clm/zero-touch/cases/{case_id}/policy-rebind",
@@ -2003,7 +2147,7 @@ def create_app(
             )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
-        return zero_touch_response(record)
+        return zero_touch_response(record, actor=actor)
 
     @application.post(
         "/api/clm/zero-touch/cases/{case_id}/target-confirmation",
@@ -2032,7 +2176,7 @@ def create_app(
             )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
-        return zero_touch_response(record)
+        return zero_touch_response(record, actor=actor)
 
     @application.post(
         "/api/clm/zero-touch/cases/{case_id}/identity-search-recheck",
@@ -2059,14 +2203,15 @@ def create_app(
                 expected_clm_version=correction.expected_clm_version,
                 expected_case_event_count=correction.expected_case_event_count,
                 reauthorize=build_case_reauthorizer(
-                    request, authentication, access_policy, service, case_id
+                    request, authentication, access_policy, service, case_id,
+                    require_creator=True,
                 ),
             )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
         except ZeroTouchInfrastructureError as exc:
             raise _zero_touch_infrastructure_http_error(exc) from None
-        return zero_touch_response(record)
+        return zero_touch_response(record, actor=actor)
 
     @application.post(
         "/api/clm/zero-touch/cases/{case_id}/registry-identity",
@@ -2091,14 +2236,15 @@ def create_app(
                 document_id=correction.document_id,
                 expected_document_event_count=correction.expected_document_event_count,
                 reauthorize=build_case_reauthorizer(
-                    request, authentication, access_policy, service, case_id
+                    request, authentication, access_policy, service, case_id,
+                    require_creator=True,
                 ),
             )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
         except ZeroTouchInfrastructureError as exc:
             raise _zero_touch_infrastructure_http_error(exc) from None
-        return zero_touch_response(record)
+        return zero_touch_response(record, actor=actor)
 
     @application.post(
         "/api/clm/zero-touch/cases/{case_id}/manual-ownership-evidence",
@@ -2135,12 +2281,54 @@ def create_app(
                 expected_ownership_version=evidence.expected_ownership_version,
                 expected_case_event_count=evidence.expected_case_event_count,
                 reauthorize=build_case_reauthorizer(
-                    request, authentication, access_policy, service, case_id
+                    request, authentication, access_policy, service, case_id,
+                    require_creator=True,
                 ),
             )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
-        return zero_touch_response(record)
+        return zero_touch_response(record, actor=actor)
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/target-status-check",
+        response_model=TargetStatusCheckResponse,
+        tags=["zero-touch"],
+    )
+    def check_uncertain_target_status(
+        case_id: UUID,
+        check: TargetStatusCheckRequest,
+        request: Request,
+    ) -> TargetStatusCheckResponse:
+        with service.case_lock(case_id):
+            reauthorize = build_case_reauthorizer(
+                request, authentication, access_policy, service, case_id
+            )
+            reauthorize()
+            current_clm = clm.get(case_id=case_id)
+            if (
+                current_clm is None or current_clm.submission_snapshot is None
+                or current_clm.submission_snapshot.submission_id != check.expected_submission_id
+            ):
+                raise HTTPException(status_code=409, detail={
+                    "code": "TARGET_STATUS_CHECK_STALE",
+                    "message": "The intended retained submission is no longer current.",
+                })
+            try:
+                evidence = service.check_uncertain_target_status(
+                    case_id=case_id, submission_id=check.expected_submission_id,
+                    reauthorize=reauthorize,
+                )
+            except ValueError:
+                raise HTTPException(status_code=409, detail={
+                    "code": "TARGET_STATUS_CHECK_UNAVAILABLE",
+                    "message": (
+                        "Read-only status checking requires a current uncertain Sandbox submission."
+                    ),
+                }) from None
+            return TargetStatusCheckResponse(
+                submission_id=evidence.submission_id, checked_at=evidence.checked_at,
+                result=evidence.result,
+            )
 
     @application.post(
         "/api/clm/zero-touch/cases/{case_id}/target-recovery",
@@ -2274,13 +2462,14 @@ def create_app(
                 request.country_of_incorporation,
                 legal_name=request.legal_name,
                 team_id=creation_team(request, actor),
+                    created_by_actor_id=actor.profile.user_id,
                 priority=request.priority,
                 establishment_action=lambda case_id: zero_touch_demo.register(
                     case_id, request.scenario
                 ),
                 establishment_rollback=zero_touch_demo.discard_case,
             )
-            return zero_touch_response(record)
+            return zero_touch_response(record, actor=actor)
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
 
@@ -2292,6 +2481,7 @@ def create_app(
     def get_zero_touch_case(
         case_id: UUID,
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
     ) -> ZeroTouchCaseSummaryResponse:
         record = active_zero_touch.get(case_id=case_id)
         if record is None:
@@ -2301,7 +2491,7 @@ def create_app(
                     message="The zero-touch onboarding case was not found.",
                 )
             )
-        return zero_touch_response(record)
+        return zero_touch_response(record, actor=actor)
 
     @application.get(
         "/api/demo/clm/zero-touch/cases/{case_id}/uat-evidence",
@@ -2370,7 +2560,7 @@ def create_app(
                 idp_provider=idp_provider,
                 ownership_provider=ownership_provider,
             )
-            return zero_touch_response(record)
+            return zero_touch_response(record, actor=authenticated_actor(request))
         except DocumentRequestError as exc:
             raise _document_http_error(exc) from None
         except ZeroTouchRequestError as exc:
@@ -2446,7 +2636,7 @@ def create_app(
                     request, authentication, access_policy, service, case_id
                 ),
             )
-            return zero_touch_response(record)
+            return zero_touch_response(record, actor=authenticated_actor(request))
         except DocumentRequestError as exc:
             raise _document_http_error(exc) from None
         except ZeroTouchRequestError as exc:
@@ -2492,7 +2682,7 @@ def create_app(
                         request, authentication, access_policy, service, case_id
                     ),
                 )
-            )
+            , actor=authenticated_actor(request))
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
         except ZeroTouchInfrastructureError as exc:
@@ -2519,7 +2709,7 @@ def create_app(
                     ),
                     refresh_document_checkpoint=True,
                 )
-            )
+            , actor=authenticated_actor(request))
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
         except ZeroTouchInfrastructureError as exc:
@@ -2547,10 +2737,11 @@ def create_app(
                     evidence_version=request.evidence_version,
                     actor_id=authenticated_actor(http_request).profile.user_id,
                     reauthorize=build_case_reauthorizer(
-                        http_request, authentication, access_policy, service, case_id
+                        http_request, authentication, access_policy, service, case_id,
+                    require_creator=True,
                     ),
                 )
-            )
+            , actor=authenticated_actor(http_request))
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
         except ZeroTouchInfrastructureError as exc:
@@ -2582,10 +2773,11 @@ def create_app(
                     evidence_fingerprint=request.evidence_fingerprint,
                     actor_id=authenticated_actor(http_request).profile.user_id,
                     reauthorize=build_case_reauthorizer(
-                        http_request, authentication, access_policy, service, case_id
+                        http_request, authentication, access_policy, service, case_id,
+                    require_creator=True,
                     ),
                 )
-            )
+            , actor=authenticated_actor(http_request))
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
         except ZeroTouchInfrastructureError as exc:
@@ -2860,7 +3052,8 @@ def create_app(
                 note=review.note,
                 actor_id=authenticated_actor(request).profile.user_id,
                 reauthorize=build_case_reauthorizer(
-                    request, authentication, access_policy, service, case_id
+                    request, authentication, access_policy, service, case_id,
+                    require_creator=True,
                 ),
             )
         except DocumentRequestError as exc:

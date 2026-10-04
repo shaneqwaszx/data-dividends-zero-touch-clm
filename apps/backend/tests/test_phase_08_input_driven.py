@@ -1,12 +1,14 @@
 """Phase 08 input-driven PDF evidence and supersession regressions."""
 
+import shutil
 from collections.abc import Mapping
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.connectors.idp import IdpDocumentInput
+from app.connectors.idp import IdpDocumentInput, LocalDocumentProcessingError
 from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.domain.documents import DocumentFieldKey, DocumentProfile
 from app.main import create_app
@@ -131,15 +133,21 @@ def test_local_pdf_provider_derives_missing_and_ambiguous_evidence_from_content(
     assert ambiguous_name.confidence == 0.40
 
 
-def test_local_pdf_provider_reports_no_text_without_claiming_ocr() -> None:
-    result = provider_result({}, include_text=False)
-    assert all(field.value is None for field in result.fields)  # type: ignore[attr-defined]
-    assert {field.source_reference for field in result.fields} == {"DOCUMENT_TEXT_UNAVAILABLE"}  # type: ignore[attr-defined]
+def test_local_pdf_provider_requires_runtime_for_no_native_text(monkeypatch: pytest.MonkeyPatch
+                                                              ) -> None:
+    monkeypatch.setattr(shutil, "which", lambda executable: None)
+    with pytest.raises(LocalDocumentProcessingError, match="OCR_RUNTIME_UNAVAILABLE"):
+        provider_result({}, include_text=False)
 
 
 def test_tracked_uat_pdf_pack_remains_compatible_with_strict_parsing() -> None:
     provider = LocalPdfTextIdpProvider()
     for fixture_name in STRICT_TEXT_FIXTURES:
+        if fixture_name == "no-text.pdf" and shutil.which("tesseract") is None:
+            with pytest.raises(LocalDocumentProcessingError, match="OCR_RUNTIME_UNAVAILABLE"):
+                provider.process(IdpDocumentInput(profile=DocumentProfile.PROVISIONAL_CORPORATE,
+                    content=(TESTS_DIR / "fixtures" / "uat" / fixture_name).read_bytes()))
+            continue
         provider.process(
             IdpDocumentInput(
                 profile=DocumentProfile.PROVISIONAL_CORPORATE,
@@ -247,7 +255,10 @@ def test_supported_launcher_composition_keeps_pdf_bytes_causal_and_filename_inde
             extra_lines=("Legal Name: SECOND SYNTHETIC NAME PTE. LTD.",),
         ),
     ).json()
-    assert ambiguous_response["active_exceptions"][0]["blocker_code"] == "DOCUMENT_LOW_CONFIDENCE"
+    assert (
+        ambiguous_response["active_exceptions"][0]["blocker_code"]
+        == "DOCUMENT_AMBIGUOUS_EXTRACTION"
+    )
 
 
 def test_uen_drives_independent_ownership_and_target_outcomes() -> None:
@@ -283,7 +294,10 @@ def test_cycle_uen_fixture_passes_document_before_input_driven_cycle() -> None:
     assert response["active_exceptions"][0]["blocker_code"] == "OWNERSHIP_CYCLE"
 
 
-def test_no_text_and_unsafe_replacement_requests_stop_safely() -> None:
+def test_no_text_and_unsafe_replacement_requests_stop_safely(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(shutil, "which", lambda executable: None)
     client = TestClient(create_app(Settings(app_env="test")))
     created = client.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"}).json()
     case_id = created["case"]["case_id"]
@@ -292,9 +306,10 @@ def test_no_text_and_unsafe_replacement_requests_stop_safely() -> None:
         headers={"content-type": "application/pdf", "X-Document-Name": "no-text.pdf"},
         content=synthetic_pdf({}, include_text=False),
     ).json()
-    assert no_text["status"] == "WAITING_FOR_REVIEW"
-    assert no_text["active_exceptions"][0]["blocker_code"] == "DOCUMENT_TEXT_UNAVAILABLE"
-    document_id = no_text["active_exceptions"][0]["evidence"][0]["reference_id"]
+    assert no_text["detail"]["code"] == "OCR_RUNTIME_UNAVAILABLE"
+    documents = client.get(f"/api/onboarding/cases/{case_id}/documents").json()
+    assert documents[0]["state"] == "FAILED"
+    document_id = documents[0]["document_id"]
 
     stale = client.post(
         f"/api/clm/zero-touch/cases/{case_id}/documents/{document_id}/replacement",
@@ -306,7 +321,7 @@ def test_no_text_and_unsafe_replacement_requests_stop_safely() -> None:
         content=synthetic_pdf(matching_fields()),
     )
     assert stale.status_code == 409
-    assert stale.json()["detail"]["code"] == "DOCUMENT_REVIEW_STALE"
+    assert stale.json()["detail"]["code"] == "ZERO_TOUCH_REPLACEMENT_NOT_ALLOWED"
 
     completed = start(client, "202400001A", matching_fields())
     completed_documents = client.get(

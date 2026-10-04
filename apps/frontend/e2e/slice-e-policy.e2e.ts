@@ -50,7 +50,7 @@ async function createFrozenCase(page:Page) {
  await login(page,"maya-lim",false);
  await page.getByRole("link",{name:"New onboarding",exact:true}).click();
  await page.getByLabel("Jurisdiction",{exact:true}).selectOption("SG");
- await page.getByLabel("Legal name",{exact:true}).fill("MERLION CIRCULAR LABS PTE. LTD.");
+ await page.getByLabel("Company Legal Name",{exact:true}).fill("MERLION CIRCULAR LABS PTE. LTD.");
  await page.getByLabel("Registration ID / UEN").fill("202400001A");
  await page.locator("#home-document").setInputFiles(path.resolve("../backend/tests/fixtures/uat/clean-company-profile.pdf"));
  await page.getByRole("button",{name:"Create onboarding",exact:true}).click();
@@ -64,7 +64,7 @@ async function createFrozenCase(page:Page) {
 test("Slice E HR and Director same impact, stale approval, reject and frozen cases",async({page})=>{
  test.setTimeout(120000);await page.setViewportSize({width:1280,height:1000});
  const frozen=await createFrozenCase(page);await logout(page);await login(page,"hr-admin");
- await change(page,"IDP review confidence threshold","0.92");
+ await change(page,"IDP extraction evidence score threshold","0.92");
  await change(page,"Registry evidence freshness","30");
  await change(page,"Definitive not-found cache TTL","60");
  await change(page,"UBO threshold percent","30");
@@ -84,7 +84,7 @@ test("Slice E HR and Director same impact, stale approval, reject and frozen cas
  await expect(proposal).toContainText("DOCUMENT_CONFIDENCE_0.90");await expect(proposal).toContainText("AUTO_CONFIRMED");await expect(proposal).toContainText("REVIEW_REQUIRED");
  await expect(proposal.getByRole("button",{name:"Approve and activate",exact:true})).toHaveCount(0);
  // A separate draft deliberately becomes stale after the first activation.
- await change(page,"IDP review confidence threshold","0.90");
+ await change(page,"IDP extraction evidence score threshold","0.90");
  await draft(page,"Synthetic proposal retained against the old active base");
  hr=await simulate(page.locator(".policy-proposal").filter({has:page.getByRole("heading",{name:"Proposal · PENDING APPROVAL",exact:true})}).first(),page);
  await contained(page);await logout(page);await login(page,"olivia-koh");
@@ -101,7 +101,7 @@ test("Slice E HR and Director same impact, stale approval, reject and frozen cas
  expect(newCase.snapshot.catalogue_version).toBeGreaterThan(frozen.snapshot.catalogue_version);
  expect(newCase.snapshot.idp_review_confidence_threshold).toBe("0.92");
  await logout(page);await login(page,"hr-admin");
- await change(page,"IDP review confidence threshold","0.91");
+ await change(page,"IDP extraction evidence score threshold","0.91");
  const rejected=await draft(page,"Synthetic new proposal for independent Director rejection");
  await rejected.getByRole("button",{name:"Submit for approval",exact:true}).click();
  await logout(page);await login(page,"olivia-koh");
@@ -113,7 +113,7 @@ test("Slice E HR and Director same impact, stale approval, reject and frozen cas
 });
 test("Slice E late impact after edit and accessible narrow layout",async({page})=>{
  test.setTimeout(60000);await page.setViewportSize({width:320,height:1000});await login(page,"hr-admin");
- await change(page,"IDP review confidence threshold","0.93");
+ await change(page,"IDP extraction evidence score threshold","0.93");
  const proposal=await draft(page,"Synthetic delayed impact response before an edit");
  let release!:()=>void;const gate=new Promise<void>(done=>{release=done;});
  let finished!:()=>void;const completed=new Promise<void>(done=>{finished=done;});

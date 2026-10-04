@@ -93,7 +93,10 @@ class ToolingConfigTests(unittest.TestCase):
         jobs = set(re.findall(r"^  ([a-z0-9-]+):$", jobs_section, flags=re.MULTILINE))
         self.assertEqual(
             jobs,
-            {"backend", "frontend", "phase12-mongo", "e2e", "demo-lifecycle-windows", "security"},
+            {
+                "backend", "local-ocr", "frontend", "phase12-mongo", "e2e",
+                "demo-lifecycle-windows", "security",
+            },
         )
         for command in (
             "npm run e2e:list",

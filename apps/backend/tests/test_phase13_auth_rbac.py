@@ -1157,14 +1157,19 @@ def test_every_current_application_route_is_deliberately_classified(
     counts = Counter(policy.access for policy in ROUTE_POLICIES)
 
     assert actual == expected
-    assert len(expected) == len(ROUTE_POLICIES) == 81
+    assert len(expected) == len(ROUTE_POLICIES) == 82
     assert counts == {
         RouteAccess.PUBLIC: 2,
         RouteAccess.ACTOR_ONLY: 29,
         RouteAccess.CASE_CREATION: 4,
         RouteAccess.CASE_PORTFOLIO: 5,
-        RouteAccess.CASE_SCOPED: 41,
+        RouteAccess.CASE_SCOPED: 42,
     }
+    assert next(
+        policy.access for policy in ROUTE_POLICIES
+        if policy.method == "POST"
+        and policy.path == "/api/clm/zero-touch/cases/{case_id}/target-status-check"
+    ) == RouteAccess.CASE_SCOPED
 
 
 def test_route_inventory_rejects_an_unclassified_included_router(

@@ -71,11 +71,16 @@ def main() -> int:
     garden_protocol_fixture = os.environ.get("CLM_E2E_GARDEN_PROTOCOL") == "1"
     registry_demo = os.environ.get("CLM_E2E_REGISTRY_DEMO")
     recovery_demo = os.environ.get("CLM_E2E_RECOVERY_DEMO")
+    sandbox_demo = os.environ.get("CLM_E2E_SANDBOX_DEMO")
     sys.path.insert(0, str(ROOT))
-    from scripts.run_e2e import RECOVERY_DEMO_MODES
+    from scripts.run_e2e import RECOVERY_DEMO_MODES, SANDBOX_DEMO_MODES
 
     if recovery_demo not in {None, *RECOVERY_DEMO_MODES}:
         raise RuntimeError("Unknown isolated recovery fixture")
+    if sandbox_demo not in {None, *SANDBOX_DEMO_MODES}:
+        raise RuntimeError("Unknown isolated Sandbox fixture")
+    if sandbox_demo and (recovery_demo or registry_demo or garden_protocol_fixture):
+        raise RuntimeError("Sandbox fixtures require separate compositions")
     if recovery_demo and (registry_demo or garden_protocol_fixture):
         raise RuntimeError("Recovery fixtures require separate compositions")
     if registry_demo not in {None, "garden-partnership", "synthetic-cache", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
@@ -195,6 +200,23 @@ def main() -> int:
         from scripts.slice_f_target_fixture import build_local_reuse_fixture
         reuse_fixture = build_local_reuse_fixture(settings)
         fixture_connector = reuse_fixture.registry
+    sandbox_transport = None
+    if sandbox_demo:
+        from scripts.run_s3_sandbox_acceptance import SyntheticAcceptanceAcra
+        from scripts.s3_sandbox_fixture import (
+            S3_SYNTHETIC_NAME,
+            S3_SYNTHETIC_UEN,
+            OfflineS3SandboxTransport,
+        )
+        settings = Settings(_env_file=None, **{
+            **setting_values, "goldtier_connector_mode": "sandbox",
+            "goldtier_sandbox_base_url": "https://sandbox.goldtier.invalid",
+            "goldtier_sandbox_environment": "synthetic",
+            "goldtier_sandbox_user_id": SecretStr("synthetic-offline-user"),
+            "goldtier_sandbox_allow_writes": True,
+        })
+        fixture_connector = SyntheticAcceptanceAcra(S3_SYNTHETIC_NAME, S3_SYNTHETIC_UEN)
+        sandbox_transport = OfflineS3SandboxTransport(sandbox_demo)
     application = application_module.create_app(
         settings=settings,
         onboarding_service=(recovery_fixture.onboarding if recovery_fixture else
@@ -202,9 +224,19 @@ def main() -> int:
                             reuse_fixture.onboarding if reuse_fixture else None),
         ownership_analysis_service=reuse_fixture.ownership if reuse_fixture else None,
         acra_connector=fixture_connector,
+        goldtier_transport=sandbox_transport,
         e2e_acra_protocol_fixture=protocol_fixture,
-        e2e_portfolio_seed_count=0 if protocol_fixture or registry_demo or recovery_demo else 105,
+        e2e_portfolio_seed_count=(
+            0 if protocol_fixture or registry_demo or recovery_demo or sandbox_demo else 105
+        ),
     )
+
+    if sandbox_transport:
+        @application.get("/api/__s3/sandbox-counts", include_in_schema=False)
+        def sandbox_counts() -> dict[str, object]:
+            assert sandbox_transport is not None
+            return {"fixture": sandbox_demo, "calls": dict(sandbox_transport.counts),
+                    "external_calls": 0}
 
     if ambiguity_fixture:
         @application.get("/api/__slice_f/target-metadata", include_in_schema=False)

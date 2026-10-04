@@ -156,6 +156,34 @@ afterEach(async () => {
 });
 
 describe("GoldTier Sandbox frontend boundary", () => {
+  it("explains unconfigured composition without a network Search or write", async () => {
+    const invoke = vi.fn(async () => response({
+      configured: false, mode: "MOCK", classification: "MOCK", safe_host: null,
+      writes_enabled: false, timeout_seconds: 5, max_response_bytes: 65536,
+      last_diagnostic_at: null, blocker: "GOLDTIER_SANDBOX_NOT_CONFIGURED",
+      customer_operations: "PARTIAL", related_party_operations: "BLOCKED_CONTRACT",
+      blocker_code: "BLOCKED_CHILD_ID_LIFECYCLE", required_authority: "SPONSOR_CONFIRMATION",
+      related_party_blocker: "BLOCKED_CHILD_ID_LIFECYCLE", vocabulary_version: "GOLDTIER_OPENAPI_1_0_0",
+      kyc_customer_types: [], client_segments: [], timeline: [],
+    }));
+    vi.stubGlobal("fetch", invoke);
+    await act(async () => root?.render(
+      <QueryClientProvider client={createSessionQueryClient()}>
+        <GoldTierSandbox actor={hr} />
+      </QueryClientProvider>,
+    ));
+    await vi.waitFor(() => expect(container?.textContent)
+      .toContain("Sandbox is unavailable in the effective backend configuration"));
+    expect(container?.textContent).toContain("No connection was attempted");
+    expect(container?.textContent).toContain("GOLDTIER_CONNECTOR_MODE");
+    expect(container?.querySelector('button[type="submit"]')).toHaveProperty("disabled", true);
+    setInputValue(container!.querySelector("#sandbox-legal-name")!, "SYNTHETIC TEST");
+    await act(async () => container?.querySelector("form")?.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    ));
+    expect(invoke.mock.calls).toHaveLength(1);
+  });
+
   it("uses user-scoped status identity and does not prefetch case data for HR", () => {
     expect(goldTierSandboxQueryKeys.status("hr-a")).toEqual([
       "auth", "hr-a", "provider-sandbox", "goldtier", "status",

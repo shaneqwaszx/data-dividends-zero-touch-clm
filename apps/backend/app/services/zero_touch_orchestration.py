@@ -184,6 +184,7 @@ class ZeroTouchOrchestrator:
         legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
+        created_by_actor_id: str | None = None,
         establishment_action: Callable[[UUID], None] | None = None,
         establishment_rollback: Callable[[UUID], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
@@ -200,6 +201,7 @@ class ZeroTouchOrchestrator:
                     legal_name=legal_name,
                     team_id=team_id,
                     priority=priority,
+                    created_by_actor_id=created_by_actor_id,
                 )
                 if establishment_action is not None:
                     establishment_action(record.case_id)
@@ -221,6 +223,7 @@ class ZeroTouchOrchestrator:
         legal_name: str | None,
         team_id: TeamId | None,
         priority: CasePriority | None,
+        created_by_actor_id: str | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Create registry, CLM, and automation state while the RLock is owned."""
 
@@ -233,6 +236,7 @@ class ZeroTouchOrchestrator:
                 legal_name=legal_name,
                 team_id=team_id,
                 priority=priority,
+                created_by_actor_id=created_by_actor_id,
             )
         except ClmInfrastructureError as exc:
             recovered_clm_record = self._clm.get(case_id=exc.case_id)
@@ -902,7 +906,7 @@ class ZeroTouchOrchestrator:
         expected_case_event_count: int,
         reauthorize: Callable[[], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
-        """Replace a blocked ownership source with reviewed, case-bound manual evidence."""
+        """Revise pre-submission ownership through creator-reviewed, case-bound evidence."""
 
         with self._cases.case_lock(case_id):
             if reauthorize is not None:
@@ -921,6 +925,11 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_MANUAL_OWNERSHIP_NOT_AVAILABLE",
                     message="The current ownership review is unavailable.",
                 )
+            if case.created_by_actor_id is None or case.created_by_actor_id != actor_id:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_OWNERSHIP_CREATOR_REQUIRED",
+                    message="Only the current case creator may decide ownership evidence.",
+                )
             if len(case.events) != expected_case_event_count:
                 raise ZeroTouchRequestError(
                     code="ZERO_TOUCH_MANUAL_OWNERSHIP_STALE",
@@ -932,17 +941,13 @@ class ZeroTouchOrchestrator:
                     message="The ownership analysis changed before manual evidence was accepted.",
                 )
             ownership_blockers = [
-                item
-                for item in record.active_exceptions
-                if item.stage == AutomationStage.OWNERSHIP
+                item for item in record.active_exceptions if item.stage == AutomationStage.OWNERSHIP
             ]
             if (
                 declaration.case_id != case_id
                 or record.status != AutomationStatus.WAITING_FOR_REVIEW
-                or record.current_stage != AutomationStage.OWNERSHIP
-                or not ownership_blockers
-                or current_ownership.state != OwnershipAnalysisState.REVIEW_REQUIRED
-                or case.target_dispatch_confirmation is not None
+                or current_ownership.state
+                not in {OwnershipAnalysisState.REVIEW_REQUIRED, OwnershipAnalysisState.ANALYZED}
                 or case.goldtier_result is not None
                 or clm_record.submission_snapshot is not None
                 or clm_record.status == ClmStatus.SUBMITTING
@@ -950,8 +955,8 @@ class ZeroTouchOrchestrator:
                 raise ZeroTouchRequestError(
                     code="ZERO_TOUCH_MANUAL_OWNERSHIP_NOT_ALLOWED",
                     message=(
-                        "Manual ownership evidence is accepted only for the current "
-                        "pre-confirmation ownership review."
+                        "Manual ownership evidence is accepted only for current "
+                        "pre-submission ownership evidence."
                     ),
                 )
 
@@ -964,11 +969,19 @@ class ZeroTouchOrchestrator:
                     reconciliation=self._reconciliation,
                     clock=self._clock,
                 )
+                if declaration.observed_document_versions != current_ownership.document_bindings:
+                    raise ZeroTouchRequestError(
+                        code="ZERO_TOUCH_MANUAL_OWNERSHIP_STALE",
+                        message="Current document ownership evidence changed before the decision.",
+                    )
                 replacement = self._ownership.replace_review_required_source(
                     case_id=case_id,
                     provider=provider,
                     review_receipt=provider.review_receipt,
                     expected_version=expected_ownership_version,
+                    before_replace=lambda: self._cases.invalidate_target_dispatch_confirmation(
+                        case_id=case_id, expected_case_event_count=expected_case_event_count,
+                    ),
                 )
             except ManualOwnershipEvidenceError as exc:
                 raise ZeroTouchRequestError(code=exc.code, message=exc.message) from None
@@ -992,10 +1005,21 @@ class ZeroTouchOrchestrator:
                     message="The replacement ownership evidence still requires review.",
                 )
 
+            stale_confirmation_versions = {
+                f"target-confirmation:{clm_record.version}",
+                f"target-confirmation:{clm_record.version}:{expected_case_event_count}",
+            }
+            self._clm.refresh_pre_submission_evidence(case_id=case_id)
             candidate = record.model_copy(deep=True)
             resolved_at = self._clock()
             for item in candidate.active_exceptions:
-                if item.stage == AutomationStage.OWNERSHIP:
+                if (
+                    item.stage == AutomationStage.OWNERSHIP
+                    or (
+                        item.exception_type == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
+                        and item.evidence_version in stale_confirmation_versions
+                    )
+                ):
                     item.status = BusinessExceptionStatus.RESOLVED
                     item.resolved_at = resolved_at
             candidate.completed_stages = tuple(
@@ -1022,7 +1046,7 @@ class ZeroTouchOrchestrator:
                 event_type=AutomationEventType.BUSINESS_EXCEPTION_RESOLVED,
                 outcome=EventOutcome.SUCCEEDED,
                 code="MANUAL_OWNERSHIP_EVIDENCE_ACCEPTED",
-                message="Reviewed manual ownership evidence replaced the blocked source.",
+                message="Creator-reviewed ownership evidence revised the retained source.",
             )
             saved = self._save(record, candidate)
             if saved.active_exceptions:
@@ -1577,6 +1601,7 @@ class ZeroTouchOrchestrator:
                 return self._save(record, candidate)
             if verify_registry and documents_available:
                 try:
+                    self._documents.refresh_current_comparisons(case_id=case_id)
                     reconciliation = self._reconciliation.reconcile_current(case_id=case_id)
                     if identity_choice == "ENTERED":
                         for discrepancy in reconciliation.open_discrepancies:
@@ -1590,9 +1615,11 @@ class ZeroTouchOrchestrator:
                                     expected_version=reconciliation.version,
                                     evidence_fingerprint=discrepancy.evidence_fingerprint,
                                 )
-                except ReconciliationRequestError as exc:
+                except (DocumentRequestError, ReconciliationRequestError) as exc:
                     raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
-                except ReconciliationInfrastructureError as exc:
+                except (
+                    DocumentProcessingInfrastructureError, ReconciliationInfrastructureError,
+                ) as exc:
                     raise ZeroTouchInfrastructureError(
                         case_id=case_id, automation_id=record.automation_id,
                         code=exc.code, message=exc.public_message,
@@ -2005,6 +2032,7 @@ class ZeroTouchOrchestrator:
                 code=exc.code,
                 message=exc.public_message,
             ) from None
+        record = self._recover_obsolete_registry_ownership_locked(record)
         actual_versions = {
             item.evidence_version
             for item in record.active_exceptions
@@ -2040,8 +2068,13 @@ class ZeroTouchOrchestrator:
                     self._retain_resolution_actor(item, actor_id)
                 if item.status == BusinessExceptionStatus.RESOLVED:
                     candidate.metrics.exceptions_resolved += 1
-        candidate.status = AutomationStatus.RESUMING
-        candidate.current_stage = AutomationStage.DOCUMENT
+        candidate.status = (
+            AutomationStatus.RUNNING if record.status == AutomationStatus.RESUMING
+            else AutomationStatus.RESUMING
+        )
+        candidate.current_stage = _next_stage(
+            candidate.completed_stages, order=_stage_order(candidate)
+        )
         candidate = self._append_event(
             candidate,
             event_type=AutomationEventType.AUTOMATION_RESUMING,
@@ -2109,9 +2142,14 @@ class ZeroTouchOrchestrator:
             item.stage in {AutomationStage.OWNERSHIP, AutomationStage.READINESS}
             and item.exception_type in _OWNERSHIP_DEPENDENCY_EXCEPTION_TYPES
             and item.evidence_version.startswith("ownership:")
-            and self._ownership.registry_dependency_is_obsolete(
-                case_id=case_id, evidence_version=item.evidence_version,
-                registry_evidence_generation=item.registry_evidence_generation,
+            and (
+                self._ownership.registry_dependency_is_obsolete(
+                    case_id=case_id, evidence_version=item.evidence_version,
+                    registry_evidence_generation=item.registry_evidence_generation,
+                )
+                or self._ownership.document_dependency_is_obsolete(
+                    case_id=case_id, evidence_version=item.evidence_version,
+                )
             )
         )
 
@@ -2120,7 +2158,7 @@ class ZeroTouchOrchestrator:
     ) -> ZeroTouchAutomationRecord:
         """Repair an interrupted pre-submission rebind under the owning case lock.
 
-        Only proven obsolete registry ownership dependencies are retired. No new
+        Only proven obsolete registry/document ownership dependencies are retired. No new
         registry/Search call, human decision or target dispatch is performed here.
         """
         if record.status in {AutomationStatus.COMPLETED, AutomationStatus.TECHNICAL_FAILURE}:
@@ -2131,7 +2169,11 @@ class ZeroTouchOrchestrator:
         }
         case = self._cases.get_case(record.case_id)
         clm = self._clm.get(case_id=record.case_id)
-        if case is None or clm is None or clm.submission_snapshot is not None:
+        if (
+            case is None or clm is None or clm.submission_snapshot is not None
+            or case.goldtier_result is not None
+            or self._cases.has_retained_target_execution(record.case_id)
+        ):
             return record
         ownership = self._ownership.get(case_id=record.case_id)
         current_review = (
@@ -2149,6 +2191,20 @@ class ZeroTouchOrchestrator:
             if current_review and ownership is not None:
                 return self._raise_ownership_exception(record, ownership)
             return record
+        stale_confirmation_versions = {
+            f"target-confirmation:{clm.version}",
+            f"target-confirmation:{clm.version}:{len(case.events)}",
+        }
+        if case.target_dispatch_confirmation is not None:
+            self._cases.invalidate_target_dispatch_confirmation(
+                case_id=record.case_id, expected_case_event_count=len(case.events),
+            )
+            case = self._cases.get_case(record.case_id)
+            assert case is not None
+        try:
+            clm = self._clm.refresh_pre_submission_evidence(case_id=record.case_id)
+        except ClmRequestError as exc:
+            raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
         # The parent write may have succeeded before its CLM projection. Rebind
         # retained Search evidence using its existing request ID and CLM CAS.
         search = case.initial_target_search
@@ -2164,7 +2220,13 @@ class ZeroTouchOrchestrator:
                 raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
         candidate = record.model_copy(deep=True)
         for item in candidate.active_exceptions:
-            if item.exception_id in obsolete:
+            if (
+                item.exception_id in obsolete
+                or (
+                    item.exception_type == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
+                    and item.evidence_version in stale_confirmation_versions
+                )
+            ):
                 item.status = BusinessExceptionStatus.CANCELLED
                 item.resolved_at = self._clock()
         # Rebuild document reconciliation, ownership and readiness from current
@@ -2193,10 +2255,10 @@ class ZeroTouchOrchestrator:
         candidate = self._append_event(
             candidate, event_type=AutomationEventType.AUTOMATION_RESUMING,
             outcome=EventOutcome.SUCCEEDED,
-            code=("OBSOLETE_REGISTRY_OWNERSHIP_RETIRED" if obsolete
+            code=("OBSOLETE_OWNERSHIP_EVIDENCE_RETIRED" if obsolete
                   else "CURRENT_OWNERSHIP_PREREQUISITE_RESTORED"),
             message=(
-                "Superseded registry ownership blockers were retained as cancelled history."
+                "Superseded ownership evidence blockers were retained as cancelled history."
                 if obsolete else "Current ownership prerequisites require re-evaluation."
             ),
         )
@@ -2705,11 +2767,15 @@ class ZeroTouchOrchestrator:
         if DocumentAutoClearBlocker.TEXT_UNAVAILABLE in blockers:
             exception_type = BusinessExceptionType.DOCUMENT_REQUIRED_FIELD_MISSING
             code = "DOCUMENT_TEXT_UNAVAILABLE"
-            explanation = "No extractable text was found; this bounded POC does not perform OCR."
+            explanation = "No usable text was found within the bounded local extraction path."
         elif DocumentAutoClearBlocker.SOURCE_CONFLICT in blockers:
             exception_type = BusinessExceptionType.DOCUMENT_SOURCE_CONFLICT
             code = "DOCUMENT_SOURCE_CONFLICT"
             explanation = "Document evidence conflicts with current registry evidence."
+        elif DocumentAutoClearBlocker.AMBIGUOUS_EXTRACTION in blockers:
+            exception_type = BusinessExceptionType.DOCUMENT_REVIEW_REQUIRED
+            code = "DOCUMENT_AMBIGUOUS_EXTRACTION"
+            explanation = "Multiple labelled values were extracted; no value was selected."
         elif DocumentAutoClearBlocker.REQUIRED_FIELD_MISSING in blockers:
             exception_type = BusinessExceptionType.DOCUMENT_REQUIRED_FIELD_MISSING
             code = "DOCUMENT_REQUIRED_FIELD_MISSING"
@@ -2717,7 +2783,7 @@ class ZeroTouchOrchestrator:
         elif DocumentAutoClearBlocker.LOW_CONFIDENCE in blockers:
             exception_type = BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE
             code = "DOCUMENT_LOW_CONFIDENCE"
-            explanation = "Document confidence is below the provisional automated threshold."
+            explanation = "Extraction evidence score is below the case-bound threshold."
         else:
             exception_type = BusinessExceptionType.DOCUMENT_REVIEW_REQUIRED
             code = "DOCUMENT_REVIEW_REQUIRED"
@@ -2772,6 +2838,12 @@ class ZeroTouchOrchestrator:
         def code_for(item: ReconciliationDiscrepancy) -> str:
             if any(
                 observation.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
+                and observation.evidence_reference == "DOCUMENT_AMBIGUOUS_EXTRACTION"
+                for observation in item.observations
+            ):
+                return "DOCUMENT_AMBIGUOUS_EXTRACTION"
+            if any(
+                observation.source_kind == ReconciliationSourceKind.DOCUMENT_IDP
                 and observation.evidence_reference == "DOCUMENT_TEXT_UNAVAILABLE"
                 for observation in item.observations
             ):
@@ -2792,7 +2864,7 @@ class ZeroTouchOrchestrator:
             code = code_for(discrepancy)
             exception_type = (
                 BusinessExceptionType.DOCUMENT_REVIEW_REQUIRED
-                if code == "DOCUMENT_REVIEW_REQUIRED"
+                if code in {"DOCUMENT_REVIEW_REQUIRED", "DOCUMENT_AMBIGUOUS_EXTRACTION"}
                 else {
                     ReconciliationOutcome.CONFLICT: (
                         BusinessExceptionType.DOCUMENT_SOURCE_CONFLICT
@@ -3189,6 +3261,7 @@ class ZeroTouchOrchestrator:
                 BlockerDecisionAction.RUN_READ_ONLY_SEARCH_RECHECK
             ),
             "DOCUMENT_TEXT_UNAVAILABLE": BlockerDecisionAction.UPLOAD_REPLACEMENT_DOCUMENT,
+            "DOCUMENT_AMBIGUOUS_EXTRACTION": BlockerDecisionAction.UPLOAD_REPLACEMENT_DOCUMENT,
             "DOCUMENT_REQUIRED_FIELD_MISSING": (
                 BlockerDecisionAction.UPLOAD_REPLACEMENT_DOCUMENT
             ),
@@ -3550,7 +3623,11 @@ def _allows_retained_evidence_intake(record: ZeroTouchAutomationRecord) -> bool:
     return any(
         item.stage == AutomationStage.REGISTRY
         and item.blocker_code
-        in {"REGISTRY_EXPECTED_DATA_MISSING", "INITIAL_IDENTITY_INCOMPLETE"}
+        in {
+            "REGISTRY_EXPECTED_DATA_MISSING",
+            "INITIAL_IDENTITY_INCOMPLETE",
+            "ACRA_ENTITY_NOT_FOUND",
+        }
         for item in record.active_exceptions
     )
 

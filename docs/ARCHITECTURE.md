@@ -5,11 +5,19 @@ tests, contracts, and decisions remain higher authority for their respective fac
 Phase architecture documents provide detail and history; they do not silently override
 this current map.
 
+The inspected main baseline is merged PR #68 at
+`1d426e0ceddc32d80b0aaec293c62fb761f2fecf`. Historical gates and execution receipts
+retain their own identities. The current post-merge branch is described separately below:
+Sessions 1 and 2 have exact independent PASS on their recorded candidate identities.
+Session 3 has one bounded actual synthetic parent-customer Sandbox delivery. The
+current cumulative candidate and fresh combined acceptance are recorded separately
+in the program's final manifest/check index and independent final gate.
+
 ## 1. Purpose and scope
 
 The system is a proof of concept for Singapore corporate new-to-bank onboarding:
 registry acquisition, document evidence, ownership/UBO analysis, reconciliation,
-readiness, a Mock GoldTier target sequence, exception handling, and an authenticated
+readiness, a Mock or explicitly enabled Sandbox GoldTier target sequence, exception handling, and an authenticated
 case portfolio. It is designed for replaceable providers but currently proves only the
 classifications in `docs/PROJECT_STATE.md`.
 
@@ -33,7 +41,8 @@ flowchart LR
     H --> I[Decimal ownership and UBO analysis]
     I --> IA[Case-bound advisory intelligence]
     IA --> J[Readiness snapshot]
-    J --> K[Ledger-owned new or existing GoldTier target sequence]
+    J --> FR[Final review and send confirmation]
+    FR --> K[Ledger-owned new or existing GoldTier target sequence]
     K --> L[Portfolio, dashboard and evidence UI]
 ```
 
@@ -68,7 +77,7 @@ shapes, and runtime calls dispatch through ports rather than reversing static ow
 | Registry/ACRA | `connectors/registry.py`, `connectors/acra.py`, `mock_acra.py`, `acra_sandbox.py`, `mappers/acra.py` | strict provider acquisition, normalization, canonical mapping | connector DTOs/domain canonical model | target mapping or UBO calculation |
 | Registry snapshot cache | `services/registry_acquisition.py`, `services/registry_cache_repository.py`, `persistence/mongo_registry_cache_store.py` | opt-in synthetic/official Mock exact-key frozen-policy freshness, bounded single-flight, normalized successful-prefix/definitive-negative persistence and COMPLETE-only case binding | registry provider port and normalized domain bundles | routing/auth decisions, case state, raw payloads, ownership/reconciliation/target results, sandbox/live reuse |
 | Canonical entity/evidence | `domain/models.py`, `services/canonical_validation.py` | source-neutral entity, provenance and evidence integrity | domain only | raw payload retention |
-| Documents/IDP | `domain/documents.py`, `services/document_media.py`, `document_processing.py`, `connectors/idp.py`, `local_pdf_idp.py` | intake validation, extraction, provenance, confidence/review records | case port, IDP port | source precedence or canonical overwrite |
+| Documents/IDP | `domain/documents.py`, `services/document_media.py`, `document_processing.py`, `connectors/idp.py`, `local_pdf_idp.py`, `local_ocr.py`, isolated media worker | bounded native-first/local OCR, proposed observations, provenance and evidence-score/review records | case port, IDP port | source precedence, percentage arithmetic or canonical overwrite |
 | Reconciliation | `domain/reconciliation.py`, `services/reconciliation.py`, reconciliation repository/UoW | compare observations, discrepancies, bounded decisions, resume binding | canonical/document evidence | implicit source winner |
 | Ownership/UBO | `domain/ownership.py`, `services/ownership_analysis.py`, `connectors/registry_ownership.py` | the single deterministic Decimal graph/path engine and classifications | source-neutral ownership graph | float math, legal approval, duplicate engine |
 | Advisory onboarding intelligence | `domain/onboarding_intelligence.py`, `services/onboarding_intelligence.py`, `services/onboarding_intelligence_repository.py` | explainable entity-candidate linkage, UBO advice over deterministic results, and mock advisory risk | canonical case/document/ownership evidence and immutable case policy | canonical/source mutation, legal UBO, compliance decision, approval, target execution, or direct readiness mutation |
@@ -148,12 +157,14 @@ TTL deletion, eviction, retained-keyspace bound or retention policy is claimed.
 
 ## 6. Document/IDP architecture
 
-Media validation occurs before provider extraction. The default local provider performs
-deterministic bounded extraction for the accepted technical PDF/DOCX/TXT profile. Mock
-IDP exists for isolated demo/fault behavior. There is no vendor OCR.
+Media validation occurs before provider extraction. The S2 candidate extends the same
+local provider with native-first PDF/DOCX/TXT and bounded local Tesseract OCR for scanned
+PDF pages and PNG/JPEG/TIFF. Pillow/PDFium decode/render in a process with generated
+temporary paths and deadlines. Mock IDP remains for isolated demo/fault behavior. No
+vendor or external OCR is composed. Absent Tesseract explicitly blocks required OCR.
 
 Every current document has provenance, state, field observations, versions and
-supersession links. Raw bytes/text remain transient. Low-confidence, conflicting,
+supersession links. Raw bytes/text remain transient. Low-evidence, conflicting,
 missing, invalid or unverifiable evidence follows the defined review/replacement path;
 it never silently changes the canonical entity.
 
@@ -201,8 +212,9 @@ documents, ownership and intelligence through `caseQueries` before publishing th
 new summary. A null or lower-version new analysis cannot retain the old identity's
 monotonic cache baseline; late old actions/responses cannot replace the new evidence.
 Disclosure buttons keep readable normal, hover and keyboard-focus colors. Visual and
-accessible progress use the same POC percentage; POC completion is 100% while final
-human approval remains outside this workflow.
+accessible progress use the same POC percentage; POC completion is 100%. Under D-062,
+Review & Send is the final local human approval for the reviewed submission.
+GoldTier-internal approval and regulatory approval remain outside this application.
 
 Registry acquisition evidence is adapted to the source-neutral ownership port and fed
 to `OwnershipAnalysisService`/`domain/ownership.py`. This is the sole maintained graph
@@ -253,7 +265,7 @@ reuse one exact identifier/country match through the existing advisory resolver;
 multiple, probable, conflicting, or otherwise non-exact candidate stops at human review
 with no mutation.
 
-The Slice-D D2 candidate retains only bounded accepted synthetic customer identity and
+The accepted Slice-D D2 implementation in PR #68 retains bounded synthetic customer identity and
 technical Policy/Amend facts inside the existing process-local Mock connector. Exact
 registration Search reads those facts; Shell does not derive registration from case
 identity. Successful Policy establishes the accepted external-key binding. Mock Amend
@@ -277,10 +289,12 @@ error; Mock is never used as a Sandbox recovery path or vice versa.
 The target ledger is the canonical replay/recovery owner. Intent and operation markers
 are retained before calls. An uncertain attempted operation is not automatically
 replayed; a retained outcome permits finalization-only recovery. No route or remediation
-may bypass the ledger. Mutation timeout, transport ambiguity, oversized/malformed
+may bypass the ledger. Review & Send supplies the final local human approval and
+retained dispatch confirmation before mutation; no second local approval stage follows.
+Mutation timeout, transport ambiguity, oversized/malformed
 post-acceptance response, or cancellation leaves the attempted execution `IN_PROGRESS`
-for human reconciliation. Mock or sandbox target submission is not sponsor approval,
-customer approval, or Live interoperability.
+for human reconciliation. Mock or sandbox target submission is not regulatory approval,
+GoldTier-internal approval, or Live interoperability.
 
 The CLM aggregate owns one immutable, safe early-Search checkpoint bound to the bounded
 initial legal-name, registration and jurisdiction identity. It runs after fail-closed
@@ -376,7 +390,8 @@ terminal records are not retroactively relabelled. Restart recovery treats attem
 not-completed mutations as uncertain, does not upgrade that state, and preserves the
 existing no-replay stop.
 
-Schema v8 is the current case envelope; it retains the Phase24 identity/evidence extensions.
+The S2 candidate uses schema v9, retaining Phase24 extensions plus strict creator/OCR/
+ownership source bindings. The inspected main baseline used schema v8.
 Strict schema-v1 through schema-v7 readers preserve valid historical facts without rewrite. Schema v6 added bounded initial-customer identity and
 GoldTier-first Search evidence, verified existing-target provenance, separate definitive
 and lifecycle-resolved operation markers, and an explicit provider-verified recovery
@@ -675,8 +690,9 @@ deterministic semantic classification/14-example synthetic metrics; the single D
 ownership engine keeps arithmetic authority. PolicyRules renders the five categories,
 proposal/reset/decision and synthetic before-after impact. No new state, auth, policy,
 persistence, target execution, provider or frontend query-client owner is introduced.
-Phase24C is accepted on inspected main through PR #67. Later A–G changes remain a separately
-reviewed feature-branch candidate until publication and human merge.
+Phase24C is accepted through PR #67. The subsequent A–G package received exact independent
+PASS and is included in inspected main through PR #68; its historical receipts remain
+bound to the originally reviewed/tested content.
 
 ## Slice E policy impact owner extension — 2026-10-03
 
@@ -697,5 +713,115 @@ capability scoped component state. Existing global auth/query-client lifecycle r
 authoritative. Retained base comparison is prospective and read-only; stale submission/
 decision CAS and frozen case policy remain unchanged. See POLICY_ACTIVATION_CONTRACT
 for explicit zero-threshold NOT_ASSESSED/type-widening limitation and evaluation bounds.
-Slice E received exact independent PASS on the feature branch. Final cumulative A–G acceptance
-and publication remain governed by the combined owner authorization.
+Slice E received exact independent PASS on the feature branch, followed by final cumulative
+A–G PASS and the human merge through PR #68. This does not certify later candidate changes.
+
+## Post-merge Session 1 owner extensions — independent PASS, 2026-10-04
+
+The [current program planner](../.ai-pipeline/001_planner/ONBOARDING_INTELLIGENCE_GOLDTIER_SANDBOX_PLAN.md)
+extends existing owners on `feat/onboarding-intelligence-goldtier-sandbox`; this section
+describes the owner-authorized branch work, not accepted main or new provider evidence.
+Session 1 independently passed its exact frozen candidate; changed Session 2 content
+requires the separate current gate and does not borrow that acceptance.
+
+`DocumentProcessingService.refresh_current_comparisons` preserves retained structured
+extraction, provenance and human decisions after accepted identity correction. It compares
+original observations with current canonical values without a provider call or document
+replacement. Existing reconciliation/zero-touch owners recompute dependent state and
+advance until the next genuine blocker. Raw upload bytes remain transient; this change
+does not add OCR or change replacement-document semantics.
+
+CaseQueryService and CasePortfolioQuery own created-date conversion/validation. Both
+Cases and Onboarded use authoritative automation `created_at` and server predicates.
+The explicit Singapore UTC+08:00 convention includes each selected calendar day:
+`created_from` midnight inclusive, the day after `created_to` midnight exclusive.
+Backend actor/team scope remains authoritative. Memory and Mongo apply the date
+predicates before portfolio ordering/offset/limit; Mongo reuses lossless timestamp
+normalization inside its existing scoped aggregation. No schema, index or write path changes.
+Both date bounds join existing authenticated list query keys and AbortSignal cancellation.
+
+D-062 and the current explicit owner program define Review & Send as this application's
+final human approval for submission. The browser projection ends at Final review & send,
+with no second unresolved local approval node; submission result comes from retained
+ledger/provider facts. Stable internal stage/operation identifiers and historical event
+order remain. Risk assessment is labelled bounded POC advisory. Later OCR/intelligence
+implementation was added by Session 2 and received fresh independent round1 PASS;
+Session 3 completed one owner-authorized synthetic parent-customer Shell/Policy/exact-ID
+readback; final combined acceptance remains pending. Camunda remains unimplemented
+and outside this program. No new orchestration, document, authorization, persistence,
+query-client, ownership or target-ledger owner is introduced.
+
+## 21. S2 local OCR and creator-reviewed ownership candidate — 2026-10-04
+
+[ADR-009](decisions/ADR-009_LOCAL_OCR_AND_REVIEWED_OWNERSHIP.md) records the owner map.
+IDP outputs remain untrusted DTOs before document normalization; all constructed/copied
+metadata and nested observations are revalidated. Extraction quality/method, raw OCR
+confidence, deterministic score, source agreement and human verification stay separate.
+Document ownership rows are PROPOSED and the parser performs no ownership arithmetic.
+`services/document_ownership.py` compares retained original observations without choosing
+source precedence. The existing ownership service and Decimal engine own normalization,
+explicit-denominator math, graph paths and inclusive >=25% candidate classification.
+
+The existing access owner enforces server-authored immutable case creator plus current
+session/team/capability inside the case lock/CAS for evidence decisions. Legacy creator
+is unknown and is never guessed. Calculable current evidence is editable before target
+intent/submission through a rationale-bound source decision. Prior graphs, observations,
+supplement originals and review receipts survive; downstream readiness/confirmation is
+invalidated and existing orchestration resumes. Stale document-bound ownership blockers
+are proven obsolete and retained as cancelled history before dependent recomputation.
+Any retained target execution freezes ownership editing. Browser booleans disclose
+authority; they do not enforce it.
+
+Explicit `GARDEN_SUPPLEMENT_ENABLED` is false by default and requires the official
+Marketplace Mock composition. Only successful compatible Garden `11111999A` official
+evidence/cache may combine with the unchanged local known-case share fixture. Official
+identity/officer/empty/unsupported facts remain original; local percentages retain
+LOCAL_SYNTHETIC_SUPPLEMENT/LOCAL provenance. Nonempty official quantities are not summed
+with the supplement, and discrepancies require creator review. There is no provider-error
+fallback, generalized equal-share rule, network expansion or second calculator.
+
+Case schema9 adds these fields inside the same envelope. Strict schema1..8 reads preserve
+legacy content with unknown metadata/creator and no write. Extra new fields even null
+or empty are rejected in old envelopes. Current/prior observation, document event and
+receipt bindings, identity/revision CAS and no-resurrection remain owned by existing
+persistence adapters. Optional policy parameters remain case-frozen; safety controls
+are not business settings. No new industry-practice default was introduced.
+
+## 22. S3 retained Sandbox submission observations — 2026-10-04
+
+The existing onboarding service and target ledger own delivery and no-replay. A
+volatile activity set inside that service distinguishes an executing call from a
+retained unresolved intent; it does not replace durable outcomes. One atomic activity/
+ledger snapshot drives browser states. Reopening the application cannot turn an
+unresolved mutation into Sending or success. Sandbox confirmation requires required
+operations, exact customer readback, retained receipt and application completion.
+
+The additive case-scoped status-check API validates the expected frozen submission,
+fresh session/team authorization and provider/current identity under the existing
+lock. It uses the existing XPI Search connector once and changes no case, ledger,
+Policy, ID binding, recovery state or execution. Customer identity verification is
+distinct from Policy/KYC verification. The browser cancels stale checks and retains
+one automatic attempt per scoped session; no automatic POST replay or resume follows.
+
+Normal composition accepts an optional implementation of the existing transport port
+for deterministic protocol tests. Runtime defaults continue using the existing
+transport. The acceptance runner wraps that port with a single-identity operation
+budget, reads only authorized backend XPI fields and never supplies a new provider,
+mapping, source-precedence, persistence or authorization owner. Shell previews include
+every transmitted represented scalar, including optional street2, and canonical values
+are labelled CANONICAL_EVIDENCE because approved document reconciliation can contribute.
+Related-party child lifecycle and original-file transfer remain unsupported.
+
+The single actual S3 acceptance retained customer `143887`, POLICY_CREATED and a
+VERIFIED same-ID readback under a FINALIZED successful ledger. Normal application
+restart preserved the document, creator-reviewed ownership and confirmed submission
+without further provider calls. Its five bounded XPI calls were Search2, Shell1,
+Policy1 and readback1; Amend0. This is synthetic parent-customer Sandbox evidence,
+not GoldTier KYC/approval/RFA, RP/file-transfer capability or Live interoperability.
+
+Fully lifecycle-resolved nonempty retained prefixes after restart may project
+FINALIZATION_PENDING while existing manual recovery runs the remaining approved
+operations. This is presentation of existing ledger evidence, not a new authorization
+or execution owner. An unresolved attempted operation takes precedence and remains
+read-only; provider Search alone does not resolve it. Final confirmed state still
+requires the successful outcome/receipt, required readback and application completion.

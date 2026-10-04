@@ -8,22 +8,29 @@ from unicodedata import category
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
-from pypdf import PdfReader
-from pypdf.errors import PdfReadError
-
+from app.connectors.idp import LocalDocumentProcessingError
+from app.connectors.local_document_runtime import validate_local_media
 from app.services.document_errors import DocumentRequestError
 
 PDF_MEDIA_TYPE = "application/pdf"
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 TXT_MEDIA_TYPE = "text/plain"
-SUPPORTED_MEDIA_TYPES = frozenset({PDF_MEDIA_TYPE, DOCX_MEDIA_TYPE, TXT_MEDIA_TYPE})
+IMAGE_MEDIA_TYPES = frozenset({"image/png", "image/jpeg", "image/tiff"})
+SUPPORTED_MEDIA_TYPES = (
+    frozenset({PDF_MEDIA_TYPE, DOCX_MEDIA_TYPE, TXT_MEDIA_TYPE}) | IMAGE_MEDIA_TYPES
+)
 SUPPORTED_EXTENSIONS = {
     ".pdf": PDF_MEDIA_TYPE,
     ".docx": DOCX_MEDIA_TYPE,
     ".txt": TXT_MEDIA_TYPE,
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
 }
 SAFE_DOCUMENT_NAME = re.compile(
-    r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,94}\.(?:pdf|docx|txt)$", re.IGNORECASE
+    r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,94}\.(?:pdf|docx|txt|png|jpe?g|tiff?)$", re.IGNORECASE
 )
 _MAX_DOCX_ENTRIES = 128
 _MAX_DOCX_UNCOMPRESSED_BYTES = 10 * 1024 * 1024
@@ -50,10 +57,10 @@ class DocumentMediaRouter:
 
     def validate_metadata(self, *, display_name: str, content_type: str) -> str:
         name = display_name.strip()
-        if not SAFE_DOCUMENT_NAME.fullmatch(name):
+        if len(name) > 99 or not SAFE_DOCUMENT_NAME.fullmatch(name):
             raise DocumentRequestError(
                 code="DOCUMENT_NAME_INVALID",
-                message="The upload must use a safe PDF, DOCX, or TXT display name.",
+                message="The upload must use a safe supported-document display name.",
             )
         extension = PurePosixPath(name.lower()).suffix
         declared = content_type.split(";", 1)[0].lower().strip()
@@ -61,7 +68,8 @@ class DocumentMediaRouter:
         if expected is None or declared not in SUPPORTED_MEDIA_TYPES or declared != expected:
             raise DocumentRequestError(
                 code="DOCUMENT_MEDIA_TYPE_UNSUPPORTED",
-                message="Only matching PDF, DOCX, and UTF-8 TXT uploads are accepted.",
+                message=("Only matching PDF, DOCX, UTF-8 TXT, PNG, JPEG, "
+                         "and TIFF uploads are accepted."),
             )
         return expected
 
@@ -77,6 +85,9 @@ class DocumentMediaRouter:
         if media_type == PDF_MEDIA_TYPE:
             self._validate_pdf_structure(content)
             return ExtractedDocumentContent(media_type=media_type, content=content)
+        if media_type in IMAGE_MEDIA_TYPES:
+            self._validate_isolated_media(content, media_type)
+            return ExtractedDocumentContent(media_type=media_type, content=content)
         if media_type == DOCX_MEDIA_TYPE:
             return ExtractedDocumentContent(
                 media_type=media_type,
@@ -90,25 +101,17 @@ class DocumentMediaRouter:
         )
 
     def _validate_pdf_structure(self, content: bytes) -> None:
-        if not content.startswith(b"%PDF-") or not content.rstrip().endswith(b"%%EOF"):
-            self._raise_invalid_pdf()
-        try:
-            reader = PdfReader(BytesIO(content), strict=True)
-            if reader.is_encrypted or len(reader.pages) == 0:
-                self._raise_invalid_pdf()
-            for page in reader.pages:
-                page.get_contents()
-        except DocumentRequestError:
-            raise
-        except (EOFError, PdfReadError, ValueError):
-            self._raise_invalid_pdf()
+        self._validate_isolated_media(content, PDF_MEDIA_TYPE)
 
     @staticmethod
-    def _raise_invalid_pdf() -> None:
-        raise DocumentRequestError(
-            code="DOCUMENT_STRUCTURE_INVALID",
-            message="The uploaded PDF does not pass the configured structure checks.",
-        ) from None
+    def _validate_isolated_media(content: bytes, media_type: str) -> None:
+        try:
+            validate_local_media(content, media_type)
+        except LocalDocumentProcessingError as error:
+            raise DocumentRequestError(
+                code=error.code,
+                message="The uploaded document could not pass the bounded local structure checks.",
+            ) from None
 
     def _extract_docx_text(self, content: bytes) -> str:
         try:

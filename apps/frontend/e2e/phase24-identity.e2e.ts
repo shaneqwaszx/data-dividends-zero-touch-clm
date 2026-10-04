@@ -99,7 +99,7 @@ test("Phase24 invalid registry identity corrects the same case and keeps final r
     && item.status === "CANCELLED")).toBe(true);
   let previous = corrected;
   for (const uen of ["202400009I", "202400001A", "202400001A"]) {
-    await openStage(page, "Registry identity");
+    await openStage(page, "Registry verification");
     await page.getByRole("button", { name: "Edit UEN", exact: true }).click();
     await page.getByLabel("Singapore UEN").fill(uen);
     const next = await choose(page, caseId, "Verify UEN and resume");
@@ -113,7 +113,7 @@ test("Phase24 invalid registry identity corrects the same case and keeps final r
     expect(next.active_exceptions.some((item: any) => item.blocker_code === "ACRA_ENTITY_NOT_FOUND")).toBe(false);
     previous = next;
   }
-  await expect(page.locator(".stage-disclosure > h2 > button").last()).toHaveText("Review & Send+");
+  await expect(page.locator(".stage-disclosure > h2 > button").last()).toHaveText("Final review & send+");
   await expect(page.locator(".stage-disclosure--final")).toContainText("Not yet available");
   await expect(page.getByText(/Not yet available —/)).toBeVisible();
   await expect(page.locator(".review-and-send")).toHaveCount(0);
@@ -121,7 +121,7 @@ test("Phase24 invalid registry identity corrects the same case and keeps final r
   await expect.poll(() => page.evaluate(() =>
     document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
   )).toBe(true);
-  const documents = page.locator(".stage-disclosure > h2 > button").filter({ hasText: "Documents & reconciliation" });
+  const documents = page.locator(".stage-disclosure > h2 > button").filter({ hasText: "Document verification" });
   await page.mouse.move(0, 0);
   await expectDisclosureContrast(documents);
   await documents.hover();
@@ -183,6 +183,9 @@ for (const choice of ["DOCUMENT", "OTHER"] as const) {
     expect(corrected.case.identity_corrections.at(-1).previous_identity.registration_number).toBe("202400001A");
     await openStage(page, "Ownership & UBO");
     await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
+    const ownershipStructure = page.locator(".s2-ownership-structure");
+    await expect(ownershipStructure).not.toHaveAttribute("open", "");
+    await ownershipStructure.getByText("View ownership structure and calculations", { exact: true }).click();
     const evidence = page.getByLabel("Original ownership evidence", { exact: true });
     await expect(evidence).toBeVisible();
     await expect(evidence).toContainText("202400009I");

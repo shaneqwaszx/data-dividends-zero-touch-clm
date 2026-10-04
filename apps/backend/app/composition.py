@@ -39,6 +39,7 @@ from app.connectors.goldtier_xpi import (
     GoldTierXpiSandboxConnector,
     HttpxGoldTierXpiTransport,
 )
+from app.connectors.local_ocr import TesseractOcrAdapter
 from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.connectors.mock_acra import MOCK_ACRA_DATASET_NAMESPACE, MockAcraConnector
 from app.connectors.mock_goldtier import MockGoldTierConnector
@@ -333,7 +334,10 @@ def build_document_processing_service(
         idp=(
             MockIdpProvider()
             if settings.idp_connector_mode == "mock"
-            else LocalPdfTextIdpProvider()
+            else LocalPdfTextIdpProvider(ocr=TesseractOcrAdapter(
+                executable=settings.local_ocr_executable,
+                timeout_seconds=settings.local_ocr_timeout_seconds,
+            ))
         ),
         repository=repository or InMemoryDocumentProcessingRepository(),
         max_upload_bytes=settings.idp_max_upload_bytes,
@@ -353,12 +357,17 @@ def build_ownership_analysis_service(
     onboarding_service: OnboardingService,
     settings: Settings,
     repository: OwnershipAnalysisRepository | None = None,
+    documents: DocumentProcessingService | None = None,
 ) -> OwnershipAnalysisService:
     """Compose the credential-free provider-neutral ownership boundary."""
 
     return OwnershipAnalysisService(
         cases=onboarding_service,
-        provider=RegistryAcquisitionOwnershipProvider(onboarding_service),
+        provider=RegistryAcquisitionOwnershipProvider(
+            onboarding_service, garden_supplement_enabled=settings.garden_supplement_enabled
+        ),
+        documents=documents,
+        garden_supplement_enabled=settings.garden_supplement_enabled,
         repository=repository or InMemoryOwnershipAnalysisRepository(),
         threshold_percent=settings.ubo_ownership_threshold_percent,
         max_parties=settings.ownership_max_parties,

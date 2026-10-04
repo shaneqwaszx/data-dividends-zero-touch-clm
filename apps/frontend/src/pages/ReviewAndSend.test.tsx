@@ -10,6 +10,8 @@ import ReviewAndSend from "./ReviewAndSend";
 function summaryFixture(environment: "MOCK" | "SANDBOX" = "SANDBOX"): ZeroTouchCaseSummary {
   return {
     version: 7,
+    evidence_decision_authorized: true,
+    ownership_edit_authorized: false,
     case: {
       case_id: "case-1",
       team_id: "TEAM_A",
@@ -217,6 +219,7 @@ describe("ReviewAndSend", () => {
 
   it("offers ownership editing only when the backend authorizes manual evidence", () => {
     const summary = summaryFixture();
+    summary.ownership_edit_authorized = true;
     summary.ownership_recovery = {
       analysis_id: "22222222-2222-4222-8222-222222222222",
       version: 5,
@@ -228,6 +231,18 @@ describe("ReviewAndSend", () => {
     const markup = render(summary);
     expect(markup).toContain("Edit ownership");
     expect(markup).not.toContain("Ownership source is review-only; no correction action is currently authorized.");
+  });
+
+  it("offers calculated ownership editing only with current backend authority", () => {
+    const summary = summaryFixture();
+    summary.ownership_edit_authorized = true;
+    expect(render(summary)).toContain("Edit ownership");
+    summary.ownership_edit_authorized = false;
+    summary.evidence_decision_authorized = false;
+    const markup = render(summary);
+    expect(markup).not.toContain("Edit ownership");
+    expect(markup).not.toContain("Edit documents");
+    expect(markup).not.toContain("Edit company details");
   });
 
   it("calls the projection frozen only after confirmation and displays the retaining actor", () => {

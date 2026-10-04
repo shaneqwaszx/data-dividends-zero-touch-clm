@@ -1,6 +1,8 @@
 import { useRef, useState, type DragEvent, type FormEvent } from "react";
 
 import type {
+  AuthenticatedTeam,
+  TeamId,
   ExceptionResolutionAction,
   ReconciliationDecisionAction,
   ReconciliationDiscrepancy,
@@ -11,6 +13,7 @@ import type {
 } from "../types";
 import { CompletedOverview, ConfirmDetailsPanel, DetailedProcessingInspector, OnboardingProgressPanel, PipelineRail, RegistryStatePanel } from "./CaseStatePanels";
 import HumanInterventionPanel from "./HumanInterventionPanel";
+import OnboardingWorkspace, { onboardingExecutionMessage, onboardingIsExecuting } from "./OnboardingWorkspace";
 import { PriorityBadge } from "./PriorityControl";
 
 export type JurisdictionSelection = "" | "SG" | "AU" | "MY" | "HK";
@@ -23,7 +26,7 @@ export function openCaseDetailAtStage(
   openCaseDetail(caseId, node.node_id);
 }
 
-const ACCEPTED_DOCUMENTS = "application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt";
+const ACCEPTED_DOCUMENTS = "application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt,image/png,.png,image/jpeg,.jpg,.jpeg,image/tiff,.tif,.tiff";
 const FOLDER_INPUT_ATTRIBUTES = { webkitdirectory: "", directory: "" } as Record<string, string>;
 
 export function mergeSelectedFiles(current: File[], incoming: File[]): File[] {
@@ -61,6 +64,7 @@ export default function HomeOnboarding({
   documentFiles,
   onDocumentFilesChange,
   caseTeamDisplayName,
+  creationTeamSelection,
   priority,
   onPriorityChange,
   isSubmitting,
@@ -93,6 +97,11 @@ export default function HomeOnboarding({
   documentFiles: File[];
   onDocumentFilesChange: (files: File[]) => void;
   caseTeamDisplayName: string;
+  creationTeamSelection?: {
+    teamId: TeamId | "";
+    options: AuthenticatedTeam[];
+    onChange: (teamId: TeamId | "") => void;
+  };
   priority: number | "";
   onPriorityChange: (value: number | "") => void;
   isSubmitting: boolean;
@@ -135,6 +144,7 @@ export default function HomeOnboarding({
 
   if (!summary) {
     return (
+      <OnboardingWorkspace active={onboardingIsExecuting(null, isSubmitting, requestError)} message={onboardingExecutionMessage(null, intakeProgress)}>
       <div className="ds-root ds-page">
         <div className="ds-page-header">
           <div>
@@ -171,7 +181,7 @@ export default function HomeOnboarding({
                 </p>
               </div>
               <div className="field">
-                <label htmlFor="home-legal-name">Legal name</label>
+                <label htmlFor="home-legal-name">Company Legal Name</label>
                 <input
                   id="home-legal-name"
                   className="input"
@@ -193,8 +203,33 @@ export default function HomeOnboarding({
                 />
               </div>
               <div className="field">
-                <span className="control-label">Team</span>
-                <strong>{caseTeamDisplayName}</strong>
+                {creationTeamSelection ? (
+                  <>
+                    <label htmlFor="director-team-id">Owning team *</label>
+                    <select
+                      id="director-team-id"
+                      className="input"
+                      value={creationTeamSelection.teamId}
+                      required
+                      aria-describedby="home-team-help"
+                      onChange={(event) => creationTeamSelection.onChange(event.target.value as TeamId | "")}
+                    >
+                      <option value="">Select a team</option>
+                      {creationTeamSelection.options.map((team) => (
+                        <option key={team.team_id} value={team.team_id}>
+                          {team.display_name} · {team.client_scope_label}
+                        </option>
+                      ))}
+                    </select>
+                    <p id="home-team-help" className="control-help">Director-created cases require an explicit team.</p>
+                  </>
+                ) : (
+                  <>
+                    <span className="control-label" style={{ display: "block", marginBottom: 6 }}>Team</span>
+                    <strong>{caseTeamDisplayName}</strong>
+                    <p className="control-help">Your assigned team owns this case.</p>
+                  </>
+                )}
               </div>
               <div className="field">
                 <label htmlFor="home-priority">Case priority</label>
@@ -241,7 +276,7 @@ export default function HomeOnboarding({
                   <button type="button" className="btn btn-ghost" onClick={(event) => { event.stopPropagation(); folderInputRef.current?.click(); }}>select folder</button>
                 </span>
                 <span className="text-muted" style={{ fontSize: 11, marginTop: 5 }}>
-                  PDF, DOCX, and UTF-8 TXT · up to 20 files
+                  PDF, DOCX, UTF-8 TXT, PNG, JPEG, and TIFF · up to 20 files
                 </span>
                 <input
                   id="home-document"
@@ -304,6 +339,7 @@ export default function HomeOnboarding({
           </div>
         </form>
       </div>
+      </OnboardingWorkspace>
     );
   }
 
@@ -326,6 +362,7 @@ export default function HomeOnboarding({
         </button>
       </div>
 
+      <OnboardingWorkspace active={onboardingIsExecuting(summary, isSubmitting, requestError)} message={onboardingExecutionMessage(summary, intakeProgress)}>
       <div className="ds-page" style={{ flex: 1 }}>
         <div className="ds-page-header">
           <div>
@@ -441,6 +478,7 @@ export default function HomeOnboarding({
           customer approval, or evidence of live ACRA/GoldTier interoperability.
         </p>
       </div>
+      </OnboardingWorkspace>
 
     </div>
   );

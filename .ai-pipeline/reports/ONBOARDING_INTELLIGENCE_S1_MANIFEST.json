@@ -1,0 +1,253 @@
+{
+  "branch": "feat/onboarding-intelligence-goldtier-sandbox",
+  "base_sha": "1d426e0ceddc32d80b0aaec293c62fb761f2fecf",
+  "head": "1d426e0ceddc32d80b0aaec293c62fb761f2fecf",
+  "origin_main": "1d426e0ceddc32d80b0aaec293c62fb761f2fecf",
+  "excluded_review_output": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S1_QUALITY_GATE.md",
+  "remediation_round": 1,
+  "aggregate_algorithm": "SHA256(UTF8(json.dumps(files, sort_keys=True, separators=(comma,colon)))); files sorted by relative path; raw-byte per-file SHA256",
+  "previous_candidate_sha256": "a39c00cd8e707c83e037dc5f54a7032573bb0a5214ccc53f7a8935c663d0266e",
+  "candidate_sha256": "acc325730273d83d1bb39bbc066a89584b21dad7eebd2f8baee0afe73aed6bff",
+  "files": [
+    {
+      "path": ".ai-pipeline/001_planner/ONBOARDING_INTELLIGENCE_GOLDTIER_SANDBOX_PLAN.md",
+      "sha256": "d4cf74b8b1e4a1362c457c73fdc88340f153a3c27a67fc1674d03e59118c140d"
+    },
+    {
+      "path": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S1_IMPLEMENTATION.md",
+      "sha256": "f86e8c7f6d73d44f56fbf7d63b0969c29c1e9edc95e20aa63ced7b405756f4fc"
+    },
+    {
+      "path": "apps/backend/app/api_models.py",
+      "sha256": "43c7718e0945be4d451aab4c29d43c5d32c54ffa1b75afb2f7a6a068f24a93c5"
+    },
+    {
+      "path": "apps/backend/app/domain/case_management.py",
+      "sha256": "f26736991075afa518eb6cda4549577a555499d148a0eba5ee2e3b3f572e9c88"
+    },
+    {
+      "path": "apps/backend/app/main.py",
+      "sha256": "f513e54fd09879ffce06d8c1ca11264ffdd83ffa98162e61f7292dfc546bd477"
+    },
+    {
+      "path": "apps/backend/app/persistence/mongo_case_store.py",
+      "sha256": "139f070988834c7caf7b769b2b03e4c7f39e98a57eaff31a31f0a00a0723954d"
+    },
+    {
+      "path": "apps/backend/app/services/case_query.py",
+      "sha256": "f3d8e98d6c2d57c381c2551efad85b8ce835dbcbdf3e1b6a92cd3a92438f6dc4"
+    },
+    {
+      "path": "apps/backend/app/services/document_processing.py",
+      "sha256": "f62e338d90424969804818ecd88f881197e69e6dc5f74e3a6d0efc6784416c15"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "sha256": "a4ef0203a8dd61cc13f20292b9f247ad5839e8708aae371862706fdd296d0433"
+    },
+    {
+      "path": "apps/backend/tests/s1_date_filter_fixtures.py",
+      "sha256": "6a6e1128828c69e86071371bab62fa3f75ba2942b072b65534a7b657be1b1158"
+    },
+    {
+      "path": "apps/backend/tests/test_garden_business_fixture.py",
+      "sha256": "80763aadadb2c6989bf606d8103f1eb8506fe360a1a13fbcd2eb63309d1c23bf"
+    },
+    {
+      "path": "apps/backend/tests/test_phase24_identity.py",
+      "sha256": "10eafef01e0c946556bb6b05f1de3d521bdffae79fa9276a216b79e040e0957a"
+    },
+    {
+      "path": "apps/backend/tests/test_s1_date_filters.py",
+      "sha256": "f1924d8c5953d74df343d74f52441c345cf2dcaca7041bff994c78f40285b9de"
+    },
+    {
+      "path": "apps/backend/tests/test_s1_date_filters_real_mongo.py",
+      "sha256": "7a180ff63719b718c9007e0c3c976d639c01e8f10fb9c777f0bfbfe01d7ee8ca"
+    },
+    {
+      "path": "apps/backend/tests/test_s1_pipeline_projection.py",
+      "sha256": "409f90959f11d0892d7adb6018b4ec6785af14604ba194a289f6d5d965d74ae5"
+    },
+    {
+      "path": "apps/backend/tests/test_slice_c_blocker_recovery.py",
+      "sha256": "5efa8b98e484495df39fc2891e61c447cf4c115add6cf34c9543a49eb5894892"
+    },
+    {
+      "path": "apps/backend/tests/test_zero_touch_orchestration.py",
+      "sha256": "26af3756fef9b5cb9aaad42171581603ff5b519ec53fab76d852039fb4cc9593"
+    },
+    {
+      "path": "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
+      "sha256": "e0ac0adbc114e7108953935142364c2880183b3dce6a8ab441bac1dcb6d22f72"
+    },
+    {
+      "path": "apps/frontend/e2e/garden-happy-path.e2e.ts",
+      "sha256": "fef603a2ab91f895c47f6f91eee9ad1ea92cd9ca82aa59cc002358e4ee1c381f"
+    },
+    {
+      "path": "apps/frontend/e2e/onboarding-recovery.e2e.ts",
+      "sha256": "374ef18ebea04d5c1dd9d81285d761b8b4789c27f00ef77b9b4a905a9f5a9519"
+    },
+    {
+      "path": "apps/frontend/e2e/phase24-identity.e2e.ts",
+      "sha256": "80e3a95ee8ee5bb2fa4af60b23e33ef83ba76e8b0d5253ed7bf85c7235a4b72f"
+    },
+    {
+      "path": "apps/frontend/e2e/responsive-layout.e2e.ts",
+      "sha256": "fc3211b604a956209d94edfcf786234d10af740f19c62d244dc561ddb8d956b3"
+    },
+    {
+      "path": "apps/frontend/e2e/s1-workspace-session.e2e.ts",
+      "sha256": "09ab5d5bb9e8b3a2258c23d0d33380fca71aca8d948e647cadf91ad75449f644"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-b-registry-demo.e2e.ts",
+      "sha256": "729a7fabf8e9ddca89353416aa6dfb0d1dd488389059e7d878728d9f2a7e3651"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-c-recovery.e2e.ts",
+      "sha256": "68896a8fae841e9cc355c11a6fc7628293fd1961a32800592f1dad14670ee9de"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-e-policy.e2e.ts",
+      "sha256": "a3d795d61e4a40f9286ebbbbe83619059d8a6945b07f75b8e944e2e9443a254a"
+    },
+    {
+      "path": "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+      "sha256": "b0de4f54d827a48374ce9d4c69d421b1dab32137f55be7f79c47a65aa9bf36ed"
+    },
+    {
+      "path": "apps/frontend/src/App.tsx",
+      "sha256": "589646d871c2309744b4a86954cd9813d8e3774b2575bf86b35c77bc7c0f67fb"
+    },
+    {
+      "path": "apps/frontend/src/AuthSessionOrdering.test.tsx",
+      "sha256": "b3e581e5c716dd0c60b3a10d3bcb3d43b58eef27cd87ce566e6d2bf4ca51ff5e"
+    },
+    {
+      "path": "apps/frontend/src/DemoPerformance.test.tsx",
+      "sha256": "54f5f459d2acddfe88e532b2a758e632c054bffa450e07a2fba802ab5e93ca1c"
+    },
+    {
+      "path": "apps/frontend/src/EvidenceWorkbenchIsolation.test.tsx",
+      "sha256": "30a79a2de87f262fefe26601901f1657aec7aeaedd677205204db0de8214ca66"
+    },
+    {
+      "path": "apps/frontend/src/GoldTierSandbox.test.tsx",
+      "sha256": "895c15c13025ff698d3227bc7c1db43d4771ae54bdedb9d6f93865e40343869e"
+    },
+    {
+      "path": "apps/frontend/src/Phase13AuthPriority.test.tsx",
+      "sha256": "72fa2e31a547632848a6b7425eadfbcfe1f713a6cb700d26363e732eaed537f0"
+    },
+    {
+      "path": "apps/frontend/src/Phase15CNavigation.test.tsx",
+      "sha256": "4cf7fdbbd72e58f652bbf3e7a19a56463e3ec386185dbb6da57afc2ce5e62a84"
+    },
+    {
+      "path": "apps/frontend/src/S1CreatedDateFilters.test.tsx",
+      "sha256": "af32bab90f8fa197338fed6f116232871b7e90427545cba4b04a9d25f2e82193"
+    },
+    {
+      "path": "apps/frontend/src/S1FormsSession.test.tsx",
+      "sha256": "c66d271645e821b969dcf04f4a39629765665d42f07b29fdb20af0a046482af5"
+    },
+    {
+      "path": "apps/frontend/src/api.ts",
+      "sha256": "b2e0ef52e9f2fe48e210864ac106f9816d3ea721168a72e9ea3e98874a092cab"
+    },
+    {
+      "path": "apps/frontend/src/auth.tsx",
+      "sha256": "3725f907612a8c70450b3ecce10ac2f153621707b4303e0be977df97abe5e85d"
+    },
+    {
+      "path": "apps/frontend/src/caseQueries.ts",
+      "sha256": "4efb45d6486feb4d62f81bb61c65627dedd0508092111f76534504be2ce83c2a"
+    },
+    {
+      "path": "apps/frontend/src/pages/AcraDiagnostics.test.tsx",
+      "sha256": "19bbe154bb2edb910cf9c642af1a5be648be24a6ec023b75d363571a67cecd21"
+    },
+    {
+      "path": "apps/frontend/src/pages/AcraDiagnostics.tsx",
+      "sha256": "150510e78743815c5bf26f2574f908d527357e1f848fde0bb6a7f562c739c24e"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseDetail.tsx",
+      "sha256": "f3e7a28a813c16ca0d4ec67bc533e347d1ab6f93511d86f2d712f5f282b4abed"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseQueue.tsx",
+      "sha256": "16247365134cca957d5b0b6c0290b867cad5bc6732fe4e2e8c6bc09332382c9c"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.test.tsx",
+      "sha256": "20e2e20cdb3b04a05ac7ecdf5a79ee59ddee30afda7041663c66234e53b69b9b"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.tsx",
+      "sha256": "31ee6e173923010b0678d3bd54ee95b9a5d017426e5cf7752a837aaf663b8c9c"
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.tsx",
+      "sha256": "d5facbbf9d0860db943d742628b1c1b17867eaad6b40f8a1c2dee68c70e5540c"
+    },
+    {
+      "path": "apps/frontend/src/pages/GoldTierSandbox.tsx",
+      "sha256": "307c3c883bdf3439dcddb19a2d71110948e8de20f4d6ab954d0218b4f67ee1bb"
+    },
+    {
+      "path": "apps/frontend/src/pages/HomeOnboarding.tsx",
+      "sha256": "b7f8f0e64639a7d845aca7b692c680b564d85b412db105381e52ddd9042309ea"
+    },
+    {
+      "path": "apps/frontend/src/pages/LoginPage.tsx",
+      "sha256": "9a7f37c4964feaf9c43b01698513b281075927da2f7e598aff8f74fb72ce8b7e"
+    },
+    {
+      "path": "apps/frontend/src/pages/OnboardedClients.tsx",
+      "sha256": "bb8eb0fd58da6321220edf451a1b1d36cfd3f12792918937fb40e6e3ddd5449c"
+    },
+    {
+      "path": "apps/frontend/src/pages/OnboardingWorkspace.tsx",
+      "sha256": "9b540d1101af970bda4f80a9ebf5057ae74ac890f6bbfcfd14ece3f103509832"
+    },
+    {
+      "path": "apps/frontend/src/pages/S1PipelineWorkspace.test.tsx",
+      "sha256": "f023aec3c58800c3abf0aaa99c75b556e3cdca60a544178312cb2356f931b81d"
+    },
+    {
+      "path": "apps/frontend/src/styles.css",
+      "sha256": "a579d585851b0303b7b08b91de15202120a9d041b09bc907eb2b40c2a107d9dc"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "69f2aa3c1202e3baff02ee866224caec585e047c781c7705786081b9c0237b42"
+    },
+    {
+      "path": "docs/PROJECT_STATE.md",
+      "sha256": "44c0d221db2cb2b23d3be2c9de530ce1e4a2f52f99ff199cce1a9ad024887942"
+    },
+    {
+      "path": "docs/contracts/CASE_PORTFOLIO_QUERY_PROFILE.md",
+      "sha256": "0081ef9cb96f99672abe77a6c4f9dd4b8649ed65fec8839d37261247ccea005f"
+    },
+    {
+      "path": "docs/contracts/CLM_READINESS_POLICY.md",
+      "sha256": "f56ad5e49bd37a2943ec0afc15d9f1682ae515348e1ac91b01c7840efaafc1e3"
+    },
+    {
+      "path": "docs/decisions/ADR-007_RECOVERABLE_ONBOARDING_AND_FINAL_CONFIRMATION.md",
+      "sha256": "255bedba05f3a84a82dc0c5772160839c8f60cb71fffa002bb51bf0bd0de57ff"
+    },
+    {
+      "path": "docs/decisions/DECISION_LOG.md",
+      "sha256": "a1e2bda649ed37894ce7699fec14aa987bc7b07794e60b43870cea3a2278dcfe"
+    },
+    {
+      "path": "scripts/run_physical_mongo_tests.py",
+      "sha256": "4022d5ced09525145ddf2fe60aa490896cf4a16d8f373470901f8d34e08cb050"
+    }
+  ]
+}

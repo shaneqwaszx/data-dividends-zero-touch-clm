@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed implementation candidate; independent quality gate pending
+Original recovery/confirmation package accepted on main through PR #65 and included
+in inspected PR #68. The 2026-10-04 Session 1 extension below is an implementation
+candidate pending its own independent quality gate.
 
 ## Date
 
@@ -114,11 +116,13 @@ composition authority.
 
 ## Consequences
 
-- New writes use schema v7; strict schema-v1 through schema-v6 compatibility remains.
+- The original package used schema v7 with strict schema-v1 through schema-v6 compatibility.
+  Current writes use schema v8 under D-064; historical facts remain readable without rewrite.
 - A retained case can recover through bounded identity, policy, ownership, and
   pre-confirm classification actions without rewriting source evidence.
-- Final confirmation is a technical dispatch gate, not customer approval,
-  Ready-for-Approval, or sponsor authorization.
+- Under D-062, Review & Send is final local human approval for the reviewed submission
+  and a retained technical dispatch gate. It is not regulatory approval,
+  GoldTier-internal approval, Ready-for-Approval, or external-write authorization.
 - ACRA remains Mock/Partial and GoldTier remains Mock or `SANDBOX_PARTIAL`; no Live or
   production-interoperability claim follows.
 - Provider writes remain disabled unless separately authorized and configured. Related
@@ -171,3 +175,24 @@ active interventions. Existing schema v7, repositories, atomic reconciliation de
 Decimal engine, target ledger and uncertain-operation no-replay rules remain unchanged.
 The explicit final dispatch confirmation is measured separately from exception
 interventions. No sponsor policy, external lifecycle or Live authority is added.
+
+## Amendment - 2026-10-04 post-merge Session 1 candidate
+
+The explicit owner program builds from merged PR #68 at
+`1d426e0ceddc32d80b0aaec293c62fb761f2fecf`. Its Session 1 extension is pending a fresh
+independent gate; the original PR #65/68 acceptance does not certify the new content.
+
+Same-case identity correction retains structured document extraction and provenance.
+The existing document owner recomputes canonical comparisons from the original retained
+observations, preserving human decisions and recording changed comparisons. Existing
+reconciliation and zero-touch owners then recompute dependent state and auto-resume to
+the next authoritative blocker. The comparison refresh requires no retained file bytes,
+extraction replay or provider call. It creates no replacement document or recovery owner
+and permits no target mutation replay.
+
+D-062's workflow clarification and the current owner instruction make Review & Send
+the final human approval in this application. The visible pipeline ends at Final review
+& send; there is no second local unresolved human approval stage. Subsequent target
+status and GoldTier-internal approvals remain separate retained facts and authority.
+Regulatory approval, legal UBO certification, OCR and current-program external Sandbox
+delivery are not established by this Session 1 amendment.

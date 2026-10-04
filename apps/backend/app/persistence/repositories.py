@@ -39,6 +39,7 @@ from app.services.onboarding_intelligence_repository import (
 )
 from app.services.ownership_repository import (
     OwnershipRepositoryConflictError,
+    _is_valid_document_replacement,
     _is_valid_identity_replacement,
     _is_valid_review_replacement,
     ownership_is_current,
@@ -87,6 +88,8 @@ class MongoOnboardingCaseRepository:
                 raise PersistenceConflictError
             if current.onboarding.team_id != validated.team_id:
                 raise CaseTeamImmutableError
+            if current.onboarding.created_by_actor_id != validated.created_by_actor_id:
+                raise PersistenceConflictError
             candidate = current.model_copy(update={"onboarding": validated}, deep=True)
             self._store.replace(candidate, expected_revision=current.revision)
 
@@ -313,6 +316,42 @@ class MongoOwnershipAnalysisRepository:
         if snapshot is None or snapshot.ownership is None:
             return None
         return snapshot.ownership.model_copy(deep=True)
+
+    def replace_document_bound(
+        self, record: OwnershipAnalysisRecord, *, expected_version: int,
+    ) -> OwnershipAnalysisRecord:
+        validated = OwnershipAnalysisRecord.model_validate(record)
+        with self._store.locked():
+            snapshot = self._store.get(validated.case_id)
+            if (
+                snapshot is None
+                or not ownership_is_current(validated, snapshot.onboarding)
+                or snapshot.onboarding.entity is None
+                or snapshot.onboarding.entity.registration_number
+                != validated.identity_registration_number
+                or not _is_valid_document_replacement(
+                    snapshot.ownership, validated, expected_version
+                )
+            ):
+                raise OwnershipRepositoryConflictError
+            from app.services.document_ownership import current_document_inputs
+
+            try:
+                observations, bindings = current_document_inputs(snapshot.documents)
+            except ValueError:
+                raise OwnershipRepositoryConflictError from None
+            if (
+                validated.document_observations != observations
+                or validated.document_bindings != bindings
+            ):
+                raise OwnershipRepositoryConflictError
+            persisted = validated.model_copy(update={"version": expected_version + 1}, deep=True)
+            candidate = snapshot.model_copy(update={"ownership": persisted}, deep=True)
+            try:
+                self._store.replace(candidate, expected_revision=snapshot.revision)
+            except PersistenceConflictError:
+                raise OwnershipRepositoryConflictError from None
+            return persisted.model_copy(deep=True)
 
     def replace_identity_bound(
         self, record: OwnershipAnalysisRecord, *, expected_version: int,

@@ -9,6 +9,27 @@ Baseline: `3ca232b58c3842f413c4552dbd3b85aabea4591c`
 `SANDBOX_PARTIAL_IMPLEMENTED / ONE_CUSTOMER_SHELL_OUTCOME_UNCERTAIN_NO_REPLAY /
 CUSTOMER_LIFECYCLE_INCOMPLETE / RELATED_PARTY_BLOCKED`
 
+## 2026-10-04 new synthetic S3 acceptance
+
+The historical Garden chronology below remains unchanged. Under the separate current
+owner program and exact fresh PRE_MUTATION: PASS, one new synthetic identity
+`ZERO TOUCH POC ACCEPTANCE 9CD9A457 / 202655266Z` completed the existing case-ledger
+path. Two bounded Search calls returned NO_MATCH; Shell and required Policy each ran
+once; exact-ID readback ran once. All five calls returned HTTP200. Customer ID `143887`
+is retained with SHELL_CREATED, POLICY_CREATED, AMEND_NOT_REQUIRED, VERIFIED readback
+and a FINALIZED SUCCESS receipt. An absent Policy ID stays null. Normal API restart
+retained SUBMISSION_CONFIRMED and exact document/creator-reviewed ownership evidence
+without further provider calls. No additional external attempt is authorized.
+
+The [safe external receipt](../../.ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S3_EXTERNAL_RECEIPT.json)
+and [durable proof](../../.ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S3_DURABLE_ACCEPTANCE_PROOF.json)
+establish this bounded parent-customer Sandbox observation. Registry input was explicitly
+Mock synthetic, not an official registered business. RP child lifecycle and original-file
+upload remain unsupported; KYC, approval, Ready-for-Approval and production/Live remain
+unproved. This success does not alter Garden143878, replay any historical mutation or
+close the production/authentication/relationship questions. Final combined acceptance
+of the uncommitted candidate remains separately gated.
+
 ## 2026-09-27 authenticated-portal recovery continuation (historical checkpoint)
 
 This section preserves the state at that checkpoint. The 2026-09-28 continuation below

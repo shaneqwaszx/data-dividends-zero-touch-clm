@@ -1,0 +1,74 @@
+{
+  "external_receipt_sha256": "2a06fe9e1682fa833794de6e678f919bedf8ba45fc5b457e9ebd0de35d9a29c1",
+  "database": "clm_p12_ab341ce202b34b36a112ea10",
+  "case_id": "74af14cb-c691-485a-bfc0-ca89de40dc65",
+  "schema_version": 9,
+  "revision": 68,
+  "automation_status": "COMPLETED",
+  "submission_id": "a22958ca-dace-4793-abba-d214eed68d87",
+  "ledger_state": "FINALIZED",
+  "attempted_operations": [
+    "SEARCH",
+    "SHELL",
+    "POLICY",
+    "READBACK"
+  ],
+  "completed_operations": [
+    "SEARCH",
+    "SHELL",
+    "POLICY",
+    "READBACK"
+  ],
+  "resolved_operations": [
+    "SEARCH",
+    "SHELL",
+    "POLICY",
+    "READBACK"
+  ],
+  "goldtier_id": "143887",
+  "shell_status": "SHELL_CREATED",
+  "policy_id": null,
+  "policy_status": "POLICY_CREATED",
+  "amend_status": "AMEND_NOT_REQUIRED",
+  "readback_party_id": "143887",
+  "readback_status": "VERIFIED",
+  "outcome_classification": "SUCCESS",
+  "receipt": {
+    "submission_id": "a22958ca-dace-4793-abba-d214eed68d87",
+    "case_id": "74af14cb-c691-485a-bfc0-ca89de40dc65",
+    "correlation_id": "c68f517e-9f5e-4393-879d-4712cab6630a",
+    "input_fingerprint": "530ac8038243d021ccbf55536996c43dbf03824f34d2a2259bdc2555ab96b8c5",
+    "classification": "SUCCESS",
+    "onboarding_state": "GT_ENRICHED",
+    "result": {
+      "party_id": "143887",
+      "shell_status": "SHELL_CREATED",
+      "policy_id": null,
+      "policy_status": "POLICY_CREATED",
+      "amend_status": "AMEND_NOT_REQUIRED",
+      "readback_party_id": "143887",
+      "readback_status": "VERIFIED"
+    },
+    "error": null,
+    "infrastructure_failure": false
+  },
+  "document_records": [
+    {
+      "document_id": "ed3b0b9a-36c0-41d2-b09c-56249217d527",
+      "normalized_record_sha256": "c855e0a69c920ec72f1554ba5349c53899b0a9425017b678f2a0f023fa00a823"
+    }
+  ],
+  "ownership_record_sha256": "6c910185d39351e0233f79ba6fe9f7b8984e057812e08051a5e5f29ad443ef42",
+  "provider_calls": {
+    "SEARCH": 2,
+    "SHELL": 1,
+    "POLICY": 1,
+    "AMEND": 0,
+    "READBACK": 1
+  },
+  "provider_calls_after_restart_unchanged": true,
+  "document_evidence_after_restart_retained": true,
+  "ownership_evidence_after_restart_retained": true,
+  "original_clm_poc_touched": false,
+  "read_only_proof_no_network_calls": true
+}

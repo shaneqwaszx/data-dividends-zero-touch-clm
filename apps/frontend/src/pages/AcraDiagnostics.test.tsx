@@ -143,7 +143,8 @@ describe("AcraDiagnostics", () => {
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     const { view } = mount(fetchMock);
     await waitFor(() => expect(view.textContent).toContain("Not applicable for API Marketplace Mock"));
-    expect(view.textContent).toContain("unsupported does not mean empty");
+    expect(view.textContent).toContain("Not available in current provider contract");
+    expect(view.textContent).toContain("provider_called = false");
     const help = view.querySelector("details")!;
     expect(help.open).toBe(false);
     const summary = help.querySelector("summary")!;
@@ -161,7 +162,7 @@ describe("AcraDiagnostics", () => {
       return new Response(JSON.stringify(result("COMPLETE")), { status: 200, headers: { "Content-Type": "application/json" } });
     });
     const { view } = mount(fetchMock);
-    await waitFor(() => expect(view.textContent).toContain("Data completeness"));
+    await waitFor(() => expect(view.textContent).toContain("Connector capabilities"));
     expect(view.textContent).toContain("Configuration");
     expect(view.textContent).toContain("Connectivity");
     expect(view.textContent).toContain("sandbox.example.test");

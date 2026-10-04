@@ -183,7 +183,7 @@ def test_optional_amend_projects_retained_not_required_as_skipped():
     amend = next(item for item in summary["target_operations"] if item["operation"] == "AMEND")
     assert amend["status"] == "SKIPPED"
     target = next(
-        item for item in summary["processing_pipeline"] if item["node_id"] == "GOLDTIER_TARGET"
+        item for item in summary["processing_pipeline"] if item["node_id"] == "FINAL_REVIEW_SEND"
     )
     assert (
         next(item for item in target["children"] if item["node_id"] == "GOLDTIER_AMEND")["status"]

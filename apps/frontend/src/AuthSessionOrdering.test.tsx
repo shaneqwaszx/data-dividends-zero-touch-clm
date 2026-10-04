@@ -4,6 +4,7 @@ import { StrictMode, act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router";
 
 import {
   configureAuthenticatedTransport,
@@ -133,7 +134,7 @@ async function mountAuthProvider(strict = true) {
     );
   }
 
-  const content: ReactNode = <AuthProvider><Probe /></AuthProvider>;
+  const content: ReactNode = <MemoryRouter><AuthProvider><Probe /></AuthProvider></MemoryRouter>;
   await act(async () => {
     root.render(strict ? <StrictMode>{content}</StrictMode> : content);
   });

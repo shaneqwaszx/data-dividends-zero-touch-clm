@@ -187,6 +187,18 @@ class TargetIdentitySearchEvidence:
     resolution: EntityResolutionResult | None
 
 
+@dataclass(frozen=True)
+class TargetStatusCheckEvidence:
+    """Read-only customer evidence; never proof of Policy or submission completion."""
+
+    submission_id: UUID
+    checked_at: datetime
+    result: Literal[
+        "NO_MATCH", "IDENTITY_UNVERIFIED", "CUSTOMER_IDENTITY_VERIFIED",
+        "AMBIGUOUS", "CHECK_FAILED",
+    ]
+
+
 MALFORMED_TARGET_RESPONSE_CODE = "GT_MALFORMED_TARGET_RESPONSE"
 MALFORMED_TARGET_RESPONSE_MESSAGE = "GoldTier target returned an invalid response."
 TARGET_OUTCOME_FALLBACK_CODE = "GT_TARGET_OUTCOME_RECORDING_FAILED"
@@ -381,6 +393,7 @@ class OnboardingService:
         self._case_locks: dict[UUID, RLock] = {}
         self._case_locks_guard = Lock()
         self._execution_ledger_guard = RLock()
+        self._active_target_submissions: set[UUID] = set()
         self._target_executions = target_execution_repository or InMemoryTargetExecutionRepository()
         self._policy_snapshot_provider = policy_snapshot_provider or legacy_phase13_policy_snapshot
 
@@ -586,6 +599,39 @@ class OnboardingService:
             validated = OnboardingCase.model_validate(updated)
             self._repository.save(validated)
             return validated.model_copy(deep=True)
+
+    def invalidate_target_dispatch_confirmation(
+        self, *, case_id: UUID, expected_case_event_count: int,
+    ) -> OnboardingCase:
+        """Invalidate pre-submission review after accepted evidence revision.
+
+        The workflow caller owns evidence authorization and submission freeze checks;
+        this canonical owner additionally rejects any retained target attempt/result.
+        """
+        with self.case_lock(case_id):
+            case = self.get_case(case_id)
+            if case is None or len(case.events) != expected_case_event_count:
+                raise ValueError("The onboarding case changed before evidence revision.")
+            if case.goldtier_result is not None or self._target_executions.list_for_case(case_id):
+                raise ValueError("Submitted target evidence cannot be revised.")
+            updated = case.model_copy(deep=True)
+            updated.target_dispatch_confirmation = None
+            now = self._clock()
+            updated.updated_at = now
+            updated.events.append(
+                WorkflowEvent(
+                    sequence=len(updated.events) + 1,
+                    stage=updated.state,
+                    outcome=EventOutcome.SUCCEEDED,
+                    timestamp=now,
+                    case_id=updated.case_id,
+                    correlation_id=updated.correlation_id,
+                    code="OWNERSHIP_EVIDENCE_REVISED",
+                    message="Reviewed ownership evidence changed; final review is required.",
+                )
+            )
+            self._repository.save(OnboardingCase.model_validate(updated.model_dump()))
+            return updated.model_copy(deep=True)
 
     def has_valid_target_dispatch_confirmation(
         self, case: OnboardingCase, *, clm_version: int | None = None
@@ -905,6 +951,10 @@ class OnboardingService:
                     self._repository.save(acquired)
                 return acquired.model_copy(deep=True)
             return validated.model_copy(deep=True)
+
+    def has_retained_target_execution(self, case_id: UUID) -> bool:
+        """Read-only capability guard; mutations recheck inside the owning boundary."""
+        return bool(self._target_executions.list_for_case(case_id))
 
     def _run_initial_identity_search(
         self,
@@ -1337,6 +1387,7 @@ class OnboardingService:
         legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
+        created_by_actor_id: str | None = None,
     ) -> OnboardingCase:
         """Preserve the legacy intake route while stopping before target mutation."""
 
@@ -1346,6 +1397,7 @@ class OnboardingService:
             legal_name=legal_name,
             team_id=team_id,
             priority=priority,
+            created_by_actor_id=created_by_actor_id,
         )
         return case
 
@@ -1357,6 +1409,7 @@ class OnboardingService:
         legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
+        created_by_actor_id: str | None = None,
     ) -> OnboardingCase:
         """Resolve jurisdiction, route, and validate registry data without GoldTier."""
 
@@ -1369,6 +1422,7 @@ class OnboardingService:
             legal_name=legal_name,
             team_id=team_id,
             priority=priority,
+            created_by_actor_id=created_by_actor_id,
         )
 
     def create_staged_case_with_identity(
@@ -1381,6 +1435,7 @@ class OnboardingService:
         legal_name: str | None = None,
         team_id: TeamId | None = None,
         priority: CasePriority | None = None,
+        created_by_actor_id: str | None = None,
     ) -> OnboardingCase:
         """Create a staged case using an identity reserved by an aggregate owner."""
 
@@ -1393,6 +1448,7 @@ class OnboardingService:
                 legal_name=legal_name,
                 team_id=team_id,
                 priority=priority,
+                created_by_actor_id=created_by_actor_id,
             )
 
     def _create_staged_case_locked(
@@ -1405,6 +1461,7 @@ class OnboardingService:
         legal_name: str | None,
         team_id: TeamId | None,
         priority: CasePriority | None,
+        created_by_actor_id: str | None,
     ) -> OnboardingCase:
         """Create and mutate one case while its canonical lifecycle lock is held."""
 
@@ -1456,6 +1513,7 @@ class OnboardingService:
             ),
             policy_snapshot=self._policy_snapshot_provider(),
             team_id=team_id,
+            created_by_actor_id=created_by_actor_id,
             priority=priority,
             jurisdiction_resolution=resolution,
             state=WorkflowState.REQUESTED,
@@ -2134,6 +2192,8 @@ class OnboardingService:
             except OnboardingInfrastructureError:
                 pass
             finally:
+                with self._execution_ledger_guard:
+                    self._active_target_submissions.discard(submission_input.submission_id)
                 if not outcome_uncertain:
                     self._ensure_execution_owner_exit(submission_input)
 
@@ -2143,6 +2203,25 @@ class OnboardingService:
             return self._finalize_execution_receipt(submission_input, recorded)
 
     def advance_incremental_submission_input(
+        self,
+        submission_input: GoldTierSubmissionInput,
+        *,
+        search_resolution: GoldTierSearchResolution,
+        selected_party_id: str | None,
+    ) -> GoldTierExecutionReceipt | None:
+        """Clear volatile sending activity on every normal, failed or uncertain exit."""
+
+        try:
+            return self._advance_incremental_submission_input(
+                submission_input,
+                search_resolution=search_resolution,
+                selected_party_id=selected_party_id,
+            )
+        finally:
+            with self._execution_ledger_guard:
+                self._active_target_submissions.discard(submission_input.submission_id)
+
+    def _advance_incremental_submission_input(
         self,
         submission_input: GoldTierSubmissionInput,
         *,
@@ -2826,6 +2905,18 @@ class OnboardingService:
             stored = self._target_executions.get(submission_id)
             return stored.state if stored is not None else GoldTierExecutionLedgerState.NOT_STARTED
 
+    def get_target_execution_activity_snapshot(
+        self, submission_id: UUID
+    ) -> tuple[GoldTierExecutionLedgerEntry | None, bool]:
+        """Read activity and durable facts under the same projection guard."""
+
+        with self._execution_ledger_guard:
+            stored = self._target_executions.get(submission_id)
+            return (
+                stored.model_copy(deep=True) if stored is not None else None,
+                submission_id in self._active_target_submissions,
+            )
+
     def is_execution_outcome_uncertain(self, submission_id: UUID) -> bool:
         """Consult one authoritative ledger snapshot without invoking the target."""
 
@@ -2833,10 +2924,90 @@ class OnboardingService:
             stored = self._target_executions.get(submission_id)
             return bool(
                 stored is not None
+                and submission_id not in self._active_target_submissions
                 and stored.state == GoldTierExecutionLedgerState.IN_PROGRESS
                 and stored.attempted_operations != stored.lifecycle_resolved_operations
                 and stored.target_outcome is None
                 and stored.receipt is None
+            )
+
+    def is_target_submission_active(self, submission_id: UUID) -> bool:
+        """Volatile activity explains an in-flight call; the ledger still owns outcomes."""
+
+        with self._execution_ledger_guard:
+            return submission_id in self._active_target_submissions
+
+    def check_uncertain_target_status(
+        self,
+        *,
+        case_id: UUID,
+        submission_id: UUID,
+        reauthorize: Callable[[], None],
+    ) -> TargetStatusCheckEvidence:
+        """One bounded Search for the retained identity, with no mutation or recovery."""
+
+        with self.case_lock(case_id):
+            reauthorize()
+            case = self._repository.get(case_id)
+            entry = self.get_target_execution_entry(submission_id)
+            if (
+                self.target_provider_mode != GoldTierProviderMode.SANDBOX
+                or self._goldtier.environment != GoldTierProviderMode.SANDBOX
+                or case is None or case.entity is None or entry is None
+                or entry.submission_input.provider_mode != GoldTierProviderMode.SANDBOX
+                or entry.submission_input.case_id != case_id
+                or not self.is_execution_outcome_uncertain(submission_id)
+            ):
+                raise ValueError(
+                    "Read-only status checking requires the retained uncertain submission"
+                )
+            submission = entry.submission_input
+            expected = submission.canonical_entity
+            if (case.requested_uen != expected.registration_number
+                    or case.entity.legal_name != expected.legal_name
+                    or case.entity.country_of_incorporation != expected.country_of_incorporation):
+                raise ValueError("Read-only status checking requires the frozen current identity")
+            request = (
+                XpiCustomerSearchRequest(goldtier_id=entry.resolved_party_id)
+                if entry.resolved_party_id is not None
+                else self._goldtier_mapper.build_search_request(submission)
+            )
+            try:
+                response = validate_search_response(self._goldtier.search_party(
+                    request, self._metadata(submission, submission.idempotency.search)
+                ))
+            except (ConnectorError, InvalidTargetResponseError):
+                result: Literal[
+                    "NO_MATCH", "IDENTITY_UNVERIFIED", "CUSTOMER_IDENTITY_VERIFIED",
+                    "AMBIGUOUS", "CHECK_FAILED",
+                ] = "CHECK_FAILED"
+            else:
+                if response.outcome == GoldTierSearchOutcome.NO_MATCH:
+                    result = "NO_MATCH"
+                elif response.outcome == GoldTierSearchOutcome.MULTIPLE_MATCHES:
+                    result = "AMBIGUOUS"
+                elif response.outcome != GoldTierSearchOutcome.MATCH_FOUND:
+                    result = "CHECK_FAILED"
+                elif len(response.candidates) != 1:
+                    result = "IDENTITY_UNVERIFIED"
+                else:
+                    candidate = response.candidates[0]
+                    pairs = (
+                        (candidate.legal_name, expected.legal_name),
+                        (candidate.registration_number, expected.registration_number),
+                        (candidate.country, expected.country_of_incorporation),
+                    )
+                    exact = all(
+                        actual is not None and " ".join(actual.split()).casefold()
+                        == " ".join(wanted.split()).casefold()
+                        for actual, wanted in pairs
+                    ) and (
+                        entry.resolved_party_id is None
+                        or candidate.party_id == entry.resolved_party_id
+                    )
+                    result = "CUSTOMER_IDENTITY_VERIFIED" if exact else "IDENTITY_UNVERIFIED"
+            return TargetStatusCheckEvidence(
+                submission_id=submission_id, checked_at=self._clock(), result=result
             )
 
     def _stored_execution_entry(
@@ -2878,6 +3049,7 @@ class OnboardingService:
             if operation in entry.attempted_operations:
                 raise ValueError("Target operation was attempted more than once")
             attempted = (*entry.attempted_operations, operation)
+            self._active_target_submissions.add(submission_input.submission_id)
             candidate = GoldTierExecutionLedgerEntry(
                 submission_input=entry.submission_input,
                 state=GoldTierExecutionLedgerState.IN_PROGRESS,

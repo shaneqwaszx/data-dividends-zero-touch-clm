@@ -16,6 +16,7 @@ from pydantic import (
     field_validator,
 )
 
+from app.domain.documents import DocumentOwnershipObservation
 from app.domain.models import EventOutcome, SafeError
 from app.domain.ownership_evidence import OwnershipEvidence, OwnershipTaggingResult
 from app.domain.registry_legal_form import RegistryLegalForm
@@ -289,6 +290,34 @@ class OwnershipWorkflowEvent(BaseModel):
     candidate_count: int | None = Field(default=None, ge=0)
 
 
+class OwnershipDocumentBinding(BaseModel):
+    """Current document decision version; extraction version remains on each observation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    document_id: UUID
+    event_count: int = Field(ge=1)
+
+
+class OwnershipDocumentDiscrepancy(BaseModel):
+    """Source agreement is independent of extraction quality and creator verification."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    observation_id: UUID
+    document_id: UUID
+    document_version: Literal[1] = 1
+    agreement: Literal["MATCH", "MISMATCH", "NOT_COMPARABLE", "AMBIGUOUS"]
+    compared_relationship_ids: tuple[SafeRelationshipId, ...] = Field(default=(), max_length=16)
+    current_percentage: CalculatedPercent | None = None
+    proposed_percentage: CalculatedPercent | None = None
+    reason_code: Literal[
+        "OWNERSHIP_PROPOSAL_REVIEW_REQUIRED",
+        "OWNERSHIP_DOCUMENT_CONFLICT",
+        "OWNERSHIP_DOCUMENT_INCOMPLETE",
+        "OWNERSHIP_DOCUMENT_AMBIGUOUS",
+    ]
+    verification_state: Literal["REVIEW_REQUIRED", "REVIEWED"] = "REVIEW_REQUIRED"
+
+
 class ManualOwnershipReviewReceipt(BaseModel):
     """Immutable safe receipt for one reviewed local manual declaration."""
 
@@ -310,6 +339,15 @@ class ManualOwnershipReviewReceipt(BaseModel):
     evidence_document_version: int = Field(ge=1)
     evidence_reference: str = Field(pattern=r"^MANUAL_DOC_[a-f0-9]{32}_V[1-9][0-9]*$")
     source_type: Literal["USER_SUPPLIED_DECLARATION"] = "USER_SUPPLIED_DECLARATION"
+    source_selection: Literal[
+        "USER_SUPPLIED_DECLARATION", "CURRENT_EVIDENCE", "DOCUMENT_OBSERVATIONS"
+    ] = "USER_SUPPLIED_DECLARATION"
+    observed_document_versions: tuple[OwnershipDocumentBinding, ...] = Field(
+        default=(), max_length=32
+    )
+    selected_observation_ids: tuple[UUID, ...] = Field(default=(), max_length=128)
+    replaced_analysis_id: UUID | None = None
+    replaced_ownership_version: int | None = Field(default=None, ge=1)
     provider_name: Literal["MANUAL_DECLARATION_POC"] = "MANUAL_DECLARATION_POC"
     provider_environment: Literal["LOCAL"] = "LOCAL"
     as_of_date: date
@@ -329,6 +367,21 @@ class PriorOwnershipAnalysisSnapshot(BaseModel):
 
     version: int = Field(ge=1)
     evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=256)
+    document_observations: tuple[DocumentOwnershipObservation, ...] = Field(
+        default=(), max_length=128
+    )
+    document_bindings: tuple[OwnershipDocumentBinding, ...] = Field(default=(), max_length=32)
+    document_discrepancies: tuple[OwnershipDocumentDiscrepancy, ...] = Field(
+        default=(), max_length=128
+    )
+    supplemental_parties: tuple[Party, ...] = Field(default=(), max_length=100)
+    supplemental_relationships: tuple[OwnershipRelationship, ...] = Field(
+        default=(), max_length=200
+    )
+    supplemental_evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=256)
+    source_classification: Literal["SINGLE_SOURCE", "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"] = (
+        "SINGLE_SOURCE"
+    )
     identity_registration_number: SafeOptionalIdentifier | None = None
     identity_correction_version: int | None = Field(default=None, ge=0)
     tagging: OwnershipTaggingResult | None = None
@@ -350,6 +403,7 @@ class PriorOwnershipAnalysisSnapshot(BaseModel):
     loaded_at: datetime | None = None
     analyzed_at: datetime | None = None
     updated_at: datetime
+    manual_review_receipt: ManualOwnershipReviewReceipt | None = None
 
 
 class OwnershipAnalysisRecord(BaseModel):
@@ -361,6 +415,21 @@ class OwnershipAnalysisRecord(BaseModel):
     identity_registration_number: SafeOptionalIdentifier | None = None
     identity_correction_version: int | None = Field(default=None, ge=0)
     evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=256)
+    document_observations: tuple[DocumentOwnershipObservation, ...] = Field(
+        default=(), max_length=128
+    )
+    document_bindings: tuple[OwnershipDocumentBinding, ...] = Field(default=(), max_length=32)
+    document_discrepancies: tuple[OwnershipDocumentDiscrepancy, ...] = Field(
+        default=(), max_length=128
+    )
+    supplemental_parties: tuple[Party, ...] = Field(default=(), max_length=100)
+    supplemental_relationships: tuple[OwnershipRelationship, ...] = Field(
+        default=(), max_length=200
+    )
+    supplemental_evidence: tuple[OwnershipEvidence, ...] = Field(default=(), max_length=256)
+    source_classification: Literal["SINGLE_SOURCE", "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"] = (
+        "SINGLE_SOURCE"
+    )
     tagging: OwnershipTaggingResult | None = None
     legal_form: RegistryLegalForm | None = None
     version: int = Field(default=0, ge=0)

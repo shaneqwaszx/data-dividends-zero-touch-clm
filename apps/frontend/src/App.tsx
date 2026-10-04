@@ -85,7 +85,6 @@ import type {
   AuthenticatedTeam,
 } from "./types";
 
-const DEFAULT_UEN = "202400001A";
 export const MAX_INTAKE_FILE_COUNT = 20;
 export const MAX_INTAKE_FILE_BYTES = 5 * 1024 * 1024;
 export const MAX_INTAKE_TOTAL_BYTES = 25 * 1024 * 1024;
@@ -102,7 +101,7 @@ export function validateIntakeFiles(files: File[]): string | null {
     const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
     const expectedType = DOCUMENT_TYPES[extension];
     if (!SAFE_DOCUMENT_NAME.test(file.name) || !expectedType || file.type !== expectedType) {
-      return `${file.name}: only matching PDF, DOCX, and UTF-8 TXT files are supported.`;
+      return `${file.name}: only matching PDF, DOCX, UTF-8 TXT, PNG, JPEG, and TIFF files are supported.`;
     }
     if (file.size <= 0 || file.size > MAX_INTAKE_FILE_BYTES) return `${file.name}: each file must be non-empty and 5 MiB or smaller.`;
     total += file.size;
@@ -119,16 +118,18 @@ export function isRegistryIntakeUnavailable(summary: ZeroTouchCaseSummary): bool
     .filter((exception) => exception.stage === "REGISTRY");
   const evidenceIntakeCanContinue = registryExceptions.length > 0
     && registryExceptions.every(
-      (exception) => exception.blocker_code === "REGISTRY_EXPECTED_DATA_MISSING",
+      (exception) => ["REGISTRY_EXPECTED_DATA_MISSING", "INITIAL_IDENTITY_INCOMPLETE", "ACRA_ENTITY_NOT_FOUND"]
+        .includes(exception.blocker_code),
     );
   return (
     registryExceptions.some(
-      (exception) => exception.blocker_code !== "REGISTRY_EXPECTED_DATA_MISSING",
+      (exception) => !["REGISTRY_EXPECTED_DATA_MISSING", "INITIAL_IDENTITY_INCOMPLETE", "ACRA_ENTITY_NOT_FOUND"]
+        .includes(exception.blocker_code),
     )
     || resolution?.status === "CONFLICT"
     || resolution?.status === "UNRESOLVED"
     || route?.status === "PROVIDER_NOT_IMPLEMENTED"
-    || acquisition?.status === "FAILED"
+    || (acquisition?.status === "FAILED" && !evidenceIntakeCanContinue)
     || (
       summary.current_stage === "REGISTRY"
       && (summary.status === "WAITING_FOR_REVIEW" || summary.status === "TECHNICAL_FAILURE")
@@ -207,8 +208,13 @@ const DOCUMENT_TYPES: Record<string, string> = {
   ".pdf": "application/pdf",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".txt": "text/plain",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".tif": "image/tiff",
+  ".tiff": "image/tiff",
 };
-const SAFE_DOCUMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,94}\.(pdf|docx|txt)$/i;
+const SAFE_DOCUMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,94}\.(pdf|docx|txt|png|jpe?g|tiff?)$/i;
 
 export function validateSelectedDocuments(files: File[]): { accepted: File[]; errors: string[] } {
   const accepted: File[] = [];
@@ -222,7 +228,7 @@ export function validateSelectedDocuments(files: File[]): { accepted: File[]; er
     const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
     const expectedType = DOCUMENT_TYPES[extension];
     if (!SAFE_DOCUMENT_NAME.test(file.name) || !expectedType || file.type !== expectedType) {
-      errors.push(`${file.name}: only matching PDF, DOCX, and UTF-8 TXT files are supported.`);
+      errors.push(`${file.name}: only matching PDF, DOCX, UTF-8 TXT, PNG, JPEG, and TIFF files are supported.`);
       continue;
     }
     if (file.size <= 0 || file.size > MAX_INTAKE_FILE_BYTES) {
@@ -299,7 +305,7 @@ function titleCaseEnvironment(value: "MOCK" | "SANDBOX" | "LOCAL"): string {
 }
 
 function confidencePercent(value: number): string {
-  return `${Math.round(value * 100)}%`;
+  return value.toFixed(2);
 }
 
 function ownershipPercent(value: string): string {
@@ -322,10 +328,10 @@ function fieldLabel(value: string): string {
 function friendlyErrorMessage(code: string | null, defaultMessage: string): string {
   const messages: Record<string, string> = {
     "DOCUMENT_TOO_LARGE": "PDF file is too large. Maximum size is 5 MiB.",
-    "DOCUMENT_MEDIA_TYPE_UNSUPPORTED": "File type not supported. Please upload a PDF.",
+    "DOCUMENT_MEDIA_TYPE_UNSUPPORTED": "File type not supported. Upload a supported PDF, DOCX, TXT, PNG, JPEG, or TIFF.",
     "OWNERSHIP_CYCLE": "Ownership graph contains circular relationships. Please review the ownership structure.",
     "OWNERSHIP_INCOMPLETE": "Incomplete ownership data detected. Some legal entities have no disclosed owners.",
-    "DOCUMENT_LOW_CONFIDENCE": "Document extraction confidence below threshold. Please review or upload a clearer document.",
+    "DOCUMENT_LOW_CONFIDENCE": "Document extraction evidence score below threshold. Please review or upload a clearer document.",
     "DOCUMENT_FIELD_MISMATCH": "Extracted data does not match registry records. Please verify or provide corrections.",
     "GT_EXISTING_PARTY_REVIEW_REQUIRED": "Party already exists in target system. Please review the matching record.",
     "REGISTRY_REVIEW_REQUIRED": "Registry data requires human review before proceeding.",
@@ -339,7 +345,7 @@ function friendlyErrorMessage(code: string | null, defaultMessage: string): stri
 // Blocker explanation helper
 function blockerExplanation(blockerCode: string): string {
   const explanations: Record<string, string> = {
-    "DOCUMENT_LOW_CONFIDENCE": "One or more fields were extracted from the document with confidence below the configured threshold (85%). Please review the extracted values.",
+    "DOCUMENT_LOW_CONFIDENCE": "One or more fields were extracted from the document with an extraction evidence score below the case-bound threshold. Please review the extracted values.",
     "DOCUMENT_FIELD_MISMATCH": "Extracted document data does not match the registry records. Please review and correct the mismatched fields.",
     "DOCUMENT_REQUIRED_FIELD_MISSING": "A required field is missing from the document extraction. Please provide additional documentation.",
     "OWNERSHIP_CYCLE": "Circular ownership relationships detected in the ownership graph. This prevents UBO calculation. Please verify the ownership structure.",
@@ -422,7 +428,7 @@ function FieldReviewCard({
           </span>
         </div>
         <strong className={field.confidence < threshold ? "confidence-low" : ""}>
-          {confidencePercent(field.confidence)} confidence
+          {confidencePercent(field.confidence)} evidence score (not probability)
         </strong>
       </header>
 
@@ -1471,14 +1477,14 @@ export function SponsorDocumentEvidenceView({ documents }: { documents: Document
       {documents.map((document) => (
         <details key={document.document_id} open={!document.superseded_by_document_id}>
           <summary>{document.display_name} — {document.superseded_by_document_id ? "SUPERSEDED" : "CURRENT"} — {document.state.replaceAll("_", " ")}</summary>
-          <p>Project-defined POC extraction confidence; not an AI or sponsor-approved score.</p>
+          <p>Deterministic extraction evidence score; not a calibrated probability. Quality, source agreement and verification are separate.</p>
           <div className="evidence-comparison" role="table" aria-label={`${document.display_name} document comparison`}>
             {document.fields.map((field) => (
               <div key={field.field_key} role="row" className={field.comparison_status === "MATCH" ? "" : "evidence-comparison--attention"}>
                 <strong role="cell">{fieldLabel(field.field_key)}</strong>
                 <span role="cell"><small>Registry</small>{field.canonical_value ?? "Not available"}</span>
                 <span role="cell"><small>Document</small>{field.original_extracted_value ?? "Not extracted"}</span>
-                <span role="cell"><small>POC confidence</small>{confidencePercent(field.confidence)} · {field.comparison_status.replaceAll("_", " ")}</span>
+                <span role="cell"><small>Extraction evidence score (not probability)</small>{confidencePercent(field.confidence)} · {field.comparison_status.replaceAll("_", " ")}</span>
               </div>
             ))}
           </div>
@@ -1618,7 +1624,7 @@ export function HumanReviewPanel({
                   )}
                   {evidence.confidence !== null && (
                     <div>
-                      <dt>Confidence score</dt>
+                      <dt>Extraction evidence score (not probability)</dt>
                       <dd>{confidencePercent(evidence.confidence)}</dd>
                     </div>
                   )}
@@ -1647,12 +1653,12 @@ export function HumanReviewPanel({
       {replacementAvailable && (
         <div className="replacement-section">
           <h3>Upload corrected document</h3>
-          <p>Upload replacement PDF, DOCX, or TXT evidence to supersede the current document.</p>
+          <p>Upload replacement PDF, DOCX, TXT, PNG, JPEG, or TIFF evidence to supersede the current document.</p>
           <label htmlFor={`replacement-${exception.exception_id}`}>Select replacement file</label>
           <input
             id={`replacement-${exception.exception_id}`}
             type="file"
-            accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt"
+            accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt,image/png,.png,image/jpeg,.jpg,.jpeg,image/tiff,.tif,.tiff"
             onChange={(event) => setReplacementFile(event.target.files?.[0] ?? null)}
           />
           {replacementFile && <p className="file-selected">✓ {replacementFile.name}</p>}
@@ -1798,7 +1804,7 @@ export default function App({
 }: AppProps) {
   const [caseQueuePresentation, setCaseQueuePresentation] =
     useState<CaseQueuePresentationState>(DEFAULT_CASE_QUEUE_PRESENTATION);
-  const [uen, setUen] = useState(DEFAULT_UEN);
+  const [uen, setUen] = useState("");
   const [legalName, setLegalName] = useState("");
   const [countryOfIncorporation, setCountryOfIncorporation] =
     useState<JurisdictionSelection>("");
@@ -1862,6 +1868,10 @@ export default function App({
     setSummary(null);
     setRetainedCreatedSummary(null);
     setDocumentFiles([]);
+    setUen("");
+    setCountryOfIncorporation("");
+    setCasePriority("");
+    setDemoScenario("STRAIGHT_THROUGH");
     setLegalName("");
     setDirectorTeamId("");
     setTeamOptions([]);
@@ -2177,7 +2187,7 @@ export default function App({
       clearRetainedSummary: () => setRetainedCreatedSummary(null),
       clearDocuments: () => setDocumentFiles([]),
       clearOpenedCaseId: () => undefined,
-      resetUen: () => setUen(DEFAULT_UEN),
+      resetUen: () => setUen(""),
       resetJurisdiction: () => setCountryOfIncorporation(""),
       clearRequestError: () => setRequestError(null),
       clearPollingWarning: () => setPollingWarning(null),
@@ -2186,6 +2196,7 @@ export default function App({
       clearResolving: () => setIsResolving(false),
     });
     setCasePriority("");
+    setDemoScenario("STRAIGHT_THROUGH");
     setLegalName("");
     setDirectorTeamId("");
     setDeleteCurrentCaseOpen(false);
@@ -2236,26 +2247,6 @@ export default function App({
   const retainedIntakeCaseId = retainedCreatedSummary?.case.case_id ?? null;
   const liveOnboarding = (
     <>
-      {actor.role === "DIRECTOR" && !summary && (
-        <section className="ds-root ds-page director-team-scope" aria-label="New case team scope">
-          <label htmlFor="director-team-id">Owning team *</label>
-          <select
-            id="director-team-id"
-            className="input"
-            value={directorTeamId}
-            required
-            onChange={(event) => setDirectorTeamId(event.target.value as TeamId | "")}
-          >
-            <option value="">Select a team</option>
-            {teamOptions.map((team) => (
-              <option key={team.team_id} value={team.team_id}>
-                {team.display_name} · {team.client_scope_label}
-              </option>
-            ))}
-          </select>
-          <p className="control-help">Director-created cases require an explicit team.</p>
-        </section>
-      )}
       <HomeOnboarding
         summary={summary}
         uen={uen}
@@ -2266,12 +2257,12 @@ export default function App({
         onCountryChange={setCountryOfIncorporation}
         documentFiles={documentFiles}
         onDocumentFilesChange={handleDocumentFilesChange}
-        caseTeamDisplayName={
-          actor.role === "DIRECTOR"
-            ? teamOptions.find((team) => team.team_id === directorTeamId)?.display_name
-              ?? "Select a team above"
-            : actor.team_display_name ?? "Team unavailable"
-        }
+        caseTeamDisplayName={actor.team_display_name ?? "Team unavailable"}
+        creationTeamSelection={actor.role === "DIRECTOR" ? {
+          teamId: directorTeamId,
+          options: teamOptions,
+          onChange: setDirectorTeamId,
+        } : undefined}
         priority={casePriority}
         onPriorityChange={setCasePriority}
         isSubmitting={isSubmitting}

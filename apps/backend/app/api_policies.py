@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api_auth import SESSION_COOKIE_NAME
 from app.domain.access import AuthenticatedActor
 from app.domain.policy import (
+    IDP_POLICY_ID,
     PolicyAuthority,
     PolicyCatalogue,
     PolicyClassification,
@@ -61,7 +62,21 @@ class PolicyRuleResponse(BaseModel):
 
     @classmethod
     def from_domain(cls, rule: PolicyRule) -> PolicyRuleResponse:
-        return cls.model_validate(rule)
+        response = cls.model_validate(rule)
+        if rule.policy_id == IDP_POLICY_ID:
+            return response.model_copy(update={
+                "name": "IDP extraction evidence score threshold",
+                "description": "Minimum deterministic extraction evidence score for "
+                "provisional document continuation; not a probability or "
+                "source-agreement measure.",
+            })
+        if rule.policy_id == "DOCUMENT_SUPPORTED_MEDIA_TYPES":
+            return response.model_copy(update={
+                "description": "Retained technical format snapshot. Current runtime "
+                "supports bounded PDF, DOCX, UTF-8 TXT, PNG, JPEG and TIFF intake. "
+                "File-processing safety limits are not editable policy.",
+            })
+        return response
 
 
 class PolicyCatalogueResponse(BaseModel):

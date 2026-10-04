@@ -14,6 +14,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import pytest
 from fastapi.testclient import TestClient
 from pymongo import MongoClient
+from s2_legacy_schema_fixtures import assert_retained_legacy_content, omit_session2_fields
 from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
     generate_ephemeral_mongo_database,
@@ -1459,7 +1460,7 @@ def test_real_mongo_schema_v7_restart_preserves_identity_repair_and_pending_conf
         assert retained.onboarding.target_dispatch_confirmation is None
         assert retained.automation.active_exceptions[0].decisions
         raw = store._collection.find_one({"_id": str(case_id)})  # noqa: SLF001
-        assert raw is not None and raw["schema_version"] == 8
+        assert raw is not None and raw["schema_version"] == 9
     finally:
         store.close()
 
@@ -1582,6 +1583,7 @@ def test_real_mongo_populated_actual_v7_restart_has_no_rewrite_or_provider_repla
     try:
         raw = store._encode(snapshot)  # noqa: SLF001
         raw["schema_version"] = 7
+        omit_session2_fields(raw)
         DurableCaseSnapshotV7.model_validate(
             {key: value for key, value in raw.items() if key != "_id"}
         )
@@ -1593,7 +1595,7 @@ def test_real_mongo_populated_actual_v7_restart_has_no_rewrite_or_provider_repla
     restarted_store = _open_store(settings)
     try:
         current = restarted_store.get(snapshot.case_id)
-        assert current == snapshot
+        assert_retained_legacy_content(current, snapshot)
         assert restarted_store._collection.find_one(  # noqa: SLF001
             {"_id": str(snapshot.case_id)}
         ) == before
@@ -1615,7 +1617,9 @@ def test_real_mongo_populated_actual_v7_restart_has_no_rewrite_or_provider_repla
     assert counters == {"registry": 0, "idp": 0, "ownership": 0, "goldtier": 0}
     final_store = _open_store(settings, initialize=False)
     try:
-        assert final_store.get(snapshot.case_id) == snapshot
+        restored = final_store.get(snapshot.case_id)
+        assert restored is not None
+        assert_retained_legacy_content(restored, snapshot)
         assert final_store._collection.find_one(  # noqa: SLF001
             {"_id": str(snapshot.case_id)}
         ) == before
@@ -1657,6 +1661,7 @@ def test_real_mongo_actual_v7_uncertain_target_recovery_never_replays(
     try:
         raw = store._encode(interrupted)  # noqa: SLF001
         raw["schema_version"] = 7
+        omit_session2_fields(raw)
         DurableCaseSnapshotV7.model_validate(
             {key: value for key, value in raw.items() if key != "_id"}
         )

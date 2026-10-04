@@ -305,6 +305,7 @@ _RULE_SPECS: tuple[_RuleSpec, ...] = (
         codes=frozenset(
             {
                 "DOCUMENT_TEXT_UNAVAILABLE",
+                "DOCUMENT_AMBIGUOUS_EXTRACTION",
                 "DOCUMENT_PROCESSING_FAILED",
                 "DOCUMENT_REUPLOAD_REQUIRED",
                 "IDP_PROCESSING_FAILED",
@@ -988,7 +989,8 @@ _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = Mappin
         "Registry identity > IdentityCorrectionForm > verify/correct identity",
         "ZeroTouchOrchestrator.repair_initial_identity_and_recheck > "
         "OnboardingService.repair_initial_identity_and_recheck",
-        "Use registry-identity for a retained registry/UEN issue: eligible SG UEN is verified "
+        "Only the server-bound case creator may decide evidence. Use registry-identity for "
+        "a retained registry/UEN issue: eligible SG UEN is verified "
         "before canonical mutation. DOCUMENT choice requires current document ID/event count, "
         "eligible non-rejected UEN and sufficient reviewed/confident field. Initial missing "
         "identity uses identity-search-recheck. Histories must each have room below 16 entries.",
@@ -999,7 +1001,8 @@ _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = Mappin
         BlockerDecisionAction.RUN_READ_ONLY_SEARCH_RECHECK,
         "Registry identity > IdentityCorrectionForm > identity Search recheck",
         "ZeroTouchOrchestrator.repair_initial_identity_and_recheck",
-        "identity-search-recheck requires a retained completed/failed/review Search checkpoint "
+        "Only the server-bound case creator may revise identity. identity-search-recheck "
+        "requires a retained completed/failed/review Search checkpoint "
         "or INITIAL_IDENTITY_INCOMPLETE with no initial identity. It is a bounded read-only "
         "Search, not candidate confirmation or target approval.",
         "No recheck when checkpoint/initial-identity guard, frozen-state, history capacity "
@@ -1009,7 +1012,8 @@ _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = Mappin
         BlockerDecisionAction.RESOLVE_JURISDICTION_EVIDENCE,
         "Registry identity > IdentityCorrectionForm > explicit SG correction",
         "ZeroTouchOrchestrator.repair_initial_identity_and_recheck",
-        "Only explicit SG correction can be verified via registry-identity; "
+        "Only the server-bound case creator may revise identity. Only explicit SG correction "
+        "can be verified via registry-identity; "
         "the operator must provide eligible UEN/name/country. No source precedence is inferred.",
         "No arbitrary-jurisdiction resolver or unsupported registry route is available; "
         "an unresolved non-SG case remains blocked.",
@@ -1036,7 +1040,8 @@ _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = Mappin
         BlockerDecisionAction.COMPLETE_DOCUMENT_REVIEW,
         "Documents & reconciliation > DocumentEvidencePanel > review required field",
         "ZeroTouchOrchestrator.review_document_field > DocumentProcessingService.review_field",
-        "Current pending field at PENDING_INPUTS/DOCUMENT review or guarded OWNERSHIP review; "
+        "Only the server-bound case creator may decide evidence. Current pending field at "
+        "PENDING_INPUTS/DOCUMENT review or guarded OWNERSHIP review; "
         "the document owner permits the chosen confirm/correct/reject decision. Final identical "
         "review is idempotent; low confidence/missing value cannot authorize source selection.",
         "Unverifiable/rejected evidence requires replacement; stale or superseded document "
@@ -1047,7 +1052,8 @@ _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = Mappin
             action,
             "Documents & reconciliation > current discrepancy decision",
             "ZeroTouchOrchestrator.resolve_exception > ReconciliationService.resolve_discrepancy",
-            "OPEN DOCUMENT exception with current automation version, evidence version/digest "
+            "Only the server-bound case creator may decide evidence. OPEN DOCUMENT exception "
+            "with current automation version, evidence version/digest "
             "and discrepancy fingerprint; action must be in exception.available_actions. "
             "Each decision is field-bound; no silent winner or blanket precedence.",
             "No value-selection action for unverifiable/invalid evidence; absent authorized "
@@ -1064,10 +1070,12 @@ _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = Mappin
         "Ownership & UBO > ManualOwnershipEvidenceForm > submit reviewed declaration",
         "ZeroTouchOrchestrator.submit_manual_ownership_evidence > "
         "OwnershipAnalysisService.replace_review_required_source",
-        "WAITING_FOR_REVIEW at OWNERSHIP with active ownership exception and current "
-        "REVIEW_REQUIRED analysis; browser manual_evidence_action=MANUAL_OWNERSHIP_EVIDENCE. "
-        "Provide structured percentages/parties/relationships plus current reviewed supporting "
-        "document or resolved reconciliation and reviewer receipt; Decimal engine recalculates.",
+        "Only the server-bound case creator may decide evidence. WAITING_FOR_REVIEW with "
+        "current REVIEW_REQUIRED or ANALYZED analysis; backend ownership_edit_authorized "
+        "controls calculable edits before target intent/submission. Provide rationale and "
+        "current case/document/evidence versions, explicit source selection and structured "
+        "parties/relationships. Preserve original evidence and receipt; Decimal engine "
+        "recalculates and stale readiness/final confirmation is invalidated.",
         "No generic skip/retry; absent current reviewed evidence, stale analysis, frozen "
         "target state or unsupported declaration stays blocking.",
     ),
@@ -1086,7 +1094,8 @@ _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = Mappin
         "ZeroTouchOrchestrator.confirm_target_dispatch > OnboardingService.confirm_target_dispatch",
         "Current readiness, review digest, automation/CLM/case revisions and required "
         "document/classification evidence; confirmation-time Search must satisfy resolver rules. "
-        "Changed Search/plan returns a new explicit review; this is not final approval.",
+        "Changed Search/plan returns a new explicit review. Review & Send is this application's "
+        "final human approval; downstream GoldTier approval is outside this workflow.",
         "No confirmation while an authoritative prerequisite is unresolved, stale, or invalid.",
     ),
     BlockerDecisionAction.FINALIZE_RETAINED_TARGET_OUTCOME: BlockerActionPath(

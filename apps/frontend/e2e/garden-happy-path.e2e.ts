@@ -51,7 +51,7 @@ async function reviewedCurrentDocument(page: Page, caseId: string) {
   let document = await readCurrent();
   const card = page.locator(".document-card:not(.document-card--history)");
   await expect(card).toHaveCount(1);
-  await openStage(page, "Documents & reconciliation");
+  await openStage(page, "Document verification");
   await expect(card.getByRole("heading", { name: document.display_name, exact: true })).toBeVisible();
   for (const key of ["registration_number", "legal_name", "registered_address", "country_of_incorporation"]) {
     document = await readCurrent();
@@ -85,7 +85,7 @@ async function reviewedCurrentDocument(page: Page, caseId: string) {
   await expect.poll(async () => (await readCurrent()).state).toBe("REVIEWED");
   document = await readCurrent();
   expect(document.fields.every((item: any) => item.review_status !== "PENDING")).toBe(true);
-  await expect(card.locator(".document-card__header .tag")).toHaveText("REVIEWED");
+  await expect(card.locator(".document-card__header .tag")).toHaveText(document.fields.every((field: any) => field.review_status === "ACCEPTED" && field.comparison_status === "MATCH") ? "Document verified" : "Document processed");
   return document;
 }
 
@@ -97,7 +97,7 @@ async function startGarden(page: Page, conflicting: boolean): Promise<string> {
   await page.getByRole("link", { name: "New onboarding", exact: true }).click();
   await expect(page.getByText(/synthetic offline test evidence/i).first()).toBeVisible();
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
-  await page.getByLabel("Legal name", { exact: true }).fill("GARDEN BUSINESS");
+  await page.getByLabel("Company Legal Name", { exact: true }).fill("GARDEN BUSINESS");
   await page.getByLabel("Registration ID / UEN").fill("11111999A");
   const name = conflicting ? "garden-business-conflicting-onboarding-profile.pdf"
     : "garden-business-clean-onboarding-profile.pdf";
@@ -130,7 +130,7 @@ async function openGardenDocuments(page: Page, conflicting: boolean): Promise<vo
   if (conflicting) {
     await expect(page.getByRole("button", { name: "Use document UEN", exact: true })).toBeVisible();
   }
-  await openStage(page, "Documents & reconciliation");
+  await openStage(page, "Document verification");
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
 }
 
@@ -145,7 +145,7 @@ async function createGarden(page: Page, conflicting: boolean): Promise<string> {
 }
 
 async function selectClassification(page: Page) {
-  await openStage(page, "Classification & readiness");
+  await openStage(page, "Readiness check");
   const kyc = page.getByLabel("KYC customer type", { exact: true });
   const segment = page.getByLabel("Client segment", { exact: true });
   await expect(kyc).toBeEnabled();
@@ -164,7 +164,7 @@ async function selectClassification(page: Page) {
 }
 
 async function reviewedOwnership(page: Page, caseId: string) {
-  await expect(page.getByRole("heading", { name: "Provide reviewed ownership declaration" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review or edit ownership evidence" })).toBeVisible();
   const form = page.locator(".manual-ownership");
   const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
   const documents = (await response.json()).filter((document: any) => !document.superseded_by_document_id);
@@ -174,7 +174,12 @@ async function reviewedOwnership(page: Page, caseId: string) {
   expect(document.fields.every((field: any) => field.review_status !== "PENDING")).toBe(true);
   await expect(form.getByLabel("Evidence document")).toHaveValue(document.document_id);
   await expect(form.getByLabel("Evidence document").locator("option:checked"))
-    .toContainText(`version ${document.events.length}`);
+    .toContainText(`review revision ${document.events.length}`);
+  await form.getByLabel("As-of date").fill("2026-10-04");
+  await form.getByLabel("Owner type", { exact: true }).nth(0).selectOption("NATURAL_PERSON");
+  await form.getByLabel("Owner type", { exact: true }).nth(1).selectOption("NATURAL_PERSON");
+  await form.getByLabel("Economic interest %", { exact: true }).nth(0).fill("60");
+  await form.getByLabel("Economic interest %", { exact: true }).nth(1).fill("40");
   await form.getByLabel("Review rationale").fill("Reviewed synthetic client declaration: exact direct economic interests 60 and 40 percent.");
   await form.getByLabel("Owner name", { exact: true }).nth(0).fill("DEMO OWNER ONE");
   await form.getByLabel("Owner name", { exact: true }).nth(1).fill("DEMO OWNER TWO");
@@ -234,7 +239,7 @@ test("Garden late preconfirmation detail GET cannot replace completed case", asy
     await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
     expect((await confirmation).status()).toBe(200);
     const overview = page.getByText("Completed POC workflow", { exact: true });
-    await openStage(page, "Target preparation / submission state");
+    await openStage(page, "Preparing GoldTier Submission");
     await expect(overview).toBeVisible();
     release();
     await finished;
@@ -258,7 +263,7 @@ test("Garden late preconfirmation detail GET cannot replace completed case", asy
 
 test("Garden happy path uses truthful offline protocol evidence and explicit Mock confirmation", async ({ page }, testInfo) => {
   const caseId = await createGarden(page, false);
-  await expect(page.getByRole("heading", { name: "Provide reviewed ownership declaration" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review or edit ownership evidence" })).toBeVisible();
   const documentsResponse = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
   const documents = await documentsResponse.json();
   expect(documents).toHaveLength(1);
@@ -266,14 +271,14 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
   expect(documents[0].provider_environment).toBe("LOCAL");
   await selectClassification(page);
   await reviewedOwnership(page, caseId);
-  await openStage(page, "Documents & reconciliation");
-  await openStage(page, "Registry identity");
+  await openStage(page, "Document verification");
+  await openStage(page, "Registry verification");
   await openStage(page, "Ownership & UBO");
   for (const width of [320, 360, 768, 1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier" })).toBeEnabled();
     expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
-    const evidenceWidths = await page.locator(".document-field__evidence dd").evaluateAll((values) => values.map((value) => value.getBoundingClientRect().width));
+    const evidenceWidths = await page.locator(".document-field__evidence dd").evaluateAll((values) => values.filter((value) => value.getClientRects().length > 0).map((value) => value.getBoundingClientRect().width));
     expect(Math.min(...evidenceWidths)).toBeGreaterThan(100);
     await testInfo.attach(`Garden-${width}`, { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
   }
@@ -303,15 +308,15 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
         right: Math.round(element.getBoundingClientRect().right), width: Math.round(element.getBoundingClientRect().width) })),
   }));
   expect(Math.max(zoomLayout.bodyScroll, zoomLayout.rootScroll), JSON.stringify(zoomLayout)).toBeLessThanOrEqual(zoomLayout.rootClient + 1);
-  const zoomEvidenceWidths = await page.locator(".document-field__evidence dd").evaluateAll((values) => values.map((value) => value.getBoundingClientRect().width));
+  const zoomEvidenceWidths = await page.locator(".document-field__evidence dd").evaluateAll((values) => values.filter((value) => value.getClientRects().length > 0).map((value) => value.getBoundingClientRect().width));
   expect(Math.min(...zoomEvidenceWidths)).toBeGreaterThan(100);
-  const corporateWidths = await page.locator(".case-corporate-evidence .kv-value").evaluateAll((values) => values.map((value) => value.getBoundingClientRect().width));
+  const corporateWidths = await page.locator(".case-corporate-evidence .kv-value").evaluateAll((values) => values.filter((value) => value.getClientRects().length > 0).map((value) => value.getBoundingClientRect().width));
   expect(corporateWidths.length).toBeGreaterThan(0);
   expect(Math.min(...corporateWidths)).toBeGreaterThan(100);
   await testInfo.attach("Garden-200-percent-content-zoom", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
   await page.evaluate(() => { document.documentElement.style.zoom = ""; });
   const focusBaseline = requests.length;
-  await openStage(page, "Target preparation / submission state");
+  await openStage(page, "Preparing GoldTier Submission");
   await page.getByText("Backend execution details", { exact: true }).click();
   await page.getByRole("button", { name: "Focus registry evidence" }).click();
   await expect(page.locator("#case-evidence-registry")).toBeFocused();
@@ -321,7 +326,7 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
     && result.url().endsWith("/target-confirmation"), { timeout: 15_000 });
   await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
   expect((await confirmation).status()).toBe(200);
-  await openStage(page, "Target preparation / submission state");
+  await openStage(page, "Preparing GoldTier Submission");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 90_000 });
   const completed = await summary(page, caseId);
   expect(completed.status).toBe("COMPLETED");
@@ -425,8 +430,8 @@ test("Garden document arrival settles identity focus before explicit Documents i
     const caseId = await startGarden(page, true);
     await page.getByRole("button", { name: "Open full case" }).click();
     await expect(page).toHaveURL(`/cases/${caseId}`);
-    await openStage(page, "Documents & reconciliation");
-    const documentsButton = page.locator(".stage-disclosure > h2 > button").filter({ hasText: "Documents & reconciliation" });
+    await openStage(page, "Document verification");
+    const documentsButton = page.locator(".stage-disclosure > h2 > button").filter({ hasText: "Document verification" });
     await expect(documentsButton).toHaveAttribute("aria-expanded", "true");
     release();
     await expect(page.getByRole("button", { name: "Use document UEN", exact: true })).toBeVisible();

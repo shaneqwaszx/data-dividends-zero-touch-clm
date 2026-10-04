@@ -6,11 +6,13 @@ It is not a sponsor contract, phase report, or substitute for current source and
 ## Verification metadata
 
 The current main source baseline was inspected on 2026-10-04 at
-`707765b1d51172c64b851c9e46e68b3c23006789` (merged PR #67, Phase24/24C).
+`1d426e0ceddc32d80b0aaec293c62fb761f2fecf` (merged PR #68, post-Phase24 A–G).
 This establishes source/contract metadata, not a newly executed main runtime suite.
-The cumulative post-Phase24 A–G work is unmerged on
-`feat/post-phase24-stability-provider-hardening`; exact candidate tests and independent
-gates belong to that branch and their manifests. Original checkout data is untouched.
+The cumulative post-Phase24 A–G work is included in that main baseline. Its
+[final independent PASS](../.ai-pipeline/reports/POST_PHASE24_FINAL_A_G_GATE.md)
+and historical runtime evidence retain their exact reviewed/tested identities;
+they do not certify the new onboarding-intelligence/GoldTier Sandbox candidate.
+Original checkout data is untouched.
 
 
 PR #65 was human squash-merged on 2026-10-01 at
@@ -37,9 +39,9 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 8,
+  "case_envelope_schema_version": 9,
   "verified_date": "2026-10-04",
-  "verified_main_sha": "707765b1d51172c64b851c9e46e68b3c23006789",
+  "verified_main_sha": "1d426e0ceddc32d80b0aaec293c62fb761f2fecf",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -69,9 +71,59 @@ main behavior changes without a closeout refresh, not merely when a feature comm
 created. A later documentation-only closeout commit does not replace the inspected
 behavioral baseline. `schema_version` versions this metadata format;
 `case_envelope_schema_version` is independently checked against the canonical
-persistence constant.
+persistence constant. In this uncommitted program candidate it reports schema9; the
+inspected main baseline above still used schema8. Main verification does not certify
+the current candidate, whose tests and independent content identity are separate.
 
 ## Current status
+
+### Current owner-authorized program — Sessions 1 and 2 PASS, Session 3 candidate
+
+The new post-merge program is on `feat/onboarding-intelligence-goldtier-sandbox`,
+based on the inspected PR #68 SHA above. It is an uncommitted implementation candidate,
+not accepted main behavior. The [bounded planner](../.ai-pipeline/001_planner/ONBOARDING_INTELLIGENCE_GOLDTIER_SANDBOX_PLAN.md)
+records Session 1 independent PASS on its exact 60-path candidate after one bounded
+documentation remediation; the S1 gate is historical evidence for those bytes only.
+Session 2 received fresh independent PASS after one bounded duplicate-table remediation.
+Its exact reviewed 147-path candidate and subsequent Session 3 changes are distinct.
+Session 3 adds truthful ledger-derived submission states and a bounded read-only
+uncertain-identity observation through normal Sandbox composition. On 2026-10-04,
+the one owner-authorized synthetic acceptance completed actual XPI Search, Shell,
+required Policy and exact-ID readback for customer `143887`. The application retained
+SUBMISSION_CONFIRMED, a finalized successful ledger and exact document/ownership
+evidence after restart without new provider calls. Amend was not required. The
+[external receipt](../.ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S3_EXTERNAL_RECEIPT.json)
+and [durable proof](../.ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S3_DURABLE_ACCEPTANCE_PROOF.json)
+record these bounded Sandbox observations. The cumulative content and final executed
+checks are indexed by the [final manifest](../.ai-pipeline/reports/ONBOARDING_INTELLIGENCE_FINAL_MANIFEST.json)
+and [check index](../.ai-pipeline/reports/ONBOARDING_INTELLIGENCE_FINAL_CHECKS.json);
+the separate [fresh independent gate](../.ai-pipeline/reports/ONBOARDING_INTELLIGENCE_FINAL_QUALITY_GATE.md)
+determines combined acceptance. Owner review and publication remain separate.
+
+The current Session 1 source delta retains structured document observations and
+provenance across same-case identity correction. The existing document owner compares
+them with the newly verified canonical identity; existing reconciliation/orchestration
+owners recompute dependent state and resume until the next authoritative blocker.
+This uses retained extraction rather than retained upload bytes or a new OCR claim.
+Replacement-document semantics and target no-replay remain separate.
+
+Cases and Onboarded offer server-side Created from / Created to filters over the
+authoritative automation `created_at`. Both selected Singapore calendar days are
+inclusive under the explicit UTC+08:00 convention: from 00:00 inclusive through the
+day after Created to at 00:00 exclusive. Actor/team scope remains backend-owned;
+the paged portfolio applies date predicates before ordering, offset and limit.
+Date bounds participate in authenticated query identity and cancellation.
+
+Under D-062 and the explicit current program authority, Review & Send is the final
+local human approval for the reviewed submission. The Session 1 presentation ends at
+Final review & send and has no second local unresolved approval stage. GoldTier-internal
+approval, regulatory approval and actual external delivery remain separate evidence.
+Session 1 gate/browser/physical evidence is attributed to this candidate's own reports;
+Session 2 adds native-first/local OCR and creator-reviewed document ownership evidence;
+the separate S2 independent gate passed its recorded round1 content. Session 3 proves
+one bounded synthetic parent-customer Sandbox delivery, not GoldTier KYC/approval,
+Ready-for-Approval, related-party objects, original-file transfer or Live operation.
+Camunda is unimplemented and outside this program.
 
 ### Phase 24 accepted on inspected main
 
@@ -80,7 +132,7 @@ recomputation with identity-bound ownership history, bounded scalar evidence and
 deterministic semantic tagger (`ML_RUNTIME_NOT_AVAILABLE`), and seven accessible ordered
 disclosures ending in Review & Send. Its source/test/review identity and verification
 limits remain attributed to the Phase24 handoff and independent gates; their execution evidence
-is not silently transferred to the later A–G branch. Provider classifications remain unchanged.
+is not silently transferred to the later A–G or current program evidence. Provider classifications remain unchanged.
 
 Actual October 1-2 official ACRA Marketplace Mock discovery made 24 token/read attempts:
 22 HTTP responses and two pre-response TLS failures. The private seven-page sample
@@ -96,8 +148,8 @@ See [sanitized receipt](development/PHASE_24_ACRA_DISCOVERY.md) and
 The repository is a synthetic, local/sandbox-shaped proof of concept for Singapore
 new-to-bank corporate onboarding. The supported happy path can reach
 `COMPLETED / MOCK_GOLDTIER_SUBMITTED`; that means the credential-free Mock target path
-completed. It does not mean customer approval, compliance approval, legal UBO
-determination, Ready-for-Approval, or live interoperability.
+completed after local submission confirmation. It does not mean regulatory approval,
+GoldTier-internal approval, legal UBO determination, Ready-for-Approval, or live interoperability.
 
 Major implemented phases are:
 
@@ -204,9 +256,11 @@ Major implemented phases are:
   exposes safe GoldTier status, bounded read-only Search, offline request preview/dry
   run, and a process-local safe timeline. Standalone writes are blocked by the existing
   case-ledger boundary; related-party dispatch remains blocked on child-ID lifecycle.
-- The backend-authored pipeline inspector now ends with an explicit unresolved human-
-  approval boundary after technical completion. Its technical event table renders only
-  fixed event codes/types, never retained free-text event messages.
+- The PR #68 inspector retained an unresolved external human-approval presentation
+  after technical completion. The Session 1 candidate replaces that local presentation
+  with Final review & send under D-062/current owner authority; there is no second local
+  approval requirement. The technical event table uses fixed event codes/types,
+  never retained free-text event messages.
 - The official ACRA API Marketplace Mock has the explicit opt-in mode
   `api_marketplace_mock`, distinct from local `mock` and generic `sandbox`. Authorized
   bounded Mock observations prove the exact token response shape plus strict entity and
@@ -238,8 +292,8 @@ manual economic-interest evidence; versioned explanatory blocker-decision metada
 and an exact server-authored final review whose durable confirmation is enforced under
 lock before every target write path. HR gains a read-only ACRA diagnostic surface using
 the same composed connector and no case access. Acceptance establishes POC behavior;
-it does not establish provider-write authorization, Live integration, approval, or
-sponsor policy.
+it does not establish provider-write authorization, Live integration, regulatory or
+GoldTier-internal approval, or sponsor policy.
 The accepted POC final review includes legal form, owning team, and section-level
 routes to the existing identity, classification, and document owners. It routes to the
 manual-ownership evidence owner only when the server's typed recovery projection
@@ -311,6 +365,7 @@ authenticated browser/API request
   -> registry-fed deterministic Decimal ownership graph analysis
   -> versioned advisory entity resolution, UBO assistance, and mock risk
   -> readiness and immutable target snapshot
+  -> Review & Send: final local human approval and retained dispatch confirmation
   -> incremental GoldTier Mock-default or explicit XPI-sandbox target checkpoints:
      Shell/Policy for new customers; Amend when required (always for D2 Mock,
      conditional under D-063 for XPI); same-ID read-back after required operations,
@@ -323,9 +378,9 @@ Technical composition is centered in `apps/backend/app/main.py`,
 Business behavior stays in domain/services; adapters stay at connector/persistence
 boundaries.
 
-## Slice-D D2 local Mock candidate — 2026-10-03
+## Slice-D D2 local Mock accepted on main — 2026-10-04
 
-The uncommitted D2 candidate adds bounded customer facts inside the existing Mock
+The D2 implementation included in PR #68 retains bounded customer facts inside the existing Mock
 connector and uses the existing target ledger for successful identity readback after
 required Amend. Policy remains technical POLICY_CREATED with accepted ACRA external-key
 binding. Prior verified-case reuse also requires finalized same-ID readback ledger proof;
@@ -336,8 +391,9 @@ workflow/task/RFA/approval state, Sandbox fallback or external call is added. Mo
 PROJECT_OWNED / LOCAL / IN_PROCESS / NO_HTTP / NO_AUTH / PROCESS_LOCAL. D1 observed only
 NO_MATCH and established no new API semantics. Exact D2 verification/review provenance
 belongs to [the D2 report](../.ai-pipeline/reports/POST_PHASE24_SLICE_D2_IMPLEMENTATION.md);
-earlier main/phase acceptance remains attributed to its original tree. D2 received feature-branch independent PASS. The subsequent explicit combined F/G owner
-authorization permits final integration and conditional publication; human merge remains required.
+earlier main/phase acceptance remains attributed to its original tree. D2's feature-branch
+independent PASS and the final cumulative A–G PASS preceded the human merge through PR #68.
+These historical receipts are not a new execution against the current Session 1 candidate.
 
 ## Current External Integration Truth
 
@@ -347,10 +403,10 @@ authorization permits final integration and conditional publication; human merge
 | ACRA API Marketplace Mock | explicit opt-in | fixed official Mock token/entity/shareholder transport with no fallback | Mock / Observed interoperability | Authorized token plus strict entity/shareholder success; Garden shareholders empty; no ownership-percentage authority and not Live |
 | Registry cache | disabled | opt-in synthetic and official API Marketplace Mock | User-authorized POC, Phase24C accepted main | Normalized operation-prefix/definitive-negative schema2, frozen ACTIVE freshness/TTL, COMPLETE-only binding and bounded process-local single-flight; branch extensions require exact cumulative gate |
 | ACRA BizFile | none | module exists but is not composed | Dormant | Focused adapter code/tests only, not runtime availability |
-| IDP/OCR | `local_pdf_text` | Mock fault/demo provider | Local POC / Mock | Deterministic extraction from supported synthetic documents |
+| IDP/OCR | `local_pdf_text` | Mock fault/demo provider | Local POC / Mock | S2 independent PASS; native-first PDF/DOCX/TXT plus actual local Tesseract scanned PDF/PNG/JPEG/TIFF. Host OCR runtime absent; isolated Docker runtime and current checks have explicit receipts in the final check index. |
 | Ownership | registry evidence into local engine | Mock fault/demo provider | Local / Mock support | Deterministic Decimal graph analysis, not an external service |
 | GoldTier | `mock` default | XPI `sandbox` mode | Mock active; sandbox partial | Ordered target behavior through one retained recovery ledger |
-| GoldTier XPI sandbox | none | explicit `sandbox` mode | Partial | Supplied-route Search/customer mutation adapter, early Search orchestration, strict safe projection, target-policy blocking, and no-replay semantics; one bounded Garden sequence recovered Shell/Policy without replay and retained a failed Amend validation, but no successful customer lifecycle/read-back or Live interoperability is proved |
+| GoldTier XPI sandbox | none | explicit `sandbox` mode | Partial | Supplied-route Search/customer mutation adapter, strict safe projection, target-policy blocking and no-replay; the uncommitted S3 candidate completed one fresh synthetic parent Shell/Policy/exact-ID readback and retained confirmed state across restart. Historical Garden Amend remains failed. RP/file transfer, KYC/approval/RFA and Live interoperability remain unproved |
 | PingFed | none | future placeholders only | Not implemented | No token retrieval or authenticated target connection |
 | MongoDB | memory by default | explicit `mongo` mode | Optional local infrastructure | Single-instance durable POC behavior when configured |
 | Camunda | none | none | Not implemented | No runtime workflow-engine integration |
@@ -384,7 +440,7 @@ unknown or blocked.
   clears them.
 - `mongo` is explicit. Missing/invalid configuration, startup validation, reads, or
   writes fail closed and never fall back to memory.
-- One schema-versioned case envelope (schema v8) owns durable case
+- One schema-versioned case envelope (S2 candidate schema v9) owns durable case
   state. Strict v1/v2/v3/v4/v5/v6/v7 reads preserve absent historical fields, including v4
   `intelligence = null`, without a read-only persistence rewrite. Automation records
   persist a separate stage-order version: a missing value is the pre-Search v1 order,
@@ -484,7 +540,7 @@ unknown or blocked.
   review, or Ready-for-Approval policy.
 - No arbitrary blocker override, free-form canonical editing, general provider-recovery
   attestation, automatic Search retry, autonomous approval, or complete human exception
-  workbench. The candidate recovery actions are only the explicit typed D-061 paths.
+  workbench. Accepted recovery actions remain the explicit typed D-061 paths.
 - No autonomous approval, production risk/compliance engine, legal UBO determination, production
   audit repository, distributed workflow, or multi-instance exactly-once guarantee.
 - No full analytics/MIS platform or full Exception Workbench.
@@ -603,7 +659,13 @@ Consult `docs/sponsor-questions/OPEN_QUESTIONS.md` for exact wording and current
 
 ## Next candidate work packages
 
-These are candidates, not authorization to implement:
+The current three-session program is explicitly owner-authorized; its sequential
+gate conditions remain in the planner above. Session 2 OCR/document/ownership received
+fresh independent round1 PASS. Session 3 completed its single bounded synthetic Sandbox
+delivery; the final check index and separate fresh independent combined gate record
+their exact tested/reviewed identities. Owner review/publication are still required.
+The following broader
+packages are candidates, not authorization to implement:
 
 PR #65's accepted POC onboarding/final-review implementation and independent gate
 are complete. Further work requires a separately authorized package. Official-Mock
@@ -611,12 +673,13 @@ demo-pack completeness remains evidence-dependent: no absent supplied fixture,
 screenshot, declaration, README, or validation artefact may be invented.
 
 1. Sponsor contract/access reconciliation for ACRA and GoldTier/PingFed.
-2. Sponsor-confirmed Ready-for-Approval/reviewer/retention policy design.
+2. Sponsor-confirmed legal/controller, reviewer and retention policy design; target
+   Ready-for-Approval only where an authoritative target contract requires it.
 3. Authoritative external-provider work only after contract, security and credential
    prerequisites are satisfied.
-4. Camunda runtime integration remains a separate optional, requirements-dependent
-   package and is not implemented.
-5. Measured hotspot or production-scale portfolio/activity work if evidence shows need.
+4. Measured hotspot or production-scale portfolio/activity work if evidence shows need.
+
+Camunda remains unimplemented and is outside the current authorized program.
 
 Every new package requires a bounded planner handoff, change classification, relevant
 skill, proportional verification, and independent quality gate.
@@ -637,7 +700,7 @@ existing strict CAS. Sandbox/Live cache and final autonomous approval remain una
 Phase24C is accepted through merged PR #67 at the inspected main baseline. Its original
 implementation, gate and external evidence retain their own execution identities.
 
-## Slice E implementation candidate — 2026-10-03
+## Slice E policy impact accepted on main — 2026-10-04
 
 The Policy tab now offers on-demand deterministic explainable comparison beneath the
 existing PolicyManagementService. Eight core editable parameters receive authoritative
@@ -662,5 +725,6 @@ Slice E received independent PASS on its exact cumulative feature-branch candida
 accepted anchors are preserved. Slice F then closed the inherited Phase07 exact-asset allowlist
 blocker and received fresh remediation-round-1 PASS. Historical reports preserve earlier failures.
 Mock/Local/Sandbox/Live classifications and all provider runtime status remain unchanged.
-Slice E alone granted no publication authority. The later explicit combined F/G authorization
-now governs G verification, exact final independent PASS, conditional publication and human merge.
+Slice E alone granted no publication authority. The subsequent cumulative A–G candidate
+received exact final independent PASS and was human-merged through PR #68. Its historical
+verification evidence does not certify later Session 1 changes.

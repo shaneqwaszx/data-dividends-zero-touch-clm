@@ -66,6 +66,8 @@ class InMemoryOnboardingCaseRepository:
                 raise OnboardingCaseRepositoryConflictError
             if current.team_id != validated.team_id:
                 raise CaseTeamImmutableError
+            if current.created_by_actor_id != validated.created_by_actor_id:
+                raise OnboardingCaseRepositoryConflictError
             self._cases[validated.case_id] = validated.model_copy(deep=True)
 
     def create(self, case: OnboardingCase) -> None:
@@ -127,6 +129,8 @@ class InMemoryOnboardingCaseRepository:
             raise OnboardingCaseRepositoryConflictError
         if current.team_id != case.team_id:
             raise CaseTeamImmutableError
+        if current.created_by_actor_id != case.created_by_actor_id:
+            raise OnboardingCaseRepositoryConflictError
         self._cases[case.case_id] = case.model_copy(deep=True)
 
     def transaction_restore(
@@ -135,4 +139,12 @@ class InMemoryOnboardingCaseRepository:
         if snapshot is None:
             self._cases.pop(case_id, None)
         else:
-            self._cases[case_id] = snapshot.model_copy(deep=True)
+            validated = OnboardingCase.model_validate(snapshot.model_dump())
+            current = self._cases.get(case_id)
+            if validated.case_id != case_id or current is None:
+                raise OnboardingCaseRepositoryConflictError
+            if current.team_id != validated.team_id:
+                raise CaseTeamImmutableError
+            if current.created_by_actor_id != validated.created_by_actor_id:
+                raise OnboardingCaseRepositoryConflictError
+            self._cases[case_id] = validated.model_copy(deep=True)

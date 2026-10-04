@@ -1,18 +1,28 @@
-"""Bounded local PDF-text extraction for the input-driven synthetic POC."""
+"""Native-first page extraction plus bounded local OCR for the provisional POC."""
 
 import re
-from io import BytesIO
+import time
+from dataclasses import dataclass, field
 
-from pypdf import PdfReader
-
+from app.connectors.document_ownership_parser import parse_ownership_observations
 from app.connectors.idp import (
     IdpDocumentInput,
-    IdpProcessingError,
     IdpProviderMetadata,
     IdpSourceField,
     IdpSourceResult,
+    LocalDocumentProcessingError,
 )
-from app.domain.documents import DocumentFieldKey, IdpEnvironment
+from app.connectors.local_document_runtime import isolated_document_pages
+from app.connectors.local_ocr import LocalOcrAdapter, TesseractOcrAdapter
+from app.domain.documents import (
+    DocumentFieldCandidate,
+    DocumentFieldKey,
+    DocumentPageEvidence,
+    ExtractionMethod,
+    ExtractionQuality,
+    ExtractionScoreKind,
+    IdpEnvironment,
+)
 
 _FIELD_LABELS: dict[DocumentFieldKey, tuple[str, ...]] = {
     DocumentFieldKey.LEGAL_NAME: ("Legal Name", "Company", "Company / Legal Name"),
@@ -20,97 +30,188 @@ _FIELD_LABELS: dict[DocumentFieldKey, tuple[str, ...]] = {
     DocumentFieldKey.REGISTERED_ADDRESS: ("Registered Address",),
     DocumentFieldKey.COUNTRY_OF_INCORPORATION: ("Country", "Country of Incorporation"),
 }
-_MAX_PAGES = 10
-_MAX_EXTRACTED_TEXT_CHARACTERS = 64_000
+_MAX_TEXT = 64_000
+_TOTAL_TIMEOUT_SECONDS = 60.0
+
+
+@dataclass(frozen=True)
+class _Page:
+    text: str = field(repr=False)
+    evidence: DocumentPageEvidence
 
 
 class LocalPdfTextIdpProvider:
-    """Extract labelled synthetic-PDF fields without OCR, inference, or network I/O.
+    """Extend the existing local port without external transfer or inference.
 
-    Confidence is project-defined parser evidence: 0.97 for one exact labelled value,
-    0.90 for one accepted alternate label, 0.40 for duplicate/ambiguous candidates,
-    and 0.00 for a missing value. It is not a calibrated model probability.
+    Native label scores are 0.97 (primary) / 0.90 (alternate); OCR label scores multiply
+    that score by the page's arithmetic mean valid word confidence / 100. Ambiguity
+    is capped at 0.40; absence is 0.00. Scores are deterministic evidence, not
+    probabilities. Registry comparison never changes extraction evidence.
     """
+
+    def __init__(self, *, ocr: LocalOcrAdapter | None = None) -> None:
+        self._ocr = ocr or TesseractOcrAdapter()
 
     @property
     def metadata(self) -> object:
         return IdpProviderMetadata(provider_name="LOCAL_PDF_TEXT", environment=IdpEnvironment.LOCAL)
 
-    def process(self, document: IdpDocumentInput) -> object:
-        text = (
-            document.extracted_text
-            if document.extracted_text is not None
-            else self._extract_text(document.content)
-        )
-        if not text.strip():
-            return self._unavailable_result(document)
-        return IdpSourceResult(
-            profile=document.profile,
-            fields=[self._field_from_text(text, key) for key in DocumentFieldKey],
-        )
-
-    def _extract_text(self, content: bytes) -> str:
-        try:
-            reader = PdfReader(BytesIO(content), strict=True)
-            if reader.is_encrypted or len(reader.pages) > _MAX_PAGES:
-                raise IdpProcessingError
-            extracted_pages: list[str] = []
-            extracted_length = 0
-            for page in reader.pages:
-                page_text = page.extract_text() or ""
-                extracted_length += len(page_text)
-                if extracted_length > _MAX_EXTRACTED_TEXT_CHARACTERS:
-                    raise IdpProcessingError
-                extracted_pages.append(page_text)
-            return "\n".join(extracted_pages)
-        except IdpProcessingError:
-            raise
-        except Exception as exc:
-            raise IdpProcessingError from exc
-
-    def _unavailable_result(self, document: IdpDocumentInput) -> IdpSourceResult:
-        return IdpSourceResult(
-            profile=document.profile,
-            fields=[
-                IdpSourceField(
-                    field_key=key,
-                    value=None,
-                    confidence=0.0,
-                    source_reference="DOCUMENT_TEXT_UNAVAILABLE",
-                )
-                for key in DocumentFieldKey
-            ],
-        )
-
-    def _field_from_text(self, text: str, key: DocumentFieldKey) -> IdpSourceField:
-        candidates: list[tuple[str, bool]] = []
-        for index, label in enumerate(_FIELD_LABELS[key]):
-            pattern = re.compile(rf"(?im)^\s*{re.escape(label)}\s*:\s*([^\r\n]+)\s*$")
-            candidates.extend(
-                (match.group(1).strip(), index == 0)
-                for match in pattern.finditer(text)
+    def process(self, document: IdpDocumentInput) -> IdpSourceResult:
+        pages = self._extract_pages(document)
+        ownership = tuple(
+            observation
+            for page in pages
+            for observation in parse_ownership_observations(
+                page.text,
+                page=page.evidence,
+                evidence_score=self._score(page.evidence, primary=True),
             )
-        distinct = list(dict.fromkeys(value for value, _ in candidates if value))
-        if not distinct:
+        )
+        if len(ownership) > 128:
+            raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
+        return IdpSourceResult(
+            profile=document.profile,
+            fields=[self._field_from_pages(pages, key) for key in DocumentFieldKey],
+            pages=tuple(page.evidence for page in pages),
+            ownership_observations=ownership,
+        )
+
+    def _extract_pages(self, document: IdpDocumentInput) -> tuple[_Page, ...]:
+        if document.extracted_text is not None:
+            if len(document.extracted_text) > _MAX_TEXT:
+                raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
+            method = (
+                ExtractionMethod.NATIVE_DOCX_TEXT
+                if document.media_type.startswith("application/vnd.openxmlformats")
+                else ExtractionMethod.NATIVE_TXT_TEXT
+            )
+            # DOCX/TXT have no reliable rendered page number: logical extraction unit 1.
+            return (_Page(document.extracted_text, self._evidence(1, method)),)
+        started = time.monotonic()
+        pages: list[_Page] = []
+        total_text = 0
+        with isolated_document_pages(document.content, document.media_type) as source_pages:
+            for page in source_pages:
+                remaining = _TOTAL_TIMEOUT_SECONDS - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise LocalDocumentProcessingError("DOCUMENT_PROCESSING_TIMEOUT")
+                if page.image_path is None:
+                    text = page.text
+                    evidence = self._evidence(page.page_number, ExtractionMethod.NATIVE_PDF_TEXT)
+                else:
+                    result = self._ocr.recognize(page.image_path, timeout_seconds=remaining)
+                    text = result.text
+                    evidence = self._evidence(
+                        page.page_number,
+                        ExtractionMethod.LOCAL_TESSERACT_OCR,
+                        raw_mean=result.raw_mean_confidence,
+                        word_count=result.word_count,
+                    )
+                total_text += len(text)
+                if total_text > _MAX_TEXT:
+                    raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
+                if not text.strip():
+                    evidence = evidence.model_copy(
+                        update={
+                            "extraction_quality": ExtractionQuality.UNAVAILABLE,
+                        }
+                    )
+                pages.append(_Page(text, evidence))
+        if time.monotonic() - started > _TOTAL_TIMEOUT_SECONDS:
+            raise LocalDocumentProcessingError("DOCUMENT_PROCESSING_TIMEOUT")
+        return tuple(pages)
+
+    @staticmethod
+    def _evidence(
+        page_number: int,
+        method: ExtractionMethod,
+        *,
+        raw_mean: float | None = None,
+        word_count: int | None = None,
+    ) -> DocumentPageEvidence:
+        ocr = method == ExtractionMethod.LOCAL_TESSERACT_OCR
+        quality = ExtractionQuality.HIGH
+        if ocr:
+            quality = (
+                ExtractionQuality.UNAVAILABLE
+                if raw_mean is None
+                else ExtractionQuality.HIGH
+                if raw_mean >= 85
+                else ExtractionQuality.LOW
+            )
+        return DocumentPageEvidence(
+            page_number=page_number,
+            source_reference=f"PAGE_{page_number}",
+            extraction_method=method,
+            extraction_quality=quality,
+            score_kind=ExtractionScoreKind.DETERMINISTIC_EVIDENCE_SCORE,
+            score_formula="LABEL_SCORE_TIMES_OCR_MEAN_OVER_100" if ocr else "LABEL_SCORE",
+            raw_ocr_mean_confidence=raw_mean,
+            raw_ocr_word_count=word_count,
+        )
+
+    @staticmethod
+    def _score(evidence: DocumentPageEvidence, *, primary: bool) -> float:
+        score = 0.97 if primary else 0.90
+        if evidence.extraction_method == ExtractionMethod.LOCAL_TESSERACT_OCR:
+            score *= (evidence.raw_ocr_mean_confidence or 0.0) / 100
+        return round(score, 6)
+
+    def _field_from_pages(self, pages: tuple[_Page, ...], key: DocumentFieldKey) -> IdpSourceField:
+        candidates: list[tuple[DocumentFieldCandidate, bool]] = []
+        for page in pages:
+            for index, label in enumerate(_FIELD_LABELS[key]):
+                pattern = re.compile(rf"(?im)^\s*{re.escape(label)}\s*:\s*([^\r\n]+)\s*$")
+                for match in pattern.finditer(page.text):
+                    value = match.group(1).strip()
+                    if len(value) > 512:
+                        raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
+                    if value:
+                        row = page.text[: match.start()].count("\n") + 1
+                        candidates.append(
+                            (
+                                DocumentFieldCandidate(
+                                    **page.evidence.model_dump(exclude={"source_reference"}),
+                                    value=value,
+                                    source_reference=f"PAGE_{page.evidence.page_number}_LINE_{row}",
+                                ),
+                                index == 0,
+                            )
+                        )
+        if len(candidates) > 32:
+            raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
+        distinct = set(candidate.value for candidate, _ in candidates)
+        if not candidates:
+            no_text = not any(page.text.strip() for page in pages)
             return IdpSourceField(
                 field_key=key,
                 value=None,
                 confidence=0.0,
-                source_reference="LABEL_MISSING",
+                source_reference="DOCUMENT_TEXT_UNAVAILABLE" if no_text else "LABEL_MISSING",
+                extraction_quality=ExtractionQuality.UNAVAILABLE,
+                score_kind=ExtractionScoreKind.DETERMINISTIC_EVIDENCE_SCORE,
+                score_formula="LABEL_SCORE",
+                candidates=(),
             )
-        if len(distinct) > 1:
-            return IdpSourceField(
-                field_key=key,
-                value=distinct[0],
-                confidence=0.40,
-                page_number=1,
-                source_reference="AMBIGUOUS_LABELLED_VALUES",
-            )
-        exact_label = any(value == distinct[0] and exact for value, exact in candidates)
+        first, primary = max(
+            candidates,
+            key=lambda item: self._score(
+                DocumentPageEvidence.model_validate(item[0].model_dump(exclude={"value"})),
+                primary=item[1],
+            ),
+        )
+        evidence = DocumentPageEvidence.model_validate(first.model_dump(exclude={"value"}))
+        ambiguous = len(distinct) > 1
         return IdpSourceField(
+            **evidence.model_dump(exclude={"source_reference", "extraction_quality"}),
+            extraction_quality=(
+                ExtractionQuality.AMBIGUOUS if ambiguous else first.extraction_quality
+            ),
             field_key=key,
-            value=distinct[0],
-            confidence=0.97 if exact_label else 0.90,
-            page_number=1,
-            source_reference="UNIQUE_LABELLED_TEXT",
+            value=None if ambiguous else first.value,
+            confidence=min(0.4, self._score(evidence, primary=primary))
+            if ambiguous
+            else self._score(evidence, primary=primary),
+            source_reference="AMBIGUOUS_LABELLED_VALUES" if ambiguous else "UNIQUE_LABELLED_TEXT",
+            candidates=tuple(candidate for candidate, _ in candidates),
         )

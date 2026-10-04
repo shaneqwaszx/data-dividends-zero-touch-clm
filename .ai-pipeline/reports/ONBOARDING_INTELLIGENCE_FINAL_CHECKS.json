@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-10-04T13:16:51.897320+00:00",
+  "phase": "FINAL_COMBINED_R2",
+  "root_checks": "PASS",
+  "independent_final_gate": "Separate fresh report; this index cannot grant independent acceptance",
+  "head": "1d426e0ceddc32d80b0aaec293c62fb761f2fecf",
+  "branch": "feat/onboarding-intelligence-goldtier-sandbox",
+  "application_files": 218,
+  "application_sha256": "fd18199cf4bbb90892dab8b5d58327733d19c068d12e2feb97f7afb455bace8c",
+  "lanes": {
+    "backend": {
+      "passed": 2278,
+      "skipped": 119,
+      "failed": 0,
+      "errors": 0,
+      "collected": 2397,
+      "whole_process_exit": 0,
+      "progress_rows": 34,
+      "collection_summary": "2397 tests collected in 2.21s",
+      "duration": "not emitted by doubled quiet pytest settings",
+      "warning_entries": 4,
+      "command": ".venv/Scripts/python.exe -B -m pytest apps/backend/tests -q -p no:cacheprovider",
+      "log": {
+        "path": ".runtime/s3-r2-backend.log",
+        "sha256": "9d8e03afc6cb022d8e303eb35b1cdbe5583a5efb5be8c26db7bb0e11f3c21fb1"
+      },
+      "count_proof": {
+        "path": ".runtime/s3-r2-backend-count-proof.json",
+        "sha256": "d4b2ea8247b2d4ff0b02d08221a4520d6b05556221483004087b0a4c434919f1"
+      },
+      "skip_coverage": "113 physical tests plus six actual-runtime OCR cases; skips remain skips in this host invocation"
+    },
+    "physical_mongo": {
+      "status": "PASS",
+      "suites": 16,
+      "passed": 113,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "command": ".venv/Scripts/python.exe -B scripts/run_physical_mongo_tests.py --timeout-seconds 600",
+      "configuration": "PHASE12_MONGO_URI supplied only in task process for exact disposable loopback service",
+      "log": {
+        "path": ".runtime/s3-r2-physical.log",
+        "sha256": "8dd904d07d1bb4ccc0852eb3439d36d2fb18aa63467d1f8548ffba916799d743"
+      }
+    },
+    "frontend": {
+      "status": "PASS",
+      "files": 41,
+      "passed": 500,
+      "seconds": 7.01,
+      "command": "npm test",
+      "log": {
+        "path": ".runtime/s3-r2-frontend.log",
+        "sha256": "6c7d8acf0755790cbb2d8dd09fa5eb4174bd7e84c979796e6ba215bd7251b5e2"
+      }
+    },
+    "typecheck": {
+      "status": "PASS",
+      "command": "npm run typecheck",
+      "log": {
+        "path": ".runtime/s3-r2-typecheck.log",
+        "sha256": "db8f9e203a7aacdb93383c864c362c88b87c66f74c3b4420374dce29f4c045b5"
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "command": "npm run build",
+      "js_kb": 544.25,
+      "css_kb": 89.3,
+      "retained_warning": "Existing JavaScript chunk exceeds 500 kB",
+      "log": {
+        "path": ".runtime/s3-r2-build.log",
+        "sha256": "428adb65bc990d42777eb19a5bcdd7981179f093d9e2f07584c6f3e12ebf0c4c"
+      }
+    },
+    "ruff": {
+      "status": "PASS",
+      "commands": [
+        "backend cwd: python -B -m ruff check app tests",
+        "root cwd: python -B -m ruff check scripts tests"
+      ],
+      "receipt": "Coordinator tool output after current production/test edits"
+    },
+    "mypy": {
+      "status": "PASS",
+      "source_files": 124,
+      "command": "backend cwd: python -B -m mypy app",
+      "receipt": "Coordinator tool output on unchanged current application source"
+    },
+    "contracts": {
+      "status": "PASS",
+      "passed": 44,
+      "command": "backend cwd: python -B -m unittest discover -s ../../tests/contract -p test_*.py",
+      "log": {
+        "path": ".runtime/s3-r2-contracts.log",
+        "sha256": "37b9e9cbbf3ac20b3077292e9370fb9b7154a6c12a70cfda30f4cdae46b61b4a"
+      }
+    },
+    "tooling_governance_units": {
+      "status": "PASS",
+      "passed": 301,
+      "warnings": 1,
+      "seconds": 101.6,
+      "command": "python -B -m pytest tests --ignore=tests/test_demo_lifecycle_windows.py --ignore=tests/contract -q -p no:cacheprovider",
+      "log": {
+        "path": ".runtime/s3-r2-governance-units-final.log",
+        "sha256": "e1ce3e04c2d475bc26a28fbb396621bd3851aa270d1122ed688f6a6fd4b50575"
+      },
+      "prior_nonpassing": "Initial complete execution: 300 pass / stale fixture signature failure; wrong added keyword assertion also corrected before the focused pass"
+    },
+    "e2e": {
+      "status": "PASS",
+      "selectors": 59,
+      "executions": 66,
+      "skipped": 0,
+      "runner_seconds": 558.766,
+      "wall_seconds": 558.887507,
+      "deadline_seconds_per_lifecycle": 60,
+      "source_files": 13,
+      "source_sha256": "e4b55065ba6b85b019c562c87f8f7432abc860639505d021905cd319cd9b85df",
+      "command": "python -B scripts/run_e2e.py --timeout-seconds 60 --backend-port 18765 --frontend-port 14173",
+      "before_after_unchanged": true,
+      "log": {
+        "path": ".runtime/s3-r2-e2e.log",
+        "sha256": "fc5eaf88f2a1cfe9d4b51106d9475aadd5ead4cd133eb4a18969486094c7fde1"
+      },
+      "proof": {
+        "path": ".runtime/s3-r2-e2e-proof.json",
+        "sha256": "b4c16a6e7eb5c394d2176f8ba54612f96724978c7d884d0160d7fc24502c5d4d"
+      }
+    },
+    "windows_lifecycle": {
+      "status": "PASS",
+      "passed": 31,
+      "skipped": 0,
+      "seconds": 395.66,
+      "wall_seconds": 396.0874193,
+      "ports": [
+        15800,
+        15173
+      ],
+      "original_assertions_and_deadlines": true,
+      "command": "python -B -m unittest discover -s tests -p test_demo_lifecycle_windows.py -v",
+      "log": {
+        "path": ".runtime/s3-r2-windows.log",
+        "sha256": "2b0a11381ba530272d3c9b48d63fb1e06dc95d9b506481a6a344d55b0aa14bbb"
+      }
+    },
+    "actual_ocr": {
+      "status": "PASS",
+      "passed": 36,
+      "skipped": 0,
+      "actual_runtime_cases": 6,
+      "pytest_seconds": 13.78,
+      "browser_journeys": 1,
+      "browser_assertions": 87,
+      "browser_seconds": 4.026,
+      "browser_lifecycle_seconds": 11.469,
+      "lifecycle_deadline_seconds": 60,
+      "ocr_deadline_seconds": 12,
+      "application_sha256": "fd18199cf4bbb90892dab8b5d58327733d19c068d12e2feb97f7afb455bace8c",
+      "receipt": {
+        "path": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S3_R2_OCR_BROWSER_RECEIPT.md",
+        "sha256": "48b6bb81cd6ff6fe5e1a08ce3ef804b496e22c4c1703b704f3a7194b39c9eed7"
+      },
+      "temporary_summary_parser_reconciliation": "Actual completed exit0/log retained; warning suffix caused only helper bookkeeping failure, original failure retained; no rerun/source change"
+    },
+    "security_governance_scanners": {
+      "status": "PASS",
+      "commands": [
+        "check_architecture.py",
+        "check_project_state.py",
+        "check_policy_authority.py",
+        "check_external_provider_readiness.py",
+        "check_tooling_config.py",
+        "check_secrets.py"
+      ],
+      "scope": "tracked and non-ignored task paths; final candidate rerun before freeze"
+    },
+    "dependency_consistency": {
+      "status": "PASS",
+      "command": "python -B -m pip check"
+    },
+    "actual_external_sandbox": {
+      "status": "PASS_BOUNDED_PARENT_ONLY",
+      "calls": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "customer_id": "143887",
+      "all_dispatched_http_statuses": 200,
+      "additional_calls_after_attempt": 0,
+      "policy_id": null,
+      "classification": "PARTIAL_SANDBOX_NEVER_LIVE",
+      "executed_candidate_sha256": "d17f17017d7839e3722161bafe2d2e1b3c4ba9511d34be6d57370b450cfe39f6",
+      "receipt": {
+        "path": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S3_EXTERNAL_RECEIPT.json",
+        "sha256": "2a06fe9e1682fa833794de6e678f919bedf8ba45fc5b457e9ebd0de35d9a29c1"
+      },
+      "durable_proof": {
+        "path": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_S3_DURABLE_ACCEPTANCE_PROOF.json",
+        "sha256": "658355aa2b2ec40fec9a0c621453f363b8b342fbfab7a7d7369aa6c3d325cf4e"
+      },
+      "later_r2_delta": "Presentation/copy and offline regression tests only; no new actual attempt or external execution claim"
+    }
+  },
+  "hygiene": {
+    "tracked_diff_whitespace": "PASS",
+    "all_new_UTF8_and_whitespace": "PASS",
+    "staged": 0
+  },
+  "remediation_rounds": {
+    "S1": 1,
+    "S2": 1,
+    "S3_and_final": 2
+  },
+  "publication_authorized": false,
+  "cleanup_receipt": {
+    "path": ".ai-pipeline/reports/ONBOARDING_INTELLIGENCE_RESOURCE_CLEANUP.json",
+    "sha256": "baa8d6d412222c1cb104ce4e5a64f6d94986c0491177d8ea2645b945fd06e409"
+  }
+}

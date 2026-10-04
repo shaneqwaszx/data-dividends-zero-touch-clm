@@ -779,7 +779,7 @@ console.log(JSON.stringify({
             {"ok": True, "file": "zero-touch-exception.e2e.ts", "line": 145, "tags": ["garden-protocol"]},
             {"ok": True, "file": "zero-touch-exception.e2e.ts", "line": 145, "tags": ["garden-protocol"]},
         ]}]}
-        def discovery(port: int, *, garden_selectors: set[str], registry_selectors: dict[str, str] | None = None, recovery_selectors: dict[str, str] | None = None) -> list[str]:
+        def discovery(port: int, *, garden_selectors: set[str], registry_selectors: dict[str, str] | None = None, recovery_selectors: dict[str, str] | None = None, sandbox_selectors: dict[str, str] | None = None) -> list[str]:
             return cast(list[str], RUN_E2E._selectors_from_listing(payload, garden_selectors=garden_selectors))
         with (
             patch.object(RUN_E2E, "_list_test_selectors", side_effect=discovery),
@@ -863,12 +863,37 @@ console.log(JSON.stringify({
     def test_ci_outer_bound_covers_current_discovery_and_bounded_cleanup(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         e2e = workflow.split("  e2e:\n", 1)[1].split("  demo-lifecycle-windows:", 1)[0]
-        self.assertIn("timeout-minutes: 162", e2e)
+        self.assertIn("timeout-minutes: 192", e2e)
         self.assertIn("python scripts/run_e2e.py --timeout-seconds 60", e2e)
         self.assertLessEqual(
-            60 + 49 * (60 + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS) + 14 * 60,
-            162 * 60,
+            60 + 59 * (60 + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS) + 14 * 60,
+            192 * 60,
         )
+
+    def test_sandbox_discovery_routes_each_mode_and_preserves_default(self) -> None:
+        payload = {"suites": [{"specs": [
+            {"ok": True, "file": "default.e2e.ts", "line": 1, "tags": []},
+            *[{"ok": True, "file": "sandbox.e2e.ts", "line": index + 2,
+               "tags": ["s3-sandbox-" + mode]}
+              for index, mode in enumerate(RUN_E2E.SANDBOX_DEMO_MODES)],
+        ]}]}
+        modes: dict[str, str] = {}
+        selectors = RUN_E2E._selectors_from_listing(payload, sandbox_selectors=modes)
+        self.assertEqual(len(selectors), 4)
+        self.assertNotIn("e2e/default.e2e.ts:1", modes)
+        self.assertEqual(set(modes.values()), set(RUN_E2E.SANDBOX_DEMO_MODES))
+        for tags in (["s3-sandbox-unknown"], ["s3-sandbox-success", "garden-protocol"],
+                     ["s3-sandbox-success", "s3-sandbox-failed-policy"]):
+            payload["suites"][0]["specs"][0]["tags"] = tags
+            with self.subTest(tags=tags), self.assertRaises(RuntimeError):
+                RUN_E2E._selectors_from_listing(payload, sandbox_selectors={})
+
+    def test_sandbox_mode_requires_focused_separate_composition(self) -> None:
+        for arguments in ({}, {"grep": "S3", "garden_protocol": True},
+                          {"grep": "S3", "registry_demo": "incomplete"}):
+            with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                RUN_E2E.run(backend_port=8765, frontend_port=4173,
+                            timeout_seconds=60, sandbox_demo="success", **arguments)
 
 
 if __name__ == "__main__":
