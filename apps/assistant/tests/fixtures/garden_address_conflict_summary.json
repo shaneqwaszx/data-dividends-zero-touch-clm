@@ -1,0 +1,2344 @@
+{
+ "case": {
+  "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+  "source_case_id": "CASE-11111999A-1a94cce9",
+  "correlation_id": "a6f16cd8-25c8-470d-9652-d440f72eb207",
+  "requested_uen": "11111999A",
+  "initial_identity": {
+   "legal_name": "GARDEN BUSINESS",
+   "registration_number": "11111999A",
+   "country_of_incorporation": "SG"
+  },
+  "identity_corrections": [],
+  "target_dispatch_confirmation": null,
+  "policy_snapshot": {
+   "snapshot_label": "GLOBAL_POLICY_CATALOGUE_V1",
+   "catalogue_version": 1,
+   "idp_review_confidence_threshold": "0.85",
+   "ubo_threshold_percent": "25.000000",
+   "comparator": "GREATER_THAN_OR_EQUAL_TO",
+   "intelligence": {
+    "entity_resolution_auto_match_threshold": "0.85",
+    "entity_resolution_review_threshold": "0.60",
+    "entity_resolution_ambiguity_margin": "0.03",
+    "entity_resolution_weights": {
+     "identifier": "0.55",
+     "name": "0.25",
+     "address": "0.10",
+     "legal_form": "0.05",
+     "incorporation_date": "0.05"
+    },
+    "ubo_advisory_likely_threshold": "0.65",
+    "ubo_advisory_unlikely_threshold": "0.35",
+    "mock_risk_medium_threshold": 30,
+    "mock_risk_high_threshold": 60,
+    "mock_risk_blocks_readiness": false,
+    "entity_resolution_model_version": "entity-resolution-linear-v1",
+    "ubo_advisory_model_version": "ubo-advisory-linear-v1",
+    "mock_risk_model_version": "mock-advisory-risk-rules-v1"
+   },
+   "goldtier_target": {
+    "kyc_customer_type": {
+     "value": "TBD_SPONSOR",
+     "authority": "TBD_SPONSOR"
+    },
+    "client_segment": {
+     "value": "TBD_SPONSOR",
+     "authority": "TBD_SPONSOR"
+    },
+    "customer_external_system": {
+     "value": "DSD",
+     "authority": "SPONSOR_DOCUMENTED"
+    },
+    "registration_type": {
+     "value": "ACRA",
+     "authority": "USER_AUTHORIZED_POC"
+    },
+    "policy": {
+     "value": "Singapore",
+     "authority": "SPONSOR_DOCUMENTED"
+    },
+    "booking_entity": {
+     "value": "ANZBGL (Singapore Branch)",
+     "authority": "USER_AUTHORIZED_POC"
+    },
+    "account_entity_type": {
+     "value": "PROJECT_DEFINED_PROVISIONAL",
+     "authority": "PROJECT_DEFINED_PROVISIONAL"
+    },
+    "product_type": {
+     "value": "TBD_SPONSOR",
+     "authority": "TBD_SPONSOR"
+    }
+   },
+   "registry": {
+    "freshness_seconds": 7776000,
+    "negative_seconds": 600
+   },
+   "evidence_classifier": {
+    "kind_weight": "0.50",
+    "binding_weight": "0.25",
+    "confidence_weight": "0.25",
+    "threshold": "0.50"
+   },
+   "policy_identity": "921015ec05210028c81f0103b5d57f3df535c4c7e1ab68c2f9ba8996e8ef142e",
+   "bound_at": "2026-10-05T04:02:37.085989Z"
+  },
+  "policy_snapshot_revision": 1,
+  "policy_rebind": {
+   "revision": 1,
+   "configuration_status": "CURRENT_ACCEPTED_POC",
+   "accepted_poc_fields": [
+    "customerExternalSystem",
+    "registrationType",
+    "policy",
+    "bookingEntity"
+   ],
+   "editable_fields": [
+    "kycCustomerType",
+    "clientSegment"
+   ],
+   "upstream_fields": [
+    "registrationNumber"
+   ],
+   "unavailable_fields": [
+    "accountEntityType",
+    "productType"
+   ],
+   "last_rebound_by": null,
+   "last_rebound_at": null,
+   "last_rationale": null,
+   "last_changed_fields": []
+  },
+  "team_id": "TEAM_A",
+  "created_by_actor_id": "maya-lim",
+  "priority": null,
+  "client_scope_label": "Alpha",
+  "jurisdiction_resolution": {
+   "status": "RESOLVED",
+   "resolved_jurisdiction": "SG",
+   "observations": [
+    {
+     "jurisdiction": "SG",
+     "source": "USER_INPUT",
+     "observed_at": "2026-10-05T04:02:37.085347Z",
+     "evidence_reference": "request.country_of_incorporation",
+     "confidence": null
+    },
+    {
+     "jurisdiction": "SG",
+     "source": "IDENTIFIER_FORMAT",
+     "observed_at": "2026-10-05T04:02:37.085347Z",
+     "evidence_reference": "request.uen:accepted_sg_format",
+     "confidence": null
+    }
+   ],
+   "resolved_at": "2026-10-05T04:02:37.085347Z"
+  },
+  "registry_route": {
+   "status": "SELECTED",
+   "jurisdiction": "SG",
+   "provider": "ACRA",
+   "decided_at": "2026-10-05T04:02:37.086411Z"
+  },
+  "state": "VALIDATED",
+  "entity": {
+   "registration_number": "11111999A",
+   "legal_name": "GARDEN BUSINESS",
+   "country_of_incorporation": "SG",
+   "party_type": "BUSINESS",
+   "registration_date": "2018-03-10",
+   "entity_status": "LIVE",
+   "registered_address": {
+    "address_line_1": "18 OFFICIAL MOCK STREET",
+    "address_line_2": "#01-01",
+    "postal_code": "123456",
+    "country_code": "SG"
+   },
+   "source": {
+    "source_system": "ACRA",
+    "environment": "MOCK",
+    "retrieved_at": "2026-10-05T04:02:37.086503Z"
+   }
+  },
+  "registry_acquisition": {
+   "requested_identifier": "11111999A",
+   "status": "COMPLETE",
+   "officers": [],
+   "ownership_parties": [
+    {
+     "party_id": "111111111M",
+     "party_type": "LEGAL_ENTITY",
+     "name": "SIM LIM PTE. LTD.",
+     "registration_identifier": "111111111M",
+     "country": "SG",
+     "ownership_percentage": "62.500000",
+     "source_category": null,
+     "source_status": null,
+     "share_allotted": null,
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "OWNERSHIP_PARTIES",
+      "retrieved_at": "2026-10-05T04:02:37.086757Z",
+      "evidence_reference": "acra:ownership_parties:11111999A"
+     }
+    },
+    {
+     "party_id": "S9988776F",
+     "party_type": "NATURAL_PERSON",
+     "name": "LIM CHOON HUAT",
+     "registration_identifier": null,
+     "country": "SG",
+     "ownership_percentage": "37.500000",
+     "source_category": null,
+     "source_status": null,
+     "share_allotted": null,
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "OWNERSHIP_PARTIES",
+      "retrieved_at": "2026-10-05T04:02:37.086757Z",
+      "evidence_reference": "acra:ownership_parties:11111999A"
+     }
+    },
+    {
+     "party_id": "S123AC1234E",
+     "party_type": "NATURAL_PERSON",
+     "name": "ABCD123",
+     "registration_identifier": null,
+     "country": "SG",
+     "ownership_percentage": "81.818182",
+     "source_category": null,
+     "source_status": null,
+     "share_allotted": null,
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "OWNERSHIP_PARTIES",
+      "retrieved_at": "2026-10-05T04:02:37.086757Z",
+      "evidence_reference": "acra:ownership_parties:11111999A"
+     }
+    },
+    {
+     "party_id": "S2222222E",
+     "party_type": "NATURAL_PERSON",
+     "name": "TAN WEI LING",
+     "registration_identifier": null,
+     "country": "SG",
+     "ownership_percentage": "9.090909",
+     "source_category": null,
+     "source_status": null,
+     "share_allotted": null,
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "OWNERSHIP_PARTIES",
+      "retrieved_at": "2026-10-05T04:02:37.086757Z",
+      "evidence_reference": "acra:ownership_parties:11111999A"
+     }
+    },
+    {
+     "party_id": "S23BT2997U",
+     "party_type": "NATURAL_PERSON",
+     "name": "EFGH2345",
+     "registration_identifier": null,
+     "country": "SG",
+     "ownership_percentage": "9.090909",
+     "source_category": null,
+     "source_status": null,
+     "share_allotted": null,
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "OWNERSHIP_PARTIES",
+      "retrieved_at": "2026-10-05T04:02:37.086757Z",
+      "evidence_reference": "acra:ownership_parties:11111999A"
+     }
+    }
+   ],
+   "relationships": [
+    {
+     "relationship_id": "REL_GARDEN_DIRECT_1",
+     "owned_entity_id": "ENTITY_11111999A",
+     "owner_party_id": "111111111M",
+     "relationship_type": "SHARE_OWNERSHIP",
+     "ownership_percentage": "62.500000",
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "RELATIONSHIPS",
+      "retrieved_at": "2026-10-05T04:02:37.086937Z",
+      "evidence_reference": "acra:relationships:11111999A"
+     }
+    },
+    {
+     "relationship_id": "REL_GARDEN_DIRECT_2",
+     "owned_entity_id": "ENTITY_11111999A",
+     "owner_party_id": "S9988776F",
+     "relationship_type": "SHARE_OWNERSHIP",
+     "ownership_percentage": "37.500000",
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "RELATIONSHIPS",
+      "retrieved_at": "2026-10-05T04:02:37.086937Z",
+      "evidence_reference": "acra:relationships:11111999A"
+     }
+    },
+    {
+     "relationship_id": "REL_SIM_LIM_DIRECT_1",
+     "owned_entity_id": "111111111M",
+     "owner_party_id": "S123AC1234E",
+     "relationship_type": "SHARE_OWNERSHIP",
+     "ownership_percentage": "81.818182",
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "RELATIONSHIPS",
+      "retrieved_at": "2026-10-05T04:02:37.086937Z",
+      "evidence_reference": "acra:relationships:11111999A"
+     }
+    },
+    {
+     "relationship_id": "REL_SIM_LIM_DIRECT_2",
+     "owned_entity_id": "111111111M",
+     "owner_party_id": "S2222222E",
+     "relationship_type": "SHARE_OWNERSHIP",
+     "ownership_percentage": "9.090909",
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "RELATIONSHIPS",
+      "retrieved_at": "2026-10-05T04:02:37.086937Z",
+      "evidence_reference": "acra:relationships:11111999A"
+     }
+    },
+    {
+     "relationship_id": "REL_SIM_LIM_DIRECT_3",
+     "owned_entity_id": "111111111M",
+     "owner_party_id": "S23BT2997U",
+     "relationship_type": "SHARE_OWNERSHIP",
+     "ownership_percentage": "9.090909",
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "RELATIONSHIPS",
+      "retrieved_at": "2026-10-05T04:02:37.086937Z",
+      "evidence_reference": "acra:relationships:11111999A"
+     }
+    }
+   ],
+   "operation_results": [
+    {
+     "operation": "ENTITY_PROFILE",
+     "status": "COMPLETE",
+     "record_count": 1,
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "ENTITY_PROFILE",
+      "retrieved_at": "2026-10-05T04:02:37.086503Z",
+      "evidence_reference": "acra:entity_profile:11111999A"
+     },
+     "error": null
+    },
+    {
+     "operation": "OFFICERS",
+     "status": "EMPTY",
+     "record_count": 0,
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "OFFICERS",
+      "retrieved_at": "2026-10-05T04:02:37.086603Z",
+      "evidence_reference": "acra:officers:11111999A"
+     },
+     "error": null
+    },
+    {
+     "operation": "OWNERSHIP_PARTIES",
+     "status": "COMPLETE",
+     "record_count": 5,
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "OWNERSHIP_PARTIES",
+      "retrieved_at": "2026-10-05T04:02:37.086757Z",
+      "evidence_reference": "acra:ownership_parties:11111999A"
+     },
+     "error": null
+    },
+    {
+     "operation": "RELATIONSHIPS",
+     "status": "COMPLETE",
+     "record_count": 5,
+     "provenance": {
+      "provider": "ACRA",
+      "environment": "MOCK",
+      "operation": "RELATIONSHIPS",
+      "retrieved_at": "2026-10-05T04:02:37.086937Z",
+      "evidence_reference": "acra:relationships:11111999A"
+     },
+     "error": null
+    }
+   ],
+   "issues": [],
+   "retrieved_at": "2026-10-05T04:02:37.086937Z"
+  },
+  "registry_evidence_binding": null,
+  "goldtier_result": null,
+  "events": [
+   {
+    "sequence": 1,
+    "stage": "REQUESTED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.086040Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "correlation_id": "a6f16cd8-25c8-470d-9652-d440f72eb207",
+    "code": null,
+    "message": "Case requested."
+   },
+   {
+    "sequence": 2,
+    "stage": "GT_SEARCHED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.086267Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "correlation_id": "a6f16cd8-25c8-470d-9652-d440f72eb207",
+    "code": "GOLDTIER_FIRST_NO_MATCH",
+    "message": "No GoldTier customer was found; ACRA acquisition may continue."
+   },
+   {
+    "sequence": 3,
+    "stage": "REGISTRY_FETCHED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.087126Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "correlation_id": "a6f16cd8-25c8-470d-9652-d440f72eb207",
+    "code": null,
+    "message": "Project-owned ACRA registry acquisition completed."
+   },
+   {
+    "sequence": 4,
+    "stage": "VALIDATED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.087557Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "correlation_id": "a6f16cd8-25c8-470d-9652-d440f72eb207",
+    "code": null,
+    "message": "Canonical presence checks passed."
+   }
+  ],
+  "error": null,
+  "created_at": "2026-10-05T04:02:37.085347Z",
+  "updated_at": "2026-10-05T04:02:37.087557Z"
+ },
+ "clm": {
+  "case": {
+   "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+   "source_case_id": "CASE-11111999A-1a94cce9",
+   "correlation_id": "a6f16cd8-25c8-470d-9652-d440f72eb207",
+   "requested_uen": "11111999A",
+   "initial_identity": {
+    "legal_name": "GARDEN BUSINESS",
+    "registration_number": "11111999A",
+    "country_of_incorporation": "SG"
+   },
+   "identity_corrections": [],
+   "target_dispatch_confirmation": null,
+   "policy_snapshot": {
+    "snapshot_label": "GLOBAL_POLICY_CATALOGUE_V1",
+    "catalogue_version": 1,
+    "idp_review_confidence_threshold": "0.85",
+    "ubo_threshold_percent": "25.000000",
+    "comparator": "GREATER_THAN_OR_EQUAL_TO",
+    "intelligence": {
+     "entity_resolution_auto_match_threshold": "0.85",
+     "entity_resolution_review_threshold": "0.60",
+     "entity_resolution_ambiguity_margin": "0.03",
+     "entity_resolution_weights": {
+      "identifier": "0.55",
+      "name": "0.25",
+      "address": "0.10",
+      "legal_form": "0.05",
+      "incorporation_date": "0.05"
+     },
+     "ubo_advisory_likely_threshold": "0.65",
+     "ubo_advisory_unlikely_threshold": "0.35",
+     "mock_risk_medium_threshold": 30,
+     "mock_risk_high_threshold": 60,
+     "mock_risk_blocks_readiness": false,
+     "entity_resolution_model_version": "entity-resolution-linear-v1",
+     "ubo_advisory_model_version": "ubo-advisory-linear-v1",
+     "mock_risk_model_version": "mock-advisory-risk-rules-v1"
+    },
+    "goldtier_target": {
+     "kyc_customer_type": {
+      "value": "TBD_SPONSOR",
+      "authority": "TBD_SPONSOR"
+     },
+     "client_segment": {
+      "value": "TBD_SPONSOR",
+      "authority": "TBD_SPONSOR"
+     },
+     "customer_external_system": {
+      "value": "DSD",
+      "authority": "SPONSOR_DOCUMENTED"
+     },
+     "registration_type": {
+      "value": "ACRA",
+      "authority": "USER_AUTHORIZED_POC"
+     },
+     "policy": {
+      "value": "Singapore",
+      "authority": "SPONSOR_DOCUMENTED"
+     },
+     "booking_entity": {
+      "value": "ANZBGL (Singapore Branch)",
+      "authority": "USER_AUTHORIZED_POC"
+     },
+     "account_entity_type": {
+      "value": "PROJECT_DEFINED_PROVISIONAL",
+      "authority": "PROJECT_DEFINED_PROVISIONAL"
+     },
+     "product_type": {
+      "value": "TBD_SPONSOR",
+      "authority": "TBD_SPONSOR"
+     }
+    },
+    "registry": {
+     "freshness_seconds": 7776000,
+     "negative_seconds": 600
+    },
+    "evidence_classifier": {
+     "kind_weight": "0.50",
+     "binding_weight": "0.25",
+     "confidence_weight": "0.25",
+     "threshold": "0.50"
+    },
+    "policy_identity": "921015ec05210028c81f0103b5d57f3df535c4c7e1ab68c2f9ba8996e8ef142e",
+    "bound_at": "2026-10-05T04:02:37.085989Z"
+   },
+   "policy_snapshot_revision": 1,
+   "policy_rebind": {
+    "revision": 1,
+    "configuration_status": "CURRENT_ACCEPTED_POC",
+    "accepted_poc_fields": [
+     "customerExternalSystem",
+     "registrationType",
+     "policy",
+     "bookingEntity"
+    ],
+    "editable_fields": [
+     "kycCustomerType",
+     "clientSegment"
+    ],
+    "upstream_fields": [
+     "registrationNumber"
+    ],
+    "unavailable_fields": [
+     "accountEntityType",
+     "productType"
+    ],
+    "last_rebound_by": null,
+    "last_rebound_at": null,
+    "last_rationale": null,
+    "last_changed_fields": []
+   },
+   "team_id": "TEAM_A",
+   "created_by_actor_id": "maya-lim",
+   "priority": null,
+   "client_scope_label": "Alpha",
+   "jurisdiction_resolution": {
+    "status": "RESOLVED",
+    "resolved_jurisdiction": "SG",
+    "observations": [
+     {
+      "jurisdiction": "SG",
+      "source": "USER_INPUT",
+      "observed_at": "2026-10-05T04:02:37.085347Z",
+      "evidence_reference": "request.country_of_incorporation",
+      "confidence": null
+     },
+     {
+      "jurisdiction": "SG",
+      "source": "IDENTIFIER_FORMAT",
+      "observed_at": "2026-10-05T04:02:37.085347Z",
+      "evidence_reference": "request.uen:accepted_sg_format",
+      "confidence": null
+     }
+    ],
+    "resolved_at": "2026-10-05T04:02:37.085347Z"
+   },
+   "registry_route": {
+    "status": "SELECTED",
+    "jurisdiction": "SG",
+    "provider": "ACRA",
+    "decided_at": "2026-10-05T04:02:37.086411Z"
+   },
+   "state": "VALIDATED",
+   "entity": {
+    "registration_number": "11111999A",
+    "legal_name": "GARDEN BUSINESS",
+    "country_of_incorporation": "SG",
+    "party_type": "BUSINESS",
+    "registration_date": "2018-03-10",
+    "entity_status": "LIVE",
+    "registered_address": {
+     "address_line_1": "18 OFFICIAL MOCK STREET",
+     "address_line_2": "#01-01",
+     "postal_code": "123456",
+     "country_code": "SG"
+    },
+    "source": {
+     "source_system": "ACRA",
+     "environment": "MOCK",
+     "retrieved_at": "2026-10-05T04:02:37.086503Z"
+    }
+   },
+   "registry_acquisition": {
+    "requested_identifier": "11111999A",
+    "status": "COMPLETE",
+    "officers": [],
+    "ownership_parties": [
+     {
+      "party_id": "111111111M",
+      "party_type": "LEGAL_ENTITY",
+      "name": "SIM LIM PTE. LTD.",
+      "registration_identifier": "111111111M",
+      "country": "SG",
+      "ownership_percentage": "62.500000",
+      "source_category": null,
+      "source_status": null,
+      "share_allotted": null,
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "OWNERSHIP_PARTIES",
+       "retrieved_at": "2026-10-05T04:02:37.086757Z",
+       "evidence_reference": "acra:ownership_parties:11111999A"
+      }
+     },
+     {
+      "party_id": "S9988776F",
+      "party_type": "NATURAL_PERSON",
+      "name": "LIM CHOON HUAT",
+      "registration_identifier": null,
+      "country": "SG",
+      "ownership_percentage": "37.500000",
+      "source_category": null,
+      "source_status": null,
+      "share_allotted": null,
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "OWNERSHIP_PARTIES",
+       "retrieved_at": "2026-10-05T04:02:37.086757Z",
+       "evidence_reference": "acra:ownership_parties:11111999A"
+      }
+     },
+     {
+      "party_id": "S123AC1234E",
+      "party_type": "NATURAL_PERSON",
+      "name": "ABCD123",
+      "registration_identifier": null,
+      "country": "SG",
+      "ownership_percentage": "81.818182",
+      "source_category": null,
+      "source_status": null,
+      "share_allotted": null,
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "OWNERSHIP_PARTIES",
+       "retrieved_at": "2026-10-05T04:02:37.086757Z",
+       "evidence_reference": "acra:ownership_parties:11111999A"
+      }
+     },
+     {
+      "party_id": "S2222222E",
+      "party_type": "NATURAL_PERSON",
+      "name": "TAN WEI LING",
+      "registration_identifier": null,
+      "country": "SG",
+      "ownership_percentage": "9.090909",
+      "source_category": null,
+      "source_status": null,
+      "share_allotted": null,
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "OWNERSHIP_PARTIES",
+       "retrieved_at": "2026-10-05T04:02:37.086757Z",
+       "evidence_reference": "acra:ownership_parties:11111999A"
+      }
+     },
+     {
+      "party_id": "S23BT2997U",
+      "party_type": "NATURAL_PERSON",
+      "name": "EFGH2345",
+      "registration_identifier": null,
+      "country": "SG",
+      "ownership_percentage": "9.090909",
+      "source_category": null,
+      "source_status": null,
+      "share_allotted": null,
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "OWNERSHIP_PARTIES",
+       "retrieved_at": "2026-10-05T04:02:37.086757Z",
+       "evidence_reference": "acra:ownership_parties:11111999A"
+      }
+     }
+    ],
+    "relationships": [
+     {
+      "relationship_id": "REL_GARDEN_DIRECT_1",
+      "owned_entity_id": "ENTITY_11111999A",
+      "owner_party_id": "111111111M",
+      "relationship_type": "SHARE_OWNERSHIP",
+      "ownership_percentage": "62.500000",
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "RELATIONSHIPS",
+       "retrieved_at": "2026-10-05T04:02:37.086937Z",
+       "evidence_reference": "acra:relationships:11111999A"
+      }
+     },
+     {
+      "relationship_id": "REL_GARDEN_DIRECT_2",
+      "owned_entity_id": "ENTITY_11111999A",
+      "owner_party_id": "S9988776F",
+      "relationship_type": "SHARE_OWNERSHIP",
+      "ownership_percentage": "37.500000",
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "RELATIONSHIPS",
+       "retrieved_at": "2026-10-05T04:02:37.086937Z",
+       "evidence_reference": "acra:relationships:11111999A"
+      }
+     },
+     {
+      "relationship_id": "REL_SIM_LIM_DIRECT_1",
+      "owned_entity_id": "111111111M",
+      "owner_party_id": "S123AC1234E",
+      "relationship_type": "SHARE_OWNERSHIP",
+      "ownership_percentage": "81.818182",
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "RELATIONSHIPS",
+       "retrieved_at": "2026-10-05T04:02:37.086937Z",
+       "evidence_reference": "acra:relationships:11111999A"
+      }
+     },
+     {
+      "relationship_id": "REL_SIM_LIM_DIRECT_2",
+      "owned_entity_id": "111111111M",
+      "owner_party_id": "S2222222E",
+      "relationship_type": "SHARE_OWNERSHIP",
+      "ownership_percentage": "9.090909",
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "RELATIONSHIPS",
+       "retrieved_at": "2026-10-05T04:02:37.086937Z",
+       "evidence_reference": "acra:relationships:11111999A"
+      }
+     },
+     {
+      "relationship_id": "REL_SIM_LIM_DIRECT_3",
+      "owned_entity_id": "111111111M",
+      "owner_party_id": "S23BT2997U",
+      "relationship_type": "SHARE_OWNERSHIP",
+      "ownership_percentage": "9.090909",
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "RELATIONSHIPS",
+       "retrieved_at": "2026-10-05T04:02:37.086937Z",
+       "evidence_reference": "acra:relationships:11111999A"
+      }
+     }
+    ],
+    "operation_results": [
+     {
+      "operation": "ENTITY_PROFILE",
+      "status": "COMPLETE",
+      "record_count": 1,
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "ENTITY_PROFILE",
+       "retrieved_at": "2026-10-05T04:02:37.086503Z",
+       "evidence_reference": "acra:entity_profile:11111999A"
+      },
+      "error": null
+     },
+     {
+      "operation": "OFFICERS",
+      "status": "EMPTY",
+      "record_count": 0,
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "OFFICERS",
+       "retrieved_at": "2026-10-05T04:02:37.086603Z",
+       "evidence_reference": "acra:officers:11111999A"
+      },
+      "error": null
+     },
+     {
+      "operation": "OWNERSHIP_PARTIES",
+      "status": "COMPLETE",
+      "record_count": 5,
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "OWNERSHIP_PARTIES",
+       "retrieved_at": "2026-10-05T04:02:37.086757Z",
+       "evidence_reference": "acra:ownership_parties:11111999A"
+      },
+      "error": null
+     },
+     {
+      "operation": "RELATIONSHIPS",
+      "status": "COMPLETE",
+      "record_count": 5,
+      "provenance": {
+       "provider": "ACRA",
+       "environment": "MOCK",
+       "operation": "RELATIONSHIPS",
+       "retrieved_at": "2026-10-05T04:02:37.086937Z",
+       "evidence_reference": "acra:relationships:11111999A"
+      },
+      "error": null
+     }
+    ],
+    "issues": [],
+    "retrieved_at": "2026-10-05T04:02:37.086937Z"
+   },
+   "registry_evidence_binding": null,
+   "goldtier_result": null,
+   "events": [
+    {
+     "sequence": 1,
+     "stage": "REQUESTED",
+     "outcome": "SUCCEEDED",
+     "timestamp": "2026-10-05T04:02:37.086040Z",
+     "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+     "correlation_id": "a6f16cd8-25c8-470d-9652-d440f72eb207",
+     "code": null,
+     "message": "Case requested."
+    },
+    {
+     "sequence": 2,
+     "stage": "GT_SEARCHED",
+     "outcome": "SUCCEEDED",
+     "timestamp": "2026-10-05T04:02:37.086267Z",
+     "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+     "correlation_id": "a6f16cd8-25c8-470d-9652-d440f72eb207",
+     "code": "GOLDTIER_FIRST_NO_MATCH",
+     "message": "No GoldTier customer was found; ACRA acquisition may continue."
+    },
+    {
+     "sequence": 3,
+     "stage": "REGISTRY_FETCHED",
+     "outcome": "SUCCEEDED",
+     "timestamp": "2026-10-05T04:02:37.087126Z",
+     "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+     "correlation_id": "a6f16cd8-25c8-470d-9652-d440f72eb207",
+     "code": null,
+     "message": "Project-owned ACRA registry acquisition completed."
+    },
+    {
+     "sequence": 4,
+     "stage": "VALIDATED",
+     "outcome": "SUCCEEDED",
+     "timestamp": "2026-10-05T04:02:37.087557Z",
+     "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+     "correlation_id": "a6f16cd8-25c8-470d-9652-d440f72eb207",
+     "code": null,
+     "message": "Canonical presence checks passed."
+    }
+   ],
+   "error": null,
+   "created_at": "2026-10-05T04:02:37.085347Z",
+   "updated_at": "2026-10-05T04:02:37.087557Z"
+  },
+  "orchestration_id": "09f7c743-57f9-43bf-ba92-2d2bc10b37d6",
+  "correlation_id": "346e77f0-28d4-4d3e-a8b9-9b63269ff3d2",
+  "version": 1,
+  "status": "REVIEW_REQUIRED",
+  "readiness": {
+   "policy_version": "PHASE_05_POC_V1",
+   "registry": {
+    "status": "READY",
+    "reference_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6"
+   },
+   "document": {
+    "status": "REVIEW_REQUIRED",
+    "reference_id": null
+   },
+   "ownership": {
+    "status": "MISSING",
+    "reference_id": null
+   },
+   "goldtier": {
+    "status": "BLOCKED",
+    "reference_id": "53a2628d-712f-45e2-850f-0ddf7fdb440f"
+   },
+   "blockers": [
+    "DOCUMENT_REVIEW_INCOMPLETE",
+    "OWNERSHIP_REQUIRED"
+   ],
+   "warnings": [
+    "IDP_PROFILE_PROVISIONAL",
+    "LIVE_HIERARCHY_UNAVAILABLE",
+    "RELATED_PARTY_MAPPING_PENDING",
+    "REAL_GOLDTIER_NOT_CONFIGURED",
+    "READY_FOR_APPROVAL_UNAVAILABLE"
+   ],
+   "evaluated_at": "2026-10-05T04:02:37.770086Z"
+  },
+  "submission_plan": {
+   "environment": "MOCK",
+   "provider_classification": "MOCK",
+   "base_operations": [
+    "searchParty",
+    "createShellCustomer if NO_MATCH",
+    "createPolicy",
+    "amendParty"
+   ],
+   "match_found_behavior": "REVIEW_REQUIRED_NO_WRITES",
+   "related_party_integration": "PENDING_SPONSOR_CONFIRMATION",
+   "real_ready_for_approval": "NOT_AVAILABLE",
+   "request_preview": {
+    "environment": "MOCK",
+    "policy_version": 1,
+    "operations": [
+     {
+      "operation": "SEARCH",
+      "fields": [
+       {
+        "target_field": "registrationNumber",
+        "value": "11111999A",
+        "provenance": "REGISTRY",
+        "authority": "CANONICAL_EVIDENCE",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       }
+      ],
+      "missing_fields": [],
+      "validation": "VALID"
+     },
+     {
+      "operation": "SHELL",
+      "fields": [
+       {
+        "target_field": "party.partyRole",
+        "value": "Customer",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "party.partyType",
+        "value": "Organisation",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "party.names.legalName",
+        "value": "GARDEN BUSINESS",
+        "provenance": "REGISTRY",
+        "authority": "CANONICAL_EVIDENCE",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "party.nonIndividualProfile.countryOfIncorporation",
+        "value": "SG",
+        "provenance": "REGISTRY",
+        "authority": "CANONICAL_EVIDENCE",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.sourceSystem",
+        "value": "ZERO_TOUCH_CLM",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.sourceCaseId",
+        "value": "CASE-11111999A-1a94cce9",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.acceptedBy",
+        "value": "PHASE_01_MOCK",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.acceptedAt",
+        "value": "2026-10-05T04:02:37.085347Z",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.sourceChannel",
+        "value": "EDS_API",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       }
+      ],
+      "missing_fields": [],
+      "validation": "VALID"
+     },
+     {
+      "operation": "POLICY",
+      "fields": [
+       {
+        "target_field": "goldTierId",
+        "value": "BOUND_FROM_SEARCH_OR_SHELL",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "customerExternalSystem",
+        "value": "ACRA",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "customerExternalSystemKey",
+        "value": "11111999A",
+        "provenance": "REGISTRY",
+        "authority": "CANONICAL_EVIDENCE",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "policyDetails.policy",
+        "value": "SINGAPORE_NTB_MOCK",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.sourceSystem",
+        "value": "ZERO_TOUCH_CLM",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.sourceCaseId",
+        "value": "CASE-11111999A-1a94cce9",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.acceptedBy",
+        "value": "PHASE_01_MOCK",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.acceptedAt",
+        "value": "2026-10-05T04:02:37.085347Z",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.sourceChannel",
+        "value": "EDS_API",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       }
+      ],
+      "missing_fields": [],
+      "validation": "VALID"
+     },
+     {
+      "operation": "AMEND",
+      "fields": [
+       {
+        "target_field": "partyType",
+        "value": "Organisation",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "policy",
+        "value": "SINGAPORE_NTB_MOCK",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "party.names.legalName",
+        "value": "GARDEN BUSINESS",
+        "provenance": "REGISTRY",
+        "authority": "CANONICAL_EVIDENCE",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "party.addresses[0].addressLine1",
+        "value": "18 OFFICIAL MOCK STREET",
+        "provenance": "REGISTRY",
+        "authority": "CANONICAL_EVIDENCE",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "party.addresses[0].addressLine2",
+        "value": "#01-01",
+        "provenance": "REGISTRY",
+        "authority": "CANONICAL_EVIDENCE",
+        "required": false,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "party.addresses[0].postalCode",
+        "value": "123456",
+        "provenance": "REGISTRY",
+        "authority": "CANONICAL_EVIDENCE",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "party.addresses[0].country",
+        "value": "SG",
+        "provenance": "REGISTRY",
+        "authority": "CANONICAL_EVIDENCE",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.sourceSystem",
+        "value": "ZERO_TOUCH_CLM",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.sourceCaseId",
+        "value": "CASE-11111999A-1a94cce9",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.acceptedBy",
+        "value": "PHASE_01_MOCK",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.acceptedAt",
+        "value": "2026-10-05T04:02:37.085347Z",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       },
+       {
+        "target_field": "sourceContext.sourceChannel",
+        "value": "EDS_API",
+        "provenance": "SYSTEM_DERIVED",
+        "authority": "PROJECT_DEFINED_PROVISIONAL",
+        "required": true,
+        "missing": false,
+        "validation": "VALID"
+       }
+      ],
+      "missing_fields": [],
+      "validation": "VALID"
+     }
+    ],
+    "dispatch_ready": true
+   }
+  },
+  "target_search_checkpoint": {
+   "request_id": "53a2628d-712f-45e2-850f-0ddf7fdb440f",
+   "identity_fingerprint": "90226527227b9f74789fcc59ce4c57ae89f401d85accccfa46261977b6e7c302",
+   "provider_mode": "MOCK",
+   "provider_classification": "MOCK",
+   "status": "COMPLETED",
+   "disposition": "NO_MATCH",
+   "provider_outcome": "NO_MATCH",
+   "status_code": 200,
+   "candidate_count": 0,
+   "candidates": [],
+   "selected_party_id": null,
+   "resolution_outcome": null,
+   "code": "GOLDTIER_FIRST_NO_MATCH",
+   "message": "Initial GoldTier Search found no customer.",
+   "searched_at": "2026-10-05T04:02:37.086259Z"
+  },
+  "related_party_preparation": null,
+  "submission": null,
+  "goldtier_result": null,
+  "timeline": [
+   {
+    "sequence": 1,
+    "event_type": "CLM_CASE_CREATED",
+    "status": "COLLECTING_EVIDENCE",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.088022Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "orchestration_id": "09f7c743-57f9-43bf-ba92-2d2bc10b37d6",
+    "correlation_id": "346e77f0-28d4-4d3e-a8b9-9b63269ff3d2",
+    "code": "CLM_CASE_CREATED",
+    "message": "Staged CLM orchestration record created."
+   },
+   {
+    "sequence": 2,
+    "event_type": "REGISTRY_READY",
+    "status": "COLLECTING_EVIDENCE",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.088022Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "orchestration_id": "09f7c743-57f9-43bf-ba92-2d2bc10b37d6",
+    "correlation_id": "346e77f0-28d4-4d3e-a8b9-9b63269ff3d2",
+    "code": "REGISTRY_READY",
+    "message": "Canonical ACRA registry evidence is ready."
+   }
+  ],
+  "error": null,
+  "created_at": "2026-10-05T04:02:37.088022Z",
+  "updated_at": "2026-10-05T04:02:37.770086Z"
+ },
+ "automation_id": "fe1657d5-a693-4234-a8d8-ec3bfd049a69",
+ "version": 3,
+ "status": "WAITING_FOR_REVIEW",
+ "current_stage": "DOCUMENT",
+ "completed_stages": [
+  "REGISTRY",
+  "GOLDTIER_SEARCH"
+ ],
+ "active_exceptions": [
+  {
+   "exception_id": "1f455c72-bab2-4a58-9878-dcd92bb911ef",
+   "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+   "exception_type": "DOCUMENT_SOURCE_CONFLICT",
+   "stage": "DOCUMENT",
+   "status": "OPEN",
+   "blocker_code": "DOCUMENT_SOURCE_CONFLICT",
+   "blocker_codes": [
+    "DOCUMENT_SOURCE_CONFLICT"
+   ],
+   "explanation": "Registry and document observations disagree and require an explicit bounded decision.",
+   "evidence_version": "reconciliation:1:7:f339c19df9ee88078908115a84ca3f048ef36fa1c6fcb2da925b20c60cd1160c",
+   "automation_version": 3,
+   "evidence": [
+    {
+     "reference_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+     "field_key": "registered_address",
+     "registry_value": "18 OFFICIAL MOCK STREET, #01-01, 123456, SG",
+     "document_value": "18 GARDEN WALK, #01-01, 018919, SG",
+     "confidence": 0.97,
+     "comparison": "CONFLICT",
+     "source": null,
+     "observed_value": null,
+     "observed_at": null,
+     "evidence_reference": null
+    }
+   ],
+   "available_actions": [
+    "KEEP_REGISTRY_VALUE"
+   ],
+   "decisions": [
+    {
+     "decision_id": "ec466db4-454e-5e7b-ba63-b0848ce01f5c",
+     "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+     "exception_id": "1f455c72-bab2-4a58-9878-dcd92bb911ef",
+     "evidence_version": "reconciliation:1:7:f339c19df9ee88078908115a84ca3f048ef36fa1c6fcb2da925b20c60cd1160c",
+     "automation_version": 3,
+     "recorded_at": "2026-10-05T04:02:37.762512Z",
+     "metadata": {
+      "blocker_code": "DOCUMENT_SOURCE_CONFLICT",
+      "exception_type": "DOCUMENT_SOURCE_CONFLICT",
+      "classification": "USER_ACTION_REQUIRED",
+      "policy_version": "BLOCKER_DECISION_POC_V1",
+      "rule_version": "BPD-RECONCILIATION-CONFLICT-1",
+      "owner": "DOCUMENT_REVIEW_OWNER",
+      "minimum_inputs": [
+       "CURRENT_RECONCILIATION_EVIDENCE",
+       "AUTHORIZED_RECONCILIATION_ACTION"
+      ],
+      "permitted_actions": [
+       "KEEP_REGISTRY_VALUE"
+      ],
+      "currently_available_actions": [
+       "KEEP_REGISTRY_VALUE"
+      ],
+      "resume_stage": "DOCUMENT",
+      "resume_transition": "APPLY_AUTHORIZED_DECISION_AND_RECHECK",
+      "resume_ready": true,
+      "invalidated_dependencies": [
+       "DOCUMENT_RECONCILIATION",
+       "OWNERSHIP_ANALYSIS",
+       "ADVISORY_INTELLIGENCE",
+       "READINESS_SNAPSHOT",
+       "TARGET_CONFIRMATION",
+       "TARGET_PLAN",
+       "TARGET_MUTATIONS"
+      ],
+      "explanation": "Only a reconciliation action already authorized by the evidence owner may be used; this policy establishes no source precedence.",
+      "unknowns": [
+       "SPONSOR_SOURCE_PRECEDENCE_UNRESOLVED"
+      ]
+     },
+     "actor_id": null,
+     "reviewer_id": null
+    }
+   ],
+   "created_at": "2026-10-05T04:02:37.762512Z",
+   "resolved_at": null,
+   "resolution": null
+  }
+ ],
+ "historical_exceptions": [],
+ "non_blocking_decisions": [],
+ "interventions": [
+  {
+   "intervention_id": "1f455c72-bab2-4a58-9878-dcd92bb911ef",
+   "owning_stage": "DOCUMENT",
+   "owning_stage_label": "Documents / reconciliation",
+   "title": "Document or reconciliation review required",
+   "blocker_code": "DOCUMENT_SOURCE_CONFLICT",
+   "explanation": "Registry and document observations disagree and require an explicit bounded decision.",
+   "required_evidence_or_input": [
+    "Current document evidence or a supported reconciliation decision."
+   ],
+   "authorized_actions": [
+    {
+     "action": "KEEP_REGISTRY_VALUE",
+     "label": "Keep registry value",
+     "description": "Retain the current registry observation for the bounded discrepancy."
+    }
+   ],
+   "no_action_reason": null,
+   "expected_next_step": "Use only a backend-authorized action below. The owning service will re-evaluate retained evidence after it accepts the decision.",
+   "candidate_summaries": [],
+   "identity_correction_action": null,
+   "decisions": [
+    {
+     "decision_id": "ec466db4-454e-5e7b-ba63-b0848ce01f5c",
+     "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+     "exception_id": "1f455c72-bab2-4a58-9878-dcd92bb911ef",
+     "evidence_version": "reconciliation:1:7:f339c19df9ee88078908115a84ca3f048ef36fa1c6fcb2da925b20c60cd1160c",
+     "automation_version": 3,
+     "recorded_at": "2026-10-05T04:02:37.762512Z",
+     "metadata": {
+      "blocker_code": "DOCUMENT_SOURCE_CONFLICT",
+      "exception_type": "DOCUMENT_SOURCE_CONFLICT",
+      "classification": "USER_ACTION_REQUIRED",
+      "policy_version": "BLOCKER_DECISION_POC_V1",
+      "rule_version": "BPD-RECONCILIATION-CONFLICT-1",
+      "owner": "DOCUMENT_REVIEW_OWNER",
+      "minimum_inputs": [
+       "CURRENT_RECONCILIATION_EVIDENCE",
+       "AUTHORIZED_RECONCILIATION_ACTION"
+      ],
+      "permitted_actions": [
+       "KEEP_REGISTRY_VALUE"
+      ],
+      "currently_available_actions": [
+       "KEEP_REGISTRY_VALUE"
+      ],
+      "resume_stage": "DOCUMENT",
+      "resume_transition": "APPLY_AUTHORIZED_DECISION_AND_RECHECK",
+      "resume_ready": true,
+      "invalidated_dependencies": [
+       "DOCUMENT_RECONCILIATION",
+       "OWNERSHIP_ANALYSIS",
+       "ADVISORY_INTELLIGENCE",
+       "READINESS_SNAPSHOT",
+       "TARGET_CONFIRMATION",
+       "TARGET_PLAN",
+       "TARGET_MUTATIONS"
+      ],
+      "explanation": "Only a reconciliation action already authorized by the evidence owner may be used; this policy establishes no source precedence.",
+      "unknowns": [
+       "SPONSOR_SOURCE_PRECEDENCE_UNRESOLVED"
+      ]
+     },
+     "actor_id": null,
+     "reviewer_id": null
+    }
+   ],
+   "blocker_class": "HUMAN_DECISION",
+   "evidence_actions": [
+    {
+     "target": "DOCUMENTS",
+     "label": "Review document evidence"
+    }
+   ],
+   "dependent_stages": [
+    "DOCUMENT_RECONCILIATION",
+    "OWNERSHIP_ANALYSIS",
+    "ADVISORY_INTELLIGENCE",
+    "READINESS_SNAPSHOT",
+    "TARGET_CONFIRMATION",
+    "TARGET_PLAN",
+    "TARGET_MUTATIONS"
+   ],
+   "backend_mutation_owner": "DOCUMENT_REVIEW_OWNER",
+   "resolution_condition": "Use only a backend-authorized action below. The owning service will re-evaluate retained evidence after it accepts the decision.",
+   "resume_target": "DOCUMENT"
+  }
+ ],
+ "reconciliation": {
+  "reconciliation_id": "f9fdb89a-3209-4a81-8f5b-e65acfd70422",
+  "version": 1,
+  "status": "REVIEW_REQUIRED",
+  "source_document_ids": [
+   "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+   "deeb6353-a146-4a03-bf62-8d1088161932",
+   "bc2bea18-86ca-4a26-8024-3c133156aa13"
+  ],
+  "source_document_event_counts": [
+   7,
+   7,
+   7
+  ],
+  "fields": [
+   {
+    "field_name": "legal_name",
+    "observations": [
+     {
+      "observation_id": "f2292488-9624-4fb7-b3c8-a02aaba2504f",
+      "field_name": "legal_name",
+      "normalized_value": "GARDEN BUSINESS",
+      "source_kind": "REGISTRY",
+      "source_system": "ACRA",
+      "environment": "MOCK",
+      "observed_at": "2026-10-05T04:02:37.086503Z",
+      "evidence_reference": "acra:entity_profile:11111999A",
+      "document_id": null,
+      "document_display_name": null,
+      "confidence": null,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "4bd74a90-ecf8-4734-89a6-ef3fb729ce19",
+      "field_name": "legal_name",
+      "normalized_value": "GARDEN BUSINESS",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.350830Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+      "document_display_name": "garden-business-01-business-profile.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "a889cb31-84a1-4ba0-93ac-059e74a7e290",
+      "field_name": "legal_name",
+      "normalized_value": "GARDEN BUSINESS",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.599900Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+      "document_display_name": "garden-business-02-registration-certificate.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "0a86bd27-8380-483c-a3ca-c53c3f616b41",
+      "field_name": "legal_name",
+      "normalized_value": "GARDEN BUSINESS",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.743843Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+      "document_display_name": "garden-business-03-account-opening-resolution.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     }
+    ],
+    "outcome": "MATCH",
+    "document_required": true,
+    "discrepancy_id": null
+   },
+   {
+    "field_name": "registration_identifier",
+    "observations": [
+     {
+      "observation_id": "553f8395-51e7-4282-8ada-c2145c95a087",
+      "field_name": "registration_identifier",
+      "normalized_value": "11111999A",
+      "source_kind": "USER_INPUT",
+      "source_system": "ONBOARDING_REQUEST",
+      "environment": null,
+      "observed_at": "2026-10-05T04:02:37.085347Z",
+      "evidence_reference": "request.registration_identifier",
+      "document_id": null,
+      "document_display_name": null,
+      "confidence": null,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "6eac0b04-4d74-43ed-84c9-adeaf6d9d3cb",
+      "field_name": "registration_identifier",
+      "normalized_value": "11111999A",
+      "source_kind": "REGISTRY",
+      "source_system": "ACRA",
+      "environment": "MOCK",
+      "observed_at": "2026-10-05T04:02:37.086503Z",
+      "evidence_reference": "acra:entity_profile:11111999A",
+      "document_id": null,
+      "document_display_name": null,
+      "confidence": null,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "f4b463e7-c7b7-4810-b6dd-e93eb755a7a5",
+      "field_name": "registration_identifier",
+      "normalized_value": "11111999A",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.350830Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+      "document_display_name": "garden-business-01-business-profile.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "badd3137-5c64-42f2-bc52-e6521eded509",
+      "field_name": "registration_identifier",
+      "normalized_value": "11111999A",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.599900Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+      "document_display_name": "garden-business-02-registration-certificate.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "4a8e9a13-1e23-4eb6-9ffb-5c51cdedba22",
+      "field_name": "registration_identifier",
+      "normalized_value": "11111999A",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.743843Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+      "document_display_name": "garden-business-03-account-opening-resolution.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     }
+    ],
+    "outcome": "MATCH",
+    "document_required": true,
+    "discrepancy_id": null
+   },
+   {
+    "field_name": "registered_address",
+    "observations": [
+     {
+      "observation_id": "6c3cdeb9-39fe-46fd-bcb6-8aa4aa679954",
+      "field_name": "registered_address",
+      "normalized_value": "18 OFFICIAL MOCK STREET, #01-01, 123456, SG",
+      "source_kind": "REGISTRY",
+      "source_system": "ACRA",
+      "environment": "MOCK",
+      "observed_at": "2026-10-05T04:02:37.086503Z",
+      "evidence_reference": "acra:entity_profile:11111999A",
+      "document_id": null,
+      "document_display_name": null,
+      "confidence": null,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "eb167424-f2a4-487f-8007-beea2fc14b52",
+      "field_name": "registered_address",
+      "normalized_value": "18 GARDEN WALK, #01-01, 018919, SG",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.350830Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+      "document_display_name": "garden-business-01-business-profile.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "a75906da-d8b5-446b-8ad3-c832b809060a",
+      "field_name": "registered_address",
+      "normalized_value": "18 GARDEN WALK, #01-01, 018919, SG",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.599900Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+      "document_display_name": "garden-business-02-registration-certificate.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "1b235959-d725-4b45-a889-517bb54c5ed1",
+      "field_name": "registered_address",
+      "normalized_value": "18 GARDEN WALK, #01-01, 018919, SG",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.743843Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+      "document_display_name": "garden-business-03-account-opening-resolution.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     }
+    ],
+    "outcome": "CONFLICT",
+    "document_required": false,
+    "discrepancy_id": "1f455c72-bab2-4a58-9878-dcd92bb911ef"
+   },
+   {
+    "field_name": "country_of_incorporation",
+    "observations": [
+     {
+      "observation_id": "9fcd7785-a8ff-4f4b-a76e-0d48711c3650",
+      "field_name": "country_of_incorporation",
+      "normalized_value": "SG",
+      "source_kind": "REGISTRY",
+      "source_system": "ACRA",
+      "environment": "MOCK",
+      "observed_at": "2026-10-05T04:02:37.086503Z",
+      "evidence_reference": "acra:entity_profile:11111999A",
+      "document_id": null,
+      "document_display_name": null,
+      "confidence": null,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "75e862c3-d0c1-4ace-8626-b4a1c890476f",
+      "field_name": "country_of_incorporation",
+      "normalized_value": "SG",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.350830Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+      "document_display_name": "garden-business-01-business-profile.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "6f524a11-5f96-4114-97bb-dfb1ee6b54bc",
+      "field_name": "country_of_incorporation",
+      "normalized_value": "SG",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.599900Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+      "document_display_name": "garden-business-02-registration-certificate.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "99832adf-6b27-4956-aa19-3e10ef46609b",
+      "field_name": "country_of_incorporation",
+      "normalized_value": "SG",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.743843Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+      "document_display_name": "garden-business-03-account-opening-resolution.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     }
+    ],
+    "outcome": "MATCH",
+    "document_required": true,
+    "discrepancy_id": null
+   }
+  ],
+  "discrepancies": [
+   {
+    "discrepancy_id": "1f455c72-bab2-4a58-9878-dcd92bb911ef",
+    "field_name": "registered_address",
+    "outcome": "CONFLICT",
+    "observations": [
+     {
+      "observation_id": "6c3cdeb9-39fe-46fd-bcb6-8aa4aa679954",
+      "field_name": "registered_address",
+      "normalized_value": "18 OFFICIAL MOCK STREET, #01-01, 123456, SG",
+      "source_kind": "REGISTRY",
+      "source_system": "ACRA",
+      "environment": "MOCK",
+      "observed_at": "2026-10-05T04:02:37.086503Z",
+      "evidence_reference": "acra:entity_profile:11111999A",
+      "document_id": null,
+      "document_display_name": null,
+      "confidence": null,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "eb167424-f2a4-487f-8007-beea2fc14b52",
+      "field_name": "registered_address",
+      "normalized_value": "18 GARDEN WALK, #01-01, 018919, SG",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.350830Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+      "document_display_name": "garden-business-01-business-profile.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "a75906da-d8b5-446b-8ad3-c832b809060a",
+      "field_name": "registered_address",
+      "normalized_value": "18 GARDEN WALK, #01-01, 018919, SG",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.599900Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+      "document_display_name": "garden-business-02-registration-certificate.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     },
+     {
+      "observation_id": "1b235959-d725-4b45-a889-517bb54c5ed1",
+      "field_name": "registered_address",
+      "normalized_value": "18 GARDEN WALK, #01-01, 018919, SG",
+      "source_kind": "DOCUMENT_IDP",
+      "source_system": "LOCAL_PDF_TEXT",
+      "environment": "LOCAL",
+      "observed_at": "2026-10-05T04:02:37.743843Z",
+      "evidence_reference": "UNIQUE_LABELLED_TEXT",
+      "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+      "document_display_name": "garden-business-03-account-opening-resolution.pdf",
+      "confidence": 0.97,
+      "validity": "VALID"
+     }
+    ],
+    "status": "OPEN",
+    "allowed_actions": [
+     "KEEP_REGISTRY_VALUE"
+    ],
+    "evidence_fingerprint": "f339c19df9ee88078908115a84ca3f048ef36fa1c6fcb2da925b20c60cd1160c",
+    "decision": null
+   }
+  ],
+  "updated_at": "2026-10-05T04:02:37.761613Z"
+ },
+ "technical_failure": null,
+ "metrics": {
+  "automated_stages_completed": 2,
+  "human_interventions": 0,
+  "exceptions_raised": 1,
+  "exceptions_resolved": 0,
+  "final_outcome": null,
+  "total_duration_ms": null,
+  "stage_durations_ms": {}
+ },
+ "target_operations": [
+  {
+   "operation": "SEARCH",
+   "status": "NO_MATCH"
+  },
+  {
+   "operation": "SHELL",
+   "status": "NOT_ATTEMPTED"
+  },
+  {
+   "operation": "POLICY",
+   "status": "NOT_ATTEMPTED"
+  },
+  {
+   "operation": "AMEND",
+   "status": "NOT_ATTEMPTED"
+  }
+ ],
+ "target_submission": {
+  "submission_id": null,
+  "state": "NOT_SUBMITTED",
+  "goldtier_id": null,
+  "status_check_available": false
+ },
+ "stage_order_version": 2,
+ "processing_pipeline": [
+  {
+   "node_id": "CASE_START",
+   "label": "Case created",
+   "status": "COMPLETE",
+   "provider": null,
+   "environment": null,
+   "operation": null,
+   "backend_stage": null,
+   "timestamp": "2026-10-05T04:02:37.089089Z",
+   "safe_result": "Automation record created",
+   "record_count": null,
+   "blocker_code": null,
+   "retained_goldtier_id": null,
+   "children": []
+  },
+  {
+   "node_id": "INITIAL_IDENTITY",
+   "label": "Initial identity",
+   "status": "COMPLETE",
+   "provider": null,
+   "environment": null,
+   "operation": null,
+   "backend_stage": null,
+   "timestamp": "2026-10-05T04:02:37.085347Z",
+   "safe_result": "Legal name, registration ID, and country retained",
+   "record_count": null,
+   "blocker_code": null,
+   "retained_goldtier_id": null,
+   "children": []
+  },
+  {
+   "node_id": "JURISDICTION",
+   "label": "Jurisdiction",
+   "status": "COMPLETE",
+   "provider": null,
+   "environment": null,
+   "operation": null,
+   "backend_stage": null,
+   "timestamp": "2026-10-05T04:02:37.085347Z",
+   "safe_result": "Jurisdiction resolved",
+   "record_count": null,
+   "blocker_code": null,
+   "retained_goldtier_id": null,
+   "children": []
+  },
+  {
+   "node_id": "GOLDTIER_SEARCH",
+   "label": "Existing-customer search",
+   "status": "COMPLETE",
+   "provider": "GOLDTIER",
+   "environment": "MOCK",
+   "operation": "SEARCH",
+   "backend_stage": "GOLDTIER_SEARCH",
+   "timestamp": "2026-10-05T04:02:37.086259Z",
+   "safe_result": "No existing customer found. Continuing as a new customer.",
+   "record_count": 0,
+   "blocker_code": "GOLDTIER_FIRST_NO_MATCH",
+   "retained_goldtier_id": null,
+   "children": [
+    {
+     "node_id": "GOLDTIER_SEARCH_EXACT_MATCH",
+     "label": "Exact match",
+     "status": "SKIPPED",
+     "provider": "GOLDTIER",
+     "environment": "MOCK",
+     "operation": "SEARCH",
+     "backend_stage": "GOLDTIER_SEARCH",
+     "timestamp": "2026-10-05T04:02:37.086259Z",
+     "safe_result": null,
+     "record_count": null,
+     "blocker_code": null,
+     "retained_goldtier_id": null,
+     "children": []
+    },
+    {
+     "node_id": "GOLDTIER_SEARCH_NO_MATCH",
+     "label": "No match",
+     "status": "COMPLETE",
+     "provider": "GOLDTIER",
+     "environment": "MOCK",
+     "operation": "SEARCH",
+     "backend_stage": "GOLDTIER_SEARCH",
+     "timestamp": "2026-10-05T04:02:37.086259Z",
+     "safe_result": "0 candidate(s) retained",
+     "record_count": 0,
+     "blocker_code": null,
+     "retained_goldtier_id": null,
+     "children": []
+    },
+    {
+     "node_id": "GOLDTIER_SEARCH_MULTIPLE_OR_AMBIGUOUS",
+     "label": "Multiple or ambiguous matches",
+     "status": "SKIPPED",
+     "provider": "GOLDTIER",
+     "environment": "MOCK",
+     "operation": "SEARCH",
+     "backend_stage": "GOLDTIER_SEARCH",
+     "timestamp": "2026-10-05T04:02:37.086259Z",
+     "safe_result": null,
+     "record_count": null,
+     "blocker_code": null,
+     "retained_goldtier_id": null,
+     "children": []
+    }
+   ]
+  },
+  {
+   "node_id": "ACRA_REGISTRY",
+   "label": "Registry verification",
+   "status": "COMPLETE",
+   "provider": "ACRA",
+   "environment": "MOCK",
+   "operation": null,
+   "backend_stage": "REGISTRY",
+   "timestamp": "2026-10-05T04:02:37.086937Z",
+   "safe_result": "Registry acquisition retained",
+   "record_count": null,
+   "blocker_code": null,
+   "retained_goldtier_id": null,
+   "children": [
+    {
+     "node_id": "ACRA_ENTITY_PROFILE",
+     "label": "Entity Profile",
+     "status": "COMPLETE",
+     "provider": "ACRA",
+     "environment": "MOCK",
+     "operation": "ENTITY_PROFILE",
+     "backend_stage": "REGISTRY",
+     "timestamp": "2026-10-05T04:02:37.086503Z",
+     "safe_result": "Operation evidence retained",
+     "record_count": 1,
+     "blocker_code": null,
+     "retained_goldtier_id": null,
+     "children": []
+    },
+    {
+     "node_id": "ACRA_OFFICERS",
+     "label": "Officers",
+     "status": "EMPTY",
+     "provider": "ACRA",
+     "environment": "MOCK",
+     "operation": "OFFICERS",
+     "backend_stage": "REGISTRY",
+     "timestamp": "2026-10-05T04:02:37.086603Z",
+     "safe_result": "Operation returned no records",
+     "record_count": 0,
+     "blocker_code": null,
+     "retained_goldtier_id": null,
+     "children": []
+    },
+    {
+     "node_id": "ACRA_OWNERSHIP_PARTIES",
+     "label": "Shareholders",
+     "status": "COMPLETE",
+     "provider": "ACRA",
+     "environment": "MOCK",
+     "operation": "OWNERSHIP_PARTIES",
+     "backend_stage": "REGISTRY",
+     "timestamp": "2026-10-05T04:02:37.086757Z",
+     "safe_result": "Operation evidence retained",
+     "record_count": 5,
+     "blocker_code": null,
+     "retained_goldtier_id": null,
+     "children": []
+    },
+    {
+     "node_id": "ACRA_RELATIONSHIPS",
+     "label": "Relationships",
+     "status": "COMPLETE",
+     "provider": "ACRA",
+     "environment": "MOCK",
+     "operation": "RELATIONSHIPS",
+     "backend_stage": "REGISTRY",
+     "timestamp": "2026-10-05T04:02:37.086937Z",
+     "safe_result": "Operation evidence retained",
+     "record_count": 5,
+     "blocker_code": null,
+     "retained_goldtier_id": null,
+     "children": []
+    }
+   ]
+  },
+  {
+   "node_id": "DOCUMENT_IDP",
+   "label": "Document verification",
+   "status": "REVIEW_REQUIRED",
+   "provider": null,
+   "environment": null,
+   "operation": null,
+   "backend_stage": "DOCUMENT",
+   "timestamp": "2026-10-05T04:02:37.763608Z",
+   "safe_result": "Review Required",
+   "record_count": null,
+   "blocker_code": "DOCUMENT_SOURCE_CONFLICT",
+   "retained_goldtier_id": null,
+   "children": []
+  },
+  {
+   "node_id": "RECONCILIATION",
+   "label": "Data reconciliation",
+   "status": "REVIEW_REQUIRED",
+   "provider": null,
+   "environment": null,
+   "operation": null,
+   "backend_stage": "DOCUMENT",
+   "timestamp": "2026-10-05T04:02:37.761613Z",
+   "safe_result": "1 discrepancy record(s)",
+   "record_count": null,
+   "blocker_code": "DOCUMENT_SOURCE_CONFLICT",
+   "retained_goldtier_id": null,
+   "children": []
+  },
+  {
+   "node_id": "OWNERSHIP_UBO",
+   "label": "Ownership & UBO",
+   "status": "BLOCKED",
+   "provider": null,
+   "environment": null,
+   "operation": null,
+   "backend_stage": "OWNERSHIP",
+   "timestamp": null,
+   "safe_result": "Missing",
+   "record_count": null,
+   "blocker_code": null,
+   "retained_goldtier_id": null,
+   "children": []
+  },
+  {
+   "node_id": "ADVISORY",
+   "label": "Risk assessment",
+   "status": "NOT_REACHED",
+   "provider": null,
+   "environment": null,
+   "operation": null,
+   "backend_stage": "OWNERSHIP",
+   "timestamp": null,
+   "safe_result": "Bounded POC advisory assessment not reached; not production AML/KYC risk",
+   "record_count": null,
+   "blocker_code": null,
+   "retained_goldtier_id": null,
+   "children": []
+  },
+  {
+   "node_id": "READINESS",
+   "label": "Readiness check",
+   "status": "BLOCKED",
+   "provider": null,
+   "environment": null,
+   "operation": null,
+   "backend_stage": "READINESS",
+   "timestamp": "2026-10-05T04:02:37.770086Z",
+   "safe_result": "2 blocker(s) retained",
+   "record_count": null,
+   "blocker_code": "DOCUMENT_REVIEW_INCOMPLETE",
+   "retained_goldtier_id": null,
+   "children": []
+  },
+  {
+   "node_id": "GOLDTIER_TARGET",
+   "label": "Preparing GoldTier Submission",
+   "status": "BLOCKED",
+   "provider": "GOLDTIER",
+   "environment": "MOCK",
+   "operation": null,
+   "backend_stage": "READINESS",
+   "timestamp": "2026-10-05T04:02:37.770086Z",
+   "safe_result": "Submission preparation awaits authoritative readiness",
+   "record_count": null,
+   "blocker_code": "DOCUMENT_REVIEW_INCOMPLETE",
+   "retained_goldtier_id": null,
+   "children": []
+  },
+  {
+   "node_id": "FINAL_REVIEW_SEND",
+   "label": "Final review & send",
+   "status": "NOT_REACHED",
+   "provider": "GOLDTIER",
+   "environment": "MOCK",
+   "operation": null,
+   "backend_stage": "MOCK_GOLDTIER",
+   "timestamp": null,
+   "safe_result": "Final review awaits authoritative readiness",
+   "record_count": null,
+   "blocker_code": null,
+   "retained_goldtier_id": null,
+   "children": [
+    {
+     "node_id": "GOLDTIER_SHELL",
+     "label": "Customer shell",
+     "status": "NOT_REACHED",
+     "provider": "GOLDTIER",
+     "environment": "MOCK",
+     "operation": "SHELL",
+     "backend_stage": "MOCK_GOLDTIER",
+     "timestamp": null,
+     "safe_result": "Not Attempted",
+     "record_count": null,
+     "blocker_code": null,
+     "retained_goldtier_id": null,
+     "children": []
+    },
+    {
+     "node_id": "GOLDTIER_POLICY",
+     "label": "Customer policy",
+     "status": "NOT_REACHED",
+     "provider": "GOLDTIER",
+     "environment": "MOCK",
+     "operation": "POLICY",
+     "backend_stage": "MOCK_GOLDTIER",
+     "timestamp": null,
+     "safe_result": "Not Attempted",
+     "record_count": null,
+     "blocker_code": null,
+     "retained_goldtier_id": null,
+     "children": []
+    },
+    {
+     "node_id": "GOLDTIER_AMEND",
+     "label": "Customer amendment",
+     "status": "NOT_REACHED",
+     "provider": "GOLDTIER",
+     "environment": "MOCK",
+     "operation": "AMEND",
+     "backend_stage": "MOCK_GOLDTIER",
+     "timestamp": null,
+     "safe_result": "Not Attempted",
+     "record_count": null,
+     "blocker_code": null,
+     "retained_goldtier_id": null,
+     "children": []
+    },
+    {
+     "node_id": "GOLDTIER_COMPLETED",
+     "label": "Completed",
+     "status": "NOT_REACHED",
+     "provider": null,
+     "environment": null,
+     "operation": null,
+     "backend_stage": "COMPLETE",
+     "timestamp": null,
+     "safe_result": "Not completed",
+     "record_count": null,
+     "blocker_code": null,
+     "retained_goldtier_id": null,
+     "children": []
+    }
+   ]
+  }
+ ],
+ "target_classification": {
+  "vocabulary_version": "GOLDTIER_OPENAPI_V1_0_0",
+  "editable": true,
+  "kyc_customer_type": {
+   "allowed_values": [
+    "Association - Incorporated",
+    "Association - Unincorporated",
+    "Co-Operative",
+    "Company - Private",
+    "Company - Public",
+    "Government",
+    "Individual",
+    "Managed Fund",
+    "Partnership - Regulated",
+    "Partnership - Unregulated",
+    "Regulated Financial Institution",
+    "Regulated Fund Manager - ANZ Approved",
+    "Regulated Fund Manager - Non-ANZ Approved",
+    "Sole Trader",
+    "Trust - Regulated",
+    "Trust - Unregulated",
+    "Unregulated Fund Manager"
+   ],
+   "selected_value": null,
+   "authority": null,
+   "required": true
+  },
+  "client_segment": {
+   "allowed_values": [
+    "Corporate",
+    "DI - Diversified Industrials",
+    "DI - Education and Defence",
+    "DI - Food, Beverage, and Agribusiness",
+    "DI - Government",
+    "DI - Telecom, Media, Entertainment, and Technology",
+    "DI - Transport and Logistics",
+    "FIG - Banks",
+    "FIG - Diversified Financials",
+    "FIG - Funds",
+    "FIG - Insurance",
+    "FIG - OSU",
+    "Global Subsidiary Group",
+    "Private Wealth",
+    "Property and Health",
+    "Resource, Energy, and Infrastructure",
+    "Retail",
+    "Commercial BB (Business Banking)",
+    "Commercial RBB (Regional Business Banking)",
+    "Commercial SBB (Small Business Banking)",
+    "Corporate Finance",
+    "Diversified & Specialist Industries",
+    "Personal"
+   ],
+   "selected_value": null,
+   "authority": null,
+   "required": true
+  }
+ },
+ "classification_consistency": {
+  "status": "OPERATOR_REVIEW",
+  "title": "Review legal form and KYC customer type",
+  "explanation": "The current project authority does not define this legal-form and KYC combination; review the classification before sending.",
+  "blocking": false,
+  "authority": "PROJECT_ADVISORY_ONLY"
+ },
+ "ownership_recovery": null,
+ "evidence_decision_authorized": true,
+ "ownership_edit_authorized": false,
+ "timeline": [
+  {
+   "sequence": 1,
+   "event_type": "ONBOARDING_CREATED",
+   "status": "PENDING_INPUTS",
+   "stage": "DOCUMENT",
+   "outcome": "SUCCEEDED",
+   "timestamp": "2026-10-05T04:02:37.089123Z",
+   "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+   "code": "ZERO_TOUCH_CASE_CREATED",
+   "message": "Corporate onboarding case created."
+  },
+  {
+   "sequence": 2,
+   "event_type": "REGISTRY_AUTOMATED",
+   "status": "PENDING_INPUTS",
+   "stage": "DOCUMENT",
+   "outcome": "SUCCEEDED",
+   "timestamp": "2026-10-05T04:02:37.089153Z",
+   "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+   "code": "REGISTRY_AUTOMATED",
+   "message": "Registry evidence was validated automatically."
+  },
+  {
+   "sequence": 3,
+   "event_type": "GOLDTIER_SEARCH_COMPLETED",
+   "status": "PENDING_INPUTS",
+   "stage": "GOLDTIER_SEARCH",
+   "outcome": "SUCCEEDED",
+   "timestamp": "2026-10-05T04:02:37.089190Z",
+   "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+   "code": "GOLDTIER_FIRST_NO_MATCH",
+   "message": "Initial GoldTier Search found no customer."
+  },
+  {
+   "sequence": 4,
+   "event_type": "ONBOARDING_STARTED",
+   "status": "RUNNING",
+   "stage": "DOCUMENT",
+   "outcome": "SUCCEEDED",
+   "timestamp": "2026-10-05T04:02:37.748813Z",
+   "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+   "code": "ONBOARDING_STARTED",
+   "message": "Required onboarding inputs were supplied; automation started."
+  },
+  {
+   "sequence": 5,
+   "event_type": "BUSINESS_EXCEPTION_RAISED",
+   "status": "WAITING_FOR_REVIEW",
+   "stage": "DOCUMENT",
+   "outcome": "REVIEW_REQUIRED",
+   "timestamp": "2026-10-05T04:02:37.763608Z",
+   "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+   "code": "DOCUMENT_SOURCE_CONFLICT",
+   "message": "Automation paused at a typed human-review exception."
+  }
+ ],
+ "created_at": "2026-10-05T04:02:37.089089Z",
+ "updated_at": "2026-10-05T04:02:37.763608Z",
+ "timing": {
+  "case_elapsed_ms": 681,
+  "time_since_last_update_ms": 7,
+  "automation_elapsed_ms": 21,
+  "recorded_total_duration_ms": null,
+  "observed_at": "2026-10-05T04:02:37.770723Z"
+ }
+}

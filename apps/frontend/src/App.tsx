@@ -39,6 +39,8 @@ import {
 } from "./caseQueries";
 import AuditTrail from "./pages/AuditTrail";
 import CaseDetail from "./pages/CaseDetail";
+import CopilotPanel from "./pages/CopilotPanel";
+import { copilotContextFor } from "./pages/copilotContext";
 import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION } from "./pages/CaseQueue";
 import type { CaseQueuePresentationState } from "./pages/CaseQueue";
 import ClientDetail from "./pages/ClientDetail";
@@ -2245,6 +2247,7 @@ export default function App({
   }
 
   const retainedIntakeCaseId = retainedCreatedSummary?.case.case_id ?? null;
+  const copilotContext = copilotContextFor(location.pathname, retainedIntakeCaseId);
   const liveOnboarding = (
     <>
       <HomeOnboarding
@@ -2371,6 +2374,12 @@ export default function App({
           acraDiagnostics={<AcraDiagnostics key={actor.user_id} actor={actor} />}
         />
       </div>
+      <CopilotPanel
+        key={actor.user_id}
+        caseId={copilotContext.caseId}
+        onboardingWithoutCase={copilotContext.onboardingWithoutCase}
+        onOpenCases={() => navigate(paths.cases)}
+      />
     </main>
   );
 }
