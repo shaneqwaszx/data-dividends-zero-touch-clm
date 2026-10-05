@@ -5,6 +5,15 @@ It is not a sponsor contract, phase report, or substitute for current source and
 
 ## Verification metadata
 
+The unmerged post-UAT candidate on
+`fix/post-uat-document-ownership-goldtier-ux` starts at inspected main
+`ae27654a075f13354364e86ec8fe5a81d24777d4`. It extends existing owners for
+independent document auto-confirm, optional ownership notes, automatic guarded Garden
+LOCAL fixture composition, ID-first completed details and explicit exact-ID completed
+Sandbox verification. Evidence and independent verdict belong to its current task
+reports; historical main/provider classifications below are unchanged. No new external
+interoperability, production, legal UBO, GoldTier KYC or approval claim follows.
+
 The unmerged 2026-10-05 post-closeout remediation starts from inspected main
 `1e0600335a0c7677b5cd5d5c9dd8401dfaf3b90f`. Its
 [existing-customer delta](integration/GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md)

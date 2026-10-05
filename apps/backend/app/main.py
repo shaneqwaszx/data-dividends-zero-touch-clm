@@ -295,6 +295,18 @@ class TargetStatusCheckResponse(BaseModel):
     )
 
 
+class CompletedTargetVerificationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    submission_id: UUID
+    goldtier_id: str = Field(max_length=96)
+    checked_at: datetime
+    result: Literal["VERIFIED", "REQUIRES_REVIEW", "UNAVAILABLE"]
+    legal_name: str | None = Field(default=None, max_length=160)
+    registration_number: str | None = Field(default=None, max_length=32)
+    country: str | None = Field(default=None, max_length=2)
+
+
 class TargetDispatchConfirmationRequest(BaseModel):
     """CAS-bound local-POC confirmation; destination and warnings are server-owned."""
 
@@ -441,7 +453,7 @@ class ManualOwnershipEvidenceRequest(BaseModel):
     )
     selected_observation_ids: tuple[UUID, ...] = Field(default=(), max_length=128)
     as_of_date: date
-    rationale: SafeReviewText
+    rationale: SafeReviewText = None
     root_party_id: SafePartyId
     parties: tuple[Party, ...] = Field(min_length=2, max_length=100)
     relationships: tuple[ManualEconomicInterest, ...] = Field(
@@ -841,6 +853,16 @@ def create_app(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 content={"detail": zero_detail.model_dump(mode="json", exclude_none=True)},
             )
+        if "/zero-touch/" in request.url.path and request.url.path.endswith(
+            "/verify-goldtier"
+        ):
+            return JSONResponse(
+                status_code=422,
+                content={"detail": {
+                    "code": "GOLDTIER_VERIFICATION_INVALID",
+                    "message": "The GoldTier verification request is invalid.",
+                }},
+            )
         return await request_validation_exception_handler(request, exc)
 
     def get_onboarding_service() -> OnboardingService:
@@ -1125,6 +1147,20 @@ def create_app(
                 target_state == "SUBMISSION_OUTCOME_UNCERTAIN"
                 and clm_record.submission_plan.environment.value == "SANDBOX"
                 and submission_id is not None and target_uncertain
+            ),
+            verification_available=(
+                target_state == "SUBMISSION_CONFIRMED"
+                and clm_record.submission_plan.environment.value == "SANDBOX"
+                and retained_goldtier_id is not None
+            ),
+            customer_handling=(
+                "EXISTING_REUSED"
+                if target_outcome is not None
+                and target_outcome.shell_status == "EXISTING_PARTY_REUSED"
+                else "NEW_CREATED"
+                if target_outcome is not None
+                and GoldTierOperationMarker.SHELL in target_outcome.completed_operations
+                else None
             ),
         )
         try:
@@ -2342,6 +2378,49 @@ def create_app(
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
         return zero_touch_response(record, actor=actor)
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/verify-goldtier",
+        response_model=CompletedTargetVerificationResponse,
+        tags=["zero-touch"],
+    )
+    def verify_completed_target(
+        case_id: UUID,
+        check: TargetStatusCheckRequest,
+        request: Request,
+    ) -> CompletedTargetVerificationResponse:
+        with service.case_lock(case_id):
+            reauthorize = build_case_reauthorizer(
+                request, authentication, access_policy, service, case_id
+            )
+            reauthorize()
+            current_clm = clm.get(case_id=case_id)
+            automation = zero_touch.get(case_id=case_id)
+            if (
+                current_clm is None or current_clm.submission_snapshot is None
+                or current_clm.submission_snapshot.submission_id != check.expected_submission_id
+                or automation is None or automation.status != AutomationStatus.COMPLETED
+            ):
+                raise HTTPException(status_code=409, detail={
+                    "code": "GOLDTIER_VERIFICATION_UNAVAILABLE",
+                    "message": "A current completed Sandbox submission is required.",
+                })
+            try:
+                evidence = service.verify_completed_target(
+                    case_id=case_id, submission_id=check.expected_submission_id,
+                    reauthorize=reauthorize,
+                )
+            except ValueError:
+                raise HTTPException(status_code=409, detail={
+                    "code": "GOLDTIER_VERIFICATION_UNAVAILABLE",
+                    "message": "A current completed Sandbox submission is required.",
+                }) from None
+            return CompletedTargetVerificationResponse(
+                submission_id=evidence.submission_id, goldtier_id=evidence.goldtier_id,
+                checked_at=evidence.checked_at, result=evidence.result,
+                legal_name=evidence.legal_name, registration_number=evidence.registration_number,
+                country=evidence.country,
+            )
 
     @application.post(
         "/api/clm/zero-touch/cases/{case_id}/target-status-check",

@@ -217,6 +217,24 @@ def main() -> int:
         })
         fixture_connector = SyntheticAcceptanceAcra(S3_SYNTHETIC_NAME, S3_SYNTHETIC_UEN)
         sandbox_transport = OfflineS3SandboxTransport(sandbox_demo)
+        if sandbox_demo == "garden-existing-customer":
+            from app.composition import build_acra_connector
+
+            from scripts.slice_b_registry_fixture import (
+                GardenPartnershipProtocolTransport,
+            )
+
+            settings = settings.model_copy(update={
+                "acra_connector_mode": "api_marketplace_mock",
+                "acra_api_marketplace_mock_client_id": SecretStr("synthetic-offline-client"),
+                "acra_api_marketplace_mock_secret_key": SecretStr("synthetic-offline-key"),
+            })
+            garden_transport = GardenPartnershipProtocolTransport()
+            fixture_connector = build_acra_connector(
+                settings, transport=garden_transport,
+                marketplace_token_transport=garden_transport,
+            )
+            protocol_fixture = True
     application = application_module.create_app(
         settings=settings,
         onboarding_service=(recovery_fixture.onboarding if recovery_fixture else

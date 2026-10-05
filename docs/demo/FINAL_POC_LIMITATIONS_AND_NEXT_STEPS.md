@@ -1,5 +1,24 @@
 # Final POC Limitations and Next Steps
 
+## Post-UAT candidate limitations — 2026-10-05
+
+Automatic document confirmation proves current normalized agreement and sufficient
+case-bound extraction evidence under the provisional profile, never OCR accuracy/
+probability or compliance approval. Unresolved Search remains a target blocker.
+Notes are optional while structured ownership audit remains required.
+
+The eligible official-Mock Garden path uses the existing local synthetic graph
+automatically. Official quantitative partnership evidence remains unavailable;
+fixture percentages are neither ACRA percentages nor legal/control UBO authority.
+Other UENs, failed/stale/ineligible acquisition and conflicting official quantity
+cannot become fixture fallback or double-counted ownership.
+
+Completed exact-ID Sandbox verification is an ephemeral read-only observation;
+failure does not disprove prior delivery or change confirmed submission. Customer
+reuse follows retained Search resolution, never a new local-case assumption.
+GoldTier-internal KYC/approval, production/PingFed, Live ACRA, EDS migration,
+related parties and binary document transfer remain out of scope.
+
 Inspected main is merged PR #70, `4ee8819d7404d6442e064fd60dcee03ccc84cf11`,
 2026-10-05. Phase27 branch UI remediation is independently accepted and unmerged.
 Current [agent UI UAT](PHASE_27_AGENT_UAT_RESULTS.md) is16 PASS/0 FAIL/5 NOT_RUN,

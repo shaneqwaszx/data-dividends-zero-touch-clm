@@ -577,6 +577,32 @@ export interface TargetStatusCheckResult {
   message: string;
 }
 
+export interface CompletedTargetVerificationResult {
+  submission_id: string;
+  goldtier_id: string;
+  checked_at: string;
+  result: "VERIFIED" | "REQUIRES_REVIEW" | "UNAVAILABLE";
+  legal_name: string | null;
+  registration_number: string | null;
+  country: string | null;
+}
+
+export type TargetSearchObservation = TargetStatusCheckResult | CompletedTargetVerificationResult;
+
+export async function verifyCompletedGoldTier(
+  caseId: string, submissionId: string, signal?: AbortSignal,
+): Promise<CompletedTargetVerificationResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/verify-goldtier`,
+    {
+      method: "POST", signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_submission_id: submissionId }),
+    },
+  );
+  return parseResponse<CompletedTargetVerificationResult>(response);
+}
+
 export async function checkZeroTouchTargetStatus(
   caseId: string, submissionId: string, signal?: AbortSignal,
 ): Promise<TargetStatusCheckResult> {
@@ -645,7 +671,7 @@ export interface ManualOwnershipEvidenceInput {
   evidence_document_id: string;
   evidence_document_version: number;
   as_of_date: string;
-  rationale: string;
+  rationale?: string | null;
   root_party_id: string;
   parties: Array<{
     party_id: string;

@@ -38,6 +38,27 @@ SafePartyId = Annotated[
     BeforeValidator(_normalize_safe_text),
     StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"),
 ]
+
+
+def _normalize_optional_review_note(value: object) -> object:
+    if value is None or isinstance(value, str) and not value.strip():
+        return None
+    normalized = _normalize_safe_text(value)
+    if isinstance(normalized, str) and any(
+        marker in normalized.casefold()
+        for marker in (
+            "assistant:", "developer message", "ignore previous", "ignore prior",
+            "override instructions", "system prompt", "<script", "javascript:",
+        )
+    ):
+        raise ValueError("ownership review note contains a prohibited instruction marker")
+    return normalized
+
+
+SafeOwnershipReviewNote = Annotated[
+    Annotated[str, StringConstraints(min_length=10, max_length=240)] | None,
+    BeforeValidator(_normalize_optional_review_note),
+]
 SafeRelationshipId = Annotated[
     str,
     BeforeValidator(_normalize_safe_text),
@@ -330,11 +351,7 @@ class ManualOwnershipReviewReceipt(BaseModel):
         StringConstraints(pattern=r"^[a-z][a-z0-9-]{2,31}$"),
     ]
     reviewed_at: datetime
-    rationale: Annotated[
-        str,
-        BeforeValidator(_normalize_safe_text),
-        StringConstraints(min_length=10, max_length=240),
-    ]
+    rationale: SafeOwnershipReviewNote = None
     evidence_document_id: UUID
     evidence_document_version: int = Field(ge=1)
     evidence_reference: str = Field(pattern=r"^MANUAL_DOC_[a-f0-9]{32}_V[1-9][0-9]*$")

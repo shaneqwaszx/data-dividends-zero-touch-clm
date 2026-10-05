@@ -529,6 +529,11 @@ class ZeroTouchOrchestrator:
                 bound.ownership_provider_binding_id = binding_id
                 record = self._save(record, bound)
             if record.status == AutomationStatus.WAITING_FOR_REVIEW:
+                for document in self._current_documents(case_id):
+                    if document.state == DocumentProcessingState.REVIEW_REQUIRED:
+                        self._documents.auto_confirm_document(
+                            case_id=case_id, document_id=document.document_id, allow_partial=True
+                        )
                 return record
             started = record.model_copy(deep=True)
             started.status = AutomationStatus.RUNNING
@@ -603,7 +608,15 @@ class ZeroTouchOrchestrator:
                     self._documents.get_document(case_id=case_id, document_id=document.document_id)
                     or document
                 )
-            return document
+            for current in self._current_documents(case_id):
+                if current.state == DocumentProcessingState.REVIEW_REQUIRED:
+                    self._documents.auto_confirm_document(
+                        case_id=case_id, document_id=current.document_id, allow_partial=True
+                    )
+            return (
+                self._documents.get_document(case_id=case_id, document_id=document.document_id)
+                or document
+            )
 
     def retry_intake_document(
         self,
@@ -1031,10 +1044,6 @@ class ZeroTouchOrchestrator:
                     message="The replacement ownership evidence still requires review.",
                 )
 
-            stale_confirmation_versions = {
-                f"target-confirmation:{clm_record.version}",
-                f"target-confirmation:{clm_record.version}:{expected_case_event_count}",
-            }
             self._clm.refresh_pre_submission_evidence(case_id=case_id)
             candidate = record.model_copy(deep=True)
             resolved_at = self._clock()
@@ -1043,7 +1052,10 @@ class ZeroTouchOrchestrator:
                     item.stage == AutomationStage.OWNERSHIP
                     or (
                         item.exception_type == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
-                        and item.evidence_version in stale_confirmation_versions
+                        # A successful creator-owned graph replacement invalidates
+                        # every earlier local review, including one bound before a
+                        # subsequent classification revision. Recompute before send.
+                        and item.evidence_version.startswith("target-confirmation:")
                     )
                 ):
                     item.status = BusinessExceptionStatus.RESOLVED

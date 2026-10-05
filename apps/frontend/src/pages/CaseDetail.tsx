@@ -4,7 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ApiError,
   checkZeroTouchTargetStatus,
-  type TargetStatusCheckResult,
+  verifyCompletedGoldTier,
+  type TargetSearchObservation,
   confirmZeroTouchTargetDispatch,
   correctRegistryIdentity,
   deleteZeroTouchCase,
@@ -103,7 +104,7 @@ interface CaseActionIdentity {
 
 interface RetainedTargetStatusCheck {
   attempted: true;
-  result: TargetStatusCheckResult | null;
+  result: TargetSearchObservation | null;
   error: string | null;
 }
 
@@ -160,8 +161,12 @@ export default function CaseDetail({
   const targetSubmission = summary?.target_submission;
   const targetSubmissionId = targetSubmission?.submission_id ?? null;
   const targetStatusIdentity = `${evidenceIdentity}:${targetSubmissionId ?? "none"}`;
-  const canCheckTargetStatus = targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN"
-    && targetSubmission.status_check_available
+  const completedVerification = targetSubmission?.state === "SUBMISSION_CONFIRMED";
+  const targetCheckKind = completedVerification ? "completed-target-verification" : "target-status-check";
+  const canCheckTargetStatus = (
+    (targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" && targetSubmission.status_check_available)
+    || (completedVerification && targetSubmission?.verification_available === true)
+  )
     && targetSubmissionId !== null
     && actor.capabilities.includes("CASE_ACCESS")
     && !caseUnavailable && !mutationBlocked && !detailQuery.isError;
@@ -289,7 +294,7 @@ export default function CaseDetail({
     const action = captureCaseAction();
     const key = [
       ...caseDetailQueryOptions(action.actorUserId, action.caseId).queryKey,
-      "target-status-check", targetSubmissionId,
+      targetCheckKind, targetSubmissionId,
     ];
     if (automatic && queryClient.getQueryData<RetainedTargetStatusCheck>(key)?.attempted) return;
     const previous = queryClient.getQueryData<RetainedTargetStatusCheck>(key);
@@ -303,11 +308,13 @@ export default function CaseDetail({
     targetStatusController.current = controller;
     setTargetStatusCheck({ ...retained, identity: targetStatusIdentity, checking: true });
     try {
-      const result = await checkZeroTouchTargetStatus(action.caseId, targetSubmissionId, controller.signal);
+      const result = completedVerification
+        ? await verifyCompletedGoldTier(action.caseId, targetSubmissionId, controller.signal)
+        : await checkZeroTouchTargetStatus(action.caseId, targetSubmissionId, controller.signal);
       if (controller.signal.aborted || !isCurrentCaseAction(action)) return;
       const next: RetainedTargetStatusCheck = result.submission_id === targetSubmissionId
         ? { attempted: true, result, error: null }
-        : { attempted: true, result: null, error: "The status check did not match this submission. The retained outcome remains uncertain." };
+        : { attempted: true, result: null, error: "The check did not match this retained submission." };
       queryClient.setQueryData(key, next);
       setTargetStatusCheck({ ...next, identity: targetStatusIdentity, checking: false });
     } catch (checkError) {
@@ -319,7 +326,9 @@ export default function CaseDetail({
       }
       const next: RetainedTargetStatusCheck = {
         attempted: true, result: previous?.result ?? null,
-        error: "GoldTier status could not be checked. The retained submission outcome remains uncertain.",
+        error: completedVerification
+          ? "GoldTier verification is unavailable. The confirmed submission remains retained."
+          : "GoldTier status could not be checked. The retained submission outcome remains uncertain.",
       };
       if (!(checkError instanceof ApiError && [401, 403, 404].includes(checkError.status))) {
         queryClient.setQueryData(key, next);
@@ -328,12 +337,12 @@ export default function CaseDetail({
     } finally {
       if (targetStatusController.current === controller) targetStatusController.current = null;
     }
-  }, [actor.user_id, caseId, queryClient, canCheckTargetStatus, targetSubmissionId, targetStatusIdentity, isBusy]);
+  }, [actor.user_id, caseId, queryClient, canCheckTargetStatus, targetSubmissionId, targetStatusIdentity, targetCheckKind, completedVerification, isBusy]);
 
   useEffect(() => {
     const key = [
       ...caseDetailQueryOptions(actor.user_id, caseId).queryKey,
-      "target-status-check", targetSubmissionId,
+      targetCheckKind, targetSubmissionId,
     ];
     const retained = targetSubmissionId
       ? queryClient.getQueryData<RetainedTargetStatusCheck>(key) : undefined;
@@ -342,11 +351,11 @@ export default function CaseDetail({
       targetStatusController.current?.abort();
       targetStatusController.current = null;
     };
-  }, [actor.user_id, caseId, queryClient, targetSubmissionId, targetStatusIdentity, targetSubmission?.state, canCheckTargetStatus]);
+  }, [actor.user_id, caseId, queryClient, targetSubmissionId, targetStatusIdentity, targetCheckKind, targetSubmission?.state, canCheckTargetStatus]);
 
   useEffect(() => {
-    if (canCheckTargetStatus) void runTargetStatusCheck(true);
-  }, [canCheckTargetStatus, runTargetStatusCheck]);
+    if (canCheckTargetStatus && !completedVerification) void runTargetStatusCheck(true);
+  }, [canCheckTargetStatus, completedVerification, runTargetStatusCheck]);
 
   useEffect(() => {
     if (!summary || !shouldPollAutomation(summary.status)) return;

@@ -1046,7 +1046,7 @@ def project_human_interventions(
             classification = "RECOVERABLE_INPUT"
             required = (
                 "Case-bound ownership percentages, as-of date and "
-                "client-supplied evidence/rationale.",
+                "client-supplied evidence; reviewer note is optional.",
             )
             expected = (
                 "Save valid structured ownership evidence; the existing Decimal engine "
@@ -1382,6 +1382,8 @@ class BrowserTargetSubmissionEvidence(BaseModel):
     ]
     goldtier_id: str | None = Field(default=None, max_length=96)
     status_check_available: bool = False
+    verification_available: bool = False
+    customer_handling: Literal["EXISTING_REUSED", "NEW_CREATED"] | None = None
 
 
 class ZeroTouchCaseSummaryResponse(BaseModel):

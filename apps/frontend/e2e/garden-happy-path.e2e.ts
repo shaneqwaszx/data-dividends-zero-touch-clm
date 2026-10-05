@@ -164,41 +164,20 @@ async function selectClassification(page: Page) {
 }
 
 async function reviewedOwnership(page: Page, caseId: string) {
-  await expect(page.getByRole("heading", { name: "Review or edit ownership evidence" })).toBeVisible();
-  const form = page.locator(".manual-ownership");
-  const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
-  const documents = (await response.json()).filter((document: any) => !document.superseded_by_document_id);
-  expect(documents).toHaveLength(1);
-  const document = documents[0];
-  expect(document.state).toBe("REVIEWED");
-  expect(document.fields.every((field: any) => field.review_status !== "PENDING")).toBe(true);
-  await expect(form.getByLabel("Evidence document")).toHaveValue(document.document_id);
-  await expect(form.getByLabel("Evidence document").locator("option:checked"))
-    .toContainText(`review revision ${document.events.length}`);
-  await form.getByLabel("As-of date").fill("2026-10-04");
-  await form.getByLabel("Owner type", { exact: true }).nth(0).selectOption("NATURAL_PERSON");
-  await form.getByLabel("Owner type", { exact: true }).nth(1).selectOption("NATURAL_PERSON");
-  await form.getByLabel("Economic interest %", { exact: true }).nth(0).fill("60");
-  await form.getByLabel("Economic interest %", { exact: true }).nth(1).fill("40");
-  await form.getByLabel("Review rationale").fill("Reviewed synthetic client declaration: exact direct economic interests 60 and 40 percent.");
-  await form.getByLabel("Owner name", { exact: true }).nth(0).fill("DEMO OWNER ONE");
-  await form.getByLabel("Owner name", { exact: true }).nth(1).fill("DEMO OWNER TWO");
-  await measured("manual ownership save", async () => {
-    const response = page.waitForResponse((result) => result.request().method() === "POST"
-      && result.url().endsWith("/manual-ownership-evidence"), { timeout: 15_000 });
-    await form.getByRole("button", { name: "Submit manual ownership evidence" }).click();
-    expect((await response).status()).toBe(200);
-    await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier" })).toBeEnabled();
-  });
+  const response = await page.request.get(`/api/onboarding/cases/${caseId}/ownership`);
+  expect(response.status()).toBe(200);
+  const ownership = await response.json();
+  expect(ownership.state).toBe("ANALYZED");
+  expect(ownership.source_classification).toBe("OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT");
+  expect(ownership.manual_review_receipt).toBeNull();
+  expect(ownership.relationships.every((edge: any) => edge.provenance.provider === "LOCAL_SYNTHETIC_SUPPLEMENT"
+    && edge.provenance.environment === "LOCAL")).toBe(true);
+  expect(ownership.candidates.find((item: any) => item.party.display_name === "ABCD123").aggregated_ownership_percent).toMatch(/^51\.136363750*$/);
   const current = await summary(page, caseId);
   expect(current.case.registry_acquisition.ownership_parties).toEqual([]);
-  expect(current.processing_pipeline.find((item: any) => item.node_id === "ACRA_REGISTRY").status).toBe("COMPLETE");
-  expect(current.ownership_recovery.review_receipt).toBeTruthy();
-  expect(current.ownership_recovery.review_receipt.evidence_document_id).toBe(document.document_id);
-  expect(current.ownership_recovery.review_receipt.evidence_document_version).toBe(document.events.length);
   expect(current.active_exceptions.map((item: any) => item.blocker_code)).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
-  expect(current.status).not.toBe("COMPLETED");
-  await expect(page.getByText("No action available", { exact: true })).toHaveCount(0);
+  await openStage(page, "Final review & send");
+  await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier" })).toBeEnabled();
 }
 
 test("Garden late preconfirmation detail GET cannot replace completed case", async ({ page }) => {
@@ -263,7 +242,6 @@ test("Garden late preconfirmation detail GET cannot replace completed case", asy
 
 test("Garden happy path uses truthful offline protocol evidence and explicit Mock confirmation", async ({ page }, testInfo) => {
   const caseId = await createGarden(page, false);
-  await expect(page.getByRole("heading", { name: "Review or edit ownership evidence" })).toBeVisible();
   const documentsResponse = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
   const documents = await documentsResponse.json();
   expect(documents).toHaveLength(1);

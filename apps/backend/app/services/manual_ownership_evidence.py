@@ -43,6 +43,7 @@ from app.domain.ownership import (
     OwnershipRelationshipType,
     Party,
     PartyType,
+    SafeOwnershipReviewNote,
     SafePartyId,
     SafeRelationshipId,
 )
@@ -92,11 +93,7 @@ def _decimal_input(value: object) -> object:
     return value
 
 
-SafeReviewText = Annotated[
-    str,
-    BeforeValidator(_normalize_text),
-    StringConstraints(min_length=10, max_length=240),
-]
+SafeReviewText = SafeOwnershipReviewNote
 SafeActorId = Annotated[
     str,
     BeforeValidator(_normalize_text),
@@ -156,7 +153,7 @@ class ManualOwnershipDeclaration(BaseModel):
     evidence_document_version: int = Field(ge=1)
     source_type: Literal["USER_SUPPLIED_DECLARATION"] = MANUAL_OWNERSHIP_SOURCE_TYPE
     as_of_date: date
-    rationale: SafeReviewText
+    rationale: SafeReviewText = None
     source_selection: Literal[
         "USER_SUPPLIED_DECLARATION", "CURRENT_EVIDENCE", "DOCUMENT_OBSERVATIONS"
     ] = "USER_SUPPLIED_DECLARATION"

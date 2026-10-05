@@ -1,5 +1,29 @@
 # Final Sponsor Demo Runbook
 
+## Post-UAT candidate demo delta — 2026-10-05
+
+Use official Marketplace Mock mode for Garden 11111999A; no Garden toggle or manual
+declaration is needed solely for absent official percentages. The unchanged known-case
+share fixture is LOCAL_SYNTHETIC_SUPPLEMENT/LOCAL: ABCD123 effective 51.13636375%,
+LIM CHOON HUAT 37.500000%. Both are provisional ownership candidates, not official
+ACRA percentages or legal controllers.
+
+Current matching scanned identity fields meeting the frozen evidence-score threshold
+auto-confirm during independent upload even while GoldTier Search requires resolution.
+Inspect extraction method/quality, deterministic score, raw OCR mean and agreement;
+AUTO CONFIRMED differs from HUMAN ACCEPTED. Resolve only real conflicts/ambiguities.
+Ownership reviewer note is optional; source/graph/as-of/document audit remains required.
+
+Confirm an incomplete matching retained Garden candidate through its existing action;
+do not enter an arbitrary ID. Review & Send reuses the retained ID (143878 only when
+that exact candidate was selected), skips duplicate Shell/unneeded Policy/Amend, and
+shows GoldTier ID as the first completed data row and customer handling second.
+For completed Sandbox, use Verify in GoldTier for one read-only exact-ID Search.
+Verified in Sandbox shows check time/safe identity; review/unavailable preserves
+confirmed submission. GoldTier downstream KYC/four-eye/approval remains separate.
+Automated regression uses synthetic offline protocol/scanned fixtures, with zero
+external calls. This task grants no external provider call permission.
+
 ## Current source, recommendation and execution boundary
 
 Inspected main is merged PR #70, `4ee8819d7404d6442e064fd60dcee03ccc84cf11`.

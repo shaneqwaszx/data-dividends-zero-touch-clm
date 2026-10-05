@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import type { TargetStatusCheckResult } from "../api";
+import type { TargetSearchObservation } from "../api";
 
 import type {
   AuthenticatedProfile,
@@ -129,7 +129,7 @@ export default function ReviewAndSend({
   onEditDocuments: () => void;
   onEditOwnership: () => void;
   statusChecking?: boolean;
-  statusCheckResult?: TargetStatusCheckResult | null;
+  statusCheckResult?: TargetSearchObservation | null;
   statusCheckError?: string | null;
   onCheckStatus?: () => void;
 }) {
@@ -204,6 +204,12 @@ export default function ReviewAndSend({
     ? statusCheckResult : null;
   const canCheckStatus = submission?.state === "SUBMISSION_OUTCOME_UNCERTAIN"
     && submission.status_check_available && Boolean(onCheckStatus);
+  const canVerifyCompleted = submission?.state === "SUBMISSION_CONFIRMED"
+    && submission.verification_available === true && Boolean(submission.goldtier_id)
+    && Boolean(onCheckStatus) && clm.submission_plan.environment === "SANDBOX";
+  const completedResult = submission?.state === "SUBMISSION_CONFIRMED"
+    && matchingStatusCheck && "goldtier_id" in matchingStatusCheck
+    && matchingStatusCheck.goldtier_id === submission.goldtier_id ? matchingStatusCheck : null;
   const confirmationRequired = summary.active_exceptions.some(
     (exception) => exception.exception_type === "TARGET_CONFIRMATION_REQUIRED",
   );
@@ -276,8 +282,30 @@ export default function ReviewAndSend({
         <section className="ds-banner" aria-labelledby="submission-state-title" aria-live="polite" aria-atomic="true">
           <h3 id="submission-state-title">{submissionCopy.title}</h3>
           <p>{submissionCopy.detail}</p>
-          {submission?.goldtier_id && <p>Retained GoldTier ID: {submission.goldtier_id}</p>}
-          {matchingStatusCheck && (
+          {submission?.state === "SUBMISSION_CONFIRMED" ? (
+            <dl aria-label="Completed GoldTier submission">
+              <div><dt>GoldTier ID</dt><dd>{submission.goldtier_id ?? "Not retained"}</dd></div>
+              <div><dt>Customer handling</dt><dd>{submission.customer_handling === "EXISTING_REUSED"
+                ? "Existing GoldTier customer reused" : submission.customer_handling === "NEW_CREATED"
+                ? "New GoldTier customer created" : "Not recorded"}</dd></div>
+              <div><dt>Provider</dt><dd>{clm.submission_plan.environment === "SANDBOX" ? "GoldTier XPI" : "GoldTier Mock"}</dd></div>
+              <div><dt>Environment</dt><dd>{label(clm.submission_plan.environment)}</dd></div>
+              <div><dt>Submission status</dt><dd>Confirmed</dd></div>
+              <div><dt>Readback</dt><dd>{summary.target_operations.find((item) => item.operation === "READBACK")?.status ?? "Not recorded"}</dd></div>
+              {summary.target_operations.map((item) => <div key={item.operation}>
+                <dt>{label(item.operation)}</dt><dd>{label(item.status)}</dd>
+              </div>)}
+              {completedResult && <>
+                <div><dt>Verification</dt><dd>{completedResult.result === "VERIFIED" ? "Verified in Sandbox"
+                  : completedResult.result === "REQUIRES_REVIEW" ? "Verification requires review" : "Verification unavailable"}</dd></div>
+                <div><dt>Checked at</dt><dd>{new Date(completedResult.checked_at).toLocaleString()}</dd></div>
+                {completedResult.result === "VERIFIED" && <div><dt>Identity</dt><dd>{[
+                  completedResult.legal_name, completedResult.registration_number, completedResult.country,
+                ].filter(Boolean).join(" · ")}</dd></div>}
+              </>}
+            </dl>
+          ) : submission?.goldtier_id && <p>Retained GoldTier ID: {submission.goldtier_id}</p>}
+          {matchingStatusCheck && "message" in matchingStatusCheck && (
             <div>
               <p>{matchingStatusCheck.message}</p>
               <p>Checked at {new Date(matchingStatusCheck.checked_at).toLocaleString()}.</p>
@@ -446,9 +474,9 @@ export default function ReviewAndSend({
             <button type="button" className="btn btn-ghost" disabled={busy} onClick={onReviewOutstanding}>Review outstanding items</button>
           </>
         ) : null}
-        {canCheckStatus && canAccessCase && (
+        {(canCheckStatus || canVerifyCompleted) && canAccessCase && (
           <button type="button" className="btn btn-secondary" disabled={busy || statusChecking} onClick={onCheckStatus}>
-            Check GoldTier status
+            {canVerifyCompleted ? "Verify in GoldTier" : "Check GoldTier status"}
           </button>
         )}
         {!canAccessCase && <p role="status">You do not have the case capability required to confirm this dispatch.</p>}

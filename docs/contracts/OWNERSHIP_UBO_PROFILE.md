@@ -141,7 +141,7 @@ Current discrepancies compare registry graph, original local supplement, documen
 existing manual graph. MATCH still requires a creator source decision for a proposal;
 MISMATCH, NOT_COMPARABLE and AMBIGUOUS retain originals and block automatic progression.
 Creator-only decisions require current access/session/team within the owning lock/CAS.
-Unknown historical creators are read-only for these decisions. Rationale, actor/time,
+Unknown historical creators are read-only for these decisions. Optional reviewer note, actor/time,
 case/document event versions, selected immutable observations, chosen source/graph and
 replaced analysis/version are retained. CURRENT_EVIDENCE requires the exact current
 graph, including supported partial parent totals without inventing missing percentages.
@@ -161,9 +161,9 @@ unresolved branches. The frontend displays Decimal strings and cannot recalculat
 
 ### Explicit official-Mock plus local Garden supplement
 
-`GARDEN_SUPPLEMENT_ENABLED=false` by default. When explicitly enabled with
-`ACRA_CONNECTOR_MODE=api_marketplace_mock`, the existing coordinator checks fresh
-compatible official/cache evidence or acquires it. Only successful known Garden
+`ACRA_CONNECTOR_MODE=api_marketplace_mock` automatically composes the existing
+bounded Garden supplement; no manual toggle is required. The existing coordinator
+checks fresh compatible official/cache evidence or acquires it. Only successful known Garden
 `11111999A` evidence permits the separately labelled LOCAL_SYNTHETIC_SUPPLEMENT/LOCAL.
 Official entity/address/officers and empty/unsupported quantitative evidence remain
 unchanged. Failure cannot select the fixture. Future nonempty official quantity is
@@ -176,6 +176,25 @@ ABCD123 900, TAN WEI LING 100 and EFGH2345 100: denominator 1100, rounded edge p
 this explicit known synthetic fixture. ABCD123 effective interest is 51.13636375%; LIM
 CHOON HUAT is 37.500000%. Both meet >=25%. TAN WEI LING and EFGH2345 each have
 5.681818125%. This is local synthetic derivation, not official ACRA or legal ownership.
+
+Reviewer notes may be omitted, null or blank (normalized to null). Supplied notes retain
+the bounded safe-text/control-character/prompt-marker and length checks. Actor/time,
+source selection, as-of date, document IDs/event versions, selected immutable
+observations, graph and replacement bindings remain structured audit evidence.
+Historical string rationale decodes without read-time rewriting or fabricated prose.
+`GARDEN_SUPPLEMENT_ENABLED` is deprecated compatibility input; neither value disables
+the accepted official-Mock Garden path. Its historical true/outside-official-lane
+configuration rejection remains; internal isolated provider test seams remain explicit.
+
+For that exact validated fixture graph, official OFFICERS role rows remain descriptive
+registry evidence and do not create a second quantitative ownership requirement.
+Other unresolved roles/interests, conflicts, unbound evidence and official quantities
+retain the existing review/discrepancy checks; no general officer-to-owner rule changes.
+
+A successful creator-owned graph replacement invalidates the earlier local target
+review even when a classification revision followed that review. The existing
+orchestration owner recomputes ownership/readiness before a new explicit send; it
+cannot resume target dispatch while the ownership stage is incomplete.
 
 ## Separate ML-assisted advisory
 

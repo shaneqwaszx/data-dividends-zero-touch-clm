@@ -59,7 +59,7 @@ function fixture(state: SubmissionState = "SUBMISSION_OUTCOME_UNCERTAIN", caseId
 }
 
 function markup(summary: ZeroTouchCaseSummary, options: {
-  checking?: boolean; result?: api.TargetStatusCheckResult; error?: string; canCheck?: boolean;
+  checking?: boolean; result?: api.TargetSearchObservation; error?: string; canCheck?: boolean;
 } = {}): string {
   return renderToStaticMarkup(<ReviewAndSend summary={summary} documents={[]} ownership={null} actor={actor} busy={false}
     onConfirm={() => undefined} onSaveDraft={() => undefined} onReviewOutstanding={() => undefined}
@@ -118,7 +118,9 @@ describe("S3 backend-derived final submission state", () => {
     const text = markup(fixture(state));
     expect(text).toContain(title);
     expect(text).toContain("Frozen server review projection");
-    expect(text).toContain("Retained GoldTier ID: synthetic-target-31");
+    expect(text).toContain(state === "SUBMISSION_CONFIRMED"
+      ? "<dt>GoldTier ID</dt><dd>synthetic-target-31</dd>"
+      : "Retained GoldTier ID: synthetic-target-31");
     expect(text).not.toContain("Confirm and send"); expect(text).not.toContain(">Save draft<");
     expect(text).not.toContain(">Retry<"); expect(text).not.toContain("Edit company details");
     if (state === "FINALIZATION_PENDING") expect(text).not.toContain("Submission failed");
@@ -149,6 +151,73 @@ describe("S3 backend-derived final submission state", () => {
 });
 
 describe("S3 scoped bounded status checking", () => {
+  it.each(["EXISTING_REUSED", "NEW_CREATED"] as const)("puts the ID first and presents retained %s handling", (handling) => {
+    const summary = fixture("SUBMISSION_CONFIRMED");
+    summary.target_submission!.customer_handling = handling;
+    summary.target_submission!.verification_available = true;
+    const text = markup(summary, { canCheck: true });
+    const completed = text.slice(text.indexOf('aria-label="Completed GoldTier submission"'));
+    expect(completed.indexOf("<dt>GoldTier ID</dt>")).toBeLessThan(completed.indexOf("<dt>Customer handling</dt>"));
+    expect(text).toContain(handling === "EXISTING_REUSED" ? "Existing GoldTier customer reused" : "New GoldTier customer created");
+    expect(text).toContain("Verify in GoldTier");
+    expect(text).not.toContain("Check GoldTier status");
+  });
+
+  it.each(["VERIFIED", "REQUIRES_REVIEW", "UNAVAILABLE"] as const)("presents independent completed verification %s", (verification) => {
+    const summary = fixture("SUBMISSION_CONFIRMED");
+    const observed: api.CompletedTargetVerificationResult = {
+      submission_id: SUBMISSION, goldtier_id: "synthetic-target-31", checked_at: "2026-10-05T09:00:00Z",
+      result: verification, legal_name: "SYNTHETIC S3 PTE. LTD.", registration_number: "202600031A", country: "SG",
+    };
+    const text = markup(summary, { result: observed });
+    expect(text).toContain(verification === "VERIFIED" ? "Verified in Sandbox"
+      : verification === "REQUIRES_REVIEW" ? "Verification requires review" : "Verification unavailable");
+    expect(text).toContain("Submission confirmed");
+    expect(text).not.toContain("Submission outcome uncertain");
+    expect(markup(summary, { result: { ...observed, goldtier_id: "other" } })).not.toContain("Checked at");
+  });
+
+  it("only verifies completed cases on explicit action and retains scoped read-only results", async () => {
+    const summary = fixture("SUBMISSION_CONFIRMED");
+    summary.target_submission!.verification_available = true;
+    const verify = vi.spyOn(api, "verifyCompletedGoldTier").mockResolvedValue({
+      submission_id: SUBMISSION, goldtier_id: "synthetic-target-31",
+      checked_at: "2026-10-05T09:00:00Z", result: "VERIFIED",
+      legal_name: "SYNTHETIC S3 PTE. LTD.", registration_number: "202600031A", country: "SG",
+    });
+    const uncertain = vi.spyOn(api, "checkZeroTouchTargetStatus");
+    const resume = vi.spyOn(api, "resumeZeroTouchCase");
+    await mount(summary);
+    expect(verify).not.toHaveBeenCalled();
+    const button = [...host!.querySelectorAll("button")].find((item) => item.textContent === "Verify in GoldTier");
+    expect(button).toBeDefined();
+    await act(async () => button!.click());
+    expect(verify).toHaveBeenCalledOnce();
+    expect(verify.mock.calls[0].slice(0, 2)).toEqual([CASE_A, SUBMISSION]);
+    expect(uncertain).not.toHaveBeenCalled();
+    expect(resume).not.toHaveBeenCalled();
+    expect(host!.textContent).toContain("Verified in Sandbox");
+    expect(host!.textContent).toContain("Submission confirmed");
+  });
+
+  it("discards a completed verification response after case navigation", async () => {
+    const summary = fixture("SUBMISSION_CONFIRMED");
+    summary.target_submission!.verification_available = true;
+    let finish!: (result: api.CompletedTargetVerificationResult) => void;
+    const verify = vi.spyOn(api, "verifyCompletedGoldTier").mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    await mount(summary);
+    await act(async () => [...host!.querySelectorAll("button")].find((item) => item.textContent === "Verify in GoldTier")!.click());
+    const other = fixture("SUBMISSION_CONFIRMED", CASE_B);
+    seed(client!, other);
+    await renderCase(CASE_B);
+    await act(async () => finish({
+      submission_id: SUBMISSION, goldtier_id: "synthetic-target-31", checked_at: "2026-10-05T09:00:00Z",
+      result: "VERIFIED", legal_name: "STALE IDENTITY SENTINEL", registration_number: null, country: null,
+    }));
+    expect(verify.mock.calls[0][2]?.aborted).toBe(true);
+    expect(host!.textContent).not.toContain("STALE IDENTITY SENTINEL");
+  });
+
   it("keeps frozen review visible and performs one automatic check across rerenders and remounts", async () => {
     const pending = pendingCheck(); vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Unexpected request")));
     await mount();

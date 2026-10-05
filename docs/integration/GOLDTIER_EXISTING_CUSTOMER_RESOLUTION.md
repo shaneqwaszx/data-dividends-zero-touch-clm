@@ -95,8 +95,28 @@ decisions, supersession and final-target freezes remain in force.
 
 Garden remains an existing-customer scenario: retained candidate143878 may be confirmed,
 ACRA official Marketplace Mock and actual LOCAL OCR evidence stay distinct, partnership
-quantitative ownership remains partial, and reviewed LOCAL supplementary evidence is
-required for deterministic >=25% candidates. No official percentage is fabricated.
+quantitative ownership remains partial. The post-UAT normal composition automatically
+uses the eligible existing LOCAL_SYNTHETIC_SUPPLEMENT fixture for Decimal >=25%
+candidate calculation, without a manual declaration solely for missing official
+percentages. Real contradictory/proposed evidence retains human-review rules.
+No official percentage is fabricated.
 This remediation performs no external Garden/ACRA/GoldTier call. Related-party child
 lifecycle, original-file GoldTier upload, full legal/control UBO, Production and Live
 remain unresolved/out of scope.
+
+## Post-UAT completion and duplicate prevention
+
+Same legal entity (same UEN with provider EXACT_MATCH or separately retained
+CONFIRMED_EXISTING) reuses the selected GoldTier ID across distinct local case IDs.
+A new local interaction cannot justify duplicate Shell. Definitive different-entity
+NO_MATCH retains the ordinary reviewed Shell/new-ID path. Existing-target Policy/Amend
+work follows actual retained lifecycle requirements; skipped operations are displayed.
+
+Completed details show GoldTier ID first and customer handling second. Verify in
+GoldTier is available only for completed Sandbox, retained ID and current CASE_ACCESS.
+POST verify-goldtier accepts only expected_submission_id; OnboardingService derives
+the exact ID and invokes XPI Search once using goldTierID. Results are ephemeral bounded
+VERIFIED/REQUIRES_REVIEW/UNAVAILABLE with UTC checked_at and safe verified identity fields.
+No match, different ID, multiple, malformed or failed response never rewrites confirmed
+submission, triggers mutation/replay or proves the prior mutation absent. This action
+is separate from uncertain-submission status checking.

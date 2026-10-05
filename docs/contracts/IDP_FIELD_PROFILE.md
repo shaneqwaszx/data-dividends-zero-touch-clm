@@ -32,6 +32,15 @@ proposed ownership observations under the existing ownership owner; see ADR-009.
   extraction score. The legacy standalone review lane remains explicit.
 - Extraction evidence never approves a customer, compliance decision, or GoldTier state.
 
+The post-UAT owner remediation evaluates independently admissible uploads through
+the same auto-confirm owner even at GOLDTIER_SEARCH. Original value and current
+canonical value must normalize to MATCH, canonical comparison must exist/current,
+extraction must be unambiguous, and score must be >= the frozen case threshold.
+Unresolved contradictory current evidence prevents confirmation of the affected field.
+Only eligible fields are confirmed; all semantic blockers must clear before REVIEWED /
+AUTO_CONFIRMED. Search remains authoritative and this evaluation dispatches no target
+mutation. Retained events distinguish AUTO CONFIRMED from HUMAN ACCEPTED in the UI.
+
 All thresholds and completion rules are project-defined and await sponsor confirmation.
 
 Native primary/alternate labels score `0.97`/`0.90`; absent values score `0` and

@@ -364,10 +364,11 @@ def build_ownership_analysis_service(
     return OwnershipAnalysisService(
         cases=onboarding_service,
         provider=RegistryAcquisitionOwnershipProvider(
-            onboarding_service, garden_supplement_enabled=settings.garden_supplement_enabled
+            onboarding_service,
+            garden_supplement_enabled=settings.acra_connector_mode == "api_marketplace_mock",
         ),
         documents=documents,
-        garden_supplement_enabled=settings.garden_supplement_enabled,
+        garden_supplement_enabled=settings.acra_connector_mode == "api_marketplace_mock",
         repository=repository or InMemoryOwnershipAnalysisRepository(),
         threshold_percent=settings.ubo_ownership_threshold_percent,
         max_parties=settings.ownership_max_parties,

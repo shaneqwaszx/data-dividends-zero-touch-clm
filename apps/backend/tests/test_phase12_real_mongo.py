@@ -164,7 +164,13 @@ def test_real_mongo_concurrent_field_review_has_one_durable_winner(
     services = []
     barrier = Barrier(2)
     try:
+        initial_snapshot = stores[0].get(case_id)
+        assert initial_snapshot is not None
+        race_revision = initial_snapshot.revision
         for store in stores:
+            snapshot = store.get(case_id)
+            assert snapshot is not None
+            assert snapshot.revision == race_revision
             onboarding = build_onboarding_service(
                 settings=settings,
                 repository=MongoOnboardingCaseRepository(store),
@@ -185,7 +191,10 @@ def test_real_mongo_concurrent_field_review_has_one_durable_winner(
                 expected_revision: int,
                 replace: Callable[..., object] = original_replace,
             ) -> object:
-                barrier.wait()
+                # Race the initial decisions only. The CAS winner subsequently
+                # persists review completion after automatic sibling confirmation.
+                if expected_revision == race_revision:
+                    barrier.wait(timeout=10)
                 return replace(snapshot, expected_revision=expected_revision)
 
             monkeypatch.setattr(store, "replace", synchronized_replace)
@@ -215,6 +224,10 @@ def test_real_mongo_concurrent_field_review_has_one_durable_winner(
         try:
             persisted = MongoDocumentProcessingRepository(fresh_store).get(document_id)
             assert persisted is not None
+            assert winner.state == persisted.state == DocumentProcessingState.REVIEWED
+            completed_snapshot = fresh_store.get(case_id)
+            assert completed_snapshot is not None
+            assert completed_snapshot.revision == race_revision + 2
             legal_name = next(
                 item
                 for item in persisted.fields
@@ -395,7 +408,14 @@ def test_real_mongo_failed_replacement_restart_requires_retry_without_replay(
         )
         assert current_document.status_code == 200
         current_event_count = len(current_document.json()["events"])
-        assert current_event_count > len(original["events"])
+        assert current_document.json()["events"] == original["events"]
+        assert any(
+            event["event_type"] == "DOCUMENT_AUTO_CONFIRMED" for event in original["events"]
+        )
+        assert [
+            field["field_key"] for field in current_document.json()["fields"]
+            if field["review_status"] == "PENDING"
+        ] == ["legal_name"]
         failed = first.post(
             (
                 f"/api/clm/zero-touch/cases/{case_id}/documents/"
@@ -1139,7 +1159,14 @@ def test_real_mongo_replacement_restart_preserves_history_and_stales_old_decisio
         )
         assert current_document.status_code == 200
         current_event_count = len(current_document.json()["events"])
-        assert current_event_count > len(document_b["events"])
+        assert current_document.json()["events"] == document_b["events"]
+        assert any(
+            event["event_type"] == "DOCUMENT_AUTO_CONFIRMED" for event in document_b["events"]
+        )
+        assert [
+            field["field_key"] for field in current_document.json()["fields"]
+            if field["review_status"] == "PENDING"
+        ] == ["legal_name"]
         replacement = first.post(
             (
                 f"/api/clm/zero-touch/cases/{case_id}/documents/"

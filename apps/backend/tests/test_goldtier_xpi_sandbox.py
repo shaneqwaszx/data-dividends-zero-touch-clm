@@ -506,6 +506,87 @@ def test_confirmed_existing_path_skips_shell_policy_and_unneeded_amend() -> None
     assert len(transport.calls) == 2
 
 
+def test_second_onboarding_same_entity_keeps_id_and_distinct_local_case_without_shell():
+    from app.connectors.goldtier_xpi import GoldTierXpiHttpResponse
+    from app.domain.access import TeamId
+
+    zero, _, _, transport, first = _existing_candidate_system()
+    records = []
+    for created in (first, None):
+        if created is None:
+            transport.responses.append(GoldTierXpiHttpResponse(200, [{
+                "goldTierId": 143878, "legalName": "MERLION CIRCULAR LABS PTE. LTD.",
+                "registrationNumber": "202400001A", "countryOfIncorporation": "SG",
+            }]))
+            created = zero.create_case(
+                "202400001A", "SG", legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+                team_id=TeamId.TEAM_A, created_by_actor_id="maya-lim",
+            )
+        if created.current_stage == "GOLDTIER_SEARCH":
+            zero.confirm_existing_customer(**_confirmation_arguments(zero, created))
+        paused = zero.attach_document(
+            case_id=created.case_id, display_name="matching.pdf",
+            content_type="application/pdf", content=PDF,
+        )
+        if records:
+            transport.responses.append(GoldTierXpiHttpResponse(200, [{
+                "goldTierId": 143878, "legalName": "MERLION CIRCULAR LABS PTE. LTD.",
+                "registrationNumber": "202400001A", "countryOfIncorporation": "SG",
+            }]))
+        transport.responses.append(GoldTierXpiHttpResponse(200, [{"goldTierId": 143878}]))
+        arguments = _confirmation_arguments(zero, paused)
+        arguments.pop("search_request_id")
+        arguments.pop("rationale")
+        completed = zero.confirm_target_dispatch(**arguments)
+        assert completed.status == "COMPLETED"
+        case = zero._cases.get_case(created.case_id)
+        assert case.goldtier_result.party_id == "143878"
+        assert case.goldtier_result.shell_status == "EXISTING_PARTY_REUSED"
+        disposition = zero._clm.get(case_id=created.case_id).target_search_checkpoint.disposition
+        assert disposition == ("CONFIRMED_EXISTING" if not records else "EXACT_MATCH")
+        records.append(case)
+    assert records[0].case_id != records[1].case_id
+    assert records[0].source_case_id != records[1].source_case_id
+    assert len(transport.calls) == 5
+    assert all(call["method"] == "GET" for call in transport.calls)
+
+
+def test_different_no_match_entity_creates_new_id_after_existing_customer_reuse():
+    from app.connectors.goldtier_xpi import GoldTierXpiHttpResponse
+
+    transport = FakeXpiTransport([
+        GoldTierXpiHttpResponse(200, [{
+            "goldTierId": 143878, "legalName": "MERLION CIRCULAR LABS PTE. LTD.",
+            "registrationNumber": "202400001A", "countryOfIncorporation": "SG",
+        }]),
+        GoldTierXpiHttpResponse(200, {}),
+        GoldTierXpiHttpResponse(200, [{"goldTierId": 143878}]),
+        GoldTierXpiHttpResponse(200, []),
+        GoldTierXpiHttpResponse(200, {"goldTierId": 999123}),
+        GoldTierXpiHttpResponse(200, {}),
+        GoldTierXpiHttpResponse(200, {}),
+        GoldTierXpiHttpResponse(200, [{"goldTierId": 999123}]),
+    ])
+    service = _xpi_onboarding_service(transport)
+    receipts = []
+    cases = []
+    for uen in ("202400001A", "202400008H"):
+        case = service.create_staged_case(uen)
+        submission = service.build_submission_input(case, provider_mode="SANDBOX")
+        _confirm_service_submission(service, submission)
+        receipt = service.execute_submission_input(submission)
+        assert receipt.classification == "SUCCESS"
+        receipts.append(receipt)
+        cases.append(case)
+    assert cases[0].case_id != cases[1].case_id
+    assert receipts[0].result.party_id == "143878"
+    assert receipts[0].result.shell_status == "EXISTING_PARTY_REUSED"
+    assert receipts[1].result.party_id == "999123"
+    shells = [call for call in transport.calls if call["url"].endswith("/customers/create")]
+    assert len(shells) == 1
+    assert shells[0]["json_body"]["registration"]["registrationNumber"] == "202400008H"
+
+
 def test_confirmation_api_forbids_caller_target_id_and_requires_creator() -> None:
     from app.main import create_app
     zero, documents, ownership, transport, created = _existing_candidate_system()

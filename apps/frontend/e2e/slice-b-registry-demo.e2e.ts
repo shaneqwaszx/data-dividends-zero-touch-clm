@@ -88,7 +88,7 @@ async function complete(page: Page, caseId: string) {
 
 }
 
-test("Slice B Garden partnership declaration completes truthfully", { tag: "@slice-b-garden-partnership" }, async ({ page }) => {
+test("Slice B Garden partnership automatically uses labelled local ownership", { tag: "@slice-b-garden-partnership" }, async ({ page }) => {
   const caseId = await create(page, garden);
   await openStage(page, "Registry verification");
   await expect(page.getByText(/ACRA Marketplace protocol · synthetic offline test evidence \| GoldTier/) ).toBeVisible();
@@ -101,28 +101,13 @@ test("Slice B Garden partnership declaration completes truthfully", { tag: "@sli
   expect(initial.case.registry_acquisition.operation_results.map((item: any) => item.status))
     .toEqual(["COMPLETE", "COMPLETE", "UNSUPPORTED", "UNSUPPORTED"]);
   expect(await counts(page)).toEqual(["TOKEN", "ENTITY_PROFILE", "ENTITY_PROFILE"]);
-  await expect(page.getByRole("heading", { name: "Ownership and UBO — needs input", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Add structured ownership details", exact: true }).click();
-  const form = page.locator(".manual-ownership");
-  await expect(form).toContainText("USER_SUPPLIED_DECLARATION");
-  await form.getByLabel("As-of date").fill("2026-10-04");
-  await form.getByLabel("Owner type", { exact: true }).nth(0).selectOption("NATURAL_PERSON");
-  await form.getByLabel("Owner type", { exact: true }).nth(1).selectOption("NATURAL_PERSON");
-  await form.getByLabel("Economic interest %", { exact: true }).nth(0).fill("60");
-  await form.getByLabel("Economic interest %", { exact: true }).nth(1).fill("40");
-  await form.getByLabel("Review rationale").fill("Reviewed the fictional client declaration of exact sixty and forty percent economic interest.");
-  await form.getByLabel("Owner name", { exact: true }).nth(0).fill("Synthetic Garden Partner A");
-  await form.getByLabel("Owner name", { exact: true }).nth(1).fill("Synthetic Garden Partner B");
-  await form.getByRole("button", { name: "Submit manual ownership evidence" }).click();
-  await expect(page.getByRole("button", { name: "Add structured ownership details", exact: true })).toHaveCount(0);
-  await openStage(page, "Ownership & UBO");
-  await page.getByText("View ownership structure and calculations", { exact: true }).click();
-  await expect(page.getByText(/Client-supplied ownership evidence.*USER_SUPPLIED_DECLARATION.*MANUAL_DECLARATION_POC/)).toBeVisible();
+  const ownership = await (await page.request.get(`/api/onboarding/cases/${caseId}/ownership`)).json();
+  expect(ownership.state).toBe("ANALYZED");
+  expect(ownership.source_classification).toBe("OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT");
+  expect(ownership.manual_review_receipt).toBeNull();
+  expect(ownership.candidates.find((item: any) => item.party.display_name === "ABCD123").aggregated_ownership_percent).toMatch(/^51\.136363750*$/);
   const current = await summary(page, caseId);
   expect(current.active_exceptions.map((item: any) => item.blocker_code)).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
-  expect(current.ownership_recovery.review_receipt.provider_environment).toBe("LOCAL");
-  const ownership = await (await page.request.get("/api/onboarding/cases/" + caseId + "/ownership")).json();
-  expect(ownership.candidates.map((item: any) => Number(item.aggregated_ownership_percent)).sort()).toEqual([40, 60]);
   await complete(page, caseId);
   await page.reload();
   await expect.poll(async () => (await summary(page, caseId)).active_exceptions).toEqual([]);

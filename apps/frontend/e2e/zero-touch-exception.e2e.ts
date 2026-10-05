@@ -174,56 +174,22 @@ for (const conflict of [false, true]) {
       await expect(page.getByRole("button", { name: /^Accept .* suggestion$/ })).toHaveCount(0);
       expect((await summary(page, caseId)).metrics.human_interventions).toBe(0);
     }
-    await expect(page.getByRole("button", { name: "Add structured ownership details", exact: true })).toBeVisible();
-    const ownershipStage = page.locator(".stage-disclosure").filter({
-      has: page.getByRole("button", { name: /^Ownership & UBO/ }),
-    });
-    await openStage(page, "Registry verification");
-    await expect(page.getByText("Ownership unavailable from current registry evidence", { exact: true })).toBeVisible();
-    await expect(ownershipStage.locator(".intervention-card")).toHaveCount(1);
-    await expect(ownershipStage.getByRole("heading", { name: "Ownership and UBO — needs input", exact: true })).toBeVisible();
-    await expect(page.getByText("Identity retrieved", { exact: true })).toBeVisible();
-    await capture(page, info, "ownership-gap");
-    const baseline = requests.length;
-    await page.getByRole("button", { name: "Add structured ownership details", exact: true }).click();
-    await expect(page.locator("#case-manual-ownership-evidence")).toBeFocused();
-    expect(requests.length).toBe(baseline);
-    const form = page.locator(".manual-ownership");
-    await form.getByLabel("Ownership source decision", { exact: true }).selectOption("USER_SUPPLIED_DECLARATION");
-    await form.getByLabel("As-of date", { exact: true }).fill("2026-09-28");
-    await form.getByLabel("Owner type", { exact: true }).nth(0).selectOption("NATURAL_PERSON");
-    await form.getByLabel("Owner type", { exact: true }).nth(1).selectOption("NATURAL_PERSON");
-    await form.getByLabel("Economic interest %", { exact: true }).nth(0).fill("60");
-    await form.getByLabel("Economic interest %", { exact: true }).nth(1).fill("40");
-    await form.getByLabel("Review rationale").fill("Reviewed synthetic client declaration of exact sixty and forty percent economic interest.");
-    await form.getByLabel("Owner name", { exact: true }).nth(0).fill("Demo Partner A");
-    await form.getByLabel("Owner name", { exact: true }).nth(1).fill("Demo Partner B");
     await classification(page);
-    const measure = await boundedMutation(page, info, "/manual-ownership-evidence", async () => {
-      await form.getByRole("button", { name: "Submit manual ownership evidence" }).click();
-    }, "ownership");
-    await expect(page.getByRole("button", { name: "Add structured ownership details", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier" })).toBeEnabled();
     const current = await summary(page, caseId);
     expect(current.active_exceptions.map((item: any) => item.blocker_code)).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
-    expect(current.historical_exceptions.some((item: any) => item.stage === "OWNERSHIP" && item.status === "RESOLVED")).toBe(true);
-    const ownerResponse = await page.request.get(`/api/onboarding/cases/${caseId}/ownership`);
-    const owner = await ownerResponse.json();
+    const owner = await (await page.request.get(`/api/onboarding/cases/${caseId}/ownership`)).json();
     expect(owner.state).toBe("ANALYZED");
-    expect(owner.provider_environment).toBe("LOCAL");
-    const table = page.getByRole("table", { name: "Retained ownership details" });
-    await openStage(page, "Ownership & UBO");
-    await page.getByText("View ownership structure and calculations", { exact: true }).click();
-    await table.scrollIntoViewIfNeeded();
-    await expect(table.getByRole("row")).toHaveCount(3);
-    await expect(table).toContainText("Demo Partner A");
-    await expect(table).toContainText("Demo Partner B");
-    await expect(table).toContainText("LOCAL");
-    await expect(page.getByText(/Client-supplied ownership evidence.*not ACRA-derived/)).toBeVisible();
-    await expect(page.getByText("Ownership information required", { exact: true })).toHaveCount(0);
-    expect(owner.candidates.map((candidate: any) => Number(candidate.aggregated_ownership_percent)).sort()).toEqual([40, 60]);
+    expect(owner.source_classification).toBe("OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT");
+    expect(owner.manual_review_receipt).toBeNull();
+    expect(owner.relationships.every((edge: any) => edge.provenance.provider === "LOCAL_SYNTHETIC_SUPPLEMENT"
+      && edge.provenance.environment === "LOCAL")).toBe(true);
+    expect(owner.candidates.find((item: any) => item.party.display_name === "ABCD123").aggregated_ownership_percent).toMatch(/^51\.136363750*$/);
     expect(current.case.registry_acquisition.ownership_parties).toEqual([]);
-    await capture(page, info, "after"); measure();
+    await expect(page.getByRole("button", { name: "Add structured ownership details", exact: true })).toHaveCount(0);
+    await openStage(page, "Final review & send");
+    await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier" })).toBeEnabled();
+    await capture(page, info, "after");
+
     expect(requests.some((request) => request.includes("/api/demo/"))).toBe(false);
   });
 }
