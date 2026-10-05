@@ -79,7 +79,7 @@ def create_app(
         model = OpenAICompatibleChatModel(
             base_url=config.llm_base_url,
             model=config.llm_model,
-            api_key=config.llm_api_key.get_secret_value(),
+            credential=config.llm_api_key.get_secret_value(),
             timeout_seconds=config.llm_timeout_seconds,
             temperature=config.llm_temperature,
         )

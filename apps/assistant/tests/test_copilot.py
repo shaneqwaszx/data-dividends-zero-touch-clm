@@ -187,7 +187,7 @@ def test_openai_compatible_client_sends_a_standard_chat_request() -> None:
     model = OpenAICompatibleChatModel(
         base_url="http://127.0.0.1:11434/v1/",
         model="ministral-3:8b",
-        api_key="ollama",
+        credential="test_ollama_key",
         timeout_seconds=5,
         temperature=0.2,
         transport=httpx.MockTransport(handler),
@@ -209,7 +209,7 @@ def test_openai_compatible_client_reports_bad_replies_as_unavailable(
     model = OpenAICompatibleChatModel(
         base_url="http://model.invalid/v1",
         model="m",
-        api_key="k",
+        credential="test_key",
         timeout_seconds=5,
         temperature=0,
         transport=httpx.MockTransport(lambda request: reply),

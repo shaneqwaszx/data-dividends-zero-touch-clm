@@ -22,14 +22,14 @@ class OpenAICompatibleChatModel:
         *,
         base_url: str,
         model: str,
-        api_key: str,
+        credential: str,
         timeout_seconds: float,
         temperature: float,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._url = base_url.rstrip("/") + "/chat/completions"
         self._model = model
-        self._api_key = api_key
+        self._credential = credential
         self._timeout = timeout_seconds
         self._temperature = temperature
         self._transport = transport
@@ -50,7 +50,7 @@ class OpenAICompatibleChatModel:
                 response = client.post(
                     self._url,
                     json=payload,
-                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    headers={"Authorization": f"Bearer {self._credential}"},
                 )
         except httpx.HTTPError:
             raise LlmUnavailableError("model unreachable") from None
