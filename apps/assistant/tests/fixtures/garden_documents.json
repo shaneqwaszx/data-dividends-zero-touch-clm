@@ -1,0 +1,839 @@
+[
+ {
+  "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+  "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+  "document_version": 1,
+  "correlation_id": "495673dc-25b8-4559-9798-136934347b93",
+  "display_name": "garden-business-01-business-profile.pdf",
+  "media_type": "application/pdf",
+  "size_bytes": 2751,
+  "profile": "CERTIFICATE_OF_INCORPORATION_POC",
+  "provider_environment": "LOCAL",
+  "state": "REVIEW_REQUIRED",
+  "fields": [
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "registration_number",
+    "original_extracted_value": "11111999A",
+    "normalized_value": "11111999A",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "11111999A",
+    "comparison_status": "MATCH",
+    "review_status": "ACCEPTED",
+    "reviewed_value": "11111999A",
+    "reviewed_at": "2026-10-05T04:02:37.752679Z",
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "11111999A",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_6"
+     }
+    ]
+   },
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "legal_name",
+    "original_extracted_value": "GARDEN BUSINESS",
+    "normalized_value": "GARDEN BUSINESS",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "GARDEN BUSINESS",
+    "comparison_status": "MATCH",
+    "review_status": "ACCEPTED",
+    "reviewed_value": "GARDEN BUSINESS",
+    "reviewed_at": "2026-10-05T04:02:37.752679Z",
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "GARDEN BUSINESS",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_5"
+     }
+    ]
+   },
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "registered_address",
+    "original_extracted_value": "18 GARDEN WALK, #01-01, 018919, SG",
+    "normalized_value": "18 GARDEN WALK, #01-01, 018919, SG",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "18 OFFICIAL MOCK STREET, #01-01, 123456, SG",
+    "comparison_status": "MISMATCH",
+    "review_status": "PENDING",
+    "reviewed_value": null,
+    "reviewed_at": null,
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "18 GARDEN WALK, #01-01, 018919, SG",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_7"
+     }
+    ]
+   },
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "country_of_incorporation",
+    "original_extracted_value": "SG",
+    "normalized_value": "SG",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "SG",
+    "comparison_status": "MATCH",
+    "review_status": "ACCEPTED",
+    "reviewed_value": "SG",
+    "reviewed_at": "2026-10-05T04:02:37.752679Z",
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "SG",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_8"
+     }
+    ]
+   }
+  ],
+  "pages": [
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "page_number": 1,
+    "source_reference": "PAGE_1"
+   }
+  ],
+  "ownership_observations": [],
+  "events": [
+   {
+    "sequence": 1,
+    "event_type": "DOCUMENT_UPLOADED",
+    "state": "UPLOADED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.222949Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+    "correlation_id": "495673dc-25b8-4559-9798-136934347b93",
+    "field_key": null,
+    "code": null,
+    "message": "Document accepted for transient processing."
+   },
+   {
+    "sequence": 2,
+    "event_type": "DOCUMENT_PROCESSING_STARTED",
+    "state": "PROCESSING",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.223029Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+    "correlation_id": "495673dc-25b8-4559-9798-136934347b93",
+    "field_key": null,
+    "code": null,
+    "message": "IDP processing started."
+   },
+   {
+    "sequence": 3,
+    "event_type": "DOCUMENT_PROCESSED",
+    "state": "PROCESSING",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.350836Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+    "correlation_id": "495673dc-25b8-4559-9798-136934347b93",
+    "field_key": null,
+    "code": null,
+    "message": "Provider output validated and compared with canonical data."
+   },
+   {
+    "sequence": 4,
+    "event_type": "DOCUMENT_REVIEW_REQUIRED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "REVIEW_REQUIRED",
+    "timestamp": "2026-10-05T04:02:37.351078Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+    "correlation_id": "495673dc-25b8-4559-9798-136934347b93",
+    "field_key": null,
+    "code": "DOCUMENT_REVIEW_REQUIRED",
+    "message": "Human field review is required for this provisional document profile."
+   },
+   {
+    "sequence": 5,
+    "event_type": "DOCUMENT_AUTO_CONFIRMED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.752709Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+    "correlation_id": "495673dc-25b8-4559-9798-136934347b93",
+    "field_key": "registration_number",
+    "code": "DOCUMENT_FIELD_AUTO_CONFIRMED",
+    "message": "A matching current field met the automated confidence rule."
+   },
+   {
+    "sequence": 6,
+    "event_type": "DOCUMENT_AUTO_CONFIRMED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.752894Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+    "correlation_id": "495673dc-25b8-4559-9798-136934347b93",
+    "field_key": "legal_name",
+    "code": "DOCUMENT_FIELD_AUTO_CONFIRMED",
+    "message": "A matching current field met the automated confidence rule."
+   },
+   {
+    "sequence": 7,
+    "event_type": "DOCUMENT_AUTO_CONFIRMED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.753084Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "6e1bb777-424f-48a8-bfb5-d7b88f9fe510",
+    "correlation_id": "495673dc-25b8-4559-9798-136934347b93",
+    "field_key": "country_of_incorporation",
+    "code": "DOCUMENT_FIELD_AUTO_CONFIRMED",
+    "message": "A matching current field met the automated confidence rule."
+   }
+  ],
+  "error": null,
+  "created_at": "2026-10-05T04:02:37.222893Z",
+  "processed_at": "2026-10-05T04:02:37.350830Z",
+  "reviewed_at": null,
+  "completion_method": null,
+  "semantic_completion": null,
+  "reconciliation_version": 1,
+  "supersedes_document_id": null,
+  "superseded_by_document_id": null,
+  "superseded_at": null,
+  "updated_at": "2026-10-05T04:02:37.753084Z"
+ },
+ {
+  "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+  "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+  "document_version": 1,
+  "correlation_id": "60dfc59d-5ce3-48dc-8383-1a70a336129c",
+  "display_name": "garden-business-02-registration-certificate.pdf",
+  "media_type": "application/pdf",
+  "size_bytes": 2331,
+  "profile": "CERTIFICATE_OF_INCORPORATION_POC",
+  "provider_environment": "LOCAL",
+  "state": "REVIEW_REQUIRED",
+  "fields": [
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "registration_number",
+    "original_extracted_value": "11111999A",
+    "normalized_value": "11111999A",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "11111999A",
+    "comparison_status": "MATCH",
+    "review_status": "ACCEPTED",
+    "reviewed_value": "11111999A",
+    "reviewed_at": "2026-10-05T04:02:37.755571Z",
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "11111999A",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_6"
+     }
+    ]
+   },
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "legal_name",
+    "original_extracted_value": "GARDEN BUSINESS",
+    "normalized_value": "GARDEN BUSINESS",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "GARDEN BUSINESS",
+    "comparison_status": "MATCH",
+    "review_status": "ACCEPTED",
+    "reviewed_value": "GARDEN BUSINESS",
+    "reviewed_at": "2026-10-05T04:02:37.755571Z",
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "GARDEN BUSINESS",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_5"
+     }
+    ]
+   },
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "registered_address",
+    "original_extracted_value": "18 GARDEN WALK, #01-01, 018919, SG",
+    "normalized_value": "18 GARDEN WALK, #01-01, 018919, SG",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "18 OFFICIAL MOCK STREET, #01-01, 123456, SG",
+    "comparison_status": "MISMATCH",
+    "review_status": "PENDING",
+    "reviewed_value": null,
+    "reviewed_at": null,
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "18 GARDEN WALK, #01-01, 018919, SG",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_7"
+     }
+    ]
+   },
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "country_of_incorporation",
+    "original_extracted_value": "SG",
+    "normalized_value": "SG",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "SG",
+    "comparison_status": "MATCH",
+    "review_status": "ACCEPTED",
+    "reviewed_value": "SG",
+    "reviewed_at": "2026-10-05T04:02:37.755571Z",
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "SG",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_8"
+     }
+    ]
+   }
+  ],
+  "pages": [
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "page_number": 1,
+    "source_reference": "PAGE_1"
+   }
+  ],
+  "ownership_observations": [],
+  "events": [
+   {
+    "sequence": 1,
+    "event_type": "DOCUMENT_UPLOADED",
+    "state": "UPLOADED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.479314Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+    "correlation_id": "60dfc59d-5ce3-48dc-8383-1a70a336129c",
+    "field_key": null,
+    "code": null,
+    "message": "Document accepted for transient processing."
+   },
+   {
+    "sequence": 2,
+    "event_type": "DOCUMENT_PROCESSING_STARTED",
+    "state": "PROCESSING",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.479380Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+    "correlation_id": "60dfc59d-5ce3-48dc-8383-1a70a336129c",
+    "field_key": null,
+    "code": null,
+    "message": "IDP processing started."
+   },
+   {
+    "sequence": 3,
+    "event_type": "DOCUMENT_PROCESSED",
+    "state": "PROCESSING",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.599904Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+    "correlation_id": "60dfc59d-5ce3-48dc-8383-1a70a336129c",
+    "field_key": null,
+    "code": null,
+    "message": "Provider output validated and compared with canonical data."
+   },
+   {
+    "sequence": 4,
+    "event_type": "DOCUMENT_REVIEW_REQUIRED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "REVIEW_REQUIRED",
+    "timestamp": "2026-10-05T04:02:37.600122Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+    "correlation_id": "60dfc59d-5ce3-48dc-8383-1a70a336129c",
+    "field_key": null,
+    "code": "DOCUMENT_REVIEW_REQUIRED",
+    "message": "Human field review is required for this provisional document profile."
+   },
+   {
+    "sequence": 5,
+    "event_type": "DOCUMENT_AUTO_CONFIRMED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.755591Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+    "correlation_id": "60dfc59d-5ce3-48dc-8383-1a70a336129c",
+    "field_key": "registration_number",
+    "code": "DOCUMENT_FIELD_AUTO_CONFIRMED",
+    "message": "A matching current field met the automated confidence rule."
+   },
+   {
+    "sequence": 6,
+    "event_type": "DOCUMENT_AUTO_CONFIRMED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.755757Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+    "correlation_id": "60dfc59d-5ce3-48dc-8383-1a70a336129c",
+    "field_key": "legal_name",
+    "code": "DOCUMENT_FIELD_AUTO_CONFIRMED",
+    "message": "A matching current field met the automated confidence rule."
+   },
+   {
+    "sequence": 7,
+    "event_type": "DOCUMENT_AUTO_CONFIRMED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.756215Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "deeb6353-a146-4a03-bf62-8d1088161932",
+    "correlation_id": "60dfc59d-5ce3-48dc-8383-1a70a336129c",
+    "field_key": "country_of_incorporation",
+    "code": "DOCUMENT_FIELD_AUTO_CONFIRMED",
+    "message": "A matching current field met the automated confidence rule."
+   }
+  ],
+  "error": null,
+  "created_at": "2026-10-05T04:02:37.479263Z",
+  "processed_at": "2026-10-05T04:02:37.599900Z",
+  "reviewed_at": null,
+  "completion_method": null,
+  "semantic_completion": null,
+  "reconciliation_version": 1,
+  "supersedes_document_id": null,
+  "superseded_by_document_id": null,
+  "superseded_at": null,
+  "updated_at": "2026-10-05T04:02:37.756215Z"
+ },
+ {
+  "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+  "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+  "document_version": 1,
+  "correlation_id": "6f4489d4-4476-4db3-84c2-0dc32e856da4",
+  "display_name": "garden-business-03-account-opening-resolution.pdf",
+  "media_type": "application/pdf",
+  "size_bytes": 2519,
+  "profile": "CERTIFICATE_OF_INCORPORATION_POC",
+  "provider_environment": "LOCAL",
+  "state": "REVIEW_REQUIRED",
+  "fields": [
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "registration_number",
+    "original_extracted_value": "11111999A",
+    "normalized_value": "11111999A",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "11111999A",
+    "comparison_status": "MATCH",
+    "review_status": "ACCEPTED",
+    "reviewed_value": "11111999A",
+    "reviewed_at": "2026-10-05T04:02:37.758698Z",
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "11111999A",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_6"
+     }
+    ]
+   },
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "legal_name",
+    "original_extracted_value": "GARDEN BUSINESS",
+    "normalized_value": "GARDEN BUSINESS",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "GARDEN BUSINESS",
+    "comparison_status": "MATCH",
+    "review_status": "ACCEPTED",
+    "reviewed_value": "GARDEN BUSINESS",
+    "reviewed_at": "2026-10-05T04:02:37.758698Z",
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "GARDEN BUSINESS",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_5"
+     }
+    ]
+   },
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "registered_address",
+    "original_extracted_value": "18 GARDEN WALK, #01-01, 018919, SG",
+    "normalized_value": "18 GARDEN WALK, #01-01, 018919, SG",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "18 OFFICIAL MOCK STREET, #01-01, 123456, SG",
+    "comparison_status": "MISMATCH",
+    "review_status": "PENDING",
+    "reviewed_value": null,
+    "reviewed_at": null,
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "18 GARDEN WALK, #01-01, 018919, SG",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_7"
+     }
+    ]
+   },
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "field_key": "country_of_incorporation",
+    "original_extracted_value": "SG",
+    "normalized_value": "SG",
+    "confidence": 0.97,
+    "provenance": {
+     "provider": "LOCAL_PDF_TEXT",
+     "environment": "LOCAL",
+     "page_number": 1,
+     "source_reference": "UNIQUE_LABELLED_TEXT"
+    },
+    "canonical_value": "SG",
+    "comparison_status": "MATCH",
+    "review_status": "ACCEPTED",
+    "reviewed_value": "SG",
+    "reviewed_at": "2026-10-05T04:02:37.758698Z",
+    "review_note": null,
+    "candidates": [
+     {
+      "extraction_method": "NATIVE_PDF_TEXT",
+      "extraction_quality": "HIGH",
+      "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+      "score_formula": "LABEL_SCORE",
+      "raw_ocr_mean_confidence": null,
+      "raw_ocr_word_count": null,
+      "value": "SG",
+      "page_number": 1,
+      "source_reference": "PAGE_1_LINE_8"
+     }
+    ]
+   }
+  ],
+  "pages": [
+   {
+    "extraction_method": "NATIVE_PDF_TEXT",
+    "extraction_quality": "HIGH",
+    "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+    "score_formula": "LABEL_SCORE",
+    "raw_ocr_mean_confidence": null,
+    "raw_ocr_word_count": null,
+    "page_number": 1,
+    "source_reference": "PAGE_1"
+   }
+  ],
+  "ownership_observations": [],
+  "events": [
+   {
+    "sequence": 1,
+    "event_type": "DOCUMENT_UPLOADED",
+    "state": "UPLOADED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.674734Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+    "correlation_id": "6f4489d4-4476-4db3-84c2-0dc32e856da4",
+    "field_key": null,
+    "code": null,
+    "message": "Document accepted for transient processing."
+   },
+   {
+    "sequence": 2,
+    "event_type": "DOCUMENT_PROCESSING_STARTED",
+    "state": "PROCESSING",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.674784Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+    "correlation_id": "6f4489d4-4476-4db3-84c2-0dc32e856da4",
+    "field_key": null,
+    "code": null,
+    "message": "IDP processing started."
+   },
+   {
+    "sequence": 3,
+    "event_type": "DOCUMENT_PROCESSED",
+    "state": "PROCESSING",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.743846Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+    "correlation_id": "6f4489d4-4476-4db3-84c2-0dc32e856da4",
+    "field_key": null,
+    "code": null,
+    "message": "Provider output validated and compared with canonical data."
+   },
+   {
+    "sequence": 4,
+    "event_type": "DOCUMENT_REVIEW_REQUIRED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "REVIEW_REQUIRED",
+    "timestamp": "2026-10-05T04:02:37.744041Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+    "correlation_id": "6f4489d4-4476-4db3-84c2-0dc32e856da4",
+    "field_key": null,
+    "code": "DOCUMENT_REVIEW_REQUIRED",
+    "message": "Human field review is required for this provisional document profile."
+   },
+   {
+    "sequence": 5,
+    "event_type": "DOCUMENT_AUTO_CONFIRMED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.758716Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+    "correlation_id": "6f4489d4-4476-4db3-84c2-0dc32e856da4",
+    "field_key": "registration_number",
+    "code": "DOCUMENT_FIELD_AUTO_CONFIRMED",
+    "message": "A matching current field met the automated confidence rule."
+   },
+   {
+    "sequence": 6,
+    "event_type": "DOCUMENT_AUTO_CONFIRMED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.758934Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+    "correlation_id": "6f4489d4-4476-4db3-84c2-0dc32e856da4",
+    "field_key": "legal_name",
+    "code": "DOCUMENT_FIELD_AUTO_CONFIRMED",
+    "message": "A matching current field met the automated confidence rule."
+   },
+   {
+    "sequence": 7,
+    "event_type": "DOCUMENT_AUTO_CONFIRMED",
+    "state": "REVIEW_REQUIRED",
+    "outcome": "SUCCEEDED",
+    "timestamp": "2026-10-05T04:02:37.759115Z",
+    "case_id": "1a94cce9-2d93-4b73-ad5c-41c289e824a6",
+    "document_id": "bc2bea18-86ca-4a26-8024-3c133156aa13",
+    "correlation_id": "6f4489d4-4476-4db3-84c2-0dc32e856da4",
+    "field_key": "country_of_incorporation",
+    "code": "DOCUMENT_FIELD_AUTO_CONFIRMED",
+    "message": "A matching current field met the automated confidence rule."
+   }
+  ],
+  "error": null,
+  "created_at": "2026-10-05T04:02:37.674693Z",
+  "processed_at": "2026-10-05T04:02:37.743843Z",
+  "reviewed_at": null,
+  "completion_method": null,
+  "semantic_completion": null,
+  "reconciliation_version": 1,
+  "supersedes_document_id": null,
+  "superseded_by_document_id": null,
+  "superseded_at": null,
+  "updated_at": "2026-10-05T04:02:37.759115Z"
+ }
+]

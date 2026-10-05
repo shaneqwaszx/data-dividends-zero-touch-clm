@@ -811,3 +811,18 @@ classifications, target mapping, approval limits, fixtures and threshold are unc
 Historical protected DB non-access remains NOT_CERTIFIED and is owner-accepted as a
 documented historical execution uncertainty. The new gate requires current execution
 isolation; protected/owner database investigation and dotenv read remain prohibited.
+
+## Latest-main integration candidate — 2026-10-06
+
+Fresh fetch confirms origin/main 1fc097f12c84af52b1e6d70a336cc22b03f3bef4
+(read-only Onboarding Copilot PR74). The feature at859f218 integrates that commit
+through a conflict-free merge while preserving both accepted feature commits.
+The local merge commit requires fresh independent PASS; publication requires owner review.
+No exact-file overlap; shared frontend root/proxy/session/case context is reviewed.
+Bounded adaptations reuse the existing authenticated transport for Copilot401 cleanup,
+align guide/pending-step wording with current backend/UI projections, and contain
+inaccessible-case404 and cancelled responses in the existing local conversation owner.
+Schema10, source fingerprints, classification review/currentness, final Send, ledger
+no-replay, fixtures, mappings and provider labels are preserved. Current integration
+evidence and independent verdict belong to ZERO_TOUCH_COPILOT_MAIN_INTEGRATION reports;
+historical main/feature gates and provider verification metadata above are unchanged.
