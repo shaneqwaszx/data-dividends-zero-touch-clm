@@ -874,11 +874,13 @@ export default function CaseDetail({
               documents={documents}
               ownership={ownership}
               disabled={isBusy || mutationBlocked || summary.ownership_edit_authorized !== true}
-              onUploadEvidence={(file) => void settleEvidenceMutation(
+              onUploadEvidence={summary.interventions?.some((intervention) =>
+                intervention.evidence_actions?.some((action) => action.target === "OWNERSHIP_UPLOAD"),
+              ) ? (file) => void settleEvidenceMutation(
                 () => intakeZeroTouchDocument(caseId, file, false),
                 "Validating client-supplied ownership evidence…",
                 "Ownership evidence could not be added.",
-              )}
+              ) : undefined}
               onSubmit={(values) => void runMutation(
                 () => submitManualOwnershipEvidence(caseId, {
                   root_registration_number: summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen,
