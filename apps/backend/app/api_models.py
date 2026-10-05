@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.access import CasePriority, TeamId
 from app.domain.administration import TeamRecord
@@ -26,6 +26,7 @@ from app.domain.clm import (
     GoldTierSearchDisposition,
     GoldTierSubmissionPlan,
     RelatedPartySubmissionPreparation,
+    can_confirm_existing_customer,
 )
 from app.domain.documents import (
     ComparisonStatus,
@@ -752,6 +753,23 @@ class BrowserInterventionEvidenceAction(BaseModel):
     label: str = Field(min_length=1, max_length=96)
 
 
+class ExistingCustomerConfirmationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    search_request_id: UUID
+    expected_automation_version: int = Field(ge=0)
+    expected_clm_version: int = Field(ge=0)
+    expected_case_event_count: int = Field(ge=0)
+    rationale: str = Field(min_length=3, max_length=240, pattern=r"^[^\x00-\x1f]+$")
+
+    @field_validator("rationale")
+    @classmethod
+    def require_rationale(cls, value: str) -> str:
+        if len(value.strip()) < 3:
+            raise ValueError("A bounded confirmation rationale is required")
+        return value.strip()
+
+
 class BrowserHumanIntervention(BaseModel):
     """Backend-authored operator projection without a second resolution engine."""
 
@@ -773,6 +791,9 @@ class BrowserHumanIntervention(BaseModel):
         default_factory=tuple, max_length=4
     )
     identity_correction_action: Literal["IDENTITY_SEARCH_RECHECK"] | None = None
+    existing_customer_confirmation_action: (
+        Literal["CONFIRM_EXISTING_GOLDTIER_CUSTOMER"] | None
+    ) = None
     decisions: tuple[BrowserBlockerDecision, ...] = Field(default_factory=tuple, max_length=8)
     blocker_class: Literal[
         "WARNING", "RECOVERABLE_INPUT", "HUMAN_DECISION", "WAITING_EXTERNAL", "HARD_SAFETY_STOP"
@@ -877,6 +898,7 @@ def project_human_interventions(
         )
         candidates: tuple[BrowserGoldTierCandidateSummary, ...] = ()
         identity_correction_action: Literal["IDENTITY_SEARCH_RECHECK"] | None = None
+        existing_confirmation_action: Literal["CONFIRM_EXISTING_GOLDTIER_CUSTOMER"] | None = None
         evidence_actions: tuple[BrowserInterventionEvidenceAction, ...] = ()
         classification: Literal[
             "WARNING", "RECOVERABLE_INPUT", "HUMAN_DECISION", "WAITING_EXTERNAL", "HARD_SAFETY_STOP"
@@ -913,6 +935,19 @@ def project_human_interventions(
                 "or a new-customer Shell while identity is ambiguous."
             )
             identity_correction_action = "IDENTITY_SEARCH_RECHECK"
+            if (
+                can_confirm_existing_customer(case, checkpoint)
+                and clm.submission_snapshot is None
+                and automation.current_stage == AutomationStage.GOLDTIER_SEARCH
+            ):
+                existing_confirmation_action = "CONFIRM_EXISTING_GOLDTIER_CUSTOMER"
+                identity_correction_action = None
+                no_action = None
+                required = ("Compare the retained candidate and confirm with a bounded rationale.",)
+                expected = (
+                    "The creator may confirm this retained existing customer. Confirmation makes "
+                    "no target call; document and ownership review and final Review & Send remain."
+                )
             if checkpoint is not None:
                 candidates = tuple(
                     BrowserGoldTierCandidateSummary(
@@ -1086,6 +1121,7 @@ def project_human_interventions(
                 expected_next_step=expected,
                 candidate_summaries=candidates,
                 identity_correction_action=identity_correction_action,
+                existing_customer_confirmation_action=existing_confirmation_action,
                 blocker_class=classification,
                 evidence_actions=evidence_actions,
                 dependent_stages=tuple(
@@ -1864,10 +1900,17 @@ def project_processing_pipeline(
         "NO_MATCH": "NOT_REACHED",
         "MULTIPLE_OR_AMBIGUOUS": "NOT_REACHED",
     }
+    if (
+        checkpoint is not None
+        and checkpoint.disposition == GoldTierSearchDisposition.CONFIRMED_EXISTING
+    ):
+        branch_statuses["CONFIRMED_EXISTING"] = "NOT_REACHED"
     if checkpoint is not None:
         branch_statuses = {name: "SKIPPED" for name in branch_statuses}
         if checkpoint.disposition == GoldTierSearchDisposition.EXACT_MATCH:
             branch_statuses["EXACT_MATCH"] = "COMPLETE"
+        elif checkpoint.disposition == GoldTierSearchDisposition.CONFIRMED_EXISTING:
+            branch_statuses["CONFIRMED_EXISTING"] = "COMPLETE"
         elif checkpoint.disposition == GoldTierSearchDisposition.NO_MATCH:
             branch_statuses["NO_MATCH"] = "COMPLETE"
         elif checkpoint.disposition == GoldTierSearchDisposition.REVIEW_REQUIRED:
@@ -1877,6 +1920,7 @@ def project_processing_pipeline(
             node_id=f"GOLDTIER_SEARCH_{name}",
             label={
                 "EXACT_MATCH": "Exact match",
+                "CONFIRMED_EXISTING": "Human-confirmed existing customer",
                 "NO_MATCH": "No match",
                 "MULTIPLE_OR_AMBIGUOUS": "Multiple or ambiguous matches",
             }[name],
@@ -1902,7 +1946,8 @@ def project_processing_pipeline(
                 else None
             ),
             retained_goldtier_id=(
-                retained_goldtier_id if name == "EXACT_MATCH" and status == "COMPLETE" else None
+                retained_goldtier_id
+                if name in {"EXACT_MATCH", "CONFIRMED_EXISTING"} and status == "COMPLETE" else None
             ),
         )
         for name, status in branch_statuses.items()
@@ -2181,7 +2226,10 @@ def project_processing_pipeline(
         retained_goldtier_id=(
             retained_goldtier_id
             if checkpoint is not None
-            and checkpoint.disposition == GoldTierSearchDisposition.EXACT_MATCH
+            and checkpoint.disposition in {
+                GoldTierSearchDisposition.EXACT_MATCH,
+                GoldTierSearchDisposition.CONFIRMED_EXISTING,
+            }
             else None
         ),
         children=search_children,

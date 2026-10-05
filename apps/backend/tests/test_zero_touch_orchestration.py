@@ -959,6 +959,77 @@ def test_ambiguous_initial_goldtier_identity_is_not_reported_as_acra_failure() -
     assert target.calls == ["search"]
 
 
+@pytest.mark.parametrize("decision", [ReviewDecision.ACCEPTED, ReviewDecision.REJECTED,
+                                     ReviewDecision.CORRECTED])
+def test_independent_document_review_preserves_unresolved_search(
+    decision: ReviewDecision,
+) -> None:
+    client, zero, documents, target, _ = build_system(
+        connector=AmbiguousRecordingMockGoldTier(), require_confirmation=True,
+    )
+    created = zero.create_case(
+        "202400001A", "SG", legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        team_id=TeamId.TEAM_A,
+    )
+    zero.attach_document(
+        case_id=created.case_id, display_name="synthetic.pdf",
+        content_type="application/pdf", content=PDF,
+        idp_provider=MockIdpProvider(MockIdpScenario.FIELD_MISMATCH),
+    )
+    document = documents.list_documents(case_id=created.case_id)[0]
+    checkpoint = zero._clm.get(case_id=created.case_id).target_search_checkpoint
+    reviewed = zero.review_document_field(
+        case_id=created.case_id, document_id=document.document_id,
+        field_key=DocumentFieldKey.LEGAL_NAME, decision=decision,
+        corrected_value="MERLION CIRCULAR LABS PTE. LTD."
+        if decision == ReviewDecision.CORRECTED else None,
+        actor_id="test-operator",
+    )
+    assert len(reviewed.events) > len(document.events)
+    current = zero.get(case_id=created.case_id)
+    assert current is not None and current.status == AutomationStatus.WAITING_FOR_REVIEW
+    assert current.current_stage == AutomationStage.GOLDTIER_SEARCH
+    assert any(item.stage == AutomationStage.GOLDTIER_SEARCH for item in current.active_exceptions)
+    assert zero._clm.get(case_id=created.case_id).target_search_checkpoint == checkpoint
+    assert target.calls == ["search"]
+    summary = client.get(f"/api/clm/zero-touch/cases/{created.case_id}").json()
+    assert "GOLDTIER_SEARCH_REVIEW_REQUIRED" in summary["clm"]["readiness"]["blockers"]
+    assert zero._cases.get_case(created.case_id).goldtier_result is None
+
+
+def test_independent_reconciliation_decision_preserves_search_blocker() -> None:
+    _, zero, documents, target, _ = build_system(
+        connector=AmbiguousRecordingMockGoldTier(), require_confirmation=True,
+    )
+    created = zero.create_case(
+        "202400001A", "SG", legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        team_id=TeamId.TEAM_A,
+    )
+    current = zero.attach_document(
+        case_id=created.case_id, display_name="synthetic.pdf",
+        content_type="application/pdf", content=PDF,
+        idp_provider=MockIdpProvider(MockIdpScenario.FIELD_MISMATCH),
+    )
+    document = documents.list_documents(case_id=created.case_id)[0]
+    zero.review_document_field(
+        case_id=created.case_id, document_id=document.document_id,
+        field_key=DocumentFieldKey.LEGAL_NAME, decision=ReviewDecision.ACCEPTED,
+    )
+    current = zero.get(case_id=created.case_id)
+    assert current is not None
+    exception = next(item for item in current.active_exceptions
+                     if item.stage == AutomationStage.DOCUMENT and item.available_actions)
+    resolved = zero.resolve_exception(
+        case_id=created.case_id, exception_id=exception.exception_id,
+        action=ExceptionResolutionAction.KEEP_REGISTRY_VALUE,
+        expected_automation_version=current.version,
+        evidence_version=exception.evidence_version, actor_id="test-operator",
+    )
+    assert resolved.status == AutomationStatus.WAITING_FOR_REVIEW
+    assert resolved.current_stage == AutomationStage.GOLDTIER_SEARCH
+    assert target.calls == ["search"]
+
+
 def test_same_case_identity_recheck_retains_intent_and_resumes_without_target_write() -> None:
     connector = AmbiguousThenNoMatchGoldTier()
     _, zero, _, target, _ = build_system(

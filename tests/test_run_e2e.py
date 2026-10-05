@@ -863,11 +863,11 @@ console.log(JSON.stringify({
     def test_ci_outer_bound_covers_current_discovery_and_bounded_cleanup(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         e2e = workflow.split("  e2e:\n", 1)[1].split("  demo-lifecycle-windows:", 1)[0]
-        self.assertIn("timeout-minutes: 192", e2e)
+        self.assertIn("timeout-minutes: 195", e2e)
         self.assertIn("python scripts/run_e2e.py --timeout-seconds 60", e2e)
         self.assertLessEqual(
-            60 + 59 * (60 + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS) + 14 * 60,
-            192 * 60,
+            60 + 60 * (60 + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS) + 14 * 60,
+            195 * 60,
         )
 
     def test_sandbox_discovery_routes_each_mode_and_preserves_default(self) -> None:
@@ -879,7 +879,7 @@ console.log(JSON.stringify({
         ]}]}
         modes: dict[str, str] = {}
         selectors = RUN_E2E._selectors_from_listing(payload, sandbox_selectors=modes)
-        self.assertEqual(len(selectors), 4)
+        self.assertEqual(len(selectors), 1 + len(RUN_E2E.SANDBOX_DEMO_MODES))
         self.assertNotIn("e2e/default.e2e.ts:1", modes)
         self.assertEqual(set(modes.values()), set(RUN_E2E.SANDBOX_DEMO_MODES))
         for tags in (["s3-sandbox-unknown"], ["s3-sandbox-success", "garden-protocol"],

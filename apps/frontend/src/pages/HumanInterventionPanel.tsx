@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type {
   ExceptionResolutionAction,
   HumanInterventionProjection,
@@ -11,6 +12,7 @@ export default function HumanInterventionPanel({
   isBusy,
   onResolve,
   onEvidenceAction,
+  onConfirmExisting,
   stages,
   historyOnly = false,
 }: {
@@ -18,6 +20,7 @@ export default function HumanInterventionPanel({
   isBusy: boolean;
   onResolve: (exception: ZeroTouchException, action: ExceptionResolutionAction) => void;
   onEvidenceAction?: (target: NonNullable<HumanInterventionProjection["evidence_actions"]>[number]["target"]) => void;
+  onConfirmExisting?: (rationale: string) => void;
   stages?: readonly string[];
   historyOnly?: boolean;
 }) {
@@ -47,6 +50,7 @@ export default function HumanInterventionPanel({
           isBusy={isBusy}
           onResolve={onResolve}
           onEvidenceAction={onEvidenceAction}
+          onConfirmExisting={summary.evidence_decision_authorized ? onConfirmExisting : undefined}
         />
       ))}
       {history.length > 0 && <details className="card intervention-history">
@@ -69,13 +73,16 @@ function InterventionCard({
   isBusy,
   onResolve,
   onEvidenceAction,
+  onConfirmExisting,
 }: {
   intervention: HumanInterventionProjection;
   exception: ZeroTouchException | undefined;
   isBusy: boolean;
   onResolve: (exception: ZeroTouchException, action: ExceptionResolutionAction) => void;
   onEvidenceAction?: (target: NonNullable<HumanInterventionProjection["evidence_actions"]>[number]["target"]) => void;
+  onConfirmExisting?: (rationale: string) => void;
 }) {
+  const [rationale, setRationale] = useState("");
   const decisions = intervention.decisions?.length
     ? intervention.decisions
     : exception?.decisions ?? [];
@@ -131,6 +138,23 @@ function InterventionCard({
           onClick={() => onEvidenceAction(action.target)}>{action.label}</button>
       ))}
 
+      {intervention.existing_customer_confirmation_action && onConfirmExisting && (
+        <form onSubmit={(event) => {
+          event.preventDefault();
+          if (!isBusy && rationale.trim().length >= 3) onConfirmExisting(rationale.trim());
+        }}>
+          <p>Confirm this retained customer after comparing the identity evidence.
+            This records your decision and makes no GoldTier call.</p>
+          <label>Existing customer confirmation rationale
+            <input value={rationale} maxLength={240} disabled={isBusy}
+              onChange={(event) => setRationale(event.target.value)} />
+          </label>
+          <button className="btn btn-primary" type="submit"
+            disabled={isBusy || rationale.trim().length < 3}>
+            Confirm existing GoldTier customer
+          </button>
+        </form>
+      )}
       {intervention.authorized_actions.length > 0 ? (
         <div className="intervention-card__actions" aria-label="Backend-authorized actions">
           {intervention.authorized_actions.map((authorized) => (

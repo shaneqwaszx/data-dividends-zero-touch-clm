@@ -2,6 +2,12 @@
 
 ## Purpose and interpretation
 
+The 2026-10-05 [provider-family reconciliation](../integration/GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md)
+closes the claim that supplied specs lack registration/external-key Search: EDS supports
+those criteria. It does not add EDS query names to XPI. Existing incomplete XPI candidates
+use bounded human confirmation, separately labelled CONFIRMED_EXISTING. Historical
+discrepancies/examples below retain their original scope and quarantine status.
+
 This catalogue records material disagreements in the Phase 00 sponsor evidence. It
 does not assert that Delta Capita has corrected any source artefact. The provisional
 development authority is the policy in `AGENTS.md`: direct sponsor clarification

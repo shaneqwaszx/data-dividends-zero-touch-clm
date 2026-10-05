@@ -27,6 +27,75 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_existing_customer_confirmation_and_document_review_survive_mongo_restart(
+    isolated_mongo_settings,  # noqa: F811
+):
+    from pydantic import SecretStr
+    from test_goldtier_xpi_sandbox import FakeXpiTransport
+
+    from app.config import Settings
+    from app.connectors.goldtier_xpi import GoldTierXpiHttpResponse
+
+    settings = Settings(_env_file=None, **{
+        **isolated_mongo_settings.model_dump(),
+        "goldtier_connector_mode": "sandbox",
+        "goldtier_sandbox_base_url": "https://sandbox.goldtier.invalid",
+        "goldtier_sandbox_environment": "synthetic",
+        "goldtier_sandbox_user_id": SecretStr("synthetic-offline-user"),
+        "goldtier_sandbox_allow_writes": True,
+    })
+    transport = FakeXpiTransport([GoldTierXpiHttpResponse(200, [{
+        "goldTierId": 143878, "legalName": "MERLION CIRCULAR LABS PTE. LTD.",
+    }])])
+    with TestClient(create_app(settings, goldtier_transport=transport)) as first:
+        created = first.post("/api/clm/zero-touch/cases", json={
+            "uen": "202400001A", "legal_name": "MERLION CIRCULAR LABS PTE. LTD.",
+            "country_of_incorporation": "SG",
+        })
+        assert created.status_code == 201
+        case_id = created.json()["case"]["case_id"]
+        uploaded = _upload_text(
+            first, case_id, TEXT_PROFILE.replace("MERLION CIRCULAR LABS PTE. LTD.",
+                                                "DIFFERENT SYNTHETIC NAME"),
+            name="synthetic-existing-review.txt",
+        )
+        _complete_intake(first, case_id, expected_count=1)
+        review = first.post(
+            f"/api/onboarding/cases/{case_id}/documents/{uploaded['document_id']}/reviews",
+            json={"field_key": "legal_name", "decision": "CORRECTED",
+                  "corrected_value": "MERLION CIRCULAR LABS PTE. LTD."},
+        )
+        assert review.status_code == 200
+        current = first.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        assert current["current_stage"] == "GOLDTIER_SEARCH"
+        confirmed = first.post(
+            f"/api/clm/zero-touch/cases/{case_id}/confirm-existing-customer",
+            json={
+                "search_request_id": current["clm"]["target_search_checkpoint"]["request_id"],
+                "expected_automation_version": current["version"],
+                "expected_clm_version": current["clm"]["version"],
+                "expected_case_event_count": len(current["case"]["events"]),
+                "rationale": "Synthetic creator compared registry and document evidence.",
+            },
+        )
+        assert confirmed.status_code == 200
+        checkpoint = confirmed.json()["clm"]["target_search_checkpoint"]
+        assert checkpoint["disposition"] == "CONFIRMED_EXISTING"
+        assert checkpoint["selected_party_id"] == "143878"
+        assert checkpoint["confirmation"]["actor_id"] == "maya-lim"
+        assert len(transport.calls) == 1
+    after_restart = FakeXpiTransport()
+    with TestClient(create_app(settings, goldtier_transport=after_restart)) as second:
+        reopened = second.get(f"/api/clm/zero-touch/cases/{case_id}")
+        assert reopened.status_code == 200
+        assert reopened.json()["clm"]["target_search_checkpoint"] == checkpoint
+        assert reopened.json()["case"]["goldtier_result"] is None
+        documents = second.get(f"/api/onboarding/cases/{case_id}/documents").json()
+        field = next(item for item in documents[0]["fields"] if item["field_key"] == "legal_name")
+        assert field["review_status"] == "CORRECTED"
+        assert after_restart.calls == []
+
+
 def test_partial_reconciliation_survives_physical_store_restart(
     isolated_mongo_settings,  # noqa: F811 - reuse the guarded generated-DB fixture
     monkeypatch,

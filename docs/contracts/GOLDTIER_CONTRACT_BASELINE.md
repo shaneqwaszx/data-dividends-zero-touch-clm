@@ -2,6 +2,12 @@
 
 ## Status and permitted use
 
+Current family-specific clarification: the post-closeout
+[existing-customer reconciliation](../integration/GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md)
+records the 2026-10-05 sponsor answers, supplied EDS registration/external-key Search,
+unchanged narrower XPI query contract, and explicit human-confirmed reuse. The historical
+EDS baseline below is not a mandate to replace the active XPI Sandbox transport.
+
 **Status: implementation-ready for credential-free Phase 01 mock development only.**
 
 This is a project development contract, not a Delta Capita-confirmed correction of

@@ -33,6 +33,7 @@ from app.api_models import (
     CasePriorityResponse,
     ClmCaseSummaryResponse,
     DocumentProcessingResponse,
+    ExistingCustomerConfirmationRequest,
     OnboardingCaseResponse,
     OwnershipAnalysisResponse,
     ZeroTouchCaseListItemResponse,
@@ -103,6 +104,7 @@ from app.domain.target_submission import (
     GoldTierExecutionLedgerState,
     GoldTierOperationMarker,
     GoldTierRecoveryOrigin,
+    GoldTierSearchResolution,
     GoldTierTargetOutcome,
 )
 from app.domain.zero_touch import (
@@ -828,6 +830,17 @@ def create_app(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 content={"detail": zero_detail.model_dump(mode="json", exclude_none=True)},
             )
+        if "/zero-touch/" in request.url.path and request.url.path.endswith(
+            "/confirm-existing-customer"
+        ):
+            zero_detail = ZeroTouchFailureDetail(
+                code="ZERO_TOUCH_EXISTING_CUSTOMER_INVALID",
+                message="The existing customer confirmation request is invalid.",
+            )
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                content={"detail": zero_detail.model_dump(mode="json", exclude_none=True)},
+            )
         return await request_validation_exception_handler(request, exc)
 
     def get_onboarding_service() -> OnboardingService:
@@ -948,7 +961,10 @@ def create_app(
             if operation == GoldTierOperationMarker.SEARCH and checkpoint is not None:
                 operation_status = (
                     "MATCH_FOUND"
-                    if checkpoint.disposition == GoldTierSearchDisposition.EXACT_MATCH
+                    if checkpoint.disposition in {
+                        GoldTierSearchDisposition.EXACT_MATCH,
+                        GoldTierSearchDisposition.CONFIRMED_EXISTING,
+                    }
                     else "NO_MATCH"
                     if checkpoint.disposition == GoldTierSearchDisposition.NO_MATCH
                     else "REVIEW_REQUIRED"
@@ -962,7 +978,10 @@ def create_app(
                     GoldTierOperationMarker.POLICY,
                 }
                 and checkpoint is not None
-                and checkpoint.disposition == GoldTierSearchDisposition.EXACT_MATCH
+                and checkpoint.disposition in {
+                    GoldTierSearchDisposition.EXACT_MATCH,
+                    GoldTierSearchDisposition.CONFIRMED_EXISTING,
+                }
             ):
                 operation_status = "SKIPPED"
             elif operation in attempted:
@@ -1061,7 +1080,16 @@ def create_app(
                             GoldTierOperationMarker.READBACK in target_outcome.completed_operations
                             and target_outcome.readback_party_id == target_outcome.party_id
                             and target_outcome.readback_status == "VERIFIED"
-                            and target_outcome.policy_status is not None
+                            and (
+                                target_outcome.policy_status is not None
+                                or (
+                                    target_entry.search_resolution in {
+                                        GoldTierSearchResolution.EXACT_MATCH,
+                                        GoldTierSearchResolution.CONFIRMED_EXISTING,
+                                    }
+                                    and target_outcome.shell_status == "EXISTING_PARTY_REUSED"
+                                )
+                            )
                         )
                     )
                 ):
@@ -2172,6 +2200,32 @@ def create_app(
                 expected_case_event_count=confirmation.expected_case_event_count,
                 reauthorize=build_case_reauthorizer(
                     request, authentication, access_policy, service, case_id
+                ),
+            )
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        return zero_touch_response(record, actor=actor)
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/confirm-existing-customer",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    def confirm_existing_goldtier_customer(
+        case_id: UUID, confirmation: ExistingCustomerConfirmationRequest, request: Request,
+        actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
+    ) -> ZeroTouchCaseSummaryResponse:
+        try:
+            record = active_zero_touch.confirm_existing_customer(
+                case_id=case_id, actor_id=actor.profile.user_id,
+                search_request_id=confirmation.search_request_id,
+                expected_automation_version=confirmation.expected_automation_version,
+                expected_clm_version=confirmation.expected_clm_version,
+                expected_case_event_count=confirmation.expected_case_event_count,
+                rationale=confirmation.rationale,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id, require_creator=True,
                 ),
             )
         except ZeroTouchRequestError as exc:

@@ -36,7 +36,7 @@ async function counts(page: Page): Promise<{ fixture: string; calls: Record<stri
   expect(response.status()).toBe(200); return response.json();
 }
 
-async function prepareReview(page: Page): Promise<string> {
+async function prepareReview(page: Page, existing = false): Promise<string> {
   await page.goto("/");
   await page.getByLabel("User ID").fill("maya-lim");
   await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
@@ -45,7 +45,12 @@ async function prepareReview(page: Page): Promise<string> {
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
   await page.getByLabel("Company Legal Name", { exact: true }).fill(syntheticName);
   await page.getByLabel("Registration ID / UEN").fill(syntheticUen);
-  await page.locator("#home-document").setInputFiles(syntheticDocument);
+  await page.locator("#home-document").setInputFiles(existing ? {
+    ...syntheticDocument,
+    buffer: Buffer.from(syntheticDocument.buffer.toString().replace(
+      `Legal Name: ${syntheticName}`, `Legal Name: ${syntheticName} DOCUMENT`,
+    )),
+  } : syntheticDocument);
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
   await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
@@ -53,6 +58,39 @@ async function prepareReview(page: Page): Promise<string> {
   await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
+  if (existing) {
+    await openStage(page, "Document verification");
+    const decision = page.waitForResponse((response) => response.request().method() === "POST"
+      && response.url().endsWith("/reviews"));
+    await page.getByRole("button", { name: "Record legal name correction", exact: true }).click();
+    await page.getByLabel("Correction", { exact: true }).fill(syntheticName);
+    await page.getByRole("button", { name: "Save legal name correction", exact: true }).click();
+    expect((await decision).status()).toBe(200);
+    await expect.poll(async () => (await readSummary(page, caseId)).current_stage)
+      .toBe("GOLDTIER_SEARCH");
+    await openStage(page, "Registry verification");
+    await expect(page.getByRole("button", { name: "Correct identity and recheck", exact: true }))
+      .toHaveCount(0);
+    await page.getByLabel("Existing customer confirmation rationale").fill(
+      "Compared synthetic retained candidate with independent registry and corrected document.",
+    );
+    const confirmation = page.waitForResponse((response) => response.request().method() === "POST"
+      && response.url().endsWith("/confirm-existing-customer"));
+    await page.getByRole("button", { name: "Confirm existing GoldTier customer", exact: true }).click();
+    expect((await confirmation).status()).toBe(200);
+    const confirmed = await readSummary(page, caseId);
+    expect(confirmed.clm.target_search_checkpoint?.disposition).toBe("CONFIRMED_EXISTING");
+    expect(confirmed.clm.target_search_checkpoint?.selected_party_id).toBe("SYNTHETIC-GT-S3");
+    const before = await counts(page);
+    expect(before.calls).toEqual({ SEARCH: 1, SHELL: 0, POLICY: 0, AMEND: 0, READBACK: 0 });
+    expect(before.external_calls).toBe(0);
+    if (confirmed.status === "PENDING_INPUTS") {
+      await openStage(page, "Document verification");
+      await page.getByRole("button", { name: "Continue evidence review", exact: true }).click();
+    } else {
+      expect(confirmed.current_stage).toBe("OWNERSHIP");
+    }
+  }
   await openStage(page, "Readiness check");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
@@ -81,6 +119,22 @@ async function prepareReview(page: Page): Promise<string> {
   expect(before.calls.POLICY).toBe(0); expect(before.calls.AMEND).toBe(0);
   return caseId;
 }
+
+test("post-closeout existing-customer confirmation preserves independent review and skips writes", { tag: "@s3-sandbox-existing-customer" }, async ({ page }) => {
+  const caseId = await prepareReview(page, true);
+  const response = page.waitForResponse((value) => value.request().method() === "POST"
+    && value.url().endsWith("/target-confirmation"));
+  await page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true }).click();
+  expect((await response).status()).toBe(200);
+  await expect.poll(async () => (await readSummary(page, caseId)).target_submission?.state)
+    .toBe("SUBMISSION_CONFIRMED");
+  const result = await counts(page);
+  expect(result.calls).toEqual({ SEARCH: 1, SHELL: 0, POLICY: 0, AMEND: 0, READBACK: 1 });
+  expect(result.external_calls).toBe(0);
+  const retained = await readSummary(page, caseId);
+  expect(retained.clm.target_search_checkpoint?.disposition).toBe("CONFIRMED_EXISTING");
+  expect(retained.case.goldtier_result?.party_id).toBe("SYNTHETIC-GT-S3");
+});
 
 async function submitAndInspect(page: Page, mode: "success" | "uncertain-policy" | "failed-policy") {
   const caseId = await prepareReview(page);

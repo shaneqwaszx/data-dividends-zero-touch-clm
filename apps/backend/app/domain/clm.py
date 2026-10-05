@@ -1,12 +1,12 @@
 """Source-neutral Phase 05 CLM orchestration and readiness models."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.models import EventOutcome, GoldTierResult, SafeError
+from app.domain.models import EventOutcome, GoldTierResult, OnboardingCase, SafeError
 from app.domain.target_preparation import GoldTierRequestPreview
 from app.domain.target_safety import SafeTargetErrorCode, SafeTargetIdentifier, SafeTargetMessage
 from app.domain.target_submission import (
@@ -97,6 +97,7 @@ class GoldTierSearchCheckpointStatus(StrEnum):
 class GoldTierSearchDisposition(StrEnum):
     NO_MATCH = "NO_MATCH"
     EXACT_MATCH = "EXACT_MATCH"
+    CONFIRMED_EXISTING = "CONFIRMED_EXISTING"
     REVIEW_REQUIRED = "REVIEW_REQUIRED"
     FAILED = "FAILED"
 
@@ -112,6 +113,27 @@ class RetainedGoldTierCandidate(BaseModel):
     legal_name: str | None = Field(default=None, min_length=1, max_length=160)
     legal_form: str | None = Field(default=None, min_length=1, max_length=80)
     registered_address: str | None = Field(default=None, min_length=1, max_length=240)
+
+
+class ExistingCustomerConfirmation(BaseModel):
+    """Local maker decision about a retained provider candidate, never target dispatch."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+
+    request_id: UUID
+    party_id: SafeTargetIdentifier
+    actor_id: str = Field(pattern=r"^[a-z][a-z0-9-]{2,31}$")
+    confirmed_at: datetime
+    rationale: str = Field(min_length=3, max_length=240, pattern=r"^[^\x00-\x1f]+$")
+    case_event_count: int = Field(ge=0)
+    clm_version: int = Field(ge=0)
+
+    @field_validator("confirmed_at")
+    @classmethod
+    def require_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+            raise ValueError("Confirmation time must be UTC")
+        return value
 
 
 class GoldTierSearchCheckpoint(BaseModel):
@@ -134,26 +156,79 @@ class GoldTierSearchCheckpoint(BaseModel):
     code: SafeTargetErrorCode | None = None
     message: SafeTargetMessage
     searched_at: datetime
+    confirmation: ExistingCustomerConfirmation | None = None
 
     @model_validator(mode="after")
     def validate_checkpoint(self) -> "GoldTierSearchCheckpoint":
         if self.candidate_count != len(self.candidates):
             raise ValueError("Search candidate count must match retained candidates")
-        if self.disposition == GoldTierSearchDisposition.EXACT_MATCH:
+        if self.disposition in {
+            GoldTierSearchDisposition.EXACT_MATCH, GoldTierSearchDisposition.CONFIRMED_EXISTING,
+        }:
             if (
                 self.selected_party_id is None
                 or self.status != GoldTierSearchCheckpointStatus.COMPLETED
             ):
                 raise ValueError("Exact Search checkpoint requires a selected target identity")
         elif self.selected_party_id is not None:
-            raise ValueError("Only an exact Search checkpoint may select a target identity")
+            raise ValueError("Only resolved Search evidence may select a target identity")
         expected = {
             GoldTierProviderMode.MOCK: GoldTierProviderClassification.MOCK,
             GoldTierProviderMode.SANDBOX: GoldTierProviderClassification.SANDBOX_PARTIAL,
         }[self.provider_mode]
         if self.provider_classification != expected:
             raise ValueError("Search checkpoint provider identity is inconsistent")
+        if self.confirmation is not None and (
+            self.confirmation.request_id != self.request_id
+            or self.confirmation.party_id != self.selected_party_id
+            or self.candidate_count != 1
+            or self.candidates[0].party_id != self.selected_party_id
+            or self.disposition != GoldTierSearchDisposition.CONFIRMED_EXISTING
+            or self.confirmation.confirmed_at < self.searched_at
+        ):
+            raise ValueError("Existing-customer confirmation must bind retained Search evidence")
+        if self.disposition == GoldTierSearchDisposition.CONFIRMED_EXISTING and (
+            self.confirmation is None or self.provider_mode != GoldTierProviderMode.SANDBOX
+        ):
+            raise ValueError("Confirmed existing Sandbox identity requires a retained receipt")
         return self
+
+
+def can_confirm_existing_customer(
+    case: OnboardingCase, checkpoint: GoldTierSearchCheckpoint | None,
+) -> bool:
+    """Only a singleton incomplete Sandbox identity with no known contradiction."""
+    if (
+        checkpoint is None
+        or checkpoint.provider_mode != GoldTierProviderMode.SANDBOX
+        or checkpoint.status != GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
+        or checkpoint.disposition != GoldTierSearchDisposition.REVIEW_REQUIRED
+        or checkpoint.candidate_count != 1
+        or case.state.value != "VALIDATED"
+        or case.entity is None or case.initial_identity is None
+        or case.goldtier_result is not None or case.target_dispatch_confirmation is not None
+    ):
+        return False
+    candidate = checkpoint.candidates[0]
+    identity = case.initial_identity
+    entity = case.entity
+
+    def name(value: str | None) -> str:
+        return " ".join((value or "").split()).casefold()
+
+    return bool(
+        name(candidate.legal_name) and name(candidate.legal_name) == name(entity.legal_name)
+        and name(entity.legal_name) == name(identity.legal_name)
+        and entity.registration_number.strip().upper()
+        == identity.registration_number.strip().upper()
+        and (entity.country_of_incorporation or "").upper()
+        == identity.country_of_incorporation.upper()
+        and (candidate.registration_number is None
+             or candidate.registration_number.strip().upper() == entity.registration_number.upper())
+        and (candidate.country is None
+             or candidate.country.upper() == (entity.country_of_incorporation or "").upper())
+        and (candidate.registration_number is None or candidate.country is None)
+    )
 
 
 class StageReadiness(BaseModel):

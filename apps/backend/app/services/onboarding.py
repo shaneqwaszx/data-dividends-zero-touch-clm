@@ -1011,6 +1011,16 @@ class OnboardingService:
                 selected_party_id = candidate.party_id
             else:
                 reused_case = None
+            if (
+                self.target_provider_mode == GoldTierProviderMode.SANDBOX
+                and candidate.registration_number is not None
+                and candidate.registration_number.strip().upper()
+                == identity.registration_number.strip().upper()
+                and candidate.country is not None
+                and candidate.country.strip().upper() == identity.country_of_incorporation.upper()
+            ):
+                disposition = "EXACT_MATCH"
+                selected_party_id = candidate.party_id
         evidence = InitialGoldTierSearchEvidence(
             request_id=request_id,
             disposition=disposition,
@@ -1023,6 +1033,10 @@ class OnboardingService:
             candidate_count=len(result.candidates),
             candidate_party_ids=tuple(item.party_id for item in result.candidates),
             candidate_legal_names=tuple(item.legal_name for item in result.candidates),
+            candidate_registration_numbers=tuple(
+                item.registration_number for item in result.candidates
+            ),
+            candidate_countries=tuple(item.country for item in result.candidates),
             selected_party_id=selected_party_id,
             searched_at=self._clock(),
         )
@@ -1638,6 +1652,15 @@ class OnboardingService:
                             target_party_id=candidate.party_id,
                             verified_at=self._clock(),
                         )
+                if (
+                    self.target_provider_mode == GoldTierProviderMode.SANDBOX
+                    and candidate.registration_number is not None
+                    and candidate.registration_number.strip().upper() == normalised_uen
+                    and candidate.country is not None
+                    and candidate.country.strip().upper() == explicit_jurisdiction.value
+                ):
+                    disposition = "EXACT_MATCH"
+                    selected_party_id = candidate.party_id
             case.initial_target_search = InitialGoldTierSearchEvidence(
                 request_id=search_request_id,
                 disposition=disposition,
@@ -1650,6 +1673,10 @@ class OnboardingService:
                 candidate_count=len(result.candidates),
                 candidate_party_ids=tuple(item.party_id for item in result.candidates),
                 candidate_legal_names=tuple(item.legal_name for item in result.candidates),
+                candidate_registration_numbers=tuple(
+                    item.registration_number for item in result.candidates
+                ),
+                candidate_countries=tuple(item.country for item in result.candidates),
                 selected_party_id=selected_party_id,
                 searched_at=self._clock(),
             )
@@ -2289,7 +2316,7 @@ class OnboardingService:
                 return self._advance_shell(case, submission_input, entry)
             if (
                 entry.policy_status is None
-                and entry.search_resolution != GoldTierSearchResolution.EXACT_MATCH
+                and entry.search_resolution == GoldTierSearchResolution.NO_MATCH
             ):
                 return self._advance_policy(case, submission_input, entry, party_id)
             if entry.amend_status is None:
@@ -2307,7 +2334,9 @@ class OnboardingService:
         search_resolution: GoldTierSearchResolution,
         selected_party_id: str | None,
     ) -> None:
-        if search_resolution == GoldTierSearchResolution.EXACT_MATCH:
+        if search_resolution in {
+            GoldTierSearchResolution.EXACT_MATCH, GoldTierSearchResolution.CONFIRMED_EXISTING,
+        }:
             if selected_party_id is None:
                 raise ValueError("Exact target Search requires a selected party")
             if not self._mock_reuse_is_verified(submission_input, selected_party_id):
@@ -2706,7 +2735,9 @@ class OnboardingService:
             policy_status=entry.policy_status,
             amend_status=amend.status,
         )
-        existing_party = entry.search_resolution == GoldTierSearchResolution.EXACT_MATCH
+        existing_party = entry.search_resolution in {
+            GoldTierSearchResolution.EXACT_MATCH, GoldTierSearchResolution.CONFIRMED_EXISTING,
+        }
         self._record(
             case,
             WorkflowState.VALIDATED if existing_party else WorkflowState.GT_POLICY_CREATED,

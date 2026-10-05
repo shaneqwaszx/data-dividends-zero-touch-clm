@@ -9,6 +9,15 @@ timeouts and uncertainty below retain their original run identities.
 
 ## Current four-category limitation map
 
+The 2026-10-05 post-closeout
+[existing-customer note](../integration/GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md)
+records newly partial sponsor answers for Q-001/Q-005/Q-007/Q-010/Q-011/Q-015 and
+bounded XPI confirmation. Existing questions/table text below retain broader unresolved
+authority; registration/external-key Search is supported by supplied EDS but not an
+invented XPI query. EDS runtime replacement is future assigned work. No artifact resend
+is needed. Legal/control UBO, child lifecycle, original-file upload and Production/
+Live remain unresolved.
+
 | Category | Current limitation / truthful delivery | Dependent claim or next action |
 |---|---|---|
 | POC LIMITATION | GoldTier default is PROJECT_OWNED LOCAL IN_PROCESS Mock; XPI parent route SANDBOX_PARTIAL only. Historical synthetic parent succeeded; Garden Amend failed | Label bounded proof; no Production/Live/interoperability expansion without contract and separate authorized acceptance |

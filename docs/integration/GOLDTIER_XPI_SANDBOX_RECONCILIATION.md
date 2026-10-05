@@ -6,6 +6,12 @@ Baseline: `3ca232b58c3842f413c4552dbd3b85aabea4591c`
 
 ## Outcome
 
+Current post-closeout clarification (2026-10-05):
+[existing-customer resolution and API-family note](GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md)
+records bounded sponsor answers and offline remediation. It supersedes the earlier
+blanket inability to confirm a name-only candidate, not historical Garden failure,
+uncertainty, no-replay, provider classifications or external-call authorization.
+
 `SANDBOX_PARTIAL_IMPLEMENTED / ONE_CUSTOMER_SHELL_OUTCOME_UNCERTAIN_NO_REPLAY /
 CUSTOMER_LIFECYCLE_INCOMPLETE / RELATED_PARTY_BLOCKED`
 

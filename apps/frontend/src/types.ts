@@ -987,7 +987,7 @@ export interface ClmCaseSummary {
     provider_mode: "MOCK" | "SANDBOX";
     provider_classification: "MOCK" | "SANDBOX_PARTIAL";
     status: "COMPLETED" | "REVIEW_REQUIRED" | "FAILED" | "STALE";
-    disposition: "NO_MATCH" | "EXACT_MATCH" | "REVIEW_REQUIRED" | "FAILED";
+    disposition: "NO_MATCH" | "EXACT_MATCH" | "CONFIRMED_EXISTING" | "REVIEW_REQUIRED" | "FAILED";
     provider_outcome: string;
     status_code: number;
     candidate_count: number;
@@ -1285,6 +1285,7 @@ export interface ZeroTouchException {
 }
 
 export interface HumanInterventionProjection {
+  existing_customer_confirmation_action?: "CONFIRM_EXISTING_GOLDTIER_CUSTOMER" | null;
   blocker_class?: "WARNING" | "RECOVERABLE_INPUT" | "HUMAN_DECISION" | "WAITING_EXTERNAL" | "HARD_SAFETY_STOP";
   evidence_actions?: Array<{ target: "DOCUMENTS" | "OWNERSHIP_DETAILS" | "OWNERSHIP_UPLOAD" | "CLASSIFICATION" | "IDENTITY" | "REVIEW_SEND"; label: string }>;
   intervention_id: string;

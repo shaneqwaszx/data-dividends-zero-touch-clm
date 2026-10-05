@@ -12,6 +12,16 @@ The execution profile exposes only `Process-local` or `Mongo-backed durable POC`
 
 ## Durable contract
 
+The post-closeout schema9 additive Search extension retains initial provider
+registration/country tuples and an optional CLM creator receipt with the distinct
+CONFIRMED_EXISTING disposition. Legacy absence is unknown evidence, never inferred
+confirmation. The existing codec/CAS/lock owners retain the receipt before stage
+projection; an interrupted projection can be reconstructed without provider replay.
+No schema migration, historical-envelope rewrite, envelope-version change or repository
+fallback is introduced. Recovering an interrupted confirmation may save only the local
+automation projection under the existing case lock/CAS owner.
+Old application binaries do not understand newly written confirmed-existing values.
+
 One case envelope (S2 candidate schema v9) contains revision, onboarding and Registry evidence,
 ordered document records and supersession links, reconciliation outcomes/decisions,
 ownership evidence, CLM and automation checkpoints, target execution ledger, safe demo

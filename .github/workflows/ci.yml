@@ -94,10 +94,10 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # 59 discovered lifecycles * (60s execution + 120s bounded cleanup/dispatch)
-    # + 60s discovery = 178 minutes; preserve 14 minutes for tool installation.
-    # Session 1/2/3 inventory changes the job budget only; execution stays 60s.
-    timeout-minutes: 192
+    # 60 discovered lifecycles * (60s execution + 120s bounded cleanup/dispatch)
+    # + 60s discovery = 181 minutes; preserve 14 minutes for tool installation.
+    # Existing-customer regression changes the job budget only; execution stays 60s.
+    timeout-minutes: 195
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

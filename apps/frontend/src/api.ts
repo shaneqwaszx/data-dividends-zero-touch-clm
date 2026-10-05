@@ -591,6 +591,25 @@ export async function checkZeroTouchTargetStatus(
   return parseResponse<TargetStatusCheckResult>(response);
 }
 
+export async function confirmExistingGoldTierCustomer(
+  summary: ZeroTouchCaseSummary, rationale: string,
+): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${summary.case.case_id}/confirm-existing-customer`,
+    {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        search_request_id: summary.clm.target_search_checkpoint?.request_id,
+        expected_automation_version: summary.version,
+        expected_clm_version: summary.clm.version,
+        expected_case_event_count: summary.case.events.length,
+        rationale,
+      }),
+    },
+  );
+  return parseResponse<ZeroTouchCaseSummary>(response);
+}
+
 export async function recheckZeroTouchIdentitySearch(
   caseId: string,
   input: IdentitySearchRecheckInput,
