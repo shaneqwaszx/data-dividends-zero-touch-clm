@@ -2,21 +2,23 @@
 
 ## 1. Purpose
 
-Demonstrate the bounded Singapore onboarding POC with exactly three primary journeys:
-Garden, Multiple Owner Demo, and Merlion cache reuse. Use the [UAT matrix](FINAL_UAT_ACCEPTANCE_MATRIX.md)
+Demonstrate four bounded Singapore POC journeys: Garden, Multiple Owner Demo,
+Merlion cache reuse, and same-case wrong-UEN recovery. Use the [UAT matrix](FINAL_UAT_ACCEPTANCE_MATRIX.md)
 and [canonical blocker guide](BLOCKER_RECTIFICATION_GUIDE.md). Automated acceptance is separate
-from a human sponsor demonstration; all manual matrix statuses begin NOT_RUN.
+from a human sponsor demonstration; manual matrix statuses remain NOT_RUN until an actual human demonstration.
+Current source is merged PR #69; Phase26 automated results are separate in the
+[implementation record](../../.ai-pipeline/reports/PHASE_26_IMPLEMENTATION.md).
 
 ## 2. Evidence and provider truth
 
 | Surface | Classification and authority |
 |---|---|
 | Garden identity/officers | Official ACRA API Marketplace **Mock** sample authority; F browser runs use an inert **synthetic offline protocol replay**, not a new official network observation |
-| Garden ownership | Reviewed fictional 60/40: USER_SUPPLIED_DECLARATION / LOCAL / MANUAL_DECLARATION_POC; no official percentages, relationships or UBOs |
+| Garden ownership | Either reviewed fictional 60/40 USER_SUPPLIED_DECLARATION / LOCAL, or explicitly enabled LOCAL_SYNTHETIC_SUPPLEMENT recursive fixture; sources remain separate from official Mock identity/officers |
 | Second company and Merlion | SYNTHETIC MOCK / MOCK_ACRA_SYNTHETIC_V1; neither is an official Marketplace sample |
-| Document extraction | LOCAL labelled PDF/TXT/DOCX extraction, four identity fields; no OCR and no ownership graph extracted from PDF prose |
+| Document extraction | Native-first LOCAL PDF/DOCX/TXT; scanned/mixed PDF and PNG/JPEG/TIFF use optional local Tesseract. Four identity fields and explicit proposed ownership observations; creator source review precedes Decimal graph calculation |
 | Ownership | Existing deterministic Decimal engine; provisional candidates, not final legal UBO determination |
-| Target | GoldTier Mock, process-local accepted D2 facts and ledger; no external GoldTier calls, approval or Ready-for-Approval |
+| Target | Offline demo uses GoldTier Mock or explicitly labelled synthetic XPI transport. Actual historical XPI parent delivery remains PARTIAL Sandbox; Review & Send is final local approval, never KYC/compliance/RFA proof |
 | Policy impact | Synthetic prospective comparison under the existing policy owner; no production/customer impact simulation |
 | Mongo | Optional explicit local durability; no distributed exactly-once guarantee |
 
@@ -26,8 +28,8 @@ sponsor-confirmed through D-062 (>=25%); complete legal/control policy remains o
 
 ## 3. Prerequisites
 
-Use the accepted candidate in its managed worktree, or the normal checkout **after human merge
-and update**. Install the repository's pinned dependencies through its existing setup procedure.
+Use updated merged PR #69 source or the accepted Phase26 task content in its managed
+worktree. Install the repository's pinned dependencies through its existing setup procedure.
 The normal environment requires its already-provisioned local accounts and configured providers.
 Do not put credentials in this runbook. Do not switch providers silently or use a production lane.
 For cache demonstrations the existing registry cache must explicitly be enabled in Mock mode.
@@ -38,7 +40,11 @@ invalid/textless negative fixtures intentionally demonstrate rejection/unavailab
 
 ## 4. Startup
 
-Normal development, in separate PowerShell terminals, after the candidate is integrated:
+Normal development uses the configured database and performs ordinary startup
+index/bootstrap/recovery operations. Never use this startup path against original
+`clm_poc` for read-only validation. Phase25 used an exact authorized disposable clone.
+Use an owner-approved disposable environment for demonstrations that create records.
+In separate PowerShell terminals:
 
 ```powershell
 cd "C:\Users\shane\Desktop\FYP\data-dividends-zero-touch-clm\apps\backend"
@@ -56,7 +62,7 @@ for the normal environment.
 
 Controlled automated acceptance is different: scripts/run_e2e.py starts an isolated lifecycle,
 disables dotenv, generates temporary test credentials, uses memory state, LOCAL extraction and
-explicit offline Mock fixtures. From the candidate root:
+explicit offline Mock fixtures. From the task root:
 
 ```powershell
 python scripts/run_e2e.py --registry-demo garden-partnership --grep "Slice B Garden partnership"
@@ -64,7 +70,9 @@ python scripts/run_e2e.py --registry-demo synthetic-cache --grep "Slice B second
 python scripts/run_e2e.py --registry-demo synthetic-cache --grep "Slice B Merlion fresh cache"
 ```
 
-Each command owns and stops only its own processes. Do not combine fixture modes.
+Each command owns and stops only its own processes. Run each exact call-count selector
+in its own fresh lifecycle; shared counters from a previous journey invalidate absolute
+count assertions. Do not combine fixture modes.
 Running these scripts proves controlled automated behavior, not normal-environment startup.
 
 ## 5. Login role
@@ -80,8 +88,9 @@ tests maya-lim is the synthetic onboarder. HR Admin authors proposals; a distinc
 3. Inspect Registry identity: PARTNERSHIP, identity/officers present, PARTIAL acquisition;
    registry ownership/relationships unsupported. In F offline acceptance the inert operations
    are TOKEN, ENTITY_PROFILE, ENTITY_PROFILE; external requests are zero.
-4. Inspect Documents & reconciliation: four matching fields auto-confirm. The PDF's ownership
-   prose does not become registry evidence or an extracted graph.
+4. Inspect Documents & reconciliation: matching eligible fields auto-confirm. Explicit
+   bounded ownership rows can be retained as PROPOSED observations; prose does not
+   automatically become registry evidence or an authoritative graph.
 5. Open ownership attention, Add structured ownership details. Enter fictional owners,
    exact economic interests 60 and 40, the current evidence-document binding and a review rationale.
 6. Submit manual evidence; inspect LOCAL declaration receipt and Decimal candidates 60/40.
@@ -91,6 +100,26 @@ tests maya-lim is the synthetic onboarder. HR Admin authors proposals; a distinc
 
 No official partnership ownership or legal UBO conclusion is claimed. Do not invoke the
 company shareholder API as a substitute.
+
+For the distinct recursive supplement demonstration, normal composition requires
+explicit `GARDEN_SUPPLEMENT_ENABLED` with the official Marketplace Mock mode and
+successful compatible Garden evidence. It never falls back after provider failure.
+Keep official identity/officers and LOCAL_SYNTHETIC_SUPPLEMENT visibly separate.
+The unchanged fixture gives Garden direct62.5/37.5 and a holding branch81.818182/
+9.090909/9.090909. Server Decimal effective candidates are51.13636375 and37.5; both
+meet the inclusive >=25% rule. Expand the collapsed tree by keyboard to inspect paths,
+calculations and unresolved branches. Editing calculable evidence requires the current
+creator and a source decision/rationale before target intent; history survives.
+
+Offline browser commands exercise presentation without new official calls:
+
+```powershell
+python scripts/run_e2e.py --garden-protocol --grep "S2 creator edits calculable"
+python scripts/run_e2e.py --garden-protocol --grep "S2 document proposals require"
+```
+
+These inert protocol fixtures are not a fresh official Garden acquisition or the
+production/local configuration itself.
 
 ## 7. Second-company journey
 
@@ -109,7 +138,17 @@ and unchanged acquisition provenance. The UI says “Reused fresh registry evide
 request required.” The second case adds zero ACRA operations. Finish its explicit Review & Send.
 This cache journey differs from verified target hydration.
 
-## 9. Blocker examples
+## 9. Recovery and blocker examples
+
+Create a synthetic Merlion case with wrong UEN99999999Z and clean-company-profile.pdf.
+Open the retained case, Edit UEN to202400001A, then Verify UEN and resume. The case ID,
+document ID and original structured extraction remain; comparisons and dependent
+checkpoints recompute and the existing owner resumes to the next real blocker.
+No replacement or automatic target dispatch is implied. Offline executable proof:
+
+```powershell
+python scripts/run_e2e.py --grep "S1 wrong UEN retains uploaded document"
+```
 
 Use the generator-checked blocker guide's exact trigger/action/owner/invalidation/history/call
 columns. Sponsor subset: wrong UEN; entered/document UEN conflict; name; address; confidence;
@@ -169,19 +208,35 @@ and frozen cases”. Policy actions add zero provider calls.
 
 ## 12. Expected final states
 
-COMPLETED means all required POC stages succeeded with target readback proof. Human approval
-remains unresolved. WAITING_FOR_REVIEW means current evidence/action is required; TECHNICAL_FAILURE
+COMPLETED means all required POC stages succeeded with target readback proof.
+Review & Send is the final local human approval under D-062; GoldTier-internal and
+regulatory approval remain separate. WAITING_FOR_REVIEW means current evidence/action is required; TECHNICAL_FAILURE
 means a typed technical stop; RECOVERY_PENDING permits only the existing ledger-owned safe
 finalization action, never target replay. A negative/missing source is not success.
 
+Preparing GoldTier Submission and Final review & send are separate visible stages.
+Post-send wording is Sending to GoldTier, Submission confirmed, Submission failed,
+or Submission outcome uncertain; a fully resolved retained prefix can instead show
+Submission finalization pending. These labels derive from backend ledger/activity
+facts. An uncertain identity check cannot complete Policy or authorize replay.
+
+ACRA diagnostics describe connector capability separately from case evidence
+completeness. UNSUPPORTED means no implementation/provider call; it does not
+fabricate a failed registry observation. Garden quantitative absence remains a real
+ownership completeness limitation until distinct supported LOCAL evidence is reviewed.
+
 ## 13. Known limitations
 
-No Production ACRA, external GoldTier writes, production SSO/compliance/approval, related-party
-or multi-level hierarchy creation, production OCR, OCDD, full MIS, or full Exception Workbench.
+No Production ACRA/GoldTier, production SSO/compliance approval, related-party
+or multi-level hierarchy creation, original-file GoldTier transfer, vendor OCR, OCDD,
+full MIS, or full Exception Workbench. Local OCR is implemented; this Windows host
+has no observed Tesseract and scanned input fails safely without it. Historical
+isolated actual-OCR evidence is linked from [setup](../development/LOCAL_OCR_SETUP.md).
 GoldTier Sandbox adapter is SANDBOX_PARTIAL. Portal labels cannot establish API/retry/idempotency/
-atomicity/authentication/RFA contracts. Retained original clm_poc records need owner validation
-after integration; a disposable clean-start test cannot verify those records.
-See current contracts/questions and the final limitations report when Slice G is accepted.
+atomicity/authentication/RFA contracts. Phase25 read all three original retained cases
+without writes, then validated actual HTTP/rendering against an exact disposable clone.
+That bounded acceptance is separate from synthetic demo and production claims.
+See current contracts/questions, limitations and the Phase27 handoff.
 
 ## 14. Sponsor questions
 

@@ -1,12 +1,17 @@
 # Final UAT Acceptance Matrix
 
-Primary sponsor journeys are F-A, F-B and F-C. Manual demo status is NOT_RUN for every row;
+Primary sponsor journeys are F-A, F-B, F-C and F-UEN. Manual demo status is NOT_RUN for every row;
 an executable reference is coverage, not a claim that a human demonstration occurred.
 Backend references are under apps/backend/tests; browser references under apps/frontend/e2e.
 All F external calls are zero. Four synthetic registry operations means ENTITY_PROFILE,
 OFFICERS, OWNERSHIP_PARTIES and RELATIONSHIPS once each. Browser target call counts are
 NOT_INSTRUMENTED; separately cited backend recordings must not be confused with ledger markers.
 Use the primary runbook and bounded asset index; do not broaden fixtures/searches.
+Phase26 automated execution is recorded separately in
+[PHASE_26_IMPLEMENTATION](../../.ai-pipeline/reports/PHASE_26_IMPLEMENTATION.md).
+Merged PR #69 also supports optional local OCR and proposed ownership extraction.
+The F-TEXT row below is historical native-only fixture evidence, not a denial of
+current OCR capability; host runtime absence remains explicit.
 
 | Test ID | Journey | Role | Input / document | Expected provider | Expected provider calls | Expected blocker | User action | Expected end state | Automated test reference | Manual demo status | Boundary / limitation |
 |---|---|---|---|---|---|---|---|---|---|---|---|

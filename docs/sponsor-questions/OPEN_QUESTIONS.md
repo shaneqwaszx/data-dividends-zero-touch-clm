@@ -3,7 +3,7 @@
 Remove or mark a question resolved only after an explicit sponsor answer. These
 questions do not block credential-free Phase 01 mock development unless stated.
 
-## Final closeout decision packet — 2026-10-04
+## Current closeout decision packet — 2026-10-05
 
 The current question/status/proved/unproved/minimum-input/action table is in
 [Final POC limitations and next steps](../demo/FINAL_POC_LIMITATIONS_AND_NEXT_STEPS.md#sponsor-decision-packet).
@@ -11,7 +11,10 @@ Historical phase-specific questions below retain their original evidence and dat
 POC authentication/review, bounded D-056 values, D-062 >=25% and D-064 HR/Director
 activation are implemented; production authority and broader contracts remain separate.
 An answer requires a new explicit implementation assignment and never implicitly
-authorizes external mutation.
+authorizes external mutation. Phase25/26 closes no sponsor question and promotes no
+provider classification. The earlier Phase14.5 direct-policy-edit description below
+is historical and superseded for POC controls by D-064: HR proposal, distinct Director
+approval, new ACTIVE version, and unchanged frozen existing cases.
 
 ## Current clarification — 2026-10-01 / D-062
 

@@ -1,6 +1,6 @@
 # Bounded local OCR setup and evidence
 
-The S2 candidate extends LOCAL_PDF_TEXT through the existing IDP port. It uses pinned
+The S2 implementation merged through PR #69 extends LOCAL_PDF_TEXT through the existing IDP port. It uses pinned
 Pillow 12.3.0 and pypdfium2 5.13.0 plus optional English Tesseract. Original documents
 and full extraction remain local/transient. No vendor/AI upload is authorized or used.
 Native PDF pages with at least 40 non-whitespace characters use native extraction;

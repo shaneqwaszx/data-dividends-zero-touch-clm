@@ -1,15 +1,18 @@
 # Final POC Limitations and Next Steps
 
-Status: cumulative branch implementation on feat/post-phase24-stability-provider-hardening.
-Exact final acceptance/publication status belongs to the G manifest and independent gate.
-Main source baseline: merged PR #67 / 707765b1d51172c64b851c9e46e68b3c23006789.
-A–F gates accept their exact bounded branch candidates; cumulative G acceptance and
-publication require a fresh final gate. This packet does not grant new implementation,
-access, provider mutation or production authority.
+Current inspected main: merged PR #69 / `73967401379378927c810d6227b0c7aa95fba061`.
+The post-Phase24 A–G package merged through PR #68; Sessions1–3 and their bounded
+P2 remediation merged through PR #69. Historical gate verdicts/counts and the G6
+closure below retain their own dates and tested identities. Phase25 independently
+passed normal-clone startup, all-three retained-case HTTP/render compatibility and
+role/session checks; original clm_poc was read only, with zero writes.
+Phase26 updates demo/current documentation and prepares the Phase27 handoff. This
+packet grants no new implementation, provider mutation or production authority.
 
 ## IMPLEMENTED AND VERIFIED
 
-Named bounded source evidence covers schema8 with valid legacy1..7 reads, source encoding,
+Current source uses schema9 with strict valid legacy1..8 reads without rewrite.
+Historical A–G evidence below covered schema8 with valid legacy1..7 reads, source encoding,
 registry/cache operation decisions, current blocker/history protection, local target
 ledger/no-replay, reviewed LOCAL ownership and the single Decimal engine, and HR proposals
 with distinct-Director activation/frozen cases. F's exact synthetic asset allowlist,
@@ -21,13 +24,17 @@ program passes89 tests across13 suites with zero skips. Frontend unit evidence c
 passes on a generated disposable Mongo database. The final cumulative manifest records
 all fresh receipts, including two unchanged full E2E runs and the separately bounded
 official-Mock acceptance; its independent gate owns final acceptance. Retained owner
-data is not verified by these checks.
+data was not verified by those historical checks. Phase25 later verified three
+actual retained cases through read-only original inspection and an exact clone,
+without repairing or migrating retained data.
 
 ## IMPLEMENTED BUT MOCK/LOCAL
 
 Three primary journeys remain distinct: Garden official-Mock identity/officers plus
 reviewed fictional LOCAL ownership; Multiple Owner Demo and Merlion are SYNTHETIC MOCK.
-Documents use LOCAL bounded text extraction. Ownership candidates are provisional
+Documents use LOCAL native-first text extraction and optional bounded Tesseract
+OCR for scanned/mixed PDF and PNG/JPEG/TIFF. Explicit ownership observations are
+proposals requiring source review; this host lacks observed Tesseract. Ownership candidates are provisional
 Decimal results. GoldTier Mock is PROJECT_OWNED / LOCAL / IN_PROCESS / NO_HTTP /
 NO_AUTH / PROCESS_LOCAL. Policy advice uses deterministic named synthetic scenarios;
 eight core parameters are evaluated,13 intelligence effects remain NOT_ASSESSED and
@@ -39,7 +46,10 @@ The separately configured direct GoldTier XPI adapter remains SANDBOX_PARTIAL. D
 conditional Amend is distinct from D2 Mock's required Amend. Exact same-ID readback is
 required; neither Policy nor readback proves approval, completed KYC or screening clearance.
 D1 observed NO_MATCH only; portal labels establish no API schema/retry/atomicity/auth authority.
-Generic ACRA sandbox is Partial; BizFile is Dormant. No G GoldTier Sandbox access is authorized.
+Generic ACRA sandbox is Partial; BizFile is Dormant. Historical S3 achieved one
+synthetic parent Shell/Policy/exact-ID readback and durable confirmed state, with
+Amend not required. Historical Garden Amend remains failed. No Phase25/26 external
+acceptance rerun or additional Sandbox write is authorized.
 
 ## NEEDS_SPONSOR_CONFIRMATION
 
@@ -54,8 +64,9 @@ assigned implementation through existing owners.
 Subscriber ACRA, vendor OCR/hierarchy and production PingFed require approved environments,
 least-privilege backend secret delivery and bounded test authority after contract/security
 decisions. Existing placeholders and access elsewhere are not interoperability evidence.
-G permits only one official Marketplace Mock Garden acceptance after all offline lanes pass:
-token1/profile1/officers1, total3 maximum, with no retries/refresh/shareholder/relationship.
+The historical G6 official Marketplace Mock Garden acceptance is recorded below.
+Phase25/26 performs no new external requests; credentials and access elsewhere do
+not create authority for a new acceptance.
 
 ## OUT OF SCOPE FOR CURRENT POC
 
@@ -112,7 +123,7 @@ correctly labelled bounded POC, subject to exact final PASS; it never means Prod
 | Cache retention/concurrency bounds — ACCEPTED_POC_LIMITATION | Mock-only exact keys; COMPLETE binding/prefix/negative TTL; local single-flight | Production sharing/licensing/refresh/retention/concurrency authority -> design | Fresh zero-call demo allowed |
 | Historical C proxy-style empty500 — ACCEPTED_POC_LIMITATION | Historical, not causally closed; current reproducible required failure blocks | Safe causal reproduction -> focused diagnosis/remediation | Residual retained; passing later runs do not close cause |
 | Manual UAT/backend-only negatives — ACCEPTED_POC_LIMITATION | Manual NOT_RUN; backend proof not browser/manual signoff | Actual manual session or assigned browser journey -> update only that evidence | Automated acceptance may pass |
-| Original four clm_poc records — ACCEPTED_POC_LIMITATION | Owner data untouched; only disposable acceptance DBs | Owner normal startup after human integration -> actual retained-record validation | Explicit G7 boundary; not automatically verified |
+| Retained clm_poc compatibility — BOUNDED_VALIDATION_COMPLETE | Phase25 enumerated3 current retained cases, schemas2/2/8; read-only original decode and all3 actual HTTP/render against exact clone; original counts/raw/index unchanged | New authority required for any mutation, migration or repair; future compatibility changes need disposable proof | No original startup/recovery writes; clone deleted after independent PASS |
 
 Current contracts/decisions, source/tests and [open questions](../sponsor-questions/OPEN_QUESTIONS.md)
 own these boundaries. Historical A–F reports retain original classifications/failures.
@@ -145,7 +156,7 @@ remaining question is open even when its bounded POC subset is already establish
 | Q-017 OPEN | Labelled advisory risk; D-062 reactions; no clearance | Supplied producer/provenance and actual screening ownership | Source/update/retention/reactions and screening requiredness/ownership | Assigned risk/screening consumers |
 | Q-018 OPEN | External application POC workflow/target ledger | Production placement/handoff/continuation | Topology/transferred facts/identity/audit/security/support contract | Assigned deployment/handoff |
 
-## Fresh G6 closure — 2026-10-04
+## Historical fresh G6 closure — 2026-10-04
 
 The owner-authorized fresh official Marketplace Mock run passed as
 G6_TARGET_CLIENT_TIMEOUT_WITH_VERIFIED_RETAINED_COMPLETION. Token/profile/officers

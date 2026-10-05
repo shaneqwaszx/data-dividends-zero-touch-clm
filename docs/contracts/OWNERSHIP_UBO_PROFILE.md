@@ -128,7 +128,7 @@ classification.
 
 No Phase 04 Mock field or rule may become a real GoldTier assertion without confirmation.
 
-## S2 document-assisted source decisions — 2026-10-04 candidate
+## S2 document-assisted source decisions — merged PR #69
 
 The existing Decimal engine remains the only calculator. Document extraction produces
 PROPOSED observations with immutable document/version/page/reference, method/quality,
@@ -179,9 +179,9 @@ CHOON HUAT is 37.500000%. Both meet >=25%. TAN WEI LING and EFGH2345 each have
 
 ## Separate ML-assisted advisory
 
-### Phase 24 scalar evidence candidate
+### Phase 24 scalar evidence — merged PR #67
 
-The uncommitted Phase 24 candidate adds optional bounded scalar evidence, original
+The merged Phase 24 implementation adds optional bounded scalar evidence, original
 values, source operation, UEN, retrieval/as-of time, class/unit, determination basis,
 confidence and evidence version. Share units are not percentages.
 Unknown owned-entity bindings are retained as null; they never participate in arithmetic.
