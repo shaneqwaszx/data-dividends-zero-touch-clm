@@ -268,6 +268,9 @@ class UpdateCasePriorityRequest(BaseModel):
 class TargetClassificationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    expected_classification_evidence_fingerprint: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
     kyc_customer_type: str = Field(min_length=1, max_length=80)
     client_segment: str = Field(min_length=1, max_length=80)
     expected_automation_version: int = Field(ge=1)
@@ -1130,7 +1133,10 @@ def create_app(
                 # Presentation only: existing lock/ledger resume guards still own execution.
                 target_state = "FINALIZATION_PENDING"
             else:
-                target_state = "SUBMISSION_OUTCOME_UNCERTAIN"
+                # No unresolved operation exists: an empty intent is not an uncertain mutation.
+                target_state = (
+                    "FINALIZATION_PENDING" if target_entry.attempted_operations else "NOT_SUBMITTED"
+                )
         reconciliation_record = reconciliation.get(case_id=automation.case_id)
         ownership_record = ownership.get(case_id=automation.case_id)
         retained_goldtier_id = (
@@ -1191,6 +1197,7 @@ def create_app(
             reconciliation=reconciliation_record,
             target_operations=target_operations,
             target_submission=target_submission,
+            classification_assessment=documents.assess_target_classification(case_id=case.case_id),
             processing_pipeline=project_processing_pipeline(
                 automation=automation,
                 clm=clm_record,
@@ -2172,6 +2179,7 @@ def create_app(
                 case_id=case_id,
                 kyc_customer_type=classification.kyc_customer_type,
                 client_segment=classification.client_segment,
+                expected_classification_evidence_fingerprint=classification.expected_classification_evidence_fingerprint,
                 expected_automation_version=classification.expected_automation_version,
                 expected_case_event_count=classification.expected_case_event_count,
                 actor_id=authenticated_actor(request).profile.user_id,

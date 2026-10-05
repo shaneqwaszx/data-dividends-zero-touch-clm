@@ -935,10 +935,12 @@ export default function CaseDetail({
             <OwnershipPathExplorer key={`${evidenceIdentity}:${ownership?.analysis_id ?? "none"}`} record={ownership} acquisition={acquisition} primaryBlockerVisible={summary.active_exceptions.some((item) => item.stage === "OWNERSHIP")} />
           </div>
         </StageDisclosure>
-        <StageDisclosure title="Readiness check" active={stageIsActive(["READINESS"])}>
+        <StageDisclosure title="Submission readiness" active={stageIsActive(["READINESS"])}>
+          <p className="control-help">Checks whether the current case evidence and GoldTier submission inputs are complete and current enough to prepare the submission. GoldTier KYC and four-eye approval remain separate.</p>
           {renderInterventions(["READINESS"])}
         {summary.case.policy_rebind && (
           <PolicyRebindPanel
+            classification={summary.target_classification}
             metadata={summary.case.policy_rebind}
             registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen}
             disabled={isBusy || mutationBlocked}
@@ -958,7 +960,7 @@ export default function CaseDetail({
         {summary.target_classification && (
           <div id="case-target-classification" className="evidence-focus-target" tabIndex={-1}>
           <TargetClassificationPanel
-            key={`${summary.case.case_id}:${summary.target_classification.vocabulary_version}:${summary.target_classification.kyc_customer_type.selected_value ?? "unresolved"}:${summary.target_classification.client_segment.selected_value ?? "unresolved"}`}
+            key={`${summary.case.case_id}:${summary.target_classification.vocabulary_version}:${summary.target_classification.evidence_fingerprint ?? "unknown"}:${summary.target_classification.current ?? "unknown"}:${summary.target_classification.kyc_customer_type.selected_value ?? "unresolved"}:${summary.target_classification.client_segment.selected_value ?? "unresolved"}`}
             classification={summary.target_classification}
             disabled={isBusy || mutationBlocked}
             onSubmit={(input) => runMutation(
@@ -973,7 +975,7 @@ export default function CaseDetail({
           </div>
         )}
         </StageDisclosure>
-        <StageDisclosure title="Preparing GoldTier Submission" active={stageIsActive(["MOCK_GOLDTIER"])}>
+        <StageDisclosure title="GoldTier submission package" active={stageIsActive(["MOCK_GOLDTIER"])}>
           {renderInterventions(["MOCK_GOLDTIER"])}
         <ProcessingBlockerPanels summary={summary} stage="TARGET" />
         {summary.status === "RECOVERY_PENDING"

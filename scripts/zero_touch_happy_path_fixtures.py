@@ -38,6 +38,10 @@ class HappyPathCompany:
     edges: tuple[tuple[str, str, str], ...]
     expected: tuple[tuple[str, str], ...]
 
+    kyc_customer_type: str = "Company - Private"
+    client_segment: str = "Corporate"
+    party_type: str = "PRIVATE COMPANY LIMITED BY SHARES"
+
     @property
     def document_name(self) -> str:
         return f"demo-{self.code.lower()}-scanned.pdf"
@@ -51,7 +55,15 @@ class HappyPathCompany:
             "Country": "SG",
         }
 
+    @property
+    def target_profile(self) -> dict[str, str]:
+        return {"KYC Customer Type": self.kyc_customer_type, "Client Segment": self.client_segment,
+                "Registration Type": "ACRA", "Customer External System": "DSD",
+                "Policy": "Singapore", "Booking Entity": "ANZBGL (Singapore Branch)"}
+
     def bundle(self, now: datetime) -> RegistryAcquisitionBundle:
+        if not self.edges:
+            raise ValueError("Classification-only fixture has no supported share ownership bundle")
         if not is_eligible_singapore_uen(self.uen):
             raise ValueError("fictional identifier is not supported")
         root = f"ENTITY_{self.uen}"
@@ -119,7 +131,7 @@ class HappyPathCompany:
                 registration_number=self.uen,
                 legal_name=self.name,
                 country_of_incorporation="SG",
-                party_type="PRIVATE COMPANY LIMITED BY SHARES",
+                party_type=self.party_type,
                 registration_date=date(2026, 1, 5),
                 entity_status="LIVE",
                 registered_address=RegisteredAddress(
@@ -181,17 +193,20 @@ COMPANIES = (
         "209990102B",
         "22 DEMO BETA WAY",
         "000102",
-        (("ROOT", "H1", "70"), ("ROOT", "P3", "30"), ("H1", "P1", "60"), ("H1", "P2", "40")),
-        (("P1", "42"), ("P2", "28"), ("P3", "30")),
+        (("ROOT", "H1", "50"), ("ROOT", "H2", "30"), ("ROOT", "P1", "20"),
+         ("H1", "P1", "20"), ("H1", "P2", "50"), ("H1", "P3", "10"), ("H1", "P4", "10"), ("H1", "P5", "5"), ("H1", "P6", "5"),
+         ("H2", "P3", "40"), ("H2", "P4", "30"), ("H2", "P5", "20"), ("H2", "P6", "10")),
+        (("P1", "30"), ("P2", "25"), ("P3", "17"), ("P4", "14"), ("P5", "8.5"), ("P6", "5.5")),
     ),
     HappyPathCompany(
         "GAMMA",
-        "DEMO GAMMA TECHNOLOGIES FYP TEST PTE. LTD.",
+        "DEMO GAMMA TECHNOLOGIES FYP TEST PARTNERSHIP",
         "209990103C",
         "33 DEMO GAMMA WAY",
         "000103",
-        (("ROOT", "P1", "50"), ("ROOT", "P2", "30"), ("ROOT", "P3", "20")),
-        (("P1", "50"), ("P2", "30"), ("P3", "20")),
+        (("ROOT", "P1", "30"), ("ROOT", "P2", "25"), ("ROOT", "P3", "20"), ("ROOT", "P4", "10"), ("ROOT", "P5", "10"), ("ROOT", "P6", "5")),
+        (("P1", "30"), ("P2", "25"), ("P3", "20"), ("P4", "10"), ("P5", "10"), ("P6", "5")),
+        kyc_customer_type="Partnership - Unregulated", party_type="PARTNERSHIP",
     ),
     HappyPathCompany(
         "DELTA",
@@ -210,3 +225,8 @@ COMPANIES = (
         (("P1", "30"), ("P2", "10"), ("P3", "40"), ("P4", "20")),
     ),
 )
+
+# Classification-only: no fabricated Government natural-person share/control graph.
+GOVERNMENT = HappyPathCompany("GOVERNMENT", "DEMO GOVERNMENT FYP TEST AUTHORITY", "209990105E",
+    "55 DEMO GOVERNMENT WAY", "000105", (), (), kyc_customer_type="Government",
+    client_segment="DI - Government", party_type="GOVERNMENT")

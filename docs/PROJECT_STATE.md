@@ -76,7 +76,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 9,
+  "case_envelope_schema_version": 10,
   "verified_date": "2026-10-05",
   "verified_main_sha": "4ee8819d7404d6442e064fd60dcee03ccc84cf11",
   "verification_status": "verified-against-main",
@@ -790,3 +790,24 @@ Mock/Local/Sandbox/Live classifications and all provider runtime status remain u
 Slice E alone granted no publication authority. The subsequent cumulative A–G candidate
 received exact final independent PASS and was human-merged through PR #68. Its historical
 verification evidence remains separate from the later PR #69 and Phase25/26 evidence.
+
+## Unmerged target-classification continuation — 2026-10-05
+
+The owner-assigned second commit continues ccff7471 on the existing database-first branch.
+Schema10 extends existing document/case owners with source-labelled classification;
+strict schemas1..9 remain read-only compatible with unknown/empty new evidence.
+Submission readiness separates final confirmation; classification saves are local and
+actual uncertain attempts remain frozen/no-replay. Alpha remains60/40; Beta/Gamma have
+six ultimate people, Gamma is a synthetic Partnership; separate Government classification
+has no supported government-control ownership claim. Provider modes/statuses and
+historical verified-main metadata above are unchanged. Fresh continuation checks and
+independent verdict belong to its separate report, not the previous accepted commit.
+
+2026-10-06 owner-authorized follow-up candidate: current classification conflict is
+explicit, and USER/DOCUMENT choices bind trusted evidence identity. Same-value fresh
+manual review is supported; later trusted evidence invalidates it. Currentness governs
+readiness and confirmation before snapshot/ledger writes in both modes. Provider
+classifications, target mapping, approval limits, fixtures and threshold are unchanged.
+Historical protected DB non-access remains NOT_CERTIFIED and is owner-accepted as a
+documented historical execution uncertainty. The new gate requires current execution
+isolation; protected/owner database investigation and dotenv read remain prohibited.

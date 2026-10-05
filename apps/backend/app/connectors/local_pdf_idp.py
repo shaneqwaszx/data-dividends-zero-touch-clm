@@ -15,6 +15,7 @@ from app.connectors.idp import (
 from app.connectors.local_document_runtime import isolated_document_pages
 from app.connectors.local_ocr import LocalOcrAdapter, TesseractOcrAdapter
 from app.domain.documents import (
+    ClassificationObservationValues,
     DocumentFieldCandidate,
     DocumentFieldKey,
     DocumentPageEvidence,
@@ -23,6 +24,7 @@ from app.domain.documents import (
     ExtractionScoreKind,
     IdpEnvironment,
 )
+from app.domain.target_classification import TargetClassificationKey
 
 _FIELD_LABELS: dict[DocumentFieldKey, tuple[str, ...]] = {
     DocumentFieldKey.LEGAL_NAME: ("Legal Name", "Company", "Company / Legal Name"),
@@ -74,7 +76,39 @@ class LocalPdfTextIdpProvider:
             fields=[self._field_from_pages(pages, key) for key in DocumentFieldKey],
             pages=tuple(page.evidence for page in pages),
             ownership_observations=ownership,
+            classification_observations=self._classification_from_pages(pages),
         )
+
+    def _classification_from_pages(
+        self, pages: tuple[_Page, ...]
+    ) -> tuple[ClassificationObservationValues, ...]:
+        observations: list[ClassificationObservationValues] = []
+        labels = {
+            TargetClassificationKey.KYC_CUSTOMER_TYPE: "KYC Customer Type",
+            TargetClassificationKey.CLIENT_SEGMENT: "Client Segment",
+        }
+        for page in pages:
+            for key, label in labels.items():
+                pattern = re.compile(
+                    rf"(?im)^[ \t]*{re.escape(label)}[ \t]*:[ \t]*([^\r\n]+)[ \t]*$"
+                )
+                for match in pattern.finditer(page.text):
+                    value = match.group(1).strip()
+                    if not value or len(value) > 160:
+                        raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
+                    row = page.text[: match.start()].count("\n") + 1
+                    observations.append(
+                        ClassificationObservationValues(
+                            **page.evidence.model_dump(exclude={"source_reference"}),
+                            field_key=key,
+                            value=value,
+                            evidence_score=self._score(page.evidence, primary=True),
+                            source_reference=f"PAGE_{page.evidence.page_number}_LINE_{row}",
+                        )
+                    )
+        if len(observations) > 64:
+            raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
+        return tuple(observations)
 
     def _extract_pages(self, document: IdpDocumentInput) -> tuple[_Page, ...]:
         if document.extracted_text is not None:

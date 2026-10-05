@@ -9,12 +9,15 @@ from app.persistence.mongo_case_store import MongoCaseStore
 def omit_session2_fields(raw: dict[str, Any]) -> None:
     """Remove only later-version fields while building an older test fixture."""
     raw["onboarding"].pop("created_by_actor_id", None)
+    raw["onboarding"].pop("target_classification_selections", None)
     metadata = (
         "extraction_method", "extraction_quality", "score_kind", "score_formula",
         "raw_ocr_mean_confidence", "raw_ocr_word_count", "candidates",
     )
     for document in raw.get("documents", ()):
-        for name in ("document_version", "pages", "ownership_observations"):
+        for name in (
+            "document_version", "pages", "ownership_observations", "classification_observations"
+        ):
             document.pop(name, None)
         for field in document.get("fields", ()):
             for name in metadata:

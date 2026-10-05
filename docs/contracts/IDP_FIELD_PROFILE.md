@@ -90,3 +90,24 @@ uploaded PDF.
 4. Authenticated reviewer roles, allowed actions, maker-checker policy, and audit
    retention (Q-014).
 5. Privacy, storage, retention, fixture, and upload security controls (Q-013).
+
+## Owner-authorized document target labels — 2026-10-05
+
+The four identity fields and their semantic requiredness stay unchanged. Existing local
+IDP/document owners additionally retain bounded explicit KYC Customer Type / Client Segment
+observations, original page/reference/method/quality/deterministic score and server-authored
+document identity/version. These are proposals, not a sponsor-approved identity contract.
+Current identity-trusted evidence, unambiguous normalized exact sponsor vocabulary and
+score >= frozen case threshold are required. Three KYC types only auto-bind: Company -
+Private, Partnership - Unregulated, Government. Segment requires explicit vocabulary text;
+no inferred segment. Conflicting current observations block auto choice; missing/unsafe
+fields alone need manual fallback. Fixed target constants cannot be overridden by text.
+
+The2026-10-06 owner follow-up makes no-candidate reasons explicit through the same
+document service. Only current identity-trusted REVIEWED/HIGH/threshold-valid labelled
+observations enter manual currentness identity. All current observations still constrain
+automatic safety. Fingerprints use bounded IDs/events/versions, normalized observations
+and source metadata plus case/UEN/policy/vocabulary/threshold identity, never raw bytes or
+provider bodies. Known trusted vocabulary values are available for explicit review;
+unknown text is safely summarized. The existing bounded private/Government compatibility
+rule is reused by assessment and selection, not replaced by general legal-form mapping.

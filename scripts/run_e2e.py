@@ -36,7 +36,7 @@ DISCOVERY_TIMEOUT_SECONDS = 60.0
 RECOVERY_DEMO_MODES = ("optional-amend", "stale-policy", "retained-recovery", "search-recheck")
 SANDBOX_DEMO_MODES = (
     "success", "uncertain-policy", "failed-policy", "existing-customer",
-    "garden-existing-customer",
+    "garden-existing-customer", "database-alpha", "database-partnership", "database-government",
 )
 _URI_PATTERN = re.compile(r"(?i)(?:mongodb(?:\+srv)?|https?)://[^\s\]\[<>{}\"']+")
 _SECRET_ASSIGNMENT = re.compile(
@@ -298,6 +298,8 @@ def _base_environment(source: Mapping[str, str] | None = None) -> dict[str, str]
     current = os.environ if source is None else source
     result = {key: current[key] for key in _SYSTEM_ENV_KEYS if key in current}
     result["PYTHONIOENCODING"] = "utf-8"
+    if result == 0:
+        print("E2E PASS: guarded authenticated local Mock browser suite completed.")
     return result
 
 
@@ -489,6 +491,23 @@ def _list_test_selectors(
                                    sandbox_selectors=sandbox_selectors)
 
 
+def _cleanup_classification_database(database: str) -> None:
+    """Parent-owned cleanup survives a forcibly stopped Windows test server."""
+    from pymongo import MongoClient
+
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from scripts.mongo_test_safety import (
+        cleanup_ephemeral_mongo_database,
+        require_ephemeral_mongo_database,
+    )
+
+    require_ephemeral_mongo_database(database)
+    with MongoClient(host="127.0.0.1", port=27185, serverSelectionTimeoutMS=3000) as client:
+        cleanup_ephemeral_mongo_database(client, database)
+    print("CLASSIFICATION_DATABASE_CLEANUP=VERIFIED")
+
+
 def run(
     *,
     backend_port: int,
@@ -533,6 +552,11 @@ def run(
     frontend_origin = f"http://127.0.0.1:{frontend_port}"
     ephemeral_credential = secrets.token_urlsafe(32)
     common = _base_environment()
+    classification_database = (
+        f"clm_p16_{secrets.token_hex(12)}"
+        if sandbox_demo in {"database-alpha", "database-partnership", "database-government"}
+        else None
+    )
     backend_environment = {
         **common,
         "CLM_E2E_PASSWORD": ephemeral_credential,
@@ -543,6 +567,8 @@ def run(
         **({"CLM_E2E_REGISTRY_DEMO": registry_demo} if registry_demo else {}),
         **({"CLM_E2E_RECOVERY_DEMO": recovery_demo} if recovery_demo else {}),
         **({"CLM_E2E_SANDBOX_DEMO": sandbox_demo} if sandbox_demo else {}),
+        **({"CLM_E2E_CLASSIFICATION_DATABASE": classification_database}
+           if classification_database else {}),
     }
     frontend_environment = {
         **common,
@@ -634,7 +660,6 @@ def run(
             print("E2E FAILED [ASSERTION_FAILURE]: Playwright returned a non-zero status.", file=sys.stderr)
             result = return_code
         else:
-            print("E2E PASS: guarded authenticated local Mock browser suite completed.")
             result = 0
     except KeyboardInterrupt:
         print("E2E INTERRUPTED: stopping task-owned process groups.", file=sys.stderr)
@@ -658,12 +683,20 @@ def run(
             except (OSError, RuntimeError, subprocess.SubprocessError, TimeoutError) as exc:
                 cleanup_failures.append(_sanitize(str(exc)))
 
+        if classification_database is not None:
+            try:
+                _cleanup_classification_database(classification_database)
+            except Exception:  # noqa: BLE001 - driver errors are deliberately sanitized
+                cleanup_failures.append("Classification disposable database cleanup failed")
+
     if cleanup_failures:
         print(
             f"E2E FAILED [CLEANUP_FAILURE]: task-owned process cleanup failed: {cleanup_failures[0]}",
             file=sys.stderr,
         )
         return 1
+    if result == 0:
+        print("E2E PASS: guarded authenticated local Mock browser suite completed.")
     return result
 
 

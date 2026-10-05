@@ -15,6 +15,7 @@ LOOPBACK_NON_SERVICE_URI = "mongodb://127.0.0.1:1"
 def enforce_ordinary_test_environment() -> None:
     """Prevent root environment values from selecting shared persistence during tests."""
 
+    Settings.model_config = {**Settings.model_config, "env_file": None}
     os.environ["APP_ENV"] = "test"
     os.environ["CLM_PERSISTENCE_MODE"] = "memory"
     os.environ["MONGO_URI"] = LOOPBACK_NON_SERVICE_URI

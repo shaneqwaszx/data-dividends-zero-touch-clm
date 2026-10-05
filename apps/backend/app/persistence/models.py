@@ -34,7 +34,7 @@ from app.domain.reconciliation import (
 from app.domain.target_submission import GoldTierExecutionLedgerEntry
 from app.domain.zero_touch import ZeroTouchAutomationRecord
 
-CASE_SNAPSHOT_SCHEMA_VERSION: Literal[9] = 9
+CASE_SNAPSHOT_SCHEMA_VERSION: Literal[10] = 10
 
 
 class LegacyOnboardingCaseV1(BaseModel):
@@ -101,7 +101,7 @@ class DurableCaseSnapshotV1(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=9,
+            schema_version=10,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -165,7 +165,7 @@ class DurableCaseSnapshotV2(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=9,
+            schema_version=10,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -227,7 +227,7 @@ class DurableCaseSnapshotV3(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=9,
+            schema_version=10,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -277,7 +277,7 @@ class DurableCaseSnapshotV4(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=9,
+            schema_version=10,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -327,7 +327,7 @@ class DurableCaseSnapshotV5(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=9,
+            schema_version=10,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -415,7 +415,7 @@ class DurableCaseSnapshotV6(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=9,
+            schema_version=10,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding.to_current(),
@@ -465,7 +465,7 @@ class DurableCaseSnapshotV7(BaseModel):
 
     def to_current(self) -> "DurableCaseSnapshot":
         return DurableCaseSnapshot(
-            schema_version=9,
+            schema_version=10,
             case_id=self.case_id,
             revision=self.revision,
             onboarding=self.onboarding,
@@ -532,12 +532,46 @@ class DurableCaseSnapshotV8(BaseModel):
         )
 
 
-class DurableCaseSnapshot(BaseModel):
+class DurableCaseSnapshotV9(BaseModel):
     """Bounded authoritative structured state; never raw source/upload payloads."""
 
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal[9] = 9
+    case_id: UUID
+    revision: int = Field(ge=0)
+    onboarding: OnboardingCase
+    documents: tuple[DocumentProcessingRecord, ...] = Field(default=(), max_length=40)
+    ownership: OwnershipAnalysisRecord | None = None
+    reconciliation: ReconciliationCaseRecord | None = None
+    clm: ClmOrchestrationRecord | None = None
+    automation: ZeroTouchAutomationRecord | None = None
+    target_executions: tuple[GoldTierExecutionLedgerEntry, ...] = Field(default=(), max_length=4)
+    demo_scenario: str | None = Field(default=None, min_length=1, max_length=64)
+    intelligence: OnboardingIntelligenceRecord | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_later_evidence(cls, value: Any) -> Any:
+        reject_classification_legacy_fields(value)
+        return value
+
+    def to_current(self) -> "DurableCaseSnapshot":
+        return DurableCaseSnapshot.model_validate({**self.model_dump(), "schema_version": 10})
+
+    @model_validator(mode="after")
+    def validate_case_bindings(self) -> "DurableCaseSnapshotV9":
+        _validate_case_bindings(self)
+        return self
+
+class DurableCaseSnapshot(BaseModel):
+    """Bounded authoritative structured state; never raw source/upload payloads."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[10] = 10
     case_id: UUID
     revision: int = Field(ge=0)
     onboarding: OnboardingCase
@@ -564,8 +598,19 @@ def _explicit_fields(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def reject_classification_legacy_fields(value: Any) -> None:
+    raw = _explicit_fields(value)
+    if "target_classification_selections" in _explicit_fields(raw.get("onboarding")):
+        raise ValueError("Historical schema cannot contain target selection evidence")
+    if any(
+        "classification_observations" in _explicit_fields(doc) for doc in raw.get("documents", ())
+    ):
+        raise ValueError("Historical schema cannot contain classification observations")
+
+
 def reject_session2_legacy_fields(value: Any) -> None:
     """Reject later evidence in exact historical envelope versions, even if null."""
+    reject_classification_legacy_fields(value)
     raw = _explicit_fields(value)
     reconciliation = _explicit_fields(raw.get("reconciliation"))
     for result in (*reconciliation.get("fields", ()), *reconciliation.get("discrepancies", ())):
@@ -634,6 +679,25 @@ def _validate_case_bindings(snapshot: Any) -> None:
     documents = {item.document_id: item for item in snapshot.documents}
     if len(documents) != len(snapshot.documents):
         raise ValueError("duplicate document identity")
+    for selection in getattr(snapshot.onboarding, "target_classification_selections", ()):
+        evidence = selection.document_evidence
+        if evidence is None:
+            continue
+        document = documents.get(evidence.document_id)
+        if document is None or evidence.document_event_count > len(document.events):
+            raise ValueError("Target selection requires its original document event version")
+        if not any(
+            obs.field_key == selection.field_key
+            and obs.document_version == evidence.document_version
+            and obs.page_number == evidence.page_number
+            and obs.source_reference == evidence.source_reference
+            and obs.value == evidence.extracted_exact_value
+            and obs.evidence_score == evidence.evidence_score
+            and obs.extraction_method == evidence.extraction_method
+            and obs.extraction_quality == evidence.extraction_quality
+            for obs in document.classification_observations
+        ):
+            raise ValueError("Target selection differs from original classification observation")
     observations = {}
     for document in snapshot.documents:
         for observation in document.ownership_observations:

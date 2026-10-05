@@ -1,5 +1,7 @@
 """Transient multi-format processing, deterministic comparison, and field review."""
 
+import hashlib
+import json
 import re
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
@@ -22,6 +24,7 @@ from app.domain.documents import (
     ComparisonStatus,
     DocumentAutoClearAssessment,
     DocumentAutoClearBlocker,
+    DocumentClassificationObservation,
     DocumentCompletionMethod,
     DocumentEventType,
     DocumentFieldKey,
@@ -38,6 +41,18 @@ from app.domain.documents import (
     ReviewDecision,
 )
 from app.domain.models import CanonicalLegalEntity, EventOutcome, OnboardingCase, SafeError
+from app.domain.policy import GOLDTIER_CLIENT_SEGMENT_VALUES, GOLDTIER_KYC_CUSTOMER_TYPE_VALUES
+from app.domain.target_classification import (
+    AUTO_KYC_TYPES,
+    VOCABULARY_VERSION,
+    ClassificationAssessmentState,
+    ClassificationDocumentEvidence,
+    ClassificationFieldAssessment,
+    TargetClassificationAssessment,
+    TargetClassificationKey,
+    TargetClassificationSelection,
+    bounded_classification_compatible,
+)
 from app.services.document_errors import (
     DocumentProcessingInfrastructureError,
     DocumentRequestError,
@@ -389,6 +404,12 @@ class DocumentProcessingService:
                 )
                 for item in source_result.ownership_observations
             )
+            record.classification_observations = tuple(
+                DocumentClassificationObservation(
+                    **item.model_dump(), document_id=record.document_id, document_version=1
+                )
+                for item in source_result.classification_observations
+            )
             record.processed_at = self._clock()
             record = self._record(
                 record,
@@ -428,6 +449,169 @@ class DocumentProcessingService:
                 message="The onboarding case was not found.",
             )
         return self._repository.list_for_case(case_id)
+
+    def assess_target_classification(self, *, case_id: UUID) -> TargetClassificationAssessment:
+        """Distinguish trusted conflict, unsafe labels and absence through the document owner."""
+        case = self._cases.get_case(case_id)
+        if case is None:
+            raise DocumentRequestError(
+                code="ONBOARDING_CASE_NOT_FOUND", message="The onboarding case was not found."
+            )
+        documents = [doc for doc in self.list_documents(case_id=case_id) if doc.is_current_evidence]
+        threshold = float(case.policy_snapshot.idp_review_confidence_threshold)
+        trusted = [
+            (doc, obs)
+            for doc in documents
+            if doc.state == DocumentProcessingState.REVIEWED
+            and doc.document_version == 1
+            and case.entity is not None
+            and document_semantic_assessment(
+                record=doc, current_entity=case.entity, confidence_threshold=threshold
+            ).eligible
+            for obs in doc.classification_observations
+            if obs.extraction_quality == ExtractionQuality.HIGH
+            and obs.extraction_method.value != "UNKNOWN"
+            and obs.evidence_score >= threshold
+        ]
+        identities = sorted(
+            (
+                (
+                    str(doc.document_id),
+                    doc.document_version,
+                    len(doc.events),
+                    obs.field_key.value,
+                    " ".join(obs.value.casefold().split()),
+                    obs.page_number,
+                    obs.source_reference,
+                    obs.extraction_method.value,
+                    obs.extraction_quality.value,
+                    obs.evidence_score,
+                    doc.provider_environment.value if doc.provider_environment is not None else "",
+                    obs.score_kind.value,
+                    obs.score_formula,
+                )
+                for doc, obs in trusted
+            ),
+            key=lambda identity: json.dumps(identity, separators=(",", ":"), ensure_ascii=True),
+        )
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                (
+                    "TARGET_CLASSIFICATION_EVIDENCE_V1",
+                    str(case.case_id),
+                    case.requested_uen,
+                    (case.entity.party_type or "").upper().replace("_", " ")
+                    if case.entity is not None
+                    else "",
+                    case.policy_snapshot.catalogue_version,
+                    VOCABULARY_VERSION,
+                    str(case.policy_snapshot.idp_review_confidence_threshold),
+                    identities,
+                ),
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        fields = []
+        for key in TargetClassificationKey:
+            observations = [
+                (doc, obs)
+                for doc in documents
+                for obs in doc.classification_observations
+                if obs.field_key == key
+            ]
+            authoritative = [(doc, obs) for doc, obs in trusted if obs.field_key == key]
+            values = {" ".join(obs.value.casefold().split()) for _, obs in observations}
+            trusted_values = {" ".join(obs.value.casefold().split()) for _, obs in authoritative}
+            vocabulary = (
+                AUTO_KYC_TYPES
+                if key == TargetClassificationKey.KYC_CUSTOMER_TYPE
+                else GOLDTIER_CLIENT_SEGMENT_VALUES
+            )
+            normalized = {" ".join(value.casefold().split()): value for value in vocabulary}
+            candidate = None
+            if not observations:
+                state = ClassificationAssessmentState.NO_EVIDENCE
+            elif len(trusted_values) > 1:
+                state = ClassificationAssessmentState.CONFLICT
+            elif (
+                not authoritative
+                or len(values) != 1
+                or next(iter(values)) not in normalized
+                or (
+                    key == TargetClassificationKey.KYC_CUSTOMER_TYPE
+                    and case.entity is not None
+                    and not bounded_classification_compatible(
+                        case.entity.party_type, normalized.get(next(iter(values)), "")
+                    )
+                )
+            ):
+                state = ClassificationAssessmentState.UNSAFE
+            else:
+                state = ClassificationAssessmentState.SAFE_CANDIDATE
+                doc, obs = max(
+                    authoritative,
+                    key=lambda pair: (pair[1].evidence_score, str(pair[0].document_id)),
+                )
+                candidate = TargetClassificationSelection(
+                    field_key=key,
+                    value=normalized[next(iter(values))],
+                    source="DOCUMENT",
+                    evidence_fingerprint=fingerprint,
+                    document_evidence=ClassificationDocumentEvidence(
+                        document_id=doc.document_id,
+                        document_version=1,
+                        document_event_count=len(doc.events),
+                        page_number=obs.page_number,
+                        source_reference=obs.source_reference,
+                        extraction_method=obs.extraction_method.value,
+                        extraction_quality="HIGH",
+                        evidence_score=obs.evidence_score,
+                        extracted_exact_value=obs.value,
+                    ),
+                    classified_at=self._clock(),
+                    policy_version=case.policy_snapshot.catalogue_version,
+                )
+            display_vocabulary = (
+                GOLDTIER_KYC_CUSTOMER_TYPE_VALUES
+                if key == TargetClassificationKey.KYC_CUSTOMER_TYPE
+                else GOLDTIER_CLIENT_SEGMENT_VALUES
+            )
+            display_values = {
+                " ".join(value.casefold().split()): value for value in display_vocabulary
+            }
+            fields.append(
+                ClassificationFieldAssessment(
+                    field_key=key,
+                    state=state,
+                    candidate=candidate,
+                    trusted_values=tuple(
+                        sorted(
+                            {
+                                display_values.get(value, "Unsupported labelled value")
+                                for value in trusted_values
+                            }
+                        )
+                    ),
+                )
+            )
+        states = {field.state for field in fields}
+        if ClassificationAssessmentState.CONFLICT in states:
+            state = ClassificationAssessmentState.CONFLICT
+        elif states == {ClassificationAssessmentState.SAFE_CANDIDATE}:
+            state = ClassificationAssessmentState.SAFE_CANDIDATE
+        elif ClassificationAssessmentState.SAFE_CANDIDATE in states:
+            state = ClassificationAssessmentState.PARTIAL
+        elif ClassificationAssessmentState.UNSAFE in states:
+            state = ClassificationAssessmentState.UNSAFE
+        else:
+            state = ClassificationAssessmentState.NO_EVIDENCE
+        return TargetClassificationAssessment(
+            state=state,
+            evidence_fingerprint=fingerprint,
+            trusted_evidence_present=bool(trusted),
+            fields=tuple(fields),
+        )
 
     def get_document(self, *, case_id: UUID, document_id: UUID) -> DocumentProcessingRecord | None:
         record = self._repository.get(document_id)
@@ -964,6 +1148,7 @@ class DocumentProcessingService:
         failed_record.pages = ()
         failed_record.ownership_observations = ()
         failed_record.processed_at = None
+        failed_record.classification_observations = ()
         failed_record.reviewed_at = None
         failed_record.error = SafeError(code=code, message=message)
         failed_record = self._record(

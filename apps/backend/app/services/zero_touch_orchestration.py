@@ -578,10 +578,22 @@ class ZeroTouchOrchestrator:
                 and ownership is not None
                 and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
             )
+            classification_intake = (
+                record.status == AutomationStatus.WAITING_FOR_REVIEW
+                and record.current_stage == AutomationStage.READINESS
+                and case is not None
+                and case.target_dispatch_confirmation is None
+                and case.goldtier_result is None
+                and clm is not None
+                and clm.submission_snapshot is None
+                and clm.status != ClmStatus.SUBMITTING
+                and not self._cases.has_retained_target_execution(case_id)
+            )
             if (
                 record.status != AutomationStatus.PENDING_INPUTS
                 and not retained_evidence_intake
                 and not ownership_intake
+                and not classification_intake
             ):
                 raise ZeroTouchRequestError(
                     code="ZERO_TOUCH_INTAKE_NOT_OPEN",
@@ -613,6 +625,9 @@ class ZeroTouchOrchestrator:
                     self._documents.auto_confirm_document(
                         case_id=case_id, document_id=current.document_id, allow_partial=True
                     )
+            if classification_intake:
+                self._sync_document_target_classification(case_id)
+                self._clm.refresh_target_classification(case_id=case_id)
             return (
                 self._documents.get_document(case_id=case_id, document_id=document.document_id)
                 or document
@@ -1091,12 +1106,54 @@ class ZeroTouchOrchestrator:
                 return saved
             return self._advance_locked(case_id=case_id)
 
+    def _raise_target_confirmation_exception(
+        self, record: ZeroTouchAutomationRecord, clm: ClmOrchestrationRecord
+    ) -> ZeroTouchAutomationRecord:
+        case = self._cases.get_case(record.case_id)
+        assert case is not None
+        return self._add_exception(
+            record,
+            exception_type=BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED,
+            stage=AutomationStage.READINESS,
+            blocker_code="TARGET_CONFIRMATION_REQUIRED",
+            explanation=(
+                "Review the prepared submission and confirm Send before any "
+                "target mutation."
+            ),
+            evidence_version=f"target-confirmation:{clm.version}:{len(case.events)}",
+            evidence=(),
+            actions=(),
+        )
+
+    def _sync_document_target_classification(self, case_id: UUID) -> None:
+        clm = self._clm.get(case_id=case_id)
+        if (
+            clm is None
+            or clm.submission_snapshot is not None
+            or self._cases.has_retained_target_execution(case_id)
+        ):
+            return
+        before = self._cases.get_case(case_id)
+        assert before is not None
+        if (before.policy_snapshot.goldtier_target is None
+            or before.target_dispatch_confirmation is not None):
+            return
+        after = self._cases.bind_goldtier_case_classification(
+            case_id=case_id,
+            document_selections=self._documents.assess_target_classification(
+                case_id=case_id
+            ).candidates,
+        )
+        if len(after.events) != len(before.events):
+            self._clm.refresh_target_classification(case_id=case_id)
+
     def bind_target_classification(
         self,
         *,
         case_id: UUID,
         kyc_customer_type: str,
         client_segment: str,
+        expected_classification_evidence_fingerprint: str | None = None,
         expected_automation_version: int | None = None,
         expected_case_event_count: int | None = None,
         actor_id: str | None = None,
@@ -1122,12 +1179,29 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_TARGET_CLASSIFICATION_FROZEN",
                     message="Target classification is already frozen for submission.",
                 )
+            assessment = self._documents.assess_target_classification(case_id=case_id)
+            if (
+                assessment.trusted_evidence_present
+                and expected_classification_evidence_fingerprint is None
+            ) or (
+                expected_classification_evidence_fingerprint is not None
+                and expected_classification_evidence_fingerprint != assessment.evidence_fingerprint
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_TARGET_CLASSIFICATION_STALE",
+                    message=(
+                        "Classification evidence changed; review the current evidence "
+                        "before saving."
+                    ),
+                )
             try:
                 self._cases.bind_goldtier_case_classification(
                     case_id=case_id,
                     kyc_customer_type=kyc_customer_type,
                     client_segment=client_segment,
                     expected_case_event_count=expected_case_event_count,
+                    classification_assessment=assessment,
+                    actor_id=actor_id,
                 )
                 self._clm.refresh_target_classification(case_id=case_id)
             except (ValueError, ClmRequestError) as exc:
@@ -1136,13 +1210,16 @@ class ZeroTouchOrchestrator:
                     if isinstance(exc, ClmRequestError)
                     else "ZERO_TOUCH_TARGET_CLASSIFICATION_INVALID"
                 )
-                message = (
-                    exc.public_message
-                    if isinstance(exc, ClmRequestError)
-                    else str(exc)
-                )
+                message = exc.public_message if isinstance(exc, ClmRequestError) else str(exc)
                 raise ZeroTouchRequestError(code=code, message=message) from None
 
+            refreshed_classification = self._clm.get(case_id=case_id)
+            if (
+                refreshed_classification is not None
+                and ClmBlockerCode.GOLDTIER_CLASSIFICATION_REQUIRED
+                in refreshed_classification.readiness.blockers
+            ):
+                return record
             classification_exceptions = [
                 item
                 for item in record.active_exceptions
@@ -1171,7 +1248,10 @@ class ZeroTouchOrchestrator:
             saved = self._save(record, candidate)
             if saved.active_exceptions or saved.current_stage != AutomationStage.READINESS:
                 return saved
-            return self._advance_locked(case_id=case_id)
+            refreshed = self._clm.get(case_id=case_id)
+            if refreshed is not None and not refreshed.readiness.blockers:
+                return self._raise_target_confirmation_exception(saved, refreshed)
+            return saved
 
     def rebind_case_policy_snapshot(
         self,
@@ -2518,6 +2598,7 @@ class ZeroTouchOrchestrator:
                     ReconciliationStatus.MATCHED,
                     ReconciliationStatus.RESOLVED,
                 }:
+                    self._sync_document_target_classification(case_id)
                     record = self._record_equivalent_normalization_decisions(
                         record,
                         reconciliation=reconciliation,
@@ -2635,6 +2716,7 @@ class ZeroTouchOrchestrator:
                 )
 
             if next_stage == AutomationStage.READINESS:
+                self._sync_document_target_classification(case_id)
                 started_at = self._clock()
                 try:
                     clm_record = self._clm.evaluate(case_id=case_id)
@@ -2659,19 +2741,20 @@ class ZeroTouchOrchestrator:
                             code="ZERO_TOUCH_CASE_NOT_FOUND",
                             message="The onboarding case is unavailable.",
                         )
+                    assessment = self._documents.assess_target_classification(case_id=case_id)
                     return self._add_exception(
                         record,
                         exception_type=BusinessExceptionType.TARGET_CLASSIFICATION_REQUIRED,
                         stage=AutomationStage.READINESS,
                         blocker_code=ClmBlockerCode.GOLDTIER_CLASSIFICATION_REQUIRED.value,
                         explanation=(
-                            "A bounded KYC customer type and client segment must be selected "
-                            "from the current GoldTier vocabulary."
+                            "Current trusted documents contain different target-classification "
+                            "values. Review the evidence and select the value to use for this case."
+                            if assessment.state == "CONFLICT" else
+                            "Current classification evidence requires review. Select the values "
+                            "to use from the current GoldTier vocabulary."
                         ),
-                        evidence_version=(
-                            f"target-classification:{case_id}:"
-                            f"{classification_case.policy_snapshot.catalogue_version}"
-                        ),
+                        evidence_version=f"target-classification:{case_id}:{assessment.evidence_fingerprint}",
                         evidence=(),
                         actions=(),
                     )

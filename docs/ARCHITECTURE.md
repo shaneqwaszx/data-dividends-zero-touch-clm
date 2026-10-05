@@ -871,3 +871,22 @@ results. Original local seed provenance/times and exact dataset binding remain.
 Auto is limited to non-production Mock lanes; explicit disabled/legacy mock remain.
 Shared schema1/2 and envelope9, canonical dependencies, one Decimal engine, authorization
 and ledger recovery/no-replay are unchanged. No second cache or provider is composed.
+
+## Owner-authorized continuation delta — 2026-10-05
+
+Existing local IDP/document owners retain explicit target classification observations;
+existing case classification binder retains source selections in current schema10.
+No second IDP/classification/ownership/persistence owner is added. Existing zero-touch
+coordinator binds trusted current labels before readiness; CLM validates currentness
+and final confirmation; existing ledger alone dispatches target operations. Browser
+uses Submission readiness / GoldTier submission settings / submission package, with
+source evidence details. Government classification is supported; Government control
+ownership is not, so its separate fixture has no invented share graph.
+
+The2026-10-06 classification follow-up extends the same document/case/CLM owners with
+typed evidence assessment, a deterministic trusted-evidence fingerprint and explicit
+USER review binding. Browser state and current values are backend projections; the
+displayed review token is checked under locked reauthorization. The existing bounded
+compatibility predicate is shared in the pure selection model, not duplicated. Schema10
+retains current selection receipts; no extra classifier, repository, workflow stage,
+cache, provider, ownership calculator or dependency direction is introduced.

@@ -18,7 +18,7 @@ from app.services.registry_cache_repository import RegistrySnapshotRepository  #
 
 from scripts.zero_touch_happy_path_fixtures import COMPANIES  # noqa: E402
 
-_UAT_DATABASE = re.compile(r"^(?:clm_uat_registry|clm_p16)_[0-9a-f]{24}$")
+_UAT_DATABASE = re.compile(r"^(?:clm_uat|clm_p16)_[0-9a-f]{24}$")
 
 
 class SeedConflictError(RuntimeError):
@@ -29,7 +29,7 @@ def require_safe_target(database: str, app_env: str) -> None:
     if app_env not in {"development", "test"}:
         raise ValueError("Seed requires development/test application environment.")
     if not _UAT_DATABASE.fullmatch(database):
-        raise ValueError("Seed requires a disposable clm_uat_registry_<24 hex> database.")
+        raise ValueError("Seed requires a disposable clm_uat_<24 hex> database.")
 
 
 def manage_fixtures(

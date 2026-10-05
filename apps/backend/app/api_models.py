@@ -110,6 +110,12 @@ from app.domain.reconciliation import (
     ReconciliationStatus,
 )
 from app.domain.registry_legal_form import RegistryLegalForm
+from app.domain.target_classification import (
+    ClassificationAssessmentState,
+    TargetClassificationAssessment,
+    TargetClassificationKey,
+    TargetClassificationSelection,
+)
 from app.domain.zero_touch import (
     LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
     AutomationEvent,
@@ -1303,6 +1309,7 @@ class BrowserProcessingNode(BaseModel):
 class BrowserTargetClassificationField(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    selection: TargetClassificationSelection | None = None
     allowed_values: tuple[str, ...]
     selected_value: str | None = None
     authority: PolicyAuthority | None = None
@@ -1314,11 +1321,23 @@ class BrowserTargetClassification(BaseModel):
 
     vocabulary_version: Literal["GOLDTIER_OPENAPI_V1_0_0"] = "GOLDTIER_OPENAPI_V1_0_0"
     editable: bool
+    evidence_state: ClassificationAssessmentState | None = None
+    evidence_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    current: bool | None = None
+    review_required: bool = False
+    evidence_values: dict[TargetClassificationKey, tuple[str, ...]] = Field(default_factory=dict)
+    state: Literal["CURRENT", "REVIEW_REQUIRED", "CONFLICT"] = "REVIEW_REQUIRED"
     kyc_customer_type: BrowserTargetClassificationField
     client_segment: BrowserTargetClassificationField
 
     @classmethod
-    def from_case(cls, case: OnboardingCase) -> "BrowserTargetClassification":
+    def from_case(
+        cls,
+        case: OnboardingCase,
+        assessment: TargetClassificationAssessment | None = None,
+        *,
+        review_required: bool = False,
+    ) -> "BrowserTargetClassification":
         target = case.policy_snapshot.goldtier_target
 
         def selected(item: object) -> tuple[str | None, PolicyAuthority | None]:
@@ -1345,12 +1364,48 @@ class BrowserTargetClassification(BaseModel):
         )
         return cls(
             editable=target is not None and not frozen,
+            evidence_state=assessment.state if assessment else None,
+            evidence_fingerprint=assessment.evidence_fingerprint if assessment else None,
+            current=assessment.selections_are_current(case.target_classification_selections)
+            if assessment
+            else None,
+            review_required=review_required,
+            evidence_values=(
+                {field.field_key: field.trusted_values for field in assessment.fields}
+                if assessment
+                else {}
+            ),
+            state=(
+                "CONFLICT"
+                if review_required
+                and assessment is not None
+                and assessment.state == ClassificationAssessmentState.CONFLICT
+                else "REVIEW_REQUIRED"
+                if review_required
+                else "CURRENT"
+            ),
             kyc_customer_type=BrowserTargetClassificationField(
+                selection=next(
+                    (
+                        item
+                        for item in case.target_classification_selections
+                        if item.field_key == "kyc_customer_type"
+                    ),
+                    None,
+                ),
                 allowed_values=GOLDTIER_KYC_CUSTOMER_TYPE_VALUES,
                 selected_value=kyc_value,
                 authority=kyc_authority,
             ),
             client_segment=BrowserTargetClassificationField(
+                selection=next(
+                    (
+                        item
+                        for item in case.target_classification_selections
+                        if item.field_key == "client_segment"
+                    ),
+                    None,
+                ),
                 allowed_values=GOLDTIER_CLIENT_SEGMENT_VALUES,
                 selected_value=segment_value,
                 authority=segment_authority,
@@ -1432,10 +1487,16 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         processing_pipeline: tuple[BrowserProcessingNode, ...] = (),
         team: TeamRecord | None = None,
         ownership: OwnershipAnalysisRecord | None = None,
+        classification_assessment: TargetClassificationAssessment | None = None,
         evidence_decision_authorized: bool = False,
         ownership_edit_authorized: bool = False,
     ) -> "ZeroTouchCaseSummaryResponse":
-        target_classification = BrowserTargetClassification.from_case(case)
+        target_classification = BrowserTargetClassification.from_case(
+            case, classification_assessment,
+            review_required="GOLDTIER_CLASSIFICATION_REQUIRED" in clm_record.readiness.blockers,
+        )
+        if clm_record.submission_snapshot is not None:
+            target_classification = target_classification.model_copy(update={"editable": False})
         return cls(
             case=OnboardingCaseResponse.from_domain(case, team),
             evidence_decision_authorized=evidence_decision_authorized,
@@ -1976,7 +2037,11 @@ def project_processing_pipeline(
     ]
     advisory_status: ProcessingNodeStatus = "COMPLETE" if intelligence_events else "NOT_REACHED"
     advisory_timestamp = intelligence_events[-1].timestamp if intelligence_events else None
-    projected_readiness_status = stage_status(AutomationStage.READINESS)
+    projected_readiness_status = (
+        "COMPLETE"
+        if clm.readiness.evaluated_at is not None and not clm.readiness.blockers
+        else stage_status(AutomationStage.READINESS)
+    )
     if (
         projected_readiness_status == "NOT_REACHED"
         and clm.readiness.evaluated_at is not None
@@ -2108,6 +2173,9 @@ def project_processing_pipeline(
                 "Recovered from provider verification · Original transport outcome: "
                 "Uncertain · Replay: No"
                 if item.status == "RECOVERED"
+                else (f"GoldTier {item.operation.title()} outcome is uncertain "
+                      "from an earlier submission attempt.")
+                if item.status == "OUTCOME_UNCERTAIN"
                 else item.status.replace("_", " ").title()
             ),
             retained_goldtier_id=(
@@ -2278,10 +2346,15 @@ def project_processing_pipeline(
         item.exception_type.value == "TARGET_CONFIRMATION_REQUIRED"
         for item in automation.active_exceptions
     )
-    package_prepared = (
-        confirmation is not None
-        or final_review_required
-        or automation.status == AutomationStatus.COMPLETED
+    prerequisites_ready = clm.readiness.evaluated_at is not None and not clm.readiness.blockers
+    retained_submission = (
+        target_submission is not None and target_submission.state != "NOT_SUBMITTED"
+    )
+    package_prepared = retained_submission or (
+        prerequisites_ready and (
+            confirmation is not None or final_review_required
+            or automation.status == AutomationStatus.COMPLETED
+        )
     )
     final_review_status: ProcessingNodeStatus = "NOT_REACHED"
     final_review_result = "Final review awaits authoritative readiness"
@@ -2325,6 +2398,9 @@ def project_processing_pipeline(
                 "Final approval retained; ledger-owned submission "
                 "outcome remains authoritative"
             )
+    elif final_review_required and not prerequisites_ready:
+        final_review_status = "BLOCKED"
+        final_review_result = "Final review awaits current submission readiness"
     elif final_review_required:
         final_review_status = "REVIEW_REQUIRED"
         final_review_result = (
@@ -2379,7 +2455,7 @@ def project_processing_pipeline(
         ),
         BrowserProcessingNode(
             node_id="READINESS",
-            label="Readiness check",
+            label="Submission readiness",
             status=projected_readiness_status,
             backend_stage=AutomationStage.READINESS,
             timestamp=clm.readiness.evaluated_at,
@@ -2393,14 +2469,16 @@ def project_processing_pipeline(
         ),
         BrowserProcessingNode(
             node_id="GOLDTIER_TARGET",
-            label="Preparing GoldTier Submission",
+            label="GoldTier submission package",
             status="COMPLETE" if package_prepared else projected_readiness_status,
             provider="GOLDTIER",
             environment=clm.submission_plan.environment.value,
             backend_stage=AutomationStage.READINESS,
             timestamp=clm.readiness.evaluated_at,
             safe_result=(
-                "Prepared target plan retained" if package_prepared
+                "Frozen submission package retained; see final submission outcome"
+                if target_submission is not None and target_submission.state != "NOT_SUBMITTED"
+                else "Prepared target plan retained" if package_prepared
                 else "Submission preparation awaits authoritative readiness"
             ),
             blocker_code=(clm.readiness.blockers[0].value if clm.readiness.blockers else None),
@@ -2420,6 +2498,8 @@ def project_processing_pipeline(
             blocker_code=(
                 exception_code(AutomationStage.MOCK_GOLDTIER)
                 if confirmation is not None
+                else clm.readiness.blockers[0].value
+                if final_review_required and clm.readiness.blockers
                 else "TARGET_CONFIRMATION_REQUIRED" if final_review_required else None
             ),
             retained_goldtier_id=retained_goldtier_id,

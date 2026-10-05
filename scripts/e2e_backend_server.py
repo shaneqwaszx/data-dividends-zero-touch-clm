@@ -72,6 +72,11 @@ def main() -> int:
     registry_demo = os.environ.get("CLM_E2E_REGISTRY_DEMO")
     recovery_demo = os.environ.get("CLM_E2E_RECOVERY_DEMO")
     sandbox_demo = os.environ.get("CLM_E2E_SANDBOX_DEMO")
+    classification_database = (
+        _required("CLM_E2E_CLASSIFICATION_DATABASE")
+        if sandbox_demo in {"database-alpha", "database-partnership", "database-government"}
+        else None
+    )
     sys.path.insert(0, str(ROOT))
     from scripts.run_e2e import RECOVERY_DEMO_MODES, SANDBOX_DEMO_MODES
 
@@ -200,6 +205,7 @@ def main() -> int:
         from scripts.slice_f_target_fixture import build_local_reuse_fixture
         reuse_fixture = build_local_reuse_fixture(settings)
         fixture_connector = reuse_fixture.registry
+    database_fixture = None
     sandbox_transport = None
     if sandbox_demo:
         from scripts.run_s3_sandbox_acceptance import SyntheticAcceptanceAcra
@@ -235,6 +241,16 @@ def main() -> int:
                 marketplace_token_transport=garden_transport,
             )
             protocol_fixture = True
+    if sandbox_demo in {"database-alpha", "database-partnership", "database-government"}:
+        from scripts.zero_touch_classification_browser_fixture import (
+            DatabaseClassificationFixture,
+        )
+        assert classification_database is not None
+        database_fixture = DatabaseClassificationFixture(settings, sandbox_demo, classification_database)
+        settings = database_fixture.settings
+        fixture_connector = database_fixture.registry
+        sandbox_transport = database_fixture.target
+        application_module.build_persistence_bundle = lambda _settings: database_fixture.bundle
     application = application_module.create_app(
         settings=settings,
         onboarding_service=(recovery_fixture.onboarding if recovery_fixture else
@@ -254,7 +270,7 @@ def main() -> int:
         def sandbox_counts() -> dict[str, object]:
             assert sandbox_transport is not None
             return {"fixture": sandbox_demo, "calls": dict(sandbox_transport.counts),
-                    "external_calls": 0}
+                    "external_calls": 0, **(database_fixture.metadata() if database_fixture else {})}
 
     if ambiguity_fixture:
         @application.get("/api/__slice_f/target-metadata", include_in_schema=False)
@@ -281,13 +297,11 @@ def main() -> int:
 
     import uvicorn
 
-    uvicorn.run(
-        application,
-        host="127.0.0.1",
-        port=port,
-        access_log=False,
-        log_level="warning",
-    )
+    try:
+        uvicorn.run(application, host="127.0.0.1", port=port, access_log=False, log_level="warning")
+    finally:
+        if database_fixture is not None:
+            database_fixture.close()
     return 0
 
 

@@ -77,7 +77,7 @@ async function create(page: Page, garden: boolean, conflict = false) {
 }
 
 async function classification(page: Page) {
-  await openStage(page, "Readiness check");
+  await openStage(page, "Submission readiness");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   const response = page.waitForResponse((response) => response.request().method() === "PUT"
@@ -142,7 +142,7 @@ test("Zero-touch Golden STP normal UI has zero exception interventions", async (
   const measure = await boundedMutation(page, info, "/target-confirmation", async () => {
     await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
   }, "confirmation");
-  await openStage(page, "Preparing GoldTier Submission");
+  await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "100");

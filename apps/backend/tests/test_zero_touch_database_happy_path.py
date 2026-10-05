@@ -102,20 +102,12 @@ def prepare(client, company, *, scan=False):
     assert "GOLDTIER_SEARCH" in created["completed_stages"]
     assert created["case"]["registry_evidence_binding"]["disposition"] == "CACHE_HIT"
     case_id = created["case"]["case_id"]
-    selected = client.put(
-        f"/api/clm/zero-touch/cases/{case_id}/target-classification",
-        json={
-            "kyc_customer_type": "Company - Private",
-            "client_segment": "Corporate",
-            "expected_automation_version": created["version"],
-            "expected_case_event_count": len(created["case"]["events"]),
-        },
-    )
-    assert selected.status_code == 200, selected.json()
     content = (
         (DOCUMENT_DIRECTORY / company.document_name).read_bytes()
         if scan
-        else "\n".join(f"{k}: {v}" for k, v in company.fields.items()).encode()
+        else "\n".join(
+            f"{k}: {v}" for k, v in {**company.fields, **company.target_profile}.items()
+        ).encode()
     )
     uploaded = client.post(
         f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
@@ -334,8 +326,8 @@ def test_seed_conflict_does_not_overwrite_any_known_key():
     [
         "clm_poc",
         "production",
-        "clm_uat_registry_demo",
-        "clm_uat_registry_" + "x" * 24,
+        "clm_uat_demo",
+        "clm_uat_" + "x" * 24,
         "clm_p16_" + "0" * 23,
     ],
 )
@@ -346,7 +338,7 @@ def test_seed_rejects_unsafe_database_names(database):
 
 def test_seed_refuses_production_and_auto_cache_is_bounded():
     with pytest.raises(ValueError):
-        require_safe_target("clm_uat_registry_" + "a" * 24, "production")
+        require_safe_target("clm_uat_" + "a" * 24, "production")
     assert Settings(_env_file=None).registry_cache_enabled
     assert not Settings(_env_file=None, app_env="production").registry_cache_enabled
     assert not Settings(_env_file=None, acra_connector_mode="sandbox").registry_cache_enabled

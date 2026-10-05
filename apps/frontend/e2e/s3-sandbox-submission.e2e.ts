@@ -92,7 +92,7 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
       expect(confirmed.current_stage).toBe("OWNERSHIP");
     }
   }
-  await openStage(page, "Readiness check");
+  await openStage(page, "Submission readiness");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   const classification = page.waitForResponse((response) => response.request().method() === "PUT" && response.url().endsWith("/target-classification"));
@@ -247,7 +247,7 @@ test("post-UAT Garden scanned evidence auto-confirms, calculates local ownership
   expect(ownership.source_classification).toBe("OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT");
   expect(ownership.manual_review_receipt).toBeNull();
   expect(ownership.candidates.find((item: any) => item.party.display_name === "ABCD123").aggregated_ownership_percent).toMatch(/^51\.136363750*$/);
-  await openStage(page, "Readiness check");
+  await openStage(page, "Submission readiness");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
   await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
   await page.getByRole("button", { name: "Save target classification", exact: true }).click();

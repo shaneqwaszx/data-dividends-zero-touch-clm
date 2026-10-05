@@ -217,3 +217,42 @@ known-case authority. The four local database fixtures are the recommended contr
 happy paths. Authority: USER_AUTHORIZED_POC / PROJECT_DEFINED_POC, pending fresh
 independent gate. No external call, Production, Live, legal UBO, KYC or provider approval
 authority follows.
+
+## D-070 - owner-authorized document target classification and submission readiness
+
+The 2026-10-05 continuation authorizes existing document/IDP and case-classification
+owners to bind current explicit labelled evidence for Company - Private, Partnership -
+Unregulated and Government; segment is explicit sponsor-vocabulary text, never inferred.
+This is USER_AUTHORIZED_POC behavior with separate DOCUMENT source evidence and
+PROJECT_DERIVED_POC policy authority, not sponsor-confirmed classification or approval.
+Manual fallback covers unsafe fields; deterministic private-company/Government mismatch
+is rejected. Fixed DSD/ACRA/Singapore/ANZBGL constants and unsupported product/account
+fields are unchanged. Submission readiness is Complete when prerequisites are ready;
+final Review & Send remains the only final human gate. Classification save is local.
+Current schema10 retains the separate evidence, with strict read-only schemas1..9.
+Beta/Gamma use six explicit synthetic ultimate interests through the same Decimal engine;
+Government has separate classification coverage without unsupported control/share rules.
+True uncertain attempted operations remain frozen/no-replay; empty intents do not imply
+uncertainty. Provider classifications, external-call authority and sponsor questions
+are unchanged. Fresh independent acceptance is required for this separate continuation.
+
+D-070 R1 clarification: explicit prior user choices remain auditable, but disagreement
+with current trusted labels blocks readiness until explicit compatible review. This is
+conflict containment, not a universal document/user source-precedence rule. Shared
+currentness is enforced again before snapshot/dispatch; stale prepared copy is blocked.
+
+D-070 R2 clarification: all provider modes enforce current retained classification.
+Explicit observations/selections require a complete compatible profile in Mock as well
+as Sandbox; legacy Mock without any classification input remains optional. This closes
+the same owner-authorized review/currentness boundary without new sponsor mapping rules.
+
+D-070 owner-authorized follow-up,2026-10-06: an explicit USER review is bound to the
+current trusted classification evidence fingerprint and authenticated actor. No candidate
+now distinguishes absence/unsafe/conflict; newly trusted evidence stales prior reviews,
+and fresh explicit same-value review of the current conflict is allowed. Later trusted
+changes stale it again. This is owner-authorized bounded POC behavior, not a sponsor
+source-precedence/legal classification rule. Existing owners, schema10, final confirmation
+and no-replay remain. The owner accepts historical TC-R2-002 as documented execution
+uncertainty: historical protected DB non-access NOT_CERTIFIED, owner accepted limitation
+YES. New acceptance assesses current follow-up isolation only; no protected investigation
+is authorized, and historical gate reports remain unchanged.

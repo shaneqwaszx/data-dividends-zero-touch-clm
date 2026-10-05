@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = ROOT / "apps" / "backend"
 PHYSICAL_SUITES = (
     BACKEND_ROOT / "tests" / "test_zero_touch_database_real_mongo.py",
+    BACKEND_ROOT / "tests" / "test_classification_conflict_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_phase12_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_phase13_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_phase14_real_mongo.py",

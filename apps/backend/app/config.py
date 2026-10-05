@@ -1,5 +1,6 @@
 """Application configuration loaded from environment variables."""
 
+import os
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -218,4 +219,4 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return one validated settings instance per process."""
 
-    return Settings()
+    return Settings(_env_file=None) if os.environ.get("APP_ENV") == "test" else Settings()

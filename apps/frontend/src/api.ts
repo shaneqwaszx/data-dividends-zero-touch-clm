@@ -506,6 +506,7 @@ export async function updateGoldTierTargetClassification(
     client_segment: string;
     expected_automation_version: number;
     expected_case_event_count: number;
+    expected_classification_evidence_fingerprint?: string | null;
   },
 ): Promise<ZeroTouchCaseSummary> {
   const response = await fetch(

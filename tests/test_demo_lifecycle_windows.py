@@ -440,6 +440,10 @@ class DemoLifecycleWindowsTests(unittest.TestCase):
         environment.update(_LIFECYCLE_AUTH_ENV)
         environment.update(
             {
+                "APP_ENV": "test",
+                "ACRA_CONNECTOR_MODE": "mock",
+                "GOLDTIER_CONNECTOR_MODE": "mock",
+                "GARDEN_SUPPLEMENT_ENABLED": "false",
                 "CLM_PERSISTENCE_MODE": "memory",
                 "MONGO_URI": "mongodb://127.0.0.1:1",
                 "MONGO_DATABASE": "clm_ordinary_tests",

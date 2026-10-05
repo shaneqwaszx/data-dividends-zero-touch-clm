@@ -618,7 +618,7 @@ describe("Evidence workbench integration isolation", () => {
     const sections = Array.from(container!.querySelectorAll(".stage-disclosure"));
     expect(sections.map((section) => section.querySelector("h2 button span")?.textContent)).toEqual([
       "Registry verification", "Document verification", "Ownership & UBO",
-      "Readiness check", "Preparing GoldTier Submission",
+      "Submission readiness", "GoldTier submission package",
       "Historical / resolved issues", "Final review & send",
     ]);
     expect(sections[1].querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
