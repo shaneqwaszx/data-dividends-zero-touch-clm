@@ -6,7 +6,7 @@ It is not a sponsor contract, phase report, or substitute for current source and
 ## Verification metadata
 
 The current main source baseline was inspected on 2026-10-05 at
-`73967401379378927c810d6227b0c7aa95fba061` (merged PR #69, onboarding intelligence and GoldTier Sandbox submission).
+`4ee8819d7404d6442e064fd60dcee03ccc84cf11` (merged PR #70, Phase25/26 POC hardening and sponsor demo readiness).
 PR #68 and PR #69 evidence retains its original tested/reviewed identity. The earlier
 [combined FAIL](../.ai-pipeline/reports/ONBOARDING_INTELLIGENCE_FINAL_QUALITY_GATE.md)
 is historical; the separately authorized
@@ -51,7 +51,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
   "schema_version": 1,
   "case_envelope_schema_version": 9,
   "verified_date": "2026-10-05",
-  "verified_main_sha": "73967401379378927c810d6227b0c7aa95fba061",
+  "verified_main_sha": "4ee8819d7404d6442e064fd60dcee03ccc84cf11",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -86,6 +86,32 @@ legacy schemas1..8 without read-time rewrite. Historical tests and independent g
 remain tied to their recorded content; Phase 25 and Phase 26 have separate evidence.
 
 ## Current status
+
+### PR #70 merged; Phase27A independently accepted; Phase27 closeout branch
+
+Phase25/26 is complete and merged through PR #70. The PR #69-to-#70 diff is
+16 documentation/evidence files only; product behavior, schema9, provider modes,
+configuration and canonical owners are unchanged. The historical
+[final independent PASS](../.ai-pipeline/reports/PHASE_25_26_FINAL_QUALITY_GATE.md)
+remains bound to its recorded candidate, rather than becoming a Phase27 verdict.
+
+The explicitly assigned Phase27 is on `feat/phase27-final-delivery-closeout` from
+this inspected main baseline. Its [truth inventory](demo/PHASE_27_TRUTH_INVENTORY.md)
+and [manual checklist](demo/PHASE_27_MANUAL_UAT_CHECKLIST.md) distinguish current
+source, newly executed automated pre-UAT and agent UI outcomes (16 PASS/0 FAIL/5
+NOT_RUN; HUMAN_EXECUTED0). Two bounded presentation defects were fixed/retested;
+Phase27A has [fresh independent exact PASS](../.ai-pipeline/reports/PHASE_27A_RECHECK_QUALITY_GATE.md)
+with P0/P1/P2=0/0/0 after bounded encoding repair. Owner-assigned27B synchronizes
+current architecture/demo/limitations/questions and the
+[final project closeout](FINAL_PROJECT_CLOSEOUT.md). The two UI fixes are accepted
+branch content pending merge, not newly merged main behavior.27B/27C/final gate
+and local commits retain their own evidence/barriers.
+[BarrierB exact PASS](../.ai-pipeline/reports/PHASE_27B_QUALITY_GATE.md) accepted the
+documentation; [27C](../.ai-pipeline/reports/PHASE_27C_REGRESSION.md) passed135 affected
+backend,505 frontend and the required lint/type/build/contracts/governance/browser
+checks. Final independent closeout acceptance and authorized local commits remain
+separate from this pre-final candidate checkpoint.
+No sponsor question or provider classification changes through this metadata sync.
 
 ### PR #69 merged — onboarding intelligence and Sandbox submission
 
@@ -669,12 +695,12 @@ Consult `docs/sponsor-questions/OPEN_QUESTIONS.md` for exact wording and current
 
 ## Next candidate work packages
 
-The three-session program is merged through PR #69. The current owner-authorized
-Phase25/26 task is on `feat/phase25-26-final-poc-hardening`; Phase25 independently
-passed before Phase26 began. Phase26 supplies bounded demo verification and current
-documentation, with no new provider or business behavior. Its separate fresh gates
-control acceptance and local commit authority. [Phase27](PHASE_27_HANDOFF.md) is a
-handoff only. The following broader packages require separate authorization:
+The three-session program is merged through PR #69 and Phase25/26 is complete
+through PR #70. The owner has assigned [Phase27](PHASE_27_HANDOFF.md): final agent UI
+UAT, architecture/demo documentation and closeout, with explicit A/B/final independent
+barriers and local commit only after final PASS. Phase27A has fresh independent exact PASS after truthful agent UI results,
+bounded product retests and prose encoding repair;27B/27C retain separate barriers. No feature expansion or external provider execution is authorized.
+The following broader packages require separate authorization:
 
 PR #65's accepted POC onboarding/final-review implementation and independent gate
 are complete. Further work requires a separately authorized package. Official-Mock

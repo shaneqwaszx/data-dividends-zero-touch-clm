@@ -5,13 +5,21 @@ tests, contracts, and decisions remain higher authority for their respective fac
 Phase architecture documents provide detail and history; they do not silently override
 this current map.
 
-The inspected main baseline is merged PR #69 at
-`73967401379378927c810d6227b0c7aa95fba061` (2026-10-05). Historical gates and
-execution receipts retain their own identities, including the prior combined FAIL
-and subsequent narrow P2 remediation PASS. Sessions1–3 described below are merged
-source behavior. Phase25 independently validated retained-data compatibility on this
-source without mutating original data. Phase26 updates current documentation and demo
-evidence; it introduces no owner, dependency, trust boundary or runtime change.
+The inspected main baseline is merged PR #70 at
+`4ee8819d7404d6442e064fd60dcee03ccc84cf11` (2026-10-05). PR #70 merged the completed
+Phase25/26 documentation and evidence; the PR #69-to-#70 diff contains no product
+source change. Historical gates and execution receipts retain their own identities,
+including the prior combined FAIL and subsequent narrow P2 remediation PASS.
+Sessions1–3 are merged source behavior. Phase25 retained-data compatibility and
+Phase26 demo evidence remain bound to their original tested/reviewed content.
+Phase27A refreshed metadata and recorded agent UI UAT. Two bounded frontend
+presentation fixes consume the existing backend ownership-upload action and remove
+the shared body width floor; no owner, dependency or trust boundary changed. Phase27A has fresh independent exact PASS after bounded encoding repair. The
+owner-assigned Phase27B documentation sync explains the current application-owned
+orchestration, C4 views and recovery decisions in
+[Final POC Architecture](architecture/FINAL_POC_ARCHITECTURE.md). These are views
+of existing owners, not an architecture replacement. Unmerged Phase27 UI changes
+remain branch evidence; inspected main metadata remains PR70.
 
 ## 1. Purpose and scope
 

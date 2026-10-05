@@ -1,70 +1,94 @@
 # Phase 27 handoff
 
-Current inspected main and Phase25/26 BASE_SHA: `73967401379378927c810d6227b0c7aa95fba061` (PR #69).
-Branch: `feat/phase25-26-final-poc-hardening`; local Phase26 content is pending merge.
-Worktree: `C:/Users/shane/.codex-clean2/worktrees/phase25-26-final-poc-hardening/data-dividends-zero-touch-clm`.
-This is a handoff, not authorization or implementation of Phase27.
+Date:2026-10-05. BASE_SHA/source HEAD/inspected origin/main:
+`4ee8819d7404d6442e064fd60dcee03ccc84cf11` (merged PR #70).
+Branch:`feat/phase27-final-delivery-closeout`.
+Worktree:`C:/Users/shane/.codex-clean2/worktrees/phase27-final-delivery-closeout/data-dividends-zero-touch-clm`.
+Phase25/26 complete/merged; current Phase27 is owner-assigned unmerged closeout.
 
-The merged POC implements Singapore registry routing; twelve inspectable stages;
-retained-document wrong-UEN recovery; native-first local extraction and optional
-Tesseract OCR; proposed ownership/source review and creator editing; one Decimal
-graph/UBO engine; frozen versioned case policy; HR proposal/distinct Director
-activation; final local Review & Send; and ledger-owned no-replay target states.
-Current owners/invariants are in [ARCHITECTURE](ARCHITECTURE.md).
+## Barrier and evidence checkpoint
 
-External evidence remains bounded: official ACRA Marketplace Mock token/entity/
-officer observations, with Garden quantitative ownership absent; and one historical
-synthetic XPI Sandbox parent lifecycle (Search2/Shell1/Policy1/readback1, Amend0)
-with exact-ID confirmed state retained across restart. Historical Garden Amend
-failed. See [current integration evidence](integration/GOLDTIER_CURRENT_CONTRACT_AND_SCREENING_RECONCILIATION.md).
-Phase25/26 makes no new external calls. Mock, LOCAL, PARTIAL Sandbox and Live are
-distinct; no Live route is proved.
+27A: [fresh independent exact PASS](../.ai-pipeline/reports/PHASE_27A_RECHECK_QUALITY_GATE.md),
+P0/P1/P2=0/0/0 after one bounded P3 prose encoding repair. The first minor-fix gate
+remains historical. [Truth inventory](demo/PHASE_27_TRUTH_INVENTORY.md),
+[checklist](demo/PHASE_27_MANUAL_UAT_CHECKLIST.md) and
+[agent UI results](demo/PHASE_27_AGENT_UAT_RESULTS.md) record21 rows,16 PASS/0 FAIL/5
+NOT_RUN; AGENT_EXECUTED16, HUMAN_EXECUTED0. Two confirmed P2 presentation defects
+were fixed in one/2 product rounds and visibly retested. No HUMAN_UAT claim.
 
-Final demo path: Garden official-Mock identity/officers plus visibly separate LOCAL
-reviewed declaration or opt-in recursive supplement; synthetic Multiple Owner Demo;
-distinct Merlion fresh-cache case with zero additional ACRA calls; same-case wrong-
-UEN correction retaining the document and resuming to the actual blocker. Use the
-[runbook](demo/FINAL_SPONSOR_DEMO_RUNBOOK.md) and [UAT matrix](demo/FINAL_UAT_ACCEPTANCE_MATRIX.md).
-Exact call-count journeys need separate fresh offline lifecycles. Demonstrations
-create only disposable synthetic data. Manual sponsor UAT remains NOT_RUN.
+27B: synchronized [canonical architecture](ARCHITECTURE.md), [C4/orchestration and
+recovery views](architecture/FINAL_POC_ARCHITECTURE.md), [project state](PROJECT_STATE.md),
+[six-column demo runbook](demo/FINAL_SPONSOR_DEMO_RUNBOOK.md), [four-category limitations](demo/FINAL_POC_LIMITATIONS_AND_NEXT_STEPS.md),
+[Q-001..018 delivery flags](sponsor-questions/OPEN_QUESTIONS.md) and
+[final closeout](FINAL_PROJECT_CLOSEOUT.md). [Fresh independent BarrierB exact PASS](../.ai-pipeline/reports/PHASE_27B_QUALITY_GATE.md),
+P0/P1/P2/P3=0/0/0/0, accepted the frozen documentation candidate.
+[27C regression](../.ai-pipeline/reports/PHASE_27C_REGRESSION.md):135 affected backend,
+505 frontend/41files,44 contracts,124 governance, Ruff/strict mypy/typecheck/build,
+dependency checks/six scanners and two guarded actual browser selectors PASS.
+The final independent gate and local commits remain later receipts; this dated
+pre-final checkpoint does not invent their outcomes. Exact final gate releases authorized
+local commits only; no push/PR/merge or another phase is authorized.
 
-Phase25 independently passed all3 retained original cases (schemas2/2/8) using
-read-only original decode and normal HTTP/frontend against an exact disposable
-clone. Original counts/raw/index fingerprints stayed unchanged, no original writes
-occurred, and the clone was deleted after review. RM/Director/HR and session/logout
-boundaries passed. This is reader/render compatibility, not migration or repair.
+[Implementation record](../.ai-pipeline/reports/PHASE_27_IMPLEMENTATION.md) carries
+precise command/count/identity/budget evidence. The source HEAD above identifies the
+baseline; uncommitted product/doc bytes and independently reviewed content are
+manifest-bound, not represented by HEAD alone. Current-main metadata stays PR70.
 
-Known limitations: Windows host Tesseract is absent (native extraction works;
-historical isolated actual OCR is separately evidenced); process-local sessions,
-Mock facts and locks; single-instance Mongo CAS/no-replay without distributed
-exactly-once; no Production ACRA/GoldTier/PingFed/SSO, Camunda, other registries,
-related-party child lifecycle, hierarchy creation, original-file GoldTier upload,
-legal UBO certification, compliance approval, OCDD, full MIS or Exception Workbench.
-Review & Send is final local approval; provider KYC, regulatory approval and RFA
-remain separate. [Limitations](demo/FINAL_POC_LIMITATIONS_AND_NEXT_STEPS.md) preserves
-the historical uncertainty/failure evidence and exact sponsor input requirements.
+## Final capability/provider truth
 
-Q-001..Q-018 remain open for their broader contracts/policy: RFA transition;
-hierarchy/child IDs; document/privacy/retention; complete legal/control UBO policy;
-source/reviewer roles; current field/value/error/Amend mapping; PingFed/auth/TLS;
-supplied risk/screening; production identity/assignment and deployment/handoff.
-Only the bounded >=25% inclusive default is resolved by D-062; D-064 authorizes
-the POC policy control plane. See [open questions](sponsor-questions/OPEN_QUESTIONS.md).
-No fixture, gate or successful parent delivery closes those questions.
+The bounded Singapore POC includes twelve inspectable stages, wrong-UEN retention,
+native LOCAL extraction/optional Tesseract, source-neutral reconciliation and reviewed
+LOCAL ownership, one Decimal graph/provisional >=25% engine, frozen case policy and
+HR proposal/distinct Director activation, final local Review & Send and ledger-owned
+no-replay confirmed/failed/uncertain submission states. No Camunda/general BPM owner.
 
-Recommended Phase27 items, subject to separate owner assignment: verify the final
-presentation deck against current owner/provider labels; complete actual human
-UAT and record only executed outcomes; reconcile any newly supplied sponsor answers;
-check deployment/architecture descriptions and current documentation after merge.
-No architecture replacement or new integration is implied.
+Synthetic Mock, official Marketplace Mock, LOCAL, SANDBOX_PARTIAL and Live remain
+distinct. Historical ACRA official Mock identity/officers omit Garden economic
+percentages. Historical real XPI synthetic parent Search2/Shell1/Policy1/readback1,
+Amend0 and restart-retained confirmation are bounded PARTIAL proof; Garden Amend
+failed. Phase25/26/27 make no new external calls. See [current contract evidence](integration/GOLDTIER_CURRENT_CONTRACT_AND_SCREENING_RECONCILIATION.md).
+Review & Send is final local approval; internal target KYC/RFA/regulatory approval is
+outside the workflow, with no second unresolved approval node.
 
-Recommended final regression: contract/governance/security checks; affected backend
-owner/adverse tests; frontend/typecheck/build and guarded four demo paths, roles,
-responsive policy/tree and failure/uncertain target wording. Physical Mongo is
-required for actual persistence/schema/runtime-compatibility changes; actual OCR
-for OCR code/runtime changes. Original clm_poc remains protected. New external
-acceptance requires separate authority and only if current changes invalidate proof.
+## Demo, unavailable rows and retained limitations
 
-Phase25/26 evidence and acceptance status are recorded separately in the
-[implementation record](../.ai-pipeline/reports/PHASE_26_IMPLEMENTATION.md); a handoff
-does not substitute for the fresh Phase26 and final combined gates.
+Garden is the conditional primary narrative: current official-shaped PARTNERSHIP
+fixture + separate reviewed LOCAL60/40 or opt-in recursive supplement. Normal5173
+UAT launcher supplies a legacy Garden BUSINESS sample, so that row is NOT_RUN.
+The available synthetic/native recommendation is Multiple Owner Demo, wrong-UEN
+correction, tree/calculations, final Mock send, visible Merlion cache, policy and
+role/narrow paths. Numerical zero-additional calls remain separately guarded-counter
+evidence; U27-10 full row NOT_RUN. OCR absent and failed/uncertain transport seams
+unavailable in normal launcher retain04/14/15 NOT_RUN. No original clm_poc access.
+
+Use controlled `scripts/start_demo_windows.bat` and owned stop script; reuse healthy
+owned sessions. All demo records are synthetic memory data. Sessions/locks/Mock
+facts are process-local; memory restart resets cases. Explicit Mongo schema9/CAS
+supports strict valid legacy1..8 reads, not distributed exactly-once. Historical
+Phase25 three-case read-only-original/exact-clone HTTP/render proof remains separate.
+No RP child lifecycle, original-file target upload, other registries, Production/Live
+ACRA/GoldTier/PingFed/SSO, legal/control UBO certification, compliance/risk engine,
+OCDD/full MIS/workbench, autonomous approval or production deployment is delivered.
+
+Q-001..Q-018 remain broadly OPEN (Q-004/Q-012 bounded parts answered). None blocks
+accepted bounded current POC delivery; relevant production/optional features depend
+on precise sponsor inputs. D-062 threshold and D-064 POC governance do not close them.
+FINAL_PRESENTATION_SOURCE=NOT_PRESENT_IN_REPOSITORY; tracked presentation/diagram
+source search found only existing Markdown diagram views, no editable deck.
+
+## Final verification and next authorized action
+
+Actual change classes DOCS_ONLY/FRONTEND_UI. No API/type/schema/connector/config/
+business-rule/mapping/auth/security/architecture-owner/provider change. UI runtime
+changed only by authoritative upload affordance and body width correction. Required
+27C: affected backend owners/frontends, Ruff/strict mypy/typecheck/build/contracts,
+governance/security and guarded affected browser flows. Physical Mongo and actual
+OCR are NOT_RUN/not triggered by this delta. No unchanged expensive historical
+suite is relabelled current. No credential/.env/raw document/provider body is persisted.
+
+27B exact PASS and proportional27C are complete. Obtain final independent exact PASS; then two
+logical local commits, clean index/worktree, fetch/check latestmain and pre-PR when
+applicable. Do not automatically integrate drift. Final HEAD/ahead-behind/checker
+values come from actual post-commit commands, not a forecast. Owner retains publication
+and human merge. [Historical Phase25/26 PASS](../.ai-pipeline/reports/PHASE_25_26_FINAL_QUALITY_GATE.md)
+does not replace the fresh Phase27 barriers.

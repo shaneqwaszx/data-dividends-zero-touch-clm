@@ -16,6 +16,40 @@ provider classification. The earlier Phase14.5 direct-policy-edit description be
 is historical and superseded for POC controls by D-064: HR proposal, distinct Director
 approval, new ACTIVE version, and unchanged frozen existing cases.
 
+## Phase27 current delivery classification
+
+All eighteen questions retain their broader open scope. None blocks delivery of the
+accepted bounded Mock/LOCAL POC. Production flags below identify a dependency when
+that capability belongs to production scope; they do not declare every optional
+feature mandatory. Optional means a later separately assigned expansion, never
+permission to implement it. No new sponsor answer is supplied by Phase27.
+
+| Question / remaining topic | BLOCKS CURRENT POC? | BLOCKS PRODUCTION ONLY? | OPTIONAL FUTURE ENHANCEMENT? | ANSWERED / PARTIALLY ANSWERED / OPEN |
+|---|---|---|---|---|
+| Q-001 RFA transition | NO | YES, for the relevant production contract/policy | NO | OPEN; POC prerequisite clarified |
+| Q-002 External hierarchy retrieval | NO | YES, if hierarchy is in deployment scope | YES, if this feature is assigned | OPEN |
+| Q-003 Document/field profile | NO | YES, for the relevant production contract/policy | YES, broader media/profile expansion | OPEN |
+| Q-004 Full legal/control UBO policy | NO | YES, for the relevant production contract/policy | NO | PARTIALLY ANSWERED: bounded >=25% inclusive only |
+| Q-005 Validation responsibility split | NO | YES, for the relevant production contract/policy | NO | OPEN |
+| Q-006 Related-party child lifecycle | NO | YES, if related parties are in deployment scope | YES, if this feature is assigned | OPEN |
+| Q-007 Complete SG mapping/screening ownership | NO | YES, for the relevant production contract/policy | NO | OPEN; bounded D-056 values retained |
+| Q-008 PingFed containment/auth/TLS | NO | YES, for the relevant production contract/policy | NO | OPEN / production auth blocked |
+| Q-009 Canonical production values | NO | YES, for the relevant production contract/policy | NO | OPEN; bounded current vocabulary retained |
+| Q-010 Operation/conditional minima | NO | YES, for the relevant production contract/policy | NO | OPEN; current provisional overlay retained |
+| Q-011 Complete success/error/partial schemas | NO | YES, for the relevant production contract/policy | NO | OPEN |
+| Q-012 Subscriber ACRA/partnership/second sample | NO | YES, for the relevant production contract/policy | YES, second official demo only | PARTIALLY ANSWERED: official Marketplace Mock subset only |
+| Q-013 Privacy/security/retention | NO | YES, for the relevant production contract/policy | NO | OPEN |
+| Q-014 Production confidence/reviewer policy | NO | YES, for the relevant production contract/policy | NO | OPEN; POC review clarified |
+| Q-015 Source precedence/restart/audit authority | NO | YES, for the relevant production contract/policy | NO | OPEN |
+| Q-016 Production identity/admin/assignment | NO | YES, for the relevant production contract/policy | NO | OPEN; bounded D-064 governance retained |
+| Q-017 Supplied risk/screening producer | NO | YES, for the relevant production contract/policy | NO | OPEN; current advisory only |
+| Q-018 Deployment/handoff/continuation | NO | YES, for the relevant production contract/policy | NO | OPEN |
+
+D-062 numeric authority does not answer complete legal/control policy. Q-012 official
+Mock acceptance does not answer subscriber/Live/partnership percentages. Current
+contracts/decisions and the linked decision packet retain exact minimum requested
+inputs and next assigned action; no broader question is silently closed.
+
 ## Current clarification — 2026-10-01 / D-062
 
 The owner relayed sponsor confirmation of aggregated ownership `>= 25%` with
