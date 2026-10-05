@@ -332,6 +332,25 @@ describe("Evidence workbench integration isolation", () => {
     }
   });
 
+  it.each([true, false, undefined])("offers ownership upload only with the backend-declared evidence action (%s)", (uploadAction) => {
+    const client = createTestClient();
+    seedCase(client, actorA, CASE_A, "analysis-1", "OWNERSHIP");
+    const summary = summaryFixture(CASE_A);
+    summary.ownership_edit_authorized = true;
+    summary.ownership_recovery = { analysis_id: "analysis-1", version: 3, state: "ANALYZED", manual_evidence_action: null, review_receipt: null };
+    summary.interventions = uploadAction === undefined ? undefined : [{
+      intervention_id: "ownership-review", owning_stage: "OWNERSHIP", owning_stage_label: "Ownership & UBO",
+      title: "Ownership review", blocker_code: "OWNERSHIP_DOCUMENT_CONFLICT", explanation: "Review current proposed evidence.",
+      required_evidence_or_input: [], authorized_actions: [], no_action_reason: null, expected_next_step: "Review evidence",
+      candidate_summaries: [], evidence_actions: uploadAction ? [{ target: "OWNERSHIP_UPLOAD", label: "Upload ownership evidence" }] : [],
+    }];
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), [{ ...documentFixture(CASE_A), state: "REVIEWED" }]);
+    renderCase(client, actorA, CASE_A);
+    expect(container!.querySelector(".manual-ownership")).not.toBeNull();
+    expect(container!.querySelector("#case-ownership-evidence-upload") !== null).toBe(uploadAction === true);
+  });
+
   it("waits for the matching ownership analysis before initializing an editable graph", async () => {
     const client = createTestClient();
     seedCase(client, actorA, CASE_A, "old-analysis", "OLD");

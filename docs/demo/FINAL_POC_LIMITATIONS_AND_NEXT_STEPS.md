@@ -1,90 +1,65 @@
 # Final POC Limitations and Next Steps
 
-Current inspected main: merged PR #69 / `73967401379378927c810d6227b0c7aa95fba061`.
-The post-Phase24 A–G package merged through PR #68; Sessions1–3 and their bounded
-P2 remediation merged through PR #69. Historical gate verdicts/counts and the G6
-closure below retain their own dates and tested identities. Phase25 independently
-passed normal-clone startup, all-three retained-case HTTP/render compatibility and
-role/session checks; original clm_poc was read only, with zero writes.
-Phase26 updates demo/current documentation and prepares the Phase27 handoff. This
-packet grants no new implementation, provider mutation or production authority.
+Inspected main is merged PR #70, `4ee8819d7404d6442e064fd60dcee03ccc84cf11`,
+2026-10-05. Phase27 branch UI remediation is independently accepted and unmerged.
+Current [agent UI UAT](PHASE_27_AGENT_UAT_RESULTS.md) is16 PASS/0 FAIL/5 NOT_RUN,
+HUMAN_EXECUTED0. Fresh BarrierA exact PASS is separately recorded. No Phase27
+external calls/original database access occurred. Historical verdicts, counts,
+timeouts and uncertainty below retain their original run identities.
 
-## IMPLEMENTED AND VERIFIED
+## Current four-category limitation map
 
-Current source uses schema9 with strict valid legacy1..8 reads without rewrite.
-Historical A–G evidence below covered schema8 with valid legacy1..7 reads, source encoding,
-registry/cache operation decisions, current blocker/history protection, local target
-ledger/no-replay, reviewed LOCAL ownership and the single Decimal engine, and HR proposals
-with distinct-Director activation/frozen cases. F's exact synthetic asset allowlist,
-runbook/UAT pack and fresh independent remediation PASS close the inherited Phase07 debt.
-G's normal-owner reuse and adverse paths have focused current-owner coverage. Broad
-backend verification passes2020 tests with89 physical skips; the separate physical
-program passes89 tests across13 suites with zero skips. Frontend unit evidence covers
-422 tests across36 files. Normal configuration startup/auth/dashboard/new-case entry
-passes on a generated disposable Mongo database. The final cumulative manifest records
-all fresh receipts, including two unchanged full E2E runs and the separately bounded
-official-Mock acceptance; its independent gate owns final acceptance. Retained owner
-data was not verified by those historical checks. Phase25 later verified three
-actual retained cases through read-only original inspection and an exact clone,
-without repairing or migrating retained data.
+| Category | Current limitation / truthful delivery | Dependent claim or next action |
+|---|---|---|
+| POC LIMITATION | GoldTier default is PROJECT_OWNED LOCAL IN_PROCESS Mock; XPI parent route SANDBOX_PARTIAL only. Historical synthetic parent succeeded; Garden Amend failed | Label bounded proof; no Production/Live/interoperability expansion without contract and separate authorized acceptance |
+| POC LIMITATION | LOCAL native-first extraction and optional Tesseract implemented; current Windows host OCR absent | U27-04 NOT_RUN; absent OCR fails safely. Actual OCR runtime is needed only for that demonstration or changed OCR code/runtime |
+| POC LIMITATION | Normal controlled launcher lacks current Garden partnership fixture, numerical cache counter and failed/uncertain transport selector | U27-08/10/14/15 NOT_RUN. Guarded offline proofs remain separate; normal visible cache flow is not a measured numerical PASS |
+| POC LIMITATION | Reviewed LOCAL ownership, technical extraction quality, deterministic provisional candidates and synthetic policy impact | No official partnership percentages, calibrated probability, legal/control UBO or production impact accuracy |
+| POC LIMITATION | Sessions, locks, single-flight and Mock facts process-local; memory resets. Mongo schema9 strictCAS is single-instance POC durability | No distributed exactly-once, provider-fact reconstruction or uncertain replay; new concurrency/topology needs assignment |
+| POC LIMITATION | Cache is opt-in exact Mock namespace/frozen freshness with COMPLETE-only case binding; no general eviction/keyspace bound | No production sharing/licensing/retention/SLA/OCDD claim |
+| EXTERNAL CONTRACT DEPENDENCY | Subscriber/Live ACRA, complete partnership/control/denominator, coherent second official sample and hierarchy retrieval | Q-002/004/012; approved strict contracts/access before existing-provider work |
+| EXTERNAL CONTRACT DEPENDENCY | GoldTier complete mappings/values/minima/errors/Amend/child IDs/atomicity and internal RFA/KYC/screening ownership | Q-001/005/006/007/009/010/011/017; quarantine contradictions; no silent rule or operation invention |
+| EXTERNAL CONTRACT DEPENDENCY | Production PingFed/auth/TLS, role/assignment/source/reviewer/privacy/retention and deployment/handoff authority | Q-003/008/013..018; safe least-privilege secret delivery only after exact authority |
+| FUTURE PRODUCTION WORK | Approved IdP/rotation, lawful-data/retention/encryption/erasure/audit, malware/CDR, operational support/monitoring | Sponsor decisions followed by separately assigned reviewed implementation and actual acceptance |
+| FUTURE PRODUCTION WORK | Distributed concurrency/recovery, scale/indexing/cache bounds and measured operational topology | Preserve current owners; no global transaction or exactly-once promise |
+| OUT OF SCOPE | RP child lifecycle/multilevel creation, original-file GoldTier upload, other jurisdiction registries | Unsupported/fail-closed. A local graph or prepared RP transform is not delivered target creation |
+| OUT OF SCOPE | Autonomous/final approval, production compliance/risk engine, EDD, full MIS/Exception Workbench, OCDD/general refresh, trained semantic ML, Camunda | Explicit new product/architecture/sponsor assignment required; not current POC blockers |
 
-## IMPLEMENTED BUT MOCK/LOCAL
+Review & Send is final local approval. Target readback confirms bounded submission,
+not legal UBO, compliance/KYC clearance, Ready-for-Approval or regulatory approval.
+D-062 resolves aggregate >=25% inclusive numeric default only; D-064 authorizes
+HR proposal/distinct Director activation. Neither closes wider sponsor policy.
 
-Three primary journeys remain distinct: Garden official-Mock identity/officers plus
-reviewed fictional LOCAL ownership; Multiple Owner Demo and Merlion are SYNTHETIC MOCK.
-Documents use LOCAL native-first text extraction and optional bounded Tesseract
-OCR for scanned/mixed PDF and PNG/JPEG/TIFF. Explicit ownership observations are
-proposals requiring source review; this host lacks observed Tesseract. Ownership candidates are provisional
-Decimal results. GoldTier Mock is PROJECT_OWNED / LOCAL / IN_PROCESS / NO_HTTP /
-NO_AUTH / PROCESS_LOCAL. Policy advice uses deterministic named synthetic scenarios;
-eight core parameters are evaluated,13 intelligence effects remain NOT_ASSESSED and
-unsupported zero ownership remains unknown. Manual sponsor UAT remains NOT_RUN.
+## Current evidence and historical attribution
 
-## SANDBOX_PARTIAL
+Current schema9 strictly reads valid schemas1..8 without read rewrite. Phase25
+separately decoded three original cases read-only and validated all three through
+normal HTTP/frontend against an exact disposable clone, removed after acceptance.
+Original data was not repaired or migrated. Phase27 does not repeat original access.
 
-The separately configured direct GoldTier XPI adapter remains SANDBOX_PARTIAL. D-063's
-conditional Amend is distinct from D2 Mock's required Amend. Exact same-ID readback is
-required; neither Policy nor readback proves approval, completed KYC or screening clearance.
-D1 observed NO_MATCH only; portal labels establish no API schema/retry/atomicity/auth authority.
-Generic ACRA sandbox is Partial; BizFile is Dormant. Historical S3 achieved one
-synthetic parent Shell/Policy/exact-ID readback and durable confirmed state, with
-Amend not required. Historical Garden Amend remains failed. No Phase25/26 external
-acceptance rerun or additional Sandbox write is authorized.
+Phase27 product delta: backend-projected upload visibility and body width only.
+Submitted fresh current-source frontend505/41files, focused tests/typecheck/build,
+15 pre-UAT guarded browser lifecycles,301 focused backend,44 contracts,124 governance
+and six scanners are individually attributed in the [implementation record](../../.ai-pipeline/reports/PHASE_27_IMPLEMENTATION.md).
+The independent BarrierA/recheck distinguishes tested source from frozen prose.
+Final27C regression and final independent gate have separate reports/identities.
 
-## NEEDS_SPONSOR_CONFIRMATION
+Historical A-G broad evidence (2020 backend/89 physical skips, separate89 physical
+passes across13suites,422 frontend/36files) is not Phase27 execution. Historical
+actual isolated OCR and external official Mock/XPI receipts likewise do not become
+current host OCR/UAT or new external acceptance. The remaining historical empty500
+cause and client timeout are not silently closed by later passing runs.
 
-The decision packet below preserves open contract/policy questions, including full
-legal/control UBO rules, field/source/reviewer responsibility, privacy/security,
-screening/risk ownership, production identity and deployment/handoff. D-062 already
-confirms the bounded >=25% inclusive default. A new answer enables only a separately
-assigned implementation through existing owners.
+## Historical G1 limitation inventory (original acceptance checkpoint)
 
-## NEEDS EXTERNAL ACCESS
+The six original categories below describe that earlier G checkpoint, not current
+Phase27 acceptance. FIXABLE_NOW rows and pending publication wording are historical;
+those named bounded debts were accepted through their recorded gates/PR68/69.
+Manual NOT_RUN in this inventory is the historical human session; current agent
+UAT is16 PASS/5 NOT_RUN. Historical G6 original record-count statements describe
+that run; later Phase25 proved the three retained cases then present.
 
-Subscriber ACRA, vendor OCR/hierarchy and production PingFed require approved environments,
-least-privilege backend secret delivery and bounded test authority after contract/security
-decisions. Existing placeholders and access elsewhere are not interoperability evidence.
-The historical G6 official Marketplace Mock Garden acceptance is recorded below.
-Phase25/26 performs no new external requests; credentials and access elsewhere do
-not create authority for a new acceptance.
-
-## OUT OF SCOPE FOR CURRENT POC
-
-Other registries, createRelationship/multi-level creation, autonomous/final approval,
-production compliance/risk, EDD, full MIS/Exception Workbench, Camunda, trained semantic ML
-and general refresh/OCDD require explicit new scope. None is claimed as delivered.
-
-## PRODUCTIONIZATION REQUIRED
-
-Production needs approved topology/concurrency, IdP/auth/rotation, retention/encryption/audit,
-document malware/CDR, operational ownership/monitoring and measured indexing/scale design.
-Current locks, CAS and no-replay are single-process POC controls. Sessions, single-flight
-and Mock provider facts remain process-local; durable ledgers cannot manufacture lost facts.
-No TTL deletion/eviction/keyspace bound or distributed exactly-once guarantee exists.
-
-## G1 complete limitation inventory
-
-Only these six categories classify implementation readiness. “Publication” means the
+Only these six historical categories classified that implementation readiness. “Publication” means the
 correctly labelled bounded POC, subject to exact final PASS; it never means Production readiness.
 
 | Limitation / category | Safe behavior and why unresolved | Minimum input -> next action / implementation unblocked | Demo / publication impact |

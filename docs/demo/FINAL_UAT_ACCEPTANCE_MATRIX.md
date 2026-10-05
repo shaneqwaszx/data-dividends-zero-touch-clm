@@ -1,6 +1,16 @@
 # Final UAT Acceptance Matrix
 
-Primary sponsor journeys are F-A, F-B, F-C and F-UEN. Manual demo status is NOT_RUN for every row;
+Phase27 baseline: merged PR #70, `4ee8819d7404d6442e064fd60dcee03ccc84cf11`.
+Use the [Phase27 manual checklist](PHASE_27_MANUAL_UAT_CHECKLIST.md) for preconditions,
+role, steps, expected/actual results, PASS/FAIL/NOT_RUN and defect notes. Its U27 IDs
+map to this coverage catalogue. New automated execution is recorded in the
+[Phase27 implementation record](../../.ai-pipeline/reports/PHASE_27_IMPLEMENTATION.md).
+Owner authorization supersedes personal execution: current [agent UI results](PHASE_27_AGENT_UAT_RESULTS.md)
+record16 PASS/0 FAIL/5 NOT_RUN, AGENT_EXECUTED_UAT / HUMAN_EXECUTED0.
+This catalogue preserves historical human-demo statuses; those are not the current
+agent checklist outcomes. No test or sibling row supplies a UAT PASS.
+
+Primary sponsor journeys are F-A, F-B, F-C and F-UEN. Historical HUMAN demo status is NOT_RUN for every catalogue row;
 an executable reference is coverage, not a claim that a human demonstration occurred.
 Backend references are under apps/backend/tests; browser references under apps/frontend/e2e.
 All F external calls are zero. Four synthetic registry operations means ENTITY_PROFILE,
