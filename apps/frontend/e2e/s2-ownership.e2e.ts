@@ -18,7 +18,7 @@ async function summary(page: Page, caseId: string) {
 async function ownership(page: Page, caseId: string) {
   const response = await page.request.get(`/api/onboarding/cases/${caseId}/ownership`); expect(response.status()).toBe(200); return response.json();
 }
-async function createGarden(page: Page) {
+async function createGarden(page: Page, customDocument?: { name: string; mimeType: string; buffer: Buffer }) {
   await page.goto("/");
   await page.getByLabel("User ID").fill("maya-lim"); await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -26,7 +26,7 @@ async function createGarden(page: Page) {
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
   await page.getByLabel("Company Legal Name", { exact: true }).fill("GARDEN BUSINESS");
   await page.getByLabel("Registration ID / UEN").fill("11111999A");
-  await page.locator("#home-document").setInputFiles(fixture);
+  await page.locator("#home-document").setInputFiles(customDocument ?? fixture);
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
   await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
@@ -55,18 +55,23 @@ async function submitDecision(page: Page) {
 test("S2 creator edits calculable multi-level ownership before send and inspects exact collapsed calculations", { tag: "@garden-protocol" }, async ({ page }) => {
   const caseId = await createGarden(page);
   const form = page.locator(".manual-ownership");
-  await expect(form.getByLabel("Economic interest %", { exact: true }).nth(0)).toHaveValue("");
-  await expect(form.getByLabel("Owner type", { exact: true }).nth(0)).toHaveValue("");
+  await expect(form.getByLabel("Economic interest %", { exact: true }).nth(0)).toHaveValue("62.500000");
+  await expect(form.getByLabel("Owner type", { exact: true }).nth(0)).toHaveValue("LEGAL_ENTITY");
+  while (await form.getByLabel("Owner name", { exact: true }).count() > 2) {
+    await form.getByRole("button", { name: /^Remove owner/ }).last().click();
+  }
   await form.getByLabel("As-of date").fill("2026-10-04");
-  await form.getByLabel("Review rationale").fill("Reviewed the synthetic direct economic-interest declaration with explicit sixty and forty percent interests.");
+  await expect(form.getByLabel("Reviewer note (optional)")).toHaveValue("");
   for (const [index, percentage] of ["60", "40"].entries()) {
     await form.getByLabel("Owner name", { exact: true }).nth(index).fill(`Synthetic reviewed owner ${index + 1}`);
     await form.getByLabel("Owner type", { exact: true }).nth(index).selectOption("NATURAL_PERSON");
+    await form.getByLabel("Registration number (optional)", { exact: true }).nth(index).fill("");
     await form.getByLabel("Economic interest %", { exact: true }).nth(index).fill(percentage);
   }
   await submitDecision(page);
   await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true })).toBeEnabled();
   const first = await ownership(page, caseId); expect(first.state).toBe("ANALYZED");
+  expect(first.manual_review_receipt.rationale).toBeNull();
   expect((await summary(page, caseId)).ownership_edit_authorized).toBe(true);
   await page.getByRole("button", { name: "Edit ownership", exact: true }).click();
   await expect(page.locator("#case-manual-ownership-evidence")).toBeFocused();
@@ -78,7 +83,7 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   await form.getByLabel("Owned legal entity", { exact: true }).nth(1).selectOption(holdingId);
   await form.getByLabel("Economic interest %", { exact: true }).nth(1).fill("100");
   await form.getByLabel("As-of date").fill("2026-10-04");
-  await form.getByLabel("Review rationale").fill("Reviewed the explicit holding entity and its sole natural-person owner before submission.");
+  await form.getByLabel("Reviewer note (optional)").fill("Reviewed the explicit holding entity and its sole natural-person owner before submission.");
   await submitDecision(page);
   const revised = await ownership(page, caseId);
   expect(revised.analysis_id).not.toBe(first.analysis_id); expect(revised.state).toBe("ANALYZED");
@@ -105,17 +110,10 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
 });
 
 test("S2 document proposals require deliberate creator source selection and retain immutable source bindings", { tag: "@garden-protocol" }, async ({ page }) => {
-  const caseId = await createGarden(page);
-  const records = await (await page.request.get(`/api/onboarding/cases/${caseId}/documents`)).json();
-  const canonical = Object.fromEntries(records[0].fields.map((field: any) => [field.field_key, field.canonical_value]));
-  const text = [`Legal Name: ${canonical.legal_name}`, `UEN: ${canonical.registration_number}`, `Registered Address: ${canonical.registered_address}`, `Country: ${canonical.country_of_incorporation}`,
+  const text = ["Legal Name: GARDEN BUSINESS", "UEN: 11111999A", "Registered Address: 18 GARDEN WALK, #01-01, 018919, SG", "Country: SG",
     "Shareholder: Synthetic document owner one | Type: NATURAL_PERSON | Percentage: 30% | Owned Entity: GARDEN BUSINESS | Owned Entity Registration Number: 11111999A | As Of: 2026-10-04",
     "Shareholder: Synthetic document owner two | Type: NATURAL_PERSON | Percentage: 70% | Owned Entity: GARDEN BUSINESS | Owned Entity Registration Number: 11111999A | As Of: 2026-10-04"].join("\n");
-  const intake = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/intake/documents"));
-  await page.locator("#case-ownership-evidence-upload input").setInputFiles({ name: "synthetic-ownership-proposals.txt", mimeType: "text/plain", buffer: Buffer.from(text, "utf8") });
-  const intakeResult = await intake;
-  const intakePayload = await intakeResult.json();
-  expect(intakeResult.status(), `public code: ${intakePayload.detail?.code ?? "none"}`).toBe(201);
+  const caseId = await createGarden(page, { name: "synthetic-ownership-proposals.txt", mimeType: "text/plain", buffer: Buffer.from(text, "utf8") });
   await expect.poll(async () => (await ownership(page, caseId)).document_observations.length).toBe(2);
   const proposed = await ownership(page, caseId); expect(proposed.state).toBe("REVIEW_REQUIRED");
   expect(proposed.document_observations.every((item: any) => item.decision_state === "PROPOSED" && item.document_version === 1)).toBe(true);
@@ -125,7 +123,7 @@ test("S2 document proposals require deliberate creator source selection and reta
   const choices = form.locator('input[type="checkbox"]'); await expect(choices).toHaveCount(2);
   await choices.nth(0).check(); await choices.nth(1).check();
   await form.getByLabel("As-of date").fill("2026-10-04");
-  await form.getByLabel("Review rationale").fill("Selected both explicit synthetic document ownership percentages after comparing current source evidence.");
+  await form.getByLabel("Reviewer note (optional)").fill("Selected both explicit synthetic document ownership percentages after comparing current source evidence.");
   await submitDecision(page);
   const revised = await ownership(page, caseId); expect(revised.manual_review_receipt.source_selection).toBe("DOCUMENT_OBSERVATIONS");
   expect([...revised.manual_review_receipt.selected_observation_ids].sort()).toEqual(proposed.document_observations.map((item: any) => item.observation_id).sort());

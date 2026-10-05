@@ -15,28 +15,34 @@ S3_SYNTHETIC_UEN = "202698765Z"
 class OfflineS3SandboxTransport(OfflineAcceptanceTransport):
     def __init__(self, scenario: str) -> None:
         super().__init__(S3_SYNTHETIC_NAME, S3_SYNTHETIC_UEN)
-        if scenario not in {"success", "uncertain-policy", "failed-policy", "existing-customer"}:
+        if scenario not in {
+            "success", "uncertain-policy", "failed-policy", "existing-customer",
+            "garden-existing-customer",
+        }:
             raise ValueError("Unknown offline Sandbox fixture")
         self.scenario = scenario
+        self.existing_id = "143878" if scenario == "garden-existing-customer" else "SYNTHETIC-GT-S3"
+        if scenario == "garden-existing-customer":
+            self.name, self.uen = "GARDEN BUSINESS", "11111999A"
         self.counts = {"SEARCH": 0, "SHELL": 0, "POLICY": 0, "AMEND": 0, "READBACK": 0}
 
     def request(self, method: str, url: str, **kwargs: Any) -> GoldTierXpiHttpResponse:
         parsed = urlsplit(url)
         if parsed.scheme != "https" or parsed.hostname != "sandbox.goldtier.invalid":
             raise ValueError("Offline fixture refuses another destination")
-        if self.scenario == "existing-customer":
+        if self.scenario in {"existing-customer", "garden-existing-customer"}:
             if method != "GET" or not parsed.path.endswith("/customers/search"):
                 raise ValueError("Existing customer fixture forbids every target mutation")
             query = parse_qs(parsed.query)
             if query == {"legalName": [self.name], "countryOfIncorporation": ["SG"]}:
                 self.counts["SEARCH"] += 1
                 return GoldTierXpiHttpResponse(200, [{
-                    "goldTierId": "SYNTHETIC-GT-S3", "legalName": self.name,
+                    "goldTierId": self.existing_id, "legalName": self.name,
                 }])
-            if query == {"goldTierID": ["SYNTHETIC-GT-S3"]}:
+            if query == {"goldTierID": [self.existing_id]}:
                 self.counts["READBACK"] += 1
                 return GoldTierXpiHttpResponse(200, [{
-                    "goldTierId": "SYNTHETIC-GT-S3", "legalName": self.name,
+                    "goldTierId": self.existing_id, "legalName": self.name,
                     "registrationNumber": self.uen, "countryOfIncorporation": "SG",
                 }])
             raise ValueError("Existing customer fixture refuses another identity")

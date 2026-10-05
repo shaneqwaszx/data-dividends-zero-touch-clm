@@ -28,7 +28,7 @@ export interface ManualOwnershipEvidenceValues {
   observed_document_versions: OwnershipDocumentBinding[];
   selected_observation_ids: string[];
   as_of_date: string;
-  rationale: string;
+  rationale: string | null;
   root_party_id: string;
   root_display_name: string;
   parties: OwnershipParty[];
@@ -159,8 +159,8 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
     if (!owners.length || (sourceSelection !== "CURRENT_EVIDENCE" && [...totals.values()].some((values) => !ownershipTotalIsExactly100(values)))) {
       setValidationError("Declared direct economic-interest percentages for each owned entity must total exactly 100. Supply explicit percentages; share counts do not imply a denominator."); return;
     }
-    if (!asOfDate || rationale.trim().length < 10 || !rootDisplayName.trim() || owners.some((owner) => !owner.display_name.trim() || !owner.party_type || !owner.parent_party_id.trim())) {
-      setValidationError("Complete all required fields; the rationale must be at least 10 characters."); return;
+    if (!asOfDate || (rationale.trim().length > 0 && rationale.trim().length < 10) || !rootDisplayName.trim() || owners.some((owner) => !owner.display_name.trim() || !owner.party_type || !owner.parent_party_id.trim())) {
+      setValidationError("Complete all required fields; a supplied reviewer note must be at least 10 characters."); return;
     }
     const ids = [rootPartyId, ...owners.flatMap((owner) => [owner.party_id, owner.parent_party_id, owner.relationship_id])];
     if (ids.some((value) => !SAFE_ID_PATTERN.test(value.trim()))) {
@@ -190,7 +190,7 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
     setValidationError(null);
     onSubmit({ evidence_document_id: selectedDocument.document_id, evidence_document_version: selectedDocument.events.length,
       source_selection: sourceSelection, observed_document_versions: bindings, selected_observation_ids: sourceSelection === "DOCUMENT_OBSERVATIONS" ? selectedObservationIds : [],
-      as_of_date: asOfDate, rationale: rationale.trim(), root_party_id: rootPartyId.trim(), root_display_name: rootDisplayName.trim(),
+      as_of_date: asOfDate, rationale: rationale.trim() || null, root_party_id: rootPartyId.trim(), root_display_name: rootDisplayName.trim(),
       parties: sourceSelection === "CURRENT_EVIDENCE" && ownership ? ownership.parties : [...partyMap.values()], owners: cleanOwners });
   }
 
@@ -221,7 +221,7 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
         <input type="checkbox" checked={selectedObservationIds.includes(observation.observation_id)} disabled={disabled} onChange={(event) => selectObservation(observation.observation_id, event.target.checked)} />
         {observation.owner_name} → {observation.owned_entity_name ?? observation.owned_entity_registration_identifier ?? "Owned entity unknown"} · {observation.explicit_percentage !== null ? `${observation.explicit_percentage}% explicit` : "Percentage not supplied"} · {observation.share_count ?? "No"} share units · denominator {observation.explicit_total_shares ?? "not supplied"} · page {observation.page_number} · {observation.source_reference} · {observation.extraction_quality ?? "UNKNOWN"} · PROPOSED
       </label>)}<p className="control-help">Missing types, ambiguous values and absent percentages need a reviewed manual declaration. The server checks selected observations against the declared graph.</p></fieldset>}
-      <label className="manual-ownership__rationale">Review rationale<textarea className="input" name="rationale" value={rationale} minLength={10} maxLength={240} disabled={disabled} onChange={(event) => setRationale(event.target.value)} /></label>
+      <label className="manual-ownership__rationale">Reviewer note (optional)<textarea className="input" name="rationale" value={rationale} minLength={10} maxLength={240} disabled={disabled} onChange={(event) => setRationale(event.target.value)} /></label>
       <fieldset className="manual-ownership__owners"><legend>Declared ownership relationships</legend>
         {owners.map((owner, index) => <div className="manual-ownership__owner" key={index}><h3>Owner {index + 1}</h3><div className="manual-ownership__fields">
           <label>Relationship ID<input className="input" name={`relationship_id_${index}`} value={owner.relationship_id} maxLength={64} disabled={graphDisabled} onChange={(event) => updateOwner(index, "relationship_id", event.target.value)} /></label>

@@ -6,6 +6,14 @@ Baseline: `3ca232b58c3842f413c4552dbd3b85aabea4591c`
 
 ## Outcome
 
+Post-UAT candidate (2026-10-05): completed Sandbox cases with retained ID expose
+explicit read-only exact-ID verification through the existing XPI Search owner.
+It performs one goldTierID Search, writes no ledger/submission facts and returns
+bounded verified/review/unavailable evidence. It never resolves uncertain mutation,
+replays Shell/Policy/Amend, changes target ID or establishes downstream KYC/approval.
+Current implementation/browser checks use offline transports; no fresh external
+Garden/ACRA/GoldTier observation is claimed. Historical evidence below is preserved.
+
 Current post-closeout clarification (2026-10-05):
 [existing-customer resolution and API-family note](GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md)
 records bounded sponsor answers and offline remediation. It supersedes the earlier

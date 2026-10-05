@@ -1,5 +1,31 @@
 # Decision Log
 
+## D-069 — owner-authorized post-UAT review and completion UX candidate
+
+The 2026-10-05 owner assignment from main ae27654 permits existing-owner document
+auto-confirm at independently admissible GOLDTIER_SEARCH intake. Exact normalized
+agreement, sufficient frozen evidence score, unambiguous extraction, currentness
+and no unresolved contradiction remain required; no target progression is granted.
+
+Ownership reviewer rationale becomes optional; structured actor/time/source/as-of/
+document/observation/graph/replacement audit remains required. Historical strings
+read unchanged; absent/blank notes are null, never fabricated reviewer prose.
+This supersedes only the mandatory ownership free-text rationale in D-067.
+The separate existing-customer confirmation rationale remains required.
+
+Normal official Marketplace Mock composition automatically applies the existing exact
+eligible Garden11111999A local synthetic fixture. This supersedes the required runtime
+Garden opt-in in D-067/ADR-009; freshness/success/no-failed-operation/provenance/
+no-double-count safeguards and human conflict review remain. The legacy setting is
+deprecated compatibility input and cannot disable the accepted Garden happy path.
+
+Same legal entity retains its resolved GoldTier customer ID across distinct local
+cases; different-entity definitive NO_MATCH retains new Shell. Completed Sandbox
+verification is an explicit independent exact-retained-ID read-only Search with no
+ledger/submission rewrite, replay or downstream approval claim. All changes are
+USER_AUTHORIZED_POC candidate behavior, pending their own independent gate. This is
+not sponsor production policy, external-call authority or a Live/provider upgrade.
+
 Use this file for requirements that have been explicitly resolved.
 
 For a new durable architecture decision, use [ADR_TEMPLATE.md](ADR_TEMPLATE.md) when the

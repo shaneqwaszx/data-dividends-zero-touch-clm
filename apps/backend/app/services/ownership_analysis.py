@@ -1079,6 +1079,12 @@ class OwnershipAnalysisService:
                 or (item.kind == "SHARE_UNITS" and item.source_status not in {None, "ACTIVE"})
                 for item in record.evidence
             )
+            garden_fixture_graph = (
+                record.source_classification == "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
+                and record.identity_registration_number == "11111999A"
+                and bool(record.supplemental_relationships)
+                and tuple(record.relationships) == record.supplemental_relationships
+            )
             has_unresolved_semantics = any(
                 item.kind
                 in {
@@ -1090,6 +1096,13 @@ class OwnershipAnalysisService:
                 }
                 or (
                     item.kind == "ROLE"
+                    # Official officer roles are retained descriptive context, not
+                    # quantitative ownership authority for the validated Garden fixture.
+                    and not (
+                        garden_fixture_graph
+                        and item.provider == "ACRA_REGISTRY_ACQUISITION"
+                        and item.source_operation == "OFFICERS"
+                    )
                     and item.raw_value.strip().upper()
                     in {"OWNER", "PARTNER", "MEMBER", "SHAREHOLDER"}
                     and not any(

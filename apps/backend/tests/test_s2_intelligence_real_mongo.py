@@ -156,6 +156,32 @@ def test_schema9_restarts_preserve_creator_pages_proposals_receipts_and_suppleme
         second.close()
 
 
+@pytest.mark.parametrize("note", [None, "Historical reviewer note remains unchanged."])
+def test_optional_and_historical_notes_survive_physical_restart_without_read_rewrite(
+    physical_database: Settings, note,
+) -> None:
+    original = session2_snapshot()
+    receipt = original.ownership.manual_review_receipt.model_copy(update={"rationale": note})
+    original = original.model_copy(update={
+        "ownership": original.ownership.model_copy(update={"manual_review_receipt": receipt})
+    })
+    first = open_store(physical_database)
+    try:
+        first.create(original)
+        raw_before = first._collection.find_one({"_id": str(original.case_id)})
+    finally:
+        first.close()
+    second = open_store(physical_database)
+    try:
+        restored = second.get(original.case_id)
+        assert restored.ownership.manual_review_receipt.rationale == note
+        assert restored == original
+        raw_after = second._collection.find_one({"_id": str(original.case_id)})
+        assert raw_after == raw_before
+    finally:
+        second.close()
+
+
 @pytest.mark.parametrize("version", range(1, 9))
 def test_exact_v1_to_v8_physical_reads_keep_unknown_creator_without_rewrite(
     physical_database: Settings, version: int,

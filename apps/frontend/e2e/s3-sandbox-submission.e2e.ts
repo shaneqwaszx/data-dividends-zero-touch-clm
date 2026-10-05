@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import path from "node:path";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 import type { TargetStatusCheckResult } from "../src/api";
 import type { ZeroTouchCaseSummary } from "../src/types";
@@ -104,7 +105,7 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
   await expect(form.getByLabel("Economic interest %", { exact: true }).nth(0)).toHaveValue(/^(70|30)(?:\.0+)?$/);
   await expect(form.getByLabel("Economic interest %", { exact: true }).nth(1)).toHaveValue(/^(70|30)(?:\.0+)?$/);
   await form.getByLabel("As-of date").fill("2026-10-04");
-  await form.getByLabel("Review rationale").fill("Synthetic creator reviewed both matching explicit document owners and retained current ownership evidence.");
+  await form.getByLabel("Reviewer note (optional)").fill("Synthetic creator reviewed both matching explicit document owners and retained current ownership evidence.");
   const decision = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/manual-ownership-evidence"));
   await form.getByRole("button", { name: "Submit manual ownership evidence", exact: true }).click();
   expect((await decision).status()).toBe(200);
@@ -163,7 +164,10 @@ async function submitAndInspect(page: Page, mode: "success" | "uncertain-policy"
   }
   await expect(review.getByRole("heading", { name: title, exact: true })).toBeVisible();
   await expect(review.getByRole("button", { name: /Confirm and send|Retry|Save draft/ })).toHaveCount(0);
-  await expect(review.getByText("Retained GoldTier ID: SYNTHETIC-GT-S3", { exact: true })).toBeVisible();
+  if (mode === "success") {
+    await expect(review.locator('[aria-label="Completed GoldTier submission"] dt').first()).toHaveText("GoldTier ID");
+    await expect(review.getByRole("button", { name: "Verify in GoldTier", exact: true })).toBeEnabled();
+  } else await expect(review.getByText("Retained GoldTier ID: SYNTHETIC-GT-S3", { exact: true })).toBeVisible();
   const current = await readSummary(page, caseId);
   expect(current.target_submission?.goldtier_id).toBe("SYNTHETIC-GT-S3");
   if (mode === "uncertain-policy") {
@@ -202,4 +206,61 @@ test("S3 uncertain Policy checks customer identity once without completing Polic
 });
 test("S3 definitive Policy failure preserves the target ID and never retries submission", { tag: "@s3-sandbox-failed-policy" }, async ({ page }) => {
   await submitAndInspect(page, "failed-policy");
+});
+
+test("post-UAT Garden scanned evidence auto-confirms, calculates local ownership and verifies retained Sandbox identity", { tag: "@s3-sandbox-garden-existing-customer" }, async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("User ID").fill("maya-lim");
+  await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("link", { name: "New onboarding", exact: true }).click();
+  await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
+  await page.getByLabel("Company Legal Name", { exact: true }).fill("GARDEN BUSINESS");
+  await page.getByLabel("Registration ID / UEN").fill("11111999A");
+  await page.locator("#home-document").setInputFiles(path.resolve("../backend/tests/fixtures/uat/garden-post-uat-scanned.png"));
+  await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
+  await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
+  const caseId = page.url().split("/").at(-1)!;
+  await expect.poll(async () => (await readSummary(page, caseId)).current_stage).toBe("GOLDTIER_SEARCH");
+  await page.getByRole("button", { name: "Open full case", exact: true }).click();
+  await openStage(page, "Document verification");
+  const documents = await (await page.request.get(`/api/onboarding/cases/${caseId}/documents`)).json();
+  expect(documents).toHaveLength(1);
+  expect(documents[0].completion_method).toBe("AUTO_CONFIRMED");
+  expect(documents[0].state).toBe("REVIEWED");
+  expect(documents[0].fields.every((field: any) => field.review_status === "ACCEPTED"
+    && field.comparison_status === "MATCH" && field.extraction_method === "LOCAL_TESSERACT_OCR"
+    && field.confidence >= 0.85)).toBe(true);
+  await expect(page.getByRole("button", { name: /^Accept .* suggestion$/ })).toHaveCount(0);
+  await expect(page.locator(".document-field__heading").getByText("AUTO CONFIRMED", { exact: true })).toHaveCount(4);
+  expect((await counts(page)).calls).toEqual({ SEARCH: 1, SHELL: 0, POLICY: 0, AMEND: 0, READBACK: 0 });
+  await openStage(page, "Registry verification");
+  await page.getByLabel("Existing customer confirmation rationale").fill("Compared the retained Garden candidate with current independent identity evidence.");
+  await page.getByRole("button", { name: "Confirm existing GoldTier customer", exact: true }).click();
+  await expect.poll(async () => (await readSummary(page, caseId)).clm.target_search_checkpoint?.disposition).toBe("CONFIRMED_EXISTING");
+  if ((await readSummary(page, caseId)).status === "PENDING_INPUTS") {
+    await openStage(page, "Document verification");
+    await page.getByRole("button", { name: "Continue evidence review", exact: true }).click();
+  }
+  await expect.poll(async () => (await readSummary(page, caseId)).ownership_recovery?.state).toBe("ANALYZED");
+  const ownership = await (await page.request.get(`/api/onboarding/cases/${caseId}/ownership`)).json();
+  expect(ownership.source_classification).toBe("OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT");
+  expect(ownership.manual_review_receipt).toBeNull();
+  expect(ownership.candidates.find((item: any) => item.party.display_name === "ABCD123").aggregated_ownership_percent).toMatch(/^51\.136363750*$/);
+  await openStage(page, "Readiness check");
+  await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
+  await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
+  await page.getByRole("button", { name: "Save target classification", exact: true }).click();
+  await openStage(page, "Final review & send");
+  await page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true }).click();
+  await expect.poll(async () => (await readSummary(page, caseId)).target_submission?.state).toBe("SUBMISSION_CONFIRMED");
+  const details = page.locator('[aria-label="Completed GoldTier submission"]');
+  await expect(details.locator("dt").first()).toHaveText("GoldTier ID");
+  await expect(details.locator("dd").first()).toHaveText("143878");
+  await expect(details.getByText("Existing GoldTier customer reused", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Verify in GoldTier", exact: true }).click();
+  await expect(details.getByText("Verified in Sandbox", { exact: true })).toBeVisible();
+  expect((await readSummary(page, caseId)).target_submission?.goldtier_id).toBe("143878");
+  expect((await counts(page)).calls).toEqual({ SEARCH: 1, SHELL: 0, POLICY: 0, AMEND: 0, READBACK: 2 });
+  expect((await counts(page)).external_calls).toBe(0);
 });

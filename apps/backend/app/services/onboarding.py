@@ -199,6 +199,19 @@ class TargetStatusCheckEvidence:
     ]
 
 
+@dataclass(frozen=True)
+class CompletedTargetVerificationEvidence:
+    """Ephemeral exact-ID observation; retained submission facts never change."""
+
+    submission_id: UUID
+    goldtier_id: str
+    checked_at: datetime
+    result: Literal["VERIFIED", "REQUIRES_REVIEW", "UNAVAILABLE"]
+    legal_name: str | None = None
+    registration_number: str | None = None
+    country: str | None = None
+
+
 MALFORMED_TARGET_RESPONSE_CODE = "GT_MALFORMED_TARGET_RESPONSE"
 MALFORMED_TARGET_RESPONSE_MESSAGE = "GoldTier target returned an invalid response."
 TARGET_OUTCOME_FALLBACK_CODE = "GT_TARGET_OUTCOME_RECORDING_FAILED"
@@ -2967,6 +2980,84 @@ class OnboardingService:
 
         with self._execution_ledger_guard:
             return submission_id in self._active_target_submissions
+
+    def verify_completed_target(
+        self,
+        *,
+        case_id: UUID,
+        submission_id: UUID,
+        reauthorize: Callable[[], None],
+    ) -> CompletedTargetVerificationEvidence:
+        """One exact retained-ID Search after completion; no writes or replay."""
+
+        with self.case_lock(case_id):
+            reauthorize()
+            case = self._repository.get(case_id)
+            entry = self.get_target_execution_entry(submission_id)
+            outcome = entry.target_outcome if entry is not None else None
+            if (
+                self.target_provider_mode != GoldTierProviderMode.SANDBOX
+                or self._goldtier.environment != GoldTierProviderMode.SANDBOX
+                or case is None or case.entity is None or entry is None
+                or entry.submission_input.case_id != case_id
+                or entry.submission_input.provider_mode != GoldTierProviderMode.SANDBOX
+                or entry.state != GoldTierExecutionLedgerState.FINALIZED
+                or entry.receipt is None
+                or entry.receipt.classification != GoldTierExecutionClassification.SUCCESS
+                or outcome is None
+                or outcome.classification != GoldTierExecutionClassification.SUCCESS
+                or outcome.party_id is None
+                or outcome.readback_party_id != outcome.party_id
+                or outcome.readback_status != "VERIFIED"
+                or self.is_target_submission_active(submission_id)
+            ):
+                raise ValueError("Completed Sandbox verification is unavailable")
+            expected = entry.submission_input.canonical_entity
+            if (
+                case.entity.registration_number != expected.registration_number
+                or case.entity.legal_name != expected.legal_name
+                or case.entity.country_of_incorporation != expected.country_of_incorporation
+                or entry.resolved_party_id not in {None, outcome.party_id}
+            ):
+                raise ValueError("Completed Sandbox identity is no longer current")
+            retained_id = str(outcome.party_id)
+            result: Literal["VERIFIED", "REQUIRES_REVIEW", "UNAVAILABLE"] = "UNAVAILABLE"
+            name = registration = country = None
+            try:
+                response = validate_search_response(self._goldtier.search_party(
+                    XpiCustomerSearchRequest(goldtier_id=outcome.party_id),
+                    self._metadata(
+                        entry.submission_input, entry.submission_input.idempotency.search
+                    ),
+                ))
+            except (ConnectorError, InvalidTargetResponseError):
+                pass
+            else:
+                result = "REQUIRES_REVIEW"
+                if (
+                    response.outcome == GoldTierSearchOutcome.MATCH_FOUND
+                    and len(response.candidates) == 1
+                ):
+                    candidate = response.candidates[0]
+                    pairs = (
+                        (candidate.legal_name, expected.legal_name),
+                        (candidate.registration_number, expected.registration_number),
+                        (candidate.country, expected.country_of_incorporation),
+                    )
+                    if str(candidate.party_id) == retained_id and all(
+                        actual is not None and " ".join(actual.split()).casefold()
+                        == " ".join(wanted.split()).casefold()
+                        for actual, wanted in pairs
+                    ):
+                        result = "VERIFIED"
+                        name, registration, country = (
+                            candidate.legal_name, candidate.registration_number, candidate.country
+                        )
+            return CompletedTargetVerificationEvidence(
+                submission_id=submission_id, goldtier_id=retained_id,
+                checked_at=self._clock(), result=result, legal_name=name,
+                registration_number=registration, country=country,
+            )
 
     def check_uncertain_target_status(
         self,

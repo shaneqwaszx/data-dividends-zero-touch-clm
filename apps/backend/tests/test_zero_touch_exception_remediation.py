@@ -44,7 +44,7 @@ def test_matching_document_auto_confirms_even_after_readiness_created_reconcilia
 def test_auto_confirmation_does_not_relabel_operator_acceptance() -> None:
     _, zero, documents, _, _ = build_system(require_confirmation=True)
     created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
-    document = zero.intake_document(
+    document = documents.create_document(
         case_id=created.case_id,
         display_name="clean.pdf",
         content_type="application/pdf",
@@ -188,7 +188,7 @@ def test_partial_machine_confirmation_does_not_clear_missing_or_low_confidence(s
 def test_changed_canonical_value_and_operator_rejection_do_not_auto_clear() -> None:
     _, zero, documents, _, _ = build_system(require_confirmation=True)
     created = zero.create_case("202400001A", team_id=TeamId.TEAM_A)
-    document = zero.intake_document(
+    document = documents.create_document(
         case_id=created.case_id,
         display_name="current.pdf",
         content_type="application/pdf",
@@ -431,93 +431,36 @@ def test_normal_garden_actions_clear_exact_issues_and_resume_ubo(conflict: bool)
     else:
         assert current_document(client, case_id)["completion_method"] == "AUTO_CONFIRMED"
         assert current["metrics"]["human_interventions"] == 0
-    ownership_blocker = next(
-        item for item in current["interventions"] if item["owning_stage"] == "OWNERSHIP"
-    )
-    assert ownership_blocker["blocker_class"] == "RECOVERABLE_INPUT"
-    assert (
-        "ACRA did not provide sufficient ownership information" in ownership_blocker["explanation"]
-    )
-    assert {item["target"] for item in ownership_blocker["evidence_actions"]} == {
-        "OWNERSHIP_DETAILS",
-        "OWNERSHIP_UPLOAD",
-    }
-    document = current_document(client, case_id)
-    payload = ownership_request(current, document)
-    invalid = {
-        **payload,
-        "relationships": [
-            {**payload["relationships"][0], "ownership_percent": "101"},
-            payload["relationships"][1],
-        ],
-    }
-    assert (
-        client.post(
-            f"/api/clm/zero-touch/cases/{case_id}/manual-ownership-evidence", json=invalid
-        ).status_code
-        == 422
-    )
-    for rejected in (
-        {**payload, "parties": [*payload["parties"], payload["parties"][0]]},
-        {**payload, "rationale": ""},
-    ):
-        rejection = client.post(
-            f"/api/clm/zero-touch/cases/{case_id}/manual-ownership-evidence", json=rejected
-        )
-        assert rejection.status_code == 422
-        assert rejection.json()["detail"]["code"] == "ZERO_TOUCH_MANUAL_OWNERSHIP_INVALID"
-        assert payload["parties"][0]["display_name"] not in rejection.text
-    after_rejections = successful(client.get(f"/api/clm/zero-touch/cases/{case_id}"))
-    for field in ("version", "active_exceptions", "historical_exceptions", "current_stage"):
-        assert after_rejections[field] == current[field]
-    current = successful(
-        client.post(f"/api/clm/zero-touch/cases/{case_id}/manual-ownership-evidence", json=payload)
-    )
-    assert all(item["stage"] != "OWNERSHIP" for item in current["active_exceptions"])
     ownership = successful(client.get(f"/api/onboarding/cases/{case_id}/ownership"))
     assert ownership["state"] == "ANALYZED"
-    assert ownership["provider_environment"] == "LOCAL"
-    assert all(item["provenance"]["environment"] == "LOCAL" for item in ownership["relationships"])
-    assert any(
-        item["stage"] == "OWNERSHIP" and item["status"] == "RESOLVED"
-        for item in current["historical_exceptions"]
-    )
-    assert {
-        Decimal(candidate["aggregated_ownership_percent"]) for candidate in ownership["candidates"]
-    } == {Decimal("60"), Decimal("40")}
-    assert all(
-        candidate["classification"] == "PROVISIONAL_UBO_CANDIDATE"
-        for candidate in ownership["candidates"]
-    )
+    assert ownership["manual_review_receipt"] is None
+    assert ownership["source_classification"] == "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
+    assert {edge["provenance"]["provider"] for edge in ownership["relationships"]} == {
+        "LOCAL_SYNTHETIC_SUPPLEMENT"
+    }
+    percentages = {item["party"]["display_name"]: Decimal(item["aggregated_ownership_percent"])
+                   for item in ownership["candidates"]}
+    assert percentages["ABCD123"] == Decimal("51.13636375")
+    assert percentages["LIM CHOON HUAT"] == Decimal("37.500000")
+    assert all(item["owning_stage"] != "OWNERSHIP" for item in current["interventions"])
     assert current["case"]["registry_acquisition"]["ownership_parties"] == []
 
 
-def test_supplementary_ownership_upload_is_validated_without_inventing_percentages() -> None:
+def test_automatic_garden_does_not_require_unrelated_supplementary_upload() -> None:
     client = normal_client(True)
     current = normal_started_case(client, garden=True)
     case_id = current["case"]["case_id"]
-    before_count = len(successful(client.get(f"/api/onboarding/cases/{case_id}/documents")))
-    path = Path(__file__).parent / "fixtures/uat/garden-business-clean-onboarding-profile.pdf"
+    document_path = f"/api/onboarding/cases/{case_id}/documents"
+    before = successful(client.get(document_path))
     response = client.post(
-        f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
-        content=path.read_bytes(),
-        headers={"Content-Type": "application/pdf", "X-Document-Name": "client-evidence.pdf"},
-    )
-    successful(response, 201)
-    refreshed = successful(client.get(f"/api/clm/zero-touch/cases/{case_id}"))
-    assert (
-        len(successful(client.get(f"/api/onboarding/cases/{case_id}/documents")))
-        == before_count + 1
-    )
-    assert any(item["stage"] == "OWNERSHIP" for item in refreshed["active_exceptions"])
-    assert refreshed["case"]["registry_acquisition"]["ownership_parties"] == []
-    assert refreshed["metrics"]["human_interventions"] == 1
-    rejected = client.post(
         f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
         content=b"not a PDF",
         headers={"Content-Type": "application/pdf", "X-Document-Name": "invalid.pdf"},
     )
-    assert rejected.status_code == 422
+    assert response.status_code in {409, 422}
+    assert successful(client.get(document_path)) == before
+    assert current["case"]["registry_acquisition"]["ownership_parties"] == []
+    assert current["metrics"]["human_interventions"] == 0
 
 
 @pytest.mark.parametrize(

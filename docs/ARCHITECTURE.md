@@ -791,8 +791,9 @@ are proven obsolete and retained as cancelled history before dependent recomputa
 Any retained target execution freezes ownership editing. Browser booleans disclose
 authority; they do not enforce it.
 
-Explicit `GARDEN_SUPPLEMENT_ENABLED` is false by default and requires the official
-Marketplace Mock composition. Only successful compatible Garden `11111999A` official
+Normal official Marketplace Mock composition automatically enables the existing
+bounded Garden fixture; the deprecated compatibility setting cannot disable it.
+Only successful compatible Garden `11111999A` official
 evidence/cache may combine with the unchanged local known-case share fixture. Official
 identity/officer/empty/unsupported facts remain original; local percentages retain
 LOCAL_SYNTHETIC_SUPPLEMENT/LOCAL provenance. Nonempty official quantities are not summed
@@ -807,6 +808,21 @@ persistence adapters. Optional policy parameters remain case-frozen; safety cont
 are not business settings. No new industry-practice default was introduced.
 
 ## 22. S3 retained Sandbox submission observations — 2026-10-04
+
+Post-UAT candidate from `ae27654a075f13354364e86ec8fe5a81d24777d4`:
+independent upload at GOLDTIER_SEARCH invokes DocumentProcessingService.auto_confirm_document
+without advancing Search or target readiness; partial confirmation rejects ambiguous
+extraction. Ownership notes become nullable inside the existing schema9 receipt;
+structured audit and historical read-without-write compatibility remain.
+
+OnboardingService.verify_completed_target owns a distinct ephemeral completed-Sandbox
+exact-ID observation through the existing XPI Search/decoder. The case-scoped endpoint
+reauthorizes under the existing lock, accepts only expected submission UUID, derives
+the target ID from finalized successful ledger facts, and writes no aggregate/ledger.
+Existing session query ownership scopes/cancels user-triggered observations separately
+from uncertain-submission checks. Completed details begin with GoldTier ID and retained
+customer handling, followed by factual operation/readback status. Verification does not
+establish downstream KYC/approval. No new owner, provider family, dependency or calculator.
 
 The existing onboarding service and target ledger own delivery and no-replay. A
 volatile activity set inside that service distinguishes an executing call from a

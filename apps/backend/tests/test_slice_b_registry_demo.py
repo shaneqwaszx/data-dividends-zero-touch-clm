@@ -15,7 +15,6 @@ from scripts.slice_b_registry_fixture import (
 from test_garden_protocol_fixture import fixture_settings
 from test_zero_touch_exception_remediation import (
     current_document,
-    ownership_request,
     successful,
 )
 
@@ -143,42 +142,20 @@ def test_garden_partnership_keeps_official_boundary_and_completes_local_remediat
     assert all(item["review_status"] == "ACCEPTED" for item in document["fields"])
     before = successful(client.get(f"/api/onboarding/cases/{case_id}/ownership"))
     assert before["legal_form"] == "BUSINESS_PARTNERSHIP"
-    assert before["candidates"] == [] and before["relationships"] == []
-    assert {item["kind"] for item in before["evidence"]} == {"ROLE"}
-    assert any(item["stage"] == "OWNERSHIP" for item in current["active_exceptions"])
-    payload = ownership_request(current, document)
-    payload["parties"][1]["display_name"] = "Synthetic Garden Partner A"
-    payload["parties"][2]["display_name"] = "Synthetic Garden Partner B"
-    current = successful(
-        client.post(
-            f"/api/clm/zero-touch/cases/{case_id}/manual-ownership-evidence",
-            json=payload,
-        )
-    )
-    receipt = current["ownership_recovery"]["review_receipt"]
-    assert (receipt["source_type"], receipt["provider_environment"], receipt["provider_name"]) == (
-        "USER_SUPPLIED_DECLARATION",
-        "LOCAL",
-        "MANUAL_DECLARATION_POC",
-    )
-    assert receipt["evidence_document_id"] == document["document_id"]
-    assert receipt["evidence_document_version"] == len(document["events"])
-    ownership = successful(client.get(f"/api/onboarding/cases/{case_id}/ownership"))
-    assert ownership["state"] == "ANALYZED"
-    assert {Decimal(item["aggregated_ownership_percent"]) for item in ownership["candidates"]} == {
-        Decimal("60"),
-        Decimal("40"),
+    assert before["state"] == "ANALYZED"
+    assert before["manual_review_receipt"] is None
+    assert before["source_classification"] == "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT"
+    assert {edge["provenance"]["provider"] for edge in before["relationships"]} == {
+        "LOCAL_SYNTHETIC_SUPPLEMENT"
     }
-    assert all(
-        item["classification"] == "PROVISIONAL_UBO_CANDIDATE" for item in ownership["candidates"]
-    )
+    assert {edge["provenance"]["environment"] for edge in before["relationships"]} == {"LOCAL"}
+    percentages = {item["party"]["display_name"]: Decimal(item["aggregated_ownership_percent"])
+                   for item in before["candidates"]}
+    assert percentages["ABCD123"] == Decimal("51.13636375")
+    assert percentages["LIM CHOON HUAT"] == Decimal("37.500000")
     assert [item["blocker_code"] for item in current["active_exceptions"]] == [
         "TARGET_CONFIRMATION_REQUIRED",
     ]
-    assert any(
-        item["stage"] == "OWNERSHIP" and item["status"] == "RESOLVED"
-        for item in current["historical_exceptions"]
-    )
     completed = confirm(client, current)
     assert completed["status"] == "COMPLETED" and completed["active_exceptions"] == []
     assert completed["clm"]["status"] == "MOCK_GOLDTIER_SUBMITTED"
@@ -332,4 +309,5 @@ def test_garden_fresh_partial_prefix_reuse_never_claims_complete_case_cache_hit(
     assert second["case"]["registry_acquisition"] == first["case"]["registry_acquisition"]
     assert second["case"]["registry_acquisition"]["status"] == "PARTIAL"
     assert second["case"]["registry_evidence_binding"] is None
-    assert any(item["stage"] == "OWNERSHIP" for item in second["active_exceptions"])
+    assert all(item["stage"] != "OWNERSHIP" for item in second["active_exceptions"])
+    assert second["ownership_recovery"]["state"] == "ANALYZED"

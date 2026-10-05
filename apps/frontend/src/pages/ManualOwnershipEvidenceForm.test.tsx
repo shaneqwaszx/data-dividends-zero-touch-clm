@@ -57,6 +57,25 @@ function enter(element: HTMLInputElement | HTMLTextAreaElement, value: string): 
 }
 
 describe("ManualOwnershipEvidenceForm", () => {
+  it("submits structured evidence with no reviewer note", () => {
+    const { view, onSubmit } = render();
+    act(() => {
+      enter(view.querySelector('[name="as_of_date"]')!, "2026-10-04");
+      enter(view.querySelector('[name="ownership_percent_0"]')!, "60");
+      enter(view.querySelector('[name="ownership_percent_1"]')!, "40");
+      enter(view.querySelector('[name="display_name_0"]')!, "Owner A");
+      enter(view.querySelector('[name="display_name_1"]')!, "Owner B");
+      for (const select of view.querySelectorAll<HTMLSelectElement>('select[name^="party_type_"]')) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, "NATURAL_PERSON");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    act(() => view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      rationale: null, as_of_date: "2026-10-04", evidence_document_version: 3,
+    }));
+    expect(view.textContent).toContain("Reviewer note (optional)");
+  });
   it("submits the displayed reviewed document when documents arrive after mount", () => {
     const { view, onSubmit } = render([]);
     act(() => root?.render(

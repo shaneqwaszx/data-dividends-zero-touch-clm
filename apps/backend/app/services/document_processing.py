@@ -637,7 +637,10 @@ class DocumentProcessingService:
                     continue
                 canonical = canonical_value_for_field(parent.entity, field.field_key)
                 if (
-                    field.confidence < float(parent.policy_snapshot.idp_review_confidence_threshold)
+                    field.extraction_quality == ExtractionQuality.AMBIGUOUS
+                    or field.confidence < float(
+                        parent.policy_snapshot.idp_review_confidence_threshold
+                    )
                     or field.comparison_status != ComparisonStatus.MATCH
                     or compare_values(field.field_key, field.canonical_value, canonical)
                     != ComparisonStatus.MATCH

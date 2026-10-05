@@ -1084,8 +1084,8 @@ _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = Mappin
         "OwnershipAnalysisService.replace_review_required_source",
         "Only the server-bound case creator may decide evidence. WAITING_FOR_REVIEW with "
         "current REVIEW_REQUIRED or ANALYZED analysis; backend ownership_edit_authorized "
-        "controls calculable edits before target intent/submission. Provide rationale and "
-        "current case/document/evidence versions, explicit source selection and structured "
+        "controls calculable edits before target intent/submission. Reviewer note is optional; "
+        "provide current case/document/evidence versions, explicit source selection and structured "
         "parties/relationships. Preserve original evidence and receipt; Decimal engine "
         "recalculates and stale readiness/final confirmation is invalidated.",
         "No generic skip/retry; absent current reviewed evidence, stale analysis, frozen "

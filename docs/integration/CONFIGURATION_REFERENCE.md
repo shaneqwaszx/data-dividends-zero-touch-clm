@@ -29,6 +29,7 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `PHASE13_COOKIE_SECURE` | security | environment-derived | Defaults `true` in production and `false` in local development/test; explicit production `false` fails startup |
 | `PHASE13_BROWSER_ORIGIN` | security | `http://127.0.0.1:8000` locally | Canonical browser origin. Production requires an explicit exact HTTPS origin and fails before persistence initialization when absent or malformed. |
 | `ACRA_CONNECTOR_MODE` | integration | `mock` | `mock`, canonical `api_marketplace_mock`, or generic `sandbox`; local Mock remains the default and there is no fallback |
+| `GARDEN_SUPPLEMENT_ENABLED` | deprecated compatibility | `false` | Accepted legacy input; normal official Marketplace Mock automatically enables only the exact fresh successful Garden fixture with either value. True outside that lane retains its validation error; no runtime toggle is needed. |
 | `REGISTRY_CACHE_MODE` | provisional Mock POC | `disabled` | `disabled` preserves retrieve-for-each-case behavior; `mock` enables only exact-key synthetic Mock ACRA reuse |
 | `REGISTRY_CACHE_FRESHNESS_SECONDS` | provisional Mock POC | unset | Required as exactly `7776000` when `REGISTRY_CACHE_MODE=mock`; 90 elapsed 24-hour periods, not calendar months or ACRA policy |
 | `ACRA_BASE_URL` | integration | empty | HTTPS subscriber base; required only for the generic sandbox mode |

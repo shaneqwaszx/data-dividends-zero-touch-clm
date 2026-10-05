@@ -94,10 +94,10 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # 60 discovered lifecycles * (60s execution + 120s bounded cleanup/dispatch)
-    # + 60s discovery = 181 minutes; preserve 14 minutes for tool installation.
-    # Existing-customer regression changes the job budget only; execution stays 60s.
-    timeout-minutes: 195
+    # 61 discovered lifecycles * (60s execution + 120s bounded cleanup/dispatch)
+    # + 60s discovery = 184 minutes; preserve 14 minutes for tool installation.
+    # Post-UAT scanned Garden regression adds a lifecycle; execution stays 60s.
+    timeout-minutes: 198
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -111,6 +111,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/frontend/package-lock.json
       - run: python -m pip install -e "apps/backend[dev]"
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
       - run: npm ci
         working-directory: apps/frontend
       - run: npx playwright install --with-deps chromium

@@ -1,0 +1,271 @@
+{
+  "branch": "fix/post-uat-document-ownership-goldtier-ux",
+  "base_sha": "ae27654a075f13354364e86ec8fe5a81d24777d4",
+  "payload_sha256": "599247e42b05f7b690867cc94613c4ebeab42633d2619cf8e3eda0311e5eebd7",
+  "paths": [
+    {
+      "path": ".ai-pipeline/001_planner/POST_UAT_DOCUMENT_OWNERSHIP_GOLDTIER_UX.md",
+      "sha256": "e23c53da35e17926c70335723e565380ab18e538c4d3c2a385d6f4615b334630",
+      "mode": "lf-text"
+    },
+    {
+      "path": ".ai-pipeline/reports/POST_UAT_DOCUMENT_OWNERSHIP_GOLDTIER_UX_IMPLEMENTATION.md",
+      "sha256": "a5b14a8ec2f34aaba04f6fbf1251fc658973323f9e7c7eaf6c7838159dd75d24",
+      "mode": "lf-text"
+    },
+    {
+      "path": ".env.example",
+      "sha256": "469218e22716094833fb7ea90b4a126bb65aa695d18951709045c3e260584e04",
+      "mode": "lf-text"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "11f6e29dc2d1cb51215e1cd8bbaf222e3e3972236426829bcd4d9c9c3ae01594",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/app/api_models.py",
+      "sha256": "9f77b93501125557447d6f30789feb80400b62e99627bcf9e96bac4c7ce31885",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/app/composition.py",
+      "sha256": "d117423b03723249609e4c5d63f469e81d824b76dfd25efe7179825866aed793",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/app/domain/ownership.py",
+      "sha256": "33ae47d73632265e56f341e241e611e6c6f9db91f4f6b299356c6f1fbdbb0fb7",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/app/main.py",
+      "sha256": "5c8813434d2202198e45cbafd5f1fb436d8f2e7e5b9cdd450f509f53e8d1f92a",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/app/services/authorization.py",
+      "sha256": "ed48d9ac7fa23205433b516501898cacef1e6c722cff15a8451e58df44915445",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/app/services/blocker_decision_policy.py",
+      "sha256": "543660c93733721f58ccd2c521b188419d15595d2462b5f6beaa7b32f8574dd3",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/app/services/document_processing.py",
+      "sha256": "25769389bf9f26eb15d64eef39738136f4025f57597c4d7ab212d4f7860e616e",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/app/services/manual_ownership_evidence.py",
+      "sha256": "69d80ebb06a26755ce3bbdbb098f1d3b8afde7b93281b22b25ac34e59da2e539",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/app/services/onboarding.py",
+      "sha256": "07dae40734a0176a3a9d1c0f1c22f9e66a1f2a1a1f1036dcdc0a30d26d69aec2",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/app/services/ownership_analysis.py",
+      "sha256": "34731fdd570bef0c0fb0e23a4de7d50c45c19e2887b7030068f0dc469d1db915",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "sha256": "9bfbd00a0dc93fb2371d7f552a4b86ac4c69666026ecc147f2a63136b6bebeb0",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/garden-post-uat-scanned.png",
+      "sha256": "002db7ff13cdbac305f450d9a44cc11aee90fb0ae38af9ce675c6e55a3300bb3",
+      "mode": "binary"
+    },
+    {
+      "path": "apps/backend/tests/test_goldtier_xpi_sandbox.py",
+      "sha256": "23fd1f9ca30e95c8b2a0049fa4575aeaa45b08017a236863bc5599cc2731de3a",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/tests/test_phase13_auth_rbac.py",
+      "sha256": "265608db6cb69fc44ba9bb47bd9863b2dee08098f76e7923cfe6bb027e6327c6",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/tests/test_post_uat_remediation.py",
+      "sha256": "e823c43debbed0a4453c999367f49a3ac69819a5c8b64cab416093e2a3b62df9",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/tests/test_s2_intelligence_real_mongo.py",
+      "sha256": "b76d1e46063671ed24d9726f2cf9fe1f108fad04ccb1212e125c8ee24adaaae9",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/tests/test_s3_submission_status.py",
+      "sha256": "c75ce3484f17fe5baf3e210003fe74b3f22e191289ca3dad1bcb75531bf1ed58",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/tests/test_slice_b_registry_demo.py",
+      "sha256": "55aecc3646192b402f6471afd854dff04b8b4e1bbc61160aa922ab82737c6221",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/tests/test_zero_touch_exception_remediation.py",
+      "sha256": "67f070c725975a49d35ab8c57e27c650325efe75eca51bff868e8ac69cf9b078",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/e2e/garden-happy-path.e2e.ts",
+      "sha256": "55730176f5afccd70f478d81e8e1f59a5f3a2c8dba2cfd66c65765e3826e3dae",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/e2e/s2-ownership.e2e.ts",
+      "sha256": "209db2cf6bd07faa0832890cf932c567d933f395250da79081da491c8215e38a",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/e2e/s3-sandbox-submission.e2e.ts",
+      "sha256": "947e05b1c654e97bb7ba2402845172f9b1290735bbb6686bd153e6f9c7027d56",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-b-registry-demo.e2e.ts",
+      "sha256": "cd036ac16da7dc6ffe8f70fa2168fa9b8d3d23348d367e60322fade413a491ba",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+      "sha256": "653f83a09acebd326c10a991dee0fbc3b866084dfd2ac976533c22e07e9bb95e",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/src/api.ts",
+      "sha256": "04e56cfff06e2b7e818d418f515b56ddcd0c82eafc933b29f4ffbba61d032bbc",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseDetail.tsx",
+      "sha256": "f2a5848bd989f3f6d2287c28823f3c7cab6de46ca359134aa4de12363ee1adc0",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.tsx",
+      "sha256": "65a4fd730e4deefc36a7036e2ff563ee04fb02d082d595449fb32421dbc7cec9",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/src/pages/ManualOwnershipEvidenceForm.test.tsx",
+      "sha256": "9063b77a9bd04a4df38502af2303664e0825c0e30eb8e8df1d5704fa6d62944d",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/src/pages/ManualOwnershipEvidenceForm.tsx",
+      "sha256": "cc0632b040e0c0887cb5d74f8ac12e01898d56decff2da61cd8cbc831579649d",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/src/pages/OwnershipPathExplorer.tsx",
+      "sha256": "b1efdd2f74a8ca67f76d65acf1627ffc4347a30357bfb8c17e27210bbe2653fb",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/src/pages/ReviewAndSend.tsx",
+      "sha256": "08f8e4b29d8eae2fc80f0dfeee5ab245085259cf4677d0831247023830ba516a",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/src/pages/S3SubmissionStatus.test.tsx",
+      "sha256": "452d6089fc8a6dfc753ffdf46b8d09f7fd0a94d6983469bed8006f0e81d43f2d",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/frontend/src/types.ts",
+      "sha256": "2083a490bcd75af53c4753cf6cbd694afa8754578410018120ad5c9bb7bd3cfe",
+      "mode": "lf-text"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "48c8536c70462c0d87a310ec610a8bc76d5041af0d829a4a7ef653abe8c0adc6",
+      "mode": "lf-text"
+    },
+    {
+      "path": "docs/PROJECT_STATE.md",
+      "sha256": "558ede1d471ba07e6144d18c5599b072c83c875db38aba1eee88889973d4514d",
+      "mode": "lf-text"
+    },
+    {
+      "path": "docs/contracts/IDP_FIELD_PROFILE.md",
+      "sha256": "ad8e5a440431ebec92228417db1845b886de4e430ffaa64fb36c769249401208",
+      "mode": "lf-text"
+    },
+    {
+      "path": "docs/contracts/OWNERSHIP_UBO_PROFILE.md",
+      "sha256": "a83adf829e9b26d1ee7e616f213326014fb5143ac4391610e9fe16e4108b85fe",
+      "mode": "lf-text"
+    },
+    {
+      "path": "docs/decisions/DECISION_LOG.md",
+      "sha256": "bb307f0a572d223ccc3c2e5da20ab430b446ad08440792df91980db06f9cc485",
+      "mode": "lf-text"
+    },
+    {
+      "path": "docs/demo/FINAL_POC_LIMITATIONS_AND_NEXT_STEPS.md",
+      "sha256": "15d4f4e51f05069b43dd7767d12ef39c031e6053377864ede06ad51d13661a20",
+      "mode": "lf-text"
+    },
+    {
+      "path": "docs/demo/FINAL_SPONSOR_DEMO_RUNBOOK.md",
+      "sha256": "9cda2ecd3be2adee8f3326026a074ef7a7aead6c82222c008d3070b477b7548e",
+      "mode": "lf-text"
+    },
+    {
+      "path": "docs/integration/CONFIGURATION_REFERENCE.md",
+      "sha256": "74b192209992092c8edf063af2ac394b80ce718e86b21202145368102abe67d1",
+      "mode": "lf-text"
+    },
+    {
+      "path": "docs/integration/GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md",
+      "sha256": "04b43bd3e9e8b3e4fa5d5e73e886d1b17da06dd4aafb7e0e6758efa523e02ba3",
+      "mode": "lf-text"
+    },
+    {
+      "path": "docs/integration/GOLDTIER_XPI_SANDBOX_RECONCILIATION.md",
+      "sha256": "0445c10146e710f7c628b24b5fb27022f9326d4dd22149f66c7414c7bfa44e04",
+      "mode": "lf-text"
+    },
+    {
+      "path": "scripts/e2e_backend_server.py",
+      "sha256": "2e5de87b9838c737ebeb8951e01c084614b3e8cb433d42bbdf69d2b04840780b",
+      "mode": "lf-text"
+    },
+    {
+      "path": "scripts/post_uat_garden_scan.py",
+      "sha256": "440546efb2ff932adadfe076d54494ae3c42fc1f0d39b1d183e3bff5798299e1",
+      "mode": "lf-text"
+    },
+    {
+      "path": "scripts/run_e2e.py",
+      "sha256": "a86b02f639df06abaec603d02e3c57569fbf31e5eacbc74c25a07bdfc6f2e3e0",
+      "mode": "lf-text"
+    },
+    {
+      "path": "scripts/s3_sandbox_fixture.py",
+      "sha256": "77ff6397aa8e7d12b8f94484e8335fe464a512cbd6c5a384a027e37e85cd7bcf",
+      "mode": "lf-text"
+    },
+    {
+      "path": "tests/test_run_e2e.py",
+      "sha256": "7c57a71d51877a344ad34c951120e4d7c55cb26920206163848df84ce4fc30bf",
+      "mode": "lf-text"
+    }
+  ],
+  "excluded_derivative_outputs": [
+    ".ai-pipeline/reports/POST_UAT_DOCUMENT_OWNERSHIP_GOLDTIER_UX_REVIEWED_CONTENT.json",
+    ".ai-pipeline/reports/POST_UAT_DOCUMENT_OWNERSHIP_GOLDTIER_UX_QUALITY_GATE.md"
+  ]
+}

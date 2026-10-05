@@ -874,7 +874,7 @@ export interface ManualOwnershipReviewReceipt {
   case_id: string;
   actor_id: string;
   reviewed_at: string;
-  rationale: string;
+  rationale: string | null;
   evidence_document_id: string;
   evidence_document_version: number;
   evidence_reference: string;
@@ -1399,6 +1399,8 @@ export interface ZeroTouchCaseSummary {
       | "SUBMISSION_OUTCOME_UNCERTAIN" | "FINALIZATION_PENDING";
     goldtier_id: string | null;
     status_check_available: boolean;
+    verification_available?: boolean;
+    customer_handling?: "EXISTING_REUSED" | "NEW_CREATED" | null;
   } | null;
   evidence_decision_authorized?: boolean;
   ownership_edit_authorized?: boolean;
