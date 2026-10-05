@@ -1,0 +1,17 @@
+{
+ "profile": {
+  "user_id": "maya-lim",
+  "display_name": "Maya Lim",
+  "role": "CLIENT_ONBOARDER",
+  "team_id": "TEAM_A",
+  "team_display_name": "Alpha",
+  "team_type": "Corporate Client Onboarding",
+  "team_description": "Type: Corporate Client Onboarding | Client coverage: Alpha",
+  "client_scope_label": "Alpha",
+  "capabilities": [
+   "CASE_ACCESS",
+   "POLICY_VIEW"
+  ]
+ },
+ "csrf_token": "synthetic-test-token"
+}
