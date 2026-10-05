@@ -1,0 +1,24 @@
+{
+  "round": "CI-R1",
+  "branch": "fix/post-uat-document-ownership-goldtier-ux",
+  "parent_head": "7caf438e18dfa1692d2e71ddd9be022bdf921399",
+  "base_sha": "ae27654a075f13354364e86ec8fe5a81d24777d4",
+  "delta_payload_sha256": "ab890233f63c61f4be921a543917c950adefa4dfb55158fe7cd0ce99558b6b9e",
+  "paths": [
+    {
+      "path": ".ai-pipeline/reports/POST_UAT_DOCUMENT_OWNERSHIP_GOLDTIER_UX_CI_REMEDIATION_R1.md",
+      "sha256": "a87d331d3f7435b7fd6de874f6b6b465e823f01ad8fea14242d1b938a2360985",
+      "mode": "lf-text"
+    },
+    {
+      "path": "apps/backend/tests/test_phase12_real_mongo.py",
+      "sha256": "58697c40faa628925e6e2d83b53a033bdfbf70497cabf05a5abf1feeb012b4fc",
+      "mode": "lf-text"
+    }
+  ],
+  "retained_review_manifest": ".ai-pipeline/reports/POST_UAT_DOCUMENT_OWNERSHIP_GOLDTIER_UX_REVIEWED_CONTENT.json",
+  "derivative_paths": [
+    ".ai-pipeline/reports/POST_UAT_DOCUMENT_OWNERSHIP_GOLDTIER_UX_CI_REVIEWED_CONTENT_R1.json",
+    ".ai-pipeline/reports/POST_UAT_DOCUMENT_OWNERSHIP_GOLDTIER_UX_CI_QUALITY_GATE_R1.md"
+  ]
+}
