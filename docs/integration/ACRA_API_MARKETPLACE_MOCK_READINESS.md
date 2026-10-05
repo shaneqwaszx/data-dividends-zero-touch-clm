@@ -107,3 +107,14 @@ not exercised during the authorized successful run.
 No uncertain result permits scheme, endpoint, mapping, percentage, or provider fallback
 guessing. Any missing company identity or required relationship data continues to fail
 closed.
+
+## Post-UAT sample catalogue correction - 2026-10-05
+
+The Marketplace Mock sample catalogue is operation-specific. An Entity Basic Information
+UEN does not establish valid Officers, Ownership or Relationships records for that UEN.
+Do not combine identifiers across operations or promote XYZ ACCOUNTING/another profile
+sample to a whole-pipeline happy path without independently proving every required
+operation coherent. Garden remains the separately bounded known special case.
+The recommended fully controlled demonstrations are the four fictional database-backed
+fixtures in [the database UAT guide](../demo/ZERO_TOUCH_DATABASE_HAPPY_PATH_UAT.md).
+They are local synthetic normalized evidence, never real ACRA catalogue entities.

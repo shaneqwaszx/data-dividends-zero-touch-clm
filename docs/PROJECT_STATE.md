@@ -5,6 +5,16 @@ It is not a sponsor contract, phase report, or substitute for current source and
 
 ## Verification metadata
 
+The owner-assigned database-first happy-path candidate starts at inspected main
+`771a9696e1e31e3865da4fbbb3f9b33b5959cb6a` on
+`fix/zero-touch-registry-reuse-happy-path`. D-069/ADR-010 enable ordinary non-production
+Mock cache reuse and four complete synthetic local seeds in the existing owner.
+Fresh seeded cases perform zero ACRA operations; GoldTier is never preseeded.
+Successful NO_MATCH progression and failed Search target blocking retain current truth.
+Fresh evidence and independent review are bound to this task's reports; historical
+verified-main/provider metadata below is preserved. No external interoperability claim.
+
+
 The unmerged post-UAT candidate on
 `fix/post-uat-document-ownership-goldtier-ux` starts at inspected main
 `ae27654a075f13354364e86ec8fe5a81d24777d4`. It extends existing owners for

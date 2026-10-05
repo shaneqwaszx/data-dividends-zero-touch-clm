@@ -195,3 +195,25 @@ original-file upload remain unchanged. See
 [the authoritative family note](../integration/GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md).
 Status: USER_AUTHORIZED_POC / SPONSOR_CONFIRMED bounded answers; unmerged remediation
 with separate exact independent review required. Provider status remains SANDBOX_PARTIAL.
+
+## D-069 - owner-authorized database-first synthetic happy paths
+
+The explicit 2026-10-05 post-UAT request authorizes ordinary non-production Mock-lane
+reuse through the existing registry coordinator/repository, a separately named
+LOCAL_SYNTHETIC_UAT_V1 dataset and four entirely fictional complete graph fixtures.
+[ADR-010](ADR-010_DATABASE_FIRST_SYNTHETIC_REGISTRY_REUSE.md) records the default and
+trust amendment. Exact-key/freshness/COMPLETE validation, CAS/strict decoding, frozen
+case policy, Decimal >=25% provisional candidates, auth and target no-replay remain.
+The seed never claims fresh external ACRA retrieval and never populates GoldTier.
+Missing/expired/incomplete seed uses configured ACRA; corruption fails closed.
+
+Successful Search with zero candidates is already NO_MATCH and completes the stage.
+400/rejection/timeout/transport/malformed remain failed existence checks blocking all
+target mutations; independent registry/document work may continue under D-061.
+No deterministic XPI construction defect was found; the reported real rejection cause
+is unproved. Marketplace sample catalogues are operation-specific: an Entity Basic
+Information UEN is not a whole-company fixture. Garden retains its separate bounded
+known-case authority. The four local database fixtures are the recommended controlled
+happy paths. Authority: USER_AUTHORIZED_POC / PROJECT_DEFINED_POC, pending fresh
+independent gate. No external call, Production, Live, legal UBO, KYC or provider approval
+authority follows.

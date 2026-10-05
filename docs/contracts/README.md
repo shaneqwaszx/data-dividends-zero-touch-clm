@@ -57,7 +57,7 @@ catalogue, and immutable schema-v3 case policy snapshot are recorded in
 `POLICY_TEAM_IDENTITY_ADMIN_PROFILE.md`. These remain project-defined POC behavior
 pending sponsor confirmation, not production IAM or approved compliance policy.
 
-Phase 16's disabled-by-default, synthetic Mock-only shared registry snapshot boundary,
+The registry snapshot boundary (Phase16 history plus D-064/D-069 amendments),
 fixed elapsed freshness rule, exact-key isolation, immutable case binding, and
 memory/Mongo failure semantics are recorded in `REGISTRY_CACHE_FRESHNESS_PROFILE.md`.
 They are provisional project-owner-approved POC behavior, not an ACRA validity,

@@ -165,7 +165,7 @@ def test_mongo_composed_partial_resolution_restarts_and_resumes_without_replay(
     monkeypatch,
 ):
     counters = _install_counting_connectors(monkeypatch)
-    settings = isolated_mongo_settings
+    settings = isolated_mongo_settings.model_copy(update={"registry_cache_mode": "auto"})
     target_calls = []
     for name in ("search_party", "create_shell_customer", "create_policy", "amend_party"):
         original = getattr(composition.MockGoldTierConnector, name)
@@ -201,7 +201,11 @@ def test_mongo_composed_partial_resolution_restarts_and_resumes_without_replay(
         opened = [item for item in discrepancies if item["status"] == "OPEN"]
         assert len(opened) == 2
         legal_name = next(item for item in opened if item["field_name"] == "legal_name")
+        acquired = paused["case"]["registry_acquisition"]
+        assert paused["case"]["registry_evidence_binding"] is not None
         pending = resolve(first, case_id, paused, legal_name, "USE_DOCUMENT_VALUE")
+        assert pending["case"]["registry_evidence_binding"] is None
+        assert pending["case"]["registry_acquisition"] == acquired
         assert (
             len([item for item in pending["active_exceptions"] if item["stage"] == "DOCUMENT"]) == 1
         )

@@ -83,7 +83,7 @@ shapes, and runtime calls dispatch through ports rather than reversing static ow
 | Policy | `domain/policy.py`, `services/policy_management.py` | typed ACTIVE/proposal/superseded catalogue, HR proposal/Director decision and frozen case snapshots | existing capability owner and policy repository | retroactive reinterpretation of cases |
 | Jurisdiction | `domain/jurisdiction.py` | observations, resolution, closed routing decision | source-neutral values | source precedence or provider HTTP |
 | Registry/ACRA | `connectors/registry.py`, `connectors/acra.py`, `mock_acra.py`, `acra_sandbox.py`, `mappers/acra.py` | strict provider acquisition, normalization, canonical mapping | connector DTOs/domain canonical model | target mapping or UBO calculation |
-| Registry snapshot cache | `services/registry_acquisition.py`, `services/registry_cache_repository.py`, `persistence/mongo_registry_cache_store.py` | opt-in synthetic/official Mock exact-key frozen-policy freshness, bounded single-flight, normalized successful-prefix/definitive-negative persistence and COMPLETE-only case binding | registry provider port and normalized domain bundles | routing/auth decisions, case state, raw payloads, ownership/reconciliation/target results, sandbox/live reuse |
+| Registry snapshot cache | `services/registry_acquisition.py`, `services/registry_cache_repository.py`, `persistence/mongo_registry_cache_store.py` | ordinary non-production synthetic/official Mock exact-key frozen-policy freshness, bounded single-flight, normalized successful-prefix/definitive-negative persistence and COMPLETE-only case binding | registry provider port and normalized domain bundles | routing/auth decisions, case state, raw payloads, ownership/reconciliation/target results, sandbox/live reuse |
 | Canonical entity/evidence | `domain/models.py`, `services/canonical_validation.py` | source-neutral entity, provenance and evidence integrity | domain only | raw payload retention |
 | Documents/IDP | `domain/documents.py`, `services/document_media.py`, `document_processing.py`, `connectors/idp.py`, `local_pdf_idp.py`, `local_ocr.py`, isolated media worker | bounded native-first/local OCR, proposed observations, provenance and evidence-score/review records | case port, IDP port | source precedence, percentage arithmetic or canonical overwrite |
 | Reconciliation | `domain/reconciliation.py`, `services/reconciliation.py`, reconciliation repository/UoW | compare observations, discrepancies, bounded decisions, resume binding | canonical/document evidence | implicit source winner |
@@ -141,7 +141,7 @@ ACRA source DTOs are freshly reconstructed and validated, request-identifier bou
 normalized, and mapped through `mappers/acra.py`. Direct ACRA-to-GoldTier mapping is
 prohibited.
 
-The optional registry snapshot cache is disabled by default and permits synthetic and
+The registry snapshot cache uses the ordinary non-production `auto` default and permits synthetic and
 explicit official API Marketplace Mock identities with distinct dataset namespaces.
 Authorization, jurisdiction, router and identifier gates run before its single
 RegistryAcquisitionCoordinator. Keys bind provider, environment, acquisition contract,
@@ -860,3 +860,14 @@ operations. This is presentation of existing ledger evidence, not a new authoriz
 or execution owner. An unresolved attempted operation takes precedence and remains
 read-only; provider Search alone does not resolve it. Final confirmed state still
 requires the successful outcome/receipt, required readback and application completion.
+
+## Owner-authorized database-first candidate - 2026-10-05
+
+From baseline771a969, D-069/ADR-010 extend the existing registry coordinator/repository.
+Current retained case evidence continues through its case owner; a new acquisition
+checks fresh COMPLETE exact-UEN LOCAL_SYNTHETIC_UAT_V1 evidence, then the configured
+Mock provider namespace, then provider operations. No seed prefix is mixed into provider
+results. Original local seed provenance/times and exact dataset binding remain.
+Auto is limited to non-production Mock lanes; explicit disabled/legacy mock remain.
+Shared schema1/2 and envelope9, canonical dependencies, one Decimal engine, authorization
+and ledger recovery/no-replay are unchanged. No second cache or provider is composed.

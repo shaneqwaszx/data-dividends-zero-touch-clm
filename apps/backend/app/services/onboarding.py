@@ -4440,6 +4440,10 @@ class OnboardingService:
             if validate_entity(candidate_entity):
                 raise ValueError("selected document value violates canonical validation")
             candidate.entity = candidate_entity
+            if candidate_entity != case.entity:
+                # This binding attests equality to the original acquired entity.
+                # Keep that evidence immutable when an authorized decision changes it.
+                candidate.registry_evidence_binding = None
             timestamp = self._clock()
             candidate.state = WorkflowState.VALIDATED
             candidate.updated_at = timestamp

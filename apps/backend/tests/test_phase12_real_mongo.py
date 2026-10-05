@@ -125,6 +125,8 @@ def isolated_mongo_settings() -> Iterator[Settings]:
         _env_file=None,
         app_env="test",
         clm_persistence_mode="mongo",
+        # This suite composes case stores directly; registry storage is separate.
+        registry_cache_mode="disabled",
         mongo_uri=MONGO_URI,
         mongo_database=database,
         mongo_case_collection="clm_case_snapshots",
@@ -772,7 +774,7 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
 
         before_restart = counters.copy()
         assert before_restart == {
-            "registry": 8,
+            "registry": 4,  # The second exact-UEN case reuses the ordinary cache.
             "idp": 3,
             "ownership": 1,
             "goldtier": 7,

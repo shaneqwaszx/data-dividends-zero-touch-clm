@@ -62,6 +62,7 @@ from app.domain.models import (
 )
 from app.domain.onboarding_intelligence import OnboardingIntelligenceRecord
 from app.domain.policy import CasePolicySnapshot
+from app.domain.registry_dataset import local_synthetic_registry_identity
 from app.mappers.goldtier import MockGoldTierRequestMapper
 from app.mappers.goldtier_xpi import GoldTierXpiRequestMapper
 from app.services.acra_diagnostics import (
@@ -148,7 +149,7 @@ def build_onboarding_service(
                 else MOCK_ACRA_DATASET_NAMESPACE
             ),
         )
-        if active_settings.registry_cache_mode == "mock"
+        if active_settings.registry_cache_enabled
         else None
     )
     registry_provider = AcraRegistryProviderAdapter(
@@ -157,15 +158,17 @@ def build_onboarding_service(
         company_shareholders_only=active_settings.acra_connector_mode == "api_marketplace_mock",
     )
     registry_coordinator = None
-    if active_settings.registry_cache_mode == "mock":
-        freshness_seconds = active_settings.registry_cache_freshness_seconds
-        if freshness_seconds is None:
-            raise ValueError("enabled registry cache requires an explicit freshness value")
+    if active_settings.registry_cache_enabled:
+        freshness_seconds = active_settings.registry_cache_freshness_seconds or 7_776_000
         if active_settings.clm_persistence_mode == "mongo" and registry_snapshot_repository is None:
             raise ValueError("enabled Mongo registry cache requires its repository")
         registry_coordinator = RegistryAcquisitionCoordinator(
             registry_snapshot_repository or InMemoryRegistrySnapshotRepository(),
             RegistryFreshnessPolicy.model_validate({"duration_seconds": freshness_seconds}),
+            local_seed_identity=(
+                local_synthetic_registry_identity()
+                if active_settings.app_env != "production" else None
+            ),
         )
     goldtier: GoldTierConnector
     goldtier_mapper: GoldTierRequestMapper

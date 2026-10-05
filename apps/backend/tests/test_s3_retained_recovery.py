@@ -90,6 +90,7 @@ def retained_recovery_application(
         goldtier_transport=transport,
         repository=MongoOnboardingCaseRepository(store),  # type: ignore[arg-type]
         target_execution_repository=MongoTargetExecutionRepository(store),  # type: ignore[arg-type]
+        registry_snapshot_repository=policy_bundle.registry_snapshots,
         policy_snapshot_provider=PolicyManagementService(policy_bundle.policies).case_snapshot,
     )
     documents = build_document_processing_service(

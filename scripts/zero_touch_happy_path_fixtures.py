@@ -1,0 +1,212 @@
+"""Four entirely fictional FYP companies; normalized evidence, never HTTP payloads."""
+
+from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
+
+from app.domain.jurisdiction import is_eligible_singapore_uen
+from app.domain.models import (
+    CanonicalLegalEntity,
+    RegisteredAddress,
+    RegistryAcquisitionBundle,
+    RegistryAcquisitionStatus,
+    RegistryCacheKey,
+    RegistryEvidenceProvenance,
+    RegistryOfficer,
+    RegistryOperation,
+    RegistryOperationResult,
+    RegistryOperationStatus,
+    RegistryOwnershipParty,
+    RegistryPartyType,
+    RegistryRelationship,
+    RegistrySnapshotEntry,
+    SourceEnvironment,
+    SourceMetadata,
+    SourceSystem,
+)
+from app.domain.registry_dataset import local_synthetic_registry_identity
+
+
+@dataclass(frozen=True)
+class HappyPathCompany:
+    code: str
+    name: str
+    uen: str
+    street: str
+    postal_code: str
+    # Owned entity suffix ROOT is bound to this company's root.
+    edges: tuple[tuple[str, str, str], ...]
+    expected: tuple[tuple[str, str], ...]
+
+    @property
+    def document_name(self) -> str:
+        return f"demo-{self.code.lower()}-scanned.pdf"
+
+    @property
+    def fields(self) -> dict[str, str]:
+        return {
+            "Legal Name": self.name,
+            "UEN": self.uen,
+            "Registered Address": f"{self.street}, {self.postal_code}, SG",
+            "Country": "SG",
+        }
+
+    def bundle(self, now: datetime) -> RegistryAcquisitionBundle:
+        if not is_eligible_singapore_uen(self.uen):
+            raise ValueError("fictional identifier is not supported")
+        root = f"ENTITY_{self.uen}"
+
+        def party_id(suffix: str) -> str:
+            return root if suffix == "ROOT" else f"DEMO_{self.code}_{suffix}"
+
+        def provenance(operation: RegistryOperation) -> RegistryEvidenceProvenance:
+            return RegistryEvidenceProvenance(
+                provider=SourceSystem.ACRA,
+                environment=SourceEnvironment.MOCK,
+                operation=operation,
+                retrieved_at=now,
+                evidence_reference=f"LOCAL_SYNTHETIC_SEED_{self.code}_{operation.value}",
+            )
+
+        corporate = {owned for owned, _, _ in self.edges if owned != "ROOT"}
+        owners = sorted({owner for _, owner, _ in self.edges})
+        parties = tuple(
+            RegistryOwnershipParty(
+                party_id=party_id(owner),
+                party_type=(
+                    RegistryPartyType.LEGAL_ENTITY
+                    if owner in corporate
+                    else RegistryPartyType.NATURAL_PERSON
+                ),
+                name=(f"DEMO {self.code} "
+                      f"{'HOLDING ENTITY' if owner in corporate else 'PERSON'} {owner}"),
+                registration_identifier=(
+                    f"{int(self.uen[:-1]) + int(owner[1:]) * 100}{self.uen[-1]}"
+                    if owner in corporate
+                    else None
+                ),
+                country="SG",
+                provenance=provenance(RegistryOperation.OWNERSHIP_PARTIES),
+            )
+            for owner in owners
+        )
+        officers = tuple(
+            RegistryOfficer(
+                officer_id=f"DEMO_{self.code}_OFFICER_{index}",
+                name=f"DEMO {self.code} OFFICER {index}",
+                role=role,
+                appointment_date=date(2026, 1, 5),
+                country="SG",
+                provenance=provenance(RegistryOperation.OFFICERS),
+            )
+            for index, role in enumerate(("DIRECTOR", "SECRETARY"), 1)
+        )
+        relationships = tuple(
+            RegistryRelationship(
+                relationship_id=f"DEMO_{self.code}_EDGE_{index}",
+                owned_entity_id=party_id(owned),
+                owner_party_id=party_id(owner),
+                ownership_percentage=Decimal(percent),
+                provenance=provenance(RegistryOperation.RELATIONSHIPS),
+            )
+            for index, (owned, owner, percent) in enumerate(self.edges, 1)
+        )
+        counts = (1, len(officers), len(parties), len(relationships))
+        return RegistryAcquisitionBundle(
+            requested_identifier=self.uen,
+            root_party_id=root,
+            entity_profile=CanonicalLegalEntity(
+                registration_number=self.uen,
+                legal_name=self.name,
+                country_of_incorporation="SG",
+                party_type="PRIVATE COMPANY LIMITED BY SHARES",
+                registration_date=date(2026, 1, 5),
+                entity_status="LIVE",
+                registered_address=RegisteredAddress(
+                    address_line_1=self.street,
+                    postal_code=self.postal_code,
+                    country_code="SG",
+                ),
+                source=SourceMetadata(
+                    source_system=SourceSystem.ACRA,
+                    environment=SourceEnvironment.MOCK,
+                    registry_source_link=f"local-synthetic:LOCAL_SYNTHETIC_UAT_V1:{self.code}",
+                    retrieved_at=now,
+                ),
+            ),
+            officers=officers,
+            ownership_parties=parties,
+            relationships=relationships,
+            operation_results=tuple(
+                RegistryOperationResult(
+                    operation=operation,
+                    status=RegistryOperationStatus.COMPLETE,
+                    record_count=count,
+                    provenance=provenance(operation),
+                )
+                for operation, count in zip(RegistryOperation, counts, strict=True)
+            ),
+            status=RegistryAcquisitionStatus.COMPLETE,
+            retrieved_at=now,
+        )
+
+    def snapshot(self, now: datetime) -> RegistrySnapshotEntry:
+        key = RegistryCacheKey(
+            provider_identity=local_synthetic_registry_identity(), normalized_identifier=self.uen
+        )
+        return RegistrySnapshotEntry(
+            cache_schema_version=2,
+            cache_id=key.digest,
+            key=key,
+            revision=0,
+            acquisition=self.bundle(now),
+            freshness_anchor=now,
+            written_at=now,
+        )
+
+
+COMPANIES = (
+    HappyPathCompany(
+        "ALPHA",
+        "DEMO ALPHA CIRCULAR FYP TEST PTE. LTD.",
+        "209990101A",
+        "11 DEMO ALPHA WAY",
+        "000101",
+        (("ROOT", "P1", "60"), ("ROOT", "P2", "40")),
+        (("P1", "60"), ("P2", "40")),
+    ),
+    HappyPathCompany(
+        "BETA",
+        "DEMO BETA HOLDINGS FYP TEST PTE. LTD.",
+        "209990102B",
+        "22 DEMO BETA WAY",
+        "000102",
+        (("ROOT", "H1", "70"), ("ROOT", "P3", "30"), ("H1", "P1", "60"), ("H1", "P2", "40")),
+        (("P1", "42"), ("P2", "28"), ("P3", "30")),
+    ),
+    HappyPathCompany(
+        "GAMMA",
+        "DEMO GAMMA TECHNOLOGIES FYP TEST PTE. LTD.",
+        "209990103C",
+        "33 DEMO GAMMA WAY",
+        "000103",
+        (("ROOT", "P1", "50"), ("ROOT", "P2", "30"), ("ROOT", "P3", "20")),
+        (("P1", "50"), ("P2", "30"), ("P3", "20")),
+    ),
+    HappyPathCompany(
+        "DELTA",
+        "DEMO DELTA SUSTAINABILITY FYP TEST PTE. LTD.",
+        "209990104D",
+        "44 DEMO DELTA WAY",
+        "000104",
+        (
+            ("ROOT", "H1", "80"),
+            ("ROOT", "P4", "20"),
+            ("H1", "H2", "50"),
+            ("H1", "P3", "50"),
+            ("H2", "P1", "75"),
+            ("H2", "P2", "25"),
+        ),
+        (("P1", "30"), ("P2", "10"), ("P3", "40"), ("P4", "20")),
+    ),
+)
