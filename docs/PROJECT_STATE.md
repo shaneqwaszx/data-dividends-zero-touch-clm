@@ -5,6 +5,14 @@ It is not a sponsor contract, phase report, or substitute for current source and
 
 ## Verification metadata
 
+The unmerged 2026-10-05 post-closeout remediation starts from inspected main
+`1e0600335a0c7677b5cd5d5c9dd8401dfaf3b90f`. Its
+[existing-customer delta](integration/GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md)
+adds independent Search-blocked document review, retained candidate identity fields,
+and creator/version-bound CONFIRMED_EXISTING receipts in current schema9. Provider
+classifications and historical main verification metadata below are unchanged; its
+fresh tests/gate do not become new external interoperability or merged-main evidence.
+
 The current main source baseline was inspected on 2026-10-05 at
 `4ee8819d7404d6442e064fd60dcee03ccc84cf11` (merged PR #70, Phase25/26 POC hardening and sponsor demo readiness).
 PR #68 and PR #69 evidence retains its original tested/reviewed identity. The earlier

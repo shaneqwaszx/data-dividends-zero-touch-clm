@@ -5,6 +5,22 @@ questions do not block credential-free Phase 01 mock development unless stated.
 
 ## Current closeout decision packet — 2026-10-05
 
+Post-closeout bounded answers are recorded in
+[the family/confirmation note](../integration/GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md).
+Q-001 is partially answered for Maker versus downstream GoldTier four-eye/KYC ownership;
+the exact RFA transition remains unproved. Q-005/Q-015 are partially answered for
+existing-target precedence or explicit user choice, without a universal source policy.
+Q-007/Q-010 are partially answered for accepted Singapore POC values, optional
+ANZSIC/group-company fields and Requested/Active Policy Amend. Q-011 is partially
+answered for synchronous ordered operations, known validation-failure no-application,
+new corrected Amend intent and absence of upstream idempotency/retry; complete schemas
+remain open. GTAPICONNECTUSER is confirmed for current XPI; Q-008/Q-018 Production/
+PingFed authority remains open. Supplied EDS Search supports registration/external-key
+criteria; no same-artifact resend is required and no XPI alias is invented.
+Related-party child lifecycle, original-file upload and full legal/control UBO remain
+open. Historical questions below retain their dated evidence, including failed Garden
+Amend; sponsor clarification never authorizes replay or a new external attempt.
+
 The current question/status/proved/unproved/minimum-input/action table is in
 [Final POC limitations and next steps](../demo/FINAL_POC_LIMITATIONS_AND_NEXT_STEPS.md#sponsor-decision-packet).
 Historical phase-specific questions below retain their original evidence and dates.

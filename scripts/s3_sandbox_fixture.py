@@ -15,7 +15,7 @@ S3_SYNTHETIC_UEN = "202698765Z"
 class OfflineS3SandboxTransport(OfflineAcceptanceTransport):
     def __init__(self, scenario: str) -> None:
         super().__init__(S3_SYNTHETIC_NAME, S3_SYNTHETIC_UEN)
-        if scenario not in {"success", "uncertain-policy", "failed-policy"}:
+        if scenario not in {"success", "uncertain-policy", "failed-policy", "existing-customer"}:
             raise ValueError("Unknown offline Sandbox fixture")
         self.scenario = scenario
         self.counts = {"SEARCH": 0, "SHELL": 0, "POLICY": 0, "AMEND": 0, "READBACK": 0}
@@ -24,6 +24,22 @@ class OfflineS3SandboxTransport(OfflineAcceptanceTransport):
         parsed = urlsplit(url)
         if parsed.scheme != "https" or parsed.hostname != "sandbox.goldtier.invalid":
             raise ValueError("Offline fixture refuses another destination")
+        if self.scenario == "existing-customer":
+            if method != "GET" or not parsed.path.endswith("/customers/search"):
+                raise ValueError("Existing customer fixture forbids every target mutation")
+            query = parse_qs(parsed.query)
+            if query == {"legalName": [self.name], "countryOfIncorporation": ["SG"]}:
+                self.counts["SEARCH"] += 1
+                return GoldTierXpiHttpResponse(200, [{
+                    "goldTierId": "SYNTHETIC-GT-S3", "legalName": self.name,
+                }])
+            if query == {"goldTierID": ["SYNTHETIC-GT-S3"]}:
+                self.counts["READBACK"] += 1
+                return GoldTierXpiHttpResponse(200, [{
+                    "goldTierId": "SYNTHETIC-GT-S3", "legalName": self.name,
+                    "registrationNumber": self.uen, "countryOfIncorporation": "SG",
+                }])
+            raise ValueError("Existing customer fixture refuses another identity")
         if method == "GET":
             operation = "READBACK" if self.created else "SEARCH"
             query = parse_qs(parsed.query)

@@ -262,6 +262,16 @@ strictly compared, and legacy profiles that require address remain blocking.
 
 ## 9. CLM and target execution architecture
 
+Post-closeout 2026-10-05 delta: the existing CLM Search aggregate owns a bounded
+creator-confirmation receipt for one incomplete Sandbox candidate; zero-touch owns
+independent document review and the earliest remaining blocker. CONFIRMED_EXISTING is
+human evidence, distinct from provider EXACT_MATCH. Both reuse the existing target
+ledger's existing-party branch. Current XPI transport is unchanged; EDS replacement is
+a future explicitly assigned provider-family delta. See
+[the current reconciliation](integration/GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md).
+Historical prior-local-case wording below is superseded only for sufficient Sandbox
+UEN/country equality and this bounded confirmation; Mock proof remains required.
+
 Readiness consumes canonical entity, current documents, reconciliation state and
 ownership results. It creates an immutable target preparation snapshot. Target execution
 then uses one explicitly composed GoldTier dialect. Mock remains the default. The XPI

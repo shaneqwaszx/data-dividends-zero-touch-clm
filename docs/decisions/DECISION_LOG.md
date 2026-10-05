@@ -138,3 +138,34 @@ Status: implemented S2 candidate; fresh independent round1 PASS on the recorded
 147-path candidate. Later S3 changes require their own combined review.
 No external OCR, current-program external Sandbox proof, Live, legal compliance,
 production reviewer policy, publication or merge follows from this decision.
+
+## D-068 — post-closeout existing-customer identity and independent document review
+
+The 2026-10-05 owner-relayed sponsor answers permit bounded existing-customer value
+precedence/user choice, synchronous Shell/Policy/Amend, the current API user, accepted
+Singapore POC policy/booking entity, optional ANZSIC/group-company enrichment,
+Requested/Active Policy Amend, known validation-failure no customer-field application,
+a separately reviewed NEW corrected Amend, no upstream idempotency/retry, and downstream
+GoldTier four-eye/KYC ownership. This is bounded POC authority, not Production/PingFed
+or new external-call permission.
+
+Supplied EDS Search supports registrationNumber and externalSystemKey; current XPI
+retains its four documented aliases. Per the current explicit owner correction, EDS
+replacement is FUTURE_PROVIDER_FAMILY_DELTA, with no same-artifact resend required.
+One retained incomplete Sandbox candidate may be creator-confirmed under current
+Search/case/CLM/automation binding as CONFIRMED_EXISTING with actor/time/rationale.
+This is distinct from provider EXACT_MATCH. The server selects the retained ID; the
+action makes zero provider calls and never dispatches. Sufficient singleton Sandbox
+UEN/country evidence can resolve provider EXACT_MATCH; accepted Mock proof remains.
+The existing ledger skips duplicate Shell/new Policy and unnecessary Amend.
+
+Document/reconciliation review may proceed while Search stays the earliest blocker.
+Schema9 retains additive evidence/receipt fields; historical absence is unknown.
+Existing owners, CAS, no-replay and final Review & Send remain. This supersedes only
+the blanket no-candidate-confirmation/prior-local-case Sandbox restrictions in
+D-058/D-061/ADR-007 and ambiguous-Search document-review guard. Historical failures,
+uncertain target attempts, legal/control UBO, related-party child lifecycle and
+original-file upload remain unchanged. See
+[the authoritative family note](../integration/GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md).
+Status: USER_AUTHORIZED_POC / SPONSOR_CONFIRMED bounded answers; unmerged remediation
+with separate exact independent review required. Provider status remains SANDBOX_PARTIAL.

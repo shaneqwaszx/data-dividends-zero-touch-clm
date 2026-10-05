@@ -116,6 +116,21 @@ function setInputValue(input: HTMLInputElement, value: string) {
 }
 
 describe("DocumentEvidencePanel", () => {
+  it("keeps creator document decisions usable while GoldTier Search is unresolved", () => {
+    const onReview = vi.fn();
+    const paused = summary();
+    paused.current_stage = "GOLDTIER_SEARCH";
+    const document = documentFixture();
+    const { container: view } = renderPanel([document], onReview, paused);
+    const accept = [...view.querySelectorAll("button")].find(
+      (item) => item.textContent === "Accept legal name suggestion",
+    )!;
+    expect(accept.disabled).toBe(false);
+    clickButton("Accept legal name suggestion");
+    expect(onReview).toHaveBeenCalledWith(
+      document, { fieldKey: "legal_name", decision: "ACCEPTED" }, false,
+    );
+  });
   it("classifies null/absent supersession as current and keeps history read-only", () => {
     const current = documentFixture();
     const historical = documentFixture({ document_id: HISTORY_ID, display_name: "old-profile.pdf", superseded_by_document_id: CURRENT_ID });

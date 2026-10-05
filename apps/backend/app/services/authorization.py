@@ -182,6 +182,11 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     ),
     RoutePolicy(
         "POST",
+        "/api/clm/zero-touch/cases/{case_id}/confirm-existing-customer",
+        RouteAccess.CASE_SCOPED,
+    ),
+    RoutePolicy(
+        "POST",
         "/api/clm/zero-touch/cases/{case_id}/identity-search-recheck",
         RouteAccess.CASE_SCOPED,
     ),

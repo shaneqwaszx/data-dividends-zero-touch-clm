@@ -107,6 +107,7 @@ class BlockerDecisionAction(StrEnum):
     CORRECT_INITIAL_IDENTITY = "CORRECT_INITIAL_IDENTITY"
     RESOLVE_JURISDICTION_EVIDENCE = "RESOLVE_JURISDICTION_EVIDENCE"
     RUN_READ_ONLY_SEARCH_RECHECK = "RUN_READ_ONLY_SEARCH_RECHECK"
+    CONFIRM_EXISTING_GOLDTIER_CUSTOMER = "CONFIRM_EXISTING_GOLDTIER_CUSTOMER"
     REVIEW_ENTITY_IDENTITY = "REVIEW_ENTITY_IDENTITY"
     PROVIDE_REGISTRY_EVIDENCE = "PROVIDE_REGISTRY_EVIDENCE"
     ENABLE_SUPPORTED_REGISTRY_PROVIDER = "ENABLE_SUPPORTED_REGISTRY_PROVIDER"
@@ -499,6 +500,15 @@ def validate_automation_transition(
     if (
         candidate.status not in LEGAL_AUTOMATION_TRANSITIONS[previous.status]
         and not document_reupload_recovery
+        and not (
+            previous.status == AutomationStatus.WAITING_FOR_REVIEW
+            and previous.current_stage == AutomationStage.GOLDTIER_SEARCH
+            and candidate.status == AutomationStatus.PENDING_INPUTS
+            and candidate.current_stage == AutomationStage.DOCUMENT
+            and candidate.completed_stages == pending_completed_stages
+            and candidate.events
+            and candidate.events[-1].code == "EXISTING_GOLDTIER_CUSTOMER_CONFIRMED"
+        )
     ):
         raise ValueError("illegal zero-touch automation status transition")
     validate_automation_record(candidate)

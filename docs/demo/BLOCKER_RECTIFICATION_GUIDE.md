@@ -56,14 +56,14 @@ derived from the existing rule specs, including all current exception bindings.
 | GOLDTIER_CLASSIFICATION_REQUIRED | READINESS | USER_ACTION_REQUIRED | BPD-TARGET-CLASSIFICATION-1 | classification |
 | GOLDTIER_SEARCH_FAILED | GOLDTIER_SEARCH | EXTERNAL_DEPENDENCY | BPD-SEARCH-FAILURE-1 | search_failure |
 | GOLDTIER_SEARCH_REQUIRED | GOLDTIER_SEARCH | EXTERNAL_DEPENDENCY | BPD-SEARCH-FAILURE-1 | search_failure |
-| GOLDTIER_SEARCH_REVIEW_REQUIRED | GOLDTIER_SEARCH | USER_ACTION_REQUIRED | BPD-SEARCH-AMBIGUITY-1 | search_review |
+| GOLDTIER_SEARCH_REVIEW_REQUIRED | GOLDTIER_SEARCH | USER_ACTION_REQUIRED | BPD-SEARCH-AMBIGUITY-2 | search_review |
 | GOLDTIER_SEARCH_STALE | GOLDTIER_SEARCH | EXTERNAL_DEPENDENCY | BPD-SEARCH-FAILURE-1 | search_failure |
 | GT_EXISTING_PARTY_REVIEW_REQUIRED | GOLDTIER_SEARCH | OPERATOR_REVIEW_REQUIRED | BPD-EXISTING-PARTY-1 | existing_party |
 | GT_OPTIONAL_SECTION_REVIEW | MOCK_GOLDTIER | HARD_STOP | BPD-TARGET-PARTIAL-1 | target_partial |
 | GT_PARTIAL_SUCCESS | MOCK_GOLDTIER | HARD_STOP | BPD-TARGET-PARTIAL-1 | target_partial |
 | GT_READBACK_IDENTITY_REVIEW_REQUIRED | MOCK_GOLDTIER | HARD_STOP | BPD-TARGET-PARTIAL-1 | target_partial |
 | GT_SEARCH_FAILED | GOLDTIER_SEARCH | EXTERNAL_DEPENDENCY | BPD-SEARCH-FAILURE-1 | search_failure |
-| GT_SEARCH_IDENTITY_REVIEW_REQUIRED | GOLDTIER_SEARCH | USER_ACTION_REQUIRED | BPD-SEARCH-AMBIGUITY-1 | search_review |
+| GT_SEARCH_IDENTITY_REVIEW_REQUIRED | GOLDTIER_SEARCH | USER_ACTION_REQUIRED | BPD-SEARCH-AMBIGUITY-2 | search_review |
 | IDP_PROCESSING_FAILED | DOCUMENT | USER_ACTION_REQUIRED | BPD-DOCUMENT-REPLACEMENT-1 | document_replacement |
 | INITIAL_IDENTITY_INCOMPLETE | REGISTRY > GOLDTIER_SEARCH | USER_ACTION_REQUIRED | BPD-IDENTITY-1 | wrong_uen |
 | INITIAL_IDENTITY_NOT_ELIGIBLE | REGISTRY > GOLDTIER_SEARCH | USER_ACTION_REQUIRED | BPD-IDENTITY-1 | wrong_uen |
@@ -700,7 +700,7 @@ Codes: GOLDTIER_SEARCH_FAILED, GOLDTIER_SEARCH_REQUIRED, GOLDTIER_SEARCH_STALE, 
 | Provider calls expected | All external providers: 0. Before correction the offline target operation list is [SEARCH]; after correction it is [SEARCH, SEARCH], with 0 target writes. Only later explicit confirmation permits the ordinary inert target sequence. |
 | Limitations | EXTERNAL_DEPENDENCY describes the unavailable Search prerequisite. The dedicated browser fixture exercises an offline recovery path, not real provider availability. Timeout/malformed/unavailable variants also retain backend unit coverage. |
 
-## BPD-SEARCH-AMBIGUITY-1
+## BPD-SEARCH-AMBIGUITY-2
 
 Codes: GOLDTIER_SEARCH_REVIEW_REQUIRED, GT_SEARCH_IDENTITY_REVIEW_REQUIRED.
 
@@ -710,9 +710,9 @@ Codes: GOLDTIER_SEARCH_REVIEW_REQUIRED, GT_SEARCH_IDENTITY_REVIEW_REQUIRED.
 | Classification | USER_ACTION_REQUIRED |
 | Durable policy classification | USER_ACTION_REQUIRED |
 | Exception bindings | ENTITY_RESOLUTION_REVIEW_REQUIRED |
-| Human explanation / why paused | Ambiguous target identity requires corrected identity evidence and a new read-only Search; no candidate is selected automatically. |
+| Human explanation / why paused | Target identity requires a bounded current-evidence decision or corrected identity and a new read-only Search; incomplete or multiple candidates are never auto-selected. |
 | Required input/evidence | CURRENT_CANONICAL_IDENTITY, CURRENT_SEARCH_CHECKPOINT |
-| Declared available actions | CORRECT_INITIAL_IDENTITY, RUN_READ_ONLY_SEARCH_RECHECK |
+| Declared available actions | CORRECT_INITIAL_IDENTITY, RUN_READ_ONLY_SEARCH_RECHECK, CONFIRM_EXISTING_GOLDTIER_CUSTOMER |
 | Current action predicate | Declared capability is not a currently valid action. Decision metadata intersects declared actions with owner-supplied available actions (or current reconciliation allowed_actions). Required inputs control resume_ready. Browser mutations also require the current backend summary/action and the owning guards below. |
 | No current valid action reason | When those current guards fail, no mutation/automatic resume is authorized. See each declared action's absence reason; do not invent a retry or waiver. |
 | Permitted owner | IDENTITY_REVIEW_OWNER |
@@ -727,19 +727,20 @@ Codes: GOLDTIER_SEARCH_REVIEW_REQUIRED, GT_SEARCH_IDENTITY_REVIEW_REQUIRED.
 |---|---|---|---|---|
 | CORRECT_INITIAL_IDENTITY | Registry identity > IdentityCorrectionForm > verify/correct identity | CASE_ACCESS / CLIENT_ONBOARDER, RELATIONSHIP_MANAGER, DIRECTOR | ZeroTouchOrchestrator.repair_initial_identity_and_recheck > OnboardingService.repair_initial_identity_and_recheck | Authenticated CASE_ACCESS actor in the case team (Director may use CASE_GLOBAL); backend reauthorization inside the owning lock; current expected revisions; no completed case, target confirmation, target result, or frozen submission. Only the server-bound case creator may decide evidence. Use registry-identity for a retained registry/UEN issue: eligible SG UEN is verified before canonical mutation. DOCUMENT choice requires current document ID/event count, eligible non-rejected UEN and sufficient reviewed/confident field. Initial missing identity uses identity-search-recheck. Histories must each have room below 16 entries. Absence: Unavailable when identity is frozen, versions/history are stale/full, the chosen document is unusable, or registry verification cannot validate the supplied UEN. |
 | RUN_READ_ONLY_SEARCH_RECHECK | Registry identity > IdentityCorrectionForm > identity Search recheck | CASE_ACCESS / CLIENT_ONBOARDER, RELATIONSHIP_MANAGER, DIRECTOR | ZeroTouchOrchestrator.repair_initial_identity_and_recheck | Authenticated CASE_ACCESS actor in the case team (Director may use CASE_GLOBAL); backend reauthorization inside the owning lock; current expected revisions; no completed case, target confirmation, target result, or frozen submission. Only the server-bound case creator may revise identity. identity-search-recheck requires a retained completed/failed/review Search checkpoint or INITIAL_IDENTITY_INCOMPLETE with no initial identity. It is a bounded read-only Search, not candidate confirmation or target approval. Absence: No recheck when checkpoint/initial-identity guard, frozen-state, history capacity or expected versions fail; provider failure is not NO_MATCH. |
+| CONFIRM_EXISTING_GOLDTIER_CUSTOMER | Registry verification > Confirm existing GoldTier customer | CASE_ACCESS / CLIENT_ONBOARDER, RELATIONSHIP_MANAGER, DIRECTOR | ZeroTouchOrchestrator.confirm_existing_customer > ClmOrchestrationService.confirm_existing_customer | Authenticated CASE_ACCESS actor in the case team (Director may use CASE_GLOBAL); backend reauthorization inside the owning lock; current expected revisions; no completed case, target confirmation, target result, or frozen submission. Creator-only CASE_ACCESS; one retained incomplete Sandbox candidate, matching legal name and no known identity contradiction; exact request/automation/CLM/case versions and a rationale. The server derives the provider ID. Confirmation makes no target call. Absence: Unavailable for stale/frozen cases, conflicts, multiple candidates, unsupported provider identity or prior target execution. Continue evidence review separately after recording. |
 
 | Demo field | Synthetic/offline recipe |
 |---|---|
 | Scenario | search_review |
 | How to trigger / synthetic fixture | Use scripts/run_e2e.py --registry-demo synthetic-target-ambiguity with focused --grep 'Slice F ambiguous target match'. The isolated fixture creates two actual process-local Mock candidates through accepted Shell/Policy operations. |
-| What the user sees | Read-only Search identity review and bounded correction/recheck; no candidate binding or duplicate customer creation action. |
-| Why paused | Ambiguous target identity requires corrected identity evidence and a new read-only Search; no candidate is selected automatically. |
-| Exact corrective action | Registry identity > correct the explicit name/UEN/SG > authorized read-only recheck; examine current resolver result. |
+| What the user sees | Read-only Search identity review and bounded correction/recheck for multiple Mock candidates. A current incomplete singleton Sandbox candidate may instead expose explicit creator confirmation of retained evidence. |
+| Why paused | Target identity requires a bounded current-evidence decision or corrected identity and a new read-only Search; incomplete or multiple candidates are never auto-selected. |
+| Exact corrective action | Registry identity > correct the explicit name/UEN/SG > authorized read-only recheck; examine current resolver result. For the separate singleton Sandbox scenario, compare retained candidate evidence, enter a rationale, and choose Confirm existing GoldTier customer; no caller-entered ID is accepted. |
 | Expected automatic resume | Conditional. The owning mutation re-evaluates current evidence and automatically continues when its predicates pass; otherwise the exact remaining action is shown. |
 | Expected next stage | Registry/current evidence or the exact unresolved Search review; target writes require resolver prerequisites and final confirmation. |
 | Retained evidence/history | Current evidence remains bound to its case/version/generation. Superseded documents, identity corrections, prior registry/ownership evidence, decisions, and timeline stay historical. Resolved/cancelled exceptions leave active issues; stale requests cannot make them current again. |
 | Provider calls expected | All external providers: 0. One local read-only Search per authorized attempt; zero Shell/Policy/Amend while identity remains ambiguous. Fixture setup uses four local Mock mutations separately; no browser-journey target writes. |
-| Limitations | Use isolated local Mock/LOCAL fixtures only. Confirmation is local POC dispatch, not sponsor approval or legal UBO. A stated control is conditional on backend current actions and state; no manual refresh is part of the supported happy recovery. Recheck is not identity confirmation/approval by itself. |
+| Limitations | Use isolated local Mock/LOCAL fixtures only. Confirmation is local POC dispatch, not sponsor approval or legal UBO. A stated control is conditional on backend current actions and state; no manual refresh is part of the supported happy recovery. Recheck is not identity confirmation/approval by itself. Human-confirmed identity remains CONFIRMED_EXISTING rather than provider EXACT_MATCH. Its offline browser scenario is --sandbox-demo existing-customer with --grep '@s3-sandbox-existing-customer'; confirmation performs zero provider calls. |
 
 ## BPD-EXISTING-PARTY-1
 

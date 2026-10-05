@@ -18,6 +18,7 @@ from app.domain.clm import (
     ClmWarningCode,
     GoldTierSearchCheckpointStatus,
     GoldTierSearchDisposition,
+    can_confirm_existing_customer,
 )
 from app.domain.documents import (
     DocumentAutoClearBlocker,
@@ -286,6 +287,7 @@ class ZeroTouchOrchestrator:
             in {
                 GoldTierSearchDisposition.NO_MATCH,
                 GoldTierSearchDisposition.EXACT_MATCH,
+                GoldTierSearchDisposition.CONFIRMED_EXISTING,
             }
         )
         search_review = bool(
@@ -829,24 +831,32 @@ class ZeroTouchOrchestrator:
                 reviewed_field is not None
                 and reviewed_field.review_status != FieldReviewStatus.PENDING
             )
-            ownership_review = False
+            independent_review = False
             if (
                 automation is not None
                 and automation.status == AutomationStatus.WAITING_FOR_REVIEW
-                and automation.current_stage == AutomationStage.OWNERSHIP
+                and automation.current_stage in {
+                    AutomationStage.OWNERSHIP, AutomationStage.GOLDTIER_SEARCH,
+                }
             ):
                 case = self._cases.get_case(case_id)
                 clm = self._clm.get(case_id=case_id)
                 ownership = self._ownership.get(case_id=case_id)
-                ownership_review = (
+                independent_review = (
                     case is not None
                     and clm is not None
-                    and ownership is not None
-                    and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
+                    and (
+                        automation.current_stage == AutomationStage.GOLDTIER_SEARCH
+                        or (
+                            ownership is not None
+                            and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
+                        )
+                    )
                     and case.target_dispatch_confirmation is None
                     and case.goldtier_result is None
                     and clm.submission_snapshot is None
                     and clm.status != ClmStatus.SUBMITTING
+                    and not self._cases.has_retained_target_execution(case_id)
                 )
             if (
                 automation is not None
@@ -857,7 +867,7 @@ class ZeroTouchOrchestrator:
                         automation.status == AutomationStatus.WAITING_FOR_REVIEW
                         and automation.current_stage == AutomationStage.DOCUMENT
                     )
-                    or ownership_review
+                    or independent_review
                 )
             ):
                 raise ZeroTouchRequestError(
@@ -893,7 +903,23 @@ class ZeroTouchOrchestrator:
             )
 
     def get(self, *, case_id: UUID) -> ZeroTouchAutomationRecord | None:
-        return self._repository.get_for_case(case_id)
+        record = self._repository.get_for_case(case_id)
+        if (
+            record is None or record.status != AutomationStatus.WAITING_FOR_REVIEW
+            or record.current_stage != AutomationStage.GOLDTIER_SEARCH
+        ):
+            return record
+        clm = self._clm.get(case_id=case_id)
+        if (
+            clm is None or clm.target_search_checkpoint is None
+            or clm.target_search_checkpoint.confirmation is None
+        ):
+            return record
+        with self._cases.case_lock(case_id):
+            record = self._repository.get_for_case(case_id)
+            return (
+                self._project_existing_confirmation_locked(record) if record is not None else None
+            )
 
     def submit_manual_ownership_evidence(
         self,
@@ -1232,6 +1258,90 @@ class ZeroTouchOrchestrator:
             if saved.active_exceptions:
                 return saved
             return self._advance_locked(case_id=case_id)
+
+    def confirm_existing_customer(
+        self, *, case_id: UUID, actor_id: str, search_request_id: UUID,
+        expected_automation_version: int, expected_clm_version: int,
+        expected_case_event_count: int, rationale: str,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> ZeroTouchAutomationRecord:
+        """Record a case-bound identity decision without advancing or dispatching."""
+        with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            record = self._require_record(case_id)
+            if record.version != expected_automation_version:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_EXISTING_CUSTOMER_STALE",
+                    message="The onboarding evidence changed before confirmation.",
+                )
+            if (
+                record.status != AutomationStatus.WAITING_FOR_REVIEW
+                or record.current_stage != AutomationStage.GOLDTIER_SEARCH
+                or not any(item.stage == AutomationStage.GOLDTIER_SEARCH
+                           for item in record.active_exceptions)
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_EXISTING_CUSTOMER_NOT_ALLOWED",
+                    message="Existing-customer confirmation is not accepted at this stage.",
+                )
+            try:
+                self._clm.confirm_existing_customer(
+                    case_id=case_id, actor_id=actor_id, search_request_id=search_request_id,
+                    expected_clm_version=expected_clm_version,
+                    expected_case_event_count=expected_case_event_count, rationale=rationale,
+                )
+            except ClmRequestError as exc:
+                raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
+            return self._project_existing_confirmation_locked(record)
+
+    def _project_existing_confirmation_locked(
+        self, record: ZeroTouchAutomationRecord,
+    ) -> ZeroTouchAutomationRecord:
+        """Recover only the local stage projection after a retained identity decision."""
+        clm = self._clm.get(case_id=record.case_id)
+        checkpoint = clm.target_search_checkpoint if clm is not None else None
+        receipt = checkpoint.confirmation if checkpoint is not None else None
+        if (
+            receipt is None or checkpoint is None
+            or not self._clm.existing_confirmation_is_current(case_id=record.case_id)
+            or checkpoint.status != GoldTierSearchCheckpointStatus.COMPLETED
+            or record.status != AutomationStatus.WAITING_FOR_REVIEW
+            or record.current_stage != AutomationStage.GOLDTIER_SEARCH
+            or not any(
+                item.stage == AutomationStage.GOLDTIER_SEARCH
+                and item.evidence_version == f"goldtier-search:{checkpoint.request_id}"
+                for item in record.active_exceptions
+            )
+        ):
+            return record
+        candidate = record.model_copy(deep=True)
+        if candidate.started_at is None:
+            candidate.started_at = receipt.confirmed_at
+        for item in candidate.active_exceptions:
+            if item.stage == AutomationStage.GOLDTIER_SEARCH:
+                item.status = BusinessExceptionStatus.RESOLVED
+                item.resolved_at = receipt.confirmed_at
+                self._retain_resolution_actor(item, receipt.actor_id)
+                candidate.metrics.exceptions_resolved += 1
+        if AutomationStage.GOLDTIER_SEARCH not in candidate.completed_stages:
+            candidate.completed_stages += (AutomationStage.GOLDTIER_SEARCH,)
+            candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
+        candidate.metrics.human_interventions += 1
+        candidate.status = (
+            AutomationStatus.WAITING_FOR_REVIEW if candidate.active_exceptions
+            else AutomationStatus.PENDING_INPUTS
+        )
+        candidate.current_stage = (
+            _earliest_open_stage(candidate) if candidate.active_exceptions
+            else _next_stage(candidate.completed_stages, order=_stage_order(candidate))
+        )
+        candidate = self._append_event(
+            candidate, event_type=AutomationEventType.GOLDTIER_SEARCH_COMPLETED,
+            outcome=EventOutcome.SUCCEEDED, code="EXISTING_GOLDTIER_CUSTOMER_CONFIRMED",
+            message="The creator confirmed retained customer identity; no target call ran.",
+        )
+        return self._save(record, candidate)
 
     def confirm_target_dispatch(
         self,
@@ -1961,7 +2071,7 @@ class ZeroTouchOrchestrator:
                     blocker_codes=active.blocker_codes,
                 )
             candidate.status = AutomationStatus.WAITING_FOR_REVIEW
-            candidate.current_stage = AutomationStage.DOCUMENT
+            candidate.current_stage = _earliest_open_stage(candidate)
             return self._save(record, candidate)
         remaining = candidate.active_exceptions
         candidate.status = (
@@ -2297,6 +2407,7 @@ class ZeroTouchOrchestrator:
                     in {
                         GoldTierSearchDisposition.NO_MATCH,
                         GoldTierSearchDisposition.EXACT_MATCH,
+                        GoldTierSearchDisposition.CONFIRMED_EXISTING,
                     }
                 ):
                     record = self._complete_stage(
@@ -3318,6 +3429,17 @@ class ZeroTouchOrchestrator:
         bound_codes = blocker_codes or (blocker_code,)
         bound_exception_id = exception_id or self._uuid_factory()
         created_at = self._clock()
+        current_actions = frozenset(
+            action for code in bound_codes for action in self._decision_actions_for_code(code)
+        )
+        case = self._cases.get_case(record.case_id)
+        clm = self._clm.get(case_id=record.case_id)
+        if (
+            blocker_code == "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
+            and case is not None and clm is not None
+            and can_confirm_existing_customer(case, clm.target_search_checkpoint)
+        ):
+            current_actions |= frozenset({BlockerDecisionAction.CONFIRM_EXISTING_GOLDTIER_CUSTOMER})
         decision_metadata = self._blocker_decision_policy.evaluate_open_exception(
             OpenBlockerDecisionInput(
                 exception_type=exception_type,
@@ -3327,11 +3449,7 @@ class ZeroTouchOrchestrator:
                     blocker_codes=bound_codes,
                     actions=actions,
                 ),
-                available_actions=frozenset(
-                    action
-                    for code in bound_codes
-                    for action in self._decision_actions_for_code(code)
-                ),
+                available_actions=current_actions,
                 available_resolution_actions=frozenset(actions),
             )
         )

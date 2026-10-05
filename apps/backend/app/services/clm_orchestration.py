@@ -21,6 +21,7 @@ from app.domain.clm import (
     ClmWarningCode,
     ClmWorkflowEvent,
     EvidenceReference,
+    ExistingCustomerConfirmation,
     GoldTierSearchCheckpoint,
     GoldTierSearchCheckpointStatus,
     GoldTierSearchDisposition,
@@ -30,6 +31,7 @@ from app.domain.clm import (
     RelatedPartySubmissionPreparation,
     RetainedGoldTierCandidate,
     StageReadiness,
+    can_confirm_existing_customer,
 )
 from app.domain.documents import (
     DocumentAutoClearBlocker,
@@ -304,12 +306,14 @@ class ClmOrchestrationService:
                 status_code=search.status_code,
                 candidate_count=search.candidate_count,
                 candidates=tuple(
-                    RetainedGoldTierCandidate(party_id=party_id, legal_name=legal_name)
-                    for party_id, legal_name in zip(
-                        search.candidate_party_ids,
-                        search.candidate_legal_names,
-                        strict=True,
+                    RetainedGoldTierCandidate(
+                        party_id=party_id, legal_name=search.candidate_legal_names[index],
+                        registration_number=search.candidate_registration_numbers[index]
+                        if search.candidate_registration_numbers else None,
+                        country=search.candidate_countries[index]
+                        if search.candidate_countries else None,
                     )
+                    for index, party_id in enumerate(search.candidate_party_ids)
                 ),
                 selected_party_id=search.selected_party_id,
                 resolution_outcome=(
@@ -351,6 +355,70 @@ class ClmOrchestrationService:
                 ),
                 code=checkpoint.code,
                 message=checkpoint.message,
+            )
+
+    def existing_confirmation_is_current(self, *, case_id: UUID) -> bool:
+        record = self._require_record(case_id)
+        case = self._require_case(case_id)
+        checkpoint = record.target_search_checkpoint
+        return bool(
+            checkpoint is not None and checkpoint.confirmation is not None
+            and checkpoint.identity_fingerprint == _target_identity_fingerprint(case)
+        )
+
+    def confirm_existing_customer(
+        self, *, case_id: UUID, actor_id: str, search_request_id: UUID,
+        expected_clm_version: int, expected_case_event_count: int, rationale: str,
+    ) -> ClmOrchestrationRecord:
+        """Resolve one retained candidate under the existing case/CLM lock."""
+        with self._lock_for(case_id):
+            record = self._require_record(case_id)
+            case = self._require_case(case_id)
+            checkpoint = record.target_search_checkpoint
+            if (
+                record.version != expected_clm_version
+                or len(case.events) != expected_case_event_count
+                or checkpoint is None or checkpoint.request_id != search_request_id
+                or checkpoint.identity_fingerprint != _target_identity_fingerprint(case)
+            ):
+                raise ClmRequestError(
+                    code="CLM_EXISTING_CUSTOMER_STALE",
+                    message="The retained Search or case evidence changed before confirmation.",
+                )
+            if (
+                record.submission_snapshot is not None
+                or checkpoint.provider_mode != self._cases.target_provider_mode
+                or checkpoint.provider_mode != record.submission_plan.environment
+                or self._cases.has_retained_target_execution(case_id)
+                or not can_confirm_existing_customer(case, checkpoint)
+            ):
+                raise ClmRequestError(
+                    code="CLM_EXISTING_CUSTOMER_NOT_ALLOWED",
+                    message="The retained candidate cannot be confirmed in the current case.",
+                )
+            receipt = ExistingCustomerConfirmation(
+                request_id=checkpoint.request_id, party_id=checkpoint.candidates[0].party_id,
+                actor_id=actor_id, confirmed_at=self._clock(), rationale=rationale.strip(),
+                case_event_count=expected_case_event_count, clm_version=expected_clm_version,
+            )
+            resolved = GoldTierSearchCheckpoint.model_validate({
+                **checkpoint.model_dump(), "confirmation": receipt,
+                "status": GoldTierSearchCheckpointStatus.COMPLETED,
+                "disposition": GoldTierSearchDisposition.CONFIRMED_EXISTING,
+                "selected_party_id": receipt.party_id,
+                "resolution_outcome": "OPERATOR_CONFIRMED_EXISTING",
+                "code": "EXISTING_GOLDTIER_CUSTOMER_CONFIRMED",
+                "message": (
+                    "The creator confirmed the retained existing customer; no target write ran."
+                ),
+            })
+            candidate = record.model_copy(deep=True)
+            candidate.target_search_checkpoint = resolved
+            candidate.readiness = self._evaluate_current(case, search_checkpoint=resolved)
+            candidate.status = _status_for_readiness(case, candidate.readiness)
+            return self._record_event(
+                record, candidate, event_type=ClmEventType.GOLDTIER_SEARCH_COMPLETED,
+                outcome=EventOutcome.SUCCEEDED, code=resolved.code, message=resolved.message,
             )
 
     def attempted_target_operations(self, *, case_id: UUID) -> tuple[str, ...]:
@@ -435,7 +503,14 @@ class ClmOrchestrationService:
             existing_confirmation = case.target_dispatch_confirmation
             if existing_confirmation is None and record.submission_snapshot is None:
                 previous_search = record.target_search_checkpoint
-                record = self._perform_early_search(record, case, force=True)
+                # A creator-confirmed retained request remains the identity evidence
+                # until its canonical fingerprint changes. A fresh identity Search
+                # would replace that request and must require a new decision.
+                if (
+                    previous_search is None or previous_search.confirmation is None
+                    or previous_search.identity_fingerprint != _target_identity_fingerprint(case)
+                ):
+                    record = self._perform_early_search(record, case, force=True)
                 current_search = record.target_search_checkpoint
                 if not _materially_equivalent_search(previous_search, current_search):
                     # A fresh read changed the proposed target path.  Retain the new
@@ -580,6 +655,7 @@ class ClmOrchestrationService:
                         not in {
                             GoldTierSearchDisposition.NO_MATCH,
                             GoldTierSearchDisposition.EXACT_MATCH,
+                            GoldTierSearchDisposition.CONFIRMED_EXISTING,
                         }
                     ):
                         raise ClmRequestError(
@@ -589,9 +665,7 @@ class ClmOrchestrationService:
                             ),
                         )
                     search_resolution = (
-                        GoldTierSearchResolution.EXACT_MATCH
-                        if checkpoint.disposition == GoldTierSearchDisposition.EXACT_MATCH
-                        else GoldTierSearchResolution.NO_MATCH
+                        GoldTierSearchResolution(checkpoint.disposition.value)
                     )
                     try:
                         receipt = self._cases.advance_incremental_submission_input(
@@ -935,12 +1009,14 @@ class ClmOrchestrationService:
                 status_code=initial_search.status_code,
                 candidate_count=initial_search.candidate_count,
                 candidates=tuple(
-                    RetainedGoldTierCandidate(party_id=party_id, legal_name=legal_name)
-                    for party_id, legal_name in zip(
-                        initial_search.candidate_party_ids,
-                        initial_search.candidate_legal_names,
-                        strict=True,
+                    RetainedGoldTierCandidate(
+                        party_id=party_id, legal_name=initial_search.candidate_legal_names[index],
+                        registration_number=initial_search.candidate_registration_numbers[index]
+                        if initial_search.candidate_registration_numbers else None,
+                        country=initial_search.candidate_countries[index]
+                        if initial_search.candidate_countries else None,
                     )
+                    for index, party_id in enumerate(initial_search.candidate_party_ids)
                 ),
                 selected_party_id=initial_search.selected_party_id,
                 resolution_outcome=(

@@ -473,7 +473,7 @@ _RULE_SPECS: tuple[_RuleSpec, ...] = (
         codes=frozenset({"GT_SEARCH_IDENTITY_REVIEW_REQUIRED", "GOLDTIER_SEARCH_REVIEW_REQUIRED"}),
         exception_types=frozenset({BusinessExceptionType.ENTITY_RESOLUTION_REVIEW_REQUIRED}),
         classification=BlockerDecisionClassification.USER_ACTION_REQUIRED,
-        rule_version="BPD-SEARCH-AMBIGUITY-1",
+        rule_version="BPD-SEARCH-AMBIGUITY-2",
         owner=BlockerDecisionOwner.IDENTITY_REVIEW_OWNER,
         minimum_inputs=(
             BlockerMinimumInput.CURRENT_CANONICAL_IDENTITY,
@@ -482,13 +482,14 @@ _RULE_SPECS: tuple[_RuleSpec, ...] = (
         permitted_actions=(
             BlockerDecisionAction.CORRECT_INITIAL_IDENTITY,
             BlockerDecisionAction.RUN_READ_ONLY_SEARCH_RECHECK,
+            BlockerDecisionAction.CONFIRM_EXISTING_GOLDTIER_CUSTOMER,
         ),
         resume_stage=AutomationStage.GOLDTIER_SEARCH,
         resume_transition=ResumeTransition.RECHECK_FROM_STAGE,
         invalidated_dependencies=_IDENTITY_INVALIDATIONS[1:],
         explanation=(
-            "Ambiguous target identity requires corrected identity evidence and a new read-only "
-            "Search; no candidate is selected automatically."
+            "Target identity requires a bounded current-evidence decision or corrected identity "
+            "and a new read-only Search; incomplete or multiple candidates are never auto-selected."
         ),
     ),
     _RuleSpec(
@@ -984,6 +985,17 @@ def _unavailable_action(
 
 
 _ACTION_PATHS: Final[Mapping[BlockerDecisionAction, BlockerActionPath]] = MappingProxyType({
+    BlockerDecisionAction.CONFIRM_EXISTING_GOLDTIER_CUSTOMER: _local_action(
+        BlockerDecisionAction.CONFIRM_EXISTING_GOLDTIER_CUSTOMER,
+        "Registry verification > Confirm existing GoldTier customer",
+        "ZeroTouchOrchestrator.confirm_existing_customer > "
+        "ClmOrchestrationService.confirm_existing_customer",
+        "Creator-only CASE_ACCESS; one retained incomplete Sandbox candidate, matching legal "
+        "name and no known identity contradiction; exact request/automation/CLM/case versions "
+        "and a rationale. The server derives the provider ID. Confirmation makes no target call.",
+        "Unavailable for stale/frozen cases, conflicts, multiple candidates, unsupported provider "
+        "identity or prior target execution. Continue evidence review separately after recording.",
+    ),
     BlockerDecisionAction.CORRECT_INITIAL_IDENTITY: _local_action(
         BlockerDecisionAction.CORRECT_INITIAL_IDENTITY,
         "Registry identity > IdentityCorrectionForm > verify/correct identity",
@@ -1189,7 +1201,7 @@ _RULE_SCENARIOS: Final[Mapping[str, str]] = MappingProxyType({
     "BPD-OWNERSHIP-REQUIRED-1": "ownership",
     "BPD-OWNERSHIP-REVIEW-1": "ownership",
     "BPD-OWNERSHIP-FAILURE-1": "ownership_failure",
-    "BPD-SEARCH-AMBIGUITY-1": "search_review",
+    "BPD-SEARCH-AMBIGUITY-2": "search_review",
     "BPD-SEARCH-FAILURE-1": "search_failure",
     "BPD-ENTITY-REVIEW-1": "advisory_review",
     "BPD-MOCK-RISK-1": "risk_review",

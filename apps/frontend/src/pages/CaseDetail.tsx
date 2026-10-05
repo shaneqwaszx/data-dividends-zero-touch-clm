@@ -15,6 +15,7 @@ import {
   intakeZeroTouchDocument,
   replaceZeroTouchDocument,
   recheckZeroTouchIdentitySearch,
+  confirmExistingGoldTierCustomer,
   rebindZeroTouchPolicy,
   submitManualOwnershipEvidence,
   reviewDocument,
@@ -66,7 +67,9 @@ import {
 import CaseStateExplanationPanel, { type EvidenceFocusTarget } from "./CaseStateExplanationPanel";
 import PriorityControl, { PriorityBadge } from "./PriorityControl";
 import DeleteCaseDialog from "./DeleteCaseDialog";
-import DocumentEvidencePanel, { type DocumentReviewRequest } from "./DocumentEvidencePanel";
+import DocumentEvidencePanel, {
+  isCurrentDocument, type DocumentReviewRequest,
+} from "./DocumentEvidencePanel";
 import OwnershipPathExplorer from "./OwnershipPathExplorer";
 import IntelligencePanel from "./IntelligencePanel";
 import GoldTierRequestPreview from "./GoldTierRequestPreview";
@@ -709,6 +712,10 @@ export default function CaseDetail({
           stages={stages}
           historyOnly={historyOnly}
           isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
+          onConfirmExisting={(rationale) => void runMutation(
+            () => confirmExistingGoldTierCustomer(summary, rationale),
+            "Confirming retained existing customer…",
+          )}
           onEvidenceAction={(target) => {
             const targetIds = {
               DOCUMENTS: EVIDENCE_TARGET_IDS.documents,
@@ -851,6 +858,11 @@ export default function CaseDetail({
         </StageDisclosure>
         <StageDisclosure title="Document verification" active={!identityConflict && stageIsActive(["DOCUMENT"])}>
           {renderInterventions(["DOCUMENT"])}
+          {summary.status === "PENDING_INPUTS" && documents.some(isCurrentDocument)
+            && summary.timeline.at(-1)?.code === "EXISTING_GOLDTIER_CUSTOMER_CONFIRMED"
+            && <button type="button" className="btn btn-primary"
+              disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
+              onClick={handleContinueRecoveredIntake}>Continue evidence review</button>}
         {summary.reconciliation && summary.current_stage === "DOCUMENT" && (
           <div key={`${evidenceIdentity}:reconciliation`} id={EVIDENCE_TARGET_IDS.reconciliation} className="evidence-focus-target" tabIndex={-1}>
             <ConfirmDetailsPanel summary={summary} isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true} />

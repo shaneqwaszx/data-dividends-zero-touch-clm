@@ -2,6 +2,13 @@
 
 ## Status and evidence boundary
 
+Current 2026-10-05 overlay: see [existing-customer/family reconciliation](GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md).
+The four XPI Search aliases are unchanged. Registration/external-key Search is supplied
+for the distinct EDS endpoint, not current XPI transport syntax. Human confirmation
+retains a singleton incomplete candidate as CONFIRMED_EXISTING; sufficient Sandbox
+registration/country evidence remains provider EXACT_MATCH. External correlation is
+never unique target identity. The initial historical mapping rows below are not rewritten.
+
 This matrix reconciles the existing provider-neutral case/target owners with the
 read-only sponsor files supplied on 24 September 2026:
 

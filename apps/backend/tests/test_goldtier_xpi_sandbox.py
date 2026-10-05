@@ -284,7 +284,10 @@ def test_clm_submission_plan_uses_the_configured_sandbox_preview() -> None:
     assert record.submission_plan.related_party_integration == "BLOCKED_CHILD_ID_LIFECYCLE"
 
 
-def _sandbox_zero_touch_system(transport: FakeXpiTransport) -> tuple[object, object, object]:
+def _sandbox_zero_touch_system(
+    transport: FakeXpiTransport, *, reviewed_test_enrichment: bool = True,
+    acra_connector=None,
+) -> tuple[object, object, object]:
     documents = importlib.import_module("app.services.document_processing")
     document_repository = importlib.import_module("app.services.document_repository")
     mock_idp = importlib.import_module("app.connectors.mock_idp")
@@ -295,7 +298,10 @@ def _sandbox_zero_touch_system(transport: FakeXpiTransport) -> tuple[object, obj
     clm_repository = importlib.import_module("app.services.clm_repository")
     zero_touch = importlib.import_module("app.services.zero_touch_orchestration")
     zero_touch_repository = importlib.import_module("app.services.zero_touch_repository")
-    cases = _xpi_onboarding_service(transport)
+    cases = _xpi_onboarding_service(
+        transport, reviewed_test_enrichment=reviewed_test_enrichment,
+        acra_connector=acra_connector,
+    )
     document_service = documents.DocumentProcessingService(
         cases=cases,
         idp=mock_idp.MockIdpProvider(),
@@ -355,6 +361,315 @@ def _run_sandbox_case(transport: FakeXpiTransport) -> tuple[object, object, obje
     clm = orchestrator._clm.get(case_id=created.case_id)  # noqa: SLF001
     assert clm is not None
     return orchestrator, documents, ownership, terminal
+
+
+def _existing_candidate_system(candidates=None, *, creator="maya-lim"):
+    from app.connectors.goldtier_xpi import GoldTierXpiHttpResponse
+    from app.domain.access import TeamId
+    candidate = {"goldTierId": 143878, "legalName": "MERLION CIRCULAR LABS PTE. LTD."}
+    transport = FakeXpiTransport([
+        GoldTierXpiHttpResponse(status_code=200, body=candidates or [candidate]),
+    ])
+    zero, documents, ownership = _sandbox_zero_touch_system(
+        transport, reviewed_test_enrichment=False,
+    )
+    created = zero.create_case(
+        "202400001A", "SG", legal_name="MERLION CIRCULAR LABS PTE. LTD.",
+        team_id=TeamId.TEAM_A, created_by_actor_id=creator,
+    )
+    return zero, documents, ownership, transport, created
+
+
+def _confirmation_arguments(zero, record):
+    case = zero._cases.get_case(record.case_id)
+    clm = zero._clm.get(case_id=record.case_id)
+    return {
+        "case_id": record.case_id, "actor_id": "maya-lim",
+        "search_request_id": clm.target_search_checkpoint.request_id,
+        "expected_automation_version": record.version,
+        "expected_clm_version": clm.version, "expected_case_event_count": len(case.events),
+        "rationale": "Compared retained candidate with independent registry evidence.",
+    }
+
+
+def test_retained_existing_confirmation_is_audited_and_never_dispatches() -> None:
+    zero, _, _, transport, created = _existing_candidate_system()
+    confirmed = zero.confirm_existing_customer(**_confirmation_arguments(zero, created))
+    clm = zero._clm.get(case_id=created.case_id)
+    checkpoint = clm.target_search_checkpoint
+    assert checkpoint.disposition == "CONFIRMED_EXISTING"
+    assert checkpoint.provider_outcome == "MATCH_FOUND"
+    assert checkpoint.selected_party_id == "143878"
+    assert checkpoint.confirmation.actor_id == "maya-lim"
+    assert checkpoint.confirmation.request_id == checkpoint.request_id
+    assert checkpoint.confirmation.rationale
+    assert confirmed.status == "PENDING_INPUTS" and confirmed.current_stage == "DOCUMENT"
+    assert confirmed.active_exceptions == []
+    assert len(transport.calls) == 1 and transport.calls[0]["method"] == "GET"
+    assert zero._cases.get_case(created.case_id).goldtier_result is None
+
+
+@pytest.mark.parametrize("stale_field", [
+    "search_request_id", "expected_automation_version", "expected_clm_version",
+    "expected_case_event_count",
+])
+def test_existing_confirmation_rejects_stale_versions(stale_field: str) -> None:
+    from uuid import uuid4
+
+    from app.services.zero_touch_errors import ZeroTouchRequestError
+    zero, _, _, transport, created = _existing_candidate_system()
+    arguments = _confirmation_arguments(zero, created)
+    arguments[stale_field] = uuid4() if stale_field == "search_request_id" else 999
+    with pytest.raises(ZeroTouchRequestError):
+        zero.confirm_existing_customer(**arguments)
+    assert len(transport.calls) == 1
+    assert zero._clm.get(case_id=created.case_id).target_search_checkpoint.confirmation is None
+
+
+@pytest.mark.parametrize("candidates", [
+    [{"goldTierId": 143878, "legalName": "UNRELATED SYNTHETIC NAME"}],
+    [{"goldTierId": 143878, "legalName": "MERLION CIRCULAR LABS PTE. LTD.",
+      "registrationNumber": "202400002B"}],
+    [{"goldTierId": 143878, "legalName": "MERLION CIRCULAR LABS PTE. LTD.",
+      "countryOfIncorporation": "AU"}],
+    [{"goldTierId": 143878, "legalName": "MERLION CIRCULAR LABS PTE. LTD."},
+     {"goldTierId": 143879, "legalName": "MERLION CIRCULAR LABS PTE. LTD."}],
+])
+def test_existing_confirmation_rejects_conflicts_and_multiple_candidates(candidates) -> None:
+    from app.services.zero_touch_errors import ZeroTouchRequestError
+    zero, _, _, transport, created = _existing_candidate_system(candidates)
+    with pytest.raises(ZeroTouchRequestError):
+        zero.confirm_existing_customer(**_confirmation_arguments(zero, created))
+    assert len(transport.calls) == 1
+
+
+def test_single_provider_uen_country_match_resolves_without_prior_case() -> None:
+    zero, _, _, transport, created = _existing_candidate_system([
+        {"goldTierId": 143878, "legalName": "MERLION CIRCULAR LABS PTE. LTD.",
+         "registrationNumber": "202400001A", "countryOfIncorporation": "SG"},
+    ])
+    checkpoint = zero._clm.get(case_id=created.case_id).target_search_checkpoint
+    assert checkpoint.disposition == "EXACT_MATCH"
+    assert checkpoint.selected_party_id == "143878"
+    assert checkpoint.candidates[0].registration_number == "202400001A"
+    assert checkpoint.candidates[0].country == "SG"
+    assert checkpoint.confirmation is None
+    assert created.current_stage == "DOCUMENT"
+    assert len(transport.calls) == 1
+
+
+def test_external_system_key_alone_does_not_prove_provider_identity() -> None:
+    zero, _, _, _, created = _existing_candidate_system([
+        {"goldTierId": 143878, "customerExternalSystemKey": "202400001A"},
+    ])
+    checkpoint = zero._clm.get(case_id=created.case_id).target_search_checkpoint
+    assert checkpoint.disposition == "REVIEW_REQUIRED"
+    assert checkpoint.selected_party_id is None
+    from app.domain.clm import can_confirm_existing_customer
+    assert not can_confirm_existing_customer(zero._cases.get_case(created.case_id), checkpoint)
+
+
+def test_confirmed_existing_path_skips_shell_policy_and_unneeded_amend() -> None:
+    from app.connectors.goldtier_xpi import GoldTierXpiHttpResponse
+    from app.main import create_app
+
+    zero, documents, ownership, transport, created = _existing_candidate_system()
+    zero.confirm_existing_customer(**_confirmation_arguments(zero, created))
+    paused = zero.attach_document(
+        case_id=created.case_id, display_name="synthetic.pdf",
+        content_type="application/pdf", content=PDF,
+    )
+    assert paused.current_stage == "READINESS"
+    assert len(transport.calls) == 1
+    transport.responses.append(GoldTierXpiHttpResponse(
+        status_code=200, body=[{"goldTierId": 143878}],
+    ))
+    args = _confirmation_arguments(zero, paused)
+    args.pop("search_request_id")
+    args.pop("rationale")
+    completed = zero.confirm_target_dispatch(**args)
+    assert completed.status == "COMPLETED"
+    result = zero._cases.get_case(created.case_id).goldtier_result
+    assert result.party_id == "143878" and result.shell_status == "EXISTING_PARTY_REUSED"
+    assert result.policy_id is None
+    assert result.amend_status == "AMEND_NOT_REQUIRED"
+    assert len(transport.calls) == 2
+    assert all(call["method"] == "GET" for call in transport.calls)
+    with TestClient(create_app(
+        Settings(_env_file=None, app_env="test"), onboarding_service=zero._cases,
+        document_processing_service=documents, ownership_analysis_service=ownership,
+        clm_orchestration_service=zero._clm, zero_touch_orchestrator=zero,
+    )) as client:
+        summary = client.get(f"/api/clm/zero-touch/cases/{created.case_id}").json()
+        assert summary["target_submission"]["state"] == "SUBMISSION_CONFIRMED"
+        assert summary["clm"]["target_search_checkpoint"]["disposition"] == "CONFIRMED_EXISTING"
+    assert len(transport.calls) == 2
+
+
+def test_confirmation_api_forbids_caller_target_id_and_requires_creator() -> None:
+    from app.main import create_app
+    zero, documents, ownership, transport, created = _existing_candidate_system()
+    with TestClient(create_app(
+        Settings(_env_file=None, app_env="test"), onboarding_service=zero._cases,
+        document_processing_service=documents, ownership_analysis_service=ownership,
+        clm_orchestration_service=zero._clm, zero_touch_orchestrator=zero,
+    )) as client:
+        summary = client.get(f"/api/clm/zero-touch/cases/{created.case_id}")
+        assert summary.status_code == 200
+        intervention = summary.json()["interventions"][0]
+        assert intervention["existing_customer_confirmation_action"] == (
+            "CONFIRM_EXISTING_GOLDTIER_CUSTOMER"
+        )
+        assert intervention["identity_correction_action"] is None
+        assert intervention["evidence_actions"] == []
+        args = _confirmation_arguments(zero, created)
+        body = {key: str(value) if isinstance(value, UUID) else value
+                for key, value in args.items() if key not in {"case_id", "actor_id"}}
+        url = f"/api/clm/zero-touch/cases/{created.case_id}/confirm-existing-customer"
+        response = client.post(url, json={**body, "goldtier_id": "ARBITRARY-ID"})
+        assert response.status_code == 422
+        response = client.post(url, json=body)
+        assert response.status_code == 200
+        assert response.json()["clm"]["target_search_checkpoint"]["disposition"] == (
+            "CONFIRMED_EXISTING"
+        )
+    assert len(transport.calls) == 1
+
+
+@pytest.mark.parametrize("invalid_input", [
+    {"rationale": "SYNTHETIC_REJECTED_INPUT\x01"},
+    {"goldtier_id": "SYNTHETIC_REJECTED_INPUT"},
+    {"expected_clm_version": "SYNTHETIC_REJECTED_INPUT"},
+    {"search_request_id": "SYNTHETIC_REJECTED_INPUT"},
+])
+def test_confirmation_validation_uses_fixed_errors_without_echo_or_mutation(
+    invalid_input: dict[str, object],
+) -> None:
+    from app.main import create_app
+
+    zero, documents, ownership, transport, created = _existing_candidate_system()
+    before = zero._clm.get(case_id=created.case_id).target_search_checkpoint
+    arguments = _confirmation_arguments(zero, created)
+    body = {key: str(value) if isinstance(value, UUID) else value
+            for key, value in arguments.items() if key not in {"case_id", "actor_id"}}
+    with TestClient(create_app(
+        Settings(_env_file=None, app_env="test"), onboarding_service=zero._cases,
+        document_processing_service=documents, ownership_analysis_service=ownership,
+        clm_orchestration_service=zero._clm, zero_touch_orchestrator=zero,
+    )) as client:
+        response = client.post(
+            f"/api/clm/zero-touch/cases/{created.case_id}/confirm-existing-customer",
+            json={**body, **invalid_input},
+        )
+        assert response.status_code == 422
+        assert response.json() == {"detail": {
+            "code": "ZERO_TOUCH_EXISTING_CUSTOMER_INVALID",
+            "message": "The existing customer confirmation request is invalid.",
+        }}
+        assert "SYNTHETIC_REJECTED_INPUT" not in response.text
+    assert zero._clm.get(case_id=created.case_id).target_search_checkpoint == before
+    assert zero.get(case_id=created.case_id).version == created.version
+    assert len(transport.calls) == 1
+
+
+def test_confirmation_api_rejects_accessible_noncreator_and_inaccessible_case() -> None:
+    from uuid import uuid4
+
+    from app.main import create_app
+    zero, documents, ownership, transport, created = _existing_candidate_system(
+        creator="synthetic-other-creator",
+    )
+    with TestClient(create_app(
+        Settings(_env_file=None, app_env="test"), onboarding_service=zero._cases,
+        document_processing_service=documents, ownership_analysis_service=ownership,
+        clm_orchestration_service=zero._clm, zero_touch_orchestrator=zero,
+    )) as client:
+        assert client.get(f"/api/clm/zero-touch/cases/{created.case_id}").json()[
+            "evidence_decision_authorized"
+        ] is False
+        args = _confirmation_arguments(zero, created)
+        body = {key: str(value) if isinstance(value, UUID) else value
+                for key, value in args.items() if key not in {"case_id", "actor_id"}}
+        response = client.post(
+            f"/api/clm/zero-touch/cases/{created.case_id}/confirm-existing-customer", json=body,
+        )
+        assert response.status_code == 403
+        assert client.post(
+            f"/api/clm/zero-touch/cases/{uuid4()}/confirm-existing-customer", json=body,
+        ).status_code == 404
+    assert len(transport.calls) == 1
+
+
+def test_retained_confirmation_recovers_interrupted_projection_without_replay(monkeypatch) -> None:
+    from app.services.zero_touch_errors import ZeroTouchRequestError
+    from app.services.zero_touch_repository import ZeroTouchRepositoryConflictError
+    zero, _, _, transport, created = _existing_candidate_system()
+    original = zero._repository.save
+    arguments = _confirmation_arguments(zero, created)
+    with monkeypatch.context() as patch:
+        def interrupted(*args, **kwargs):
+            raise ZeroTouchRepositoryConflictError
+        patch.setattr(zero._repository, "save", interrupted)
+        with pytest.raises(ZeroTouchRequestError):
+            zero.confirm_existing_customer(**arguments)
+    assert zero._repository.save == original
+    recovered = zero.get(case_id=created.case_id)
+    assert recovered.status == "PENDING_INPUTS"
+    assert recovered.metrics.human_interventions == 1
+    assert zero.get(case_id=created.case_id).version == recovered.version
+    assert len(transport.calls) == 1
+
+
+def test_garden_confirmation_does_not_invent_official_partnership_ownership() -> None:
+    from scripts.slice_b_registry_fixture import GARDEN_FIELDS, GardenPartnershipProtocolTransport
+
+    from app.composition import build_acra_connector
+    from app.connectors.goldtier_xpi import GoldTierXpiHttpResponse
+    from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
+    from app.connectors.registry import AcraRegistryProviderAdapter, RegistryProviderRouter
+    from app.connectors.registry_ownership import RegistryAcquisitionOwnershipProvider
+    from app.domain.access import TeamId
+
+    settings = Settings(
+        _env_file=None, app_env="test", acra_connector_mode="api_marketplace_mock",
+        acra_api_marketplace_mock_client_id=SecretStr("synthetic-offline-client"),
+        acra_api_marketplace_mock_secret_key=SecretStr("synthetic-offline-secret"),
+    )
+    registry_transport = GardenPartnershipProtocolTransport()
+    registry = build_acra_connector(
+        settings, transport=registry_transport, marketplace_token_transport=registry_transport,
+    )
+    target = FakeXpiTransport([GoldTierXpiHttpResponse(200, [{
+        "goldTierId": 143878, "legalName": "GARDEN BUSINESS",
+    }])])
+    zero, documents, ownership = _sandbox_zero_touch_system(
+        target, reviewed_test_enrichment=False, acra_connector=registry,
+    )
+    documents._idp = LocalPdfTextIdpProvider()
+    zero._cases._registry_router = RegistryProviderRouter(
+        AcraRegistryProviderAdapter(registry, company_shareholders_only=True),
+    )
+    ownership._provider = RegistryAcquisitionOwnershipProvider(zero._cases)
+    created = zero.create_case(
+        "11111999A", "SG", legal_name="GARDEN BUSINESS",
+        team_id=TeamId.TEAM_A, created_by_actor_id="maya-lim",
+    )
+    paused = zero.attach_document(
+        case_id=created.case_id, display_name="synthetic-garden.txt", content_type="text/plain",
+        content="\n".join(f"{name}: {value}" for name, value in GARDEN_FIELDS.items()).encode(),
+    )
+    assert paused.current_stage == "GOLDTIER_SEARCH"
+    zero.confirm_existing_customer(**_confirmation_arguments(zero, paused))
+    current = zero.start(case_id=created.case_id)
+    case = zero._cases.get_case(created.case_id)
+    assert case.entity.party_type == "PARTNERSHIP"
+    assert case.registry_acquisition.status.value == "PARTIAL"
+    assert case.registry_acquisition.relationships == ()
+    assert current.current_stage == "OWNERSHIP"
+    assert current.status == "WAITING_FOR_REVIEW"
+    assert ownership.get(case_id=created.case_id).state.value == "REVIEW_REQUIRED"
+    assert case.goldtier_result is None
+    assert len(target.calls) == 1
 
 
 def _assert_no_mock_provider_claim(messages: list[str]) -> None:

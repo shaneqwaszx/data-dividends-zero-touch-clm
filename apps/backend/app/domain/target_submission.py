@@ -221,6 +221,7 @@ class GoldTierSearchResolution(StrEnum):
 
     NO_MATCH = "NO_MATCH"
     EXACT_MATCH = "EXACT_MATCH"
+    CONFIRMED_EXISTING = "CONFIRMED_EXISTING"
 
 
 class GoldTierTargetOutcome(BaseModel):
@@ -428,7 +429,9 @@ class GoldTierExecutionLedgerEntry(BaseModel):
             or self.attempted_operations[0] != GoldTierOperationMarker.SEARCH
         ):
             raise ValueError("Search resolution requires an attempted Search")
-        if self.search_resolution == GoldTierSearchResolution.EXACT_MATCH and (
+        if self.search_resolution in {
+            GoldTierSearchResolution.EXACT_MATCH, GoldTierSearchResolution.CONFIRMED_EXISTING,
+        } and (
             self.resolved_party_id is None or self.shell_status is None
         ):
             raise ValueError("Exact Search resolution requires the retained target identity")

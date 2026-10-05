@@ -2,6 +2,9 @@
 
 ## Status
 
+The 2026-10-05 post-closeout amendment below adds bounded creator confirmation and
+independent review in the existing owners; its unmerged content requires a fresh gate.
+
 Original recovery/confirmation package accepted on main through PR #65 and included
 in inspected PR #68. The 2026-10-04 Session 1 extension below is an implementation
 candidate pending its own independent quality gate.
@@ -196,3 +199,25 @@ the final human approval in this application. The visible pipeline ends at Final
 status and GoldTier-internal approvals remain separate retained facts and authority.
 Regulatory approval, legal UBO certification, OCR and current-program external Sandbox
 delivery are not established by this Session 1 amendment.
+
+## Amendment — 2026-10-05 existing-customer remediation
+
+The current explicit owner/sponsor clarification permits a creator decision bound to
+one retained incomplete XPI candidate, independent matching canonical identity, Search
+UUID/current versions and a retained actor/time/rationale receipt. It is labelled
+CONFIRMED_EXISTING, not provider EXACT_MATCH. No caller target-ID entry, provider call,
+target mutation or duplicate Shell/Policy occurs during confirmation. Existing CLM
+owns the receipt and the same zero-touch owner repairs an interrupted stage projection.
+Provider-supported singleton UEN/country equality can produce Sandbox EXACT_MATCH
+without the former prior-local-case prerequisite; accepted Mock finalized-proof reuse
+remains unchanged. Current registry acquisition remains mandatory.
+
+Document/reconciliation review is independent of unresolved Search. It retains the
+earliest Search blocker and target write prohibition until identity resolution.
+Final Review & Send and the target ledger still own dispatch/order/no-replay.
+Schema9 retains additive candidate identity fields and the optional receipt/new explicit
+disposition; absent historical fields mean unknown, never inferred confirmation.
+No migration, read rewrite, repository owner or provider family is introduced.
+The [family reconciliation](../integration/GOLDTIER_EXISTING_CUSTOMER_RESOLUTION.md)
+keeps XPI aliases separate from supplied EDS registration/external-key Search. EDS
+replacement requires a separately assigned provider/architecture delta.

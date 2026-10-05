@@ -204,10 +204,13 @@ SCENARIOS = {
         trigger="Use scripts/run_e2e.py --registry-demo synthetic-target-ambiguity with focused "
         "--grep 'Slice F ambiguous target match'. The isolated fixture creates two "
         "actual process-local Mock candidates through accepted Shell/Policy operations.",
-        user_sees="Read-only Search identity review and bounded correction/recheck; no "
-        "candidate binding or duplicate customer creation action.",
+        user_sees="Read-only Search identity review and bounded correction/recheck for "
+        "multiple Mock candidates. A current incomplete singleton Sandbox candidate may "
+        "instead expose explicit creator confirmation of retained evidence.",
         corrective_action="Registry identity > correct the explicit name/UEN/SG > authorized "
-        "read-only recheck; examine current resolver result.",
+        "read-only recheck; examine current resolver result. For the separate singleton "
+        "Sandbox scenario, compare retained candidate evidence, enter a rationale, and "
+        "choose Confirm existing GoldTier customer; no caller-entered ID is accepted.",
         next_stage="Registry/current evidence or the exact unresolved Search review; target "
         "writes require resolver prerequisites and final confirmation.",
         retained_evidence=_RETAINED,
@@ -215,7 +218,10 @@ SCENARIOS = {
         "zero Shell/Policy/Amend while identity remains ambiguous. Fixture setup uses four "
         "local Mock mutations separately; no browser-journey target writes.",
         limitations=_LOCAL_LIMIT
-        + " Recheck is not identity confirmation/approval by itself.",
+        + " Recheck is not identity confirmation/approval by itself. Human-confirmed "
+        "identity remains CONFIRMED_EXISTING rather than provider EXACT_MATCH. Its offline "
+        "browser scenario is --sandbox-demo existing-customer with --grep "
+        "'@s3-sandbox-existing-customer'; confirmation performs zero provider calls.",
     ),
     "search_failure": Scenario(
         trigger="Use scripts/run_e2e.py --recovery-demo search-recheck with focused --grep "

@@ -220,7 +220,9 @@ export default function ReviewAndSend({
   const confirmationLabel = clm.submission_plan.environment === "SANDBOX"
     ? "Confirm and send to GoldTier sandbox"
     : "Confirm and send to Mock GoldTier";
-  const targetState = checkpoint?.disposition === "EXACT_MATCH"
+  const targetState = checkpoint?.disposition === "CONFIRMED_EXISTING"
+    ? "Human-confirmed existing customer"
+    : checkpoint?.disposition === "EXACT_MATCH"
     ? "Verified existing customer"
     : checkpoint?.disposition === "NO_MATCH"
       ? "New customer"

@@ -714,6 +714,9 @@ class InitialGoldTierSearchEvidence(BaseModel):
     candidate_count: int = Field(ge=0, le=25)
     candidate_party_ids: tuple[str, ...] = Field(default=(), max_length=25)
     candidate_legal_names: tuple[str | None, ...] = Field(default=(), max_length=25)
+    # Absent tuples in historical envelopes mean unknown provider evidence.
+    candidate_registration_numbers: tuple[str | None, ...] = Field(default=(), max_length=25)
+    candidate_countries: tuple[str | None, ...] = Field(default=(), max_length=25)
     selected_party_id: str | None = Field(default=None, min_length=1, max_length=96)
     searched_at: datetime
 
@@ -725,6 +728,14 @@ class InitialGoldTierSearchEvidence(BaseModel):
             raise ValueError("Initial Search candidate evidence must remain aligned")
         if (self.disposition == "EXACT_MATCH") != (self.selected_party_id is not None):
             raise ValueError("Only an exact initial Search may retain a target identity")
+        for evidence in (self.candidate_registration_numbers, self.candidate_countries):
+            if evidence and len(evidence) != self.candidate_count:
+                raise ValueError("Initial Search identity fields must remain aligned")
+        if (
+            self.selected_party_id is not None
+            and self.selected_party_id not in self.candidate_party_ids
+        ):
+            raise ValueError("Initial Search must select a retained provider identity")
         return self
 
 
