@@ -106,7 +106,7 @@ describe("TargetClassificationPanel", () => {
     expect(view.querySelector("form")).not.toBeNull();
     expect((view.querySelector('[aria-label="KYC customer type"]') as HTMLSelectElement).value).toBe("Company - Private");
     expect((view.querySelector('[aria-label="Client segment"]') as HTMLSelectElement).value).toBe("Corporate");
-    expect(view.textContent).toContain("remain editable before target dispatch confirmation");
+    expect(view.textContent).toContain("Review the unresolved evidence before selecting a fallback value");
 
     choose("Client segment", "Commercial BB (Business Banking)");
     await act(async () => {
@@ -146,7 +146,88 @@ describe("TargetClassificationPanel", () => {
   it("does not expose an edit form when the backend marks an unresolved case non-editable", () => {
     const { view } = render({ ...unresolved, editable: false });
     expect(view.querySelector("form, select")).toBeNull();
-    expect(view.textContent).toContain("Unresolved · Not recorded");
+    expect(view.textContent).toContain("Unresolved · User selection required");
     expect(view.textContent).toContain("cannot accept a target-classification change");
+  });
+});
+
+const documentSelection = {
+  field_key: "kyc_customer_type" as const, value: "Company - Private", source: "DOCUMENT" as const,
+  document_evidence: { document_id: "synthetic-document", document_version: 1, document_event_count: 8,
+    page_number: 1, source_reference: "PAGE_1_LINE_6", extraction_method: "LOCAL_TESSERACT_OCR",
+    extraction_quality: "HIGH", evidence_score: 0.95, extracted_exact_value: "Company - Private" },
+  classified_at: "2026-10-05T00:00:00Z", policy_version: 2, vocabulary_version: "GOLDTIER_OPENAPI_V1_0_0",
+};
+describe("automatic document selection", () => {
+  it("shows source evidence and removes the save form when both fields are automatic", () => {
+    const classification: GoldTierTargetClassification = { ...unresolved,
+      kyc_customer_type: { ...unresolved.kyc_customer_type, selected_value: "Company - Private", authority: "PROJECT_DERIVED_POC", selection: documentSelection },
+      client_segment: { ...unresolved.client_segment, selected_value: "Corporate", authority: "PROJECT_DERIVED_POC", selection: { ...documentSelection, field_key: "client_segment", value: "Corporate", document_evidence: { ...documentSelection.document_evidence, extracted_exact_value: "Corporate" } } },
+    };
+    const { view, onSubmit } = render(classification);
+    expect(view.querySelector("form, select, button")).toBeNull();
+    expect(view.textContent).toContain("Automatically classified from document");
+    expect(view.textContent).toContain("synthetic-document · version 1 · event 8 · page 1");
+    expect(view.textContent).toContain("LOCAL_TESSERACT_OCR");
+    expect(view.textContent).not.toContain("Selected by user");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+  it("protects the safe automatic field and asks only for the unresolved segment", async () => {
+    const { view, onSubmit } = render({ ...unresolved,
+      kyc_customer_type: { ...unresolved.kyc_customer_type, selected_value: "Company - Private", authority: "PROJECT_DERIVED_POC", selection: documentSelection },
+    });
+    expect((view.querySelector('[aria-label="KYC customer type"]') as HTMLSelectElement).disabled).toBe(true);
+    expect((view.querySelector('[aria-label="Client segment"]') as HTMLSelectElement).disabled).toBe(false);
+    choose("Client segment", "Corporate");
+    await act(async () => { view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(onSubmit).toHaveBeenCalledWith({ kyc_customer_type: "Company - Private", client_segment: "Corporate" });
+  });
+});
+
+it("replaces an unsaved local value when the authoritative field becomes automatic", async () => {
+  const { view, onSubmit } = render({ ...unresolved,
+    kyc_customer_type: { ...unresolved.kyc_customer_type, selected_value: "Company - Private" },
+  });
+  choose("KYC customer type", "Partnership - Regulated");
+  const next = { ...unresolved,
+    kyc_customer_type: { ...unresolved.kyc_customer_type, selected_value: "Company - Private", selection: documentSelection },
+  };
+  act(() => root?.render(<TargetClassificationPanel classification={next} disabled={false} onSubmit={onSubmit} />));
+  expect((view.querySelector('[aria-label="KYC customer type"]') as HTMLSelectElement).value).toBe("Company - Private");
+  choose("Client segment", "Corporate");
+  await act(async () => { view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+  expect(onSubmit).toHaveBeenCalledWith({ kyc_customer_type: "Company - Private", client_segment: "Corporate" });
+});
+
+
+describe("current classification evidence review", () => {
+  it("shows the conflict and sends the exact displayed fingerprint for a same-value review", async () => {
+    const fingerprint = "a".repeat(64);
+    const { view, onSubmit } = render({
+      ...unresolved, evidence_state: "CONFLICT", current: false, review_required: true,
+      evidence_fingerprint: fingerprint,
+      evidence_values: { kyc_customer_type: ["Company - Private", "Partnership - Unregulated"], client_segment: ["Corporate"] },
+      kyc_customer_type: { ...unresolved.kyc_customer_type, selected_value: "Company - Private" },
+      client_segment: { ...unresolved.client_segment, selected_value: "Corporate" },
+    });
+    expect(view.textContent).toContain("Target classification — conflicting evidence");
+    expect(view.textContent).toContain("Company - Private; Partnership - Unregulated");
+    await act(async () => { view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(onSubmit).toHaveBeenCalledWith({
+      kyc_customer_type: "Company - Private", client_segment: "Corporate",
+      expected_classification_evidence_fingerprint: fingerprint,
+    });
+  });
+
+  it("allows a stale automatic selection to be reviewed without unlocking a frozen case", () => {
+    const stale = { ...unresolved, evidence_state: "CONFLICT" as const, current: false,
+      kyc_customer_type: { ...unresolved.kyc_customer_type, selected_value: "Company - Private", selection: documentSelection },
+      client_segment: { ...unresolved.client_segment, selected_value: "Corporate", selection: { ...documentSelection, field_key: "client_segment" as const, value: "Corporate" } },
+    };
+    const { view } = render(stale);
+    expect(view.querySelector("form")).not.toBeNull();
+    expect([...view.querySelectorAll("select")].every(select => !select.disabled)).toBe(true);
+    act(() => root?.render(<TargetClassificationPanel classification={{ ...stale, editable: false }} disabled={false} onSubmit={vi.fn()} />));
+    expect(view.querySelector("form, select")).toBeNull();
   });
 });

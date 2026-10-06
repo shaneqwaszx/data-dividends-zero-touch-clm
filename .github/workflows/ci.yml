@@ -94,10 +94,19 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # 61 discovered lifecycles * (60s execution + 120s bounded cleanup/dispatch)
-    # + 60s discovery = 184 minutes; preserve 14 minutes for tool installation.
-    # Post-UAT scanned Garden regression adds a lifecycle; execution stays 60s.
-    timeout-minutes: 198
+    # 65 discovered lifecycles * (60s execution + 120s bounded cleanup/dispatch)
+    # + 60s discovery = 196 minutes; preserve 14 minutes for tool installation.
+    timeout-minutes: 210
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27185:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

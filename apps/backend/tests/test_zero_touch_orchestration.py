@@ -768,7 +768,7 @@ def test_policy_rebind_preserves_case_choices_and_audits_previous_snapshot() -> 
     )
     codec = object.__new__(MongoCaseStore)
     round_trip = codec._decode(codec._encode(durable))  # noqa: SLF001
-    assert round_trip.schema_version == 9
+    assert round_trip.schema_version == 10
     assert round_trip.onboarding.policy_rebind_history == persisted.policy_rebind_history
 
     stale = client.post(

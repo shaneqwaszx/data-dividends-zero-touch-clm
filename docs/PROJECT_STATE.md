@@ -5,6 +5,16 @@ It is not a sponsor contract, phase report, or substitute for current source and
 
 ## Verification metadata
 
+The owner-assigned database-first happy-path candidate starts at inspected main
+`771a9696e1e31e3865da4fbbb3f9b33b5959cb6a` on
+`fix/zero-touch-registry-reuse-happy-path`. D-069/ADR-010 enable ordinary non-production
+Mock cache reuse and four complete synthetic local seeds in the existing owner.
+Fresh seeded cases perform zero ACRA operations; GoldTier is never preseeded.
+Successful NO_MATCH progression and failed Search target blocking retain current truth.
+Fresh evidence and independent review are bound to this task's reports; historical
+verified-main/provider metadata below is preserved. No external interoperability claim.
+
+
 The unmerged post-UAT candidate on
 `fix/post-uat-document-ownership-goldtier-ux` starts at inspected main
 `ae27654a075f13354364e86ec8fe5a81d24777d4`. It extends existing owners for
@@ -66,7 +76,7 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 ```json project-state
 {
   "schema_version": 1,
-  "case_envelope_schema_version": 9,
+  "case_envelope_schema_version": 10,
   "verified_date": "2026-10-05",
   "verified_main_sha": "4ee8819d7404d6442e064fd60dcee03ccc84cf11",
   "verification_status": "verified-against-main",
@@ -780,3 +790,39 @@ Mock/Local/Sandbox/Live classifications and all provider runtime status remain u
 Slice E alone granted no publication authority. The subsequent cumulative A–G candidate
 received exact final independent PASS and was human-merged through PR #68. Its historical
 verification evidence remains separate from the later PR #69 and Phase25/26 evidence.
+
+## Unmerged target-classification continuation — 2026-10-05
+
+The owner-assigned second commit continues ccff7471 on the existing database-first branch.
+Schema10 extends existing document/case owners with source-labelled classification;
+strict schemas1..9 remain read-only compatible with unknown/empty new evidence.
+Submission readiness separates final confirmation; classification saves are local and
+actual uncertain attempts remain frozen/no-replay. Alpha remains60/40; Beta/Gamma have
+six ultimate people, Gamma is a synthetic Partnership; separate Government classification
+has no supported government-control ownership claim. Provider modes/statuses and
+historical verified-main metadata above are unchanged. Fresh continuation checks and
+independent verdict belong to its separate report, not the previous accepted commit.
+
+2026-10-06 owner-authorized follow-up candidate: current classification conflict is
+explicit, and USER/DOCUMENT choices bind trusted evidence identity. Same-value fresh
+manual review is supported; later trusted evidence invalidates it. Currentness governs
+readiness and confirmation before snapshot/ledger writes in both modes. Provider
+classifications, target mapping, approval limits, fixtures and threshold are unchanged.
+Historical protected DB non-access remains NOT_CERTIFIED and is owner-accepted as a
+documented historical execution uncertainty. The new gate requires current execution
+isolation; protected/owner database investigation and dotenv read remain prohibited.
+
+## Latest-main integration candidate — 2026-10-06
+
+Fresh fetch confirms origin/main 1fc097f12c84af52b1e6d70a336cc22b03f3bef4
+(read-only Onboarding Copilot PR74). The feature at859f218 integrates that commit
+through a conflict-free merge while preserving both accepted feature commits.
+The local merge commit requires fresh independent PASS; publication requires owner review.
+No exact-file overlap; shared frontend root/proxy/session/case context is reviewed.
+Bounded adaptations reuse the existing authenticated transport for Copilot401 cleanup,
+align guide/pending-step wording with current backend/UI projections, and contain
+inaccessible-case404 and cancelled responses in the existing local conversation owner.
+Schema10, source fingerprints, classification review/currentness, final Send, ledger
+no-replay, fixtures, mappings and provider labels are preserved. Current integration
+evidence and independent verdict belong to ZERO_TOUCH_COPILOT_MAIN_INTEGRATION reports;
+historical main/feature gates and provider verification metadata above are unchanged.

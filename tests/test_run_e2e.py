@@ -354,6 +354,49 @@ console.log(JSON.stringify({
             ):
                 RUN_E2E._parse_port(value, "test port")
 
+    def test_classification_database_cleanup_survives_startup_and_assertion_failures(self) -> None:
+        for startup_failure in (True, False):
+            with self.subTest(startup_failure=startup_failure):
+                _FakeOwnedProcess.instances.clear()
+                def cleanup(database):
+                    self.assertEqual(database, "clm_p16_" + "a" * 24)
+                    self.assertTrue(all(p.stopped for p in _FakeOwnedProcess.instances))
+                with (
+                    patch.object(RUN_E2E.Path, "is_file", return_value=True),
+                    patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
+                    patch.object(RUN_E2E, "_find_node", return_value="node"),
+                    patch.object(RUN_E2E, "_assert_ports_available"),
+                    patch.object(RUN_E2E, "_wait_for_http", side_effect=TimeoutError("timeout") if startup_failure else None),
+                    patch.object(RUN_E2E, "_wait_for_test", return_value=1),
+                    patch.object(RUN_E2E.secrets, "token_hex", return_value="a" * 24),
+                    patch.object(RUN_E2E, "_cleanup_classification_database", side_effect=cleanup) as cleaned,
+                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()),
+                ):
+                    result = RUN_E2E.run(backend_port=8765, frontend_port=4173,
+                        timeout_seconds=60, sandbox_demo="database-alpha", grep="Alpha")
+                self.assertEqual(result, 1)
+                cleaned.assert_called_once_with("clm_p16_" + "a" * 24)
+                self.assertEqual(_FakeOwnedProcess.instances[0].env["CLM_E2E_CLASSIFICATION_DATABASE"], "clm_p16_" + "a" * 24)
+
+    def test_classification_database_cleanup_failure_is_safe_and_fails_the_run(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.object(RUN_E2E.Path, "is_file", return_value=True),
+            patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
+            patch.object(RUN_E2E, "_find_node", return_value="node"),
+            patch.object(RUN_E2E, "_assert_ports_available"),
+            patch.object(RUN_E2E, "_wait_for_http"),
+            patch.object(RUN_E2E, "_wait_for_test", return_value=0),
+            patch.object(RUN_E2E, "_cleanup_classification_database", side_effect=RuntimeError("private-driver-sentinel")),
+            redirect_stdout(output), redirect_stderr(output),
+        ):
+            result = RUN_E2E.run(backend_port=8765, frontend_port=4173,
+                timeout_seconds=60, sandbox_demo="database-alpha", grep="Alpha")
+        self.assertEqual(result, 1)
+        self.assertIn("CLEANUP_FAILURE", output.getvalue())
+        self.assertNotIn("private-driver-sentinel", output.getvalue())
+        self.assertNotIn("E2E PASS", output.getvalue())
+
     def test_failed_test_output_is_sanitized_and_all_processes_stop(self) -> None:
         secret = "sentinel-generated-password"
         assignment = "pass" + "word=" + secret
@@ -863,11 +906,11 @@ console.log(JSON.stringify({
     def test_ci_outer_bound_covers_current_discovery_and_bounded_cleanup(self) -> None:
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         e2e = workflow.split("  e2e:\n", 1)[1].split("  demo-lifecycle-windows:", 1)[0]
-        self.assertIn("timeout-minutes: 198", e2e)
+        self.assertIn("timeout-minutes: 210", e2e)
         self.assertIn("python scripts/run_e2e.py --timeout-seconds 60", e2e)
         self.assertLessEqual(
-            60 + 61 * (60 + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS) + 14 * 60,
-            198 * 60,
+            60 + 65 * (60 + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS) + 14 * 60,
+            210 * 60,
         )
 
     def test_sandbox_discovery_routes_each_mode_and_preserves_default(self) -> None:

@@ -176,4 +176,82 @@ describe("CopilotPanel", () => {
 
     expect(view.querySelector("[role=alert]")?.textContent).toBe("The copilot service is not running.");
   });
+
+
+  it("removes retained case conversation when the backend says the case is inaccessible", async () => {
+    let count = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      count += 1;
+      return count === 1 ? json(brief("OLD CASE", "Previously accessible case summary."))
+        : json({ detail: { message: "This case was not found." } }, 404);
+    }));
+    const view = render("case-1");
+    click(view.querySelector(".copilot-launcher"));
+    await flush();
+    expect(view.textContent).toContain("Previously accessible case summary.");
+    click(view.querySelector('[aria-label="Refresh the summary"]'));
+    await flush();
+    expect(view.querySelector("[role=alert]")?.textContent).toBe("This case was not found.");
+    expect(view.textContent).not.toContain("Previously accessible case summary.");
+    expect(view.querySelector(".copilot-subtitle")?.textContent).not.toContain("OLD CASE");
+  });
+
+  it("does not publish an aborted earlier brief over the current evidence refresh", async () => {
+    const pending: ((response: Response) => void)[] = [];
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve))));
+    const view = render("case-1");
+    click(view.querySelector(".copilot-launcher"));
+    await flush();
+    click(view.querySelector('[aria-label="Refresh the summary"]'));
+    await flush();
+    pending[0](json(brief("OLD CASE", "Old classification is ready.")));
+    await flush();
+    expect(view.textContent).not.toContain("Old classification is ready.");
+    pending[1](json(brief("CURRENT CASE", "Current classification requires conflict review.")));
+    await flush();
+    expect(view.textContent).toContain("Current classification requires conflict review.");
+  });
+
+  it.each(["brief", "chat"])("does not restore inaccessible conversation from a late peer after %s returns 404", async (denied) => {
+    const briefs: { resolve: (response: Response) => void; signal: AbortSignal }[] = [];
+    let chat: { resolve: (response: Response) => void; signal: AbortSignal } | undefined;
+    let briefCount = 0;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/brief")) {
+        briefCount += 1;
+        if (briefCount === 1) return Promise.resolve(json(brief("OLD CASE", "Previously accessible summary.")));
+        return new Promise<Response>((resolve) => briefs.push({ resolve, signal: init?.signal as AbortSignal }));
+      }
+      return new Promise<Response>((resolve) => { chat = { resolve, signal: init?.signal as AbortSignal }; });
+    }));
+    const view = render("case-1");
+    click(view.querySelector(".copilot-launcher"));
+    await flush();
+    click(view.querySelector(".copilot-chip"));
+    await flush();
+    click(view.querySelector('[aria-label="Refresh the summary"]'));
+    await flush();
+    if (!chat) throw new Error("missing pending chat");
+    const inaccessible = json({ detail: { message: "This case was not found." } }, 404);
+    (denied === "brief" ? briefs[0] : chat).resolve(inaccessible);
+    await flush();
+    expect(view.textContent).not.toContain("Previously accessible summary.");
+    const peer = denied === "brief" ? chat : briefs[0];
+    peer.resolve(denied === "brief"
+      ? json({ answer: "Late inaccessible answer.", answered_by: "case_data", model: null, notice: null, suggested_questions: [] })
+      : json(brief("OLD CASE", "Late inaccessible summary.")));
+    await flush();
+    expect(view.textContent).not.toContain("Late inaccessible");
+    expect(view.querySelector(".copilot-subtitle")?.textContent).not.toContain("OLD CASE");
+    expect(peer.signal.aborted).toBe(true);
+    expect(view.textContent).not.toContain("Thinking");
+    expect(view.querySelector("[role=alert]")?.textContent).toBe("This case was not found.");
+
+    click(view.querySelector('[aria-label="Refresh the summary"]'));
+    await flush();
+    briefs[1].resolve(json(brief("CURRENT CASE", "Fresh authorized summary.")));
+    await flush();
+    expect(view.textContent).toContain("Fresh authorized summary.");
+    expect(view.querySelector("[role=alert]")).toBeNull();
+  });
 });

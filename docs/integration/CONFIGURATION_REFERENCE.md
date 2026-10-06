@@ -30,8 +30,8 @@ credentials in examples, tests, docs, frontend variables, or commits.
 | `PHASE13_BROWSER_ORIGIN` | security | `http://127.0.0.1:8000` locally | Canonical browser origin. Production requires an explicit exact HTTPS origin and fails before persistence initialization when absent or malformed. |
 | `ACRA_CONNECTOR_MODE` | integration | `mock` | `mock`, canonical `api_marketplace_mock`, or generic `sandbox`; local Mock remains the default and there is no fallback |
 | `GARDEN_SUPPLEMENT_ENABLED` | deprecated compatibility | `false` | Accepted legacy input; normal official Marketplace Mock automatically enables only the exact fresh successful Garden fixture with either value. True outside that lane retains its validation error; no runtime toggle is needed. |
-| `REGISTRY_CACHE_MODE` | provisional Mock POC | `disabled` | `disabled` preserves retrieve-for-each-case behavior; `mock` enables only exact-key synthetic Mock ACRA reuse |
-| `REGISTRY_CACHE_FRESHNESS_SECONDS` | provisional Mock POC | unset | Required as exactly `7776000` when `REGISTRY_CACHE_MODE=mock`; 90 elapsed 24-hour periods, not calendar months or ACRA policy |
+| `REGISTRY_CACHE_MODE` | provisional Mock POC | `auto` | Ordinary non-production synthetic/official Mock lanes reuse exact-key normalized evidence; explicit `disabled` overrides; legacy `mock` remains supported |
+| `REGISTRY_CACHE_FRESHNESS_SECONDS` | provisional Mock POC | unset (auto uses 7776000) | Legacy `mock` requires exactly `7776000`; auto accepts unset or that baseline; frozen approved case policy controls actual freshness |
 | `ACRA_BASE_URL` | integration | empty | HTTPS subscriber base; required only for the generic sandbox mode |
 | `ACRA_COMPANY_PATH_TEMPLATE` | integration | empty | Generic-sandbox authorized path with exactly one `{uen}` placeholder |
 | `ACRA_TIMEOUT_SECONDS` | integration | `10` | Bounded ACRA HTTP timeout |
@@ -100,13 +100,15 @@ stores authoritative structured case envelopes. Missing/unreachable Mongo or inv
 stored data fails closed and never falls back to memory. `scripts/check_mongodb.py`
 remains a separate connectivity/read-only diagnostic.
 
-The registry cache is disabled by default and adds no cache lookup, write, or startup
-dependency in that mode. Enabled `mock` mode requires Mock ACRA plus the exact fixed
-freshness setting above. It stores only complete normalized synthetic Mock acquisition
-bundles under provider/environment/contract/dataset/identifier keys. Memory snapshots
-are process-local; Mongo snapshots use the separate configured collection. Expiry makes
-an entry ineligible but does not delete it. There is no TTL, scheduler, purge API,
-forced refresh, sandbox/live caching, or case-deletion cascade.
+The ordinary `auto` default enables the existing registry snapshot repository in
+non-production synthetic/official Mock lanes. Production auto and generic Sandbox
+perform no registry-cache use. `disabled` explicitly opts out. Complete exact-UEN
+`LOCAL_SYNTHETIC_UAT_V1` seed evidence precedes the configured Mock provider namespace;
+seed misses, expiry and incomplete bundles never mix into external acquisition. The
+configured provider's own complete cache hit also avoids all ACRA operations. Strict
+malformed-storage errors remain fail-closed. See D-069 / ADR-010 and the
+[database UAT guide](../demo/ZERO_TOUCH_DATABASE_HAPPY_PATH_UAT.md).
+No source validity, production sharing or retention policy is implied.
 
 The URI, credentials, database internals, and raw PyMongo error are never included in
 health, execution-profile, case responses, or normal logs. No TTL/purge is configured.

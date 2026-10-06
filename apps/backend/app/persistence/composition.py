@@ -164,7 +164,7 @@ def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
             ),
             registry_snapshots=(
                 InMemoryRegistrySnapshotRepository()
-                if settings.registry_cache_mode == "mock"
+                if settings.registry_cache_enabled
                 else None
             ),
         )
@@ -187,7 +187,7 @@ def build_persistence_bundle(settings: Settings) -> PersistenceBundle:
     )
     admin_store.initialize()
     registry_snapshots: RegistrySnapshotRepository | None = None
-    if settings.registry_cache_mode == "mock":
+    if settings.registry_cache_enabled:
         mongo_registry_store = MongoRegistryCacheStore(
             client,
             database=settings.mongo_database,

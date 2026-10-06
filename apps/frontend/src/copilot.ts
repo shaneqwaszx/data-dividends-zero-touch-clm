@@ -3,6 +3,8 @@
 // The browser's own session cookie goes with each call; the copilot forwards it to the
 // CLM backend, which stays the authority for what this user may see.
 
+import { authenticatedFetch } from "./api";
+
 const COPILOT_BASE_URL = import.meta.env.VITE_COPILOT_BASE_URL ?? "";
 
 export interface CopilotBrief {
@@ -27,12 +29,16 @@ export interface CopilotAnswer {
   suggested_questions: string[];
 }
 
-export class CopilotError extends Error {}
+export class CopilotError extends Error {
+  constructor(message: string, readonly status: number | null = null) {
+    super(message);
+  }
+}
 
 async function request<T>(path: string, body: unknown | undefined, signal?: AbortSignal): Promise<T> {
   let response: Response;
   try {
-    response = await globalThis.fetch(`${COPILOT_BASE_URL}/api/assistant${path}`, body === undefined
+    response = await authenticatedFetch(`${COPILOT_BASE_URL}/api/assistant${path}`, body === undefined
       ? { method: "GET", credentials: "include", signal }
       : {
           method: "POST",
@@ -53,7 +59,7 @@ async function request<T>(path: string, body: unknown | undefined, signal?: Abor
     } catch {
       // keep the generic message
     }
-    throw new CopilotError(message);
+    throw new CopilotError(message, response.status);
   }
   return (await response.json()) as T;
 }

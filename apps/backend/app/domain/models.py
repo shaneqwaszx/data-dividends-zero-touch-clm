@@ -15,8 +15,10 @@ from app.domain.jurisdiction import JurisdictionResolution, RegistryRoutingDecis
 from app.domain.policy import (
     CasePolicyRebindAudit,
     CasePolicySnapshot,
+    PolicyAuthority,
     legacy_phase13_policy_snapshot,
 )
+from app.domain.target_classification import TargetClassificationSelection
 
 IDENTITY_RECHECK_HISTORY_LIMIT = 16
 
@@ -820,6 +822,9 @@ class OnboardingCase(BaseModel):
         default=(), max_length=IDENTITY_RECHECK_HISTORY_LIMIT
     )
     existing_target_state: ExistingTargetStateProvenance | None = None
+    target_classification_selections: tuple[TargetClassificationSelection, ...] = Field(
+        default=(), max_length=2
+    )
     target_dispatch_confirmation: TargetDispatchConfirmation | None = None
     policy_snapshot: CasePolicySnapshot = Field(default_factory=legacy_phase13_policy_snapshot)
     policy_snapshot_revision: int = Field(default=1, ge=1)
@@ -843,6 +848,26 @@ class OnboardingCase(BaseModel):
 
     @model_validator(mode="after")
     def validate_registry_binding(self) -> "OnboardingCase":
+        selections = self.target_classification_selections
+        if len({item.field_key for item in selections}) != len(selections):
+            raise ValueError("Target classification selection keys must be unique")
+        for selection in selections:
+            target = self.policy_snapshot.goldtier_target
+            if target is None or getattr(target, selection.field_key).value != selection.value:
+                raise ValueError("Target classification selection must match case policy")
+            authority = (
+                PolicyAuthority.PROJECT_DERIVED_POC if selection.source == "DOCUMENT"
+                else PolicyAuthority.USER_AUTHORIZED_POC
+            )
+            if getattr(target, selection.field_key).authority != authority:
+                raise ValueError("Target selection source must agree with policy authority")
+            if selection.policy_version != self.policy_snapshot.catalogue_version:
+                raise ValueError("Target selection requires the frozen case policy version")
+            evidence = selection.document_evidence
+            if evidence is not None and evidence.evidence_score < float(
+                self.policy_snapshot.idp_review_confidence_threshold
+            ):
+                raise ValueError("Automatic selection requires the frozen confidence threshold")
         if self.initial_identity is not None and (
             self.initial_identity.registration_number != self.requested_uen
         ):

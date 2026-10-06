@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import type { PolicyRebindMetadata } from "../types";
+import type { GoldTierTargetClassification, PolicyRebindMetadata } from "../types";
 
 const ACCEPTED_CONFIGURATION_FIELDS = [
   "customerExternalSystem",
@@ -27,12 +27,14 @@ function fieldLabel(field: string): string {
 
 export default function PolicyRebindPanel({
   metadata,
+  classification,
   registrationNumber,
   disabled,
   onSubmit,
   onFocusClassification,
 }: {
   metadata: PolicyRebindMetadata;
+  classification?: GoldTierTargetClassification;
   registrationNumber: string;
   disabled: boolean;
   onSubmit: (rationale: string) => void;
@@ -52,51 +54,48 @@ export default function PolicyRebindPanel({
   return (
     <section id="case-policy-rebind" className="policy-rebind evidence-focus-target" tabIndex={-1} aria-labelledby="policy-rebind-title">
       <p className="card-kicker">Case-bound target configuration</p>
-      <h2 id="policy-rebind-title">Singapore POC configuration authority</h2>
+      <h2 id="policy-rebind-title">GoldTier submission settings</h2>
       <p>
-        Rebinding updates only the accepted system configuration. It preserves operator-selected
-        KYC and segment choices and retained history; it is not a wholesale reset, sponsor
-        approval, compliance approval, or Ready-for-Approval.
+        Shows the case-bound values that will be used to prepare this Singapore GoldTier submission.
+        Submission preparation is separate from GoldTier KYC and four-eye approval.
       </p>
 
       <div className="policy-rebind__categories">
         <section aria-labelledby="policy-rebind-accepted">
-          <h3 id="policy-rebind-accepted">Accepted system configuration</h3>
-          <p className="control-help">Accepted Singapore POC constants owned by current system configuration.</p>
+          <h3 id="policy-rebind-accepted">System-set Singapore values</h3>
+          <p className="control-help">System-set Singapore values remain unchanged by uploaded documents.</p>
           <ul>
             {ACCEPTED_CONFIGURATION_FIELDS.map((field) => (
               <li key={field}>
-                {fieldLabel(field)} · {accepted.has(field) ? "accepted for this case" : "requires rebind"}
+                {fieldLabel(field)} · {accepted.has(field) ? ({ customerExternalSystem: "DSD", registrationType: "ACRA", policy: "Singapore", bookingEntity: "ANZBGL (Singapore Branch)" }[field]) : "requires rebind"}
               </li>
             ))}
           </ul>
         </section>
 
-        <section aria-labelledby="policy-rebind-editable">
-          <h3 id="policy-rebind-editable">Editable operator choices</h3>
-          <p className="control-help">These remain separate case controls and are not overwritten by rebind.</p>
-          <ul>{metadata.editable_fields.map((field) => <li key={field}>{fieldLabel(field)} · User-authorized POC choice</li>)}</ul>
-          <button type="button" className="btn btn-ghost" onClick={onFocusClassification}>
-            Focus editable KYC and segment
-          </button>
+        <section aria-labelledby="policy-rebind-automatic">
+          <h3 id="policy-rebind-automatic">Automatically classified from evidence</h3>
+          <ul>{classification && [classification.kyc_customer_type, classification.client_segment].filter((field) => field.selection?.source === "DOCUMENT").map((field, index) => <li key={index}>{field.selected_value} · Automatically classified from document</li>)}</ul>
         </section>
-
-        <section aria-labelledby="policy-rebind-upstream">
-          <h3 id="policy-rebind-upstream">Upstream identity field</h3>
-          <ul>{metadata.upstream_fields.map((field) => (
-            <li key={field}>{fieldLabel(field)} · {field === "registrationNumber" ? registrationNumber : "Supplied upstream"}</li>
-          ))}</ul>
+        <section aria-labelledby="policy-rebind-editable">
+          <h3 id="policy-rebind-editable">User input required</h3>
+          <p className="control-help">Only when automation cannot safely determine a value. Retained user choices remain separate from system values.</p>
+          <ul>{metadata.editable_fields.filter((field) => !classification || (field === "kycCustomerType" ? classification.kyc_customer_type : classification.client_segment).selection?.source !== "DOCUMENT").map((field) => <li key={field}>{fieldLabel(field)}</li>)}</ul>
+          {(!classification || !classification.kyc_customer_type.selected_value || !classification.client_segment.selected_value) && <button type="button" className="btn btn-ghost" onClick={onFocusClassification}>Focus editable KYC and segment</button>}
         </section>
 
         <section aria-labelledby="policy-rebind-unavailable">
-          <h3 id="policy-rebind-unavailable">Unavailable fields</h3>
+          <h3 id="policy-rebind-unavailable">Unavailable / not transmitted</h3>
           {metadata.unavailable_fields.length ? (
-            <ul>{metadata.unavailable_fields.map((field) => <li key={field}>{fieldLabel(field)} · unavailable pending sponsor authority</li>)}</ul>
+            <ul>{metadata.unavailable_fields.map((field) => <li key={field}>{fieldLabel(field)} · Unavailable / not transmitted</li>)}</ul>
           ) : <p>No unavailable fields are projected.</p>}
         </section>
       </div>
 
+      <details><summary>Technical authority and policy history</summary>
       <footer className="policy-rebind__receipt">
+        <p>Registration number · {registrationNumber}</p>
+        <p>Updating system values preserves retained classifications and history.</p>
         <p><strong>Policy snapshot revision:</strong> {metadata.revision}</p>
         <p><strong>Configuration status:</strong> {requiresRebind ? "Requires rebind" : "Current accepted POC"}</p>
         {!requiresRebind && metadata.last_rebound_by && metadata.last_rebound_at && (
@@ -108,6 +107,7 @@ export default function PolicyRebindPanel({
           </div>
         )}
       </footer>
+      </details>
 
       {requiresRebind && (
         <form onSubmit={submit}>
@@ -124,7 +124,7 @@ export default function PolicyRebindPanel({
           />
           <p className="control-help">The backend applies current accepted Singapore POC constants and rechecks every retained version.</p>
           <button type="submit" className="btn btn-primary" disabled={disabled || rationaleValue.length < 10}>
-            Rebind accepted Singapore POC configuration
+            Update system-set Singapore values
           </button>
         </form>
       )}

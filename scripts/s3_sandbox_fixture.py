@@ -17,7 +17,7 @@ class OfflineS3SandboxTransport(OfflineAcceptanceTransport):
         super().__init__(S3_SYNTHETIC_NAME, S3_SYNTHETIC_UEN)
         if scenario not in {
             "success", "uncertain-policy", "failed-policy", "existing-customer",
-            "garden-existing-customer",
+            "garden-existing-customer", "database-alpha", "database-partnership", "database-government",
         }:
             raise ValueError("Unknown offline Sandbox fixture")
         self.scenario = scenario

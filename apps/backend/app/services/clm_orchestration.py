@@ -500,6 +500,13 @@ class ClmOrchestrationService:
                     message="The CLM case changed before target confirmation.",
                 )
             case = self._require_case(case_id)
+            if record.submission_snapshot is None and not self._document_classification_current(
+                case
+            ):
+                raise ClmRequestError(
+                    code="CLM_NOT_READY",
+                    message="Current classification evidence requires review before confirmation.",
+                )
             existing_confirmation = case.target_dispatch_confirmation
             if existing_confirmation is None and record.submission_snapshot is None:
                 previous_search = record.target_search_checkpoint
@@ -772,6 +779,8 @@ class ClmOrchestrationService:
         if snapshot is None:
             return False
         case = self._require_case(record.case_id)
+        if not self._document_classification_current(case):
+            return False
         try:
             current_input = self._cases.build_submission_input(
                 case,
@@ -849,6 +858,7 @@ class ClmOrchestrationService:
                 require_target_classification=(
                     record.submission_plan.environment == GoldTierProviderMode.SANDBOX
                 ),
+                classification_current=self._document_classification_current(case),
                 now=self._clock(),
             ),
             record.target_search_checkpoint,
@@ -1332,10 +1342,16 @@ class ClmOrchestrationService:
                 require_target_classification=(
                     self._cases.target_provider_mode == GoldTierProviderMode.SANDBOX
                 ),
+                classification_current=self._document_classification_current(case),
                 now=now or self._clock(),
             ),
             search_checkpoint,
         )
+
+    def _document_classification_current(self, case: OnboardingCase) -> bool:
+        return self._documents.assess_target_classification(
+            case_id=case.case_id
+        ).selections_are_current(case.target_classification_selections)
 
     def _build_snapshot(
         self,
@@ -1469,6 +1485,7 @@ def _evaluate_readiness(
     now: datetime,
     reconciliation_cleared: bool = False,
     require_target_classification: bool = False,
+    classification_current: bool = True,
 ) -> ClmReadinessAssessment:
     blockers: list[ClmBlockerCode] = []
 
@@ -1560,8 +1577,12 @@ def _evaluate_readiness(
         block(ClmBlockerCode.OWNERSHIP_ANALYSIS_INCOMPLETE)
 
     target_policy = case.policy_snapshot.goldtier_target
-    if require_target_classification and (
-        target_policy is None or not target_policy.dispatch_ready
+    classification_inputs_present = bool(case.target_classification_selections) or any(
+        document.classification_observations for document in documents
+    )
+    if not classification_current or (
+        (require_target_classification or classification_inputs_present)
+        and (target_policy is None or not target_policy.dispatch_ready)
     ):
         block(ClmBlockerCode.GOLDTIER_CLASSIFICATION_REQUIRED)
     goldtier = StageReadiness(

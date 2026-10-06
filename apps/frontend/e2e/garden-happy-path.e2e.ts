@@ -145,7 +145,7 @@ async function createGarden(page: Page, conflicting: boolean): Promise<string> {
 }
 
 async function selectClassification(page: Page) {
-  await openStage(page, "Readiness check");
+  await openStage(page, "Submission readiness");
   const kyc = page.getByLabel("KYC customer type", { exact: true });
   const segment = page.getByLabel("Client segment", { exact: true });
   await expect(kyc).toBeEnabled();
@@ -218,7 +218,7 @@ test("Garden late preconfirmation detail GET cannot replace completed case", asy
     await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
     expect((await confirmation).status()).toBe(200);
     const overview = page.getByText("Completed POC workflow", { exact: true });
-    await openStage(page, "Preparing GoldTier Submission");
+    await openStage(page, "GoldTier submission package");
     await expect(overview).toBeVisible();
     release();
     await finished;
@@ -294,7 +294,7 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
   await testInfo.attach("Garden-200-percent-content-zoom", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
   await page.evaluate(() => { document.documentElement.style.zoom = ""; });
   const focusBaseline = requests.length;
-  await openStage(page, "Preparing GoldTier Submission");
+  await openStage(page, "GoldTier submission package");
   await page.getByText("Backend execution details", { exact: true }).click();
   await page.getByRole("button", { name: "Focus registry evidence" }).click();
   await expect(page.locator("#case-evidence-registry")).toBeFocused();
@@ -304,7 +304,7 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
     && result.url().endsWith("/target-confirmation"), { timeout: 15_000 });
   await page.getByRole("button", { name: "Confirm and send to Mock GoldTier" }).click();
   expect((await confirmation).status()).toBe(200);
-  await openStage(page, "Preparing GoldTier Submission");
+  await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 90_000 });
   const completed = await summary(page, caseId);
   expect(completed.status).toBe("COMPLETED");

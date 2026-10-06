@@ -147,3 +147,26 @@ Before any target intent/submission, creator revisions preserve prior analysis/r
 clear stale readiness/confirmation under the owning lock, and recalculate through the
 single Decimal engine. Any retained target execution freezes this edit. Sequential
 checkpoint failure stays fail closed; it is not a cross-section Mongo transaction.
+
+## Schema10 target-selection amendment — 2026-10-05 continuation
+
+Current schema10 retains bounded document classification observations and case selections
+with DOCUMENT/USER source separated from policy authority. Document choices bind their
+original observation/value/method/quality/score/page/version and event count; case values
+match case-bound target policy. Strict schemas1..9 reject explicit later fields even null
+or empty and decode to empty/unknown evidence in memory without rewrite or reclassification.
+Schema9 retains all accepted creator/extraction/ownership/Search fields. Same envelope,
+CAS, insert-only/update-only and no-resurrection/no-replay owners; no new repository or
+read-time migration. Older binaries cannot decode schema10 writes.
+
+## Schema10 current-evidence review binding — 2026-10-06
+
+The same still-uncommitted schema10 selection carries evidence_fingerprint and USER
+actor_id alongside existing value/timestamp/policy/vocabulary/document audit. DOCUMENT
+receipts bind the trusted current evidence identity without impersonating a user.
+Absent earlier schema10 bindings remain unknown and stale, never inferred or rewritten
+on read. Schemas1..9 remain strict read-only-compatible and reject later selection fields.
+Assessment is derived by the document owner; no duplicate persisted assessment/cache
+owner or new schema version. Existing envelope/CAS/create/update/delete/freeze invariants
+remain. Stale conflict, fresh review and later invalidation survive physical restart;
+startup/GET do not rewrite valid case documents to fabricate currentness.

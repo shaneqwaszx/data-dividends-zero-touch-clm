@@ -62,6 +62,9 @@ def _still_needed_answer(facts: dict[str, Any]) -> str:
         lines.append("Before the case can go to GoldTier, the app still needs:")
         lines.extend(_need_lines(needs))
     if not lines:
+        pending = next_pending_step(facts)
+        if pending:
+            return f"Next step: {pending}. " + progress_line(facts)
         return "The app shows nothing else outstanding right now. " + progress_line(facts)
     return "\n".join(lines)
 

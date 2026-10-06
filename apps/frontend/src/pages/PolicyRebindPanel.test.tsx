@@ -73,26 +73,26 @@ function enter(element: HTMLTextAreaElement, value: string): void {
 describe("PolicyRebindPanel", () => {
   it("shows current authority categories and the latest receipt without offering rebind", () => {
     const { view, onFocusClassification } = render();
-    expect(view.textContent).toContain("Accepted system configuration");
-    expect(view.textContent).toContain("Customer external system · accepted for this case");
-    expect(view.textContent).toContain("Editable operator choices");
-    expect(view.textContent).toContain("KYC customer type · User-authorized POC choice");
+    expect(view.textContent).toContain("System-set Singapore values");
+    expect(view.textContent).toContain("Customer external system · DSD");
+    expect(view.textContent).toContain("User input required");
+    expect(view.textContent).toContain("KYC customer type");
     expect(view.textContent).toContain("Registration number · 202400001A");
-    expect(view.textContent).toContain("Account entity type · unavailable pending sponsor authority");
+    expect(view.textContent).toContain("Account entity type · Unavailable / not transmitted");
     expect(view.textContent).toContain("Policy snapshot revision: 2");
     expect(view.textContent).toContain("Last rebound by: case-user");
     expect(view.textContent).toContain("Replace superseded SG POC target constants.");
-    expect(view.textContent).not.toContain("Rebind accepted Singapore POC configuration");
+    expect(view.textContent).not.toContain("Update system-set Singapore values");
     act(() => (view.querySelector(".policy-rebind__categories .btn") as HTMLButtonElement).click());
     expect(onFocusClassification).toHaveBeenCalledTimes(1);
   });
 
   it("requires rationale and offers the exact legacy rebind action only when required", () => {
     const { view, onSubmit } = render(legacy);
-    const button = [...view.querySelectorAll("button")].find((item) => item.textContent?.includes("Rebind accepted"))!;
+    const button = [...view.querySelectorAll("button")].find((item) => item.textContent?.includes("Update system-set"))!;
     expect(button.disabled).toBe(true);
-    expect(view.textContent).toContain("preserves operator-selected");
-    expect(view.textContent).toContain("not a wholesale reset");
+    expect(view.textContent).toContain("preserves retained classifications");
+    expect(view.textContent).toContain("Submission preparation is separate from GoldTier KYC and four-eye approval");
     act(() => enter(view.querySelector("#policy-rebind-rationale")!, "Replace superseded SG POC target constants."));
     expect(button.disabled).toBe(false);
     act(() => view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
@@ -112,7 +112,7 @@ describe("PolicyRebindPanel", () => {
     act(() => root?.render(<><PolicyRebindPanel metadata={legacy} registrationNumber="202400001A" disabled={false} onSubmit={() => undefined} onFocusClassification={() => undefined} /><TargetClassificationPanel classification={classification} disabled={false} onSubmit={async () => undefined} /></>));
     expect(container.querySelector(".policy-rebind select")).toBeNull();
     expect(container.querySelectorAll("#case-target-classification select, select")).toHaveLength(2);
-    expect(container.textContent).toContain("remain editable before target dispatch confirmation");
+    expect(container.textContent).toContain("Review the unresolved evidence before selecting a fallback value");
   });
 });
 

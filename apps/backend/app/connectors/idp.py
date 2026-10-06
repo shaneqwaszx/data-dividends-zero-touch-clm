@@ -6,6 +6,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domain.documents import (
+    ClassificationObservationValues,
     DocumentFieldCandidate,
     DocumentFieldKey,
     DocumentPageEvidence,
@@ -84,6 +85,10 @@ class IdpSourceResult(BaseModel):
         default=(), max_length=128
     )
 
+    classification_observations: tuple[ClassificationObservationValues, ...] = Field(
+        default=(), max_length=64
+    )
+
     @model_validator(mode="after")
     def require_each_provisional_field_once(self) -> "IdpSourceResult":
         keys = [item.field_key for item in self.fields]
@@ -95,8 +100,12 @@ class IdpSourceResult(BaseModel):
         if len(page_numbers) != len(set(page_numbers)):
             raise ValueError("source page evidence must be unique")
         bound_pages = set(page_numbers)
+        observations: tuple[OwnershipObservationValues | ClassificationObservationValues, ...] = (
+            *self.ownership_observations,
+            *self.classification_observations,
+        )
         if any(observation.page_number not in bound_pages for observation
-               in self.ownership_observations):
+               in observations):
             raise ValueError("ownership observations require page evidence")
         if any(candidate.page_number not in bound_pages for item in self.fields
                for candidate in item.candidates):

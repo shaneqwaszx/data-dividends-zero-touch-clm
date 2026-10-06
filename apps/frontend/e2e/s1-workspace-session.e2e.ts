@@ -13,7 +13,7 @@ const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 const stageNames = [
   "Case created", "Initial identity", "Jurisdiction", "Existing-customer search",
   "Registry verification", "Document verification", "Data reconciliation", "Ownership & UBO",
-  "Risk assessment", "Readiness check", "Preparing GoldTier Submission", "Final review & send",
+  "Risk assessment", "Submission readiness", "GoldTier submission package", "Final review & send",
 ];
 let violations: string[];
 let holdCreation: Promise<void> | null;

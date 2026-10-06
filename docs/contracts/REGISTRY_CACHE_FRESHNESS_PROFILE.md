@@ -2,7 +2,8 @@
 
 ## Status and authority
 
-Current behavior is the Phase24C amendment below: schema2 operation-prefix and
+Current behavior includes the owner-authorized 2026-10-05 database-first amendment
+below (D-069 / ADR-010). The preceding Phase24C amendment covers schema2 operation-prefix and
 definitive-negative reuse, frozen ACTIVE per-case freshness/negative-TTL policy,
 and separate synthetic-Mock/official-Marketplace-Mock dataset namespaces. Earlier
 Phase16 schema1/complete-only/fixed-policy paragraphs record compatibility history;
@@ -215,3 +216,35 @@ partial results are rechecked under each caller's frozen freshness policy. There
 distributed lock/exactly-once claim, provider retry loop, TTL deletion or retention policy.
 CAS validates the entire returned entry; insert-only/update-only/no-upsert and UTC
 microsecond-preserving storage remain. Normal tests use fake transports only.
+
+## Database-first manual-UAT amendment - 2026-10-05
+
+D-069 supersedes the disabled default for ordinary non-production Mock lanes. `auto`
+enables the same coordinator/repository and configured Mongo collection. Explicit
+`disabled` remains a deliberate override; legacy `mock` retains exact baseline validation.
+Auto does not enable generic Sandbox or production caching. Historical schema and
+case bindings retain their original identities and frozen policy.
+
+After authorization, jurisdiction, route and UEN checks, the coordinator can read one
+explicit approved seed identity: ACRA/MOCK/PHASE10_ACQUISITION_V1/LOCAL_SYNTHETIC_UAT_V1.
+This lookup is admitted only for the two existing Mock provider namespaces under the
+same acquisition contract. It is separate from the provider key, not an alias or
+network-produced evidence. COMPLETE validated exact-UEN evidence plus exclusive bounded
+freshness yields CACHE_HIT and a defensive case copy, with original seed times and
+local-synthetic references. Failed, incomplete, expired or missing seed evidence is
+never bound or partially mixed into the provider namespace. Normal provider acquisition
+and its existing partial/negative cache semantics then apply. Unknown/malformed stored
+evidence still fails closed; no corrupt entry is overwritten or interpreted.
+
+The four fixture definitions live in scripts/zero_touch_happy_path_fixtures.py.
+Seed creates only these four keys through the existing repository, checks deterministic
+content before writes, leaves fresh matching entries untouched and CAS-refreshes only
+expired matching entries. Production and unallowlisted databases are refused before
+connection. `--check` performs no writes or index initialization. No raw HTTP payload,
+SSIC field invention, personal identifier, GoldTier seed, legal UBO or retention claim.
+
+An authorized reconciliation legal-name selection that changes canonical entity clears
+only its active registry equality binding. The original acquisition bundle and shared
+cache entry remain unchanged; the reconciliation decision remains separately retained.
+The unchanged-name path retains its binding. This preserves existing correction behavior
+with the ordinary cache default without weakening the binding validator.

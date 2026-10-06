@@ -1370,7 +1370,21 @@ export interface BlockerDecisionRecord {
   reviewer_id: string | null;
 }
 
+export interface TargetClassificationSelection {
+  field_key: "kyc_customer_type" | "client_segment";
+  value: string;
+  source: "DOCUMENT" | "USER";
+  document_evidence: {
+    document_id: string; document_version: number; document_event_count: number;
+    page_number: number; source_reference: string; extraction_method: string;
+    extraction_quality: string; evidence_score: number; extracted_exact_value: string;
+  } | null;
+  evidence_fingerprint?: string | null; actor_id?: string | null;
+  classified_at: string; policy_version: number; vocabulary_version: string;
+}
+
 export interface GoldTierTargetClassificationField {
+  selection?: TargetClassificationSelection | null;
   allowed_values: string[];
   selected_value: string | null;
   authority: string | null;
@@ -1378,6 +1392,12 @@ export interface GoldTierTargetClassificationField {
 }
 
 export interface GoldTierTargetClassification {
+  evidence_state?: "NO_EVIDENCE" | "PARTIAL" | "SAFE_CANDIDATE" | "CONFLICT" | "UNSAFE" | null;
+  evidence_fingerprint?: string | null;
+  current?: boolean | null;
+  review_required?: boolean;
+  evidence_values?: Partial<Record<"kyc_customer_type" | "client_segment", string[]>>;
+  state?: "CURRENT" | "REVIEW_REQUIRED" | "CONFLICT";
   vocabulary_version: string;
   editable: boolean;
   kyc_customer_type: GoldTierTargetClassificationField;

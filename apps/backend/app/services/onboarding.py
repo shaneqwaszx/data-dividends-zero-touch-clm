@@ -81,6 +81,12 @@ from app.domain.policy import (
     legacy_phase13_policy_snapshot,
 )
 from app.domain.reconciliation import ReconciliationField
+from app.domain.target_classification import (
+    TargetClassificationAssessment,
+    TargetClassificationKey,
+    TargetClassificationSelection,
+    bounded_classification_compatible,
+)
 from app.domain.target_preparation import GoldTierRequestPreview
 from app.domain.target_submission import (
     GoldTierExecutionClassification,
@@ -1132,16 +1138,14 @@ class OnboardingService:
         self,
         *,
         case_id: UUID,
-        kyc_customer_type: str,
-        client_segment: str,
+        kyc_customer_type: str | None = None,
+        client_segment: str | None = None,
         expected_case_event_count: int | None = None,
+        document_selections: tuple[TargetClassificationSelection, ...] | None = None,
+        classification_assessment: TargetClassificationAssessment | None = None,
+        actor_id: str | None = None,
     ) -> OnboardingCase:
-        """Bind or edit one pre-dispatch local-POC target classification."""
-
-        if kyc_customer_type not in GOLDTIER_KYC_CUSTOMER_TYPE_VALUES:
-            raise ValueError("GoldTier KYC customer type is not in the current vocabulary")
-        if client_segment not in GOLDTIER_CLIENT_SEGMENT_VALUES:
-            raise ValueError("GoldTier client segment is not in the current vocabulary")
+        """One pre-dispatch owner for document and explicit user selection."""
         with self.case_lock(case_id):
             case = self._repository.get(case_id)
             if case is None:
@@ -1157,6 +1161,7 @@ class OnboardingService:
             if (
                 case.target_dispatch_confirmation is not None
                 or case.goldtier_result is not None
+                or self.has_retained_target_execution(case_id)
                 or case.state
                 in {
                     WorkflowState.GT_SHELL_CREATED,
@@ -1165,37 +1170,133 @@ class OnboardingService:
                     WorkflowState.COMPLETED,
                 }
             ):
-                raise ValueError("GoldTier target classification is already frozen")
-
-            already_bound = (
-                target.kyc_customer_type.authority != PolicyAuthority.TBD_SPONSOR
-                and target.client_segment.authority != PolicyAuthority.TBD_SPONSOR
-            )
-            if (
-                already_bound
-                and target.kyc_customer_type.value == kyc_customer_type
-                and target.client_segment.value == client_segment
-            ):
-                return case.model_copy(deep=True)
-
+                raise ValueError("GoldTier submission is already frozen and recovery-controlled")
+            previous = {item.field_key: item for item in case.target_classification_selections}
+            automatic = {item.field_key: item for item in document_selections or ()}
+            inputs = {
+                TargetClassificationKey.KYC_CUSTOMER_TYPE: kyc_customer_type,
+                TargetClassificationKey.CLIENT_SEGMENT: client_segment,
+            }
+            selections = dict(previous)
+            values: dict[str, AuthorityLabelledTargetValue] = {}
             timestamp = self._clock()
-            selected_target = target.model_copy(
-                update={
-                    "kyc_customer_type": AuthorityLabelledTargetValue(
-                        value=kyc_customer_type,
-                        authority=PolicyAuthority.USER_AUTHORIZED_POC,
-                    ),
-                    "client_segment": AuthorityLabelledTargetValue(
-                        value=client_segment,
-                        authority=PolicyAuthority.USER_AUTHORIZED_POC,
-                    ),
-                },
-                deep=True,
-            )
+            for key in TargetClassificationKey:
+                prior = previous.get(key)
+                if document_selections is not None:
+                    if prior is not None and prior.source == "USER":
+                        continue
+                    selection = automatic.get(key)
+                    if selection is not None:
+                        if prior is not None and prior.model_dump(
+                            exclude={"classified_at"}
+                        ) == selection.model_dump(exclude={"classified_at"}):
+                            selection = prior
+                        selections[key] = selection
+                        values[key] = AuthorityLabelledTargetValue(
+                            value=selection.value, authority=PolicyAuthority.PROJECT_DERIVED_POC
+                        )
+                    elif prior is not None and prior.source == "DOCUMENT":
+                        selections.pop(key)
+                        values[key] = AuthorityLabelledTargetValue(
+                            value="TBD_SPONSOR", authority=PolicyAuthority.TBD_SPONSOR
+                        )
+                else:
+                    value = inputs[key]
+                    if value is None:
+                        continue
+                    vocabulary = (
+                        GOLDTIER_KYC_CUSTOMER_TYPE_VALUES
+                        if key == TargetClassificationKey.KYC_CUSTOMER_TYPE
+                        else GOLDTIER_CLIENT_SEGMENT_VALUES
+                    )
+                    if value not in vocabulary:
+                        raise ValueError("GoldTier classification is not in the current vocabulary")
+                    if (
+                        prior is not None
+                        and prior.source == "DOCUMENT"
+                        and (
+                            classification_assessment is None
+                            or (
+                                prior.evidence_fingerprint
+                                == classification_assessment.evidence_fingerprint
+                                and any(
+                                    candidate.field_key == key and candidate.value == prior.value
+                                    for candidate in classification_assessment.candidates
+                                )
+                            )
+                        )
+                    ):
+                        if value != prior.value:
+                            raise ValueError(
+                                "Current automatic classification requires document review "
+                                "before changing"
+                            )
+                        continue
+                    if (
+                        prior is not None
+                        and prior.source == "USER"
+                        and value == prior.value
+                        and prior.actor_id == actor_id
+                        and prior.evidence_fingerprint
+                        == (
+                            classification_assessment.evidence_fingerprint
+                            if classification_assessment is not None
+                            else None
+                        )
+                    ):
+                        continue
+                    if classification_assessment is not None and any(
+                        candidate.field_key == key and candidate.value != value
+                        for candidate in classification_assessment.candidates
+                    ):
+                        raise ValueError(
+                            "The selected value disagrees with current trusted evidence"
+                        )
+                    selections[key] = TargetClassificationSelection(
+                        field_key=key,
+                        value=value,
+                        source="USER",
+                        actor_id=actor_id,
+                        evidence_fingerprint=(
+                            classification_assessment.evidence_fingerprint
+                            if classification_assessment is not None
+                            else None
+                        ),
+                        classified_at=timestamp,
+                        policy_version=case.policy_snapshot.catalogue_version,
+                    )
+                    values[key] = AuthorityLabelledTargetValue(
+                        value=value, authority=PolicyAuthority.USER_AUTHORIZED_POC
+                    )
+            selected_target = target.model_copy(update=values, deep=True)
+            if (
+                case.entity is not None
+                and not bounded_classification_compatible(
+                    case.entity.party_type, selected_target.kyc_customer_type.value
+                )
+            ):
+                if document_selections is None:
+                    raise ValueError(
+                        "Government is incompatible with the verified private-company "
+                        "legal form; review the evidence"
+                    )
+                key = TargetClassificationKey.KYC_CUSTOMER_TYPE
+                selections.pop(key, None)
+                selected_target = selected_target.model_copy(
+                    update={
+                        key: AuthorityLabelledTargetValue(
+                            value="TBD_SPONSOR", authority=PolicyAuthority.TBD_SPONSOR
+                        )
+                    }
+                )
+            ordered = tuple(selections[key] for key in TargetClassificationKey if key in selections)
+            if target == selected_target and case.target_classification_selections == ordered:
+                return case.model_copy(deep=True)
             updated = case.model_copy(deep=True)
             updated.policy_snapshot = case.policy_snapshot.model_copy(
                 update={"goldtier_target": selected_target}, deep=True
             )
+            updated.target_classification_selections = ordered
             updated.target_dispatch_confirmation = None
             updated.updated_at = timestamp
             updated.events.append(
@@ -1204,16 +1305,11 @@ class OnboardingService:
                     stage=updated.state,
                     outcome=EventOutcome.SUCCEEDED,
                     timestamp=timestamp,
-                    case_id=updated.case_id,
-                    correlation_id=updated.correlation_id,
-                    code=(
-                        "GOLDTIER_CASE_CLASSIFICATION_EDITED"
-                        if already_bound
-                        else "GOLDTIER_CASE_CLASSIFICATION_BOUND"
-                    ),
+                    case_id=case_id,
+                    correlation_id=case.correlation_id,
+                    code="GOLDTIER_CASE_CLASSIFICATION_BOUND",
                     message=(
-                        "Authorized case-specific GoldTier classifications were bound "
-                        "to the case policy snapshot."
+                        "Case-specific target selection evidence was retained before submission."
                     ),
                 )
             )
@@ -1265,7 +1361,15 @@ class OnboardingService:
                 current: AuthorityLabelledTargetValue,
                 allowed: tuple[str, ...],
             ) -> AuthorityLabelledTargetValue:
-                if old.authority == PolicyAuthority.USER_AUTHORIZED_POC and old.value in allowed:
+                retained_document_choice = any(
+                    selection.source == "DOCUMENT" and selection.value == old.value
+                    for selection in case.target_classification_selections
+                )
+                if old.value in allowed and (
+                    old.authority == PolicyAuthority.USER_AUTHORIZED_POC
+                    or (old.authority == PolicyAuthority.PROJECT_DERIVED_POC
+                        and retained_document_choice)
+                ):
                     return old
                 return current
 
@@ -4440,6 +4544,10 @@ class OnboardingService:
             if validate_entity(candidate_entity):
                 raise ValueError("selected document value violates canonical validation")
             candidate.entity = candidate_entity
+            if candidate_entity != case.entity:
+                # This binding attests equality to the original acquired entity.
+                # Keep that evidence immutable when an authorized decision changes it.
+                candidate.registry_evidence_binding = None
             timestamp = self._clock()
             candidate.state = WorkflowState.VALIDATED
             candidate.updated_at = timestamp

@@ -1,5 +1,6 @@
 """Application configuration loaded from environment variables."""
 
+import os
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -41,7 +42,7 @@ class Settings(BaseSettings):
     ownership_max_paths_per_candidate: int = Field(default=64, gt=0, le=1000)
     ownership_max_total_paths: int = Field(default=256, gt=0, le=5000)
     clm_persistence_mode: Literal["memory", "mongo"] = "memory"
-    registry_cache_mode: Literal["disabled", "mock"] = "disabled"
+    registry_cache_mode: Literal["auto", "disabled", "mock"] = "auto"
     registry_cache_freshness_seconds: int | None = None
     acra_base_url: str = ""
     acra_company_path_template: str = ""
@@ -142,6 +143,14 @@ class Settings(BaseSettings):
             )
         return value
 
+    @property
+    def registry_cache_enabled(self) -> bool:
+        return self.registry_cache_mode == "mock" or (
+            self.registry_cache_mode == "auto"
+            and self.app_env != "production"
+            and self.acra_connector_mode in {"mock", "api_marketplace_mock"}
+        )
+
     @model_validator(mode="after")
     def validate_registry_cache(self) -> "Settings":
         if self.registry_cache_mode == "mock":
@@ -149,6 +158,9 @@ class Settings(BaseSettings):
                 raise ValueError("registry cache is supported only for explicit Mock ACRA lanes")
             if self.registry_cache_freshness_seconds != 7_776_000:
                 raise ValueError("enabled Mock registry cache requires 7,776,000 freshness seconds")
+        if self.registry_cache_enabled:
+            if self.registry_cache_freshness_seconds not in {None, 7_776_000}:
+                raise ValueError("Mock registry cache baseline requires 7,776,000 seconds")
             collections = {
                 self.mongo_case_collection,
                 self.mongo_admin_teams_collection,
@@ -207,4 +219,4 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return one validated settings instance per process."""
 
-    return Settings()
+    return Settings(_env_file=None) if os.environ.get("APP_ENV") == "test" else Settings()

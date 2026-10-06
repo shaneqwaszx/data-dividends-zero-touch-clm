@@ -68,7 +68,9 @@ from app.persistence.models import (
     DurableCaseSnapshotV6,
     DurableCaseSnapshotV7,
     DurableCaseSnapshotV8,
+    DurableCaseSnapshotV9,
     _validate_case_bindings,
+    reject_classification_legacy_fields,
     reject_session2_legacy_fields,
 )
 
@@ -502,7 +504,7 @@ class MongoCaseStore:
             raise PersistenceDataInvalidError
         automation_value = value.get("automation")
         if (
-            schema_version in {1, 2, 3, 4, 5, 6, 7, 8, CASE_SNAPSHOT_SCHEMA_VERSION}
+            schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9, CASE_SNAPSHOT_SCHEMA_VERSION}
             and isinstance(automation_value, dict)
             and "stage_order_version" not in automation_value
         ):
@@ -511,6 +513,8 @@ class MongoCaseStore:
                 "stage_order_version": LEGACY_AUTOMATION_STAGE_ORDER_VERSION,
             }
         try:
+            if schema_version in {1, 2, 3, 4, 5, 6, 7, 8, 9}:
+                reject_classification_legacy_fields(value)
             if schema_version in {1, 2, 3, 4, 5, 6, 7, 8}:
                 reject_session2_legacy_fields(value)
             if schema_version in {1, 2, 3, 4, 5, 6, 7}:
@@ -547,6 +551,10 @@ class MongoCaseStore:
                 legacy_v8 = DurableCaseSnapshotV8.model_validate(value)
                 _reject_unknown_model_fields(value, legacy_v8)
                 snapshot = legacy_v8.to_current()
+            elif schema_version == 9:
+                legacy_v9 = DurableCaseSnapshotV9.model_validate(value)
+                _reject_unknown_model_fields(value, legacy_v9)
+                snapshot = legacy_v9.to_current()
             elif schema_version == CASE_SNAPSHOT_SCHEMA_VERSION:
                 snapshot = DurableCaseSnapshot.model_validate(value)
                 _reject_unknown_model_fields(value, snapshot)
@@ -581,7 +589,7 @@ class MongoCaseStore:
             revision = raw["revision"]
             if type(schema_version) is not int or type(revision) is not int or revision < 0:
                 raise PersistenceDataInvalidError
-            if schema_version not in {1, 2, 3, 4, 5, 6, 7, 8, CASE_SNAPSHOT_SCHEMA_VERSION}:
+            if schema_version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, CASE_SNAPSHOT_SCHEMA_VERSION}:
                 raise PersistenceSchemaUnsupportedError
             envelope_id = _canonical_uuid(raw["_id"])
             if _canonical_uuid(raw["case_id"]) != envelope_id:
@@ -1185,7 +1193,7 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
     return {
         "$and": [
             {"$in": [schema_type, ["int", "long"]]},
-            {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, 7, 8, CASE_SNAPSHOT_SCHEMA_VERSION]]},
+            {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, 7, 8, 9, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},
             {"$gte": ["$revision", 0]},
             _mongo_canonical_uuid("$_id"),
@@ -1479,7 +1487,7 @@ def _activity_candidate_valid_expression() -> dict[str, Any]:
     return {
         "$and": [
             {"$in": [schema_type, ["int", "long"]]},
-            {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, 7, 8, CASE_SNAPSHOT_SCHEMA_VERSION]]},
+            {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, 7, 8, 9, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},
             {"$gte": ["$revision", 0]},
             _mongo_canonical_uuid("$_id"),

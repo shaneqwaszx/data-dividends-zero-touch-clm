@@ -115,3 +115,47 @@ It cannot establish Policy completion, adopt a discovered ID, finalize uncertain
 resume execution or repeat a mutation. Independent provider-verified recovery remains
 under its existing authorization and ledger owner. The browser automatically observes
 once per user/session/case/submission and aborts publication on scope changes.
+
+## Submission readiness presentation — 2026-10-05 continuation
+
+Submission readiness means current authoritative evidence/ownership/identity/classification
+and target inputs are complete/current enough to prepare a submission. It is not GoldTier
+KYC/four-eye/Ready-for-Approval. No prerequisite blockers means the readiness node is Complete
+even while final TARGET_CONFIRMATION_REQUIRED remains. Package is Prepared/Complete; final
+Review & Send alone requires review. Twelve nodes and the explicit confirmation remain.
+Document auto selections retain separate source evidence with PROJECT_DERIVED_POC policy
+authority; user fallback uses separate USER selection evidence. Save/auto-bind perform
+zero provider calls/target attempts. Current automatic source is checked again before
+freezing. Any retained target execution freezes classification and evidence edits.
+Actual unresolved Shell/Policy attempts remain uncertain/no-replay; empty intents are
+not projected as uncertain. Original historical UAT cause is unknown without its ledger.
+
+R1 currentness repair: a prior USER value that disagrees with a safely assessed current
+explicit label requires classification review; neither source silently overrides the
+other. The same currentness predicate governs preview, snapshot creation and retained
+NOT_STARTED snapshot checks. Current prerequisites govern prepared package/final action
+copy; stale confirmation exceptions cannot imply a prepared current package.
+
+R2 mode clarification: retained classification currentness is required in every provider
+mode. Explicit observations or selections make classification completeness a prerequisite
+even in Mock mode; partial/incompatible profiles require review before snapshot or final
+confirmation. Legacy Mock cases without observations or selections retain their existing
+optional-classification behavior. The existing owners and final confirmation are unchanged.
+
+## Owner-authorized current classification review — 2026-10-06
+
+The existing document owner retains explicit NO_EVIDENCE/PARTIAL/SAFE_CANDIDATE/CONFLICT/
+UNSAFE assessment. Contradictory trusted current observations are not absence. Current
+USER and DOCUMENT decisions bind the deterministic trusted evidence fingerprint. A USER
+choice made before newly trusted evidence is stale even when its text agrees. A fresh
+same-value explicit review binds current evidence and may resolve conflict without
+picking a source silently. A later trusted change invalidates that review again.
+Raw evidence_state may remain CONFLICT after review; effective state is CURRENT only
+when an explicit compatible current decision covers the conflict. Unresolved CONFLICT
+or stale decisions block readiness/package/confirmation/snapshot/attempted mutations.
+Final Review & Send remains required after local review; review performs provider calls0.
+The browser sends its displayed evidence fingerprint; trusted review with a missing or
+changed token is refused under the existing lock/reauthorization. Absent/unsafe evidence
+remains distinct, and adding non-authoritative unsafe observations does not invalidate
+a current USER decision. Existing stricter automatic safeguards remain. New pre-send
+classification evidence uses existing intake only before any frozen target intent.

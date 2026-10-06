@@ -80,6 +80,9 @@ async function fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<
   return response;
 }
 
+// Reuse the session owner for read-only consumers such as Copilot.
+export { fetch as authenticatedFetch };
+
 export async function login(userId: string, credential: string): Promise<AuthSession> {
   const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
     method: "POST",
@@ -506,6 +509,7 @@ export async function updateGoldTierTargetClassification(
     client_segment: string;
     expected_automation_version: number;
     expected_case_event_count: number;
+    expected_classification_evidence_fingerprint?: string | null;
   },
 ): Promise<ZeroTouchCaseSummary> {
   const response = await fetch(

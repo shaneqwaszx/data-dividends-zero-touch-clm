@@ -19,8 +19,8 @@ NAMES = (
     "Data reconciliation",
     "Ownership & UBO",
     "Risk assessment",
-    "Readiness check",
-    "Preparing GoldTier Submission",
+    "Submission readiness",
+    "GoldTier submission package",
     "Final review & send",
 )
 

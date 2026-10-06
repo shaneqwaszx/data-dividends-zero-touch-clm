@@ -210,8 +210,8 @@ def build_cached_service(
     return service, coordinator, snapshots
 
 
-def test_configuration_is_disabled_by_default_and_exact_when_enabled() -> None:
-    assert Settings(_env_file=None).registry_cache_mode == "disabled"
+def test_configuration_is_auto_by_default_and_exact_in_legacy_mock_mode() -> None:
+    assert Settings(_env_file=None).registry_cache_mode == "auto"
     enabled = Settings(
         _env_file=None,
         registry_cache_mode="mock",

@@ -67,11 +67,21 @@ export default function CopilotPanel({ caseId, onboardingWithoutCase = false, on
   const endRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const pending = useRef<AbortController | null>(null);
+  const briefRequest = useRef<AbortController | null>(null);
 
   const thread = (activeCaseId && threads[activeCaseId]) || EMPTY_THREAD;
 
   function updateThread(key: string, change: (current: Thread) => Thread): void {
     setThreads((all) => ({ ...all, [key]: change(all[key] ?? EMPTY_THREAD) }));
+  }
+
+  function clearInaccessibleThread(key: string): void {
+    pending.current?.abort();
+    pending.current = null;
+    briefRequest.current?.abort();
+    briefRequest.current = null;
+    updateThread(key, () => EMPTY_THREAD);
+    setBusy(false);
   }
 
   // Opening summary of the case, built from app data (no AI), so it is quick. Nothing is
@@ -80,9 +90,11 @@ export default function CopilotPanel({ caseId, onboardingWithoutCase = false, on
     if (!open || !activeCaseId) return undefined;
     const key = activeCaseId;
     const controller = new AbortController();
+    briefRequest.current = controller;
     setError(null);
     fetchCopilotBrief(key, controller.signal)
       .then((brief) => {
+        if (controller.signal.aborted) return;
         updateThread(key, (current) => ({
           company: brief.company,
           messages: [
@@ -94,10 +106,16 @@ export default function CopilotPanel({ caseId, onboardingWithoutCase = false, on
         }));
       })
       .catch((reason: unknown) => {
-        if (isAbort(reason)) return;
+        if (controller.signal.aborted || isAbort(reason)) return;
+        if (reason instanceof CopilotError && reason.status === 404) {
+          clearInaccessibleThread(key);
+        }
         setError(errorText(reason));
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (briefRequest.current === controller) briefRequest.current = null;
+    };
   }, [activeCaseId, open, refreshTick]);
 
   // A question in flight belongs to the case it was asked about.
@@ -137,6 +155,7 @@ export default function CopilotPanel({ caseId, onboardingWithoutCase = false, on
     pending.current = controller;
     askCopilot(key, text, history, controller.signal)
       .then((reply) => {
+        if (controller.signal.aborted) return;
         updateThread(key, (current) => ({
           ...current,
           messages: [...current.messages, { role: "assistant", content: reply.answer, note: reply.notice }],
@@ -144,7 +163,10 @@ export default function CopilotPanel({ caseId, onboardingWithoutCase = false, on
         }));
       })
       .catch((reason: unknown) => {
-        if (isAbort(reason)) return;
+        if (controller.signal.aborted || isAbort(reason)) return;
+        if (reason instanceof CopilotError && reason.status === 404) {
+          clearInaccessibleThread(key);
+        }
         setError(errorText(reason));
       })
       .finally(() => {

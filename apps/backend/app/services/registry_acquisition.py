@@ -22,6 +22,7 @@ from app.domain.models import (
     RegistryFreshnessPolicy,
     RegistryOperation,
     RegistryOperationStatus,
+    RegistryProviderIdentity,
     RegistrySnapshotEntry,
     SourceEnvironment,
 )
@@ -99,6 +100,7 @@ class RegistryAcquisitionCoordinator:
         policy: RegistryFreshnessPolicy,
         *,
         clock: Callable[[], datetime] | None = None,
+        local_seed_identity: RegistryProviderIdentity | None = None,
         max_active_keys: int = 256,
         max_users_per_key: int = 64,
         wait_timeout_seconds: float = 45.0,
@@ -112,6 +114,12 @@ class RegistryAcquisitionCoordinator:
         self._max_active_keys = max_active_keys
         self._max_users_per_key = max_users_per_key
         self._wait_timeout_seconds = wait_timeout_seconds
+        if local_seed_identity is not None:
+            from app.domain.registry_dataset import local_synthetic_registry_identity
+
+            if local_seed_identity != local_synthetic_registry_identity():
+                raise ValueError("unapproved local registry dataset identity")
+        self._local_seed_identity = local_seed_identity
         self._repository = repository
         self._policy = policy
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -154,6 +162,36 @@ class RegistryAcquisitionCoordinator:
         key = RegistryCacheKey(
             provider_identity=identity, normalized_identifier=identifier.strip().upper()
         )
+        if (
+            self._local_seed_identity is not None
+            and identity.provider == self._local_seed_identity.provider
+            and identity.acquisition_contract_version
+            == self._local_seed_identity.acquisition_contract_version
+            and identity.dataset_namespace
+            in {"MOCK_ACRA_SYNTHETIC_V1", "ACRA_API_MARKETPLACE_MOCK_V1"}
+        ):
+            seed_key = RegistryCacheKey(
+                provider_identity=self._local_seed_identity,
+                normalized_identifier=key.normalized_identifier,
+            )
+            # A separate approved dataset, never a provider alias or partial prefix.
+            seed = self._read(seed_key)
+            if seed is not None:
+                now = self._utc_now()
+                self._validate_entry_for_use(seed, seed_key, now)
+                if (
+                    seed.acquisition is not None
+                    and seed.acquisition.status == RegistryAcquisitionStatus.COMPLETE
+                    and registry_cache_window_is_fresh(
+                        policy.expires_at(seed.freshness_anchor), now
+                    )
+                ):
+                    if cancelled is not None and cancelled():
+                        raise RegistryAcquisitionBusyError
+                    return self._bound_result(
+                        seed, disposition=RegistryEvidenceDisposition.CACHE_HIT,
+                        bound_at=now, policy=policy,
+                    )
         with self._key_lock(key.digest, cancelled=cancelled) as flight:
             if flight.failure is not None:
                 raise flight.failure() from None

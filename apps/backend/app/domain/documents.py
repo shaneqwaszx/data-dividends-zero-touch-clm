@@ -18,6 +18,7 @@ from pydantic import (
 )
 
 from app.domain.models import EventOutcome, SafeError
+from app.domain.target_classification import TargetClassificationKey
 
 
 class DocumentProcessingState(StrEnum):
@@ -291,6 +292,25 @@ class ExtractedField(ExtractionMetadata):
         return normalized
 
 
+class ClassificationObservationValues(DocumentFieldCandidate):
+    value: str = Field(min_length=1, max_length=160)
+
+    @field_validator("value")
+    @classmethod
+    def safe_label_value(cls, value: str) -> str:
+        if any(category(character).startswith("C") for character in value):
+            raise ValueError("Classification observation must not contain control characters")
+        return value
+
+    field_key: TargetClassificationKey
+    evidence_score: float = Field(ge=0, le=1)
+
+
+class DocumentClassificationObservation(ClassificationObservationValues):
+    document_id: UUID
+    document_version: Literal[1]
+
+
 class DocumentWorkflowEvent(BaseModel):
     """Audit-safe event with no filename, extracted value, note, or PDF content."""
 
@@ -331,6 +351,9 @@ class DocumentProcessingRecord(BaseModel):
     ownership_observations: tuple[DocumentOwnershipObservation, ...] = Field(
         default=(), max_length=128
     )
+    classification_observations: tuple[DocumentClassificationObservation, ...] = Field(
+        default=(), max_length=64
+    )
     events: list[DocumentWorkflowEvent] = Field(default_factory=list)
     error: SafeError | None = None
     created_at: datetime
@@ -353,11 +376,17 @@ class DocumentProcessingRecord(BaseModel):
         if any(candidate.page_number not in pages for item in self.fields
                for candidate in item.candidates):
             raise ValueError("document candidate requires its retained page")
+        observations: tuple[
+            DocumentOwnershipObservation | DocumentClassificationObservation, ...
+        ] = (
+            *self.ownership_observations,
+            *self.classification_observations,
+        )
         if any(
             observation.document_id != self.document_id
             or observation.document_version != self.document_version
             or observation.page_number not in pages
-            for observation in self.ownership_observations
+            for observation in observations
         ):
             raise ValueError("document ownership proposal requires its original version and page")
         for item in self.fields:

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openStage } from "./stage-disclosures";
-import type { PolicyCatalogue } from "../src/types";
+import type { PolicyCatalogue, RegistryEvidenceBinding } from "../src/types";
 import {
   createBrowserNetworkPolicy,
   handleBrowserRoute,
@@ -426,7 +426,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   expect((await replacementResponse).status()).toBe(200);
 
   const classification = page.getByRole("heading", { name: "Target classification" });
-  await openStage(page, "Readiness check");
+  await openStage(page, "Submission readiness");
   await expect(classification).toBeVisible({ timeout: 120_000 });
   const kyc = page.getByLabel("KYC customer type");
   const segment = page.getByLabel("Client segment");
@@ -765,7 +765,7 @@ test("onboarding progress is visible while backend-authored stages advance", asy
   await expect.poll(() => caseReadCount).toBeGreaterThanOrEqual(2);
   showObservedProgress = false;
   await confirmMockTarget(page);
-  await openStage(page, "Preparing GoldTier Submission");
+  await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
   await testInfo.attach("progress-completed-endpoint", {
     body: await page.screenshot(),
@@ -913,7 +913,7 @@ test("problem pipeline stages preserve intent and keyboard-focus real diagnostic
   await page.keyboard.press("Enter");
   await expect(page.locator("#case-target-classification")).toBeFocused();
 
-  const targetStage = page.getByRole("button", { name: "Open details for Preparing GoldTier Submission" });
+  const targetStage = page.getByRole("button", { name: "Open details for GoldTier submission package" });
   await targetStage.focus();
   await page.keyboard.press("Space");
   await expect(page.locator("#case-target-blocker")).toBeFocused();
@@ -1049,7 +1049,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect(ownershipResponse.status()).toBe(200);
   expect((await ownershipResponse.json() as { candidates: unknown[] }).candidates.length)
     .toBeGreaterThan(0);
-  await openStage(page, "Preparing GoldTier Submission");
+  await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 30_000 });
   const operationalTiming = page.getByRole("region", { name: "Operational timing" });
   await expect(operationalTiming).toBeVisible();
@@ -1066,7 +1066,23 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(page.getByText(/not production approval or Ready-for-Approval/i)).toBeVisible();
   await openStage(page, "Registry verification");
   await expect(page.getByRole("heading", { name: "Registry provenance" })).toBeVisible();
-  await expect(page.getByText("Case evidence binding not recorded.")).toBeVisible();
+  const bindingResponse = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
+  expect(bindingResponse.status()).toBe(200);
+  const binding = (await bindingResponse.json() as {
+    case: { registry_evidence_binding: RegistryEvidenceBinding | null };
+  }).case.registry_evidence_binding;
+  expect(binding).not.toBeNull();
+  expect(binding?.disposition).toBe("PROVIDER_FETCH");
+  expect(binding?.freshness_comparator).toBe("EVALUATION_NOW_LT_EXPIRES_AT");
+  const bindingView = page.getByLabel("Case evidence binding", { exact: true });
+  await expect(bindingView).toBeVisible();
+  for (const value of Object.values(binding!)) {
+    await expect(bindingView).toContainText(String(value));
+  }
+  await expect(bindingView).toContainText(
+    "This is not a current validity assessment or an ACRA validity guarantee.",
+  );
+  await expect(page.getByText("Case evidence binding not recorded.")).toHaveCount(0);
   await openStage(page, "Ownership & UBO");
   await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
   await page.getByText("Backend execution details", { exact: true }).click();
@@ -1246,7 +1262,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await openStage(page, "Document verification");
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({ timeout: 30_000 });
   const focusRequestBaseline = reviewRequests.length + resumeRequests.length;
-  await openStage(page, "Preparing GoldTier Submission");
+  await openStage(page, "GoldTier submission package");
   await page.getByText("Backend execution details", { exact: true }).click();
   await page.getByRole("button", { name: "Focus documents evidence" }).click();
   await expect(page.locator("#case-evidence-documents")).toBeFocused();
@@ -1315,7 +1331,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(replacementInput).toBeFocused();
   await replacementInput.setInputFiles(cleanFixture);
   await confirmMockTarget(page);
-  await openStage(page, "Preparing GoldTier Submission");
+  await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });
   await expect.poll(async () => {
     const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
@@ -1344,7 +1360,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await reloadedHistory.click();
   await expect(page.locator(".document-card--history")).toBeVisible();
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
-  await openStage(page, "Preparing GoldTier Submission");
+  await openStage(page, "GoldTier submission package");
   await page.getByText("Backend execution details", { exact: true }).click();
   await expect(page.getByText(/Ready-for-Approval: NOT AVAILABLE/i)).toBeVisible();
   expect(resumeRequests).toHaveLength(0);
@@ -1472,7 +1488,7 @@ test("Cases filters exact open business-exception types without hiding other att
   await expect(openLink).toHaveAttribute("href", `/cases/${ownershipCycleCaseId}`);
   await openLink.click();
   await expect(page).toHaveURL(`/cases/${ownershipCycleCaseId}`);
-  await openStage(page, "Preparing GoldTier Submission");
+  await openStage(page, "GoldTier submission package");
   await page.getByText("Backend execution details", { exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Why this case is in its current state" }),

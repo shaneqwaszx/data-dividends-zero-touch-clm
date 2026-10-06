@@ -125,6 +125,8 @@ def isolated_mongo_settings() -> Iterator[Settings]:
         _env_file=None,
         app_env="test",
         clm_persistence_mode="mongo",
+        # This suite composes case stores directly; registry storage is separate.
+        registry_cache_mode="disabled",
         mongo_uri=MONGO_URI,
         mongo_database=database,
         mongo_case_collection="clm_case_snapshots",
@@ -772,7 +774,7 @@ def test_real_mongo_restart_preserves_three_cases_and_replays_no_provider(
 
         before_restart = counters.copy()
         assert before_restart == {
-            "registry": 8,
+            "registry": 4,  # The second exact-UEN case reuses the ordinary cache.
             "idp": 3,
             "ownership": 1,
             "goldtier": 7,
@@ -1487,7 +1489,7 @@ def test_real_mongo_schema_v7_restart_preserves_identity_repair_and_pending_conf
         assert retained.onboarding.target_dispatch_confirmation is None
         assert retained.automation.active_exceptions[0].decisions
         raw = store._collection.find_one({"_id": str(case_id)})  # noqa: SLF001
-        assert raw is not None and raw["schema_version"] == 9
+        assert raw is not None and raw["schema_version"] == 10
     finally:
         store.close()
 
