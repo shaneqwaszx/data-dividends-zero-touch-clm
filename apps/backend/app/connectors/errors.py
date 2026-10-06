@@ -1,6 +1,7 @@
 """Safe connector-boundary exception types."""
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import ClassVar
 
 
@@ -23,9 +24,30 @@ class ConnectorError(RuntimeError):
         super().__init__(self.public_message)
 
 
+class MutationUncertaintyReason(StrEnum):
+    TIMEOUT = "TIMEOUT"
+    TRANSPORT = "TRANSPORT"
+    RESPONSE_DECODE = "RESPONSE_DECODE"
+    RESPONSE_TOO_LARGE = "RESPONSE_TOO_LARGE"
+    UNEXPECTED_STATUS = "UNEXPECTED_STATUS"
+    UNKNOWN = "UNKNOWN"
+
+
 class MutationOutcomeUncertainError(ConnectorError):
     """A mutation may have been accepted and therefore must not be replayed."""
 
+    def __init__(
+        self,
+        internal_context: object | None = None,
+        *,
+        reason: MutationUncertaintyReason = MutationUncertaintyReason.UNKNOWN,
+    ) -> None:
+        self.reason = (
+            reason
+            if isinstance(reason, MutationUncertaintyReason)
+            else MutationUncertaintyReason.UNKNOWN
+        )
+        super().__init__(internal_context)
 
 
 class AcraConfigurationError(ConnectorError):

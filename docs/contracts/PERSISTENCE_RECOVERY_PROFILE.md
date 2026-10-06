@@ -170,3 +170,28 @@ Assessment is derived by the document owner; no duplicate persisted assessment/c
 owner or new schema version. Existing envelope/CAS/create/update/delete/freeze invariants
 remain. Stale conflict, fresh review and later invalidation survive physical restart;
 startup/GET do not rewrite valid case documents to fabricate currentness.
+
+## Provider-verified Policy recovery candidate — 2026-10-06
+
+The explicit owner remediation from main `529efea` permits either definitive
+SEARCH/SHELL or definitive SEARCH with provider-recovered SHELL before exactly one
+unresolved POLICY. Only Requested provider evidence bound to the frozen current
+case/target policy and retained ID is accepted. Normal Shell stays SHELL_CREATED;
+completed SEARCH/SHELL remain definitive, while POLICY gains a separate recovery
+fact and lifecycle resolution. No Policy ID is fabricated and no HTTP call occurs.
+
+The existing ZeroTouchOrchestrator reconciles only the matching target-uncertainty
+technical failure through its existing RESUMING and RECOVERY_PENDING transitions.
+Its original failure event survives; identical retry can finish interrupted local
+checkpoint retention. Explicit resume uses the original confirmation/input/intent,
+skips resolved mutations and follows the existing frozen Amend/readback plan.
+Manual CLM submissions retain the same recovery API without requiring or fabricating
+automation; their existing CLM owner continues the frozen submission explicitly.
+The route retains TARGET_RECOVERY and locked session/team authorization; HR does not
+gain case access. There is no browser provider-evidence form in this candidate.
+
+Safe future incremental uncertainty reasons use existing case event codes with bounded
+TIMEOUT, TRANSPORT, RESPONSE_DECODE, RESPONSE_TOO_LARGE, UNEXPECTED_STATUS or UNKNOWN
+suffixes. They retain no private exception/payload/header and change no replay rule.
+No new envelope field/schema, migration, timeout setting or provider claim is added.
+See [the recovery operator boundary](../integration/GOLDTIER_POLICY_PROVIDER_RECOVERY.md).

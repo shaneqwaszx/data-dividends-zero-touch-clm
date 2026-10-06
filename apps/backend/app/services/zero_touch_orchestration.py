@@ -46,6 +46,10 @@ from app.domain.reconciliation import (
     ReconciliationSourceKind,
     ReconciliationStatus,
 )
+from app.domain.target_submission import (
+    GoldTierExecutionLedgerEntry,
+    GoldTierRecoveryOrigin,
+)
 from app.domain.zero_touch import (
     AUTOMATION_STAGE_ORDER,
     AUTOMATION_STAGE_ORDER_VERSION,
@@ -685,6 +689,82 @@ class ZeroTouchOrchestrator:
             for item in self._documents.list_documents(case_id=case_id)
             if item.is_current_evidence
         ]
+
+    def record_provider_policy_recovery(
+        self,
+        *,
+        case_id: UUID,
+        recovered_party_id: str,
+        legal_name: str,
+        registration_number: str,
+        country_of_incorporation: str,
+        provider_policy: str,
+        provider_policy_status: str,
+        actor_id: str,
+        origin: GoldTierRecoveryOrigin,
+        reauthorize: Callable[[], None],
+    ) -> GoldTierExecutionLedgerEntry:
+        """Record provider proof and reconcile only the matching target failure; no dispatch."""
+
+        with self._cases.case_lock(case_id):
+            reauthorize()
+            # The existing recovery API also serves manually orchestrated CLM
+            # submissions. Reconcile automation only when that owner has a record.
+            record = self._repository.get_for_case(case_id)
+            clm = self._clm.get(case_id=case_id)
+            if clm is None or clm.submission_snapshot is None:
+                raise ValueError("Policy recovery requires the frozen target submission")
+            if record is not None and record.status == AutomationStatus.TECHNICAL_FAILURE and (
+                record.current_stage != AutomationStage.MOCK_GOLDTIER
+                or record.technical_failure is None
+                or record.technical_failure.code != "CLM_TARGET_OUTCOME_UNCERTAIN"
+            ):
+                raise ValueError("Policy recovery cannot clear an unrelated technical failure")
+            entry = self._cases.recover_uncertain_policy_from_provider(
+                submission_input=clm.submission_snapshot.target_input,
+                recovered_party_id=recovered_party_id,
+                legal_name=legal_name,
+                registration_number=registration_number,
+                country_of_incorporation=country_of_incorporation,
+                provider_policy=provider_policy,
+                provider_policy_status=provider_policy_status,
+                actor_id=actor_id,
+                origin=origin,
+                reauthorize=reauthorize,
+            )
+            if record is None:
+                return entry
+            if record.status == AutomationStatus.TECHNICAL_FAILURE:
+                candidate = record.model_copy(deep=True)
+                candidate.status = AutomationStatus.RESUMING
+                candidate.technical_failure = None
+                candidate.metrics.final_outcome = None
+                candidate = self._append_event(
+                    candidate,
+                    event_type=AutomationEventType.AUTOMATION_RESUMING,
+                    outcome=EventOutcome.SUCCEEDED,
+                    code="GT_POLICY_PROVIDER_VERIFIED_RECOVERY",
+                    message=(
+                        "Provider-verified Policy recovery retained without replay; "
+                        "explicit resume can continue the frozen target submission."
+                    ),
+                )
+                record = self._save(record, candidate)
+            if (
+                record.status == AutomationStatus.RESUMING
+                and record.events[-1].code == "GT_POLICY_PROVIDER_VERIFIED_RECOVERY"
+            ):
+                candidate = record.model_copy(deep=True)
+                candidate.status = AutomationStatus.RECOVERY_PENDING
+                candidate = self._append_event(
+                    candidate,
+                    event_type=AutomationEventType.TARGET_OPERATION_RECOVERY_PENDING,
+                    outcome=EventOutcome.SUCCEEDED,
+                    code="GT_POLICY_RECOVERY_PENDING",
+                    message="Recovered target prefix is ready for explicit resume without replay.",
+                )
+                self._save(record, candidate)
+            return entry
 
     def start(
         self,

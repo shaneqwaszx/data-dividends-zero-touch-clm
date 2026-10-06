@@ -2508,8 +2508,8 @@ def create_app(
                     or recovery_request.provider_policy_status is None
                 ):
                     raise ValueError("Policy recovery evidence is incomplete")
-                entry = service.recover_uncertain_policy_from_provider(
-                    submission_input=record.submission_snapshot.target_input,
+                entry = zero_touch.record_provider_policy_recovery(
+                    case_id=case_id,
                     recovered_party_id=recovery_request.recovered_party_id,
                     legal_name=recovery_request.legal_name,
                     registration_number=recovery_request.registration_number,
@@ -2540,6 +2540,10 @@ def create_app(
                     origin=recovery_request.origin,
                     reauthorize=reauthorize,
                 )
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        except ZeroTouchInfrastructureError as exc:
+            raise _zero_touch_infrastructure_http_error(exc) from None
         except ConnectorError as exc:
             public = public_connector_error(exc)
             raise HTTPException(
