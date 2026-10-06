@@ -9,12 +9,10 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from scripts.generate_zero_touch_happy_path_documents import DOCUMENT_DIRECTORY
 from scripts.seed_zero_touch_happy_path_companies import manage_fixtures, require_safe_target
 from scripts.zero_touch_happy_path_fixtures import COMPANIES, GOVERNMENT
 from test_slice_b_registry_demo import confirm
 from test_zero_touch_database_happy_path import (
-    TESSERACT,
     NoAcra,
     RecordingTarget,
     prepare,
@@ -22,7 +20,6 @@ from test_zero_touch_database_happy_path import (
 )
 
 from app.composition import build_onboarding_service
-from app.connectors.local_ocr import TesseractOcrAdapter
 from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
 from app.domain.clm import ClmSubmissionSnapshot, EvidenceReference, ProvisionalUboSummary
 from app.domain.target_submission import GoldTierExecutionLedgerEntry, GoldTierExecutionLedgerState
@@ -33,7 +30,9 @@ from app.services.document_processing import DocumentProcessingService
 
 
 @contextmanager
-def runtime(company=COMPANIES[0], target=None, *, provider_mode="sandbox"):
+def runtime(
+    company=COMPANIES[0], target=None, *, provider_mode="sandbox", raise_server_exceptions=True
+):
     settings = sandbox_settings(goldtier_connector_mode=provider_mode)
     bundle = build_persistence_bundle(settings)
     manage_fixtures(bundle.registry_snapshots, now=datetime.now(UTC), seed=True)
@@ -41,7 +40,10 @@ def runtime(company=COMPANIES[0], target=None, *, provider_mode="sandbox"):
     target = target or RecordingTarget(company.name, company.uen)
     with (
         patch("app.main.build_persistence_bundle", return_value=bundle),
-        TestClient(create_app(settings, acra_connector=acra, goldtier_transport=target)) as client,
+        TestClient(
+            create_app(settings, acra_connector=acra, goldtier_transport=target),
+            raise_server_exceptions=raise_server_exceptions,
+        ) as client,
     ):
         yield client, bundle, target, acra
 
@@ -371,7 +373,10 @@ def test_empty_retained_intent_is_not_projected_as_uncertain_mutation():
 
 
 def test_government_document_classification_uses_existing_owners_without_share_graph():
-    with runtime() as (client, bundle, target, _):
+    with runtime() as (client, bundle, target, _), patch(
+        "app.connectors.local_ocr.TesseractOcrAdapter.recognize",
+        side_effect=AssertionError("Native classification fixture must not invoke OCR"),
+    ):
         current = create(client)
         cid = UUID(current["case"]["case_id"])
         case = bundle.onboarding.get(cid)
@@ -403,16 +408,19 @@ def test_government_document_classification_uses_existing_owners_without_share_g
         )
         documents = DocumentProcessingService(
             cases=service,
-            idp=LocalPdfTextIdpProvider(ocr=TesseractOcrAdapter(executable=str(TESSERACT))),
+            idp=LocalPdfTextIdpProvider(),
             repository=bundle.documents,
             max_upload_bytes=1000000,
             review_confidence_threshold=0.85,
         )
-        text = (DOCUMENT_DIRECTORY / GOVERNMENT.document_name).read_bytes()
+        text = "\n".join(
+            f"{key}: {value}"
+            for key, value in {**GOVERNMENT.fields, **GOVERNMENT.target_profile}.items()
+        ).encode()
         doc = documents.create_document(
             case_id=cid,
-            display_name="fictional-government.pdf",
-            content_type="application/pdf",
+            display_name="fictional-government.txt",
+            content_type="text/plain",
             content=text,
         )
         documents.auto_confirm_document(case_id=cid, document_id=doc.document_id)
@@ -764,3 +772,95 @@ def test_mock_explicit_partial_or_incompatible_input_reviews_but_legacy_stays_op
                 == ()
             )
         assert bundle.target_executions.list_for_case(UUID(current["case"]["case_id"])) == ()
+
+
+class InitialSearchInterruptedTarget(RecordingTarget):
+    def request(self, method, url, **kwargs):
+        result = super().request(method, url, **kwargs)
+        if len(self.calls) == 1:
+            raise httpx.ReadTimeout("Synthetic initial Search interruption")
+        return result
+
+
+def test_classification_review_routes_retained_failed_search_to_technical_failure():
+    company = COMPANIES[0]
+    target = InitialSearchInterruptedTarget(company.name, company.uen)
+    with runtime(target=target) as (client, bundle, _, acra):
+        current = create(client)
+        upload(client, current, {})
+        current = complete(client, current)
+        cid = UUID(current["case"]["case_id"])
+        assert current["status"] == "WAITING_FOR_REVIEW"
+        assert [item["blocker_code"] for item in current["active_exceptions"]] == [
+            "GOLDTIER_CLASSIFICATION_REQUIRED"
+        ]
+        checkpoint = current["clm"]["target_search_checkpoint"]
+        assert checkpoint["disposition"] == "FAILED"
+        assert [call[0] for call in target.calls] == ["GET"]
+
+        reviewed = save(client, current)
+        assert reviewed.status_code == 200
+        retained = reviewed.json()
+        assert retained["status"] == "TECHNICAL_FAILURE"
+        assert retained["current_stage"] == "GOLDTIER_SEARCH"
+        assert retained["active_exceptions"] == []
+        assert retained["technical_failure"]["code"] == checkpoint["code"]
+        assert retained["metrics"]["final_outcome"] == "TECHNICAL_FAILURE"
+        assert retained["clm"]["target_search_checkpoint"] == checkpoint
+        assert (
+            retained["target_classification"]["kyc_customer_type"]["selected_value"]
+            == "Company - Private"
+        )
+        assert retained["target_classification"]["client_segment"]["selected_value"] == "Corporate"
+        assert retained["timeline"][-1]["event_type"] == "AUTOMATION_TECHNICAL_FAILURE"
+        clm_record = bundle.clm.get_for_case(cid)
+        assert clm_record is not None and clm_record.submission_snapshot is None
+        persisted = client.get(f"/api/clm/zero-touch/cases/{cid}").json()
+        assert persisted["status"] == "TECHNICAL_FAILURE"
+        assert persisted["version"] == retained["version"]
+        assert bundle.target_executions.list_for_case(cid) == ()
+        assert [call[0] for call in target.calls] == ["GET"]
+        assert acra.calls == []
+
+
+def test_classification_advance_fault_projects_safe_503_without_target_replay():
+    company = COMPANIES[0]
+    target = InitialSearchInterruptedTarget(company.name, company.uen)
+    with runtime(target=target, raise_server_exceptions=False) as (client, bundle, _, acra):
+        current = create(client)
+        upload(client, current, {})
+        current = complete(client, current)
+        cid = UUID(current["case"]["case_id"])
+        assert current["status"] == "WAITING_FOR_REVIEW"
+        checkpoint = current["clm"]["target_search_checkpoint"]
+        assert checkpoint["disposition"] == "FAILED"
+        with patch(
+            "app.services.clm_orchestration.ClmOrchestrationService.evaluate",
+            side_effect=RuntimeError("SYNTHETIC_ADVERSE_SENTINEL"),
+        ):
+            response = save(client, current)
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert detail["code"] == "ZERO_TOUCH_UNEXPECTED_FAILURE"
+        assert detail["case_id"] == str(cid)
+        assert set(detail) == {"code", "message", "case_id", "automation_id"}
+        assert "SYNTHETIC_ADVERSE_SENTINEL" not in response.text
+        persisted_response = client.get(f"/api/clm/zero-touch/cases/{cid}")
+        assert persisted_response.status_code == 200
+        persisted = persisted_response.json()
+        assert persisted["status"] == "TECHNICAL_FAILURE"
+        assert persisted["technical_failure"]["code"] == "ZERO_TOUCH_UNEXPECTED_FAILURE"
+        assert persisted["metrics"]["final_outcome"] == "TECHNICAL_FAILURE"
+        assert persisted["timeline"][-1]["event_type"] == "AUTOMATION_TECHNICAL_FAILURE"
+        assert "SYNTHETIC_ADVERSE_SENTINEL" not in persisted_response.text
+        assert persisted["clm"]["target_search_checkpoint"] == checkpoint
+        assert (
+            persisted["target_classification"]["kyc_customer_type"]["selected_value"]
+            == "Company - Private"
+        )
+        assert persisted["target_classification"]["client_segment"]["selected_value"] == "Corporate"
+        clm_record = bundle.clm.get_for_case(cid)
+        assert clm_record is not None and clm_record.submission_snapshot is None
+        assert bundle.target_executions.list_for_case(cid) == ()
+        assert [call[0] for call in target.calls] == ["GET"]
+        assert acra.calls == []

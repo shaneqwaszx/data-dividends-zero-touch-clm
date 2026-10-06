@@ -146,8 +146,9 @@ test("Slice C stale policy rebind preserves selection and resumes", { tag: "@sli
   await page.getByLabel("Rebind rationale", { exact: true }).fill("Replace synthetic retained legacy target configuration.");
   const response = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/policy-rebind"));
-  await page.getByRole("button", { name: "Rebind accepted Singapore POC configuration", exact: true }).click();
+  await page.getByRole("button", { name: "Update system-set Singapore values", exact: true }).click();
   expect((await response).status()).toBe(200);
+  await page.locator("#case-policy-rebind").getByText("Technical authority and policy history", { exact: true }).click();
   await expect(page.getByLabel("Latest policy rebind receipt", { exact: true })).toBeVisible();
   const rebound = await summary(page, caseId);
   expect(rebound.case.policy_snapshot_revision).toBe(2);

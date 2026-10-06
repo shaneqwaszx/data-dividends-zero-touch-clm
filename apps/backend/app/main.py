@@ -2189,6 +2189,8 @@ def create_app(
             )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
+        except ZeroTouchInfrastructureError as exc:
+            raise _zero_touch_infrastructure_http_error(exc) from None
         return zero_touch_response(record, actor=authenticated_actor(request))
 
     @application.post(

@@ -1251,7 +1251,7 @@ class ZeroTouchOrchestrator:
             refreshed = self._clm.get(case_id=case_id)
             if refreshed is not None and not refreshed.readiness.blockers:
                 return self._raise_target_confirmation_exception(saved, refreshed)
-            return saved
+            return self._advance_locked(case_id=case_id)
 
     def rebind_case_policy_snapshot(
         self,

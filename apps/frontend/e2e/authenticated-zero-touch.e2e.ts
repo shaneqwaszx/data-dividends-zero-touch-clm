@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openStage } from "./stage-disclosures";
-import type { PolicyCatalogue } from "../src/types";
+import type { PolicyCatalogue, RegistryEvidenceBinding } from "../src/types";
 import {
   createBrowserNetworkPolicy,
   handleBrowserRoute,
@@ -1066,7 +1066,23 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(page.getByText(/not production approval or Ready-for-Approval/i)).toBeVisible();
   await openStage(page, "Registry verification");
   await expect(page.getByRole("heading", { name: "Registry provenance" })).toBeVisible();
-  await expect(page.getByText("Case evidence binding not recorded.")).toBeVisible();
+  const bindingResponse = await page.request.get(`/api/clm/zero-touch/cases/${caseId}`);
+  expect(bindingResponse.status()).toBe(200);
+  const binding = (await bindingResponse.json() as {
+    case: { registry_evidence_binding: RegistryEvidenceBinding | null };
+  }).case.registry_evidence_binding;
+  expect(binding).not.toBeNull();
+  expect(binding?.disposition).toBe("PROVIDER_FETCH");
+  expect(binding?.freshness_comparator).toBe("EVALUATION_NOW_LT_EXPIRES_AT");
+  const bindingView = page.getByLabel("Case evidence binding", { exact: true });
+  await expect(bindingView).toBeVisible();
+  for (const value of Object.values(binding!)) {
+    await expect(bindingView).toContainText(String(value));
+  }
+  await expect(bindingView).toContainText(
+    "This is not a current validity assessment or an ACRA validity guarantee.",
+  );
+  await expect(page.getByText("Case evidence binding not recorded.")).toHaveCount(0);
   await openStage(page, "Ownership & UBO");
   await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
   await page.getByText("Backend execution details", { exact: true }).click();
