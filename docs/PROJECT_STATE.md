@@ -5,6 +5,18 @@ It is not a sponsor contract, phase report, or substitute for current source and
 
 ## Verification metadata
 
+The owner-assigned 2026-10-06 provider-verified Policy recovery candidate starts at
+`529efea3966fb561027973e6d932cecb0e8f6bb8` on
+`fix/goldtier-policy-provider-recovery`. Its
+[recovery delta](integration/GOLDTIER_POLICY_PROVIDER_RECOVERY.md) supports definitive
+Shell success and historical Shell recovery before one uncertain Policy, preserves
+original evidence and requires explicit same-intent resume. The existing API accepts
+Requested provider evidence under TARGET_RECOVERY authorization; no browser evidence
+form is added. Safe future uncertainty classes use existing case event codes. Schema,
+timeouts and provider classifications remain unchanged. Synthetic fake-transport and
+disposable Mongo evidence belongs to the task reports; no real UAT access, provider
+call or new interoperability claim follows.
+
 The owner-assigned database-first happy-path candidate starts at inspected main
 `771a9696e1e31e3865da4fbbb3f9b33b5959cb6a` on
 `fix/zero-touch-registry-reuse-happy-path`. D-069/ADR-010 enable ordinary non-production

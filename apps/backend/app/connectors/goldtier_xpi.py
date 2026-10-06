@@ -13,7 +13,11 @@ from urllib.parse import urlencode, urlsplit
 import httpx
 from pydantic import SecretStr, ValidationError
 
-from app.connectors.errors import ConnectorError, MutationOutcomeUncertainError
+from app.connectors.errors import (
+    ConnectorError,
+    MutationOutcomeUncertainError,
+    MutationUncertaintyReason,
+)
 from app.connectors.goldtier_models import (
     GoldTierOperationResult,
     GoldTierOutcome,
@@ -319,19 +323,31 @@ class GoldTierXpiSandboxConnector:
                 timeout_seconds=self._connection.timeout_seconds,
                 max_response_bytes=self._connection.max_response_bytes,
             )
-        except (GoldTierXpiResponseTooLargeError, GoldTierXpiResponseDecodeError):
+        except GoldTierXpiResponseTooLargeError:
             if mutation:
-                raise GoldTierMutationOutcomeUncertainError from None
+                raise GoldTierMutationOutcomeUncertainError(
+                    reason=MutationUncertaintyReason.RESPONSE_TOO_LARGE
+                ) from None
+            raise
+        except GoldTierXpiResponseDecodeError:
+            if mutation:
+                raise GoldTierMutationOutcomeUncertainError(
+                    reason=MutationUncertaintyReason.RESPONSE_DECODE
+                ) from None
             raise
         except ConnectorError:
             raise
         except httpx.TimeoutException:
             if mutation:
-                raise GoldTierMutationOutcomeUncertainError from None
+                raise GoldTierMutationOutcomeUncertainError(
+                    reason=MutationUncertaintyReason.TIMEOUT
+                ) from None
             raise GoldTierXpiTimeoutError from None
         except httpx.TransportError:
             if mutation:
-                raise GoldTierMutationOutcomeUncertainError from None
+                raise GoldTierMutationOutcomeUncertainError(
+                    reason=MutationUncertaintyReason.TRANSPORT
+                ) from None
             raise GoldTierXpiServiceUnavailableError from None
         except Exception:
             if mutation:
@@ -344,7 +360,9 @@ class GoldTierXpiSandboxConnector:
         # XPI supplies no atomic no-application guarantee for unexpected statuses.
         # Preserve the attempted ledger operation for read-only reconciliation.
         if mutation and response.status_code not in {200, 400}:
-            raise GoldTierMutationOutcomeUncertainError
+            raise GoldTierMutationOutcomeUncertainError(
+                reason=MutationUncertaintyReason.UNEXPECTED_STATUS
+            )
         return response
 
     def search_party(
@@ -427,9 +445,13 @@ class GoldTierXpiSandboxConnector:
                 frozenset({"goldTierId", "goldTierID"}),
             )
         except GoldTierXpiMalformedResponseError:
-            raise GoldTierMutationOutcomeUncertainError from None
+            raise GoldTierMutationOutcomeUncertainError(
+                reason=MutationUncertaintyReason.RESPONSE_DECODE
+            ) from None
         if party_id is None:
-            raise GoldTierMutationOutcomeUncertainError
+            raise GoldTierMutationOutcomeUncertainError(
+                reason=MutationUncertaintyReason.RESPONSE_DECODE
+            )
         return GoldTierOperationResult(
             outcome=GoldTierOutcome.SUCCESS,
             status_code=200,
@@ -468,7 +490,9 @@ class GoldTierXpiSandboxConnector:
                 response.body, frozenset({"policyId", "policyID"})
             )
         except GoldTierXpiMalformedResponseError:
-            raise GoldTierMutationOutcomeUncertainError from None
+            raise GoldTierMutationOutcomeUncertainError(
+                reason=MutationUncertaintyReason.RESPONSE_DECODE
+            ) from None
         return GoldTierOperationResult(
             outcome=GoldTierOutcome.SUCCESS,
             status_code=200,

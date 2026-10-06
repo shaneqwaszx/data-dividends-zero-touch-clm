@@ -905,3 +905,16 @@ summary/chat requests and clears only that local conversation; aborted replies c
 restore it. Read-only wording copies backend pending-step labels and uses current
 Submission readiness / GoldTier submission package section names.
 No new schema/mapping/provider status or Live claim follows from this integration.
+
+## Provider-verified Policy recovery candidate — 2026-10-06
+
+From main `529efea`, OnboardingService supports both definitive and provider-recovered
+Shell prefixes before an unresolved Policy, preserving distinct definitive/lifecycle
+evidence. ZeroTouchOrchestrator owns the matching technical-failure reconciliation;
+the existing recovery route delegates and reauthorizes under the owning case lock.
+Recovery does not dispatch. Existing explicit resume, CLM and target ledger remain
+the only continuation/order/no-replay owners. Controlled connector reasons enter
+existing safe case events; no new repository, schema, provider, framework or
+authorization owner is introduced. Requested remains distinct from KYC completion.
+Manual CLM recovery remains supported without an automation record; the orchestrator
+delegates to the same case/ledger owner and reconciles automation only when present.

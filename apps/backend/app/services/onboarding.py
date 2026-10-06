@@ -15,6 +15,7 @@ from app.connectors.acra import AcraConnector
 from app.connectors.errors import (
     ConnectorError,
     MutationOutcomeUncertainError,
+    MutationUncertaintyReason,
     public_connector_error,
 )
 from app.connectors.goldtier import GoldTierConnector, GoldTierRequestMapper
@@ -2361,6 +2362,30 @@ class OnboardingService:
                 search_resolution=search_resolution,
                 selected_party_id=selected_party_id,
             )
+        except MutationOutcomeUncertainError as exc:
+            with self.case_lock(submission_input.case_id):
+                entry = self.get_target_execution_entry(submission_input.submission_id)
+                case = self._repository.get(submission_input.case_id)
+                reason = getattr(exc, "reason", MutationUncertaintyReason.UNKNOWN)
+                if not isinstance(reason, MutationUncertaintyReason):
+                    reason = MutationUncertaintyReason.UNKNOWN
+                if (
+                    case is not None
+                    and entry is not None
+                    and entry.attempted_operations != entry.lifecycle_resolved_operations
+                ):
+                    code = f"GT_TARGET_OUTCOME_UNCERTAIN_{reason.value}"
+                    if not case.events or not (
+                        case.events[-1].code or ""
+                    ).startswith("GT_TARGET_OUTCOME_UNCERTAIN_"):
+                        self._record(
+                            case,
+                            case.state,
+                            EventOutcome.FAILED,
+                            "A target attempt has no definitive outcome; replay remains blocked.",
+                            code,
+                        )
+            raise
         finally:
             with self._execution_ledger_guard:
                 self._active_target_submissions.discard(submission_input.submission_id)
@@ -3702,7 +3727,11 @@ class OnboardingService:
     ) -> GoldTierExecutionLedgerEntry:
         """Resolve one uncertain Policy from operator-verified provider evidence."""
 
-        if self.target_provider_mode != GoldTierProviderMode.SANDBOX:
+        if (
+            self.target_provider_mode != GoldTierProviderMode.SANDBOX
+            or self._goldtier.environment != GoldTierProviderMode.SANDBOX
+            or submission_input.provider_mode != GoldTierProviderMode.SANDBOX
+        ):
             raise ValueError("Provider-verified recovery requires the GoldTier sandbox")
         if origin != GoldTierRecoveryOrigin.UNCERTAIN_DURABLE_LEDGER:
             raise ValueError("Policy recovery requires the retained uncertain ledger")
@@ -3725,12 +3754,25 @@ class OnboardingService:
                 != expected.country_of_incorporation.strip().upper()
                 or case.requested_uen.strip().upper()
                 != expected.registration_number.strip().upper()
+                or case.entity.legal_name is None
+                or case.entity.country_of_incorporation is None
+                or normalized(case.entity.legal_name) != normalized(expected.legal_name)
+                or case.entity.registration_number.strip().upper()
+                != expected.registration_number.strip().upper()
+                or case.entity.country_of_incorporation.strip().upper()
+                != expected.country_of_incorporation.strip().upper()
                 or recovered_party_id.strip()
                 != (case.goldtier_result.party_id if case.goldtier_result else None)
             ):
                 raise ValueError("Recovery identity does not exactly match the owning case")
             target_policy = submission_input.target_policy
-            if target_policy is None or provider_policy != target_policy.policy.value:
+            if (
+                target_policy is None
+                or target_policy != case.policy_snapshot.goldtier_target
+                or submission_input.policy_catalogue_version
+                != case.policy_snapshot.catalogue_version
+                or provider_policy != target_policy.policy.value
+            ):
                 raise ValueError("Provider Policy evidence does not match the case policy")
             if provider_policy_status != "Requested":
                 raise ValueError("Provider Policy recovery requires Requested status")
@@ -3766,15 +3808,37 @@ class OnboardingService:
                         GoldTierOperationMarker.SHELL,
                         GoldTierOperationMarker.POLICY,
                     )
-                    or stored.definitively_completed_operations != (GoldTierOperationMarker.SEARCH,)
+                    or not (
+                        (
+                            stored.definitively_completed_operations
+                            == (GoldTierOperationMarker.SEARCH, GoldTierOperationMarker.SHELL)
+                            and stored.provider_verified_recovery is None
+                            and stored.shell_status == "SHELL_CREATED"
+                            and case.goldtier_result is not None
+                            and case.goldtier_result.shell_status == "SHELL_CREATED"
+                        )
+                        or (
+                            stored.definitively_completed_operations
+                            == (GoldTierOperationMarker.SEARCH,)
+                            and stored.provider_verified_recovery is not None
+                            and stored.provider_verified_recovery.operation
+                            == GoldTierOperationMarker.SHELL
+                            and stored.shell_status == "PROVIDER_VERIFIED_RECOVERY"
+                            and case.goldtier_result is not None
+                            and case.goldtier_result.shell_status == "PROVIDER_VERIFIED_RECOVERY"
+                        )
+                    )
                     or stored.lifecycle_resolved_operations
                     != (GoldTierOperationMarker.SEARCH, GoldTierOperationMarker.SHELL)
-                    or stored.provider_verified_recovery is None
-                    or stored.provider_verified_recovery.operation != GoldTierOperationMarker.SHELL
                     or stored.search_resolution != GoldTierSearchResolution.NO_MATCH
                     or stored.resolved_party_id != recovered_party_id
                     or stored.policy_id is not None
                     or stored.policy_status is not None
+                    or stored.target_outcome is not None
+                    or stored.receipt is not None
+                    or case.goldtier_result is None
+                    or case.goldtier_result.policy_id is not None
+                    or case.goldtier_result.policy_status is not None
                     or GoldTierOperationMarker.AMEND in stored.attempted_operations
                 ):
                     raise ValueError("Only one uncertain Policy may be provider-recovered")
