@@ -18,6 +18,7 @@ from .briefing import fallback_answer, opening_message, suggested_questions
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .config import CopilotSettings
 from .context import build_case_facts
+from .guardrails import guard_answer
 from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel
 from .prompts import build_messages
 
@@ -119,12 +120,18 @@ def create_app(
         ]
 
     def answer_with_model(
-        messages: list[dict[str, str]], fallback: str, suggestions: list[str]
+        messages: list[dict[str, str]],
+        fallback: str,
+        suggestions: list[str],
+        facts: dict[str, object],
     ) -> ChatResponse:
         if model is not None:
             try:
+                answer = guard_answer(model.complete(messages), facts)
+                if not answer:
+                    raise LlmUnavailableError("nothing left after guardrails")
                 return ChatResponse(
-                    answer=model.complete(messages),
+                    answer=answer,
                     answered_by="model",
                     model=model.name,
                     notice=None,
@@ -168,6 +175,7 @@ def create_app(
             build_messages(facts, history_of(body), question),
             fallback_answer(question, facts),
             suggested_questions(facts),
+            facts,
         )
 
     return app

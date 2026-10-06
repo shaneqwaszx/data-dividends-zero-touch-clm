@@ -3,6 +3,8 @@
 import json
 from typing import Any
 
+from .guardrails import compact_facts
+
 SYSTEM_PROMPT = """You are the Onboarding Copilot inside a corporate client onboarding app \
 (Zero-Touch CLM proof of concept). You help a Relationship Manager (RM) understand one \
 onboarding case and what to do next. You only discuss that case.
@@ -32,12 +34,19 @@ headings, no tables, no nested bullets.
 (see "case_page_sections").
 12. Never guess who to contact. Only name a person or team if "who_resolves" says so.
 13. For "what do I still need to do?" questions, use "blockers" first, then \
-"still_needed_before_goldtier", and say which case page section each item is in."""
+"still_needed_before_goldtier", and say which case page section each item is in. \
+14. Never invent buttons, screens, teams or contacts. Only use names that appear in the \
+facts; if you are unsure what a button is called, name the case page section instead.
+
+Example of a good answer:
+'The case is waiting for a supporting company document (section: Document verification). \
+Upload one there; the document checks then run automatically. Ownership evidence is also \
+still needed (section: Ownership & UBO).'"""
 
 
 def case_facts_message(facts: dict[str, Any]) -> str:
     return "CASE FACTS (current, from the onboarding app):\n" + json.dumps(
-        facts, ensure_ascii=False, default=str
+        compact_facts(facts), ensure_ascii=False, default=str
     )
 
 
