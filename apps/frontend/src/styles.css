@@ -4064,3 +4064,19 @@ dd {
   .manual-ownership__fields label, .manual-ownership__fields .input { min-width: 0; }
   .s2-ownership-structure dl, .s2-document-observations dl { overflow-wrap: anywhere; }
 }
+/* Case-scoped recovery facts wrap safely on narrow screens and at high zoom. */
+.target-recovery-panel { min-width: 0; }
+.target-recovery-panel h3 { margin-top: 0; }
+.target-recovery-facts { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(0, 3fr); gap: 8px 16px; }
+.target-recovery-facts dt { font-weight: 600; }
+.target-recovery-facts dd { margin: 0; overflow-wrap: anywhere; }
+.target-recovery-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.target-recovery-fields label, .target-recovery-fields > div { display: grid; gap: 6px; }
+.target-recovery-fields input, .target-recovery-fields select { width: 100%; min-width: 0; }
+.target-recovery-attestation { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0; }
+.target-recovery-attestation input { flex: 0 0 auto; margin-top: 3px; }
+@media (max-width: 600px) {
+  .target-recovery-facts { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  .target-recovery-facts dd { margin-bottom: 8px; }
+  .target-recovery-panel .btn { max-width: 100%; white-space: normal; }
+}

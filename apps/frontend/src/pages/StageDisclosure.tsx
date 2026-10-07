@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 
 export function revealStage(target: Element): void {
@@ -18,7 +18,8 @@ export default function StageDisclosure({ title, active = false, children, final
   const [open, setOpen] = useState(active);
   const id = useId();
   const ref = useRef<HTMLElement>(null);
-  useEffect(() => setOpen(active), [active]);
+  // Settle backend-driven stage changes before view focus/scroll handoff.
+  useLayoutEffect(() => setOpen(active), [active]);
   useEffect(() => {
     const element = ref.current;
     const reveal = () => flushSync(() => setOpen(true));

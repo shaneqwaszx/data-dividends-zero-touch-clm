@@ -1,0 +1,330 @@
+{
+  "base": "5c54c9af896585764d1e4ed809056d1deb576629",
+  "candidate": "f628a31fbc3cee3ac035ff7b0ddcd0527ec3d10fbe58dfbdafcdd50f8ed22dae",
+  "original_screenshot_cause": "UNKNOWN: original retained case not inspected",
+  "classification": "Fresh success preserved; genuine Shell/Policy transport uncertainty and safe recovery reproduced offline",
+  "observations": [
+    {
+      "observation": "success",
+      "case_id": "d7ebce24-7786-4376-b6c4-8d75cb37d4fa",
+      "submission_id": "efef03ec-0fb3-4329-9b24-7a61eabbe13b",
+      "target_operation": null,
+      "attempted_operations": [
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "READBACK"
+      ],
+      "definitively_completed_operations": [
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "READBACK"
+      ],
+      "lifecycle_resolved_operations": [
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "READBACK"
+      ],
+      "ledger_state": "FINALIZED",
+      "automation_state": "COMPLETED",
+      "target_submission_state": "SUBMISSION_CONFIRMED",
+      "public_uncertainty_category": null,
+      "connector_call_counts": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "write_dispatched": true,
+      "browser_request_timed_out": false,
+      "retained_success": true,
+      "external_provider_calls": 0
+    },
+    {
+      "observation": "uncertain-policy",
+      "case_id": "c3c387fd-633b-40b5-a356-b5a63beb8e52",
+      "submission_id": "66bc9656-5816-4566-af27-e06093d11793",
+      "target_operation": "POLICY",
+      "attempted_operations": [
+        "SEARCH",
+        "SHELL",
+        "POLICY"
+      ],
+      "definitively_completed_operations": [
+        "SEARCH",
+        "SHELL"
+      ],
+      "lifecycle_resolved_operations": [
+        "SEARCH",
+        "SHELL"
+      ],
+      "ledger_state": "IN_PROGRESS",
+      "automation_state": "TECHNICAL_FAILURE",
+      "target_submission_state": "SUBMISSION_OUTCOME_UNCERTAIN",
+      "public_uncertainty_category": "TIMEOUT",
+      "connector_call_counts": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "write_dispatched": true,
+      "browser_request_timed_out": false,
+      "retained_success": false,
+      "external_provider_calls": 0
+    },
+    {
+      "observation": "uncertain-policy-read-only-check",
+      "case_id": "c3c387fd-633b-40b5-a356-b5a63beb8e52",
+      "submission_id": "66bc9656-5816-4566-af27-e06093d11793",
+      "target_operation": "POLICY",
+      "attempted_operations": [
+        "SEARCH",
+        "SHELL",
+        "POLICY"
+      ],
+      "definitively_completed_operations": [
+        "SEARCH",
+        "SHELL"
+      ],
+      "lifecycle_resolved_operations": [
+        "SEARCH",
+        "SHELL"
+      ],
+      "ledger_state": "IN_PROGRESS",
+      "automation_state": "TECHNICAL_FAILURE",
+      "target_submission_state": "SUBMISSION_OUTCOME_UNCERTAIN",
+      "public_uncertainty_category": "TIMEOUT",
+      "connector_call_counts": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "write_dispatched": true,
+      "browser_request_timed_out": false,
+      "retained_success": false,
+      "external_provider_calls": 0
+    },
+    {
+      "observation": "uncertain-policy-recovered",
+      "case_id": "c3c387fd-633b-40b5-a356-b5a63beb8e52",
+      "submission_id": "66bc9656-5816-4566-af27-e06093d11793",
+      "target_operation": "POLICY",
+      "attempted_operations": [
+        "SEARCH",
+        "SHELL",
+        "POLICY"
+      ],
+      "definitively_completed_operations": [
+        "SEARCH",
+        "SHELL"
+      ],
+      "lifecycle_resolved_operations": [
+        "SEARCH",
+        "SHELL",
+        "POLICY"
+      ],
+      "ledger_state": "IN_PROGRESS",
+      "automation_state": "RECOVERY_PENDING",
+      "target_submission_state": "FINALIZATION_PENDING",
+      "public_uncertainty_category": null,
+      "connector_call_counts": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "write_dispatched": true,
+      "browser_request_timed_out": false,
+      "retained_success": false,
+      "external_provider_calls": 0
+    },
+    {
+      "observation": "uncertain-policy-resumed",
+      "case_id": "c3c387fd-633b-40b5-a356-b5a63beb8e52",
+      "submission_id": "66bc9656-5816-4566-af27-e06093d11793",
+      "target_operation": "POLICY",
+      "attempted_operations": [
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "READBACK"
+      ],
+      "definitively_completed_operations": [
+        "SEARCH",
+        "SHELL",
+        "READBACK"
+      ],
+      "lifecycle_resolved_operations": [
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "READBACK"
+      ],
+      "ledger_state": "FINALIZED",
+      "automation_state": "COMPLETED",
+      "target_submission_state": "SUBMISSION_CONFIRMED",
+      "public_uncertainty_category": null,
+      "connector_call_counts": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 2
+      },
+      "write_dispatched": true,
+      "browser_request_timed_out": false,
+      "retained_success": true,
+      "external_provider_calls": 0
+    },
+    {
+      "observation": "uncertain-shell",
+      "case_id": "ee231309-4c24-4bb8-962b-972293730a31",
+      "submission_id": "5dd73ec8-c000-48cf-87b2-31e30de017cb",
+      "target_operation": "SHELL",
+      "attempted_operations": [
+        "SEARCH",
+        "SHELL"
+      ],
+      "definitively_completed_operations": [
+        "SEARCH"
+      ],
+      "lifecycle_resolved_operations": [
+        "SEARCH"
+      ],
+      "ledger_state": "IN_PROGRESS",
+      "automation_state": "TECHNICAL_FAILURE",
+      "target_submission_state": "SUBMISSION_OUTCOME_UNCERTAIN",
+      "public_uncertainty_category": "TIMEOUT",
+      "connector_call_counts": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "write_dispatched": true,
+      "browser_request_timed_out": false,
+      "retained_success": false,
+      "external_provider_calls": 0
+    },
+    {
+      "observation": "uncertain-shell-read-only-check",
+      "case_id": "ee231309-4c24-4bb8-962b-972293730a31",
+      "submission_id": "5dd73ec8-c000-48cf-87b2-31e30de017cb",
+      "target_operation": "SHELL",
+      "attempted_operations": [
+        "SEARCH",
+        "SHELL"
+      ],
+      "definitively_completed_operations": [
+        "SEARCH"
+      ],
+      "lifecycle_resolved_operations": [
+        "SEARCH"
+      ],
+      "ledger_state": "IN_PROGRESS",
+      "automation_state": "TECHNICAL_FAILURE",
+      "target_submission_state": "SUBMISSION_OUTCOME_UNCERTAIN",
+      "public_uncertainty_category": "TIMEOUT",
+      "connector_call_counts": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "write_dispatched": true,
+      "browser_request_timed_out": false,
+      "retained_success": false,
+      "external_provider_calls": 0
+    },
+    {
+      "observation": "uncertain-shell-recovered",
+      "case_id": "ee231309-4c24-4bb8-962b-972293730a31",
+      "submission_id": "5dd73ec8-c000-48cf-87b2-31e30de017cb",
+      "target_operation": "SHELL",
+      "attempted_operations": [
+        "SEARCH",
+        "SHELL"
+      ],
+      "definitively_completed_operations": [
+        "SEARCH"
+      ],
+      "lifecycle_resolved_operations": [
+        "SEARCH",
+        "SHELL"
+      ],
+      "ledger_state": "IN_PROGRESS",
+      "automation_state": "RECOVERY_PENDING",
+      "target_submission_state": "FINALIZATION_PENDING",
+      "public_uncertainty_category": null,
+      "connector_call_counts": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 2
+      },
+      "write_dispatched": true,
+      "browser_request_timed_out": false,
+      "retained_success": false,
+      "external_provider_calls": 0
+    },
+    {
+      "observation": "uncertain-shell-resumed",
+      "case_id": "ee231309-4c24-4bb8-962b-972293730a31",
+      "submission_id": "5dd73ec8-c000-48cf-87b2-31e30de017cb",
+      "target_operation": "SHELL",
+      "attempted_operations": [
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "READBACK"
+      ],
+      "definitively_completed_operations": [
+        "SEARCH",
+        "POLICY",
+        "READBACK"
+      ],
+      "lifecycle_resolved_operations": [
+        "SEARCH",
+        "SHELL",
+        "POLICY",
+        "READBACK"
+      ],
+      "ledger_state": "FINALIZED",
+      "automation_state": "COMPLETED",
+      "target_submission_state": "SUBMISSION_CONFIRMED",
+      "public_uncertainty_category": null,
+      "connector_call_counts": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 3
+      },
+      "write_dispatched": true,
+      "browser_request_timed_out": false,
+      "retained_success": true,
+      "external_provider_calls": 0
+    }
+  ],
+  "browser_response_loss": {
+    "evidence": "Eight-scenario executed Playwright batch, aborted and truncated response tests",
+    "confirmation_posts_per_case": 1,
+    "shell_writes_per_case": 1,
+    "policy_writes_per_case": 1,
+    "amend_writes_per_case": 0,
+    "authoritative_state": "SUBMISSION_CONFIRMED",
+    "browser_request_response_lost": true,
+    "external_provider_calls": 0
+  }
+}

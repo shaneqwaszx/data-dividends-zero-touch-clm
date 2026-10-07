@@ -690,6 +690,17 @@ class ZeroTouchOrchestrator:
             if item.is_current_evidence
         ]
 
+    @staticmethod
+    def target_recovery_context_is_supported(record: ZeroTouchAutomationRecord | None) -> bool:
+        """Share the existing matching-failure predicate with browser eligibility."""
+        return bool(
+            record is None or record.status != AutomationStatus.TECHNICAL_FAILURE or (
+                record.current_stage == AutomationStage.MOCK_GOLDTIER
+                and record.technical_failure is not None
+                and record.technical_failure.code == "CLM_TARGET_OUTCOME_UNCERTAIN"
+            )
+        )
+
     def record_provider_policy_recovery(
         self,
         *,
@@ -714,11 +725,7 @@ class ZeroTouchOrchestrator:
             clm = self._clm.get(case_id=case_id)
             if clm is None or clm.submission_snapshot is None:
                 raise ValueError("Policy recovery requires the frozen target submission")
-            if record is not None and record.status == AutomationStatus.TECHNICAL_FAILURE and (
-                record.current_stage != AutomationStage.MOCK_GOLDTIER
-                or record.technical_failure is None
-                or record.technical_failure.code != "CLM_TARGET_OUTCOME_UNCERTAIN"
-            ):
+            if not self.target_recovery_context_is_supported(record):
                 raise ValueError("Policy recovery cannot clear an unrelated technical failure")
             entry = self._cases.recover_uncertain_policy_from_provider(
                 submission_input=clm.submission_snapshot.target_input,
@@ -732,39 +739,62 @@ class ZeroTouchOrchestrator:
                 origin=origin,
                 reauthorize=reauthorize,
             )
-            if record is None:
-                return entry
-            if record.status == AutomationStatus.TECHNICAL_FAILURE:
-                candidate = record.model_copy(deep=True)
-                candidate.status = AutomationStatus.RESUMING
-                candidate.technical_failure = None
-                candidate.metrics.final_outcome = None
-                candidate = self._append_event(
-                    candidate,
-                    event_type=AutomationEventType.AUTOMATION_RESUMING,
-                    outcome=EventOutcome.SUCCEEDED,
-                    code="GT_POLICY_PROVIDER_VERIFIED_RECOVERY",
-                    message=(
-                        "Provider-verified Policy recovery retained without replay; "
-                        "explicit resume can continue the frozen target submission."
-                    ),
-                )
-                record = self._save(record, candidate)
-            if (
-                record.status == AutomationStatus.RESUMING
-                and record.events[-1].code == "GT_POLICY_PROVIDER_VERIFIED_RECOVERY"
-            ):
-                candidate = record.model_copy(deep=True)
-                candidate.status = AutomationStatus.RECOVERY_PENDING
-                candidate = self._append_event(
-                    candidate,
-                    event_type=AutomationEventType.TARGET_OPERATION_RECOVERY_PENDING,
-                    outcome=EventOutcome.SUCCEEDED,
-                    code="GT_POLICY_RECOVERY_PENDING",
-                    message="Recovered target prefix is ready for explicit resume without replay.",
-                )
-                self._save(record, candidate)
+            self._retain_target_recovery_pending(record, operation="POLICY")
             return entry
+
+    def record_provider_shell_recovery(
+        self, *, case_id: UUID, recovered_party_id: str, legal_name: str,
+        registration_number: str, country_of_incorporation: str, actor_id: str,
+        origin: GoldTierRecoveryOrigin, reauthorize: Callable[[], None],
+    ) -> GoldTierExecutionLedgerEntry:
+        """Reuse Shell evidence validation and the same explicit continuation checkpoint."""
+        with self._cases.case_lock(case_id):
+            reauthorize()
+            record = self._repository.get_for_case(case_id)
+            clm = self._clm.get(case_id=case_id)
+            if clm is None or clm.submission_snapshot is None:
+                raise ValueError("Shell recovery requires the frozen target submission")
+            if not self.target_recovery_context_is_supported(record):
+                raise ValueError("Shell recovery cannot clear an unrelated technical failure")
+            entry = self._cases.recover_uncertain_shell_from_provider(
+                submission_input=clm.submission_snapshot.target_input,
+                recovered_party_id=recovered_party_id, legal_name=legal_name,
+                registration_number=registration_number,
+                country_of_incorporation=country_of_incorporation,
+                actor_id=actor_id, origin=origin, reauthorize=reauthorize,
+            )
+            self._retain_target_recovery_pending(record, operation="SHELL")
+            return entry
+
+    def _retain_target_recovery_pending(
+        self, record: ZeroTouchAutomationRecord | None, *, operation: Literal["SHELL", "POLICY"],
+    ) -> None:
+        if record is None:
+            return
+        recovery_code = f"GT_{operation}_PROVIDER_VERIFIED_RECOVERY"
+        if record.status == AutomationStatus.TECHNICAL_FAILURE:
+            candidate = record.model_copy(deep=True)
+            candidate.status = AutomationStatus.RESUMING
+            candidate.technical_failure = None
+            candidate.metrics.final_outcome = None
+            candidate = self._append_event(
+                candidate, event_type=AutomationEventType.AUTOMATION_RESUMING,
+                outcome=EventOutcome.SUCCEEDED, code=recovery_code,
+                message=(
+                    f"Provider-verified {operation.title()} recovery retained without replay; "
+                    "explicit resume can continue the frozen target submission."
+                ),
+            )
+            record = self._save(record, candidate)
+        if record.status == AutomationStatus.RESUMING and record.events[-1].code == recovery_code:
+            candidate = record.model_copy(deep=True)
+            candidate.status = AutomationStatus.RECOVERY_PENDING
+            candidate = self._append_event(
+                candidate, event_type=AutomationEventType.TARGET_OPERATION_RECOVERY_PENDING,
+                outcome=EventOutcome.SUCCEEDED, code=f"GT_{operation}_RECOVERY_PENDING",
+                message="Recovered target prefix is ready for explicit resume without replay.",
+            )
+            self._save(record, candidate)
 
     def start(
         self,
@@ -1552,6 +1582,7 @@ class ZeroTouchOrchestrator:
                     actor_id=actor_id,
                     expected_clm_version=expected_clm_version,
                     expected_case_event_count=expected_case_event_count,
+                    reauthorize=reauthorize,
                 )
             except ClmRequestError as exc:
                 raise ZeroTouchRequestError(
@@ -1589,6 +1620,8 @@ class ZeroTouchOrchestrator:
                 message="Authoritative readiness was confirmed for target dispatch.",
                 started_at=resolved_at,
             )
+            if reauthorize is not None:
+                reauthorize()
             return self._advance_locked(case_id=completed.case_id)
 
     def _retain_revised_confirmation_review(

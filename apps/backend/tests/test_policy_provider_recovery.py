@@ -456,6 +456,9 @@ def test_policy_recovery_cannot_clear_an_unrelated_technical_failure():
         original = bundle.target_executions.list_for_case(cid)
         calls = deepcopy(target.calls)
         login_as(client, "olivia-koh")
+        projected = client.get(f"/api/clm/zero-touch/cases/{cid}").json()
+        assert projected["target_submission"]["recovery_available"] is False
+        assert projected["target_submission"]["recovery_operation"] is None
         result = client.post(
             f"/api/clm/zero-touch/cases/{cid}/target-recovery", json=recovery_payload(current)
         )

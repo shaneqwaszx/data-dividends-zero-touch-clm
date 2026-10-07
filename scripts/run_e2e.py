@@ -35,7 +35,7 @@ LIFECYCLE_OVERHEAD_SECONDS = 120.0
 DISCOVERY_TIMEOUT_SECONDS = 60.0
 RECOVERY_DEMO_MODES = ("optional-amend", "stale-policy", "retained-recovery", "search-recheck")
 SANDBOX_DEMO_MODES = (
-    "success", "uncertain-policy", "failed-policy", "existing-customer",
+    "success", "uncertain-shell", "uncertain-policy", "failed-policy", "existing-customer",
     "garden-existing-customer", "database-alpha", "database-partnership", "database-government",
 )
 _URI_PATTERN = re.compile(r"(?i)(?:mongodb(?:\+srv)?|https?)://[^\s\]\[<>{}\"']+")

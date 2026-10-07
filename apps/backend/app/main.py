@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, sta
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from app.api_acra_diagnostics import build_acra_diagnostic_router
 from app.api_admin import build_admin_router
@@ -60,7 +60,7 @@ from app.composition import (
 )
 from app.config import Settings, get_settings
 from app.connectors.acra import AcraConnector
-from app.connectors.errors import ConnectorError, public_connector_error
+from app.connectors.errors import ConnectorError, MutationUncertaintyReason, public_connector_error
 from app.connectors.goldtier_xpi import GoldTierXpiHttpTransport
 from app.connectors.idp import IdpProvider
 from app.connectors.ownership import OwnershipProvider
@@ -74,7 +74,7 @@ from app.demo.scenarios import (
 )
 from app.demo.uat_evidence import UatEvidenceExport, build_uat_evidence
 from app.demo.zero_touch_control import ZeroTouchDemoControl, ZeroTouchDemoScenario
-from app.domain.access import AuthenticatedActor, Capability, CasePriority, TeamId
+from app.domain.access import AuthenticatedActor, Capability, CasePriority, TeamId, has_capability
 from app.domain.case_management import (
     CaseActivityAction,
     CaseActivityPage,
@@ -288,6 +288,7 @@ class TargetStatusCheckResponse(BaseModel):
 
     submission_id: UUID
     checked_at: datetime
+    verified_party_id: str | None = Field(default=None, max_length=96)
     result: Literal[
         "NO_MATCH", "IDENTITY_UNVERIFIED", "CUSTOMER_IDENTITY_VERIFIED",
         "AMBIGUOUS", "CHECK_FAILED",
@@ -345,13 +346,24 @@ class TargetRecoveryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     recovered_party_id: str = Field(min_length=1, max_length=96)
-    legal_name: str = Field(min_length=1, max_length=160)
-    registration_number: str = Field(min_length=1, max_length=32)
-    country_of_incorporation: str = Field(min_length=2, max_length=3)
+    expected_submission_id: UUID | None = None
+    legal_name: str | None = Field(default=None, min_length=1, max_length=160)
+    registration_number: str | None = Field(default=None, min_length=1, max_length=32)
+    country_of_incorporation: str | None = Field(default=None, min_length=2, max_length=3)
     origin: GoldTierRecoveryOrigin
     operation: Literal["SHELL", "POLICY"] = "SHELL"
     provider_policy: str | None = Field(default=None, min_length=1, max_length=80)
     provider_policy_status: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def require_submission_binding(self) -> "TargetRecoveryRequest":
+        # Preserve the existing complete attestation API. The new minimal browser
+        # contract must name the exact frozen submission, never infer it from a case.
+        if self.expected_submission_id is None and any(value is None for value in (
+            self.legal_name, self.registration_number, self.country_of_incorporation,
+        )):
+            raise ValueError("Recovery requires the expected frozen submission")
+        return self
 
 
 class TargetRecoveryResponse(BaseModel):
@@ -1147,8 +1159,44 @@ def create_app(
             else None
         )
         observed_at = active_clock()
+        recovery_operation = (
+            service.target_recovery_operation(clm_record.submission_snapshot.target_input)
+            if target_uncertain and clm_record.submission_snapshot is not None
+            and clm.retained_submission_is_current(case_id=automation.case_id)
+            and zero_touch.target_recovery_context_is_supported(automation)
+            else None
+        )
+        uncertainty_reason = next((
+            event.code.removeprefix("GT_TARGET_OUTCOME_UNCERTAIN_")
+            for event in reversed(case.events)
+            if event.code is not None and event.code in {
+                f"GT_TARGET_OUTCOME_UNCERTAIN_{reason.value}"
+                for reason in MutationUncertaintyReason
+            }
+        ), "UNKNOWN") if target_uncertain else None
         target_submission = BrowserTargetSubmissionEvidence(
             submission_id=submission_id, state=target_state, goldtier_id=retained_goldtier_id,
+            recovery_operation=recovery_operation,
+            recovery_available=(
+                recovery_operation is not None
+                and has_capability(actor.profile.role, Capability.TARGET_RECOVERY)
+            ),
+            provider_policy=(
+                target_entry.submission_input.target_policy.policy.value
+                if recovery_operation == "POLICY" and target_entry is not None
+                and target_entry.submission_input.target_policy is not None else None
+            ),
+            uncertainty_reason=uncertainty_reason,
+            ledger_state=target_entry.state.value if target_entry is not None else None,
+            attempted_operations=tuple(
+                item.value for item in target_entry.attempted_operations
+            ) if target_entry is not None else (),
+            definitively_completed_operations=tuple(
+                item.value for item in target_entry.definitively_completed_operations
+            ) if target_entry is not None else (),
+            lifecycle_resolved_operations=tuple(
+                item.value for item in target_entry.lifecycle_resolved_operations
+            ) if target_entry is not None else (),
             status_check_available=(
                 target_state == "SUBMISSION_OUTCOME_UNCERTAIN"
                 and clm_record.submission_plan.environment.value == "SANDBOX"
@@ -2471,6 +2519,7 @@ def create_app(
             return TargetStatusCheckResponse(
                 submission_id=evidence.submission_id, checked_at=evidence.checked_at,
                 result=evidence.result,
+                verified_party_id=evidence.verified_party_id,
             )
 
     @application.post(
@@ -2484,15 +2533,6 @@ def create_app(
         request: Request,
         actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
     ) -> TargetRecoveryResponse:
-        record = clm.get(case_id=case_id)
-        if record is None or record.submission_snapshot is None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": "TARGET_RECOVERY_INPUT_UNAVAILABLE",
-                    "message": "The durable target submission input is unavailable.",
-                },
-            )
         try:
             reauthorize = build_case_reauthorizer(
                 request,
@@ -2502,44 +2542,65 @@ def create_app(
                 case_id,
                 Capability.TARGET_RECOVERY,
             )
-            if recovery_request.operation == "POLICY":
+            with service.case_lock(case_id):
+                reauthorize()
+                record = clm.get(case_id=case_id)
+                if record is None or record.submission_snapshot is None:
+                    raise HTTPException(status_code=409, detail={
+                        "code": "TARGET_RECOVERY_INPUT_UNAVAILABLE",
+                        "message": "The durable target submission input is unavailable.",
+                    })
+                submission = record.submission_snapshot.target_input
                 if (
-                    recovery_request.provider_policy is None
-                    or recovery_request.provider_policy_status is None
+                    recovery_request.expected_submission_id is not None
+                    and recovery_request.expected_submission_id != submission.submission_id
                 ):
-                    raise ValueError("Policy recovery evidence is incomplete")
-                entry = zero_touch.record_provider_policy_recovery(
-                    case_id=case_id,
-                    recovered_party_id=recovery_request.recovered_party_id,
-                    legal_name=recovery_request.legal_name,
-                    registration_number=recovery_request.registration_number,
-                    country_of_incorporation=(
-                        recovery_request.country_of_incorporation
-                    ),
-                    provider_policy=recovery_request.provider_policy,
-                    provider_policy_status=recovery_request.provider_policy_status,
-                    actor_id=actor.profile.user_id,
-                    origin=recovery_request.origin,
-                    reauthorize=reauthorize,
-                )
-            else:
-                if (
-                    recovery_request.provider_policy is not None
-                    or recovery_request.provider_policy_status is not None
+                    raise HTTPException(status_code=409, detail={
+                        "code": "TARGET_RECOVERY_STALE",
+                        "message": "The intended retained submission is no longer current.",
+                    })
+                if not clm.retained_submission_is_current(case_id=case_id):
+                    raise ValueError("Recovery requires current frozen submission evidence")
+                current_case = service.get_case(case_id)
+                if current_case is None or not service.has_valid_target_dispatch_confirmation(
+                    current_case
                 ):
-                    raise ValueError("Shell recovery cannot contain Policy evidence")
-                entry = service.recover_uncertain_shell_from_provider(
-                    submission_input=record.submission_snapshot.target_input,
-                    recovered_party_id=recovery_request.recovered_party_id,
-                    legal_name=recovery_request.legal_name,
-                    registration_number=recovery_request.registration_number,
-                    country_of_incorporation=(
-                        recovery_request.country_of_incorporation
-                    ),
-                    actor_id=actor.profile.user_id,
-                    origin=recovery_request.origin,
-                    reauthorize=reauthorize,
+                    raise ValueError("Recovery requires the original valid target confirmation")
+                identity = submission.canonical_entity
+                # Legacy supplied identity is still checked by the owning service.
+                # The browser form sends only the UUID and genuinely new provider evidence.
+                name = recovery_request.legal_name or identity.legal_name
+                registration = recovery_request.registration_number or identity.registration_number
+                country = (
+                    recovery_request.country_of_incorporation or identity.country_of_incorporation
                 )
+                if recovery_request.operation == "POLICY":
+                    if (
+                        recovery_request.provider_policy is None
+                        or recovery_request.provider_policy_status is None
+                    ):
+                        raise ValueError("Policy recovery evidence is incomplete")
+                    entry = zero_touch.record_provider_policy_recovery(
+                        case_id=case_id, recovered_party_id=recovery_request.recovered_party_id,
+                        legal_name=name, registration_number=registration,
+                        country_of_incorporation=country,
+                        provider_policy=recovery_request.provider_policy,
+                        provider_policy_status=recovery_request.provider_policy_status,
+                        actor_id=actor.profile.user_id, origin=recovery_request.origin,
+                        reauthorize=reauthorize,
+                    )
+                else:
+                    if (
+                        recovery_request.provider_policy is not None
+                        or recovery_request.provider_policy_status is not None
+                    ):
+                        raise ValueError("Shell recovery cannot contain Policy evidence")
+                    entry = zero_touch.record_provider_shell_recovery(
+                        case_id=case_id, recovered_party_id=recovery_request.recovered_party_id,
+                        legal_name=name, registration_number=registration,
+                        country_of_incorporation=country, actor_id=actor.profile.user_id,
+                        origin=recovery_request.origin, reauthorize=reauthorize,
+                    )
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
         except ZeroTouchInfrastructureError as exc:
@@ -2550,12 +2611,14 @@ def create_app(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail={"code": public.code, "message": public.message},
             ) from None
-        except ValueError as exc:
+        except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={
                     "code": "TARGET_RECOVERY_REJECTED",
-                    "message": str(exc),
+                    "message": (
+                        "The evidence does not match a recoverable retained target operation."
+                    ),
                 },
             ) from None
         except RuntimeError:

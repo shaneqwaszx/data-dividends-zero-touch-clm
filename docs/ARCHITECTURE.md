@@ -23,6 +23,15 @@ remain branch evidence; inspected main metadata remains PR70.
 
 ## 1. Purpose and scope
 
+The owner-assigned 2026-10-07 [reliability/recovery UX candidate](integration/GOLDTIER_RELIABILITY_RECOVERY_UX.md)
+extends existing CLM/onboarding/zero-touch and frontend query/view owners. Search-only
+retained intents revalidate current evidence before first dispatch; lost confirmation
+responses use bounded GET observation; the submission package exposes Director Shell
+and Requested Policy recovery with expected submission UUID and backend-owned identity.
+Recovery retains the original confirmation/intent and never replays resolved writes.
+No new owner, dependency, schema, provider, mapping or capability grant is introduced.
+Fresh verification and independent acceptance belong to the task reports.
+
 The system is a proof of concept for Singapore corporate new-to-bank onboarding:
 registry acquisition, document evidence, ownership/UBO analysis, reconciliation,
 readiness, a Mock or explicitly enabled Sandbox GoldTier target sequence, exception handling, and an authenticated

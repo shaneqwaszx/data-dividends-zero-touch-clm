@@ -5,6 +5,16 @@ It is not a sponsor contract, phase report, or substitute for current source and
 
 ## Verification metadata
 
+The 2026-10-07 owner-assigned reliability/recovery UX candidate starts from
+`5c54c9af896585764d1e4ed809056d1deb576629` in an isolated worktree on
+`codex/goldtier-submission-reliability-recovery-ux`. It adds a prominent uncertainty
+panel, Director-only Shell/Requested Policy forms, UUID-bound server-derived identity,
+same-intent continuation and bounded lost-response observation. The
+[candidate boundary](integration/GOLDTIER_RELIABILITY_RECOVERY_UX.md) distinguishes
+new task evidence from historical gates. Schema, provider classifications, mappings,
+configuration and capability grants remain unchanged. No real provider call is made.
+Broad verification remains subject to the concurrent evaluation measurement gate.
+
 The owner-assigned 2026-10-06 provider-verified Policy recovery candidate starts at
 `529efea3966fb561027973e6d932cecb0e8f6bb8` on
 `fix/goldtier-policy-provider-recovery`. Its

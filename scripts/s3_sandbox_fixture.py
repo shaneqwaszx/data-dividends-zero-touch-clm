@@ -16,7 +16,7 @@ class OfflineS3SandboxTransport(OfflineAcceptanceTransport):
     def __init__(self, scenario: str) -> None:
         super().__init__(S3_SYNTHETIC_NAME, S3_SYNTHETIC_UEN)
         if scenario not in {
-            "success", "uncertain-policy", "failed-policy", "existing-customer",
+            "success", "uncertain-shell", "uncertain-policy", "failed-policy", "existing-customer",
             "garden-existing-customer", "database-alpha", "database-partnership", "database-government",
         }:
             raise ValueError("Unknown offline Sandbox fixture")
@@ -67,4 +67,7 @@ class OfflineS3SandboxTransport(OfflineAcceptanceTransport):
             raise httpx.ReadTimeout("Synthetic offline Policy timeout")
         if operation == "POLICY" and self.scenario == "failed-policy":
             return GoldTierXpiHttpResponse(400, {})
-        return super().request(method, url, **kwargs)
+        response = super().request(method, url, **kwargs)
+        if operation == "SHELL" and self.scenario == "uncertain-shell":
+            raise httpx.ReadTimeout("Synthetic offline Shell response lost")
+        return response

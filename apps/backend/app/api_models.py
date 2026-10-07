@@ -1439,6 +1439,17 @@ class BrowserTargetSubmissionEvidence(BaseModel):
     status_check_available: bool = False
     verification_available: bool = False
     customer_handling: Literal["EXISTING_REUSED", "NEW_CREATED"] | None = None
+    recovery_operation: Literal["SHELL", "POLICY"] | None = None
+    recovery_available: bool = False
+    provider_policy: str | None = None
+    uncertainty_reason: Literal[
+        "TIMEOUT", "TRANSPORT", "RESPONSE_DECODE", "RESPONSE_TOO_LARGE",
+        "UNEXPECTED_STATUS", "UNKNOWN",
+    ] | None = None
+    ledger_state: str | None = None
+    attempted_operations: tuple[str, ...] = ()
+    definitively_completed_operations: tuple[str, ...] = ()
+    lifecycle_resolved_operations: tuple[str, ...] = ()
 
 
 class ZeroTouchCaseSummaryResponse(BaseModel):
