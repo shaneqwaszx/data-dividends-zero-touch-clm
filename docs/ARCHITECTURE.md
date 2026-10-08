@@ -5,8 +5,12 @@ tests, contracts, and decisions remain higher authority for their respective fac
 Phase architecture documents provide detail and history; they do not silently override
 this current map.
 
-The inspected main baseline is merged PR #70 at
-`4ee8819d7404d6442e064fd60dcee03ccc84cf11` (2026-10-05). PR #70 merged the completed
+The inspected main baseline is merged PR #77 at
+`8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4` (2026-10-08), with successful post-merge
+main CI run [37742194816](https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/37742194816).
+PR #77 extends existing recovery owners; it introduces no new owner, dependency,
+schema owner, provider, mapping owner or capability owner. No ADR is required.
+Earlier closeout provenance follows. PR #70 merged the completed
 Phase25/26 documentation and evidence; the PR #69-to-#70 diff contains no product
 source change. Historical gates and execution receipts retain their own identities,
 including the prior combined FAIL and subsequent narrow P2 remediation PASS.
@@ -18,19 +22,23 @@ the shared body width floor; no owner, dependency or trust boundary changed. Pha
 owner-assigned Phase27B documentation sync explains the current application-owned
 orchestration, C4 views and recovery decisions in
 [Final POC Architecture](architecture/FINAL_POC_ARCHITECTURE.md). These are views
-of existing owners, not an architecture replacement. Unmerged Phase27 UI changes
-remain branch evidence; inspected main metadata remains PR70.
+of existing owners, not an architecture replacement. Phase27 checkpoint statements
+retain their original attribution; the current inspected main baseline is PR #77 above.
 
 ## 1. Purpose and scope
 
-The owner-assigned 2026-10-07 [reliability/recovery UX candidate](integration/GOLDTIER_RELIABILITY_RECOVERY_UX.md)
-extends existing CLM/onboarding/zero-touch and frontend query/view owners. Search-only
+The [reliability/recovery UX](integration/GOLDTIER_RELIABILITY_RECOVERY_UX.md), originally
+assigned 2026-10-07 and merged through PR #77 on 2026-10-08, extends existing
+CLM/onboarding/zero-touch and frontend query/view owners. Search-only
 retained intents revalidate current evidence before first dispatch; lost confirmation
 responses use bounded GET observation; the submission package exposes Director Shell
 and Requested Policy recovery with expected submission UUID and backend-owned identity.
 Recovery retains the original confirmation/intent and never replays resolved writes.
 No new owner, dependency, schema, provider, mapping or capability grant is introduced.
-Fresh verification and independent acceptance belong to the task reports.
+Unsupported uncertainty remains blocked/escalated; customer Search never proves Policy
+success. Independent acceptance retains its exact content identity in the
+[task gate](../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_QUALITY_GATE.md)
+and [final Round 2 gate](../.ai-pipeline/reports/PR77_E2E_ISOLATION_ROUND2_QUALITY_GATE.md).
 
 The system is a proof of concept for Singapore corporate new-to-bank onboarding:
 registry acquisition, document evidence, ownership/UBO analysis, reconciliation,
@@ -417,9 +425,12 @@ terminal records are not retroactively relabelled. Restart recovery treats attem
 not-completed mutations as uncertain, does not upgrade that state, and preserves the
 existing no-replay stop.
 
-Current main uses schema v9, retaining Phase24 extensions plus strict creator/OCR/
-ownership source bindings. Strict schema-v1 through schema-v8 readers preserve valid
-historical facts without rewrite. Schema v6 added bounded initial-customer identity and
+Current main uses schema v10, retaining Phase24 extensions plus strict creator/OCR/
+ownership source bindings. Strict schema-v1 through schema-v9 readers decode valid
+historical facts into the current form in memory, without a version-only read rewrite.
+Semantic interrupted-state startup recovery remains separate and can save a changed
+snapshot through the existing revision/CAS path.
+Schema v6 added bounded initial-customer identity and
 GoldTier-first Search evidence, verified existing-target provenance, separate definitive
 and lifecycle-resolved operation markers, and an explicit provider-verified recovery
 fact. Schema v7 adds bounded identity-correction/Search-recheck attempts, policy-rebind
@@ -658,8 +669,9 @@ global source-precedence rule.
 For Singapore, UEN is the current routing and returned-registry identity evidence;
 legal name remains reconciliation evidence. Fuzzy name matching is not authoritative
 identity. Exact-key Mock operation reuse is an optional owner-authorized POC
-path with frozen ACTIVE freshness parameters (default7,776,000seconds). It is disabled by default and is
-not an ACRA rule, production sharing/retention decision, calendar-month interpretation,
+path with frozen ACTIVE freshness parameters (default7,776,000seconds). Originally
+opt-in, current `auto` mode enables it only for non-production Mock lanes under D-069 /
+ADR-010; explicit disabled mode remains available. It is not an ACRA rule, production sharing/retention decision, calendar-month interpretation,
 or sponsor-confirmed policy. The POC has no general ageing/SLA, OCDD, periodic refresh,
 forced refresh, or perpetual-KYC engine.
 
@@ -712,7 +724,7 @@ cache and direct policy-edit descriptions. PolicyManagementService owns proposal
 under one lock and repository CAS; existing capability owner grants HR proposal and
 Director decision. Cases freeze ACTIVE identity/values. RegistryAcquisitionCoordinator
 owns schema2 operation reuse/definitive negatives and bounded process-local single-flight;
-Phase24C introduced case schema8; current schema9 remains the sole case envelope. OwnershipEvidenceTagger owns parameterized
+Phase24C introduced case schema8; current schema10 remains the sole case envelope. OwnershipEvidenceTagger owns parameterized
 deterministic semantic classification/14-example synthetic metrics; the single Decimal
 ownership engine keeps arithmetic authority. PolicyRules renders the five categories,
 proposal/reset/decision and synthetic before-after impact. No new state, auth, policy,
@@ -809,7 +821,8 @@ LOCAL_SYNTHETIC_SUPPLEMENT/LOCAL provenance. Nonempty official quantities are no
 with the supplement, and discrepancies require creator review. There is no provider-error
 fallback, generalized equal-share rule, network expansion or second calculator.
 
-Case schema9 adds these fields inside the same envelope. Strict schema1..8 reads preserve
+S2 introduced case schema9 fields inside the same envelope; current schema10 also
+strictly decodes legacy schema9. The historical schema1..8 reads preserve
 legacy content with unknown metadata/creator and no write. Extra new fields even null
 or empty are rejected in old envelopes. Current/prior observation, document event and
 receipt bindings, identity/revision CAS and no-resurrection remain owned by existing
@@ -915,15 +928,19 @@ restore it. Read-only wording copies backend pending-step labels and uses curren
 Submission readiness / GoldTier submission package section names.
 No new schema/mapping/provider status or Live claim follows from this integration.
 
-## Provider-verified Policy recovery candidate — 2026-10-06
+## Provider-verified Policy recovery — current main; origin 2026-10-06
 
-From main `529efea`, OnboardingService supports both definitive and provider-recovered
+Originally assigned from main `529efea`, OnboardingService now supports both definitive
+and provider-recovered
 Shell prefixes before an unresolved Policy, preserving distinct definitive/lifecycle
 evidence. ZeroTouchOrchestrator owns the matching technical-failure reconciliation;
 the existing recovery route delegates and reauthorizes under the owning case lock.
 Recovery does not dispatch. Existing explicit resume, CLM and target ledger remain
 the only continuation/order/no-replay owners. Controlled connector reasons enter
 existing safe case events; no new repository, schema, provider, framework or
-authorization owner is introduced. Requested remains distinct from KYC completion.
+authorization owner is introduced. PR #77 subsequently merged the Director browser
+recovery UI under the same backend TARGET_RECOVERY boundary. Policy recovery retains
+verified Requested evidence without provider calls; customer Search does not prove Policy
+success. Requested remains distinct from KYC completion.
 Manual CLM recovery remains supported without an automation record; the orchestrator
 delegates to the same case/ledger owner and reconciles automation only when present.

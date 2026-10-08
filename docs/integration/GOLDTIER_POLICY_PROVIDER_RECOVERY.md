@@ -1,8 +1,11 @@
 # Provider-verified Policy recovery
 
-Owner-authorized remediation candidate, 2026-10-06, based on main
+Originally an owner-authorized remediation candidate, 2026-10-06, based on main
 `529efea3966fb561027973e6d932cecb0e8f6bb8`. Independent gate evidence is recorded
-separately; this document does not authorize real case mutation or provider calls.
+separately. PR #77 subsequently merged browser recovery on 2026-10-08 at main
+`8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4`, as described in the
+[recovery runbook](GOLDTIER_RELIABILITY_RECOVERY_UX.md). The 2026-10-06 implementation
+history below is retained; this document does not authorize real case mutation or provider calls.
 
 ## Evidence and accepted shapes
 
@@ -26,14 +29,16 @@ idempotent and can repair an interrupted case/automation checkpoint without call
 
 ## Operator/API boundary
 
-The 2026-10-07 [browser recovery candidate](GOLDTIER_RELIABILITY_RECOVERY_UX.md)
-adds a Director-only Requested evidence form and a UUID-bound minimal request. The
-no-browser-form statement below describes the prior 2026-10-06 implementation.
-Current service validation, no-provider-call Policy attestation and explicit same-intent
-continuation remain authoritative; acceptance belongs to the new candidate's own gate.
+PR #77 merged the [Director browser recovery UI](GOLDTIER_RELIABILITY_RECOVERY_UX.md):
+a Requested evidence form and UUID-bound minimal request under TARGET_RECOVERY.
+Current service validation, verified Requested evidence, no-provider-call Policy recovery
+and explicit same-intent continuation remain authoritative. Customer Search does not
+prove Policy success; uncertain writes remain non-replayable. Independent acceptance
+retains its attribution in the linked recovery and Round 2 reports.
 
-There is no provider-verification browser form. An actor with existing TARGET_RECOVERY
-and case access may use the existing
+At the 2026-10-06 implementation checkpoint there was no provider-verification browser
+form. The existing TARGET_RECOVERY API remains supported alongside the later browser UI;
+an actor with that capability and case access may use
 `POST /api/clm/zero-touch/cases/{case_id}/target-recovery` API with operation POLICY,
 verified recovered_party_id, legal_name, registration_number, country_of_incorporation,
 provider_policy, provider_policy_status=Requested and origin=UNCERTAIN_DURABLE_LEDGER.
@@ -66,7 +71,9 @@ credentials or provider-private detail is retained. Reasons are observational on
 the ledger still prevents replay. Historical attempts remain unknown; no Delta cause
 is retrospectively inferred. The ten-second configured default is unchanged.
 
-No public recovery request/response field, envelope schema/version, mapping, permission,
-provider classification, production authority or Live claim changes. Fake/physical
+The 2026-10-06 delta changed no public recovery request/response field, envelope
+schema/version, mapping, permission, provider classification, production authority or
+Live claim. PR #77's additive browser/API contract is documented in the recovery runbook;
+envelope, mapping, capability grants and provider classifications remain unchanged. Fake/physical
 evidence covers both prefixes, identity/authorization negatives, same intent and
 confirmation, no replay, continuation, local fault retry and restart/read-without-rewrite.

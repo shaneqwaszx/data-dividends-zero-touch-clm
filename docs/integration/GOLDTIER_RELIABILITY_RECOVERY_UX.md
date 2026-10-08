@@ -1,8 +1,16 @@
 # GoldTier submission reliability and browser recovery
 
-2026-10-07 owner-assigned candidate from main
-`5c54c9af896585764d1e4ed809056d1deb576629`. This describes task content; verification
-and independent acceptance remain in the task reports. No real provider calls authorized.
+Originally assigned 2026-10-07 from main
+`5c54c9af896585764d1e4ed809056d1deb576629`.
+Merged through [PR #77](https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/pull/77)
+on 2026-10-08 at main `8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4`; the recovery behavior
+below is current main behavior. Independent acceptance and CI evidence remain in the
+[implementation report](../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_IMPLEMENTATION.md),
+[recovery gate](../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_QUALITY_GATE.md)
+and [final Round 2 gate](../../.ai-pipeline/reports/PR77_E2E_ISOLATION_ROUND2_QUALITY_GATE.md).
+Post-merge main CI [37742194816](https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/37742194816)
+completed SUCCESS at that merge SHA. Original evidence identities are preserved;
+provider classifications are unchanged and no real provider calls are authorized.
 
 ## Reliability and retained authority
 
