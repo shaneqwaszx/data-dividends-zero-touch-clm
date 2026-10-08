@@ -26,6 +26,12 @@ idempotent and can repair an interrupted case/automation checkpoint without call
 
 ## Operator/API boundary
 
+The 2026-10-07 [browser recovery candidate](GOLDTIER_RELIABILITY_RECOVERY_UX.md)
+adds a Director-only Requested evidence form and a UUID-bound minimal request. The
+no-browser-form statement below describes the prior 2026-10-06 implementation.
+Current service validation, no-provider-call Policy attestation and explicit same-intent
+continuation remain authoritative; acceptance belongs to the new candidate's own gate.
+
 There is no provider-verification browser form. An actor with existing TARGET_RECOVERY
 and case access may use the existing
 `POST /api/clm/zero-touch/cases/{case_id}/target-recovery` API with operation POLICY,

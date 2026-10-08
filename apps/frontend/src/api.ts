@@ -1,3 +1,4 @@
+import { nextPollingDelay } from "./automationPolling";
 import type {
   AuthSession,
   CasePriorityResult,
@@ -557,6 +558,8 @@ export async function confirmZeroTouchTargetDispatch(
     `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/target-confirmation`,
     {
       method: "POST",
+      // Stop waiting for a missing response; CaseDetail observes retained state, never reposts.
+      signal: AbortSignal.timeout(nextPollingDelay(3)),
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     },
@@ -576,6 +579,7 @@ export interface IdentitySearchRecheckInput {
 export interface TargetStatusCheckResult {
   submission_id: string;
   checked_at: string;
+  verified_party_id?: string | null;
   result: "NO_MATCH" | "IDENTITY_UNVERIFIED" | "CUSTOMER_IDENTITY_VERIFIED"
     | "AMBIGUOUS" | "CHECK_FAILED";
   message: string;
@@ -592,6 +596,25 @@ export interface CompletedTargetVerificationResult {
 }
 
 export type TargetSearchObservation = TargetStatusCheckResult | CompletedTargetVerificationResult;
+
+export interface TargetRecoveryInput {
+  expected_submission_id: string;
+  operation: "SHELL" | "POLICY";
+  recovered_party_id: string;
+  origin: "UNCERTAIN_DURABLE_LEDGER";
+  provider_policy?: string;
+  provider_policy_status?: "Requested";
+}
+
+export async function recoverZeroTouchTarget(
+  caseId: string, input: TargetRecoveryInput,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/target-recovery`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
+  );
+  await parseResponse<unknown>(response);
+}
 
 export async function verifyCompletedGoldTier(
   caseId: string, submissionId: string, signal?: AbortSignal,

@@ -280,7 +280,7 @@ export default function ReviewAndSend({
       {error && <p className="ds-banner ds-banner-warn" role="alert">{error}</p>}
       {submissionCopy && (
         <section className="ds-banner" aria-labelledby="submission-state-title" aria-live="polite" aria-atomic="true">
-          <h3 id="submission-state-title">{submissionCopy.title}</h3>
+          <h3 id="submission-state-title" tabIndex={-1}>{submissionCopy.title}</h3>
           <p>{submissionCopy.detail}</p>
           {submission?.state === "SUBMISSION_CONFIRMED" ? (
             <dl aria-label="Completed GoldTier submission">

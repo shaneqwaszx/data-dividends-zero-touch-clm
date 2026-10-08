@@ -176,7 +176,7 @@ async function submitAndInspect(page: Page, mode: "success" | "uncertain-policy"
     expect(current.case.goldtier_result?.policy_status).toBeNull();
     expect(current.processing_pipeline?.find((item) => item.node_id === "FINAL_REVIEW_SEND")?.status).toBe("BLOCKED");
     await expect(page.getByRole("button", { name: "Complete safe recovery", exact: true })).toHaveCount(0);
-    await expect(review.getByRole("button", { name: "Check GoldTier status", exact: true })).toBeEnabled();
+    await expect(page.locator(".target-recovery-panel").getByRole("button", { name: "Check GoldTier status", exact: true })).toBeEnabled();
     expect(checkRequests).toBe(1);
   } else expect(checkRequests).toBe(0);
   const after = await counts(page);
@@ -207,6 +207,206 @@ test("S3 uncertain Policy checks customer identity once without completing Polic
 test("S3 definitive Policy failure preserves the target ID and never retries submission", { tag: "@s3-sandbox-failed-policy" }, async ({ page }) => {
   await submitAndInspect(page, "failed-policy");
 });
+
+async function switchUser(page: Page, userId: string, caseId: string) {
+  await page.locator(".operator-account__button").click();
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page.getByLabel("User ID").fill(userId);
+  await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("navigation", { name: "Main workspace" })).toBeVisible();
+  await page.goto(`/cases/${caseId}`);
+}
+
+async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
+  const caseId = await prepareReview(page);
+  const confirmation = page.waitForResponse((response) => response.url().endsWith("/target-confirmation"));
+  await page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true }).click();
+  expect((await confirmation).status()).toBe(200);
+  await expect.poll(async () => (await readSummary(page, caseId)).target_submission?.state).toBe("SUBMISSION_OUTCOME_UNCERTAIN");
+  await expect(page.locator("#target-recovery-title")).toBeFocused();
+  await expect(page.locator("#target-recovery-title")).toBeInViewport({ ratio: 1 });
+  const retained = await readSummary(page, caseId);
+  await switchUser(page, "ethan-tan", caseId);
+  const panel = page.locator(".target-recovery-panel");
+  await expect(panel.getByRole("heading", { name: "GoldTier submission needs verification", exact: true })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "Director verification required", exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: /Resolve/ })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Check GoldTier status", exact: true })).toBeEnabled();
+  await expect(page.locator(".case-technical-failure")).toHaveCount(0);
+  await expect(panel.locator("details")).not.toHaveAttribute("open", "");
+  await panel.getByText("Technical details", { exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(panel.locator("details")).toHaveAttribute("open", "");
+  await expect(panel.getByText("CLM_TARGET_OUTCOME_UNCERTAIN", { exact: true })).toBeVisible();
+  for (const width of [320, 720, 1280]) {
+    await page.setViewportSize({ width, height: 1000 });
+    expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+    await expect(panel.getByRole("button", { name: "Check GoldTier status", exact: true })).toBeVisible();
+  }
+  await page.reload();
+  await expect(panel).toBeVisible();
+  await switchUser(page, "olivia-koh", caseId);
+  const check = panel.getByRole("button", { name: "Check GoldTier status", exact: true });
+  await expect(check).toBeEnabled();
+  await page.route("**/target-status-check", async (route) => {
+    const response = await route.fetch();
+    const observation = await response.json();
+    await route.fulfill({ response, json: {
+      ...observation, submission_id: "00000000-0000-4000-8000-000000000001",
+      verified_party_id: "STALE_CANDIDATE", message: "STALE_OBSERVATION",
+    } });
+  }, { times: 1 });
+  await check.click();
+  await expect(panel.getByText("The check did not match this retained submission.", { exact: true })).toBeVisible();
+  await expect(panel.getByText("STALE_OBSERVATION", { exact: true })).toHaveCount(0);
+  await expect(panel.getByText("STALE_CANDIDATE", { exact: true })).toHaveCount(0);
+  await check.focus();
+  const checked = page.waitForResponse((response) => response.url().endsWith("/target-status-check"));
+  await page.keyboard.press("Enter");
+  expect((await checked).status()).toBe(200);
+  await expect(panel.getByText(/A matching GoldTier customer was found/)).toBeVisible();
+  const recovery = page.waitForResponse((response) => response.url().endsWith("/target-recovery"));
+  let releaseRecovery!: () => void;
+  await page.route("**/target-recovery", async (route) => {
+    await new Promise<void>((release) => { releaseRecovery = release; });
+    await route.fallback();
+  });
+  let recoveryRequests = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/target-recovery")) recoveryRequests += 1; });
+  const resolve = panel.getByRole("button", { name: operation === "shell" ? "Resolve using verified GoldTier record" : "Resolve verified Policy result", exact: true });
+  await expect(resolve).toBeDisabled();
+  for (const width of [320, 720, 1280]) {
+    await page.setViewportSize({ width, height: 1000 });
+    expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+    await expect(resolve).toBeVisible();
+  }
+  if (operation === "policy") {
+    await panel.getByLabel("Verified provider Policy status", { exact: true }).selectOption("Requested");
+    await expect(panel.getByLabel("GoldTier customer ID", { exact: true })).toHaveValue("SYNTHETIC-GT-S3");
+  }
+  await panel.getByRole("checkbox").focus();
+  await page.keyboard.press("Space");
+  await expect(panel.getByRole("checkbox")).toBeChecked();
+  await expect(resolve).toBeEnabled();
+  await resolve.focus();
+  await page.keyboard.press("Enter");
+  await expect(resolve).toBeDisabled();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => typeof releaseRecovery).toBe("function");
+  releaseRecovery();
+  expect((await recovery).status()).toBe(200);
+  expect(recoveryRequests).toBe(1);
+  const resume = page.getByRole("button", { name: "Complete safe recovery", exact: true });
+  await expect(resume).toBeVisible();
+  await expect(page.locator("#target-continuation-title")).toBeFocused();
+  await expect(page.locator("#target-continuation-title")).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole("region", { name: "Verified work is saved", exact: true })).toContainText("Continue the same submission");
+  await page.screenshot({ path: path.resolve("../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS", `retained-${operation}.png`) });
+  await page.reload();
+  await expect(resume).toBeVisible();
+  await resume.click();
+  await expect.poll(async () => (await readSummary(page, caseId)).target_submission?.state).toBe("SUBMISSION_CONFIRMED");
+  await expect(page.locator("#submission-state-title")).toBeFocused();
+  await expect(page.locator("#submission-state-title")).toBeInViewport({ ratio: 1 });
+  const completed = await readSummary(page, caseId);
+  expect(completed.target_submission?.submission_id).toBe(retained.target_submission?.submission_id);
+  expect(completed.case.target_dispatch_confirmation).toEqual(retained.case.target_dispatch_confirmation);
+  const calls = await counts(page);
+  expect(calls.external_calls).toBe(0);
+  expect(calls.calls.SHELL).toBe(1); expect(calls.calls.POLICY).toBe(1); expect(calls.calls.AMEND).toBe(0);
+  for (const width of [320, 720, 1280]) {
+    await page.setViewportSize({ width, height: 1000 });
+    expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+  }
+}
+
+test("Director recovers uncertain shell and continues the original submission", { tag: "@s3-sandbox-uncertain-shell" }, async ({ page }) => {
+  await runDirectorRecovery(page, "shell");
+});
+
+test("Director recovers uncertain policy and continues the original submission", { tag: "@s3-sandbox-uncertain-policy" }, async ({ page }) => {
+  await runDirectorRecovery(page, "policy");
+});
+
+async function runLostConfirmationResponse(
+  page: Page,
+  loss: "aborted" | "truncated" | "held",
+) {
+  const caseId = await prepareReview(page);
+  let confirmations = 0;
+  let observing = false;
+  let releaseConfirmation!: () => void;
+  let releaseObservation!: () => void;
+  const confirmationGate = new Promise<void>((release) => { releaseConfirmation = release; });
+  const observationGate = new Promise<void>((release) => { releaseObservation = release; });
+  await page.route(`**/api/clm/zero-touch/cases/${caseId}`, async (route) => {
+    if (observing && route.request().method() === "GET") await observationGate;
+    await route.fallback();
+  });
+  await page.route("**/target-confirmation", async (route) => {
+    confirmations += 1;
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    observing = true;
+    if (loss === "aborted") await route.abort("timedout");
+    else if (loss === "truncated") await route.fulfill({ status: 200, contentType: "application/json", body: '{"case":' });
+    else {
+      await confirmationGate;
+      // The browser may already have stopped waiting for this response.
+      await route.fulfill({ response }).catch(() => undefined);
+    }
+  });
+  try {
+    await page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true }).click();
+    const verification = page.getByRole("heading", { name: "Verifying submission outcome…", exact: true });
+    await expect(verification).toBeVisible();
+    await expect(verification).toBeFocused();
+    await expect(verification).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Verify submission outcome", exact: true })).toBeDisabled();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.screenshot({ path: path.resolve("../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS", `verifying-${loss}.png`) });
+    releaseObservation();
+    await expect(page.locator("#submission-state-title")).toHaveText("Submission confirmed");
+    await expect(page.locator("#submission-state-title")).toBeFocused();
+    await expect(page.locator("#submission-state-title")).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toHaveCount(0);
+    await page.screenshot({ path: path.resolve("../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS", `confirmed-${loss}.png`) });
+  } finally {
+    releaseObservation();
+    releaseConfirmation();
+  }
+  expect(confirmations).toBe(1);
+  const result = await counts(page);
+  expect(result.calls).toEqual({ SEARCH: 2, SHELL: 1, POLICY: 1, AMEND: 0, READBACK: 1 });
+  expect(result.external_calls).toBe(0);
+  expect((await readSummary(page, caseId)).status).toBe("COMPLETED");
+}
+
+test(
+  "Lost confirmation response observes backend success without sending again: aborted",
+  { tag: "@s3-sandbox-success" },
+  async ({ page }) => {
+    await runLostConfirmationResponse(page, "aborted");
+  },
+);
+
+test(
+  "Lost confirmation response observes backend success without sending again: truncated",
+  { tag: "@s3-sandbox-success" },
+  async ({ page }) => {
+    await runLostConfirmationResponse(page, "truncated");
+  },
+);
+
+test(
+  "Lost confirmation response observes backend success without sending again: held",
+  { tag: "@s3-sandbox-success" },
+  async ({ page }) => {
+    await runLostConfirmationResponse(page, "held");
+  },
+);
 
 test("post-UAT Garden scanned evidence auto-confirms, calculates local ownership and verifies retained Sandbox identity", { tag: "@s3-sandbox-garden-existing-customer" }, async ({ page }) => {
   await page.goto("/");

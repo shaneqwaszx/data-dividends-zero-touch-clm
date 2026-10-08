@@ -204,6 +204,7 @@ class TargetStatusCheckEvidence:
         "NO_MATCH", "IDENTITY_UNVERIFIED", "CUSTOMER_IDENTITY_VERIFIED",
         "AMBIGUOUS", "CHECK_FAILED",
     ]
+    verified_party_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2353,6 +2354,7 @@ class OnboardingService:
         *,
         search_resolution: GoldTierSearchResolution,
         selected_party_id: str | None,
+        reauthorize: Callable[[], None] | None = None,
     ) -> GoldTierExecutionReceipt | None:
         """Clear volatile sending activity on every normal, failed or uncertain exit."""
 
@@ -2361,6 +2363,7 @@ class OnboardingService:
                 submission_input,
                 search_resolution=search_resolution,
                 selected_party_id=selected_party_id,
+                reauthorize=reauthorize,
             )
         except MutationOutcomeUncertainError as exc:
             with self.case_lock(submission_input.case_id):
@@ -2396,6 +2399,7 @@ class OnboardingService:
         *,
         search_resolution: GoldTierSearchResolution,
         selected_party_id: str | None,
+        reauthorize: Callable[[], None] | None = None,
     ) -> GoldTierExecutionReceipt | None:
         """Advance at most one mutation after a retained early Search checkpoint."""
 
@@ -2405,6 +2409,8 @@ class OnboardingService:
         ):
             raise TargetProviderContextMismatchError
         with self.case_lock(submission_input.case_id):
+            if reauthorize is not None:
+                reauthorize()
             case = self._repository.get(submission_input.case_id)
             if (
                 case is None
@@ -3223,6 +3229,7 @@ class OnboardingService:
                 if entry.resolved_party_id is not None
                 else self._goldtier_mapper.build_search_request(submission)
             )
+            verified_party_id: str | None = None
             try:
                 response = validate_search_response(self._goldtier.search_party(
                     request, self._metadata(submission, submission.idempotency.search)
@@ -3257,9 +3264,67 @@ class OnboardingService:
                         or candidate.party_id == entry.resolved_party_id
                     )
                     result = "CUSTOMER_IDENTITY_VERIFIED" if exact else "IDENTITY_UNVERIFIED"
+                    if exact:
+                        verified_party_id = candidate.party_id
             return TargetStatusCheckEvidence(
-                submission_id=submission_id, checked_at=self._clock(), result=result
+                submission_id=submission_id, checked_at=self._clock(), result=result,
+                verified_party_id=verified_party_id,
             )
+
+    def target_recovery_operation(
+        self, submission: GoldTierSubmissionInput,
+    ) -> Literal["SHELL", "POLICY"] | None:
+        """Presentation eligibility only; existing recovery owners validate evidence again."""
+        with self.case_lock(submission.case_id):
+            case = self._repository.get(submission.case_id)
+            entry = self.get_target_execution_entry(submission.submission_id)
+            if (
+                case is None or case.entity is None or entry is None
+                or entry.submission_input != submission
+                or submission.provider_mode != GoldTierProviderMode.SANDBOX
+                or self.target_provider_mode != submission.provider_mode
+                or self._goldtier.environment != submission.provider_mode
+                or not self.has_valid_target_dispatch_confirmation(case)
+                or entry.state != GoldTierExecutionLedgerState.IN_PROGRESS
+                or entry.target_outcome is not None or entry.receipt is not None
+                or entry.provider_verified_amend_failure is not None
+                or entry.search_resolution != GoldTierSearchResolution.NO_MATCH
+            ):
+                return None
+            try:
+                current = self.build_submission_input(case, provider_mode=submission.provider_mode)
+            except ValueError:
+                return None
+            if (
+                current.canonical_entity != submission.canonical_entity
+                or current.target_policy != submission.target_policy
+                or current.policy_catalogue_version != submission.policy_catalogue_version
+            ):
+                return None
+            if (
+                entry.attempted_operations == (
+                    GoldTierOperationMarker.SEARCH, GoldTierOperationMarker.SHELL,
+                )
+                and entry.lifecycle_resolved_operations == (GoldTierOperationMarker.SEARCH,)
+                and entry.resolved_party_id is None
+            ):
+                return "SHELL"
+            if (
+                entry.attempted_operations == (
+                    GoldTierOperationMarker.SEARCH, GoldTierOperationMarker.SHELL,
+                    GoldTierOperationMarker.POLICY,
+                )
+                and entry.lifecycle_resolved_operations == (
+                    GoldTierOperationMarker.SEARCH, GoldTierOperationMarker.SHELL,
+                )
+                and entry.resolved_party_id is not None
+                and case.goldtier_result is not None
+                and case.goldtier_result.party_id == entry.resolved_party_id
+                and entry.policy_status is None and entry.policy_id is None
+                and submission.target_policy is not None
+            ):
+                return "POLICY"
+            return None
 
     def _stored_execution_entry(
         self, submission_input: GoldTierSubmissionInput
@@ -3551,7 +3616,10 @@ class OnboardingService:
             if reauthorize is not None:
                 reauthorize()
             case = self._repository.get(submission_input.case_id)
-            if case is None or case.entity is None:
+            if (
+                case is None or case.entity is None
+                or case.entity.legal_name is None or case.entity.country_of_incorporation is None
+            ):
                 raise ValueError("Recovery requires the owning canonical case identity")
             expected = submission_input.canonical_entity
 
@@ -3566,6 +3634,11 @@ class OnboardingService:
                 != expected.country_of_incorporation.strip().upper()
                 or case.requested_uen.strip().upper()
                 != expected.registration_number.strip().upper()
+                or normalized(case.entity.legal_name) != normalized(expected.legal_name)
+                or case.entity.registration_number.strip().upper()
+                != expected.registration_number.strip().upper()
+                or case.entity.country_of_incorporation.strip().upper()
+                != expected.country_of_incorporation.strip().upper()
             ):
                 raise ValueError("Recovery identity does not exactly match the owning case")
 
@@ -3629,6 +3702,7 @@ class OnboardingService:
                 or result.candidates[0].party_id != recovered_party_id
                 or result.candidates[0].legal_name is None
                 or normalized(result.candidates[0].legal_name) != normalized(legal_name)
+                or not _readback_identity_matches(submission_input, result, recovered_party_id)
             ):
                 raise ValueError("Fresh provider evidence did not prove one exact target identity")
 
@@ -3642,6 +3716,8 @@ class OnboardingService:
                 verified_at=self._clock(),
                 candidate_count=1,
             )
+            if reauthorize is not None:
+                reauthorize()
             candidate = GoldTierExecutionLedgerEntry(
                 submission_input=submission_input.model_copy(deep=True),
                 state=GoldTierExecutionLedgerState.IN_PROGRESS,

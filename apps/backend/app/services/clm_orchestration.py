@@ -55,6 +55,7 @@ from app.domain.target_submission import (
     GoldTierExecutionClassification,
     GoldTierExecutionLedgerState,
     GoldTierExecutionReceipt,
+    GoldTierOperationMarker,
     GoldTierProviderClassification,
     GoldTierProviderMode,
     GoldTierSearchResolution,
@@ -526,6 +527,8 @@ class ClmOrchestrationService:
                     return record.model_copy(deep=True)
             if record.submission_snapshot is None:
                 record = self._start_submission(record)
+            if reauthorize is not None:
+                reauthorize()
             snapshot = record.submission_snapshot
             if snapshot is None:
                 raise ClmRequestError(
@@ -608,13 +611,22 @@ class ClmOrchestrationService:
                     message="Target provider context changed; submission cannot continue safely.",
                 )
 
-            if (
-                self._cases.get_execution_state(snapshot.submission_id)
-                == GoldTierExecutionLedgerState.NOT_STARTED
-            ) and (
+            entry = self._cases.get_target_execution_entry(snapshot.submission_id)
+            # A retained Search-only intent has not dispatched a write either.
+            # Restart must not bypass first-dispatch evidence/version validation.
+            before_first_write = entry is None or (
+                entry.target_outcome is None and entry.receipt is None
+                and not any(operation in entry.attempted_operations for operation in (
+                    GoldTierOperationMarker.SHELL, GoldTierOperationMarker.POLICY,
+                    GoldTierOperationMarker.AMEND,
+                ))
+            )
+            if before_first_write and (
                 not self._submission_snapshot_is_current(record)
                 or not self._cases.has_valid_target_dispatch_confirmation(
-                    self._require_case(case_id), clm_version=record.version
+                    self._require_case(case_id),
+                    # Local Search progress advances CLM version, not the frozen review.
+                    clm_version=record.version if entry is None else None,
                 )
             ):
                 raise ClmRequestError(
@@ -679,6 +691,7 @@ class ClmOrchestrationService:
                             snapshot.target_input,
                             search_resolution=search_resolution,
                             selected_party_id=checkpoint.selected_party_id,
+                            reauthorize=reauthorize,
                         )
                     except TargetProviderContextMismatchError as exc:
                         raise ClmRequestError(
@@ -741,7 +754,9 @@ class ClmOrchestrationService:
                 )
                 if single_checkpoint:
                     return checkpointed
-                return self.submit(case_id=case_id, single_checkpoint=False)
+                return self.submit(
+                    case_id=case_id, single_checkpoint=False, reauthorize=reauthorize
+                )
 
             if record.execution_receipt is None:
                 record = self._persist_execution_receipt(record, receipt)
@@ -773,6 +788,11 @@ class ClmOrchestrationService:
                     ),
                 ) from None
             return completed
+
+    def retained_submission_is_current(self, *, case_id: UUID) -> bool:
+        """Existing snapshot predicate shared by recovery presentation and dispatch."""
+        with self._lock_for(case_id):
+            return self._submission_snapshot_is_current(self._require_record(case_id))
 
     def _submission_snapshot_is_current(self, record: ClmOrchestrationRecord) -> bool:
         snapshot = record.submission_snapshot

@@ -904,14 +904,59 @@ console.log(JSON.stringify({
             RUN_E2E._wait_for_test(process, deadline=60.0)
 
     def test_ci_outer_bound_covers_current_discovery_and_bounded_cleanup(self) -> None:
+        lifecycle_seconds = 60
+        installation_minutes = 14
+        job_minutes = 225
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         e2e = workflow.split("  e2e:\n", 1)[1].split("  demo-lifecycle-windows:", 1)[0]
-        self.assertIn("timeout-minutes: 210", e2e)
-        self.assertIn("python scripts/run_e2e.py --timeout-seconds 60", e2e)
-        self.assertLessEqual(
-            60 + 65 * (60 + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS) + 14 * 60,
-            210 * 60,
+        self.assertIn(f"timeout-minutes: {job_minutes}", e2e)
+        self.assertIn(f"python scripts/run_e2e.py --timeout-seconds {lifecycle_seconds}", e2e)
+        selectors = RUN_E2E._list_test_selectors(RUN_E2E.DEFAULT_FRONTEND_PORT)
+        self.assertEqual(len(selectors), 70)
+        self.assertEqual(RUN_E2E.DISCOVERY_TIMEOUT_SECONDS, 60)
+        self.assertEqual(RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS, 120)
+        launcher_seconds = RUN_E2E.DISCOVERY_TIMEOUT_SECONDS + len(selectors) * (
+            lifecycle_seconds + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS
         )
+        self.assertEqual(launcher_seconds, 12660)
+        self.assertLessEqual(
+            launcher_seconds + installation_minutes * 60,
+            job_minutes * 60,
+        )
+
+        clock = [0.0]
+        output = io.StringIO()
+
+        def discover(*args: object, **kwargs: object) -> list[str]:
+            clock[0] += RUN_E2E.DISCOVERY_TIMEOUT_SECONDS
+            return selectors
+
+        def complete_selector(**kwargs: object) -> int:
+            clock[0] += lifecycle_seconds + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS
+            return 0
+
+        with (
+            patch.object(RUN_E2E, "_list_test_selectors", side_effect=discover),
+            patch.object(RUN_E2E.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(RUN_E2E, "run", side_effect=complete_selector) as run,
+            redirect_stdout(output),
+            redirect_stderr(output),
+        ):
+            result = RUN_E2E.run_isolated_suite(
+                backend_port=RUN_E2E.DEFAULT_BACKEND_PORT,
+                frontend_port=RUN_E2E.DEFAULT_FRONTEND_PORT,
+                timeout_seconds=lifecycle_seconds,
+                headed=False,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual([item.kwargs["selection"] for item in run.call_args_list], selectors)
+        self.assertEqual(
+            [item.kwargs["timeout_seconds"] for item in run.call_args_list],
+            [lifecycle_seconds] * len(selectors),
+        )
+        self.assertEqual(clock[0], launcher_seconds)
+        self.assertIn("E2E SUITE PASS: 70 configured selectors", output.getvalue())
 
     def test_sandbox_discovery_routes_each_mode_and_preserves_default(self) -> None:
         payload = {"suites": [{"specs": [

@@ -5,6 +5,8 @@ import {
   ApiError,
   checkZeroTouchTargetStatus,
   verifyCompletedGoldTier,
+  recoverZeroTouchTarget,
+  type TargetRecoveryInput,
   type TargetSearchObservation,
   confirmZeroTouchTargetDispatch,
   correctRegistryIdentity,
@@ -27,6 +29,7 @@ import {
   updateGoldTierTargetClassification,
 } from "../api";
 import { startAutomationPolling } from "../automationPolling";
+import { confirmationResponseMayBeLost, observeSubmissionOutcome } from "../submissionObservation";
 import {
   caseDeletedEffect,
   publishCaseDetail,
@@ -78,6 +81,7 @@ import RegistryProvenancePanel from "./RegistryProvenancePanel";
 import TargetClassificationPanel from "./TargetClassificationPanel";
 import HumanInterventionPanel from "./HumanInterventionPanel";
 import ReviewAndSend from "./ReviewAndSend";
+import TargetRecoveryPanel from "./TargetRecoveryPanel";
 import StageDisclosure, { revealStage } from "./StageDisclosure";
 import OnboardingWorkspace, { onboardingExecutionMessage, onboardingIsExecuting } from "./OnboardingWorkspace";
 import IdentityCorrectionForm from "./IdentityCorrectionForm";
@@ -158,7 +162,16 @@ export default function CaseDetail({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState<CaseActionIdentity | null>(null);
   const [targetStatusCheck, setTargetStatusCheck] = useState<TargetStatusCheckView | null>(null);
   const targetStatusController = useRef<AbortController | null>(null);
+  const submissionObservationController = useRef<AbortController | null>(null);
+  const [confirmationUnknownIdentity, setConfirmationUnknownIdentity] = useState<string | null>(null);
+  const confirmationUnknown = confirmationUnknownIdentity === evidenceIdentity;
   const targetSubmission = summary?.target_submission;
+  const safeContinuation = summary?.status === "RECOVERY_PENDING"
+    && targetSubmission?.state === "FINALIZATION_PENDING";
+  const priorSubmissionView = useRef<{
+    identity: string; state: NonNullable<ZeroTouchCaseSummary["target_submission"]>["state"] | undefined;
+    unknown: boolean; continuation: boolean;
+  } | null>(null);
   const targetSubmissionId = targetSubmission?.submission_id ?? null;
   const targetStatusIdentity = `${evidenceIdentity}:${targetSubmissionId ?? "none"}`;
   const completedVerification = targetSubmission?.state === "SUBMISSION_CONFIRMED";
@@ -269,6 +282,7 @@ export default function CaseDetail({
       mounted.current = false;
       generation.current += 1;
       targetStatusController.current?.abort();
+      submissionObservationController.current?.abort();
     };
   }, []);
 
@@ -281,12 +295,46 @@ export default function CaseDetail({
     setMutationBlocked(false);
     setCaseUnavailable(false);
     setDeleteDialogOpen(null);
+    setConfirmationUnknownIdentity(queryClient.getQueryData<boolean>([
+      ...caseDetailQueryOptions(actor.user_id, caseId).queryKey, "confirmation-response-lost",
+    ]) ? evidenceIdentity : null);
     mutationPending.current = null;
     return () => {
       generation.current = current + 1;
       targetStatusController.current?.abort();
+      submissionObservationController.current?.abort();
     };
   }, [actor.user_id, caseId]);
+
+  useEffect(() => {
+    const current = {
+      identity: evidenceIdentity, state: targetSubmission?.state,
+      unknown: confirmationUnknown, continuation: safeContinuation,
+    };
+    const previous = priorSubmissionView.current;
+    priorSubmissionView.current = current;
+    // Initial load, navigation and ordinary evidence refresh keep the user's focus.
+    if (!previous?.state || previous.identity !== current.identity) return;
+    const stateChanged = previous.state !== current.state;
+    const observed = previous.unknown && !current.unknown;
+    const targetId = current.unknown && !previous.unknown ? "submission-observation-title"
+      : current.state === "SUBMISSION_OUTCOME_UNCERTAIN" && (stateChanged || observed) ? "target-recovery-title"
+      : current.continuation && (!previous.continuation || observed) ? "target-continuation-title"
+      : (current.state === "SUBMISSION_CONFIRMED" || current.state === "SUBMISSION_FAILED")
+        && (stateChanged || observed) ? "submission-state-title" : null;
+    if (!targetId) return;
+    const action = captureCaseAction();
+    // Wait for disclosure layout effects before scrolling to the next action.
+    const handoffFrame = requestAnimationFrame(() => {
+      if (!isCurrentCaseAction(action)) return;
+      const target = document.getElementById(targetId);
+      if (!target) return;
+      revealStage(target);
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: "center", behavior: "auto" });
+    });
+    return () => cancelAnimationFrame(handoffFrame);
+  }, [evidenceIdentity, targetSubmission?.state, confirmationUnknown, safeContinuation]);
 
   const runTargetStatusCheck = useCallback(async (automatic: boolean) => {
     if (!canCheckTargetStatus || !targetSubmissionId || isBusy || mutationPending.current
@@ -399,7 +447,7 @@ export default function CaseDetail({
     effect: "supporting" | "target-confirmation" | "identity-recheck" | "registry-identity" | "manual-ownership" | "policy-rebind" = "supporting",
   ) {
     let action = captureCaseAction();
-    if (mutationPending.current || mutationBlocked) return;
+    if (mutationPending.current || mutationBlocked || confirmationUnknown) return;
     mutationPending.current = action;
     setIsBusy(true);
     setBusyLabel(label);
@@ -425,6 +473,10 @@ export default function CaseDetail({
       }
     } catch (mutationError) {
       if (!isCurrentCaseAction(action)) return;
+      if (effect === "target-confirmation" && confirmationResponseMayBeLost(mutationError)) {
+        await verifySubmissionResponse(action);
+        return;
+      }
       if (shouldRefreshAfterMutationError(mutationError)) {
         await refreshEvidence(action).catch(() => undefined);
       }
@@ -437,6 +489,62 @@ export default function CaseDetail({
         setBusyLabel(null);
       }
     }
+  }
+
+  async function verifySubmissionResponse(action: CaseActionIdentity): Promise<void> {
+    const key = [...caseDetailQueryOptions(action.actorUserId, action.caseId).queryKey, "confirmation-response-lost"];
+    queryClient.setQueryData(key, true);
+    setConfirmationUnknownIdentity(`${action.actorUserId}:${action.caseId}`);
+    setBusyLabel("Verifying submission outcome…");
+    const controller = new AbortController();
+    submissionObservationController.current?.abort();
+    submissionObservationController.current = controller;
+    try {
+      const observed = await observeSubmissionOutcome({
+        caseId: action.caseId, signal: controller.signal,
+        isCurrent: () => isCurrentCaseAction(action),
+        onUpdate: (latest) => caseSummaryMutationEffect(queryClient, action.actorUserId, latest),
+      });
+      if (controller.signal.aborted || !isCurrentCaseAction(action)) return;
+      if (observed) {
+        queryClient.removeQueries({ queryKey: key, exact: true });
+        setConfirmationUnknownIdentity(null);
+        setError(null);
+      } else {
+        setError("The submission response was lost. Its outcome is still being verified. Do not send another confirmation; use Verify submission outcome to read the retained state again.");
+      }
+    } catch (observationError) {
+      if (controller.signal.aborted || !isCurrentCaseAction(action)) return;
+      if (observationError instanceof ApiError && [401, 403, 404].includes(observationError.status)) {
+        setMutationBlocked(true);
+        if (observationError.status === 404) setCaseUnavailable(true);
+      }
+      setError("The submission outcome could not be observed safely. Refresh your authorized session and check this case; no confirmation was repeated.");
+    } finally {
+      if (submissionObservationController.current === controller) submissionObservationController.current = null;
+    }
+  }
+
+  async function verifySubmissionAgain() {
+    if (isBusy || mutationPending.current || mutationBlocked) return;
+    const action = captureCaseAction();
+    mutationPending.current = action;
+    setIsBusy(true);
+    try { await verifySubmissionResponse(action); }
+    finally {
+      if (mutationPending.current === action) mutationPending.current = null;
+      if (isCurrentCaseAction(action)) { setIsBusy(false); setBusyLabel(null); }
+    }
+  }
+
+  function recoverTarget(input: TargetRecoveryInput) {
+    if (input.expected_submission_id !== targetSubmissionId) return;
+    const action = captureCaseAction();
+    void runMutation(async () => {
+      await recoverZeroTouchTarget(caseId, input);
+      if (!isCurrentCaseAction(action)) throw new DOMException("Action superseded", "AbortError");
+      return fetchZeroTouchCase(caseId);
+    }, "Recording verified GoldTier recovery…");
   }
 
   async function runPriorityMutation(priority: number | null): Promise<void> {
@@ -756,6 +864,8 @@ export default function CaseDetail({
   const frozenReview = Boolean(summary.case.target_dispatch_confirmation || summary.clm.submission
     || (targetSubmission && targetSubmission.state !== "NOT_SUBMITTED"));
   const showFinalReview = reviewReady || frozenReview || summary.status === "COMPLETED";
+  const preflightUnavailable = summary.clm.target_search_checkpoint?.status === "FAILED"
+    && targetSubmission?.state === "NOT_SUBMITTED" && !frozenReview;
   const currentTargetStatusCheck = targetStatusCheck?.identity === targetStatusIdentity
     ? targetStatusCheck : null;
   const remainingIssueCount = summary.active_exceptions.filter(
@@ -975,12 +1085,41 @@ export default function CaseDetail({
           </div>
         )}
         </StageDisclosure>
-        <StageDisclosure title="GoldTier submission package" active={stageIsActive(["MOCK_GOLDTIER"])}>
+        <StageDisclosure title="GoldTier submission package" active={stageIsActive(["MOCK_GOLDTIER"]) || targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" || summary.status === "RECOVERY_PENDING" || confirmationUnknown || preflightUnavailable}>
+        {preflightUnavailable && <section className="ds-banner ds-banner-warn" aria-labelledby="target-preflight-title">
+          <h3 id="target-preflight-title">GoldTier availability check needed</h3>
+          <p>GoldTier could not be checked safely before sending. No target write was attempted. Your case data is preserved; check again when GoldTier is available.</p>
+          {summary.case.initial_identity && actor.capabilities.includes("CASE_ACCESS") && <button type="button" className="btn btn-secondary" disabled={isBusy || mutationBlocked || confirmationUnknown} onClick={() => void runMutation(() => recheckZeroTouchIdentitySearch(caseId, {
+            ...summary.case.initial_identity!, country_of_incorporation: "SG",
+            expected_automation_version: summary.version, expected_clm_version: summary.clm.version,
+            expected_case_event_count: summary.case.events.length,
+          }), "Checking GoldTier availability…", "identity-recheck")}>Check GoldTier availability</button>}
+          <p className="control-help">This performs a read-only identity check. Sending still requires the current final review.</p>
+        </section>}
+        {confirmationUnknown && <div className="ds-banner" role="status">
+          <h3 id="submission-observation-title" tabIndex={-1}>Verifying submission outcome…</h3><p>The confirmation was sent once. Only retained case state is being read; no submission is repeated.</p>
+          <button type="button" className="btn btn-secondary" disabled={isBusy || mutationBlocked} onClick={() => void verifySubmissionAgain()}>Verify submission outcome</button>
+        </div>}
+        {targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" && <TargetRecoveryPanel
+          key={targetStatusIdentity} summary={summary} actor={actor}
+          busy={isBusy || mutationBlocked || confirmationUnknown}
+          checking={currentTargetStatusCheck?.checking ?? false}
+          result={currentTargetStatusCheck?.result ?? null} error={currentTargetStatusCheck?.error ?? null}
+          onCheck={canCheckTargetStatus ? () => void runTargetStatusCheck(false) : undefined}
+          onRecover={recoverTarget}
+        />}
           {renderInterventions(["MOCK_GOLDTIER"])}
-        <ProcessingBlockerPanels summary={summary} stage="TARGET" />
+        {targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" && (safeContinuation
+          ? <details className="evidence-details"><summary>Technical details</summary><ProcessingBlockerPanels summary={summary} stage="TARGET" /></details>
+          : <ProcessingBlockerPanels summary={summary} stage="TARGET" />)}
+        {safeContinuation && <section className="ds-banner" aria-labelledby="target-continuation-title" aria-live="polite" style={{ marginBottom: 16 }}>
+          <h3 id="target-continuation-title" tabIndex={-1}>Verified work is saved</h3>
+          <p>Continue the same submission to complete the remaining steps. Previously completed or verified steps will not be sent again.</p>
+          <button type="button" className="btn btn-primary" disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button>
+        </section>}
         {summary.status === "RECOVERY_PENDING"
-          && (!targetSubmission || targetSubmission.state === "FINALIZATION_PENDING") && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
-        {summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn case-technical-failure" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
+          && !targetSubmission && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
+        {(targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" || summary.current_stage !== "MOCK_GOLDTIER" || summary.technical_failure?.code !== "CLM_TARGET_OUTCOME_UNCERTAIN") && !preflightUnavailable && summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn case-technical-failure" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
         <OperationalTiming summary={summary} />
 
@@ -1020,7 +1159,7 @@ export default function CaseDetail({
           documents={documents}
           ownership={ownership}
           actor={actor}
-          busy={isBusy || mutationBlocked}
+          busy={isBusy || mutationBlocked || confirmationUnknown}
           error={error}
           onConfirm={() => void runMutation(
             () => confirmZeroTouchTargetDispatch(caseId, {
@@ -1034,7 +1173,7 @@ export default function CaseDetail({
           statusChecking={currentTargetStatusCheck?.checking}
           statusCheckResult={currentTargetStatusCheck?.result}
           statusCheckError={currentTargetStatusCheck?.error}
-          onCheckStatus={canCheckTargetStatus ? () => void runTargetStatusCheck(false) : undefined}
+          onCheckStatus={canCheckTargetStatus && completedVerification ? () => void runTargetStatusCheck(false) : undefined}
           onSaveDraft={onBack}
           onReviewOutstanding={() => focusEvidence("recovery")}
           onEditIdentity={() => focusEvidence("identity")}

@@ -12,8 +12,10 @@ import { clearSessionQueries } from "../queryClient";
 import type { AuthenticatedProfile, ZeroTouchCaseSummary } from "../types";
 import CaseDetail from "./CaseDetail";
 import ReviewAndSend from "./ReviewAndSend";
+import TargetRecoveryPanel from "./TargetRecoveryPanel";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+HTMLElement.prototype.scrollIntoView ??= () => undefined;
 const NOW = "2026-10-04T01:00:00Z";
 const CASE_A = "00000000-0000-4000-8000-00000000031a";
 const CASE_B = "00000000-0000-4000-8000-00000000031b";
@@ -100,6 +102,7 @@ async function renderCase(caseId = CASE_A, profile = actor, strict = false) {
 }
 async function settle() {
   await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
+  await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
 }
 function pendingCheck() {
   let complete!: (value: api.TargetStatusCheckResult) => void;
@@ -319,5 +322,158 @@ describe("S3 scoped bounded status checking", () => {
     const check = vi.spyOn(api, "checkZeroTouchTargetStatus").mockRejectedValue(new api.ApiError("Unavailable", 404, null));
     await mount(); await settle(); expect(check).toHaveBeenCalledTimes(1);
     expect(host!.textContent).toContain("The case is unavailable."); expect(host!.textContent).not.toContain("SYNTHETIC S3 PTE. LTD.");
+  });
+});
+
+describe("Actionable GoldTier recovery", () => {
+  const director = { ...actor, role: "DIRECTOR" as const, capabilities: ["CASE_ACCESS", "TARGET_RECOVERY"] as AuthenticatedProfile["capabilities"] };
+  function recoverable(operation: "SHELL" | "POLICY", profile: AuthenticatedProfile = director) {
+    const summary = fixture();
+    Object.assign(summary.target_submission!, {
+      recovery_operation: operation, recovery_available: profile.capabilities.includes("TARGET_RECOVERY"),
+      attempted_operations: ["SEARCH", "SHELL", ...(operation === "POLICY" ? ["POLICY"] : [])],
+      definitively_completed_operations: ["SEARCH", ...(operation === "POLICY" ? ["SHELL"] : [])],
+      lifecycle_resolved_operations: ["SEARCH", ...(operation === "POLICY" ? ["SHELL"] : [])],
+      provider_policy: operation === "POLICY" ? "Singapore" : null, uncertainty_reason: "TIMEOUT", ledger_state: "IN_PROGRESS",
+    });
+    return summary;
+  }
+
+  it("hands focus to the next retained submission action only on a same-case state transition", async () => {
+    vi.spyOn(api, "checkZeroTouchTargetStatus").mockResolvedValue(result());
+    const scroll = vi.fn();
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    const originalScroll = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scroll;
+    try {
+      await mount(fixture("NOT_SUBMITTED"), director);
+      expect(document.activeElement?.id).not.toBe("target-recovery-title");
+      const uncertain = recoverable("SHELL"); uncertain.version += 1;
+      await act(async () => seed(client!, uncertain)); await settle();
+      expect(document.activeElement?.id).toBe("target-recovery-title");
+      const check = host!.querySelector<HTMLButtonElement>(".target-recovery-panel button")!;
+      check.focus();
+      await act(async () => seed(client!, { ...uncertain, version: uncertain.version + 1 })); await settle();
+      expect(document.activeElement).toBe(check);
+      const pending = fixture("FINALIZATION_PENDING"); pending.status = "RECOVERY_PENDING"; pending.version += 3;
+      await act(async () => seed(client!, pending)); await settle();
+      expect(document.activeElement?.id).toBe("target-continuation-title");
+      expect(host!.querySelector('[aria-labelledby="target-continuation-title"]')?.textContent).toContain("Continue the same submission");
+      const confirmed = fixture("SUBMISSION_CONFIRMED"); confirmed.status = "COMPLETED"; confirmed.version += 4;
+      await act(async () => seed(client!, confirmed)); await settle();
+      expect(document.activeElement?.id).toBe("submission-state-title");
+      expect(scroll).toHaveBeenCalledTimes(3);
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScroll;
+    }
+  });
+
+  it.each(["NO_MATCH", "AMBIGUOUS", "CHECK_FAILED", "IDENTITY_UNVERIFIED"] as const)("explains %s without resolving or replaying", (outcome) => {
+    const onRecover = vi.fn();
+    const text = renderToStaticMarkup(<TargetRecoveryPanel summary={recoverable("SHELL", actor)} actor={actor} busy={false} checking={false} result={{ ...result(), result: outcome }} error={null} onCheck={() => undefined} onRecover={onRecover} />);
+    expect(text).toContain("GoldTier submission needs verification");
+    expect(text).toContain("Director verification required");
+    expect(text).toContain("Check GoldTier status");
+    expect(text).not.toContain("Resolve using verified GoldTier record");
+    expect(text).toContain("Technical details");
+    expect(onRecover).not.toHaveBeenCalled();
+  });
+
+  it("requires a checked exact candidate, sources identity from the server and suppresses double recovery", async () => {
+    const checked = { ...result(), verified_party_id: "verified-customer" };
+    vi.spyOn(api, "checkZeroTouchTargetStatus").mockResolvedValue(checked);
+    let complete!: () => void;
+    const recovery = vi.spyOn(api, "recoverZeroTouchTarget").mockReturnValue(new Promise<void>((resolve) => { complete = resolve; }));
+    const pending = fixture("FINALIZATION_PENDING"); pending.version += 1; pending.status = "RECOVERY_PENDING";
+    vi.spyOn(api, "fetchZeroTouchCase").mockResolvedValue(pending);
+    vi.spyOn(api, "fetchDocuments").mockResolvedValue([]);
+    vi.spyOn(api, "fetchOwnership").mockResolvedValue(null);
+    vi.spyOn(api, "fetchIntelligence").mockResolvedValue(null);
+    await mount(recoverable("SHELL"), director); await settle();
+    const panel = host!.querySelector(".target-recovery-panel")!;
+    const checkbox = panel.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    const button = [...panel.querySelectorAll("button")].find((item) => item.textContent === "Resolve using verified GoldTier record")!;
+    expect(button.disabled).toBe(true);
+    await act(async () => checkbox.click());
+    expect(button.disabled).toBe(false);
+    await act(async () => { button.click(); button.click(); });
+    expect(recovery).toHaveBeenCalledOnce();
+    expect(recovery.mock.calls[0]).toEqual([CASE_A, {
+      expected_submission_id: SUBMISSION, operation: "SHELL", recovered_party_id: "verified-customer", origin: "UNCERTAIN_DURABLE_LEDGER",
+    }]);
+    expect(button.disabled).toBe(true);
+    await act(async () => complete()); await settle();
+    expect(host!.textContent).toContain("Complete safe recovery");
+    expect(host!.querySelector(".target-recovery-panel")).toBeNull();
+  });
+
+  it("does not enable Shell recovery from stale or ambiguous observations", () => {
+    for (const observed of [{ ...result(), result: "AMBIGUOUS" as const, verified_party_id: null }, { ...result(), verified_party_id: "other", submission_id: "old-submission" }]) {
+      const text = renderToStaticMarkup(<TargetRecoveryPanel summary={recoverable("SHELL")} actor={director} busy={false} checking={false} result={observed} error={null} onRecover={() => undefined} />);
+      expect(text).not.toContain("Verified GoldTier customer ID:");
+      expect(text).toMatch(/disabled=""[^>]*>Resolve using verified GoldTier record/);
+    }
+  });
+
+  it("does not accept customer Search as Policy proof", async () => {
+    vi.spyOn(api, "checkZeroTouchTargetStatus").mockResolvedValue({ ...result(), verified_party_id: "synthetic-target-31" });
+    const recovery = vi.spyOn(api, "recoverZeroTouchTarget");
+    await mount(recoverable("POLICY"), director); await settle();
+    const panel = host!.querySelector(".target-recovery-panel")!;
+    const button = [...panel.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "Resolve verified Policy result")!;
+    expect(button.disabled).toBe(true); expect(recovery).not.toHaveBeenCalled();
+    expect(panel.textContent).toContain("Customer Search cannot prove that a Policy was created");
+    expect(panel.querySelector('[role="status"]')?.textContent).toContain("does not verify the Policy result");
+    expect(panel.querySelector('[role="status"]')?.textContent).not.toContain("recover a Shell step");
+    expect([...panel.querySelectorAll("option")].map((item) => item.value)).toEqual(["", "Requested"]);
+    expect(panel.querySelector<HTMLInputElement>('input[readonly]')!.value).toBe("synthetic-target-31");
+  });
+
+  it("withholds recovery for a Director when backend eligibility is absent", () => {
+    const summary = recoverable("POLICY"); summary.target_submission!.recovery_available = false;
+    const text = renderToStaticMarkup(<TargetRecoveryPanel summary={summary} actor={director} busy={false} checking={false} result={null} error={null} onRecover={() => undefined} />);
+    expect(text).not.toContain("Resolve verified Policy result");
+    expect(text).toContain("cannot currently be resolved");
+  });
+
+  it("keeps an unrelated backend failure visible alongside unresolved target evidence", async () => {
+    const summary = recoverable("POLICY");
+    summary.target_submission!.recovery_available = false;
+    summary.technical_failure = { code: "ZERO_TOUCH_UNEXPECTED_FAILURE", message: "A separate controlled failure needs inspection." };
+    vi.spyOn(api, "checkZeroTouchTargetStatus").mockResolvedValue(result());
+    await mount(summary, director); await settle();
+    expect(host!.querySelector(".target-recovery-panel")?.textContent).toContain("GoldTier submission needs verification");
+    expect(host!.querySelector(".case-technical-failure")?.textContent).toContain("A separate controlled failure needs inspection.");
+    expect(host!.textContent).not.toContain("Resolve verified Policy result");
+  });
+});
+
+describe("Lost confirmation response", () => {
+  function readyToConfirm() {
+    const summary = fixture("NOT_SUBMITTED");
+    summary.status = "WAITING_FOR_REVIEW"; summary.current_stage = "READINESS";
+    summary.technical_failure = null; summary.case.target_dispatch_confirmation = null;
+    summary.clm.submission = null;
+    summary.clm.submission_plan.request_preview = { dispatch_ready: true, environment: "SANDBOX", policy_version: 1, operations: [] };
+    summary.active_exceptions = [{ exception_id: "confirm", exception_type: "TARGET_CONFIRMATION_REQUIRED", status: "OPEN", evidence_version: "current", explanation: "Confirm retained review", allowed_actions: [], blocker_codes: [], stage: "READINESS" }] as unknown as ZeroTouchCaseSummary["active_exceptions"];
+    return summary;
+  }
+  it.each([
+    new DOMException("Response lost", "TimeoutError"),
+    new SyntaxError("PRIVATE_RESPONSE_BODY_FRAGMENT"),
+  ])("posts once and observes retained success after response loss: %s", async (loss) => {
+    const confirmation = vi.spyOn(api, "confirmZeroTouchTargetDispatch").mockRejectedValue(loss);
+    const completed = fixture("SUBMISSION_CONFIRMED"); completed.version += 1; completed.status = "COMPLETED"; completed.technical_failure = null;
+    const read = vi.spyOn(api, "fetchZeroTouchCase").mockResolvedValue(completed);
+    const check = vi.spyOn(api, "checkZeroTouchTargetStatus");
+    const resume = vi.spyOn(api, "resumeZeroTouchCase");
+    await mount(readyToConfirm());
+    const button = [...host!.querySelectorAll("button")].find((item) => item.textContent === "Confirm and send to GoldTier sandbox")!;
+    await act(async () => { button.click(); button.click(); }); await settle();
+    expect(confirmation).toHaveBeenCalledOnce(); expect(read).toHaveBeenCalledOnce();
+    expect(check).not.toHaveBeenCalled(); expect(resume).not.toHaveBeenCalled();
+    expect(host!.querySelector("#submission-state-title")?.textContent).toBe("Submission confirmed");
+    expect(host!.textContent).not.toContain("Response lost");
+    expect(host!.textContent).not.toContain("PRIVATE_RESPONSE_BODY_FRAGMENT");
   });
 });

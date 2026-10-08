@@ -1419,6 +1419,14 @@ export interface ZeroTouchCaseSummary {
       | "SUBMISSION_OUTCOME_UNCERTAIN" | "FINALIZATION_PENDING";
     goldtier_id: string | null;
     status_check_available: boolean;
+    recovery_operation?: "SHELL" | "POLICY" | null;
+    recovery_available?: boolean;
+    provider_policy?: string | null;
+    uncertainty_reason?: string | null;
+    ledger_state?: string | null;
+    attempted_operations?: string[];
+    definitively_completed_operations?: string[];
+    lifecycle_resolved_operations?: string[];
     verification_available?: boolean;
     customer_handling?: "EXISTING_REUSED" | "NEW_CREATED" | null;
   } | null;

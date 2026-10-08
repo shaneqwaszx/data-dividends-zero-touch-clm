@@ -1,0 +1,41 @@
+{
+  "base": "5c54c9af896585764d1e4ed809056d1deb576629",
+  "origin_main": "5c54c9af896585764d1e4ed809056d1deb576629",
+  "identity": "f628a31fbc3cee3ac035ff7b0ddcd0527ec3d10fbe58dfbdafcdd50f8ed22dae",
+  "algorithm": "sorted path NUL CRLF-normalized bytes NUL SHA256",
+  "paths": {
+    ".ai-pipeline/001_planner/GOLDTIER_RELIABILITY_RECOVERY_UX_PLAN.md": "bba61304833ddf608d1e77428404063e99f5ada6c62917efe081bdca14e8a6cf",
+    "apps/backend/app/api_models.py": "437611d09518cab148e6d58ee3f32cd3ea88cceb79203cccc1c2cd1f11d717a2",
+    "apps/backend/app/main.py": "a689e2a2e49417ee43d607f67ce257b6186e860e5fca133829c2a655417118dc",
+    "apps/backend/app/services/clm_orchestration.py": "bc1d80f8645041b49afb97788d1fc6c7cebd0db7ee970e06d7623c4711b94aa4",
+    "apps/backend/app/services/onboarding.py": "cf7843e723f4cd276588e9e3a0173ed4ffd1e87a13a0e4d06825a39ca75bc7fc",
+    "apps/backend/app/services/zero_touch_orchestration.py": "3c9bb6390f880be7337b6fc6f6d5b55d8334efc7f2876eae2bc0c8620bf6b037",
+    "apps/backend/tests/test_policy_provider_recovery.py": "e2e93785ffc5cc80ef9caf3f1288e4c4bbed722ee6a4eef6d6dcfca86bd1dda3",
+    "apps/backend/tests/test_target_reliability_recovery_ux.py": "38f6d0954dee0a0719db59e60b9b7cf756a834ab2d1ef00d0e83baea321bc708",
+    "apps/frontend/e2e/s3-sandbox-submission.e2e.ts": "4336c04dbe75de159edec7c314cc79189aabe7def1eda5bf3d07fc949ff213c5",
+    "apps/frontend/src/api.ts": "0695852b96f833b571673fe6feecb44ac24fd940588ed363ffd11bd2d5c2a1a4",
+    "apps/frontend/src/pages/CaseDetail.tsx": "1b3e8c153c6bc09c3488a35dbdf1c9fb83a68c8581f23a7245cbffb6d42aae8b",
+    "apps/frontend/src/pages/S3SubmissionStatus.test.tsx": "65ad4699a6cfa0f154d12a33ccad4a2a541335cab379177d1b28d5aeded64b2c",
+    "apps/frontend/src/pages/TargetRecoveryPanel.tsx": "72d0eb3b08a75dbf4daa43a92d5c883624613ac0b2f983bc7db8c9bde3d4b07f",
+    "apps/frontend/src/styles.css": "2b9f56988506b5cbe40c4abef847be0b219de0335e14981a561e36f36d43f46b",
+    "apps/frontend/src/submissionObservation.test.ts": "ff1420fd043d20ee48c2483679d23e251b5cd316e53d15868d2eaeaef482ca3d",
+    "apps/frontend/src/submissionObservation.ts": "e2fc00b37f07c2b86ffb53aa1640364a1715f920c635a3755357a88107f3bc9b",
+    "apps/frontend/src/types.ts": "d31249ade7bceb14b94f6a1e46eb19423a141e11a970588cfe84115eefd30228",
+    "docs/ARCHITECTURE.md": "40b18e3bdccfede254cd27b3bf5ac014807d0e9fdebbd94370d9634585898901",
+    "docs/PROJECT_STATE.md": "ea15504ec53534e8b119f7967a7ac57ce1b3e4c4404c6a75bf11cc74b7bc0735",
+    "docs/integration/GOLDTIER_POLICY_PROVIDER_RECOVERY.md": "01cc88ef617b2103507b5c7a0850128cc6f4d891ff25a10f8f33bbe129f280bb",
+    "docs/integration/GOLDTIER_RELIABILITY_RECOVERY_UX.md": "d21b2347cc9e3e1ff203b63cde84878565124571be7583a617b31046ade27df0",
+    "scripts/run_e2e.py": "f5b0aaf98a04969b12179600909f692e20dae2c3b077b4d25624482355c2b306",
+    "scripts/s3_sandbox_fixture.py": "1a46eab10f9eb51407e673cc88d9eb36b9c41cd60e76358f5a1360394ac74e6b"
+  },
+  "excluded": [
+    ".ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_DIAGNOSTICS.json",
+    ".ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_IMPLEMENTATION.md",
+    ".ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_MANIFEST.json",
+    ".ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_QUALITY_GATE.md"
+  ],
+  "previous_review_identity": "4b2473c9cb7b4180d2fa2143a383590cd432620e0ca16220bbfeb56ef7c6a70c",
+  "measurement_gate": "CLEARED: evaluation chat completed and idle at revision8 before broad checks",
+  "verification": "Final frozen candidate: backend2521pass/131skip; frontend557pass47files; focusedbackend188/frontend48; contracts44; governance174; physical19suites125pass0skip; affectedbrowser8pass; Ruff/mypy126/typecheck/build/6validators/dependency/diffPASS. Independent QG PASS on exact identity. Final receipt secret and Markdown hygiene checks passed; no reviewed source drift.",
+  "independent_quality_gate": "PASS: GOLDTIER_RELIABILITY_RECOVERY_UX_QUALITY_GATE.md, exact unchanged identity f628a31fbc3cee3ac035ff7b0ddcd0527ec3d10fbe58dfbdafcdd50f8ed22dae"
+}
