@@ -1,0 +1,3 @@
+# Optional development measurement tools; no application runtime dependency.
+psutil==7.0.0
+yappi==1.7.6
