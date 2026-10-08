@@ -10,6 +10,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
@@ -1608,12 +1609,16 @@ def create_app(
                 case_id=case_id,
                 started_at=diagnostic_started_at,
             )
-            record = active_zero_touch.intake_document(
+            record = await run_in_threadpool(
+                active_zero_touch.intake_document,
                 case_id=case_id,
                 display_name=display_name,
                 content_type=request.headers.get("content-type", ""),
                 content=body,
                 idp_provider=provider,
+                reauthorize=build_case_reauthorizer(
+                    request, authentication, access_policy, service, case_id
+                ),
             )
             _e2e_upload_milestone(
                 request,

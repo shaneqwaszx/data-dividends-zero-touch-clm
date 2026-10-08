@@ -561,10 +561,13 @@ class ZeroTouchOrchestrator:
         content_type: str,
         content: bytes,
         idp_provider: IdpProvider | None = None,
+        reauthorize: Callable[[], None] | None = None,
     ) -> DocumentProcessingRecord:
         """Process one intake document without starting reconciliation or later stages."""
 
         with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
             record = self._require_record(case_id)
             retained_evidence_intake = _allows_retained_evidence_intake(record)
             case = self._cases.get_case(case_id)
