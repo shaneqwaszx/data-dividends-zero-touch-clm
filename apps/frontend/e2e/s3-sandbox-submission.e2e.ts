@@ -329,8 +329,10 @@ test("Director recovers uncertain policy and continues the original submission",
   await runDirectorRecovery(page, "policy");
 });
 
-for (const loss of ["aborted", "truncated", "held"] as const) {
-test(`Lost confirmation response observes backend success without sending again: ${loss}`, { tag: "@s3-sandbox-success" }, async ({ page }) => {
+async function runLostConfirmationResponse(
+  page: Page,
+  loss: "aborted" | "truncated" | "held",
+) {
   const caseId = await prepareReview(page);
   let confirmations = 0;
   let observing = false;
@@ -380,8 +382,31 @@ test(`Lost confirmation response observes backend success without sending again:
   expect(result.calls).toEqual({ SEARCH: 2, SHELL: 1, POLICY: 1, AMEND: 0, READBACK: 1 });
   expect(result.external_calls).toBe(0);
   expect((await readSummary(page, caseId)).status).toBe("COMPLETED");
-});
 }
+
+test(
+  "Lost confirmation response observes backend success without sending again: aborted",
+  { tag: "@s3-sandbox-success" },
+  async ({ page }) => {
+    await runLostConfirmationResponse(page, "aborted");
+  },
+);
+
+test(
+  "Lost confirmation response observes backend success without sending again: truncated",
+  { tag: "@s3-sandbox-success" },
+  async ({ page }) => {
+    await runLostConfirmationResponse(page, "truncated");
+  },
+);
+
+test(
+  "Lost confirmation response observes backend success without sending again: held",
+  { tag: "@s3-sandbox-success" },
+  async ({ page }) => {
+    await runLostConfirmationResponse(page, "held");
+  },
+);
 
 test("post-UAT Garden scanned evidence auto-confirms, calculates local ownership and verifies retained Sandbox identity", { tag: "@s3-sandbox-garden-existing-customer" }, async ({ page }) => {
   await page.goto("/");
