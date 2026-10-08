@@ -5,27 +5,31 @@ It is not a sponsor contract, phase report, or substitute for current source and
 
 ## Verification metadata
 
-The 2026-10-07 owner-assigned reliability/recovery UX candidate starts from
-`5c54c9af896585764d1e4ed809056d1deb576629` in an isolated worktree on
-`codex/goldtier-submission-reliability-recovery-ux`. It adds a prominent uncertainty
-panel, Director-only Shell/Requested Policy forms, UUID-bound server-derived identity,
-same-intent continuation and bounded lost-response observation. The
-[candidate boundary](integration/GOLDTIER_RELIABILITY_RECOVERY_UX.md) distinguishes
-new task evidence from historical gates. Schema, provider classifications, mappings,
-configuration and capability grants remain unchanged. No real provider call is made.
-Broad verification remains subject to the concurrent evaluation measurement gate.
+PR #77 was human squash-merged on 2026-10-08 at inspected main
+`8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4`. Closeout state is
+**merged-and-verified**. Post-merge main push CI
+[37742194816](https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/37742194816)
+completed **SUCCESS**: backend, frontend, local-ocr, phase12-mongo, security,
+demo-lifecycle-windows and e2e all passed. This is post-merge CI evidence for that
+exact SHA; it does not establish sponsor/UAT approval or Live interoperability.
 
-The owner-assigned 2026-10-06 provider-verified Policy recovery candidate starts at
-`529efea3966fb561027973e6d932cecb0e8f6bb8` on
-`fix/goldtier-policy-provider-recovery`. Its
-[recovery delta](integration/GOLDTIER_POLICY_PROVIDER_RECOVERY.md) supports definitive
-Shell success and historical Shell recovery before one uncertain Policy, preserves
-original evidence and requires explicit same-intent resume. The existing API accepts
-Requested provider evidence under TARGET_RECOVERY authorization; no browser evidence
-form is added. Safe future uncertainty classes use existing case event codes. Schema,
-timeouts and provider classifications remain unchanged. Synthetic fake-transport and
-disposable Mongo evidence belongs to the task reports; no real UAT access, provider
-call or new interoperability claim follows.
+Recovery is current main behavior: bounded lost-confirmation observation uses GETs
+only; uncertain Shell/Policy recovery preserves the original submission and confirmation.
+Director recovery remains TARGET_RECOVERY capability-gated with backend currentness,
+identity and locked reauthorization. Customer Search does not prove Policy success.
+Recovery never replays an uncertain target mutation; explicit same-intent continuation
+performs only remaining approved work. Unsupported or incompatible uncertainty remains
+blocked with Director escalation. The [recovery runbook](integration/GOLDTIER_RELIABILITY_RECOVERY_UX.md)
+and [Policy recovery history](integration/GOLDTIER_POLICY_PROVIDER_RECOVERY.md) retain
+original assignment provenance. Implementation acceptance remains attributed to the
+[reliability/recovery gate](../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_QUALITY_GATE.md)
+and the final [Round 2 PASS](../.ai-pipeline/reports/PR77_E2E_ISOLATION_ROUND2_QUALITY_GATE.md)
+for reviewed identity `df3ea779d1d6c28fc287437aabeb3880837e069f661157e84c1a577fec6d9b70`.
+Provider classifications, sponsor decisions/questions and canonical owners are unchanged.
+
+Earlier assignment and verification provenance below retains its original dates and
+baselines. Candidate/unmerged descriptions in that chronology refer to those historical
+checkpoints, not pending PR #77 work or the current verified main baseline.
 
 The owner-assigned database-first happy-path candidate starts at inspected main
 `771a9696e1e31e3865da4fbbb3f9b33b5959cb6a` on
@@ -54,7 +58,7 @@ and creator/version-bound CONFIRMED_EXISTING receipts in current schema9. Provid
 classifications and historical main verification metadata below are unchanged; its
 fresh tests/gate do not become new external interoperability or merged-main evidence.
 
-The current main source baseline was inspected on 2026-10-05 at
+The earlier main source baseline was inspected on 2026-10-05 at
 `4ee8819d7404d6442e064fd60dcee03ccc84cf11` (merged PR #70, Phase25/26 POC hardening and sponsor demo readiness).
 PR #68 and PR #69 evidence retains its original tested/reviewed identity. The earlier
 [combined FAIL](../.ai-pipeline/reports/ONBOARDING_INTELLIGENCE_FINAL_QUALITY_GATE.md)
@@ -99,8 +103,8 @@ Earlier phase/closeout reports and provider classifications remain unchanged.
 {
   "schema_version": 1,
   "case_envelope_schema_version": 10,
-  "verified_date": "2026-10-05",
-  "verified_main_sha": "4ee8819d7404d6442e064fd60dcee03ccc84cf11",
+  "verified_date": "2026-10-08",
+  "verified_main_sha": "8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4",
   "verification_status": "verified-against-main",
   "providers": {
     "registry": {"name": "ACRA", "mode": "mock", "classification": "MOCK"},
@@ -130,13 +134,20 @@ main behavior changes without a closeout refresh, not merely when a feature comm
 created. A later documentation-only closeout commit does not replace the inspected
 behavioral baseline. `schema_version` versions this metadata format;
 `case_envelope_schema_version` is independently checked against the canonical
-persistence constant. Current inspected main uses schema9 and strictly reads valid
-legacy schemas1..8 without read-time rewrite. Historical tests and independent gates
-remain tied to their recorded content; Phase 25 and Phase 26 have separate evidence.
+persistence constant. Inspected main uses case envelope v10 and strictly reads valid
+legacy v1..v9 without read-time rewrite, as defined by `CASE_SNAPSHOT_SCHEMA_VERSION`
+in `apps/backend/app/persistence/models.py` and the version-specific decoders in
+`apps/backend/app/persistence/mongo_case_store.py`. This documents existing compatibility;
+no migration or persistence behavior is changed by this refresh. Historical tests and
+independent gates remain tied to their recorded content; Phase 25 and Phase 26 have separate evidence.
 
 ## Current status
 
-### PR #70 merged; Phase27A independently accepted; Phase27 closeout branch
+PR #77 reliability/recovery is merged and verified on the main baseline above.
+The current recovery runbook and exact acceptance/CI references are linked in
+Verification metadata; the earlier closeout checkpoints below retain their own evidence.
+
+### Historical PR #70 / Phase27 closeout checkpoint
 
 Phase25/26 is complete and merged through PR #70. The PR #69-to-#70 diff is
 16 documentation/evidence files only; product behavior, schema9, provider modes,
@@ -144,17 +155,16 @@ configuration and canonical owners are unchanged. The historical
 [final independent PASS](../.ai-pipeline/reports/PHASE_25_26_FINAL_QUALITY_GATE.md)
 remains bound to its recorded candidate, rather than becoming a Phase27 verdict.
 
-The explicitly assigned Phase27 is on `feat/phase27-final-delivery-closeout` from
-this inspected main baseline. Its [truth inventory](demo/PHASE_27_TRUTH_INVENTORY.md)
+At that checkpoint, the explicitly assigned Phase27 was on `feat/phase27-final-delivery-closeout` from
+the then-inspected PR #70 baseline. Its [truth inventory](demo/PHASE_27_TRUTH_INVENTORY.md)
 and [manual checklist](demo/PHASE_27_MANUAL_UAT_CHECKLIST.md) distinguish current
 source, newly executed automated pre-UAT and agent UI outcomes (16 PASS/0 FAIL/5
 NOT_RUN; HUMAN_EXECUTED0). Two bounded presentation defects were fixed/retested;
 Phase27A has [fresh independent exact PASS](../.ai-pipeline/reports/PHASE_27A_RECHECK_QUALITY_GATE.md)
 with P0/P1/P2=0/0/0 after bounded encoding repair. Owner-assigned27B synchronizes
 current architecture/demo/limitations/questions and the
-[final project closeout](FINAL_PROJECT_CLOSEOUT.md). The two UI fixes are accepted
-branch content pending merge, not newly merged main behavior.27B/27C/final gate
-and local commits retain their own evidence/barriers.
+[final project closeout](FINAL_PROJECT_CLOSEOUT.md). The two UI fixes were accepted branch content pending merge at that checkpoint.
+27B/27C/final gate and local commits retain their own evidence/barriers.
 [BarrierB exact PASS](../.ai-pipeline/reports/PHASE_27B_QUALITY_GATE.md) accepted the
 documentation; [27C](../.ai-pipeline/reports/PHASE_27C_REGRESSION.md) passed135 affected
 backend,505 frontend and the required lint/type/build/contracts/governance/browser
@@ -264,7 +274,8 @@ Major implemented phases are:
   callback isolation, and truthful Vite development history fallback behavior.
 - Phase 16 accepted on main: opt-in complete synthetic Mock ACRA snapshot reuse with
   exact-key isolation, fixed elapsed-time freshness, per-case evidence bindings, and
-  separate memory/Mongo cache persistence. Disabled mode remains the default.
+  separate memory/Mongo cache persistence. Current `auto` mode enables reuse only in
+  non-production Mock lanes; explicit `disabled` remains supported.
 - The Case Evidence & Explainability Workbench and blocker-aware Attention Queue are
   accepted on main through PR #45. The queue is an authorized current-state portfolio
   projection; it is not a risk score, SLA, assignment engine, or workflow owner.
@@ -486,7 +497,7 @@ These historical receipts are not a new execution against the later PR #69 imple
 |---|---|---|---|---|
 | ACRA | `mock` | generic `sandbox` connector | Mock active; sandbox partial | Synthetic ACRA-shaped behavior and adapter isolation |
 | ACRA API Marketplace Mock | explicit opt-in | fixed official Mock token/entity/shareholder transport with no fallback | Mock / Observed interoperability | Authorized token plus strict entity/shareholder success; Garden shareholders empty; no ownership-percentage authority and not Live |
-| Registry cache | disabled | opt-in synthetic and official API Marketplace Mock | User-authorized POC, Phase24C accepted main | Normalized operation-prefix/definitive-negative schema2, frozen ACTIVE freshness/TTL, COMPLETE-only binding and bounded process-local single-flight; historical branch extensions retain their own review identities |
+| Registry cache | `auto` in non-production Mock lanes | explicit disabled/legacy Mock modes; synthetic and official API Marketplace Mock | User-authorized POC, Phase24C accepted main | Normalized operation-prefix/definitive-negative schema2, frozen ACTIVE freshness/TTL, COMPLETE-only binding and bounded process-local single-flight; historical branch extensions retain their own review identities |
 | ACRA BizFile | none | module exists but is not composed | Dormant | Focused adapter code/tests only, not runtime availability |
 | IDP/OCR | `local_pdf_text` | Mock fault/demo provider | Local POC / Mock | S2 independent PASS; native-first PDF/DOCX/TXT plus actual local Tesseract scanned PDF/PNG/JPEG/TIFF. Host OCR runtime absent; isolated Docker runtime and current checks have explicit receipts in the final check index. |
 | Ownership | registry evidence into local engine | Mock fault/demo provider | Local / Mock support | Deterministic Decimal graph analysis, not an external service |
@@ -525,8 +536,8 @@ unknown or blocked.
   clears them.
 - `mongo` is explicit. Missing/invalid configuration, startup validation, reads, or
   writes fail closed and never fall back to memory.
-- One schema-versioned case envelope (current schema v9) owns durable case
-  state. Strict v1/v2/v3/v4/v5/v6/v7/v8 reads preserve absent historical fields, including v4
+- One schema-versioned case envelope (current schema v10) owns durable case
+  state. Strict legacy v1..v9 reads preserve absent historical fields, including v4
   `intelligence = null`, without a read-only persistence rewrite. Automation records
   persist a separate stage-order version: a missing value is the pre-Search v1 order,
   while newly authored records use v2. A safe non-terminal v1 continuation is rebased in
@@ -744,12 +755,11 @@ Consult `docs/sponsor-questions/OPEN_QUESTIONS.md` for exact wording and current
 
 ## Next candidate work packages
 
-The three-session program is merged through PR #69 and Phase25/26 is complete
-through PR #70. The owner has assigned [Phase27](PHASE_27_HANDOFF.md): final agent UI
-UAT, architecture/demo documentation and closeout, with explicit A/B/final independent
-barriers and local commit only after final PASS. Phase27A has fresh independent exact PASS after truthful agent UI results,
-bounded product retests and prose encoding repair;27B/27C retain separate barriers. No feature expansion or external provider execution is authorized.
-The following broader packages require separate authorization:
+PR #77 recovery is merged current behavior and is complete, not a pending candidate.
+This docs-only refresh authorizes no next development phase or external execution.
+The earlier [Phase27 handoff](PHASE_27_HANDOFF.md) and gates retain their historical
+assignment/evidence boundaries. Existing bounded debt remains below; every package
+requires separate authorization:
 
 PR #65's accepted POC onboarding/final-review implementation and independent gate
 are complete. Further work requires a separately authorized package. Official-Mock
@@ -779,7 +789,7 @@ include actual registry TTL and semantic classifier consumers. Version2 paramete
 semantic tags expose score/threshold/reasons/evidence/rule/policy metadata; 14-example
 synthetic metrics and read-only impact simulation are not trained-model/legal accuracy.
 Policy UI uses the five specified business categories and before-after Director review.
-Phase24C introduced schema8 reads1..7 without rewrite; current PR #69 schema9 reads1..8; policy/cache schema2 stay separate under
+Phase24C introduced schema8 reads1..7 without rewrite; PR #69 introduced schema9 reads1..8; policy/cache schema2 stay separate under
 existing strict CAS. Sandbox/Live cache and final autonomous approval remain unavailable.
 Phase24C is accepted through merged PR #67 at the inspected main baseline. Its original
 implementation, gate and external evidence retain their own execution identities.
@@ -813,7 +823,7 @@ Slice E alone granted no publication authority. The subsequent cumulative A–G 
 received exact final independent PASS and was human-merged through PR #68. Its historical
 verification evidence remains separate from the later PR #69 and Phase25/26 evidence.
 
-## Unmerged target-classification continuation — 2026-10-05
+## Historical target-classification continuation — 2026-10-05
 
 The owner-assigned second commit continues ccff7471 on the existing database-first branch.
 Schema10 extends existing document/case owners with source-labelled classification;
@@ -834,17 +844,18 @@ Historical protected DB non-access remains NOT_CERTIFIED and is owner-accepted a
 documented historical execution uncertainty. The new gate requires current execution
 isolation; protected/owner database investigation and dotenv read remain prohibited.
 
-## Latest-main integration candidate — 2026-10-06
+## Historical main-integration candidate — 2026-10-06
 
-Fresh fetch confirms origin/main 1fc097f12c84af52b1e6d70a336cc22b03f3bef4
+At that checkpoint, fetch confirmed origin/main 1fc097f12c84af52b1e6d70a336cc22b03f3bef4
 (read-only Onboarding Copilot PR74). The feature at859f218 integrates that commit
 through a conflict-free merge while preserving both accepted feature commits.
-The local merge commit requires fresh independent PASS; publication requires owner review.
+At that checkpoint, the local merge required fresh independent PASS and owner review
+before publication.
 No exact-file overlap; shared frontend root/proxy/session/case context is reviewed.
 Bounded adaptations reuse the existing authenticated transport for Copilot401 cleanup,
 align guide/pending-step wording with current backend/UI projections, and contain
 inaccessible-case404 and cancelled responses in the existing local conversation owner.
 Schema10, source fingerprints, classification review/currentness, final Send, ledger
-no-replay, fixtures, mappings and provider labels are preserved. Current integration
+no-replay, fixtures, mappings and provider labels are preserved. That integration's
 evidence and independent verdict belong to ZERO_TOUCH_COPILOT_MAIN_INTEGRATION reports;
 historical main/feature gates and provider verification metadata above are unchanged.
