@@ -1,0 +1,2995 @@
+{
+  "label": "smoke",
+  "claim": "DEVELOPMENT_MEASUREMENT",
+  "base": "198341b059ebf500252ce93d72eb099d2585c60b",
+  "head": "c779cf3a2b68ad5acf626b05a313e70067af1228",
+  "origin_main": "198341b059ebf500252ce93d72eb099d2585c60b",
+  "branch": "feat/performance-computational-throughput-optimization",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "harness_sha256": "2bd95660eccc445a886991c58ba97d5211b401443c96e7366e57d2cb50c87222",
+  "product_tree": "130b3471bccfd8780db2f05069f859b4ae4c5876",
+  "product_diff_sha256": "a481dd22653ef8e1e599725a36cbef66a4ca5fc33fa616e0731a3e5e289aae5e",
+  "python": "3.12.10",
+  "cpu_count": 32,
+  "versions": {
+    "pydantic": "2.13.5",
+    "pymongo": "4.15.1",
+    "fastapi": "0.141.1",
+    "pytest": "8.4.2",
+    "psutil": "7.0.0",
+    "yappi": "1.7.6",
+    "pypdfium2": "5.13.0",
+    "Pillow": "12.3.0"
+  },
+  "method": {
+    "clock": "perf_counter_ns",
+    "warmup": 2,
+    "setup_and_login": "excluded",
+    "profile": "separate untimed Yappi CPU run across native threads",
+    "resources": "separate untimed sampled observation; absent from primary timing",
+    "cpu": "parent process only, observer-free; child CPU unavailable",
+    "cpu_resolution": "Windows process CPU may quantize short samples to zero",
+    "rss": "separate parent plus live children peak, sampled10ms including setup",
+    "p95": "nearest rank; no p99",
+    "portfolio_size": 100,
+    "mongo": "task-owned mongo:7; cpus2; memory1GiB; loopback27861"
+  },
+  "workloads": {
+    "memory_onboarding": {
+      "lane": "A_LOCAL_DETERMINISTIC",
+      "elapsed_ms": {
+        "count": 20,
+        "p50": 1154.18325,
+        "p95": 1202.8219,
+        "min": 1122.4823,
+        "max": 1219.958,
+        "mean": 1155.298865,
+        "stddev": 25.515242754938612
+      },
+      "parent_cpu_ms": {
+        "count": 20,
+        "p50": 187.5,
+        "p95": 265.625,
+        "min": 140.625,
+        "max": 265.625,
+        "mean": 192.1875,
+        "stddev": 32.499683702914304
+      },
+      "db_counts": [
+        {}
+      ],
+      "outcome": {
+        "http_requests": 5,
+        "registry": {
+          "ENTITY_PROFILE": 1,
+          "OFFICERS": 1,
+          "OWNERSHIP_PARTIES": 1,
+          "RELATIONSHIPS": 1
+        },
+        "target": {
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1
+        },
+        "repository_calls": {
+          "profiles.get": 11,
+          "teams.get": 16,
+          "policies.get": 1,
+          "onboarding.create": 1,
+          "onboarding.save": 9,
+          "onboarding.get": 183,
+          "documents.list_for_case": 68,
+          "ownership.get_for_case": 27,
+          "reconciliation.get_for_case": 21,
+          "clm.save": 11,
+          "automation.save": 13,
+          "clm.get_for_case": 26,
+          "automation.get_for_case": 13,
+          "target_executions.list_for_case": 8,
+          "documents.save": 9,
+          "documents.get": 4,
+          "reconciliation.save": 1,
+          "ownership.save": 5,
+          "intelligence.get_for_case": 1,
+          "intelligence.save": 1,
+          "target_executions.get": 42,
+          "target_executions.create": 1,
+          "target_executions.replace": 10
+        }
+      },
+      "response_bytes": {
+        "count": 20,
+        "p50": 199798.0,
+        "p95": 199798,
+        "min": 199798,
+        "max": 199798,
+        "mean": 199798,
+        "stddev": 0.0
+      },
+      "peak_rss_bytes": 215715840,
+      "host_cpu_mean_percent": 11.378571428571428,
+      "hotspots": [
+        {
+          "file": "copy.py",
+          "line": 118,
+          "function": "deepcopy",
+          "calls": 347351,
+          "self_cpu_ms": 906.25,
+          "cumulative_cpu_ms": 2000.0
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'get' of 'dict' objects>",
+          "calls": 719974,
+          "self_cpu_ms": 328.125,
+          "cumulative_cpu_ms": 328.125
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "id",
+          "calls": 443487,
+          "self_cpu_ms": 203.125,
+          "cumulative_cpu_ms": 203.125
+        },
+        {
+          "file": "copy.py",
+          "line": 217,
+          "function": "_deepcopy_dict",
+          "calls": 22527,
+          "self_cpu_ms": 187.5,
+          "cumulative_cpu_ms": 2000.0
+        },
+        {
+          "file": "main.py",
+          "line": 990,
+          "function": "TeamRecord.__deepcopy__",
+          "calls": 17386,
+          "self_cpu_ms": 93.75,
+          "cumulative_cpu_ms": 1828.125
+        },
+        {
+          "file": "copy.py",
+          "line": 172,
+          "function": "_deepcopy_atomic",
+          "calls": 232440,
+          "self_cpu_ms": 93.75,
+          "cumulative_cpu_ms": 93.75
+        },
+        {
+          "file": "tasks.py",
+          "line": 641,
+          "function": "__sleep0",
+          "calls": 50,
+          "self_cpu_ms": 62.5,
+          "cumulative_cpu_ms": 62.5
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'validate_python' of 'pydantic_core._pydantic_core.SchemaValidator' objects>",
+          "calls": 1435,
+          "self_cpu_ms": 46.875,
+          "cumulative_cpu_ms": 93.75
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'append' of 'list' objects>",
+          "calls": 59768,
+          "self_cpu_ms": 46.875,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "copy.py",
+          "line": 247,
+          "function": "_reconstruct",
+          "calls": 10545,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 156.25
+        },
+        {
+          "file": "copy.py",
+          "line": 252,
+          "function": "<genexpr>",
+          "calls": 27704,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 93.75
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "issubclass",
+          "calls": 71096,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "copy.py",
+          "line": 61,
+          "function": "copy",
+          "calls": 19221,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "_overlapped",
+          "line": 0,
+          "function": "GetQueuedCompletionStatus",
+          "calls": 169,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "copy.py",
+          "line": 231,
+          "function": "_keep_alive",
+          "calls": 54475,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 78.125
+        }
+      ],
+      "app_hotspots": [
+        {
+          "file": "apps/backend/app/mappers/goldtier.py",
+          "line": 125,
+          "function": "_flatten_mock_request",
+          "calls": 552,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/domain/policy.py",
+          "line": 661,
+          "function": "CasePolicySnapshot.approved_parameters_are_bound",
+          "calls": 20,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/domain/reconciliation.py",
+          "line": 201,
+          "function": "<genexpr>",
+          "calls": 7865,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 2582,
+          "function": "ZeroTouchOrchestrator._advance_locked_impl",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 1156.25
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 2438,
+          "function": "ZeroTouchOrchestrator._advance_locked",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 1156.25
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 2274,
+          "function": "confirm_zero_touch_target_dispatch",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 875.0
+        },
+        {
+          "file": "apps/backend/app/services/onboarding.py",
+          "line": 4627,
+          "function": "OnboardingService.get_case",
+          "calls": 174,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 828.125
+        },
+        {
+          "file": "apps/backend/app/services/repository.py",
+          "line": 84,
+          "function": "InMemoryOnboardingCaseRepository.get",
+          "calls": 183,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 828.125
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 1548,
+          "function": "ZeroTouchOrchestrator.confirm_target_dispatch",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 828.125
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 1790,
+          "function": "complete_zero_touch_intake_request",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 781.25
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 1817,
+          "function": "complete_zero_touch_intake",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 781.25
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 799,
+          "function": "ZeroTouchOrchestrator.start",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 656.25
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 185,
+          "function": "ClmOrchestrationService.get",
+          "calls": 13,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 578.125
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 1336,
+          "function": "ClmOrchestrationService._evaluate_current",
+          "calls": 14,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 437.5
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 559,
+          "function": "ClmOrchestrationService.submit",
+          "calls": 4,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 406.25
+        }
+      ],
+      "correctness": "PASS"
+    },
+    "mongo_onboarding": {
+      "lane": "B_PHYSICAL_MONGO",
+      "elapsed_ms": {
+        "count": 20,
+        "p50": 3201.7989,
+        "p95": 3342.7321,
+        "min": 3131.6837,
+        "max": 3398.2828,
+        "mean": 3225.147275,
+        "stddev": 72.90336424168403
+      },
+      "parent_cpu_ms": {
+        "count": 20,
+        "p50": 1734.375,
+        "p95": 1890.625,
+        "min": 1593.75,
+        "max": 1921.875,
+        "mean": 1737.5,
+        "stddev": 102.09564014610078
+      },
+      "db_counts": [
+        {
+          "find": 481,
+          "insert": 1,
+          "update": 60
+        }
+      ],
+      "outcome": {
+        "http_requests": 5,
+        "registry": {
+          "ENTITY_PROFILE": 1,
+          "OFFICERS": 1,
+          "OWNERSHIP_PARTIES": 1,
+          "RELATIONSHIPS": 1
+        },
+        "target": {
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1
+        },
+        "repository_calls": {
+          "profiles.get": 11,
+          "teams.get": 16,
+          "policies.get": 1,
+          "onboarding.create": 1,
+          "onboarding.save": 9,
+          "onboarding.get": 183,
+          "documents.list_for_case": 68,
+          "ownership.get_for_case": 27,
+          "reconciliation.get_for_case": 21,
+          "clm.save": 11,
+          "automation.save": 13,
+          "clm.get_for_case": 26,
+          "automation.get_for_case": 13,
+          "target_executions.list_for_case": 8,
+          "documents.save": 9,
+          "documents.get": 4,
+          "reconciliation.save": 1,
+          "ownership.save": 5,
+          "intelligence.get_for_case": 1,
+          "intelligence.save": 1,
+          "target_executions.get": 42,
+          "target_executions.create": 1,
+          "target_executions.replace": 10
+        }
+      },
+      "response_bytes": {
+        "count": 20,
+        "p50": 199815.0,
+        "p95": 199816,
+        "min": 199815,
+        "max": 199816,
+        "mean": 199815.4,
+        "stddev": 0.5026246899500346
+      },
+      "peak_rss_bytes": 239890432,
+      "host_cpu_mean_percent": 15.825316455696202,
+      "hotspots": [
+        {
+          "file": "copy.py",
+          "line": 118,
+          "function": "deepcopy",
+          "calls": 1089551,
+          "self_cpu_ms": 2890.625,
+          "cumulative_cpu_ms": 7046.875
+        },
+        {
+          "file": "mongo_case_store.py",
+          "line": 933,
+          "function": "_reject_unknown_model_fields",
+          "calls": 108878,
+          "self_cpu_ms": 1203.125,
+          "cumulative_cpu_ms": 2156.25
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'get' of 'dict' objects>",
+          "calls": 2293153,
+          "self_cpu_ms": 1171.875,
+          "cumulative_cpu_ms": 1171.875
+        },
+        {
+          "file": "mongo_case_store.py",
+          "line": 903,
+          "function": "_persistence_value",
+          "calls": 194774,
+          "self_cpu_ms": 1000.0,
+          "cumulative_cpu_ms": 1765.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "isinstance",
+          "calls": 2264306,
+          "self_cpu_ms": 765.625,
+          "cumulative_cpu_ms": 765.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "id",
+          "calls": 1465750,
+          "self_cpu_ms": 625.0,
+          "cumulative_cpu_ms": 625.0
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "getattr",
+          "calls": 1165849,
+          "self_cpu_ms": 609.375,
+          "cumulative_cpu_ms": 625.0
+        },
+        {
+          "file": "copy.py",
+          "line": 217,
+          "function": "_deepcopy_dict",
+          "calls": 79737,
+          "self_cpu_ms": 531.25,
+          "cumulative_cpu_ms": 7015.625
+        },
+        {
+          "file": "select",
+          "line": 0,
+          "function": "select",
+          "calls": 1137,
+          "self_cpu_ms": 468.75,
+          "cumulative_cpu_ms": 468.75
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "any",
+          "calls": 63344,
+          "self_cpu_ms": 421.875,
+          "cumulative_cpu_ms": 1640.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'validate_python' of 'pydantic_core._pydantic_core.SchemaValidator' objects>",
+          "calls": 2063,
+          "self_cpu_ms": 406.25,
+          "cumulative_cpu_ms": 2593.75
+        },
+        {
+          "file": "copy.py",
+          "line": 231,
+          "function": "_keep_alive",
+          "calls": 214620,
+          "self_cpu_ms": 296.875,
+          "cumulative_cpu_ms": 515.625
+        },
+        {
+          "file": "copy.py",
+          "line": 247,
+          "function": "_reconstruct",
+          "calls": 55680,
+          "self_cpu_ms": 281.25,
+          "cumulative_cpu_ms": 1437.5
+        },
+        {
+          "file": "ownership.py",
+          "line": 31,
+          "function": "<genexpr>",
+          "calls": 155031,
+          "self_cpu_ms": 203.125,
+          "cumulative_cpu_ms": 421.875
+        },
+        {
+          "file": "reconciliation.py",
+          "line": 201,
+          "function": "<genexpr>",
+          "calls": 191785,
+          "self_cpu_ms": 187.5,
+          "cumulative_cpu_ms": 218.75
+        }
+      ],
+      "app_hotspots": [
+        {
+          "file": "apps/backend/app/persistence/mongo_case_store.py",
+          "line": 933,
+          "function": "_reject_unknown_model_fields",
+          "calls": 108878,
+          "self_cpu_ms": 1203.125,
+          "cumulative_cpu_ms": 2156.25
+        },
+        {
+          "file": "apps/backend/app/persistence/mongo_case_store.py",
+          "line": 903,
+          "function": "_persistence_value",
+          "calls": 194774,
+          "self_cpu_ms": 1000.0,
+          "cumulative_cpu_ms": 1765.625
+        },
+        {
+          "file": "apps/backend/app/domain/ownership.py",
+          "line": 31,
+          "function": "<genexpr>",
+          "calls": 155031,
+          "self_cpu_ms": 203.125,
+          "cumulative_cpu_ms": 421.875
+        },
+        {
+          "file": "apps/backend/app/domain/reconciliation.py",
+          "line": 201,
+          "function": "<genexpr>",
+          "calls": 191785,
+          "self_cpu_ms": 187.5,
+          "cumulative_cpu_ms": 218.75
+        },
+        {
+          "file": "apps/backend/app/domain/documents.py",
+          "line": 60,
+          "function": "<genexpr>",
+          "calls": 114247,
+          "self_cpu_ms": 171.875,
+          "cumulative_cpu_ms": 265.625
+        },
+        {
+          "file": "apps/backend/app/domain/documents.py",
+          "line": 290,
+          "function": "<genexpr>",
+          "calls": 129108,
+          "self_cpu_ms": 62.5,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "apps/backend/app/domain/zero_touch.py",
+          "line": 403,
+          "function": "ZeroTouchAutomationRecord.validate_decision_history",
+          "calls": 508,
+          "self_cpu_ms": 62.5,
+          "cumulative_cpu_ms": 78.125
+        },
+        {
+          "file": "apps/backend/app/domain/ownership.py",
+          "line": 25,
+          "function": "_normalize_safe_text",
+          "calls": 10838,
+          "self_cpu_ms": 46.875,
+          "cumulative_cpu_ms": 562.5
+        },
+        {
+          "file": "apps/backend/app/domain/reconciliation.py",
+          "line": 213,
+          "function": "<genexpr>",
+          "calls": 76080,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 78.125
+        },
+        {
+          "file": "apps/backend/app/domain/policy.py",
+          "line": 173,
+          "function": "<genexpr>",
+          "calls": 88968,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 1336,
+          "function": "ClmOrchestrationService._evaluate_current",
+          "calls": 14,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 1828.125
+        },
+        {
+          "file": "apps/backend/app/services/document_processing.py",
+          "line": 453,
+          "function": "DocumentProcessingService.assess_target_classification",
+          "calls": 24,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 1031.25
+        },
+        {
+          "file": "apps/backend/app/persistence/repositories.py",
+          "line": 314,
+          "function": "MongoOwnershipAnalysisRepository.get_for_case",
+          "calls": 27,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 265.625
+        },
+        {
+          "file": "apps/backend/app/domain/documents.py",
+          "line": 276,
+          "function": "optional_text_must_not_be_blank",
+          "calls": 7752,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 234.375
+        },
+        {
+          "file": "apps/backend/app/persistence/models.py",
+          "line": 661,
+          "function": "_validate_case_bindings",
+          "calls": 632,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 31.25
+        }
+      ],
+      "correctness": "PASS"
+    },
+    "blocker_correction_resume": {
+      "lane": "A_LOCAL_DETERMINISTIC",
+      "elapsed_ms": {
+        "count": 20,
+        "p50": 104.78845,
+        "p95": 129.8806,
+        "min": 94.9091,
+        "max": 213.8608,
+        "mean": 111.08884499999999,
+        "stddev": 25.713172061507905
+      },
+      "parent_cpu_ms": {
+        "count": 20,
+        "p50": 109.375,
+        "p95": 125.0,
+        "min": 78.125,
+        "max": 218.75,
+        "mean": 107.8125,
+        "stddev": 29.077440274115204
+      },
+      "db_counts": [
+        {}
+      ],
+      "outcome": {
+        "http_requests": 1,
+        "target": {
+          "search": 2,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1
+        }
+      },
+      "response_bytes": {
+        "count": 20,
+        "p50": 66159.0,
+        "p95": 66159,
+        "min": 66159,
+        "max": 66159,
+        "mean": 66159,
+        "stddev": 0.0
+      },
+      "peak_rss_bytes": 256167936,
+      "host_cpu_mean_percent": 15.329629629629629,
+      "hotspots": [
+        {
+          "file": "copy.py",
+          "line": 118,
+          "function": "deepcopy",
+          "calls": 210501,
+          "self_cpu_ms": 578.125,
+          "cumulative_cpu_ms": 1296.875
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'get' of 'dict' objects>",
+          "calls": 429328,
+          "self_cpu_ms": 171.875,
+          "cumulative_cpu_ms": 171.875
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "id",
+          "calls": 267104,
+          "self_cpu_ms": 125.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "copy.py",
+          "line": 217,
+          "function": "_deepcopy_dict",
+          "calls": 12488,
+          "self_cpu_ms": 93.75,
+          "cumulative_cpu_ms": 1296.875
+        },
+        {
+          "file": "copy.py",
+          "line": 172,
+          "function": "_deepcopy_atomic",
+          "calls": 140353,
+          "self_cpu_ms": 93.75,
+          "cumulative_cpu_ms": 93.75
+        },
+        {
+          "file": "copy.py",
+          "line": 247,
+          "function": "_reconstruct",
+          "calls": 7402,
+          "self_cpu_ms": 46.875,
+          "cumulative_cpu_ms": 140.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "issubclass",
+          "calls": 42454,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "hasattr",
+          "calls": 12862,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "copyreg.py",
+          "line": 98,
+          "function": "__newobj__",
+          "calls": 2550,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "main.py",
+          "line": 393,
+          "function": "UserAccountRecord.model_copy",
+          "calls": 391,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 1312.5
+        },
+        {
+          "file": "document_repository.py",
+          "line": 42,
+          "function": "InMemoryDocumentProcessingRepository.list_for_case",
+          "calls": 34,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "copy.py",
+          "line": 252,
+          "function": "<genexpr>",
+          "calls": 19462,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "copy.py",
+          "line": 231,
+          "function": "_keep_alive",
+          "calls": 30980,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'append' of 'list' objects>",
+          "calls": 33679,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "getattr",
+          "calls": 50190,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        }
+      ],
+      "app_hotspots": [
+        {
+          "file": "apps/backend/app/services/document_repository.py",
+          "line": 42,
+          "function": "InMemoryDocumentProcessingRepository.list_for_case",
+          "calls": 34,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "apps/backend/app/domain/ownership.py",
+          "line": 31,
+          "function": "<genexpr>",
+          "calls": 1607,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/domain/reconciliation.py",
+          "line": 100,
+          "function": "<genexpr>",
+          "calls": 180,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 2928,
+          "function": "resolve_zero_touch_exception",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 1375.0
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 2015,
+          "function": "ConfirmingTestZeroTouchOrchestrator.resolve_exception",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 1343.75
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 2180,
+          "function": "ConfirmingTestZeroTouchOrchestrator._resolve_reconciliation_locked",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 1328.125
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 2582,
+          "function": "ConfirmingTestZeroTouchOrchestrator._advance_locked_impl",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 968.75
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 2438,
+          "function": "ConfirmingTestZeroTouchOrchestrator._advance_locked",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 968.75
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 1548,
+          "function": "ConfirmingTestZeroTouchOrchestrator.confirm_target_dispatch",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 750.0
+        },
+        {
+          "file": "apps/backend/app/services/repository.py",
+          "line": 84,
+          "function": "InMemoryOnboardingCaseRepository.get",
+          "calls": 99,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 453.125
+        },
+        {
+          "file": "apps/backend/app/services/onboarding.py",
+          "line": 4627,
+          "function": "OnboardingService.get_case",
+          "calls": 92,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 406.25
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 559,
+          "function": "ClmOrchestrationService.submit",
+          "calls": 4,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 312.5
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 185,
+          "function": "ClmOrchestrationService.get",
+          "calls": 7,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 281.25
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 1336,
+          "function": "ClmOrchestrationService._evaluate_current",
+          "calls": 6,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 234.375
+        },
+        {
+          "file": "apps/backend/app/services/document_processing.py",
+          "line": 445,
+          "function": "DocumentProcessingService.list_documents",
+          "calls": 34,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 203.125
+        }
+      ],
+      "correctness": "PASS"
+    },
+    "mock_target_success": {
+      "lane": "A_LOCAL_DETERMINISTIC",
+      "elapsed_ms": {
+        "count": 20,
+        "p50": 71.59094999999999,
+        "p95": 187.9516,
+        "min": 64.9671,
+        "max": 198.0904,
+        "mean": 89.536225,
+        "stddev": 43.27575578228865
+      },
+      "parent_cpu_ms": {
+        "count": 20,
+        "p50": 78.125,
+        "p95": 187.5,
+        "min": 62.5,
+        "max": 203.125,
+        "mean": 89.0625,
+        "stddev": 45.65292944713694
+      },
+      "db_counts": [
+        {}
+      ],
+      "outcome": {
+        "http_requests": 1,
+        "registry": {},
+        "target": {
+          "search": 2,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1
+        },
+        "repository_calls": {
+          "profiles.get": 5,
+          "teams.get": 6,
+          "onboarding.get": 38,
+          "automation.get_for_case": 6,
+          "clm.get_for_case": 13,
+          "documents.list_for_case": 11,
+          "clm.save": 8,
+          "ownership.get_for_case": 3,
+          "reconciliation.get_for_case": 3,
+          "onboarding.save": 5,
+          "automation.save": 8,
+          "target_executions.get": 42,
+          "target_executions.create": 1,
+          "target_executions.replace": 10
+        }
+      },
+      "response_bytes": {
+        "count": 20,
+        "p50": 63824.0,
+        "p95": 63826,
+        "min": 63824,
+        "max": 63826,
+        "mean": 63824.35,
+        "stddev": 0.7451598203705946
+      },
+      "peak_rss_bytes": 252829696,
+      "host_cpu_mean_percent": 11.035555555555556,
+      "hotspots": [
+        {
+          "file": "copy.py",
+          "line": 118,
+          "function": "deepcopy",
+          "calls": 136151,
+          "self_cpu_ms": 375.0,
+          "cumulative_cpu_ms": 859.375
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'get' of 'dict' objects>",
+          "calls": 279458,
+          "self_cpu_ms": 156.25,
+          "cumulative_cpu_ms": 156.25
+        },
+        {
+          "file": "copy.py",
+          "line": 217,
+          "function": "_deepcopy_dict",
+          "calls": 9150,
+          "self_cpu_ms": 78.125,
+          "cumulative_cpu_ms": 859.375
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "id",
+          "calls": 175185,
+          "self_cpu_ms": 46.875,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "copy.py",
+          "line": 172,
+          "function": "_deepcopy_atomic",
+          "calls": 90471,
+          "self_cpu_ms": 46.875,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "copy.py",
+          "line": 247,
+          "function": "_reconstruct",
+          "calls": 4621,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 62.5
+        },
+        {
+          "file": "copy.py",
+          "line": 231,
+          "function": "_keep_alive",
+          "calls": 21732,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'copy' of 'set' objects>",
+          "calls": 7294,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "main.py",
+          "line": 990,
+          "function": "UserAccountRecord.__deepcopy__",
+          "calls": 7291,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 859.375
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'append' of 'list' objects>",
+          "calls": 23611,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'pop' of 'dict' objects>",
+          "calls": 50,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "getattr",
+          "calls": 33181,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'upper' of 'str' objects>",
+          "calls": 113,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'validate_python' of 'pydantic_core._pydantic_core.SchemaValidator' objects>",
+          "calls": 742,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "uuid.py",
+          "line": 233,
+          "function": "UUID.__setstate__",
+          "calls": 1670,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        }
+      ],
+      "app_hotspots": [
+        {
+          "file": "apps/backend/app/mappers/goldtier.py",
+          "line": 172,
+          "function": "_mock_operation_preview",
+          "calls": 40,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 2274,
+          "function": "confirm_zero_touch_target_dispatch",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 921.875
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 1548,
+          "function": "ZeroTouchOrchestrator.confirm_target_dispatch",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 859.375
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 2582,
+          "function": "ZeroTouchOrchestrator._advance_locked_impl",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 625.0
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 2438,
+          "function": "ZeroTouchOrchestrator._advance_locked",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 625.0
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 559,
+          "function": "ClmOrchestrationService.submit",
+          "calls": 4,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 437.5
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 483,
+          "function": "ClmOrchestrationService.confirm_target_dispatch",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 171.875
+        },
+        {
+          "file": "apps/backend/app/services/repository.py",
+          "line": 84,
+          "function": "InMemoryOnboardingCaseRepository.get",
+          "calls": 38,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 140.625
+        },
+        {
+          "file": "apps/backend/app/services/clm_repository.py",
+          "line": 32,
+          "function": "InMemoryClmOrchestrationRepository.save",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "apps/backend/app/services/onboarding.py",
+          "line": 2351,
+          "function": "OnboardingService.advance_incremental_submission_input",
+          "calls": 4,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 1443,
+          "function": "ClmOrchestrationService._record_event",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_repository.py",
+          "line": 48,
+          "function": "InMemoryZeroTouchAutomationRepository.save",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 3915,
+          "function": "ZeroTouchOrchestrator._save",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "apps/backend/app/services/onboarding.py",
+          "line": 2396,
+          "function": "OnboardingService._advance_incremental_submission_input",
+          "calls": 4,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "apps/backend/app/services/onboarding.py",
+          "line": 4627,
+          "function": "OnboardingService.get_case",
+          "calls": 32,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 109.375
+        }
+      ],
+      "correctness": "PASS"
+    },
+    "uncertain_policy_recovery": {
+      "lane": "A_LOCAL_DETERMINISTIC",
+      "elapsed_ms": {
+        "count": 20,
+        "p50": 51.787499999999994,
+        "p95": 56.7133,
+        "min": 49.7782,
+        "max": 57.0443,
+        "mean": 52.57117,
+        "stddev": 2.1882772286844614
+      },
+      "parent_cpu_ms": {
+        "count": 20,
+        "p50": 46.875,
+        "p95": 62.5,
+        "min": 31.25,
+        "max": 62.5,
+        "mean": 46.09375,
+        "stddev": 7.975277898969382
+      },
+      "db_counts": [
+        {}
+      ],
+      "outcome": {
+        "http_requests": 2,
+        "target_total_mutations": {
+          "create": 1,
+          "createPolicy": 1
+        },
+        "recovery_mutations": 0
+      },
+      "response_bytes": null,
+      "peak_rss_bytes": 221261824,
+      "host_cpu_mean_percent": 9.393333333333333,
+      "hotspots": [
+        {
+          "file": "copy.py",
+          "line": 118,
+          "function": "deepcopy",
+          "calls": 89293,
+          "self_cpu_ms": 250.0,
+          "cumulative_cpu_ms": 515.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "id",
+          "calls": 114845,
+          "self_cpu_ms": 46.875,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "issubclass",
+          "calls": 17726,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'get' of 'dict' objects>",
+          "calls": 183393,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'append' of 'list' objects>",
+          "calls": 15670,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "main.py",
+          "line": 990,
+          "function": "UserAccountRecord.__deepcopy__",
+          "calls": 4694,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 531.25
+        },
+        {
+          "file": "copy.py",
+          "line": 217,
+          "function": "_deepcopy_dict",
+          "calls": 5905,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 515.625
+        },
+        {
+          "file": "copy.py",
+          "line": 191,
+          "function": "_deepcopy_list",
+          "calls": 287,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 218.75
+        },
+        {
+          "file": "copy.py",
+          "line": 247,
+          "function": "_reconstruct",
+          "calls": 3206,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 62.5
+        },
+        {
+          "file": "copy.py",
+          "line": 231,
+          "function": "_keep_alive",
+          "calls": 14214,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "copy.py",
+          "line": 61,
+          "function": "copy",
+          "calls": 4703,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'validate_python' of 'pydantic_core._pydantic_core.SchemaValidator' objects>",
+          "calls": 329,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "getattr",
+          "calls": 21442,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "enum.py",
+          "line": 1272,
+          "function": "Role.__deepcopy__",
+          "calls": 9346,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "reconciliation.py",
+          "line": 201,
+          "function": "<genexpr>",
+          "calls": 1170,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        }
+      ],
+      "app_hotspots": [
+        {
+          "file": "apps/backend/app/domain/reconciliation.py",
+          "line": 201,
+          "function": "<genexpr>",
+          "calls": 1170,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 2901,
+          "function": "resume_zero_touch_case",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 359.375
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 799,
+          "function": "ZeroTouchOrchestrator.start",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 281.25
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 2582,
+          "function": "ZeroTouchOrchestrator._advance_locked_impl",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 250.0
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 2438,
+          "function": "ZeroTouchOrchestrator._advance_locked",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 250.0
+        },
+        {
+          "file": "apps/backend/app/services/repository.py",
+          "line": 84,
+          "function": "InMemoryOnboardingCaseRepository.get",
+          "calls": 26,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 218.75
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 2525,
+          "function": "recover_uncertain_target_operation",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 187.5
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 559,
+          "function": "ClmOrchestrationService.submit",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 171.875
+        },
+        {
+          "file": "apps/backend/app/services/onboarding.py",
+          "line": 4627,
+          "function": "OnboardingService.get_case",
+          "calls": 23,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 171.875
+        },
+        {
+          "file": "apps/backend/app/services/onboarding.py",
+          "line": 2351,
+          "function": "OnboardingService.advance_incremental_submission_input",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 78.125
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_orchestration.py",
+          "line": 704,
+          "function": "ZeroTouchOrchestrator.record_provider_policy_recovery",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 78.125
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 1068,
+          "function": "zero_touch_response",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 78.125
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 792,
+          "function": "ClmOrchestrationService.retained_submission_is_current",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 78.125
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 797,
+          "function": "ClmOrchestrationService._submission_snapshot_is_current",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 78.125
+        },
+        {
+          "file": "apps/backend/app/services/onboarding.py",
+          "line": 2396,
+          "function": "OnboardingService._advance_incremental_submission_input",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 78.125
+        }
+      ],
+      "correctness": "PASS"
+    },
+    "case_detail": {
+      "lane": "A_LOCAL_DETERMINISTIC",
+      "elapsed_ms": {
+        "count": 20,
+        "p50": 13.43735,
+        "p95": 14.9973,
+        "min": 12.6049,
+        "max": 16.8462,
+        "mean": 13.541715,
+        "stddev": 0.9984670367354989
+      },
+      "parent_cpu_ms": {
+        "count": 20,
+        "p50": 15.625,
+        "p95": 15.625,
+        "min": 0.0,
+        "max": 15.625,
+        "mean": 13.28125,
+        "stddev": 5.724180445820676
+      },
+      "db_counts": [
+        {}
+      ],
+      "outcome": {
+        "http_requests": 1,
+        "registry": {},
+        "target": {},
+        "repository_calls": {
+          "profiles.get": 1,
+          "teams.get": 2,
+          "onboarding.get": 14,
+          "automation.get_for_case": 1,
+          "clm.get_for_case": 1,
+          "documents.list_for_case": 6,
+          "ownership.get_for_case": 2,
+          "reconciliation.get_for_case": 2,
+          "target_executions.list_for_case": 1
+        }
+      },
+      "response_bytes": {
+        "count": 20,
+        "p50": 51922.0,
+        "p95": 51922,
+        "min": 51920,
+        "max": 51922,
+        "mean": 51921.75,
+        "stddev": 0.5501196042201808
+      },
+      "peak_rss_bytes": 261914624,
+      "host_cpu_mean_percent": 14.114634146341464,
+      "hotspots": [
+        {
+          "file": "copy.py",
+          "line": 118,
+          "function": "deepcopy",
+          "calls": 20005,
+          "self_cpu_ms": 62.5,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "copy.py",
+          "line": 217,
+          "function": "_deepcopy_dict",
+          "calls": 1248,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'get' of 'dict' objects>",
+          "calls": 41184,
+          "self_cpu_ms": 31.25,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "api_models.py",
+          "line": 1767,
+          "function": "project_processing_pipeline",
+          "calls": 1,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'run' of '_contextvars.Context' objects>",
+          "calls": 45,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 140.625
+        },
+        {
+          "file": "main.py",
+          "line": 1068,
+          "function": "zero_touch_response",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "performance_optimization.py",
+          "line": 228,
+          "function": "call",
+          "calls": 30,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "main.py",
+          "line": 2686,
+          "function": "get_zero_touch_case",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "main.py",
+          "line": 990,
+          "function": "ZeroTouchAutomationRecord.__deepcopy__",
+          "calls": 1035,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 109.375
+        },
+        {
+          "file": "main.py",
+          "line": 393,
+          "function": "ZeroTouchAutomationRecord.model_copy",
+          "calls": 29,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 109.375
+        },
+        {
+          "file": "repository.py",
+          "line": 84,
+          "function": "InMemoryOnboardingCaseRepository.get",
+          "calls": 14,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 93.75
+        },
+        {
+          "file": "onboarding.py",
+          "line": 4627,
+          "function": "OnboardingService.get_case",
+          "calls": 14,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 93.75
+        },
+        {
+          "file": "document_processing.py",
+          "line": 445,
+          "function": "DocumentProcessingService.list_documents",
+          "calls": 6,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 78.125
+        },
+        {
+          "file": "clm_orchestration.py",
+          "line": 185,
+          "function": "ClmOrchestrationService.get",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 62.5
+        },
+        {
+          "file": "clm_orchestration.py",
+          "line": 1336,
+          "function": "ClmOrchestrationService._evaluate_current",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 62.5
+        }
+      ],
+      "app_hotspots": [
+        {
+          "file": "apps/backend/app/api_models.py",
+          "line": 1767,
+          "function": "project_processing_pipeline",
+          "calls": 1,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 1068,
+          "function": "zero_touch_response",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 2686,
+          "function": "get_zero_touch_case",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 125.0
+        },
+        {
+          "file": "apps/backend/app/services/repository.py",
+          "line": 84,
+          "function": "InMemoryOnboardingCaseRepository.get",
+          "calls": 14,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 93.75
+        },
+        {
+          "file": "apps/backend/app/services/onboarding.py",
+          "line": 4627,
+          "function": "OnboardingService.get_case",
+          "calls": 14,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 93.75
+        },
+        {
+          "file": "apps/backend/app/services/document_processing.py",
+          "line": 445,
+          "function": "DocumentProcessingService.list_documents",
+          "calls": 6,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 78.125
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 185,
+          "function": "ClmOrchestrationService.get",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 62.5
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 1336,
+          "function": "ClmOrchestrationService._evaluate_current",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 62.5
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 1223,
+          "function": "OwnershipAnalysisService.get",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 1311,
+          "function": "OwnershipAnalysisService._document_inputs",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "apps/backend/app/services/document_repository.py",
+          "line": 42,
+          "function": "InMemoryDocumentProcessingRepository.list_for_case",
+          "calls": 6,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/services/reconciliation.py",
+          "line": 358,
+          "function": "ReconciliationService._current_evidence",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/services/clm_orchestration.py",
+          "line": 1371,
+          "function": "ClmOrchestrationService._document_classification_current",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/services/reconciliation_repository.py",
+          "line": 90,
+          "function": "InMemoryReconciliationRepository.get_for_case",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/services/reconciliation.py",
+          "line": 86,
+          "function": "ReconciliationService.get",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        }
+      ],
+      "correctness": "PASS"
+    },
+    "portfolio_memory": {
+      "lane": "A_LOCAL_DETERMINISTIC",
+      "elapsed_ms": {
+        "count": 20,
+        "p50": 43.82585,
+        "p95": 60.2308,
+        "min": 40.4574,
+        "max": 187.7027,
+        "mean": 52.0773,
+        "stddev": 32.30049524901404
+      },
+      "parent_cpu_ms": {
+        "count": 20,
+        "p50": 46.875,
+        "p95": 62.5,
+        "min": 31.25,
+        "max": 187.5,
+        "mean": 50.0,
+        "stddev": 33.855220968738415
+      },
+      "db_counts": [
+        {}
+      ],
+      "outcome": {
+        "http_requests": 1,
+        "registry": {},
+        "target": {},
+        "repository_calls": {
+          "profiles.get": 1,
+          "teams.get": 1,
+          "portfolio.list_page": 1,
+          "automation.list_records": 1,
+          "onboarding.get": 100
+        }
+      },
+      "response_bytes": {
+        "count": 20,
+        "p50": 31991.0,
+        "p95": 32043,
+        "min": 31943,
+        "max": 32043,
+        "mean": 31996,
+        "stddev": 37.09731157800777
+      },
+      "peak_rss_bytes": 228466688,
+      "host_cpu_mean_percent": 12.306024096385542,
+      "hotspots": [
+        {
+          "file": "copy.py",
+          "line": 118,
+          "function": "deepcopy",
+          "calls": 84761,
+          "self_cpu_ms": 203.125,
+          "cumulative_cpu_ms": 531.25
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'get' of 'dict' objects>",
+          "calls": 174197,
+          "self_cpu_ms": 156.25,
+          "cumulative_cpu_ms": 156.25
+        },
+        {
+          "file": "copy.py",
+          "line": 231,
+          "function": "_keep_alive",
+          "calls": 14334,
+          "self_cpu_ms": 46.875,
+          "cumulative_cpu_ms": 46.875
+        },
+        {
+          "file": "main.py",
+          "line": 990,
+          "function": "ZeroTouchAutomationRecord.__deepcopy__",
+          "calls": 5204,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 531.25
+        },
+        {
+          "file": "copy.py",
+          "line": 217,
+          "function": "_deepcopy_dict",
+          "calls": 5813,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 531.25
+        },
+        {
+          "file": "copy.py",
+          "line": 252,
+          "function": "<genexpr>",
+          "calls": 7450,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 31.25
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "hasattr",
+          "calls": 5956,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "enum.py",
+          "line": 1272,
+          "function": "AutomationStatus.__deepcopy__",
+          "calls": 8400,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "copy.py",
+          "line": 172,
+          "function": "_deepcopy_atomic",
+          "calls": 55506,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "enum.py",
+          "line": 819,
+          "function": "<genexpr>",
+          "calls": 7000,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "isinstance",
+          "calls": 4172,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "id",
+          "calls": 109454,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "_overlapped",
+          "line": 0,
+          "function": "GetQueuedCompletionStatus",
+          "calls": 29,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "case_portfolio_repository.py",
+          "line": 133,
+          "function": "InMemoryCasePortfolioRepository.list_page",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 546.875
+        },
+        {
+          "file": "performance_optimization.py",
+          "line": 228,
+          "function": "call",
+          "calls": 104,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 546.875
+        }
+      ],
+      "app_hotspots": [
+        {
+          "file": "apps/backend/app/services/case_portfolio_repository.py",
+          "line": 133,
+          "function": "InMemoryCasePortfolioRepository.list_page",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 546.875
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 1948,
+          "function": "list_case_portfolio",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 546.875
+        },
+        {
+          "file": "apps/backend/app/services/case_query.py",
+          "line": 114,
+          "function": "CaseQueryService.list_portfolio",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 546.875
+        },
+        {
+          "file": "apps/backend/app/services/repository.py",
+          "line": 84,
+          "function": "InMemoryOnboardingCaseRepository.get",
+          "calls": 100,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 453.125
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_repository.py",
+          "line": 72,
+          "function": "InMemoryZeroTouchAutomationRepository.list_records",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 78.125
+        },
+        {
+          "file": "apps/backend/app/domain/case_management.py",
+          "line": 194,
+          "function": "CasePortfolioRecord.validate_timestamps",
+          "calls": 250,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/domain/case_management.py",
+          "line": 199,
+          "function": "<genexpr>",
+          "calls": 250,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/services/authorization.py",
+          "line": 291,
+          "function": "CaseAccessPolicy.portfolio_scope",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/zero_touch_repository.py",
+          "line": 19,
+          "function": "order_zero_touch_automation_records",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/api_models.py",
+          "line": 1618,
+          "function": "from_domain",
+          "calls": 50,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/zero_touch.py",
+          "line": 421,
+          "function": "ZeroTouchAutomationRecord.active_exceptions",
+          "calls": 100,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/access.py",
+          "line": 19,
+          "function": "__new__",
+          "calls": 357,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/case_management.py",
+          "line": 377,
+          "function": "require_observed_utc",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/case_management.py",
+          "line": 57,
+          "function": "CasePortfolioScope.validate_scope",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/case_management.py",
+          "line": 461,
+          "function": "ordered_active_exception_types",
+          "calls": 100,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        }
+      ],
+      "correctness": "PASS"
+    },
+    "portfolio_mongo": {
+      "lane": "B_PHYSICAL_MONGO",
+      "elapsed_ms": {
+        "count": 20,
+        "p50": 17.6138,
+        "p95": 19.0198,
+        "min": 15.6985,
+        "max": 19.4472,
+        "mean": 17.68354,
+        "stddev": 0.924366054399617
+      },
+      "parent_cpu_ms": {
+        "count": 20,
+        "p50": 0.0,
+        "p95": 15.625,
+        "min": 0.0,
+        "max": 15.625,
+        "mean": 3.125,
+        "stddev": 6.412364700532213
+      },
+      "db_counts": [
+        {
+          "find": 3,
+          "aggregate": 1
+        }
+      ],
+      "outcome": {
+        "http_requests": 1,
+        "registry": {},
+        "target": {},
+        "repository_calls": {
+          "profiles.get": 1,
+          "teams.get": 1,
+          "portfolio.list_page": 1
+        }
+      },
+      "response_bytes": {
+        "count": 20,
+        "p50": 32027.0,
+        "p95": 32029,
+        "min": 32021,
+        "max": 32031,
+        "mean": 32026.9,
+        "stddev": 2.2918620331397284
+      },
+      "peak_rss_bytes": 245288960,
+      "host_cpu_mean_percent": 14.446702317290553,
+      "hotspots": [
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'acquire' of '_thread.lock' objects>",
+          "calls": 34,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "uuid.py",
+          "line": 139,
+          "function": "UUID.__init__",
+          "calls": 204,
+          "self_cpu_ms": 15.625,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "threading.py",
+          "line": 323,
+          "function": "Condition.wait",
+          "calls": 5,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "_base.py",
+          "line": 428,
+          "function": "Future.result",
+          "calls": 4,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "from_thread.py",
+          "line": 282,
+          "function": "BlockingPortal._spawn_task_from_thread",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "testclient.py",
+          "line": 430,
+          "function": "AuthenticatedTestClient.request",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "_asyncio.py",
+          "line": 2690,
+          "function": "run_sync_from_thread",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "_client.py",
+          "line": 1096,
+          "function": "AuthenticatedTestClient.get",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "_client.py",
+          "line": 949,
+          "function": "AuthenticatedTestClient.send",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "from_thread.py",
+          "line": 95,
+          "function": "run_sync",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "_client.py",
+          "line": 1030,
+          "function": "AuthenticatedTestClient._send_handling_redirects",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "from_thread.py",
+          "line": 323,
+          "function": "BlockingPortal.call",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "testclient.py",
+          "line": 225,
+          "function": "_TestClientTransport.handle_request",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "_client.py",
+          "line": 1065,
+          "function": "AuthenticatedTestClient._send_single_request",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "performance_optimization.py",
+          "line": 305,
+          "function": "run",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        }
+      ],
+      "app_hotspots": [
+        {
+          "file": "apps/backend/app/persistence/repositories.py",
+          "line": 165,
+          "function": "MongoCasePortfolioRepository.list_page",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/persistence/mongo_case_store.py",
+          "line": 971,
+          "function": "_canonical_uuid",
+          "calls": 204,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/persistence/mongo_case_store.py",
+          "line": 575,
+          "function": "MongoCaseStore._decode_portfolio",
+          "calls": 51,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 1948,
+          "function": "list_case_portfolio",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/persistence/mongo_case_store.py",
+          "line": 209,
+          "function": "MongoCaseStore.list_portfolio_page",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/services/case_query.py",
+          "line": 114,
+          "function": "CaseQueryService.list_portfolio",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 15.625
+        },
+        {
+          "file": "apps/backend/app/domain/access.py",
+          "line": 19,
+          "function": "__new__",
+          "calls": 258,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/case_management.py",
+          "line": 57,
+          "function": "CasePortfolioScope.validate_scope",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/case_management.py",
+          "line": 377,
+          "function": "require_observed_utc",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/persistence/mongo_case_store.py",
+          "line": 1179,
+          "function": "_portfolio_candidate_valid_expression",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/main.py",
+          "line": 901,
+          "function": "authenticated_actor",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/persistence/mongo_case_store.py",
+          "line": 1104,
+          "function": "_mongo_exact_object_keys",
+          "calls": 5,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/api_models.py",
+          "line": 1673,
+          "function": "<genexpr>",
+          "calls": 51,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/case_management.py",
+          "line": 294,
+          "function": "normalize_search",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/persistence/mongo_case_store.py",
+          "line": 1122,
+          "function": "_mongo_optional_projected_string",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        }
+      ],
+      "correctness": "PASS"
+    },
+    "ownership_graph": {
+      "lane": "A_LOCAL_DETERMINISTIC",
+      "elapsed_ms": {
+        "count": 20,
+        "p50": 0.36705,
+        "p95": 0.4615,
+        "min": 0.341,
+        "max": 0.4883,
+        "mean": 0.382565,
+        "stddev": 0.04294844246915498
+      },
+      "parent_cpu_ms": {
+        "count": 20,
+        "p50": 0.0,
+        "p95": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "mean": 0.0,
+        "stddev": 0.0
+      },
+      "db_counts": [
+        {}
+      ],
+      "outcome": {
+        "parties": 4,
+        "edges": 4,
+        "paths": 3,
+        "outcome_digest": "95a785072074a8a42deae0cf613c66a995c1209c7f1d7d0fb719014c373015e2"
+      },
+      "response_bytes": null,
+      "peak_rss_bytes": 229216256,
+      "host_cpu_mean_percent": 11.1,
+      "hotspots": [
+        {
+          "file": "ownership_analysis.py",
+          "line": 401,
+          "function": "<lambda>",
+          "calls": 3,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "ownership_analysis.py",
+          "line": 1567,
+          "function": "_calculation_text",
+          "calls": 3,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "enum.py",
+          "line": 1291,
+          "function": "PartyType.value",
+          "calls": 6,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "ownership_analysis.py",
+          "line": 413,
+          "function": "aggregate_ownership_paths",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "<string>",
+          "line": 1,
+          "function": "<lambda>",
+          "calls": 34,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "ownership_analysis.py",
+          "line": 263,
+          "function": "validate_ownership_graph",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'encode' of 'str' objects>",
+          "calls": 6,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "_known_annotated_metadata.py",
+          "line": 231,
+          "function": "_apply_constraint_with_incompatibility_info",
+          "calls": 47,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "unicodedata",
+          "line": 0,
+          "function": "category",
+          "calls": 1081,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "ownership_analysis.py",
+          "line": 435,
+          "function": "build_ownership_candidates",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'normalize' of 'decimal.Decimal' objects>",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "getattr",
+          "calls": 50,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "hasattr",
+          "calls": 18,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "copy.py",
+          "line": 118,
+          "function": "deepcopy",
+          "calls": 200,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "enum.py",
+          "line": 1272,
+          "function": "PartyType.__deepcopy__",
+          "calls": 18,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        }
+      ],
+      "app_hotspots": [
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 401,
+          "function": "<lambda>",
+          "calls": 3,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 1567,
+          "function": "_calculation_text",
+          "calls": 3,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 413,
+          "function": "aggregate_ownership_paths",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 263,
+          "function": "validate_ownership_graph",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 435,
+          "function": "build_ownership_candidates",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 253,
+          "function": "<lambda>",
+          "calls": 4,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 1615,
+          "function": "_path_id",
+          "calls": 3,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 425,
+          "function": "<genexpr>",
+          "calls": 4,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 421,
+          "function": "<genexpr>",
+          "calls": 3,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 356,
+          "function": "<genexpr>",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/ownership.py",
+          "line": 31,
+          "function": "<genexpr>",
+          "calls": 1160,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 284,
+          "function": "calculate_ownership_paths",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 1568,
+          "function": "<genexpr>",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/ownership.py",
+          "line": 25,
+          "function": "_normalize_safe_text",
+          "calls": 79,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/services/ownership_analysis.py",
+          "line": 238,
+          "function": "build_ownership_graph",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        }
+      ],
+      "correctness": "PASS"
+    },
+    "native_document": {
+      "lane": "A_LOCAL_DETERMINISTIC",
+      "elapsed_ms": {
+        "count": 20,
+        "p50": 482.1903,
+        "p95": 497.0221,
+        "min": 467.9264,
+        "max": 498.0162,
+        "mean": 481.99564,
+        "stddev": 8.18968120119845
+      },
+      "parent_cpu_ms": {
+        "count": 20,
+        "p50": 0.0,
+        "p95": 15.625,
+        "min": 0.0,
+        "max": 15.625,
+        "mean": 2.34375,
+        "stddev": 5.724180445820676
+      },
+      "db_counts": [
+        {}
+      ],
+      "outcome": {
+        "pages": 1,
+        "provider_operations": 1,
+        "native": true
+      },
+      "response_bytes": null,
+      "peak_rss_bytes": 282898432,
+      "host_cpu_mean_percent": 15.05625,
+      "hotspots": [
+        {
+          "file": "_weakrefset.py",
+          "line": 39,
+          "function": "_remove",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "tempfile.py",
+          "line": 942,
+          "function": "TemporaryDirectory.__repr__",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "<method 'group' of 're.Match' objects>",
+          "calls": 4,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "pathlib.py",
+          "line": 711,
+          "function": "WindowsPath.joinpath",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "tempfile.py",
+          "line": 894,
+          "function": "_rmtree",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "builtins",
+          "line": 0,
+          "function": "ord",
+          "calls": 160,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "local_pdf_idp.py",
+          "line": 217,
+          "function": "<genexpr>",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "_io",
+          "line": 0,
+          "function": "open",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "sys",
+          "line": 0,
+          "function": "audit",
+          "calls": 4,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "decoder.py",
+          "line": 333,
+          "function": "JSONDecoder.decode",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "tempfile.py",
+          "line": 301,
+          "function": "_gettempdir",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "pathlib.py",
+          "line": 1157,
+          "function": "WindowsPath.__init__",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "random.py",
+          "line": 454,
+          "function": "Random.choices",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "main.py",
+          "line": 693,
+          "function": "model_validate",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "performance_optimization.py",
+          "line": 460,
+          "function": "<genexpr>",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        }
+      ],
+      "app_hotspots": [
+        {
+          "file": "apps/backend/app/connectors/local_pdf_idp.py",
+          "line": 217,
+          "function": "<genexpr>",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/documents.py",
+          "line": 60,
+          "function": "<genexpr>",
+          "calls": 714,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/connectors/idp.py",
+          "line": 52,
+          "function": "optional_value_must_not_be_blank",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/connectors/local_pdf_idp.py",
+          "line": 187,
+          "function": "_score",
+          "calls": 9,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/documents.py",
+          "line": 54,
+          "function": "_normalize_safe_provenance",
+          "calls": 42,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/connectors/local_pdf_idp.py",
+          "line": 77,
+          "function": "<genexpr>",
+          "calls": 2,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/connectors/local_pdf_idp.py",
+          "line": 250,
+          "function": "<genexpr>",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/connectors/idp.py",
+          "line": 64,
+          "function": "IdpSourceField.candidate_value_agrees",
+          "calls": 8,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/connectors/idp.py",
+          "line": 60,
+          "function": "<genexpr>",
+          "calls": 168,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/connectors/idp.py",
+          "line": 92,
+          "function": "IdpSourceResult.require_each_provisional_field_once",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/connectors/idp.py",
+          "line": 110,
+          "function": "<genexpr>",
+          "calls": 5,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/connectors/document_ownership_parser.py",
+          "line": 196,
+          "function": "<genexpr>",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/connectors/local_pdf_idp.py",
+          "line": 232,
+          "function": "<lambda>",
+          "calls": 4,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/connectors/local_pdf_idp.py",
+          "line": 82,
+          "function": "LocalPdfTextIdpProvider._classification_from_pages",
+          "calls": 1,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        },
+        {
+          "file": "apps/backend/app/domain/documents.py",
+          "line": 159,
+          "function": "safe_candidate",
+          "calls": 12,
+          "self_cpu_ms": 0.0,
+          "cumulative_cpu_ms": 0.0
+        }
+      ],
+      "correctness": "PASS"
+    }
+  },
+  "completed": true
+}

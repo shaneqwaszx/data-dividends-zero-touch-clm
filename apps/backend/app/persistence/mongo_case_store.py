@@ -936,17 +936,20 @@ def _reject_unknown_model_fields(raw: object, parsed: object) -> None:
     if isinstance(parsed, BaseModel):
         if not isinstance(raw, dict):
             raise PersistenceDataInvalidError
-        allowed = set(type(parsed).model_fields)
-        if set(raw) - allowed:
+        fields = type(parsed).model_fields
+        if raw.keys() - fields.keys():
             raise PersistenceDataInvalidError
-        for name in allowed.intersection(raw):
-            _reject_unknown_model_fields(raw[name], getattr(parsed, name))
+        for name, raw_item in raw.items():
+            parsed_item = getattr(parsed, name)
+            if isinstance(parsed_item, (BaseModel, list, tuple, dict)):
+                _reject_unknown_model_fields(raw_item, parsed_item)
         return
     if isinstance(parsed, (list, tuple)):
         if not isinstance(raw, list) or len(raw) != len(parsed):
             raise PersistenceDataInvalidError
         for raw_item, parsed_item in zip(raw, parsed, strict=True):
-            _reject_unknown_model_fields(raw_item, parsed_item)
+            if isinstance(parsed_item, (BaseModel, list, tuple, dict)):
+                _reject_unknown_model_fields(raw_item, parsed_item)
         return
     if isinstance(parsed, dict):
         if not isinstance(raw, dict) or set(raw) != {
@@ -955,7 +958,8 @@ def _reject_unknown_model_fields(raw: object, parsed: object) -> None:
             raise PersistenceDataInvalidError
         for key, parsed_item in parsed.items():
             raw_key = str(key.value if isinstance(key, Enum) else key)
-            _reject_unknown_model_fields(raw[raw_key], parsed_item)
+            if isinstance(parsed_item, (BaseModel, list, tuple, dict)):
+                _reject_unknown_model_fields(raw[raw_key], parsed_item)
 
 
 def _strict_dict(value: object) -> dict[str, Any]:
