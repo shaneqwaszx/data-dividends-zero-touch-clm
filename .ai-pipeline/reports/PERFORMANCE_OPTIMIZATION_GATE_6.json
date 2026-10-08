@@ -1,0 +1,1122 @@
+{
+  "gate": 6,
+  "claim": "SYNTHETIC_LOCAL_LOAD",
+  "base": "198341b059ebf500252ce93d72eb099d2585c60b",
+  "head": "5a84f112ecb82e4da2051e9cac867fdc8d7e2295",
+  "branch": "feat/performance-computational-throughput-optimization",
+  "source_sha256": {
+    "scripts\\performance_load.py": "484a3856b212508c2e5320810506ccf0e7e9d8323e5f71322b3c6f47b3cc0058"
+  },
+  "product_changed": false,
+  "backend_product_tree": "5bba6582542f0d186cd64562d9af8739801709df",
+  "frontend_product_tree": "8a654eaca8eea927a73271f5533ad7a7d4a8dd69",
+  "before": {
+    "label": "before",
+    "claim": "SYNTHETIC_LOCAL_LOAD",
+    "scope": "closed cohorts of complete cases in one shared in-process ASGI application/runtime per mode/level; not network/production capacity",
+    "head": "5a84f112ecb82e4da2051e9cac867fdc8d7e2295",
+    "base": "198341b059ebf500252ce93d72eb099d2585c60b",
+    "method_sha256": "484a3856b212508c2e5320810506ccf0e7e9d8323e5f71322b3c6f47b3cc0058",
+    "groups": 5,
+    "warmup_cohorts": 1,
+    "separate_resource_cohorts": 1,
+    "cohort_deadline_seconds": 60,
+    "CPU": "aggregate parent process CPU/cohort divided bycases; excludes native children and Mongo CPU; resources separate and include post-window verification",
+    "workloads": {
+      "memory_1": {
+        "status": "MEASURED",
+        "completed_cases": 5,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 5,
+          "p50": 1113.9487,
+          "p95": 1115.694,
+          "min": 1091.8408,
+          "max": 1115.694,
+          "mean": 1107.08646,
+          "stddev": 11.21105965745431
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 1114.1491,
+          "p95": 1115.9776,
+          "min": 1091.9991,
+          "max": 1115.9776,
+          "mean": 1107.3016,
+          "stddev": 11.235514755897924
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 156.25,
+          "p95": 156.25,
+          "min": 140.625,
+          "max": 156.25,
+          "mean": 153.125,
+          "stddev": 6.987712429686843
+        },
+        "cases_per_minute": 54.18577919511721,
+        "db_per_cohort": [
+          {}
+        ],
+        "native_peak": 1,
+        "resources": {
+          "peak_parent_children_rss_bytes": 188125184,
+          "mean_host_cpu_percent": 15.763157894736842,
+          "host_available_after_bytes": 11843534848,
+          "resource_probe_makespan_ms": 1203.3203,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "memory_5": {
+        "status": "MEASURED",
+        "completed_cases": 25,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 25,
+          "p50": 1794.7662,
+          "p95": 1892.0742,
+          "min": 1303.3737,
+          "max": 1892.624,
+          "mean": 1746.128468,
+          "stddev": 157.6234336198479
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 1866.2706,
+          "p95": 1893.4389,
+          "min": 1833.2255,
+          "max": 1893.4389,
+          "mean": 1859.6506200000001,
+          "stddev": 24.30095899829883
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 175.0,
+          "p95": 184.375,
+          "min": 168.75,
+          "max": 184.375,
+          "mean": 176.875,
+          "stddev": 7.194290270763337
+        },
+        "cases_per_minute": 161.3206248386592,
+        "db_per_cohort": [
+          {}
+        ],
+        "native_peak": 5,
+        "resources": {
+          "peak_parent_children_rss_bytes": 426835968,
+          "mean_host_cpu_percent": 20.96619718309859,
+          "host_available_after_bytes": 11740647424,
+          "resource_probe_makespan_ms": 2258.429,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "memory_10": {
+        "status": "MEASURED",
+        "completed_cases": 50,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 50,
+          "p50": 2864.9692999999997,
+          "p95": 3036.6986,
+          "min": 1627.2755,
+          "max": 3038.4271,
+          "mean": 2666.334168,
+          "stddev": 393.4050074098901
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 2947.3409,
+          "p95": 3039.8824,
+          "min": 2880.05,
+          "max": 3039.8824,
+          "mean": 2956.94566,
+          "stddev": 60.39324277783887
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 189.0625,
+          "p95": 195.3125,
+          "min": 182.8125,
+          "max": 195.3125,
+          "mean": 189.0625,
+          "stddev": 4.555431167847891
+        },
+        "cases_per_minute": 202.9120819217219,
+        "db_per_cohort": [
+          {}
+        ],
+        "native_peak": 10,
+        "resources": {
+          "peak_parent_children_rss_bytes": 714244096,
+          "mean_host_cpu_percent": 23.63963963963964,
+          "host_available_after_bytes": 11896381440,
+          "resource_probe_makespan_ms": 3606.8914,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "memory_20": {
+        "status": "MEASURED",
+        "completed_cases": 100,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 100,
+          "p50": 5547.245849999999,
+          "p95": 6126.6378,
+          "min": 2777.8924,
+          "max": 6156.4513,
+          "mean": 5330.807569,
+          "stddev": 714.4928924492854
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 5860.4492,
+          "p95": 6162.0861,
+          "min": 5760.6956,
+          "max": 6162.0861,
+          "mean": 5937.01808,
+          "stddev": 174.7999878789672
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 228.125,
+          "p95": 234.375,
+          "min": 216.40625,
+          "max": 234.375,
+          "mean": 227.8125,
+          "stddev": 7.215468680636761
+        },
+        "cases_per_minute": 202.12166845885704,
+        "db_per_cohort": [
+          {}
+        ],
+        "native_peak": 20,
+        "resources": {
+          "peak_parent_children_rss_bytes": 1191407616,
+          "mean_host_cpu_percent": 27.277522935779817,
+          "host_available_after_bytes": 11862114304,
+          "resource_probe_makespan_ms": 7602.5957,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "mongo_1": {
+        "status": "MEASURED",
+        "completed_cases": 5,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 5,
+          "p50": 2987.1544,
+          "p95": 3012.3198,
+          "min": 2770.4221,
+          "max": 3012.3198,
+          "mean": 2941.6926,
+          "stddev": 98.76209912524655
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 2987.4614,
+          "p95": 3012.6926,
+          "min": 2770.6861,
+          "max": 3012.6926,
+          "mean": 2941.9937,
+          "stddev": 98.79219686764237
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 1546.875,
+          "p95": 1625.0,
+          "min": 1375.0,
+          "max": 1625.0,
+          "mean": 1534.375,
+          "stddev": 99.68211192335363
+        },
+        "cases_per_minute": 20.394333271345893,
+        "db_per_cohort": [
+          {
+            "find": 484,
+            "insert": 1,
+            "update": 60
+          }
+        ],
+        "native_peak": 1,
+        "resources": {
+          "peak_parent_children_rss_bytes": 284303360,
+          "mean_host_cpu_percent": 12.5265625,
+          "host_available_after_bytes": 11827482624,
+          "resource_probe_makespan_ms": 3966.7483,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "mongo_5": {
+        "status": "MEASURED",
+        "completed_cases": 25,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 25,
+          "p50": 9076.7601,
+          "p95": 9370.163,
+          "min": 7082.7272,
+          "max": 9416.3044,
+          "mean": 8881.443072,
+          "stddev": 552.5509538529595
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 9323.0269,
+          "p95": 9418.0111,
+          "min": 9228.1868,
+          "max": 9418.0111,
+          "mean": 9315.67274,
+          "stddev": 82.74125335461724
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 1640.625,
+          "p95": 1678.125,
+          "min": 1609.375,
+          "max": 1678.125,
+          "mean": 1645.625,
+          "stddev": 25.541020927128187
+        },
+        "cases_per_minute": 32.20379336769187,
+        "db_per_cohort": [
+          {
+            "find": 2420,
+            "insert": 5,
+            "update": 300
+          }
+        ],
+        "native_peak": 5,
+        "resources": {
+          "peak_parent_children_rss_bytes": 504545280,
+          "mean_host_cpu_percent": 13.128428927680797,
+          "host_available_after_bytes": 11804086272,
+          "resource_probe_makespan_ms": 13017.0529,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "mongo_10": {
+        "status": "MEASURED",
+        "completed_cases": 50,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 50,
+          "p50": 17277.8707,
+          "p95": 18014.8513,
+          "min": 14716.893,
+          "max": 18055.8605,
+          "mean": 16923.23126,
+          "stddev": 942.1080811921099
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 17768.9431,
+          "p95": 18056.4362,
+          "min": 17620.9935,
+          "max": 18056.4362,
+          "mean": 17845.11552,
+          "stddev": 185.14204425924422
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 1723.4375,
+          "p95": 1737.5,
+          "min": 1714.0625,
+          "max": 1737.5,
+          "mean": 1723.125,
+          "stddev": 9.335855778931036
+        },
+        "cases_per_minute": 33.622645890274406,
+        "db_per_cohort": [
+          {
+            "find": 4840,
+            "insert": 10,
+            "update": 600
+          }
+        ],
+        "native_peak": 10,
+        "resources": {
+          "peak_parent_children_rss_bytes": 708116480,
+          "mean_host_cpu_percent": 12.721256684491978,
+          "host_available_after_bytes": 11809824768,
+          "resource_probe_makespan_ms": 25067.0734,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "mongo_20": {
+        "status": "RESOURCE_PROBE_ONLY",
+        "resources": {
+          "peak_parent_children_rss_bytes": 900583424,
+          "mean_host_cpu_percent": 12.993951612903226,
+          "host_available_after_bytes": 11927343104,
+          "resource_probe_makespan_ms": 49724.1581,
+          "stable_for_escalation": false
+        }
+      }
+    }
+  },
+  "after": {
+    "label": "after",
+    "claim": "SYNTHETIC_LOCAL_LOAD",
+    "scope": "closed cohorts of complete cases in one shared in-process ASGI application/runtime per mode/level; not network/production capacity",
+    "head": "5a84f112ecb82e4da2051e9cac867fdc8d7e2295",
+    "base": "198341b059ebf500252ce93d72eb099d2585c60b",
+    "method_sha256": "484a3856b212508c2e5320810506ccf0e7e9d8323e5f71322b3c6f47b3cc0058",
+    "groups": 5,
+    "warmup_cohorts": 1,
+    "separate_resource_cohorts": 1,
+    "cohort_deadline_seconds": 60,
+    "CPU": "aggregate parent process CPU/cohort divided bycases; excludes native children and Mongo CPU; resources separate and include post-window verification",
+    "workloads": {
+      "memory_1": {
+        "status": "MEASURED",
+        "completed_cases": 5,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 5,
+          "p50": 1095.5128,
+          "p95": 1123.8078,
+          "min": 1082.8233,
+          "max": 1123.8078,
+          "mean": 1096.14792,
+          "stddev": 16.731978581357332
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 1095.739,
+          "p95": 1123.9822,
+          "min": 1083.0117,
+          "max": 1123.9822,
+          "mean": 1096.36874,
+          "stddev": 16.697688618428568
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 171.875,
+          "p95": 171.875,
+          "min": 156.25,
+          "max": 171.875,
+          "mean": 165.625,
+          "stddev": 8.558164961018221
+        },
+        "cases_per_minute": 54.726113405969606,
+        "db_per_cohort": [
+          {}
+        ],
+        "native_peak": 1,
+        "resources": {
+          "peak_parent_children_rss_bytes": 188903424,
+          "mean_host_cpu_percent": 12.5,
+          "host_available_after_bytes": 11953340416,
+          "resource_probe_makespan_ms": 1160.8532,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "memory_5": {
+        "status": "MEASURED",
+        "completed_cases": 25,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 25,
+          "p50": 1848.0475,
+          "p95": 1943.977,
+          "min": 1344.4124,
+          "max": 1944.059,
+          "mean": 1772.78606,
+          "stddev": 171.4410718387638
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 1891.587,
+          "p95": 1945.2845,
+          "min": 1849.5581,
+          "max": 1945.2845,
+          "mean": 1892.8383,
+          "stddev": 43.132562016242474
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 175.0,
+          "p95": 187.5,
+          "min": 171.875,
+          "max": 187.5,
+          "mean": 177.5,
+          "stddev": 6.0110575192722955
+        },
+        "cases_per_minute": 158.49214378217093,
+        "db_per_cohort": [
+          {}
+        ],
+        "native_peak": 5,
+        "resources": {
+          "peak_parent_children_rss_bytes": 422248448,
+          "mean_host_cpu_percent": 19.18695652173913,
+          "host_available_after_bytes": 11946516480,
+          "resource_probe_makespan_ms": 2195.8196,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "memory_10": {
+        "status": "MEASURED",
+        "completed_cases": 50,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 50,
+          "p50": 2813.3294,
+          "p95": 3091.6776,
+          "min": 1593.6331,
+          "max": 3094.1105,
+          "mean": 2667.136864,
+          "stddev": 396.3218237849092
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 2990.9713,
+          "p95": 3096.4852,
+          "min": 2842.4058,
+          "max": 3096.4852,
+          "mean": 2974.89432,
+          "stddev": 97.80482662827538
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 193.75,
+          "p95": 201.5625,
+          "min": 187.5,
+          "max": 201.5625,
+          "mean": 193.4375,
+          "stddev": 5.568290525376707
+        },
+        "cases_per_minute": 201.68783676322323,
+        "db_per_cohort": [
+          {}
+        ],
+        "native_peak": 10,
+        "resources": {
+          "peak_parent_children_rss_bytes": 712929280,
+          "mean_host_cpu_percent": 21.6531746031746,
+          "host_available_after_bytes": 11789459456,
+          "resource_probe_makespan_ms": 3879.1024,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "memory_20": {
+        "status": "MEASURED",
+        "completed_cases": 100,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 100,
+          "p50": 5491.3765,
+          "p95": 5925.6069,
+          "min": 2600.668,
+          "max": 5980.6481,
+          "mean": 5214.33272,
+          "stddev": 819.8572444477473
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 5905.1296,
+          "p95": 5985.9758,
+          "min": 5697.5281,
+          "max": 5985.9758,
+          "mean": 5866.82828,
+          "stddev": 114.17491837771097
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 235.9375,
+          "p95": 244.53125,
+          "min": 225.78125,
+          "max": 244.53125,
+          "mean": 235.0,
+          "stddev": 6.752278261353719
+        },
+        "cases_per_minute": 204.53981993827847,
+        "db_per_cohort": [
+          {}
+        ],
+        "native_peak": 20,
+        "resources": {
+          "peak_parent_children_rss_bytes": 1180069888,
+          "mean_host_cpu_percent": 26.186697247706423,
+          "host_available_after_bytes": 11632656384,
+          "resource_probe_makespan_ms": 7902.7599,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "mongo_1": {
+        "status": "MEASURED",
+        "completed_cases": 5,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 5,
+          "p50": 2970.3484,
+          "p95": 3008.8047,
+          "min": 2780.3321,
+          "max": 3008.8047,
+          "mean": 2940.9378,
+          "stddev": 94.36817241390234
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 2970.6398,
+          "p95": 3009.1271,
+          "min": 2780.5967,
+          "max": 3009.1271,
+          "mean": 2941.22356,
+          "stddev": 94.38077986488032
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 1546.875,
+          "p95": 1625.0,
+          "min": 1390.625,
+          "max": 1625.0,
+          "mean": 1534.375,
+          "stddev": 94.657070192881
+        },
+        "cases_per_minute": 20.399673393069108,
+        "db_per_cohort": [
+          {
+            "find": 484,
+            "insert": 1,
+            "update": 60
+          }
+        ],
+        "native_peak": 1,
+        "resources": {
+          "peak_parent_children_rss_bytes": 282345472,
+          "mean_host_cpu_percent": 11.75873015873016,
+          "host_available_after_bytes": 11678113792,
+          "resource_probe_makespan_ms": 3903.1714,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "mongo_5": {
+        "status": "MEASURED",
+        "completed_cases": 25,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 25,
+          "p50": 9139.0958,
+          "p95": 9483.6246,
+          "min": 7912.4931,
+          "max": 9494.8849,
+          "mean": 8969.167664,
+          "stddev": 491.33482702262364
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 9359.9171,
+          "p95": 9495.1721,
+          "min": 9167.5315,
+          "max": 9495.1721,
+          "mean": 9368.24898,
+          "stddev": 133.35354118804676
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 1675.0,
+          "p95": 1678.125,
+          "min": 1621.875,
+          "max": 1678.125,
+          "mean": 1658.125,
+          "stddev": 25.445253732277852
+        },
+        "cases_per_minute": 32.023060087371846,
+        "db_per_cohort": [
+          {
+            "find": 2420,
+            "insert": 5,
+            "update": 300
+          }
+        ],
+        "native_peak": 5,
+        "resources": {
+          "peak_parent_children_rss_bytes": 505298944,
+          "mean_host_cpu_percent": 14.821897810218978,
+          "host_available_after_bytes": 11697762304,
+          "resource_probe_makespan_ms": 13148.653,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "mongo_10": {
+        "status": "MEASURED",
+        "completed_cases": 50,
+        "cohorts": 5,
+        "latency_ms": {
+          "count": 50,
+          "p50": 17310.03045,
+          "p95": 18060.1449,
+          "min": 14471.2918,
+          "max": 18103.4382,
+          "mean": 16996.599628,
+          "stddev": 966.6282297084737
+        },
+        "makespan_ms": {
+          "count": 5,
+          "p50": 17909.1461,
+          "p95": 18106.6831,
+          "min": 17656.7583,
+          "max": 18106.6831,
+          "mean": 17899.08256,
+          "stddev": 182.27074388125945
+        },
+        "parent_cpu_ms_per_case": {
+          "count": 5,
+          "p50": 1731.25,
+          "p95": 1742.1875,
+          "min": 1698.4375,
+          "max": 1742.1875,
+          "mean": 1723.125,
+          "stddev": 17.89727632909544
+        },
+        "cases_per_minute": 33.521271159497914,
+        "db_per_cohort": [
+          {
+            "find": 4840,
+            "insert": 10,
+            "update": 600
+          }
+        ],
+        "native_peak": 10,
+        "resources": {
+          "peak_parent_children_rss_bytes": 705576960,
+          "mean_host_cpu_percent": 13.582868525896414,
+          "host_available_after_bytes": 11821584384,
+          "resource_probe_makespan_ms": 25191.6444,
+          "stable_for_escalation": true
+        },
+        "counts_per_case": {
+          "registry": 4,
+          "native": 1,
+          "ownership": 1,
+          "search": 3,
+          "shell": 1,
+          "policy": 1,
+          "amend": 1,
+          "http": 5
+        },
+        "errors": 0,
+        "timeouts": 0,
+        "correctness": "PASS"
+      },
+      "mongo_20": {
+        "status": "RESOURCE_PROBE_ONLY",
+        "resources": {
+          "peak_parent_children_rss_bytes": 895635456,
+          "mean_host_cpu_percent": 13.810529845741113,
+          "host_available_after_bytes": 11609616384,
+          "resource_probe_makespan_ms": 50224.2272,
+          "stable_for_escalation": false
+        }
+      }
+    }
+  },
+  "primary_cases_total": 520,
+  "db_counts_per_complete_physical_case": {
+    "find": 484,
+    "insert": 1,
+    "update": 60
+  },
+  "exact_target_order": [
+    "search",
+    "search",
+    "shell",
+    "policy",
+    "amend",
+    "search"
+  ],
+  "checks": [
+    {
+      "check": "focused",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "tests/test_performance_persistence_traversal.py",
+        "tests/test_performance_mongo_read_ownership.py",
+        "tests/test_phase12_persistence.py",
+        "tests/test_slice_a_legacy_compatibility.py",
+        "-o",
+        "addopts=",
+        "-q",
+        "--tb=short"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\apps\\backend",
+      "exit": 0,
+      "seconds": 42.52,
+      "log": ".runtime\\performance-optimization\\gate6-focused.txt"
+    },
+    {
+      "check": "ruff",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-m",
+        "ruff",
+        "check",
+        "."
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\apps\\backend",
+      "exit": 0,
+      "seconds": 0.11,
+      "log": ".runtime\\performance-optimization\\gate6-ruff.txt"
+    },
+    {
+      "check": "mypy",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-m",
+        "mypy",
+        "app"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\apps\\backend",
+      "exit": 0,
+      "seconds": 1.3,
+      "log": ".runtime\\performance-optimization\\gate6-mypy.txt"
+    },
+    {
+      "check": "contracts",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests/contract",
+        "-p",
+        "test_*.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 3.5,
+      "log": ".runtime\\performance-optimization\\gate6-contracts.txt"
+    },
+    {
+      "check": "harness",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-m",
+        "unittest",
+        "tests.test_performance_optimization"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 0.14,
+      "log": ".runtime\\performance-optimization\\gate6-harness.txt"
+    },
+    {
+      "check": "check_project_state",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/check_project_state.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 0.28,
+      "log": ".runtime\\performance-optimization\\gate6-check_project_state.txt"
+    },
+    {
+      "check": "check_architecture",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/check_architecture.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 0.44,
+      "log": ".runtime\\performance-optimization\\gate6-check_architecture.txt"
+    },
+    {
+      "check": "check_tooling_config",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/check_tooling_config.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 0.08,
+      "log": ".runtime\\performance-optimization\\gate6-check_tooling_config.txt"
+    },
+    {
+      "check": "check_policy_authority",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/check_policy_authority.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 0.09,
+      "log": ".runtime\\performance-optimization\\gate6-check_policy_authority.txt"
+    },
+    {
+      "check": "check_external_provider_readiness",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/check_external_provider_readiness.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 0.09,
+      "log": ".runtime\\performance-optimization\\gate6-check_external_provider_readiness.txt"
+    },
+    {
+      "check": "check_secrets",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/check_secrets.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 2.39,
+      "log": ".runtime\\performance-optimization\\gate6-check_secrets.txt"
+    },
+    {
+      "check": "physical",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/run_physical_mongo_tests.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 187.42,
+      "log": ".runtime\\performance-optimization\\gate6-physical.txt"
+    },
+    {
+      "check": "physical",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/run_physical_mongo_tests.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 188.41,
+      "log": ".runtime\\performance-optimization\\gate6-repeat-physical.txt"
+    },
+    {
+      "check": "post-load recovery/no-replay/currentness/race/adverse",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "tests/test_clm_orchestration.py",
+        "tests/test_zero_touch_orchestration.py",
+        "tests/test_zero_touch_exception_remediation.py",
+        "tests/test_slice_d_mock_goldtier.py",
+        "tests/test_performance_intake_concurrency.py",
+        "-k",
+        "recover or recovery or uncertain or concurrent or stale or malformed",
+        "-o",
+        "addopts=",
+        "-q",
+        "--tb=short"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\apps\\backend",
+      "exit": 0,
+      "seconds": 28.64,
+      "log": ".runtime\\performance-optimization\\gate6-post-load-focus.txt"
+    },
+    {
+      "check": "after repeated load recovery/no-replay/currentness/race/adverse",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "tests/test_clm_orchestration.py",
+        "tests/test_zero_touch_orchestration.py",
+        "tests/test_zero_touch_exception_remediation.py",
+        "tests/test_slice_d_mock_goldtier.py",
+        "tests/test_performance_intake_concurrency.py",
+        "-k",
+        "recover or recovery or uncertain or concurrent or stale or malformed",
+        "-o",
+        "addopts=",
+        "-q",
+        "--tb=short"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\apps\\backend",
+      "exit": 0,
+      "seconds": 28.23,
+      "log": ".runtime\\performance-optimization\\gate6-post-repeat-focus.txt"
+    }
+  ],
+  "raw_manifest_sha256": "e6fdd20bce3626b6b943b9289b4b029ff43b2aaedff4a43ef2b7b545112730cc",
+  "limits": [
+    "Five independent cohorts per level; within-cohort cases correlated; level1 p95 is maximum of5",
+    "Closed shared-ASGI bursts, not open arrivals, realTCP or production capacity",
+    "Parent CPU allocation excludes native child and Mongo serverCPU; resource sampler separate includes post-window verification",
+    "60s completion acceptance deadline is not hard process termination; executor exit waits started work",
+    "20Mongo only warm/resource probes, no primary20throughput/latency/error distribution or saved per-case resource details",
+    "No product edit between windows; timing differences descriptive repeatability, not causal gains"
+  ],
+  "independent_verdict": "PENDING separate Gate6 exact review"
+}
