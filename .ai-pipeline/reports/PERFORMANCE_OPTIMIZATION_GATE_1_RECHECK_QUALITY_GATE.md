@@ -16,12 +16,12 @@ Outcome: **PASS** for the frozen corrected Gate 1 methodology and control group,
 | .ai-pipeline/001_planner/PERFORMANCE_OPTIMIZATION_PROGRAM.md | ec63e56b6b813338c4392bac83ac98a4b6dfabce6ced6984419c98b37d071c71 |
 | .ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json | 102796f299b302373239b881daa0103be35e8dc85a059a57ca2db04d0a0a5c31 |
 | .ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.md | 12a899eb275b41504681aeec66aaaf5fc03082b21a3b96d531c74ef3f2f52dbd |
-| .ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_1_QUALITY_GATE.md | 2b4428331e66da1a450ee55bc6024f6355c6e120136da74de18f0d89b05ecb65 |
+| .ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_1_QUALITY_GATE.md | 01b8f5fadbbf2b447c2312355fea1adf15e9e6295f9d00faaa625833a9e8c25c |
 | scripts/performance_optimization.py | 2bd95660eccc445a886991c58ba97d5211b401443c96e7366e57d2cb50c87222 |
 | scripts/requirements-performance-optimization.txt | 4a0ad47fcff49479412490285fed97370090758226dfc6cfa4c9fe0663ac11d2 |
 | tests/test_performance_optimization.py | 291673659c2582117ba26dde39735b7a814c731a4171b970d0e0d3787231d783 |
 
-Reviewed manifest SHA-256: 4904cb3d4f178c32f9cc53ca80107b80e74921f846c4fdd6f16ecca488e87842. Construction: sorted repository-relative paths, tab, lowercase file SHA-256 and LF per row. The 20 current ignored raw sample/profile files use the same construction and have manifest SHA-256 a3349c81d2fa840a9ed8ff0436c421cc76b83a23e2e1a73d4ecb7afaacb1ad63.
+Reviewed manifest SHA-256: 8a589c3bf8fd08be87c14ab4af26f75bdef840d9e9fee7185b98659a771218e3. Construction: sorted repository-relative paths, tab, lowercase file SHA-256 and LF per row. The 20 current ignored raw sample/profile files use the same construction and have manifest SHA-256 a3349c81d2fa840a9ed8ff0436c421cc76b83a23e2e1a73d4ecb7afaacb1ad63.
 
 ## Acceptance evidence
 
@@ -80,3 +80,10 @@ Gate 1 corrected control group: **PASS**. The coordinator may freeze its authori
 
 At freeze, all seven manifest files were untracked, tracked/index diffs were empty, and HEAD remained the required base. This recheck report is the reviewer's only additional file. No implementation/configuration/test fix, commit, push, PR, merge, branch switch, worktree cleanup or next-gate implementation was performed by the reviewer.
 
+## Reviewer-owned report hygiene receipt - 2026-10-08
+
+After local Gate1 checkpoint abb7f14b090927d6680cd86d89d7dd500d9cfd6a, a staged whitespace check exposed an excess blank line at EOF in each reviewer report. The earlier custom whitespace probe checked trailing spaces and a final newline but missed this Git EOF rule. The reviewer removed only EOF excess from the original FAIL report; its normalized content and FAIL verdict are identical. This recheck report received the same EOF cleanup plus this receipt and the original-report hash/manifest update above.
+
+All seven frozen manifest paths were reverified. The six source/planner/requirements/test/baseline files retain their exact reviewed raw hashes; only the original FAIL report raw hash changes from EOF normalization. Product source, corrected baseline data, profile evidence and methodology acceptance remain unchanged. The original seven-file manifest before hygiene was 4904cb3d4f178c32f9cc53ca80107b80e74921f846c4fdd6f16ecca488e87842; the current manifest is recorded above.
+
+Independent Gate1 PASS remains after exact one-newline EOF validation, normalized-content verification, and a direct git diff --check with its actual exit code. The reviewer changed only these two reports and made no Git/product mutation. Origin/main remains 198341b059ebf500252ce93d72eb099d2585c60b. This receipt adds no Gate2 acceptance or publication claim.
