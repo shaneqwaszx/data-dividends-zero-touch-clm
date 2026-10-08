@@ -369,3 +369,59 @@ def test_deleted_case_cannot_be_resurrected_by_new_creator_or_document_bound_ada
     finally:
         store.close()
         other.close()
+
+def test_physical_read_adapters_transfer_fresh_independent_models(
+    physical_database: Settings,
+) -> None:
+    from test_performance_mongo_read_ownership import (
+        READ_NAMES,
+        mutable_ids,
+        populated_snapshot,
+        read,
+    )
+
+    original = populated_snapshot()
+    first = open_store(physical_database)
+    second = None
+    try:
+        first.create(original)
+        expected = first.get(original.case_id)
+        assert expected is not None
+        second = open_store(physical_database)
+        for name in READ_NAMES:
+            caller, later = read(first, original, name), read(second, original, name)
+            assert caller is not None and caller == later
+            assert mutable_ids(caller).isdisjoint(mutable_ids(later))
+        case = MongoOnboardingCaseRepository(first).get(original.case_id)
+        document = MongoDocumentProcessingRepository(first).get(
+            original.documents[0].document_id
+        )
+        assert case is not None and document is not None
+        case.events.clear()
+        document.fields.clear()
+        assert first.get(original.case_id) == second.get(original.case_id) == expected
+    finally:
+        first.close()
+        if second is not None:
+            second.close()
+
+
+def test_deleted_case_cannot_be_recreated_from_caller_owned_read(
+    physical_database: Settings,
+) -> None:
+    from test_performance_mongo_read_ownership import populated_snapshot
+
+    original = populated_snapshot()
+    store = open_store(physical_database)
+    try:
+        store.create(original)
+        repository = MongoOnboardingCaseRepository(store)
+        caller = repository.get(original.case_id)
+        assert caller is not None
+        store.delete(original.case_id, expected_revision=original.revision)
+        with pytest.raises(PersistenceConflictError):
+            repository.save(caller)
+        assert store.get(original.case_id) is None
+        assert repository.get(original.case_id) is None
+    finally:
+        store.close()

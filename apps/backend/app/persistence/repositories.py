@@ -1,4 +1,7 @@
-"""Mongo infrastructure adapters for existing service repository boundaries."""
+"""Mongo adapters transfer fresh decoded read models to callers.
+
+The store retains no read snapshots; copies on write boundaries remain defensive.
+"""
 
 from __future__ import annotations
 
@@ -95,7 +98,7 @@ class MongoOnboardingCaseRepository:
 
     def get(self, case_id: UUID) -> OnboardingCase | None:
         snapshot = self._store.get(case_id)
-        return snapshot.onboarding.model_copy(deep=True) if snapshot is not None else None
+        return snapshot.onboarding if snapshot is not None else None
 
     def find_verified_target_case(
         self,
@@ -217,14 +220,14 @@ class MongoDocumentProcessingRepository:
         if snapshot is not None:
             for record in snapshot.documents:
                 if record.document_id == document_id:
-                    return record.model_copy(deep=True)
+                    return record
         return None
 
     def list_for_case(self, case_id: UUID) -> list[DocumentProcessingRecord]:
         snapshot = self._store.get(case_id)
         if snapshot is None:
             return []
-        return [item.model_copy(deep=True) for item in snapshot.documents]
+        return list(snapshot.documents)
 
     def _require_snapshot(self, case_id: UUID) -> DurableCaseSnapshot:
         snapshot = self._store.get(case_id)
@@ -315,7 +318,7 @@ class MongoOwnershipAnalysisRepository:
         snapshot = self._store.get(case_id)
         if snapshot is None or snapshot.ownership is None:
             return None
-        return snapshot.ownership.model_copy(deep=True)
+        return snapshot.ownership
 
     def replace_document_bound(
         self, record: OwnershipAnalysisRecord, *, expected_version: int,
@@ -421,7 +424,7 @@ class MongoOnboardingIntelligenceRepository:
         snapshot = self._store.get(case_id)
         if snapshot is None or snapshot.intelligence is None:
             return None
-        return snapshot.intelligence.model_copy(deep=True)
+        return snapshot.intelligence
 
     def delete_for_case(self, case_id: UUID) -> None:
         del case_id
@@ -463,7 +466,7 @@ class MongoClmOrchestrationRepository:
         snapshot = self._store.get(case_id)
         if snapshot is None or snapshot.clm is None:
             return None
-        return snapshot.clm.model_copy(deep=True)
+        return snapshot.clm
 
     def delete_for_case(self, case_id: UUID) -> None:
         del case_id
@@ -504,11 +507,11 @@ class MongoZeroTouchAutomationRepository:
         snapshot = self._store.get(case_id)
         if snapshot is None or snapshot.automation is None:
             return None
-        return snapshot.automation.model_copy(deep=True)
+        return snapshot.automation
 
     def list_records(self) -> list[ZeroTouchAutomationRecord]:
         records = (
-            snapshot.automation.model_copy(deep=True)
+            snapshot.automation
             for snapshot in self._store.list()
             if snapshot.automation is not None
         )
@@ -554,7 +557,7 @@ class MongoReconciliationRepository:
         snapshot = self._store.get(case_id)
         if snapshot is None or snapshot.reconciliation is None:
             return None
-        return snapshot.reconciliation.model_copy(deep=True)
+        return snapshot.reconciliation
 
     def transaction_snapshot(self, case_id: UUID) -> ReconciliationCaseRecord | None:
         return self.get_for_case(case_id)
@@ -657,13 +660,13 @@ class MongoTargetExecutionRepository:
             return None
         for entry in snapshot.target_executions:
             if entry.submission_input.submission_id == submission_id:
-                return entry.model_copy(deep=True)
+                return entry
         return None
 
     def list_for_case(self, case_id: UUID) -> tuple[GoldTierExecutionLedgerEntry, ...]:
         snapshot = self._store.get(case_id)
         return (
-            tuple(entry.model_copy(deep=True) for entry in snapshot.target_executions)
+            snapshot.target_executions
             if snapshot is not None else ()
         )
 

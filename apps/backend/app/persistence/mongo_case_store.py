@@ -143,6 +143,7 @@ class MongoCaseStore:
         return candidate.model_copy(deep=True)
 
     def get(self, case_id: UUID) -> DurableCaseSnapshot | None:
+        """Decode a fresh caller-owned envelope on every read; retain no model cache."""
         try:
             raw = self._collection.find_one({"_id": str(case_id)})
         except PyMongoError:
