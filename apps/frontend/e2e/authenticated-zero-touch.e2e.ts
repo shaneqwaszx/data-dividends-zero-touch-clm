@@ -1249,9 +1249,18 @@ test("current document review progresses authoritatively and keeps superseded hi
   await page.getByLabel("Company Legal Name").fill(legalNameForUen("202400001A"));
   await page.getByLabel("Registration ID / UEN").fill("202400001A");
   await page.locator("#home-document").setInputFiles(mismatchFixture);
+  // A stored document is visible before its upload response and intake handoff settle.
+  const initialUploadResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/intake/documents"));
+  const initialIntakeResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/intake/complete"));
   await page.getByRole("button", { name: "Create onboarding" }).click();
   await expect(page).toHaveURL(/\/new-onboarding\/([0-9a-f-]{36})$/i);
   const caseId = page.url().split("/").at(-1)!;
+  expect((await initialUploadResponse).status()).toBe(201);
+  const initialIntake = await initialIntakeResponse;
+  expect(initialIntake.status()).toBe(200);
+  expect((await initialIntake.json() as { status: string }).status).toBe("WAITING_FOR_REVIEW");
   await expect.poll(async () => {
     const response = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
     if (!response.ok()) return 0;
@@ -1327,9 +1336,15 @@ test("current document review progresses authoritatively and keeps superseded hi
   expect(resumeRequests).toHaveLength(0);
 
   const replacementInput = page.getByLabel("Replace current document");
+  await expect(replacementInput).toBeEnabled();
   await replacementInput.focus();
   await expect(replacementInput).toBeFocused();
+  const replacementResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST"
+      && new URL(response.url()).pathname.startsWith(`/api/clm/zero-touch/cases/${caseId}/documents/`)
+      && new URL(response.url()).pathname.endsWith("/replacement"));
   await replacementInput.setInputFiles(cleanFixture);
+  expect((await replacementResponse).status()).toBe(200);
   await confirmMockTarget(page);
   await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 120_000 });

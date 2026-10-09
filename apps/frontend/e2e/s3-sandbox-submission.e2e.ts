@@ -37,12 +37,19 @@ async function counts(page: Page): Promise<{ fixture: string; calls: Record<stri
   expect(response.status()).toBe(200); return response.json();
 }
 
+function recoveryMilestone(milestone: string) {
+  if (process.env.CLM_E2E_DIAGNOSTICS === "1") console.log("E2E_DIAG", JSON.stringify({ milestone }));
+}
+
 async function prepareReview(page: Page, existing = false): Promise<string> {
   await page.goto("/");
+  recoveryMilestone("RECOVERY_PAGE_LOADED");
   await page.getByLabel("User ID").fill("maya-lim");
   await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  recoveryMilestone("RECOVERY_SIGNED_IN");
   await page.getByRole("link", { name: "New onboarding", exact: true }).click();
+  recoveryMilestone("RECOVERY_INTAKE_OPENED");
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
   await page.getByLabel("Company Legal Name", { exact: true }).fill(syntheticName);
   await page.getByLabel("Registration ID / UEN").fill(syntheticUen);
@@ -55,10 +62,13 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
   await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
+  recoveryMilestone("RECOVERY_CASE_CREATED");
   await expect.poll(async () => (await readSummary(page, caseId)).status).toBe("WAITING_FOR_REVIEW");
+  recoveryMilestone("RECOVERY_WAITING_FOR_REVIEW");
   await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
   await expect(page.locator(".document-card:not(.document-card--history)")).toHaveCount(1);
+  recoveryMilestone("RECOVERY_DOCUMENT_VISIBLE");
   if (existing) {
     await openStage(page, "Document verification");
     const decision = page.waitForResponse((response) => response.request().method() === "POST"
@@ -98,9 +108,11 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
   const classification = page.waitForResponse((response) => response.request().method() === "PUT" && response.url().endsWith("/target-classification"));
   await page.getByRole("button", { name: "Save target classification", exact: true }).click();
   expect((await classification).status()).toBe(200);
+  recoveryMilestone("RECOVERY_CLASSIFICATION_SAVED");
   await openStage(page, "Ownership & UBO");
   const form = page.locator(".manual-ownership");
   await expect(form.getByRole("heading", { name: "Review or edit ownership evidence", exact: true })).toBeVisible();
+  recoveryMilestone("RECOVERY_OWNERSHIP_FORM_VISIBLE");
   await form.getByLabel("Ownership source decision", { exact: true }).selectOption("CURRENT_EVIDENCE");
   await expect(form.getByLabel("Economic interest %", { exact: true }).nth(0)).toHaveValue(/^(70|30)(?:\.0+)?$/);
   await expect(form.getByLabel("Economic interest %", { exact: true }).nth(1)).toHaveValue(/^(70|30)(?:\.0+)?$/);
@@ -109,6 +121,7 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
   const decision = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/manual-ownership-evidence"));
   await form.getByRole("button", { name: "Submit manual ownership evidence", exact: true }).click();
   expect((await decision).status()).toBe(200);
+  recoveryMilestone("RECOVERY_OWNERSHIP_SAVED");
   await openStage(page, "Final review & send");
   await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toBeEnabled();
   const prepared = await readSummary(page, caseId);
@@ -118,6 +131,7 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
   const before = await counts(page);
   expect(before.external_calls).toBe(0); expect(before.calls.SHELL).toBe(0);
   expect(before.calls.POLICY).toBe(0); expect(before.calls.AMEND).toBe(0);
+  recoveryMilestone("RECOVERY_SEND_READY");
   return caseId;
 }
 
@@ -334,6 +348,7 @@ async function runLostConfirmationResponse(
   loss: "aborted" | "truncated" | "held",
 ) {
   const caseId = await prepareReview(page);
+  recoveryMilestone(`LOST_${loss}_PREPARED`);
   let confirmations = 0;
   let observing = false;
   let releaseConfirmation!: () => void;
@@ -359,16 +374,21 @@ async function runLostConfirmationResponse(
   });
   try {
     await page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true }).click();
+    recoveryMilestone(`LOST_${loss}_CLICKED`);
     const verification = page.getByRole("heading", { name: "Verifying submission outcome…", exact: true });
     await expect(verification).toBeVisible();
+    recoveryMilestone(`LOST_${loss}_VERIFICATION_VISIBLE`);
     await expect(verification).toBeFocused();
     await expect(verification).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "Verify submission outcome", exact: true })).toBeDisabled();
     await expect(page.getByRole("alert")).toHaveCount(0);
+    recoveryMilestone(`LOST_${loss}_SCREENSHOT_START`);
     await page.screenshot({ path: path.resolve("../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS", `verifying-${loss}.png`) });
+    recoveryMilestone(`LOST_${loss}_SCREENSHOT_COMPLETE`);
     releaseObservation();
     await expect(page.locator("#submission-state-title")).toHaveText("Submission confirmed");
+    recoveryMilestone(`LOST_${loss}_CONFIRMED`);
     await expect(page.locator("#submission-state-title")).toBeFocused();
     await expect(page.locator("#submission-state-title")).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toHaveCount(0);
@@ -418,10 +438,13 @@ test("post-UAT Garden scanned evidence auto-confirms, calculates local ownership
   await page.getByLabel("Company Legal Name", { exact: true }).fill("GARDEN BUSINESS");
   await page.getByLabel("Registration ID / UEN").fill("11111999A");
   await page.locator("#home-document").setInputFiles(path.resolve("../backend/tests/fixtures/uat/garden-post-uat-scanned.png"));
+  const uploadResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" && response.url().endsWith("/intake/documents"));
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
   await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
   await expect.poll(async () => (await readSummary(page, caseId)).current_stage).toBe("GOLDTIER_SEARCH");
+  expect((await uploadResponse).status()).toBe(201);
   await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await openStage(page, "Document verification");
   const documents = await (await page.request.get(`/api/onboarding/cases/${caseId}/documents`)).json();

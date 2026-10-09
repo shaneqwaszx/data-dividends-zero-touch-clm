@@ -1,0 +1,542 @@
+{
+  "gate": 5,
+  "claim": "DEVELOPMENT_MEASUREMENT",
+  "base": "198341b059ebf500252ce93d72eb099d2585c60b",
+  "head": "a3f4d17a920bc19fbf7f3807c1fe494453c692ee",
+  "branch": "feat/performance-computational-throughput-optimization",
+  "source_sha256": {
+    "apps/frontend/e2e/performance-browser.e2e.ts": "e8f6fda4ff88b36fd41ac25b2d60b6a9fa523b17688dded43959ffdbba4cc19b"
+  },
+  "product_changed": false,
+  "product_backend_tree": "5bba6582542f0d186cd64562d9af8739801709df",
+  "product_frontend_tree": "8a654eaca8eea927a73271f5533ad7a7d4a8dd69",
+  "method": {
+    "real_http_browser": true,
+    "vite": "7.1.11 development server",
+    "react": "18.3.1 StrictMode development",
+    "playwright": "1.56.1",
+    "actual_chromium_build": "not captured",
+    "samples_each_kind_width_arm": 20,
+    "warmups_each": 2,
+    "cold": "query cache reset by authenticated reload; HTTP cache disabled by Playwright routing",
+    "warm": "Cases -> same case navigation after each reload, before45s stale window",
+    "seeded_cases": 105,
+    "list_page": 50,
+    "tail_ms": 500,
+    "tail_excluded_from_ui_latency": true,
+    "request_attempts_include_cancelled": true,
+    "bytes": "decodedBodySize from same-origin Resource Timing, not header/wire bytes",
+    "render_work": "not separately instrumented",
+    "cpu_memory": "not instrumented for browser",
+    "primary_zero_target_confirmation_requests": true,
+    "measured_method_sha256": "1310bf487ce69024a4080a04b1b59e7aea9bfaa86eead27e3291613cf1a9dcc8",
+    "http_cache": "disabled by mandatory request routing"
+  },
+  "results": [
+    {
+      "width": 1440,
+      "kind": "cold_client_cache",
+      "before": {
+        "elapsed_ms": {
+          "count": 20,
+          "p50": 731.1009999999987,
+          "p95": 918.7707000000009,
+          "min": 432.0753000000004,
+          "max": 953.4058999999979,
+          "mean": 725.0982999999999,
+          "stddev": 133.04237681175536
+        },
+        "requests": {
+          "count": 20,
+          "p50": 14.0,
+          "p95": 14,
+          "min": 14,
+          "max": 14,
+          "mean": 14,
+          "stddev": 0.0
+        },
+        "completed_requests": {
+          "count": 20,
+          "p50": 9.0,
+          "p95": 9,
+          "min": 9,
+          "max": 9,
+          "mean": 9,
+          "stddev": 0.0
+        },
+        "cancelled_requests": {
+          "count": 20,
+          "p50": 5.0,
+          "p95": 5,
+          "min": 5,
+          "max": 5,
+          "mean": 5,
+          "stddev": 0.0
+        },
+        "decoded_bytes": {
+          "count": 20,
+          "p50": 110108.0,
+          "p95": 110108,
+          "min": 110050,
+          "max": 110108,
+          "mean": 110104.5,
+          "stddev": 12.959450930539173
+        }
+      },
+      "after": {
+        "elapsed_ms": {
+          "count": 20,
+          "p50": 716.7566999999999,
+          "p95": 891.8217999999979,
+          "min": 333.3225000000002,
+          "max": 949.3888000000006,
+          "mean": 719.8646399999989,
+          "stddev": 138.98963084725023
+        },
+        "requests": {
+          "count": 20,
+          "p50": 14.0,
+          "p95": 14,
+          "min": 14,
+          "max": 14,
+          "mean": 14,
+          "stddev": 0.0
+        },
+        "completed_requests": {
+          "count": 20,
+          "p50": 9.0,
+          "p95": 9,
+          "min": 9,
+          "max": 9,
+          "mean": 9,
+          "stddev": 0.0
+        },
+        "cancelled_requests": {
+          "count": 20,
+          "p50": 5.0,
+          "p95": 5,
+          "min": 5,
+          "max": 5,
+          "mean": 5,
+          "stddev": 0.0
+        },
+        "decoded_bytes": {
+          "count": 20,
+          "p50": 110108.0,
+          "p95": 110108,
+          "min": 110004,
+          "max": 110108,
+          "mean": 110102.2,
+          "stddev": 23.187110757124483
+        }
+      }
+    },
+    {
+      "width": 1440,
+      "kind": "warm_navigation",
+      "before": {
+        "elapsed_ms": {
+          "count": 20,
+          "p50": 278.8837500000018,
+          "p95": 295.9741999999969,
+          "min": 262.87600000000384,
+          "max": 312.41629999999714,
+          "mean": 277.5605899999997,
+          "stddev": 12.821980172422238
+        },
+        "requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "completed_requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "cancelled_requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "decoded_bytes": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        }
+      },
+      "after": {
+        "elapsed_ms": {
+          "count": 20,
+          "p50": 281.0140500000016,
+          "p95": 297.5829999999987,
+          "min": 262.59820000000036,
+          "max": 305.9333000000006,
+          "mean": 282.54248500000006,
+          "stddev": 11.02403962277436
+        },
+        "requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "completed_requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "cancelled_requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "decoded_bytes": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        }
+      }
+    },
+    {
+      "width": 360,
+      "kind": "cold_client_cache",
+      "before": {
+        "elapsed_ms": {
+          "count": 20,
+          "p50": 717.4018999999989,
+          "p95": 920.3148000000001,
+          "min": 381.1869000000006,
+          "max": 966.8712000000014,
+          "mean": 724.0198600000006,
+          "stddev": 136.4594488764007
+        },
+        "requests": {
+          "count": 20,
+          "p50": 14.0,
+          "p95": 14,
+          "min": 14,
+          "max": 14,
+          "mean": 14,
+          "stddev": 0.0
+        },
+        "completed_requests": {
+          "count": 20,
+          "p50": 9.0,
+          "p95": 9,
+          "min": 9,
+          "max": 9,
+          "mean": 9,
+          "stddev": 0.0
+        },
+        "cancelled_requests": {
+          "count": 20,
+          "p50": 5.0,
+          "p95": 5,
+          "min": 5,
+          "max": 5,
+          "mean": 5,
+          "stddev": 0.0
+        },
+        "decoded_bytes": {
+          "count": 20,
+          "p50": 110108.0,
+          "p95": 110108,
+          "min": 110071,
+          "max": 110108,
+          "mean": 110105.55,
+          "stddev": 8.338086363820317
+        }
+      },
+      "after": {
+        "elapsed_ms": {
+          "count": 20,
+          "p50": 710.1575999999986,
+          "p95": 901.6607000000004,
+          "min": 326.16499999999996,
+          "max": 950.2260999999999,
+          "mean": 686.1754149999997,
+          "stddev": 169.11770104017455
+        },
+        "requests": {
+          "count": 20,
+          "p50": 14.0,
+          "p95": 14,
+          "min": 14,
+          "max": 14,
+          "mean": 14,
+          "stddev": 0.0
+        },
+        "completed_requests": {
+          "count": 20,
+          "p50": 9.0,
+          "p95": 9,
+          "min": 9,
+          "max": 9,
+          "mean": 9,
+          "stddev": 0.0
+        },
+        "cancelled_requests": {
+          "count": 20,
+          "p50": 5.0,
+          "p95": 5,
+          "min": 5,
+          "max": 5,
+          "mean": 5,
+          "stddev": 0.0
+        },
+        "decoded_bytes": {
+          "count": 20,
+          "p50": 110108.0,
+          "p95": 110108,
+          "min": 110020,
+          "max": 110108,
+          "mean": 110102.8,
+          "stddev": 19.58947085607604
+        }
+      }
+    },
+    {
+      "width": 360,
+      "kind": "warm_navigation",
+      "before": {
+        "elapsed_ms": {
+          "count": 20,
+          "p50": 279.4445000000014,
+          "p95": 294.95910000000003,
+          "min": 262.9431999999979,
+          "max": 297.8987999999954,
+          "mean": 278.2004750000002,
+          "stddev": 10.922332414195374
+        },
+        "requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "completed_requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "cancelled_requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "decoded_bytes": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        }
+      },
+      "after": {
+        "elapsed_ms": {
+          "count": 20,
+          "p50": 279.6557500000008,
+          "p95": 295.2394999999997,
+          "min": 264.178100000001,
+          "max": 296.5827999999965,
+          "mean": 279.2969850000003,
+          "stddev": 8.156921350559978
+        },
+        "requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "completed_requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "cancelled_requests": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        },
+        "decoded_bytes": {
+          "count": 20,
+          "p50": 0.0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0
+        }
+      }
+    }
+  ],
+  "raw_manifest_sha256": "c9168c4b782c72b82f7e9b835a1a23ebb307ff88ee4c9bdfb9285530ed7f3540",
+  "checks": [
+    {
+      "check": "browser-1440",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/run_e2e.py",
+        "--grep",
+        "Performance browser cache measurement width1440",
+        "--timeout-seconds",
+        "60"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 53.0,
+      "log": ".runtime\\performance-optimization\\gate5-before-browser-1440.txt"
+    },
+    {
+      "check": "browser-360",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/run_e2e.py",
+        "--grep",
+        "Performance browser cache measurement width360",
+        "--timeout-seconds",
+        "60"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 52.86,
+      "log": ".runtime\\performance-optimization\\gate5-before-browser-360.txt"
+    },
+    {
+      "check": "test",
+      "command": [
+        "npm.cmd",
+        "run",
+        "test"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "exit": 0,
+      "seconds": 9.91,
+      "log": ".runtime\\performance-optimization\\gate5-frontend-test.txt"
+    },
+    {
+      "check": "typecheck",
+      "command": [
+        "npm.cmd",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "exit": 0,
+      "seconds": 5.91,
+      "log": ".runtime\\performance-optimization\\gate5-frontend-rest-typecheck.txt"
+    },
+    {
+      "check": "build",
+      "command": [
+        "npm.cmd",
+        "run",
+        "build"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "exit": 0,
+      "seconds": 7.05,
+      "log": ".runtime\\performance-optimization\\gate5-frontend-rest-build.txt"
+    },
+    {
+      "check": "browser-1440",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/run_e2e.py",
+        "--grep",
+        "Performance browser cache measurement width1440",
+        "--timeout-seconds",
+        "60"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 52.58,
+      "log": ".runtime\\performance-optimization\\gate5-after-browser-1440.txt"
+    },
+    {
+      "check": "browser-360",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "scripts/run_e2e.py",
+        "--grep",
+        "Performance browser cache measurement width360",
+        "--timeout-seconds",
+        "60"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\performance-computational-optimization\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 52.17,
+      "log": ".runtime\\performance-optimization\\gate5-after-browser-360.txt"
+    }
+  ],
+  "diagnosis": "Stable warm cache has zero API requests. Development StrictMode invokes session restore twice; session generation transition cancels five in-flight case/resource queries. Guarded final queries complete once. No meaningful safe frontend/product delta justified.",
+  "independent_verdict": "PENDING separate independent Gate5 report",
+  "cache_metadata_correction": {
+    "measured_method_sha256": "1310bf487ce69024a4080a04b1b59e7aea9bfaa86eead27e3291613cf1a9dcc8",
+    "candidate_method_sha256": "e8f6fda4ff88b36fd41ac25b2d60b6a9fa523b17688dded43959ffdbba4cc19b",
+    "byte_reconstruction_of_original_after_undoing_two_changes": true,
+    "changes": [
+      "reload comment only",
+      "post-window output assets_cache string only"
+    ],
+    "execution_logic": "timing, guard, waits, requests, counts, assertions, layout and selectors exactly unchanged",
+    "correct_scope": "same browser/session; HTTP cache disabled by routing; reload resets React Query cache; same-session navigation reuses React Query cache",
+    "original_raw_metadata_erratum": "browser-warm assets_cache in original receipts is incorrect and superseded by this explicit correction; original files preserved"
+  }
+}

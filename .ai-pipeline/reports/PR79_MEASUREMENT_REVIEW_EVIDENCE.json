@@ -1,0 +1,2082 @@
+{
+  "claim": "CONTROLLED_ACTIVE_PROVIDER_DIAGNOSTIC / LOCAL_SYNTHETIC",
+  "old_publication_head": "b4ee8e92025eefc5946216befb417af15e6de356",
+  "base": "198341b059ebf500252ce93d72eb099d2585c60b",
+  "historical_serial_harness_sha256": "2bd95660eccc445a886991c58ba97d5211b401443c96e7366e57d2cb50c87222",
+  "historical_concurrency_harness_sha256": "8afb25cbbe12fb3872649d2404365e42eeac82218ddd4717cc8020c0ce2fc9f8",
+  "corrected_sampler_sha256": "b0e3d88014be68b2d5019affcae558efc87a01080330ad6503619e61ffe31f69",
+  "corrected_published_concurrency_sha256": "317bc9f874b170971677b8e28a6c2993af64efa844d21d414dfa37ac193957a7",
+  "common_executed_diagnostic_definition_sha256": "f968f6ef2b89269abe07ef3076608fb9659b952c2a70e101a3a1c46312f80a24",
+  "unchanged_primary_measure_level_definition_sha256": "67fdfb71bb17e1cb19c2f4fb4357adf3f3ca57ef7e852036a1f627c7c79ca16f",
+  "method_identity_note": "Baseline collection preceded addition of one primary-run health_metric_status metadata field; exact diagnostic class/functions are identical and both full measured hashes are retained. The field is outside the health execution and primary timing paths.",
+  "historical_final_sha256": {
+    "PERFORMANCE_OPTIMIZATION_FINAL.md": "a951edc61082f69ad484d5fcbb67f5ce20a0377dd2e677a9e37043e1f9de0893",
+    "PERFORMANCE_OPTIMIZATION_FINAL.json": "1a94391b0592724a761d2e73f8ac4b9b392a0f230554ffaf44605151f5f395d8"
+  },
+  "historical_resource_cells": [
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/memory_onboarding/peak_rss_bytes",
+      "value": 214089728
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/memory_onboarding/host_cpu_mean_percent",
+      "value": 17.43191489361702
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/mongo_onboarding/peak_rss_bytes",
+      "value": 238067712
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/mongo_onboarding/host_cpu_mean_percent",
+      "value": 17.649425287356323
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/blocker_correction_resume/peak_rss_bytes",
+      "value": 256720896
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/blocker_correction_resume/host_cpu_mean_percent",
+      "value": 16.185714285714287
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/mock_target_success/peak_rss_bytes",
+      "value": 254664704
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/mock_target_success/host_cpu_mean_percent",
+      "value": 17.76734693877551
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/uncertain_policy_recovery/peak_rss_bytes",
+      "value": 221134848
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/uncertain_policy_recovery/host_cpu_mean_percent",
+      "value": 24.826315789473686
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/case_detail/peak_rss_bytes",
+      "value": 263593984
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/case_detail/host_cpu_mean_percent",
+      "value": 17.52173913043478
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/portfolio_memory/peak_rss_bytes",
+      "value": 229445632
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/portfolio_memory/host_cpu_mean_percent",
+      "value": 16.54787234042553
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/portfolio_mongo/peak_rss_bytes",
+      "value": 246390784
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/portfolio_mongo/host_cpu_mean_percent",
+      "value": 15.518288590604026
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/ownership_graph/peak_rss_bytes",
+      "value": 230268928
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/ownership_graph/host_cpu_mean_percent",
+      "value": 3.1
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/native_document/peak_rss_bytes",
+      "value": 287485952
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_BASELINE.json",
+      "field": "/workloads/native_document/host_cpu_mean_percent",
+      "value": 14.758823529411766
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/memory_onboarding/peak_rss_bytes",
+      "value": 215715840
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/memory_onboarding/host_cpu_mean_percent",
+      "value": 11.378571428571428
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/mongo_onboarding/peak_rss_bytes",
+      "value": 239890432
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/mongo_onboarding/host_cpu_mean_percent",
+      "value": 15.825316455696202
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/blocker_correction_resume/peak_rss_bytes",
+      "value": 256167936
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/blocker_correction_resume/host_cpu_mean_percent",
+      "value": 15.329629629629629
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/mock_target_success/peak_rss_bytes",
+      "value": 252829696
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/mock_target_success/host_cpu_mean_percent",
+      "value": 11.035555555555556
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/uncertain_policy_recovery/peak_rss_bytes",
+      "value": 221261824
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/uncertain_policy_recovery/host_cpu_mean_percent",
+      "value": 9.393333333333333
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/case_detail/peak_rss_bytes",
+      "value": 261914624
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/case_detail/host_cpu_mean_percent",
+      "value": 14.114634146341464
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/portfolio_memory/peak_rss_bytes",
+      "value": 228466688
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/portfolio_memory/host_cpu_mean_percent",
+      "value": 12.306024096385542
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/portfolio_mongo/peak_rss_bytes",
+      "value": 245288960
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/portfolio_mongo/host_cpu_mean_percent",
+      "value": 14.446702317290553
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/ownership_graph/peak_rss_bytes",
+      "value": 229216256
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/ownership_graph/host_cpu_mean_percent",
+      "value": 11.1
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/native_document/peak_rss_bytes",
+      "value": 282898432
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_2.json",
+      "field": "/workloads/native_document/host_cpu_mean_percent",
+      "value": 15.05625
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/memory_onboarding/peak_rss_bytes",
+      "value": 215089152
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/memory_onboarding/host_cpu_mean_percent",
+      "value": 13.688372093023256
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/mongo_onboarding/peak_rss_bytes",
+      "value": 240275456
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/mongo_onboarding/host_cpu_mean_percent",
+      "value": 16.5987012987013
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/blocker_correction_resume/peak_rss_bytes",
+      "value": 255770624
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/blocker_correction_resume/host_cpu_mean_percent",
+      "value": 12.333333333333334
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/mock_target_success/peak_rss_bytes",
+      "value": 252706816
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/mock_target_success/host_cpu_mean_percent",
+      "value": 10.046511627906977
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/uncertain_policy_recovery/peak_rss_bytes",
+      "value": 220409856
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/uncertain_policy_recovery/host_cpu_mean_percent",
+      "value": 9.535294117647059
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/case_detail/peak_rss_bytes",
+      "value": 263512064
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/case_detail/host_cpu_mean_percent",
+      "value": 9.56279069767442
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/portfolio_memory/peak_rss_bytes",
+      "value": 227807232
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/portfolio_memory/host_cpu_mean_percent",
+      "value": 10.385714285714286
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/portfolio_mongo/peak_rss_bytes",
+      "value": 245997568
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/portfolio_mongo/host_cpu_mean_percent",
+      "value": 11.10421286031042
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/ownership_graph/peak_rss_bytes",
+      "value": 229986304
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/ownership_graph/host_cpu_mean_percent",
+      "value": 2.9
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/native_document/peak_rss_bytes",
+      "value": 287604736
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/control_group/workloads/native_document/host_cpu_mean_percent",
+      "value": 11.31875
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/unchanged_blocker_repeat/peak_rss_bytes",
+      "value": 211091456
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_3.json",
+      "field": "/unchanged_blocker_repeat/host_cpu_mean_percent",
+      "value": 12.132
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/before_concurrency/workloads/1/peak_parent_children_rss_bytes_separate",
+      "value": 185016320
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/before_concurrency/workloads/5/peak_parent_children_rss_bytes_separate",
+      "value": 206176256
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/after_concurrency/workloads/1/peak_parent_children_rss_bytes_separate",
+      "value": 184631296
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/after_concurrency/workloads/5/peak_parent_children_rss_bytes_separate",
+      "value": 430751744
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/memory_onboarding/peak_rss_bytes",
+      "value": 214695936
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/memory_onboarding/host_cpu_mean_percent",
+      "value": 14.804761904761905
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/mongo_onboarding/peak_rss_bytes",
+      "value": 239980544
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/mongo_onboarding/host_cpu_mean_percent",
+      "value": 15.363013698630137
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/blocker_correction_resume/peak_rss_bytes",
+      "value": 254652416
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/blocker_correction_resume/host_cpu_mean_percent",
+      "value": 11.938461538461539
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/mock_target_success/peak_rss_bytes",
+      "value": 254832640
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/mock_target_success/host_cpu_mean_percent",
+      "value": 16.54
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/uncertain_policy_recovery/peak_rss_bytes",
+      "value": 221278208
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/uncertain_policy_recovery/host_cpu_mean_percent",
+      "value": 12.85
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/case_detail/peak_rss_bytes",
+      "value": 263462912
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/case_detail/host_cpu_mean_percent",
+      "value": 13.59047619047619
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/portfolio_memory/peak_rss_bytes",
+      "value": 229343232
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/portfolio_memory/host_cpu_mean_percent",
+      "value": 12.858536585365854
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/portfolio_mongo/peak_rss_bytes",
+      "value": 242929664
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/portfolio_mongo/host_cpu_mean_percent",
+      "value": 14.095869565217392
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/ownership_graph/peak_rss_bytes",
+      "value": 230346752
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/ownership_graph/host_cpu_mean_percent",
+      "value": 0.0
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/native_document/peak_rss_bytes",
+      "value": 287461376
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_4.json",
+      "field": "/control_group/workloads/native_document/host_cpu_mean_percent",
+      "value": 10.9375
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/memory_1/resources/peak_parent_children_rss_bytes",
+      "value": 188125184
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/memory_1/resources/mean_host_cpu_percent",
+      "value": 15.763157894736842
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/memory_5/resources/peak_parent_children_rss_bytes",
+      "value": 426835968
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/memory_5/resources/mean_host_cpu_percent",
+      "value": 20.96619718309859
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/memory_10/resources/peak_parent_children_rss_bytes",
+      "value": 714244096
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/memory_10/resources/mean_host_cpu_percent",
+      "value": 23.63963963963964
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/memory_20/resources/peak_parent_children_rss_bytes",
+      "value": 1191407616
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/memory_20/resources/mean_host_cpu_percent",
+      "value": 27.277522935779817
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/mongo_1/resources/peak_parent_children_rss_bytes",
+      "value": 284303360
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/mongo_1/resources/mean_host_cpu_percent",
+      "value": 12.5265625
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/mongo_5/resources/peak_parent_children_rss_bytes",
+      "value": 504545280
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/mongo_5/resources/mean_host_cpu_percent",
+      "value": 13.128428927680797
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/mongo_10/resources/peak_parent_children_rss_bytes",
+      "value": 708116480
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/mongo_10/resources/mean_host_cpu_percent",
+      "value": 12.721256684491978
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/mongo_20/resources/peak_parent_children_rss_bytes",
+      "value": 900583424
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/before/workloads/mongo_20/resources/mean_host_cpu_percent",
+      "value": 12.993951612903226
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/memory_1/resources/peak_parent_children_rss_bytes",
+      "value": 188903424
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/memory_1/resources/mean_host_cpu_percent",
+      "value": 12.5
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/memory_5/resources/peak_parent_children_rss_bytes",
+      "value": 422248448
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/memory_5/resources/mean_host_cpu_percent",
+      "value": 19.18695652173913
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/memory_10/resources/peak_parent_children_rss_bytes",
+      "value": 712929280
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/memory_10/resources/mean_host_cpu_percent",
+      "value": 21.6531746031746
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/memory_20/resources/peak_parent_children_rss_bytes",
+      "value": 1180069888
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/memory_20/resources/mean_host_cpu_percent",
+      "value": 26.186697247706423
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/mongo_1/resources/peak_parent_children_rss_bytes",
+      "value": 282345472
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/mongo_1/resources/mean_host_cpu_percent",
+      "value": 11.75873015873016
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/mongo_5/resources/peak_parent_children_rss_bytes",
+      "value": 505298944
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/mongo_5/resources/mean_host_cpu_percent",
+      "value": 14.821897810218978
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/mongo_10/resources/peak_parent_children_rss_bytes",
+      "value": 705576960
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/mongo_10/resources/mean_host_cpu_percent",
+      "value": 13.582868525896414
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/mongo_20/resources/peak_parent_children_rss_bytes",
+      "value": 895635456
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_GATE_6.json",
+      "field": "/after/workloads/mongo_20/resources/mean_host_cpu_percent",
+      "value": 13.810529845741113
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/memory_onboarding/peak_rss_bytes",
+      "value": 214474752
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/memory_onboarding/host_cpu_mean_percent",
+      "value": 12.146341463414634
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/mongo_onboarding/peak_rss_bytes",
+      "value": 239063040
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/mongo_onboarding/host_cpu_mean_percent",
+      "value": 10.925757575757576
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/blocker_correction_resume/peak_rss_bytes",
+      "value": 256786432
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/blocker_correction_resume/host_cpu_mean_percent",
+      "value": 10.557692307692308
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/mock_target_success/peak_rss_bytes",
+      "value": 252993536
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/mock_target_success/host_cpu_mean_percent",
+      "value": 12.29767441860465
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/uncertain_policy_recovery/peak_rss_bytes",
+      "value": 220860416
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/uncertain_policy_recovery/host_cpu_mean_percent",
+      "value": 8.973333333333333
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/case_detail/peak_rss_bytes",
+      "value": 264183808
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/case_detail/host_cpu_mean_percent",
+      "value": 11.6775
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/portfolio_memory/peak_rss_bytes",
+      "value": 229408768
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/portfolio_memory/host_cpu_mean_percent",
+      "value": 10.216049382716049
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/portfolio_mongo/peak_rss_bytes",
+      "value": 246505472
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/portfolio_mongo/host_cpu_mean_percent",
+      "value": 11.759569892473118
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/ownership_graph/peak_rss_bytes",
+      "value": 230555648
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/ownership_graph/host_cpu_mean_percent",
+      "value": 12.5
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/native_document/peak_rss_bytes",
+      "value": 287043584
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/workloads/native_document/host_cpu_mean_percent",
+      "value": 11.129411764705882
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/retained_optimizations/2/before_peak_rss_bytes",
+      "value": 206176256
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/retained_optimizations/2/after_peak_rss_bytes",
+      "value": 430751744
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/concurrency_evidence/before/workloads/1/peak_parent_children_rss_bytes_separate",
+      "value": 185016320
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/concurrency_evidence/before/workloads/5/peak_parent_children_rss_bytes_separate",
+      "value": 206176256
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/concurrency_evidence/after/workloads/1/peak_parent_children_rss_bytes_separate",
+      "value": 184631296
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/concurrency_evidence/after/workloads/5/peak_parent_children_rss_bytes_separate",
+      "value": 430751744
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/memory_1/resources/peak_parent_children_rss_bytes",
+      "value": 188125184
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/memory_1/resources/mean_host_cpu_percent",
+      "value": 15.763157894736842
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/memory_5/resources/peak_parent_children_rss_bytes",
+      "value": 426835968
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/memory_5/resources/mean_host_cpu_percent",
+      "value": 20.96619718309859
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/memory_10/resources/peak_parent_children_rss_bytes",
+      "value": 714244096
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/memory_10/resources/mean_host_cpu_percent",
+      "value": 23.63963963963964
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/memory_20/resources/peak_parent_children_rss_bytes",
+      "value": 1191407616
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/memory_20/resources/mean_host_cpu_percent",
+      "value": 27.277522935779817
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/mongo_1/resources/peak_parent_children_rss_bytes",
+      "value": 284303360
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/mongo_1/resources/mean_host_cpu_percent",
+      "value": 12.5265625
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/mongo_5/resources/peak_parent_children_rss_bytes",
+      "value": 504545280
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/mongo_5/resources/mean_host_cpu_percent",
+      "value": 13.128428927680797
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/mongo_10/resources/peak_parent_children_rss_bytes",
+      "value": 708116480
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/mongo_10/resources/mean_host_cpu_percent",
+      "value": 12.721256684491978
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/mongo_20/resources/peak_parent_children_rss_bytes",
+      "value": 900583424
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/before/workloads/mongo_20/resources/mean_host_cpu_percent",
+      "value": 12.993951612903226
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/memory_1/resources/peak_parent_children_rss_bytes",
+      "value": 188903424
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/memory_1/resources/mean_host_cpu_percent",
+      "value": 12.5
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/memory_5/resources/peak_parent_children_rss_bytes",
+      "value": 422248448
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/memory_5/resources/mean_host_cpu_percent",
+      "value": 19.18695652173913
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/memory_10/resources/peak_parent_children_rss_bytes",
+      "value": 712929280
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/memory_10/resources/mean_host_cpu_percent",
+      "value": 21.6531746031746
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/memory_20/resources/peak_parent_children_rss_bytes",
+      "value": 1180069888
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/memory_20/resources/mean_host_cpu_percent",
+      "value": 26.186697247706423
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/mongo_1/resources/peak_parent_children_rss_bytes",
+      "value": 282345472
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/mongo_1/resources/mean_host_cpu_percent",
+      "value": 11.75873015873016
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/mongo_5/resources/peak_parent_children_rss_bytes",
+      "value": 505298944
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/mongo_5/resources/mean_host_cpu_percent",
+      "value": 14.821897810218978
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/mongo_10/resources/peak_parent_children_rss_bytes",
+      "value": 705576960
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/mongo_10/resources/mean_host_cpu_percent",
+      "value": 13.582868525896414
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/mongo_20/resources/peak_parent_children_rss_bytes",
+      "value": 895635456
+    },
+    {
+      "report": ".ai-pipeline/reports/PERFORMANCE_OPTIMIZATION_FINAL.json",
+      "field": "/load_evidence/repeat/workloads/mongo_20/resources/mean_host_cpu_percent",
+      "value": 13.810529845741113
+    }
+  ],
+  "resource_audit_note": "176 aggregate cells including duplicate embeddings: 93 positive RSS cells, 83 finite CPU means. A finite mean from the original statistics.mean path proves a nonempty CPU list. Concurrency records only RSS, not CPU-list contents; positive RSS proves a nonempty RSS observation. No unavailable raw CPU list is claimed recovered.",
+  "before": {
+    "label": "before",
+    "source_head": "198341b059ebf500252ce93d72eb099d2585c60b",
+    "baseline": "198341b059ebf500252ce93d72eb099d2585c60b",
+    "product_tree": "130b3471bccfd8780db2f05069f859b4ae4c5876",
+    "main_sha256": "2afc8be3cad95d828ec07e69dba7f3309bf3c80204a53d9fd0f3c6aefee17c27",
+    "method_sha256": "b50c47884b9e183ef2f5c96a9bc99a19be9da1d965862020c190d33e8db1f089",
+    "resources_method_sha256": "b0e3d88014be68b2d5019affcae558efc87a01080330ad6503619e61ffe31f69",
+    "pdf_sha256": "befaea4d3fcc1c3c10ed3ce7b39156cb3341a522dc2d2b7986834d6c82cd700f",
+    "python": "3.12.10",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "cpu_count": 32,
+    "versions": {
+      "fastapi": "0.141.1",
+      "starlette": "1.6.0",
+      "anyio": "4.14.2",
+      "httpx": "0.28.1",
+      "pydantic": "2.13.5",
+      "pypdfium2": "5.13.0"
+    },
+    "groups": 20,
+    "warmup_groups": 2,
+    "release_budget_ms": 100,
+    "operation_failsafe_seconds": 20,
+    "method": "transport-entry dispatch during hold inside real native provider; health completion releases hold, independent 100ms release if blocked; not natural provider latency or throughput measurement",
+    "workloads": {
+      "1": {
+        "health_ms": {
+          "count": 20,
+          "p50": 115.2406,
+          "p95": 119.205,
+          "min": 109.2359,
+          "max": 120.9048,
+          "mean": 115.24003,
+          "stddev": 2.809405474304595
+        },
+        "samples": [
+          {
+            "health_ms": 116.2913,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 117.0502,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 117.1424,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 113.6888,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 111.4687,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 119.205,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 117.4271,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 115.256,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 113.3412,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 115.2252,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 114.4123,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 115.1854,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 114.1864,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 112.6959,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 109.2359,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 118.7426,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 115.8373,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 115.7217,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 120.9048,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 111.7824,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          }
+        ],
+        "excluded_warmup": [
+          {
+            "health_ms": 111.4101,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 112.9784,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          }
+        ]
+      },
+      "5": {
+        "health_ms": {
+          "count": 20,
+          "p50": 3968.3622,
+          "p95": 4067.092,
+          "min": 3893.4002,
+          "max": 4120.2134,
+          "mean": 3979.12412,
+          "stddev": 51.69685402911861
+        },
+        "samples": [
+          {
+            "health_ms": 3893.4002,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3959.2809,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3989.3408,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3938.31,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 4013.4128,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3990.9813,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 4011.8995,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3937.9635,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3933.6807,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3970.3328,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 4067.092,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3926.5887,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3960.4911,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3984.7149,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3936.3664,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 4004.4755,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3961.9692,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3966.3916,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 4015.5771,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 4120.2134,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          }
+        ],
+        "excluded_warmup": [
+          {
+            "health_ms": 3957.8111,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3925.5484,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": false,
+            "release_reason": "diagnostic_deadline",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          }
+        ]
+      }
+    }
+  },
+  "after": {
+    "label": "after",
+    "source_head": "b4ee8e92025eefc5946216befb417af15e6de356",
+    "baseline": "198341b059ebf500252ce93d72eb099d2585c60b",
+    "product_tree": "323bd0013816266ca6cb5a6f9d99ec4144a942c1",
+    "main_sha256": "ab7e61426252113e71bc6e2defa681b0bacf7b8aa1c9cc70e5fc1182bbf92124",
+    "method_sha256": "317bc9f874b170971677b8e28a6c2993af64efa844d21d414dfa37ac193957a7",
+    "resources_method_sha256": "b0e3d88014be68b2d5019affcae558efc87a01080330ad6503619e61ffe31f69",
+    "pdf_sha256": "befaea4d3fcc1c3c10ed3ce7b39156cb3341a522dc2d2b7986834d6c82cd700f",
+    "python": "3.12.10",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "cpu_count": 32,
+    "versions": {
+      "fastapi": "0.141.1",
+      "starlette": "1.6.0",
+      "anyio": "4.14.2",
+      "httpx": "0.28.1",
+      "pydantic": "2.13.5",
+      "pypdfium2": "5.13.0"
+    },
+    "groups": 20,
+    "warmup_groups": 2,
+    "release_budget_ms": 100,
+    "operation_failsafe_seconds": 20,
+    "method": "transport-entry dispatch during hold inside real native provider; health completion releases hold, independent 100ms release if blocked; not natural provider latency or throughput measurement",
+    "workloads": {
+      "1": {
+        "health_ms": {
+          "count": 20,
+          "p50": 2.3316,
+          "p95": 2.6846,
+          "min": 1.9798,
+          "max": 2.9332,
+          "mean": 2.36279,
+          "stddev": 0.23335139957628392
+        },
+        "samples": [
+          {
+            "health_ms": 2.3542,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 1.9798,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.4151,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.177,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.4768,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.2799,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.9332,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.6846,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.1527,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.6499,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.183,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.2247,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.3116,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.3516,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.5367,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.575,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.0047,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.3037,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.4084,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.2532,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          }
+        ],
+        "excluded_warmup": [
+          {
+            "health_ms": 3.4546,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.5764,
+            "active_provider_count_at_dispatch": 1,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 1,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          }
+        ]
+      },
+      "5": {
+        "health_ms": {
+          "count": 20,
+          "p50": 2.5105500000000003,
+          "p95": 3.5114,
+          "min": 2.1396,
+          "max": 3.907,
+          "mean": 2.703075,
+          "stddev": 0.5049440718118143
+        },
+        "samples": [
+          {
+            "health_ms": 2.1844,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.3651,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 2,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.7792,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 2,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3.5114,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3.1821,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3.2297,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.7626,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.483,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 2,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.4339,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.2468,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.7538,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.26,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 4,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.435,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3.907,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.1396,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.8995,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.2104,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.5381,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 2,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.3405,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 3.3994,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          }
+        ],
+        "excluded_warmup": [
+          {
+            "health_ms": 3.4307,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          },
+          {
+            "health_ms": 2.6708,
+            "active_provider_count_at_dispatch": 5,
+            "held_provider_count_at_dispatch": 1,
+            "completed_while_provider_held": true,
+            "release_reason": "health_completed",
+            "completed_intakes": 5,
+            "active_provider_count_after_intake": 0,
+            "target_mutations": 0,
+            "registry_operations": 0,
+            "external_calls": 0
+          }
+        ]
+      }
+    }
+  },
+  "old_health_metric_status": "SUPERSEDED: entry event did not prove ongoing provider activity at dispatch",
+  "primary_throughput_status": "RETAINED HISTORICAL: exact measure_level definition and product source unchanged; original health_ms excluded from accepted health evidence",
+  "raw_observation_sha256": {
+    "before": "880959b63f6e89d650a54032f6eb090bff2269d6443c273bc72702be715e1b9c",
+    "after": "02ea99321319812192d08b43371dea19b921f733d9a30f709c1ca57f82048717"
+  },
+  "claim_limits": [
+    "100ms diagnostic release budget is an independently owned bound, not natural provider work or an improvement percentage.",
+    "Baseline five-request health queue also includes ordinary remaining synchronous native intake work.",
+    "Candidate completes during diagnostic hold; this proves responsiveness to this bounded in-process synthetic composition, not an SLA, production/full-case capacity or external provider speed."
+  ]
+}
