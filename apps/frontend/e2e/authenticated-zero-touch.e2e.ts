@@ -1076,8 +1076,19 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect(binding?.freshness_comparator).toBe("EVALUATION_NOW_LT_EXPIRES_AT");
   const bindingView = page.getByLabel("Case evidence binding", { exact: true });
   await expect(bindingView).toBeVisible();
-  for (const value of Object.values(binding!)) {
-    await expect(bindingView).toContainText(String(value));
+  expect(binding?.synthetic_seed_namespace).toBeNull();
+  await expect(bindingView.getByRole("note")).toHaveCount(0);
+  const visibleBindingFields = [
+    "disposition",
+    "bound_to_case_at",
+    "expires_at",
+    "freshness_policy_id",
+    "freshness_policy_version",
+    "freshness_duration_seconds",
+    "freshness_comparator",
+  ] as const;
+  for (const field of visibleBindingFields) {
+    await expect(bindingView).toContainText(String(binding![field]));
   }
   await expect(bindingView).toContainText(
     "This is not a current validity assessment or an ACRA validity guarantee.",
