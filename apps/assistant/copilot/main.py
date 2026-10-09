@@ -21,6 +21,7 @@ from .context import build_case_facts
 from .guardrails import guard_answer
 from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel
 from .prompts import build_messages
+from .small_talk import small_talk_reply
 
 
 class ChatTurn(BaseModel):
@@ -171,6 +172,16 @@ def create_app(
     def chat(body: ChatRequest, snapshot: Snapshot) -> ChatResponse:
         facts = build_case_facts(snapshot)
         question = body.message.strip()[: config.max_question_chars]
+        quick = small_talk_reply(question, facts)
+        if quick is not None:
+            # Greetings and thanks get an instant reply; the model is not called.
+            return ChatResponse(
+                answer=quick,
+                answered_by="case_data",
+                model=None,
+                notice=None,
+                suggested_questions=suggested_questions(facts),
+            )
         return answer_with_model(
             build_messages(facts, history_of(body), question),
             fallback_answer(question, facts),
