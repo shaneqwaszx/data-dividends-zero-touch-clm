@@ -66,9 +66,9 @@ def test_physical_cli_seed_check_rerun_and_restart_are_safe_idempotent(database)
         database,
     ]
     for flag, expected in (
-        ("--seed", "CREATED=4"),
+        ("--seed", "CREATED=8"),
         ("--seed", "CREATED=0"),
-        ("--check", "FRESH=4"),
+        ("--check", "FRESH=8"),
     ):
         result = subprocess.run(
             [*command, flag],
@@ -85,7 +85,7 @@ def test_physical_cli_seed_check_rerun_and_restart_are_safe_idempotent(database)
         assert "local-synthetic" not in result.stdout
     first, store = open_store(database)
     originals = [store.get(company.snapshot(datetime.now(UTC)).key) for company in COMPANIES]
-    assert first[database]["clm_registry_snapshots"].count_documents({}) == 4
+    assert first[database]["clm_registry_snapshots"].count_documents({}) == 8
     first.close()
     second, restored = open_store(database)
     try:

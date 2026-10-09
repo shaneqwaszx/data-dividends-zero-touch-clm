@@ -12,11 +12,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "apps/backend")]
 
-from app.domain.models import RegistryFreshnessPolicy  # noqa: E402
-from app.persistence.mongo_registry_cache_store import MongoRegistryCacheStore  # noqa: E402
-from app.services.registry_cache_repository import RegistrySnapshotRepository  # noqa: E402
+from app.domain.models import RegistryFreshnessPolicy
+from app.persistence.mongo_registry_cache_store import MongoRegistryCacheStore
+from app.services.registry_cache_repository import RegistrySnapshotRepository
 
-from scripts.zero_touch_happy_path_fixtures import COMPANIES  # noqa: E402
+from scripts.zero_touch_happy_path_fixtures import ALL_COMPANIES
 
 _UAT_DATABASE = re.compile(r"^(?:clm_uat|clm_p16)_[0-9a-f]{24}$")
 
@@ -39,7 +39,7 @@ def manage_fixtures(
     policy = RegistryFreshnessPolicy()
     # Validate all known keys before beginning a batch. Concurrent changes still use CAS.
     pending = []
-    for company in COMPANIES:
+    for company in ALL_COMPANIES:
         candidate = company.snapshot(now)
         current = repository.get(candidate.key)
         if current is not None:
@@ -99,11 +99,11 @@ def main() -> int:
         if args.seed:
             store.initialize()
         counts = manage_fixtures(store, now=datetime.now(UTC), seed=args.seed)
-        for company in COMPANIES:
+        for company in ALL_COMPANIES:
             print(f"{company.name} | {company.uen}")
-        print("FIXTURE_COUNT=4; " + "; ".join(f"{k.upper()}={v}" for k, v in counts.items()))
-        return 0 if args.seed or counts["fresh"] == 4 else 1
-    except Exception:
+        print(f"FIXTURE_COUNT={len(ALL_COMPANIES)}; " + "; ".join(f"{k.upper()}={v}" for k, v in counts.items()))
+        return 0 if args.seed or counts["fresh"] == len(ALL_COMPANIES) else 1
+    except Exception:  # noqa: BLE001 - CLI failures must remain sanitized
         print("SEED_CHECK_FAILED: unsafe configuration, conflicting evidence or unavailable store.")
         return 2
     finally:

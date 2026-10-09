@@ -1,0 +1,162 @@
+{
+  "branch": "feat/synthetic-happy-path-company-pack",
+  "base_sha": "21124498cb1b8fd47b1406534d6fd9c24af0e2ea",
+  "origin_main": "21124498cb1b8fd47b1406534d6fd9c24af0e2ea",
+  "algorithm": "SHA256 of sorted path + NUL + raw-byte SHA256 + LF",
+  "aggregate_sha256": "d575482838ab74cf245ea69882f056fa4fa998304b2024bb51610f85bfdb7fea",
+  "files": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "117afa11081c8f3f53979584f901b0477039ad127f5c38d89480f4f1d8ec22e3"
+    },
+    {
+      "path": "apps/backend/app/api_models.py",
+      "sha256": "a3a006b8e6ac4f79b6869ab7a4483ea8afaf370a9bd00ad006c80d4182afb08f"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/README.md",
+      "sha256": "f9cf9527cfcf3ab8dee5695d566e1b0a0724609f4a24adc604eda99fdcc07791"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/README.md",
+      "sha256": "fd4e77acfa9781b755490ed51052aab9f1e79e5b9a03b07e2d1c5f42a67efeb0"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/meridian-synthetic-infrastructure-client.pdf",
+      "sha256": "b34c6894129f41e898ce54b04cc0a5927ae1d8f56b83be9e602348f49f1ba88c"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/orion-synthetic-technologies-client.pdf",
+      "sha256": "87420d3b16467f157fafe16c59d05940dbfb2f7566eb34b1976193420bb07f38"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/pacific-synthetic-ledger-client.pdf",
+      "sha256": "ab228e462648f022b5bf4c1a8262d919b7975d33e0114eb11da41c150f3eb30d"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/straits-synthetic-holdings-client.pdf",
+      "sha256": "ed24243f5b7ad02d51222975b9348f61cb9091c17882ca8082d32f4eb3b09597"
+    },
+    {
+      "path": "apps/backend/tests/test_evidence_workbench_registry_projection.py",
+      "sha256": "fd0271b157542e0e8fa8c098d8f6458997093fff1ef14eba5c8e32a33dee3419"
+    },
+    {
+      "path": "apps/backend/tests/test_slice_b_registry_demo.py",
+      "sha256": "0a16d93b2aafe90a7b1b1c2e7675c281f9ed5c217d16152295bcd73441252780"
+    },
+    {
+      "path": "apps/backend/tests/test_slice_f_document_pack.py",
+      "sha256": "091e2bf84e67e62afd3a6bfa2b88f29559154d7d3e6bc7ee57417da7f852ca6f"
+    },
+    {
+      "path": "apps/backend/tests/test_synthetic_company_pack.py",
+      "sha256": "f12fab3091729180c97264a8a0b3b749a7a0815209814cd2f13f7325c593539b"
+    },
+    {
+      "path": "apps/backend/tests/test_synthetic_company_pack_real_mongo.py",
+      "sha256": "fc608fdc15c25f8fdd5a1ba7577a20376f5bf0f336d98ddc2b6412367f1b71a0"
+    },
+    {
+      "path": "apps/backend/tests/test_zero_touch_database_happy_path.py",
+      "sha256": "b2c7180c5f844aab56c49464304ea15cb15078d20337f4f473ef4b7d1b51ed87"
+    },
+    {
+      "path": "apps/backend/tests/test_zero_touch_database_real_mongo.py",
+      "sha256": "de695266fe3785b5094d50e82c4372473e859dd39ed124e0ccd3bdf13229b386"
+    },
+    {
+      "path": "apps/frontend/e2e/synthetic-company-pack.e2e.ts",
+      "sha256": "a2cf47a868430e8c192856f710642878db69b7b52992480313cbb0abe9c65086"
+    },
+    {
+      "path": "apps/frontend/src/pages/RegistryProvenancePanel.test.tsx",
+      "sha256": "60f8fdd2873737b20978622c416a8141c0302772768f1a6f29cfa2b541f510c6"
+    },
+    {
+      "path": "apps/frontend/src/pages/RegistryProvenancePanel.tsx",
+      "sha256": "91f11bcb77e1577ccb28f77d9931220d023fbe4160aa2aa431a41724d6da0cac"
+    },
+    {
+      "path": "apps/frontend/src/types.ts",
+      "sha256": "41f81e40aa6123cb142f76321e41bc63a48d34e9eb74494f2e16921129f03185"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "17bfed164106b9e9759a3bea17fe981a8d8382c07f99e94d1d3f90b7ca180e2e"
+    },
+    {
+      "path": "docs/PROJECT_STATE.md",
+      "sha256": "3343d208b18a9915c5da918517d002b95f292b5fdd4395e2652743c55b966226"
+    },
+    {
+      "path": "docs/contracts/REGISTRY_CACHE_FRESHNESS_PROFILE.md",
+      "sha256": "a8bd2b0ea065b96f6e5f2d9c3c280b1b1776ffebd900e06d064cf2a8041f0980"
+    },
+    {
+      "path": "docs/demo/SYNTHETIC_COMPANY_PACK.md",
+      "sha256": "376a9a2df83ab23087eed57c922ebdb32ce25e653ad50618c7be8945808ffc5a"
+    },
+    {
+      "path": "scripts/e2e_backend_server.py",
+      "sha256": "34069d348f463d79931824919c10939204235e94f5be95c24eb685950a18ddaf"
+    },
+    {
+      "path": "scripts/generate_synthetic_company_pack.py",
+      "sha256": "c313c989266842dd770308ae8c8a9d9f047d3ff1fb0b65b26413c1d962570cdf"
+    },
+    {
+      "path": "scripts/run_e2e.py",
+      "sha256": "5f488cf7e2f88b7ef9027c38944890c387249b09b29cc8716784a39ed309c425"
+    },
+    {
+      "path": "scripts/run_physical_mongo_tests.py",
+      "sha256": "90fbb220cd3b7a01570bf90d1eb33eb808cd2551a78bbde6f7f39640ac0558a7"
+    },
+    {
+      "path": "scripts/seed_zero_touch_happy_path_companies.py",
+      "sha256": "9c221b8ff87152eb0a917a7da778501f37ae3af0e58c49ce5daa2719f658b535"
+    },
+    {
+      "path": "scripts/synthetic_company_pack.py",
+      "sha256": "716b00f50c1f686bd57d964333ddaae6b669814ee152ef255dfdb3fb9dc0bc1f"
+    },
+    {
+      "path": "scripts/synthetic_company_pack_test_transport.py",
+      "sha256": "9d8890d16821afde35635984f7fca5fd67f038d155947dce68640345017fafaa"
+    },
+    {
+      "path": "scripts/zero_touch_happy_path_fixtures.py",
+      "sha256": "0853f021a26c930ae103a18b40af97a7a231525e1b27680b1d646fd8d9cac4e7"
+    },
+    {
+      "path": "tests/test_phase_07_delivery_assets.py",
+      "sha256": "08df98cd1230935f48ff77aacfb9fbdef326d7c829c794b5feb7fe248aec9393"
+    },
+    {
+      "path": "tests/test_run_e2e.py",
+      "sha256": "0f3b6699ab75caa30931ed095b690d2f57a66f08336af3722b84087b9b7e660d"
+    }
+  ],
+  "supersedes_product_identity": "12cf9e2606161e7436d6b0bf105c4d8a5e8ba458e4343a52bce12fcd811d841c",
+  "historical_publication_evidence_sha256": {
+    ".ai-pipeline/reports/SYNTHETIC_COMPANY_PACK_CORRECTION_ATTEMPT1_MANIFEST.json": "5038b733a9633a9179c92778289469af5ee128082e9dc195dd580a7e3aba1bf8",
+    ".ai-pipeline/reports/SYNTHETIC_COMPANY_PACK_CORRECTION_FINAL_QUALITY_GATE.md": "187b078b61f5ab124ac64977b0377d3c8725eeaa0fde0dc479246ec335eb9145",
+    ".ai-pipeline/reports/SYNTHETIC_COMPANY_PACK_CORRECTION_IMPLEMENTATION.md": "c162644698b132ef94186d080edba0600b96e266dcf98d04d3b48f7a3fba8f56",
+    ".ai-pipeline/reports/SYNTHETIC_COMPANY_PACK_CORRECTION_MANIFEST.json": "d4704ea87df401e7b88418c9da6668e6696d5a00ceb36d8c985f5337306e6e3a",
+    ".ai-pipeline/reports/SYNTHETIC_COMPANY_PACK_CORRECTION_QUALITY_GATE.md": "c0c65a9ecf1dd1d1bc0a8d3a2833770c4f3fc0f4e5294d6c13be83f4f7a95bbc",
+    ".ai-pipeline/reports/SYNTHETIC_COMPANY_PACK_IMPLEMENTATION.md": "71ad2498863b524ed564d6e17b5c9cbcb393e0dd3a193341eb14e63bbb2b9ce9",
+    ".ai-pipeline/reports/SYNTHETIC_COMPANY_PACK_MANIFEST.json": "8477876c56a80ea34f998306a2516b12e6a43b95c273d0b87501adf6e7ec93b4",
+    ".ai-pipeline/reports/SYNTHETIC_COMPANY_PACK_QUALITY_GATE.md": "4dba13eb5f37eeb8bd55e7d51663e26f44038b412b1855495de8dc359e846a0f"
+  },
+  "correction": {
+    "path": "scripts/synthetic_company_pack.py",
+    "before_sha256": "185e222be54081ccb3cadca2b0075d4edbc66aac89641519da5453188972d73e",
+    "after_sha256": "716b00f50c1f686bd57d964333ddaae6b669814ee152ef255dfdb3fb9dc0bc1f",
+    "removed_bytes_hex": "0a",
+    "before_length": 3640,
+    "after_length": 3639,
+    "all_other_accepted_paths_byte_identical": 32
+  },
+  "excluded_derivative_reports": "New EOF remediation and quality gate reports are derivative evidence, separately verified at publication."
+}

@@ -393,7 +393,7 @@ def _selectors_from_listing(
                 tags = [tag.removeprefix("@") for tag in tags]
                 garden = "garden-protocol" in tags or selector.startswith("e2e/garden-happy-path.e2e.ts:")
                 registry_modes = [
-                    mode for mode in ("garden-partnership", "synthetic-cache")
+                    mode for mode in ("garden-partnership", "synthetic-cache", "synthetic-seed")
                     if f"slice-b-{mode}" in tags
                 ]
                 for suffix in ("ambiguity", "reuse"):
@@ -491,7 +491,7 @@ def _list_test_selectors(
                                    sandbox_selectors=sandbox_selectors)
 
 
-def _cleanup_classification_database(database: str) -> None:
+def _cleanup_classification_database(database: str, port: int = 27185) -> None:
     """Parent-owned cleanup survives a forcibly stopped Windows test server."""
     from pymongo import MongoClient
 
@@ -503,7 +503,7 @@ def _cleanup_classification_database(database: str) -> None:
     )
 
     require_ephemeral_mongo_database(database)
-    with MongoClient(host="127.0.0.1", port=27185, serverSelectionTimeoutMS=3000) as client:
+    with MongoClient(host="127.0.0.1", port=port, serverSelectionTimeoutMS=3000) as client:
         cleanup_ephemeral_mongo_database(client, database)
     print("CLASSIFICATION_DATABASE_CLEANUP=VERIFIED")
 
@@ -526,7 +526,7 @@ def run(
         raise ValueError("Unknown isolated Sandbox fixture")
     if sandbox_demo and (not (grep or selection) or garden_protocol or registry_demo or recovery_demo):
         raise ValueError("Sandbox fixture requires focused selection and separate composition")
-    if registry_demo not in {None, "garden-partnership", "synthetic-cache", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
+    if registry_demo not in {None, "garden-partnership", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
         raise ValueError("Unknown Slice-B registry fixture")
     if registry_demo is not None and (not (grep or selection) or garden_protocol):
         raise ValueError("Slice-B registry fixture requires a focused grep and separate composition")
@@ -552,15 +552,20 @@ def run(
     frontend_origin = f"http://127.0.0.1:{frontend_port}"
     ephemeral_credential = secrets.token_urlsafe(32)
     common = _base_environment()
+    # Default matches CI's Mongo service. Local concurrent work can reserve its own port.
+    synthetic_seed_port = int(os.environ.get("CLM_E2E_SYNTHETIC_MONGO_PORT", "27185"))
+    if not 1024 <= synthetic_seed_port <= 65535:
+        raise RuntimeError("Synthetic seed Mongo port is outside the allowed range")
     classification_database = (
         f"clm_p16_{secrets.token_hex(12)}"
-        if sandbox_demo in {"database-alpha", "database-partnership", "database-government"}
+        if registry_demo == "synthetic-seed" or sandbox_demo in {"database-alpha", "database-partnership", "database-government"}
         else None
     )
     backend_environment = {
         **common,
         "CLM_E2E_PASSWORD": ephemeral_credential,
         "CLM_E2E_BACKEND_PORT": str(backend_port),
+        "CLM_E2E_SYNTHETIC_MONGO_PORT": str(synthetic_seed_port),
         "CLM_E2E_FRONTEND_ORIGIN": frontend_origin,
         **({"CLM_E2E_DIAGNOSTICS": "1"} if diagnostics else {}),
         **({"CLM_E2E_GARDEN_PROTOCOL": "1"} if garden_protocol else {}),
@@ -685,7 +690,10 @@ def run(
 
         if classification_database is not None:
             try:
-                _cleanup_classification_database(classification_database)
+                if registry_demo == "synthetic-seed":
+                    _cleanup_classification_database(classification_database, synthetic_seed_port)
+                else:
+                    _cleanup_classification_database(classification_database)
             except Exception:  # noqa: BLE001 - driver errors are deliberately sanitized
                 cleanup_failures.append("Classification disposable database cleanup failed")
 
@@ -804,7 +812,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Use strict offline synthetic ACRA protocol evidence for focused Garden tests.",
     )
     parser.add_argument(
-        "--registry-demo", choices=("garden-partnership", "synthetic-cache", "synthetic-target-ambiguity", "synthetic-target-reuse"),
+        "--registry-demo", choices=("garden-partnership", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"),
         help="Isolated Slice-B fixture; requires focused --grep, never normal configuration.",
     )
     parser.add_argument(

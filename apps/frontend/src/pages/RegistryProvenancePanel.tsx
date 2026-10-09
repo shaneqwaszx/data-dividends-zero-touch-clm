@@ -57,6 +57,10 @@ export default function RegistryProvenancePanel({
 
       {binding ? (
         <div aria-label="Case evidence binding">
+          {binding.synthetic_seed_namespace === "LOCAL_SYNTHETIC_UAT_V1" && <p role="note">
+            Local Synthetic Seed · LOCAL PROJECT SYNTHETIC MOCK · LOCAL_SYNTHETIC_UAT_V1.
+            Original local seed evidence; configured provider is unchanged.
+          </p>}
           <div className="kv-row"><span className="kv-label">Case use</span><span className="kv-value">{binding.disposition === "CACHE_HIT" ? "Reused fresh registry evidence — no ACRA request required." : "Original provider fetch"}</span></div>
           <div className="kv-row"><span className="kv-label">Disposition</span><span className="kv-value">{binding.disposition}</span></div>
           <div className="kv-row"><span className="kv-label">Bound to this case at</span><span className="kv-value">{binding.bound_to_case_at}</span></div>

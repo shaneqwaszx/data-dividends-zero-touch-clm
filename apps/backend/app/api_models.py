@@ -109,6 +109,7 @@ from app.domain.reconciliation import (
     ReconciliationSourceKind,
     ReconciliationStatus,
 )
+from app.domain.registry_dataset import local_synthetic_registry_identity
 from app.domain.registry_legal_form import RegistryLegalForm
 from app.domain.target_classification import (
     ClassificationAssessmentState,
@@ -272,6 +273,7 @@ class BrowserRegistryEvidenceBinding(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    synthetic_seed_namespace: Literal["LOCAL_SYNTHETIC_UAT_V1"] | None = None
     disposition: RegistryEvidenceDisposition
     bound_to_case_at: datetime
     expires_at: datetime
@@ -418,6 +420,11 @@ class OnboardingCaseResponse(BaseModel):
             raise ValueError("browser registry evidence binding requires Mock provenance")
         browser_binding = (
             BrowserRegistryEvidenceBinding(
+                synthetic_seed_namespace=(
+                    "LOCAL_SYNTHETIC_UAT_V1"
+                    if binding.cache_key.provider_identity == local_synthetic_registry_identity()
+                    else None
+                ),
                 disposition=binding.disposition,
                 bound_to_case_at=binding.bound_to_case_at,
                 expires_at=binding.expires_at,

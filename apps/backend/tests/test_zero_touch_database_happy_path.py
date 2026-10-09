@@ -289,8 +289,8 @@ def test_search_query_omits_empty_criteria_and_encodes_exact_documented_aliases(
 
 def test_seed_all_complete_idempotent_and_deep_copy():
     repository = InMemoryRegistrySnapshotRepository()
-    assert manage_fixtures(repository, now=NOW, seed=True)["created"] == 4
-    assert manage_fixtures(repository, now=NOW + timedelta(hours=1), seed=True)["fresh"] == 4
+    assert manage_fixtures(repository, now=NOW, seed=True)["created"] == 8
+    assert manage_fixtures(repository, now=NOW + timedelta(hours=1), seed=True)["fresh"] == 8
     for company in COMPANIES:
         entry = repository.get(company.snapshot(NOW).key)
         assert entry.revision == 0 and entry.acquisition.status == "COMPLETE"
@@ -308,7 +308,7 @@ def test_seed_all_complete_idempotent_and_deep_copy():
         assert all(p.name.startswith("DEMO ") for p in entry.acquisition.ownership_parties)
         entry.acquisition.entity_profile.legal_name = "changed local copy"
         assert repository.get(entry.key).acquisition.entity_profile.legal_name == company.name
-    assert manage_fixtures(repository, now=NOW + timedelta(days=90), seed=True)["refreshed"] == 4
+    assert manage_fixtures(repository, now=NOW + timedelta(days=90), seed=True)["refreshed"] == 8
 
 
 def test_seed_conflict_does_not_overwrite_any_known_key():

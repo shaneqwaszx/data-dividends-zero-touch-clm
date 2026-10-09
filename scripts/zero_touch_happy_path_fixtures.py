@@ -26,6 +26,8 @@ from app.domain.models import (
 )
 from app.domain.registry_dataset import local_synthetic_registry_identity
 
+from scripts.synthetic_company_pack import SYNTHETIC_COMPANIES
+
 
 @dataclass(frozen=True)
 class HappyPathCompany:
@@ -42,16 +44,25 @@ class HappyPathCompany:
     client_segment: str = "Corporate"
     party_type: str = "PRIVATE COMPANY LIMITED BY SHARES"
 
+    # Optional explicit fictional identities; defaults preserve the original four seeds.
+    unit: str | None = None
+    native_document_name: str | None = None
+    explicit_parties: tuple[tuple[str, str, str], ...] = ()
+
+    @property
+    def document_fields(self) -> dict[str, str]:
+        return self.fields
+
     @property
     def document_name(self) -> str:
-        return f"demo-{self.code.lower()}-scanned.pdf"
+        return self.native_document_name or f"demo-{self.code.lower()}-scanned.pdf"
 
     @property
     def fields(self) -> dict[str, str]:
         return {
             "Legal Name": self.name,
             "UEN": self.uen,
-            "Registered Address": f"{self.street}, {self.postal_code}, SG",
+            "Registered Address": ", ".join(part for part in (self.street, self.unit, self.postal_code, "SG") if part),
             "Country": "SG",
         }
 
@@ -69,7 +80,9 @@ class HappyPathCompany:
         root = f"ENTITY_{self.uen}"
 
         def party_id(suffix: str) -> str:
-            return root if suffix == "ROOT" else f"DEMO_{self.code}_{suffix}"
+            if suffix == "ROOT":
+                return root
+            return suffix if self.explicit_parties else f"DEMO_{self.code}_{suffix}"
 
         def provenance(operation: RegistryOperation) -> RegistryEvidenceProvenance:
             return RegistryEvidenceProvenance(
@@ -100,8 +113,16 @@ class HappyPathCompany:
                 country="SG",
                 provenance=provenance(RegistryOperation.OWNERSHIP_PARTIES),
             )
-            for owner in owners
+            for owner in (() if self.explicit_parties else owners)
         )
+        if self.explicit_parties:
+            parties = tuple(
+                RegistryOwnershipParty(
+                    party_id=identifier, party_type=RegistryPartyType(kind), name=name,
+                    registration_identifier=f"SYN-{identifier}" if kind == "LEGAL_ENTITY" else None,
+                    country="SG", provenance=provenance(RegistryOperation.OWNERSHIP_PARTIES),
+                ) for identifier, kind, name in self.explicit_parties
+            )
         officers = tuple(
             RegistryOfficer(
                 officer_id=f"DEMO_{self.code}_OFFICER_{index}",
@@ -136,6 +157,7 @@ class HappyPathCompany:
                 entity_status="LIVE",
                 registered_address=RegisteredAddress(
                     address_line_1=self.street,
+                    address_line_2=self.unit,
                     postal_code=self.postal_code,
                     country_code="SG",
                 ),
@@ -230,3 +252,21 @@ COMPANIES = (
 GOVERNMENT = HappyPathCompany("GOVERNMENT", "DEMO GOVERNMENT FYP TEST AUTHORITY", "209990105E",
     "55 DEMO GOVERNMENT WAY", "000105", (), (), kyc_customer_type="Government",
     client_segment="DI - Government", party_type="GOVERNMENT")
+
+
+# Data definitions feed the same normalized bundle/snapshot owner as Alpha through Delta.
+
+_NEW_EXPECTED = {
+    "ORION": (("ORION_OWNER_A", "70"), ("ORION_OWNER_B", "30")),
+    "PACIFIC": (("PACIFIC_OWNER_A", "40"), ("PACIFIC_OWNER_B", "35"), ("PACIFIC_OWNER_C", "25")),
+    "STRAITS": (("STRAITS_PERSON_A", "48"), ("STRAITS_DIRECT", "40"), ("STRAITS_PERSON_B", "12")),
+    "MERIDIAN": (("MERIDIAN_PERSON_A", "30"), ("MERIDIAN_PERSON_B", "20"), ("MERIDIAN_DIRECT_A", "30"), ("MERIDIAN_DIRECT_B", "20")),
+}
+NEW_COMPANIES = tuple(
+    HappyPathCompany(
+        code=c.code, name=c.legal_name, uen=c.uen, street=f"18 {c.street}",
+        postal_code=c.postal_code, edges=c.edges, expected=_NEW_EXPECTED[c.code],
+        unit=c.unit, native_document_name=c.document_name, explicit_parties=c.parties,
+    ) for c in SYNTHETIC_COMPANIES
+)
+ALL_COMPANIES = (*COMPANIES, *NEW_COMPANIES)

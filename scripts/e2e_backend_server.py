@@ -72,9 +72,10 @@ def main() -> int:
     registry_demo = os.environ.get("CLM_E2E_REGISTRY_DEMO")
     recovery_demo = os.environ.get("CLM_E2E_RECOVERY_DEMO")
     sandbox_demo = os.environ.get("CLM_E2E_SANDBOX_DEMO")
+    synthetic_seed_port = _port(os.environ.get("CLM_E2E_SYNTHETIC_MONGO_PORT", "27185"))
     classification_database = (
         _required("CLM_E2E_CLASSIFICATION_DATABASE")
-        if sandbox_demo in {"database-alpha", "database-partnership", "database-government"}
+        if registry_demo == "synthetic-seed" or sandbox_demo in {"database-alpha", "database-partnership", "database-government"}
         else None
     )
     sys.path.insert(0, str(ROOT))
@@ -88,7 +89,7 @@ def main() -> int:
         raise RuntimeError("Sandbox fixtures require separate compositions")
     if recovery_demo and (registry_demo or garden_protocol_fixture):
         raise RuntimeError("Recovery fixtures require separate compositions")
-    if registry_demo not in {None, "garden-partnership", "synthetic-cache", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
+    if registry_demo not in {None, "garden-partnership", "synthetic-cache", "synthetic-seed", "synthetic-target-ambiguity", "synthetic-target-reuse"}:
         raise RuntimeError("Unknown isolated registry fixture")
     if registry_demo and garden_protocol_fixture:
         raise RuntimeError("Registry fixtures require separate compositions")
@@ -251,6 +252,39 @@ def main() -> int:
         fixture_connector = database_fixture.registry
         sandbox_transport = database_fixture.target
         application_module.build_persistence_bundle = lambda _settings: database_fixture.bundle
+    if registry_demo == "synthetic-seed":
+        import secrets
+        from datetime import UTC, datetime
+
+        from app import composition
+        from app.connectors import acra_api_marketplace_auth
+        from app.persistence.composition import build_persistence_bundle
+
+        from scripts.mongo_test_safety import require_ephemeral_mongo_database
+        from scripts.seed_zero_touch_happy_path_companies import manage_fixtures
+        from scripts.synthetic_company_pack_test_transport import NoMarketplaceRequests
+
+        assert classification_database is not None
+        require_ephemeral_mongo_database(classification_database)
+        settings = Settings(_env_file=None, **{
+            **setting_values, "acra_connector_mode": "api_marketplace_mock",
+            "clm_persistence_mode": "mongo", "registry_cache_mode": "auto",
+            "mongo_database": classification_database,
+            "mongo_uri": SecretStr("mongodb" + f"://127.0.0.1:{synthetic_seed_port}"),
+            "acra_api_marketplace_mock_client_id": SecretStr(secrets.token_urlsafe(32)),
+            "acra_api_marketplace_mock_secret_key": SecretStr(secrets.token_urlsafe(32)),
+        })
+        # Explicit isolated test fixture preparation, never production startup seeding.
+        seed_bundle = build_persistence_bundle(settings)
+        try:
+            manage_fixtures(seed_bundle.registry_snapshots, now=datetime.now(UTC), seed=True)
+        finally:
+            seed_bundle.close()
+        seed_transport = NoMarketplaceRequests()
+        composition.HttpxAcraTransport = lambda **_: seed_transport
+        acra_api_marketplace_auth.HttpxAcraMarketplaceTokenTransport = lambda: seed_transport
+        # create_app builds its actual configured connector and normal Mongo composition.
+
     application = application_module.create_app(
         settings=settings,
         onboarding_service=(recovery_fixture.onboarding if recovery_fixture else
@@ -289,6 +323,8 @@ def main() -> int:
         # It returns synthetic safe counters, no payload/authentication/provider details.
         @application.get("/api/__slice_b/registry-counts", include_in_schema=False)
         def registry_counts() -> dict[str, object]:
+            if registry_demo == "synthetic-seed":
+                return {"fixture": registry_demo, **seed_transport.metadata()}
             if registry_demo == "garden-partnership":
                 return {"fixture": registry_demo, "calls": list(transport.calls), "external_calls": 0}
             from scripts.slice_b_registry_fixture import CountingSyntheticRegistry

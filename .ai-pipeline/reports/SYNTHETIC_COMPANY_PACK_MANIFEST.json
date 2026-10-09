@@ -1,0 +1,42 @@
+{
+  "branch": "feat/synthetic-happy-path-company-pack",
+  "base_sha": "21124498cb1b8fd47b1406534d6fd9c24af0e2ea",
+  "origin_main": "21124498cb1b8fd47b1406534d6fd9c24af0e2ea",
+  "path_count": 20,
+  "aggregate_sha256": "71349034c050402494ef6d5937aebc5cfbfb21d745094356820718254aa13d02",
+  "formula": "SHA256 of sorted UTF-8 path + NUL + raw_sha256 + NUL",
+  "files": {
+    "apps/backend/app/connectors/mock_acra.py": "b45e7d238f81be714b942cd2c0e1b255aafa0618be0aaccc4ebba6fa006f7fda",
+    "apps/backend/app/connectors/synthetic_company_pack.py": "68f87f5304b3d0b74d9383015e22c97f780867161d7d8cb3affe0b11ae82a540",
+    "apps/backend/tests/fixtures/uat/README.md": "5d19781bcea314f9ad256e49f7607b3df82d20c1fa8d9ccba1a159dfd3a91f1e",
+    "apps/backend/tests/fixtures/uat/meridian-synthetic-infrastructure-client.pdf": "b34c6894129f41e898ce54b04cc0a5927ae1d8f56b83be9e602348f49f1ba88c",
+    "apps/backend/tests/fixtures/uat/orion-synthetic-technologies-client.pdf": "87420d3b16467f157fafe16c59d05940dbfb2f7566eb34b1976193420bb07f38",
+    "apps/backend/tests/fixtures/uat/pacific-synthetic-ledger-client.pdf": "ab228e462648f022b5bf4c1a8262d919b7975d33e0114eb11da41c150f3eb30d",
+    "apps/backend/tests/fixtures/uat/straits-synthetic-holdings-client.pdf": "ed24243f5b7ad02d51222975b9348f61cb9091c17882ca8082d32f4eb3b09597",
+    "apps/backend/tests/test_slice_f_document_pack.py": "3c82c8a24df66c8a782ed4af5d7b243fe5a7b99994de7f4915677c84882f95f2",
+    "apps/backend/tests/test_synthetic_company_pack.py": "f14b26b43a6ead4f135ece603c52352840b6e50eed5288c7c9f00c3928efb6ed",
+    "apps/backend/tests/test_synthetic_company_pack_real_mongo.py": "71c0f4b08c436b789744b671ca2253ebb402c591457f8876266b3170c76b8e7b",
+    "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "f910258f1024367a15409f66ced8816c11b944a99b0c9266dba6edfd2acd8090",
+    "apps/frontend/e2e/synthetic-company-pack.e2e.ts": "c9130447ce92146e1a2724e3f94a138ed727aaec5f307fa0a71cd4e508970da4",
+    "apps/frontend/src/App.tsx": "6fbada869a668a3a06d430121eff622a83c4928ab1546640f2fb611a4945a8ac",
+    "docs/ARCHITECTURE.md": "e9e38dc40cda4c28ea316aad425291aaed6215005907c5e10dc73662844c0d81",
+    "docs/PROJECT_STATE.md": "60a300d0591b722ac92412b6c62efefdeae88f78ff782e03ee27ca80644f1fed",
+    "docs/demo/SYNTHETIC_COMPANY_PACK.md": "663c65f164f438b14d6b978c5feee88abe105f66040196bb26c82108f2132123",
+    "scripts/generate_synthetic_company_pack.py": "b1d2b2d9026f423a9f717f9b22ff483d90c8cc91fe344b28512e0a88dde1311f",
+    "scripts/run_physical_mongo_tests.py": "90fbb220cd3b7a01570bf90d1eb33eb808cd2551a78bbde6f7f39640ac0558a7",
+    "scripts/warm_synthetic_company_pack.py": "a2e6147aea84ccaf37d47a08f06b8c678bad31f9d71f912aa51f126c1cc8134b",
+    "tests/test_phase_07_delivery_assets.py": "d0954bc46cb5536b78a13a9010a0283aeae3f65d7db3e7da277ae58f2c4976a9"
+  },
+  "derivative_evidence_excluded": [
+    ".ai-pipeline/reports/SYNTHETIC_COMPANY_PACK_IMPLEMENTATION.md",
+    ".ai-pipeline/reports/SYNTHETIC_COMPANY_PACK_MANIFEST.json",
+    ".ai-pipeline/reports/SYNTHETIC_COMPANY_PACK_QUALITY_GATE.md"
+  ],
+  "ci_prerequisite": {
+    "run_id": 37918635850,
+    "head_sha": "21124498cb1b8fd47b1406534d6fd9c24af0e2ea",
+    "job_count": 7,
+    "all_completed_success": true
+  },
+  "content_state": "uncommitted; no staging/commit/publication authorized"
+}

@@ -94,9 +94,9 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # 72 discovered lifecycles * (60s execution + 120s bounded cleanup/dispatch)
-    # + 60s discovery = 217 minutes; preserve 14 minutes for tool installation.
-    timeout-minutes: 231
+    # 73 discovered lifecycles * (60s execution + 120s bounded cleanup/dispatch)
+    # + 60s discovery = 220 minutes; preserve 14 minutes for tool installation.
+    timeout-minutes: 234
     services:
       mongo:
         image: mongo:7

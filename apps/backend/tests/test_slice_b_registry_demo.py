@@ -198,7 +198,9 @@ def test_third_merlion_owner_warmed_cache_uses_zero_new_acra_calls():
     assert hit["case"]["case_id"] != warm["case"]["case_id"]
     binding = hit["case"]["registry_evidence_binding"]
     assert binding["disposition"] == "CACHE_HIT"
+    assert binding["synthetic_seed_namespace"] is None
     assert set(binding) == {
+        "synthetic_seed_namespace",
         "disposition",
         "bound_to_case_at",
         "expires_at",

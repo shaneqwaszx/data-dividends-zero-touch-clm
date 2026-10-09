@@ -15,3 +15,14 @@ ACRA operations0 while fresh/complete. Actual Sandbox absence is not claimed.
 All source graphs total100% per owned entity. Decimal engine only; candidates are not
 legal UBOs. Conditional Amend follows the existing target plan and is skipped for the
 tested identity-only package. Regenerate with scripts/generate_zero_touch_happy_path_documents.py.
+
+## Native-text company pack extension
+
+Orion202400014N, Pacific202400015O, Straits202400016P and Meridian202400017Q use the same
+LOCAL_SYNTHETIC_UAT_V1 database-first owner. Their four identity-only native-text PDFs
+are indexed in the parent README with exact SHA256 values. See
+[the corrected operator guide](../../../../../../docs/demo/SYNTHETIC_COMPANY_PACK.md).
+Existing Beta's current effective percentages are30/25/17/14/8.5/5.5 (P1/P2 candidates);
+Gamma's are30/25/20/10/10/5 (P1/P2 candidates). Current fixture source/tests supersede
+the historical simplified values in the table above. Seed all eight with the existing
+seed_zero_touch_happy_path_companies.py manager; configure api_marketplace_mock/mongo/auto.
