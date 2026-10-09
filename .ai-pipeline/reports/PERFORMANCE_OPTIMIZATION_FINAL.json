@@ -4506,12 +4506,15 @@
       "median_delta_percent": -75.79744674096722,
       "before_intakes_per_minute": 62.65937928756267,
       "after_intakes_per_minute": 254.48093206186178,
-      "before_health_p95_ms": 4393.6318,
-      "after_health_p95_ms": 5.9458,
       "before_peak_rss_bytes": 206176256,
       "after_peak_rss_bytes": 430751744,
       "proof": "20 shared-ASGI intake cohorts at1/5 each arm;120 correct primary intakes per arm",
-      "safety": "Existing40 active workers; native subprocess/tempdir isolation; existing case RLock owns intake; first in-lock fresh authorization; no target parallelism; queued upload memory not globally capped"
+      "safety": "Existing40 active workers; native subprocess/tempdir isolation; existing case RLock owns intake; first in-lock fresh authorization; no target parallelism; queued upload memory not globally capped",
+      "superseded_health_p95_ms": {
+        "status": "SUPERSEDED / UNSYNCHRONIZED",
+        "before": 4393.6318,
+        "after": 5.9458
+      }
     }
   ],
   "paired_validator_summary": {
@@ -4746,15 +4749,6 @@
             "mean": 27.34375,
             "stddev": 15.102276046222828
           },
-          "health_ms": {
-            "count": 20,
-            "p50": 481.2633,
-            "p95": 494.0678,
-            "min": 462.7347,
-            "max": 510.1436,
-            "mean": 482.862285,
-            "stddev": 10.935713696791087
-          },
           "intake_elapsed_ms": {
             "count": 20,
             "p50": 960.85055,
@@ -4776,7 +4770,16 @@
           "peak_parent_children_rss_bytes_separate": 185016320,
           "target_mutations": 0,
           "registry_operations_in_primary": 0,
-          "outcome": "REVIEWED document/AUTO_CONFIRMED/4fields/1native page; all cases remain PENDING_INPUTS/NOT_SUBMITTED"
+          "outcome": "REVIEWED document/AUTO_CONFIRMED/4fields/1native page; all cases remain PENDING_INPUTS/NOT_SUBMITTED",
+          "superseded_health_ms": {
+            "count": 20,
+            "p50": 481.2633,
+            "p95": 494.0678,
+            "min": 462.7347,
+            "max": 510.1436,
+            "mean": 482.862285,
+            "stddev": 10.935713696791087
+          }
         },
         "5": {
           "makespan_ms": {
@@ -4796,15 +4799,6 @@
             "max": 37.5,
             "mean": 22.5,
             "stddev": 5.516124688488048
-          },
-          "health_ms": {
-            "count": 20,
-            "p50": 4313.4963,
-            "p95": 4393.6318,
-            "min": 4221.0306,
-            "max": 4421.564,
-            "mean": 4307.249925,
-            "stddev": 54.282221277125494
           },
           "intake_elapsed_ms": {
             "count": 100,
@@ -4827,9 +4821,19 @@
           "peak_parent_children_rss_bytes_separate": 206176256,
           "target_mutations": 0,
           "registry_operations_in_primary": 0,
-          "outcome": "REVIEWED document/AUTO_CONFIRMED/4fields/1native page; all cases remain PENDING_INPUTS/NOT_SUBMITTED"
+          "outcome": "REVIEWED document/AUTO_CONFIRMED/4fields/1native page; all cases remain PENDING_INPUTS/NOT_SUBMITTED",
+          "superseded_health_ms": {
+            "count": 20,
+            "p50": 4313.4963,
+            "p95": 4393.6318,
+            "min": 4221.0306,
+            "max": 4421.564,
+            "mean": 4307.249925,
+            "stddev": 54.282221277125494
+          }
         }
-      }
+      },
+      "health_metric_status": "SUPERSEDED / UNSYNCHRONIZED historical health values"
     },
     "after": {
       "label": "after",
@@ -4863,15 +4867,6 @@
             "mean": 22.65625,
             "stddev": 12.899655429404632
           },
-          "health_ms": {
-            "count": 20,
-            "p50": 2.66075,
-            "p95": 3.1821,
-            "min": 2.1117,
-            "max": 3.2244,
-            "mean": 2.6765600000000003,
-            "stddev": 0.34827486936553287
-          },
           "intake_elapsed_ms": {
             "count": 20,
             "p50": 955.68925,
@@ -4893,7 +4888,16 @@
           "peak_parent_children_rss_bytes_separate": 184631296,
           "target_mutations": 0,
           "registry_operations_in_primary": 0,
-          "outcome": "REVIEWED document/AUTO_CONFIRMED/4fields/1native page; all cases remain PENDING_INPUTS/NOT_SUBMITTED"
+          "outcome": "REVIEWED document/AUTO_CONFIRMED/4fields/1native page; all cases remain PENDING_INPUTS/NOT_SUBMITTED",
+          "superseded_health_ms": {
+            "count": 20,
+            "p50": 2.66075,
+            "p95": 3.1821,
+            "min": 2.1117,
+            "max": 3.2244,
+            "mean": 2.6765600000000003,
+            "stddev": 0.34827486936553287
+          }
         },
         "5": {
           "makespan_ms": {
@@ -4913,15 +4917,6 @@
             "max": 31.25,
             "mean": 20.625,
             "stddev": 5.40315453669136
-          },
-          "health_ms": {
-            "count": 20,
-            "p50": 3.09185,
-            "p95": 5.9458,
-            "min": 2.2966,
-            "max": 7.1352,
-            "mean": 3.691395,
-            "stddev": 1.3606558463031522
           },
           "intake_elapsed_ms": {
             "count": 100,
@@ -4944,9 +4939,19 @@
           "peak_parent_children_rss_bytes_separate": 430751744,
           "target_mutations": 0,
           "registry_operations_in_primary": 0,
-          "outcome": "REVIEWED document/AUTO_CONFIRMED/4fields/1native page; all cases remain PENDING_INPUTS/NOT_SUBMITTED"
+          "outcome": "REVIEWED document/AUTO_CONFIRMED/4fields/1native page; all cases remain PENDING_INPUTS/NOT_SUBMITTED",
+          "superseded_health_ms": {
+            "count": 20,
+            "p50": 3.09185,
+            "p95": 5.9458,
+            "min": 2.2966,
+            "max": 7.1352,
+            "mean": 3.691395,
+            "stddev": 1.3606558463031522
+          }
         }
-      }
+      },
+      "health_metric_status": "SUPERSEDED / UNSYNCHRONIZED historical health values"
     }
   },
   "frontend_evidence": {
@@ -6732,5 +6737,18 @@
     }
   ],
   "independent_verdict": "Pending sole fresh independent report; coordinator evidence is not independent PASS",
-  "next_authorized_action": "Fresh independent final QG; only exact PASS permits local final checkpoint and owner publication review"
+  "next_authorized_action": "Fresh independent final QG; only exact PASS permits local final checkpoint and owner publication review",
+  "measurement_review_remediation": {
+    "source_head": "b4ee8e92025eefc5946216befb417af15e6de356",
+    "base": "198341b059ebf500252ce93d72eb099d2585c60b",
+    "corrected_health_evidence": ".ai-pipeline/reports/PR79_MEASUREMENT_REVIEW_EVIDENCE.json",
+    "corrected_health_evidence_sha256": "61d3313e41664df791b26d8037c856df517f7ae1c1c92142628ee5150c30a244",
+    "current_candidate_manifest": ".ai-pipeline/reports/PR79_MEASUREMENT_REVIEW_MANIFEST.json",
+    "fresh_independent_gate": ".ai-pipeline/reports/PR79_MEASUREMENT_REVIEW_QUALITY_GATE.md",
+    "current_harness_sha256": {
+      "scripts/performance_optimization.py": "b0e3d88014be68b2d5019affcae558efc87a01080330ad6503619e61ffe31f69",
+      "scripts/performance_concurrency.py": "317bc9f874b170971677b8e28a6c2993af64efa844d21d414dfa37ac193957a7"
+    },
+    "provenance": "Historical head/harness/product/sample fields above remain original measured identities. The review remediation supersedes only historical active-work health claims. Current candidate hashes are bound separately; no raw historical sample is relabeled."
+  }
 }

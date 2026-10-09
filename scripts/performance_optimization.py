@@ -101,8 +101,11 @@ def initialize() -> None:
 
 
 class Resources:
-    def __init__(self) -> None:
+    def __init__(self, *, startup_seconds: float = 1.0, join_seconds: float = 2.0) -> None:
         self.stop = threading.Event()
+        self.first_sample = threading.Event()
+        self.startup_seconds = startup_seconds
+        self.join_seconds = join_seconds
         self.peak_rss = 0
         self.host_cpu: list[float] = []
         self.thread = threading.Thread(target=self.poll, daemon=True)
@@ -110,25 +113,39 @@ class Resources:
     def poll(self) -> None:
         import psutil
 
-        parent = psutil.Process()
-        psutil.cpu_percent()
-        while not self.stop.is_set():
-            processes = [parent, *parent.children(recursive=True)]
-            rss = 0
-            for process in processes:
-                with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
-                    rss += process.memory_info().rss
-            self.peak_rss = max(self.peak_rss, rss)
-            self.host_cpu.append(psutil.cpu_percent())
-            self.stop.wait(0.01)
+        try:
+            parent = psutil.Process()
+            psutil.cpu_percent()
+            while not self.stop.is_set():
+                processes = [parent, *parent.children(recursive=True)]
+                rss = 0
+                for process in processes:
+                    with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                        rss += process.memory_info().rss
+                cpu = psutil.cpu_percent()
+                if rss <= 0 or not math.isfinite(cpu) or not 0 <= cpu <= 100:
+                    return
+                self.peak_rss = max(self.peak_rss, rss)
+                self.host_cpu.append(cpu)
+                self.first_sample.set()
+                self.stop.wait(0.01)
+        except Exception:
+            # A missing/failed sampler must never become accepted resource evidence.
+            # Startup fails closed without projecting private OS exception details.
+            return
 
     def __enter__(self) -> Self:
         self.thread.start()
+        if not self.first_sample.wait(self.startup_seconds):
+            self.__exit__()
+            raise RuntimeError("benchmark resource sampler failed to obtain first observation")
         return self
 
     def __exit__(self, *args: object) -> None:
         self.stop.set()
-        self.thread.join()
+        self.thread.join(self.join_seconds)
+        if self.thread.is_alive():
+            raise RuntimeError("benchmark resource sampler did not stop within cleanup deadline")
 
 
 class DbCounts:

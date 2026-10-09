@@ -10,6 +10,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -191,6 +192,261 @@ def measure_level(label, groups, level, content, perf):
         }
 
 
+
+class ActiveProviderProbe:
+    """Diagnostic-only hold at the end of real native processing, inside its invocation.
+
+    Health completion releases the hold immediately. An independent 100ms guard
+    releases a blocked baseline; that release budget is not natural provider latency.
+    A separate operation deadline also releases a provider if dispatch never happens.
+    """
+
+    def __init__(self, *, hold_seconds=0.1, operation_seconds=20.0):
+        self.lock = threading.Lock()
+        self.entered = threading.Event()
+        self.dispatched = threading.Event()
+        self.health_done = threading.Event()
+        self.release = threading.Event()
+        self.active = 0
+        self.held = 0
+        self.calls = 0
+        self.active_at_dispatch = 0
+        self.held_at_dispatch = 0
+        self.completed_while_held = False
+        self.release_reason = None
+        self.hold_seconds = hold_seconds
+        self.operation_seconds = operation_seconds
+        self.guard = threading.Thread(target=self._guard, daemon=True)
+
+    def _guard(self):
+        if not self.dispatched.wait(self.operation_seconds):
+            reason = "dispatch_deadline"
+        elif self.health_done.wait(self.hold_seconds):
+            reason = "health_completed"
+        else:
+            reason = "diagnostic_deadline"
+        with self.lock:
+            if not self.release.is_set():
+                self.release_reason = reason
+                self.release.set()
+
+    def observe(self, operation):
+        held = False
+        with self.lock:
+            self.active += 1
+            self.calls += 1
+        try:
+            result = operation()
+            with self.lock:
+                self.held += 1
+                held = True
+                self.entered.set()
+            if not self.release.wait(self.operation_seconds):
+                raise RuntimeError("benchmark provider hold exceeded operation deadline")
+            return result
+        finally:
+            with self.lock:
+                self.active -= 1
+                if held:
+                    self.held -= 1
+
+    def begin_dispatch(self):
+        # Called at TestClient transport entry for /health, after request construction.
+        # The guard cannot release before this locked observation/dispatch signal.
+        with self.lock:
+            if self.active <= 0 or self.held <= 0 or self.release.is_set():
+                raise RuntimeError("benchmark health dispatch requires held active provider")
+            if self.dispatched.is_set():
+                raise RuntimeError("benchmark health probe dispatched more than once")
+            self.active_at_dispatch = self.active
+            self.held_at_dispatch = self.held
+            self.dispatch_ns = time.perf_counter_ns()
+            self.dispatched.set()
+
+    def complete_health(self):
+        with self.lock:
+            self.completion_ns = time.perf_counter_ns()
+            self.completed_while_held = self.held > 0 and not self.release.is_set()
+            self.health_done.set()
+
+    def __enter__(self):
+        self.guard.start()
+        return self
+
+    def __exit__(self, *args):
+        with self.lock:
+            if not self.release.is_set():
+                self.release_reason = "cleanup"
+                self.release.set()
+        self.dispatched.set()
+        self.health_done.set()
+        self.guard.join(2)
+        if self.guard.is_alive():
+            raise RuntimeError("benchmark health guard did not stop")
+
+
+def measure_active_health(groups, level, content, perf):
+    from app.connectors.local_pdf_idp import LocalPdfTextIdpProvider
+
+    original = LocalPdfTextIdpProvider.process
+    samples: list[dict[str, Any]] = []
+    warmup: list[dict[str, Any]] = []
+    with perf.application("memory", None) as (client, _bundle, target, registry):
+        for index in range(groups + 2):
+            paths = []
+            for _ in range(level):
+                response = client.post(
+                    "/api/clm/zero-touch/cases",
+                    json={
+                        "uen": "202400001A",
+                        "country_of_incorporation": "SG",
+                        "legal_name": "MERLION CIRCULAR LABS PTE. LTD.",
+                    },
+                )
+                assert response.status_code == 201
+                current = response.json()
+                case = current["case"]
+                path = f"/api/clm/zero-touch/cases/{case['case_id']}"
+                response = client.put(
+                    path + "/target-classification",
+                    json={
+                        "kyc_customer_type": "Company - Private",
+                        "client_segment": "Corporate",
+                        "expected_automation_version": current["version"],
+                        "expected_case_event_count": len(case["events"]),
+                    },
+                )
+                assert response.status_code == 200
+                paths.append(path)
+            target.calls.clear()
+            registry.calls.clear()
+
+            def upload(path):
+                response = client.post(
+                    path + "/intake/documents",
+                    content=content,
+                    headers={
+                        "Content-Type": "application/pdf",
+                        "X-Document-Name": "clean-company-profile.pdf",
+                    },
+                )
+                assert response.status_code == 201
+                document = response.json()
+                assert document["state"] == "REVIEWED"
+                assert document["completion_method"] == "AUTO_CONFIRMED"
+                assert len(document["fields"]) == 4 and len(document["pages"]) == 1
+                assert document["pages"][0]["extraction_method"] == "NATIVE_PDF_TEXT"
+
+            # Probe must release before executor teardown waits for pending intakes.
+            with (
+                ThreadPoolExecutor(max_workers=level) as pool,
+                ActiveProviderProbe() as probe,
+            ):
+                def observed(provider, document):
+                    return probe.observe(lambda: original(provider, document))
+
+                transport = client._transport
+                original_handle = transport.handle_request
+
+                def dispatched(request, handle=original_handle):
+                    if request.url.path == "/health":
+                        probe.begin_dispatch()
+                    return handle(request)
+
+                with (
+                    patch.object(LocalPdfTextIdpProvider, "process", observed),
+                    patch.object(transport, "handle_request", dispatched),
+                ):
+                    futures = [pool.submit(upload, path) for path in paths]
+                    assert probe.entered.wait(20), "native provider never reached hold"
+                    health = client.get("/health")
+                    probe.complete_health()
+                    assert health.status_code == 200
+                    # Release before draining: the optimized health should finish held.
+                    probe.health_done.set()
+                    for future in futures:
+                        future.result(timeout=20)
+                assert probe.active == 0 and probe.held == 0 and probe.calls == level
+                sample = {
+                    "health_ms": (probe.completion_ns - probe.dispatch_ns) / 1e6,
+                    "active_provider_count_at_dispatch": probe.active_at_dispatch,
+                    "held_provider_count_at_dispatch": probe.held_at_dispatch,
+                    "completed_while_provider_held": probe.completed_while_held,
+                    "release_reason": probe.release_reason,
+                    "completed_intakes": level,
+                    "active_provider_count_after_intake": probe.active,
+                    "target_mutations": 0,
+                    "registry_operations": 0,
+                    "external_calls": 0,
+                }
+            for path in paths:
+                current = client.get(path)
+                assert current.status_code == 200
+                assert current.json()["status"] == "PENDING_INPUTS"
+                assert current.json()["target_submission"]["state"] == "NOT_SUBMITTED"
+            assert not target.calls and not registry.calls
+            (warmup if index < 2 else samples).append(sample)
+            print(f"HEALTH concurrency={level} observation={index + 1}/{groups + 2}", flush=True)
+    return {"health_ms": perf.summary([s["health_ms"] for s in samples]),
+            "samples": samples, "excluded_warmup": warmup}
+
+
+def run_active_health(label, groups, levels, source_root):
+    import importlib.metadata
+    import os
+    import platform
+    import subprocess
+
+    sys.path.insert(0, str(ROOT))
+    from scripts import performance_optimization as perf
+
+    source_root = source_root.resolve()
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source_root, text=True).strip()
+    if label == "before" and head != perf.BASE:
+        raise RuntimeError("health baseline must be exact authorized BASE")
+    if subprocess.check_output(["git", "diff", "HEAD", "--", "apps"], cwd=source_root):
+        raise RuntimeError("health product source must match recorded HEAD")
+    perf.ROOT = source_root
+    perf.initialize()
+    import app.main
+
+    if not Path(app.main.__file__).resolve().is_relative_to(source_root):
+        raise RuntimeError("health probe imported the wrong product source")
+    content_path = source_root / "apps/backend/tests/fixtures/uat/clean-company-profile.pdf"
+    content = content_path.read_bytes()
+    result = {
+        "label": label, "source_head": head, "baseline": perf.BASE,
+        "product_tree": subprocess.check_output(
+            ["git", "rev-parse", "HEAD:apps"], cwd=source_root, text=True
+        ).strip(),
+        "main_sha256": hashlib.sha256(Path(app.main.__file__).read_bytes()).hexdigest(),
+        "method_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "resources_method_sha256": hashlib.sha256(
+            Path(perf.__file__).read_bytes()).hexdigest(),
+        "pdf_sha256": hashlib.sha256(content).hexdigest(),
+        "python": platform.python_version(), "platform": platform.platform(),
+        "cpu_count": os.cpu_count(),
+        "versions": {p: importlib.metadata.version(p) for p in (
+            "fastapi", "starlette", "anyio", "httpx", "pydantic", "pypdfium2")},
+        "groups": groups, "warmup_groups": 2, "release_budget_ms": 100,
+        "operation_failsafe_seconds": 20,
+        "method": "transport-entry dispatch during hold inside real native provider; "
+                  "health completion releases hold, independent 100ms release if blocked; "
+                  "not natural provider latency or throughput measurement",
+        "workloads": {str(level): measure_active_health(groups, level, content, perf)
+                      for level in levels},
+    }
+    destination = ROOT / ".runtime/performance-optimization/pr79-health"
+    destination.mkdir(parents=True, exist_ok=True)
+    output = destination / f"{label}-n{groups}.json"
+    if output.exists():
+        raise RuntimeError("health evidence output already exists; preserve prior observations")
+    output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"output": str(output), "summary": {
+        k: v["health_ms"] for k, v in result["workloads"].items()}}), flush=True)
+    return result
+
+
 def run(label: str, groups: int, levels: list[int]) -> dict:
     sys.path.insert(0, str(ROOT))
     from scripts import performance_optimization as perf
@@ -200,6 +456,7 @@ def run(label: str, groups: int, levels: list[int]) -> dict:
     result = {
         "label": label,
         "claim": "DEVELOPMENT_MEASUREMENT",
+        "health_metric_status": "UNSYNCHRONIZED incidental timing; use --health-probe",
         "scope": (
             "one shared in-process ASGI application, document intake only; "
             "not full-case/network capacity"
@@ -238,7 +495,12 @@ if __name__ == "__main__":
     parser.add_argument("--label", choices=["before", "after"], required=True)
     parser.add_argument("--groups", type=int, default=20)
     parser.add_argument("--concurrency", action="append", type=int, choices=[1, 5, 10, 20])
+    parser.add_argument("--health-probe", action="store_true")
+    parser.add_argument("--source-root", type=Path, default=ROOT)
     args = parser.parse_args()
     if not 1 <= args.groups <= 30:
         parser.error("groups must be between 1 and 30")
-    run(args.label, args.groups, args.concurrency or [1, 5])
+    if args.health_probe:
+        run_active_health(args.label, args.groups, args.concurrency or [1, 5], args.source_root)
+    else:
+        run(args.label, args.groups, args.concurrency or [1, 5])

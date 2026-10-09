@@ -59,6 +59,36 @@ Memory case detail and both 100-case portfolio queries are API controls. Native 
 
 JSON retains p95, mean, min/max, standard deviations and response-byte distributions. Zero CPU is measurement quantization. Neither RSS differences nor unrelated control timing changes establish a causal saving.
 
+## PR79 measurement-review correction (2026-10-09)
+
+This appended correction supersedes the earlier health-under-active-work claim only.
+The original final view is preserved at publication HEAD `b4ee8e92025eefc5946216befb417af15e6de356`;
+all other historical reports and raw evidence remain unchanged. Historical source/harness
+identities above still identify the original collection, not the corrected sampler.
+
+The [bounded remediation report](PR79_MEASUREMENT_REVIEW_REMEDIATION.md) and
+[sample-level evidence](PR79_MEASUREMENT_REVIEW_EVIDENCE.json) replace the health claim.
+Twenty measured observations per arm at concurrency 1/5 exclude two warmups each.
+Health dispatch is checked at TestClient transport entry under a lock while a real
+native provider invocation is held active. Health completion releases the hold immediately;
+an independent 100ms bound releases a blocked baseline. This bound is diagnostic control,
+not natural provider latency or a basis for a percentage improvement.
+
+Corrected baseline/candidate health p50/p95 ms: concurrency1 **115.2406/119.2050 ->
+2.3316/2.6846**; concurrency5 **3968.3622/4067.0920 -> 2.51055/3.5114**.
+All40 candidate health observations complete held; all40 baseline observations require
+the independent release. All80 measured dispatches have active/held counts >0; all
+240 measured intakes finish correctly with active counts0, zero target mutations,
+zero registry operations and zero external calls. This is bounded Local diagnostic
+responsiveness, not production capacity or an SLA.
+
+Validator, Mongo read and primary intake makespan/throughput values retain their original
+historical validity: product source and the primary `measure_level` definition/timing path
+are unchanged. Historical resource aggregates are valid collected observations; first-sample
+synchronization hardens future/reproduction execution without relabeling old measured bytes.
+The [current candidate manifest](PR79_MEASUREMENT_REVIEW_MANIFEST.json) and fresh
+[review gate](PR79_MEASUREMENT_REVIEW_QUALITY_GATE.md) bind corrected content separately.
+
 ## Measured hotspots and retained changes
 
 Baseline diagnostic profiles identified recursive copying and strict full-envelope traversal in Mongo. `_reject_unknown_model_fields` had 642,078 calls, 2343.75 ms self / 3750 ms cumulative CPU; `_persistence_value` had 194,774 calls, 1125 / 2062.5 ms. Recursive deepcopy had 1,089,551 visits. Yappi overhead means those times are not wall-time fractions and cannot be compared with observer-free 1992.188 ms parent CPU. Native child latency was about 509 ms; child CPU attribution is unavailable.
@@ -67,7 +97,7 @@ Baseline diagnostic profiles identified recursive copying and strict full-envelo
 | --- | --- | --- |
 | Skip proven scalar no-op traversal; reuse model field key views | 20 alternating exact-source pairs, 1000 calls/batch: median 0.4296468 -> 0.36186285 ms (-15.78%); p95 0.4628455 -> 0.4037409 (-12.77%); CPU 0.421875 -> 0.359375 (-14.81%). All 20 pairs improved. Full traversal calls 642,078 -> 108,878 (-83.04%). | `mongo_case_store.py`; strict unknown-field/container shape rejection and existing Pydantic scalar validation retained. No schema/cache/owner change. |
 | Remove 11 redundant read-section deep copies after fresh strict decode | 20 alternating physical pairs, 200 reads/batch: case median 3.50411225 -> 3.10381075 ms (-11.42%); CPU 2.65625 -> 2.3046875 (-13.24%). Documents median 3.32785025 -> 2.9958545 (-9.9763%, below 10%). All 20 pairs improved for both reads. Copy visits 950 -> 12/case and 639 -> 12/documents. Full Mongo copy visits 1,089,551 -> 836,272 (-23.25%). | `repositories.py`, store ownership docstring; no model cache, write/candidate/CAS/query/index change. Unmeasured verified-search copy retained. Fourteen ownership and two new physical tests cover caller mutation, restart, deletion and conflicts. |
-| Schedule blocking native intake on the existing framework worker pool | 20 shared-ASGI cohorts per level/arm: five-case median makespan 4790.6146 -> 1159.45105 ms (-75.80%); 62.66 -> 254.48 intakes/min (4.06x); health p95 4393.6318 -> 5.9458 ms. One-case median 960.8742 -> 955.73855 ms. All 120 primary intakes per arm correct; zero errors/timeouts or target/registry calls during intake. | `main.py`, `zero_touch_orchestration.py`; existing 40 active workers, existing case RLock, first-in-lock fresh authorization, per-call subprocess/temp directory. No target parallelism/new owner. Five-case sampled RSS 206,176,256 -> 430,751,744 bytes; native peak concurrency 1 -> 5. |
+| Schedule blocking native intake on the existing framework worker pool | 20 shared-ASGI cohorts per level/arm: five-case median makespan 4790.6146 -> 1159.45105 ms (-75.80%); 62.66 -> 254.48 intakes/min (4.06x); historical health p95 4393.6318 -> 5.9458 ms is **SUPERSEDED** because provider-entry signaling did not prove ongoing work at dispatch. Corrected controlled-active-work evidence is linked below. One-case median 960.8742 -> 955.73855 ms. All 120 primary intakes per arm correct; zero errors/timeouts or target/registry calls during intake. | `main.py`, `zero_touch_orchestration.py`; existing 40 active workers, existing case RLock, first-in-lock fresh authorization, per-call subprocess/temp directory. No target parallelism/new owner. Five-case sampled RSS 206,176,256 -> 430,751,744 bytes; native peak concurrency 1 -> 5. |
 
 Seven concurrency tests prove worker lock/fresh authorization, health progress, same-case serialization, revoked-session 401/cross-team 404, started cancellation completion, queued cancellation before worker entry and missing-case safe 404. Started cancellation proves the actual AnyIO portal shielding behavior; queued observation is at the earlier synchronous dependency. It does not prove every transport/process-shutdown scenario. The limiter bounds active workers; globally queued upload-body memory is not capped. Intake-only scheduling gains remain separate from full-case throughput.
 
