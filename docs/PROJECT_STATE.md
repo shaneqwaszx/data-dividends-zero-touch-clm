@@ -859,3 +859,18 @@ Schema10, source fingerprints, classification review/currentness, final Send, le
 no-replay, fixtures, mappings and provider labels are preserved. That integration's
 evidence and independent verdict belong to ZERO_TOUCH_COPILOT_MAIN_INTEGRATION reports;
 historical main/feature gates and provider verification metadata above are unchanged.
+
+## Synthetic company pack correction - unmerged candidate, 2026-10-09
+
+The owner clarification supersedes the earlier MockAcraConnector candidate and its
+historical PASS. Four new fictional companies extend the existing eight-company
+LOCAL_SYNTHETIC_UAT_V1 manual seed owner (ADR-010/D-069). Normal configuration remains
+api_marketplace_mock/mongo/auto. Fresh COMPLETE exact-UEN seeds yield CACHE_HIT without
+Marketplace token or HTTP requests; missing/stale seeds use the configured provider.
+The existing coordinator, repository, Decimal engine and target ledger own the flow.
+No new provider, schema, mapping, business rule, authorization, automatic startup seed
+or Live capability is introduced. Browser bindings disclose only an allowlisted local
+seed namespace while configured-provider and original provenance remain distinct.
+Historical reports apply only to their original bytes and requirements. Corrected
+verification belongs to SYNTHETIC_COMPANY_PACK_CORRECTION reports.
+See [the operator guide](demo/SYNTHETIC_COMPANY_PACK.md).

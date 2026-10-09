@@ -26,6 +26,10 @@ NAMES = (
     "garden-business-conflicting-onboarding-profile.pdf",
     "garden-partnership-reviewed-client.pdf",
     "multiple-owner-demo-client.pdf",
+    "zero-touch-database/orion-synthetic-technologies-client.pdf",
+    "zero-touch-database/pacific-synthetic-ledger-client.pdf",
+    "zero-touch-database/straits-synthetic-holdings-client.pdf",
+    "zero-touch-database/meridian-synthetic-infrastructure-client.pdf",
 )
 
 
@@ -35,10 +39,14 @@ def test_pack_uses_current_intake_and_extraction(name):
     router = DocumentMediaRouter()
     if name == "invalid-document.pdf":
         with pytest.raises(DocumentRequestError) as error:
-            router.extract(display_name=name, content_type="application/pdf", content=content)
+            router.extract(
+                display_name=Path(name).name, content_type="application/pdf", content=content
+            )
         assert error.value.code == "DOCUMENT_STRUCTURE_INVALID"
         return
-    routed = router.extract(display_name=name, content_type="application/pdf", content=content)
+    routed = router.extract(
+        display_name=Path(name).name, content_type="application/pdf", content=content
+    )
     if name == "no-text.pdf" and shutil.which("tesseract") is None:
         with pytest.raises(LocalDocumentProcessingError, match="OCR_RUNTIME_UNAVAILABLE"):
             LocalPdfTextIdpProvider().process(

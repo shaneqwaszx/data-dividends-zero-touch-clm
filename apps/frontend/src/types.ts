@@ -446,6 +446,7 @@ export interface RegistryAcquisition {
 }
 
 export interface RegistryEvidenceBinding {
+  synthetic_seed_namespace?: "LOCAL_SYNTHETIC_UAT_V1" | null;
   disposition: "PROVIDER_FETCH" | "CACHE_HIT";
   bound_to_case_at: string;
   expires_at: string;

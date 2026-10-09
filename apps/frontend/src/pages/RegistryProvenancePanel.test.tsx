@@ -41,6 +41,17 @@ function render(value: RegistryEvidenceBinding | null | undefined, source: Regis
 }
 
 describe("RegistryProvenancePanel", () => {
+  it("distinguishes approved local seed evidence from configured Marketplace", () => {
+    const text = render({ ...binding, synthetic_seed_namespace: "LOCAL_SYNTHETIC_UAT_V1" }).textContent;
+    expect(text).toContain("Local Synthetic Seed");
+    expect(text).toContain("LOCAL PROJECT SYNTHETIC MOCK");
+    expect(text).toContain("LOCAL_SYNTHETIC_UAT_V1");
+    expect(text).toContain("CACHE_HIT");
+    expect(text).toContain("configured provider is unchanged");
+  });
+  it("does not infer local seed classification from an ordinary Mock cache hit", () => {
+    expect(render(binding).textContent).not.toContain("Local Synthetic Seed");
+  });
   it("explains explicit empty ownership separately from retrieved identity and request failures", () => {
     const source: RegistryAcquisition = { ...acquisition, operation_results: [
       acquisition.operation_results[0],

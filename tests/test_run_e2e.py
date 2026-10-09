@@ -378,6 +378,26 @@ console.log(JSON.stringify({
                 cleaned.assert_called_once_with("clm_p16_" + "a" * 24)
                 self.assertEqual(_FakeOwnedProcess.instances[0].env["CLM_E2E_CLASSIFICATION_DATABASE"], "clm_p16_" + "a" * 24)
 
+    def test_synthetic_seed_cleanup_uses_reserved_port_after_startup_failure(self) -> None:
+        _FakeOwnedProcess.instances.clear()
+        with (
+            patch.dict(RUN_E2E.os.environ, {"CLM_E2E_SYNTHETIC_MONGO_PORT": "27149"}),
+            patch.object(RUN_E2E.Path, "is_file", return_value=True),
+            patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
+            patch.object(RUN_E2E, "_find_node", return_value="node"),
+            patch.object(RUN_E2E, "_assert_ports_available"),
+            patch.object(RUN_E2E, "_wait_for_http", side_effect=TimeoutError("timeout")),
+            patch.object(RUN_E2E.secrets, "token_hex", return_value="a" * 24),
+            patch.object(RUN_E2E, "_cleanup_classification_database") as cleaned,
+            redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()),
+        ):
+            result = RUN_E2E.run(backend_port=8765, frontend_port=4173,
+                                timeout_seconds=60, registry_demo="synthetic-seed", grep="Synthetic company pack")
+        self.assertEqual(result, 1)
+        cleaned.assert_called_once_with("clm_p16_" + "a" * 24, 27149)
+        self.assertTrue(all(p.stopped for p in _FakeOwnedProcess.instances))
+        self.assertEqual(_FakeOwnedProcess.instances[0].env["CLM_E2E_SYNTHETIC_MONGO_PORT"], "27149")
+
     def test_classification_database_cleanup_failure_is_safe_and_fails_the_run(self) -> None:
         output = io.StringIO()
         with (
@@ -906,19 +926,19 @@ console.log(JSON.stringify({
     def test_ci_outer_bound_covers_current_discovery_and_bounded_cleanup(self) -> None:
         lifecycle_seconds = 60
         installation_minutes = 14
-        job_minutes = 231
+        job_minutes = 234
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         e2e = workflow.split("  e2e:\n", 1)[1].split("  demo-lifecycle-windows:", 1)[0]
         self.assertIn(f"timeout-minutes: {job_minutes}", e2e)
         self.assertIn(f"python scripts/run_e2e.py --timeout-seconds {lifecycle_seconds}", e2e)
         selectors = RUN_E2E._list_test_selectors(RUN_E2E.DEFAULT_FRONTEND_PORT)
-        self.assertEqual(len(selectors), 72)
+        self.assertEqual(len(selectors), 73)
         self.assertEqual(RUN_E2E.DISCOVERY_TIMEOUT_SECONDS, 60)
         self.assertEqual(RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS, 120)
         launcher_seconds = RUN_E2E.DISCOVERY_TIMEOUT_SECONDS + len(selectors) * (
             lifecycle_seconds + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS
         )
-        self.assertEqual(launcher_seconds, 13020)
+        self.assertEqual(launcher_seconds, 13200)
         self.assertLessEqual(
             launcher_seconds + installation_minutes * 60,
             job_minutes * 60,
@@ -956,7 +976,7 @@ console.log(JSON.stringify({
             [lifecycle_seconds] * len(selectors),
         )
         self.assertEqual(clock[0], launcher_seconds)
-        self.assertIn("E2E SUITE PASS: 72 configured selectors", output.getvalue())
+        self.assertIn("E2E SUITE PASS: 73 configured selectors", output.getvalue())
 
     def test_sandbox_discovery_routes_each_mode_and_preserves_default(self) -> None:
         payload = {"suites": [{"specs": [

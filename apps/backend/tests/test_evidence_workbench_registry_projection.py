@@ -44,6 +44,7 @@ PDF = (
 ).read_bytes()
 
 EXPECTED_BINDING_KEYS = {
+    "synthetic_seed_namespace",
     "disposition",
     "bound_to_case_at",
     "expires_at",
@@ -92,6 +93,7 @@ def _assert_minimized_binding(payload: dict[str, Any], expected_disposition: str
     binding = payload["registry_evidence_binding"]
     assert set(binding) == EXPECTED_BINDING_KEYS
     assert binding == {
+        "synthetic_seed_namespace": None,
         "disposition": expected_disposition,
         "bound_to_case_at": binding["bound_to_case_at"],
         "expires_at": binding["expires_at"],

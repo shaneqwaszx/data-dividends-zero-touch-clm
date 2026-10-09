@@ -1,6 +1,6 @@
 # Bounded Synthetic Demo Asset Index
 
-This is the single asset index. All 13 files are generated synthetic client/test evidence,
+This is the single asset index. All 17 files are generated synthetic client/test evidence,
 not copied sponsor/customer documents or ACRA extracts. Garden current entity-level fields
 come from already-recorded safe normalized Mock observations; supplementary owners are fictional.
 The older Garden pair is preserved Slice A protocol regression evidence, not the current
@@ -16,7 +16,8 @@ structure validation; no-text.pdf intentionally has valid structure without a te
 returns unavailable evidence. invalid-document.pdf intentionally fails before provider dispatch.
 Do not turn negative fixtures into completion documents. Unknown files remain rejected by the
 exact Phase07 allowlist. Hashes bind current bytes; regenerate only the named generator's
-owned assets and review changes. All assets are mapped in FINAL_UAT_ACCEPTANCE_MATRIX.md.
+owned assets and review changes. Historical assets are mapped in FINAL_UAT_ACCEPTANCE_MATRIX.md; the four new companies
+are mapped in docs/demo/SYNTHETIC_COMPANY_PACK.md.
 
 | Filename | Purpose | Classification | Expected entity / UEN | Journey | Expected fields / comparison | SHA256 | Generator / source | Safe to publish? |
 |---|---|---|---|---|---|---|---|---|
@@ -33,3 +34,7 @@ owned assets and review changes. All assets are mapped in FINAL_UAT_ACCEPTANCE_M
 | `garden-business-conflicting-onboarding-profile.pdf` | Preserved explicit four-field conflict | SYNTHETIC HISTORICAL ADVERSE | GARDEN DEMO TRADING / 11111998B | A-conflict regression | 25 DEMO ROAD, #02-02, 048547, SG; Country MY; all four conflicts against old Garden fixture | `572b0ddb8cab05ce5f619e0acd97618808f11afc6da4e3afc1d165b430c8ab45` | scripts/generate_garden_demo_pdfs.py | YES — controlled synthetic evidence |
 | `garden-partnership-reviewed-client.pdf` | Current Garden supplementary reviewed declaration | SYNTHETIC CLIENT; safe normalized entity fields | GARDEN BUSINESS / 11111999A | F-A | 306C XYZ LINK, #03-21, ABC GARDEN, 333333, SG; Country SG; four MATCH; fictional 60/40 entered manually | `13f8d74a84bb5acd84f03c38c91cb6aadbc676c9652d051c5117aa20bc96fc6a` | scripts/generate_slice_b_demo_pdfs.py | YES — controlled synthetic evidence |
 | `multiple-owner-demo-client.pdf` | Second complete independent happy path | SYNTHETIC CLIENT | MULTIPLE OWNER DEMO PTE. LTD. / 202400008H | F-B | 18 SHAREHOLDER ROAD, #03-01, 049003, SG; Country SG; four MATCH; synthetic registry 50/30/20 | `ff7b89563b6ac4767d695dffc09e7aa947eba66481a57cb312f0b81c3522d870` | scripts/generate_slice_b_demo_pdfs.py | YES — controlled synthetic evidence |
+| `zero-touch-database/orion-synthetic-technologies-client.pdf` | Complete synthetic company happy path | LOCAL PROJECT SYNTHETIC MOCK | ORION SYNTHETIC TECHNOLOGIES PTE. LTD. / 202400014N | Synthetic company pack | Four MATCH identity fields; registry-only ownership 70/30 | `87420d3b16467f157fafe16c59d05940dbfb2f7566eb34b1976193420bb07f38` | scripts/generate_synthetic_company_pack.py | YES - controlled synthetic evidence |
+| `zero-touch-database/pacific-synthetic-ledger-client.pdf` | Complete synthetic company happy path | LOCAL PROJECT SYNTHETIC MOCK | PACIFIC SYNTHETIC LEDGER PTE. LTD. / 202400015O | Synthetic company pack | Four MATCH identity fields; registry-only ownership 40/35/25 inclusive | `ab228e462648f022b5bf4c1a8262d919b7975d33e0114eb11da41c150f3eb30d` | scripts/generate_synthetic_company_pack.py | YES - controlled synthetic evidence |
+| `zero-touch-database/straits-synthetic-holdings-client.pdf` | Complete synthetic company happy path | LOCAL PROJECT SYNTHETIC MOCK | STRAITS SYNTHETIC HOLDINGS PTE. LTD. / 202400016P | Synthetic company pack | Four MATCH identity fields; registry-only ownership 48/40/12 effective | `ed24243f5b7ad02d51222975b9348f61cb9091c17882ca8082d32f4eb3b09597` | scripts/generate_synthetic_company_pack.py | YES - controlled synthetic evidence |
+| `zero-touch-database/meridian-synthetic-infrastructure-client.pdf` | Complete synthetic company happy path | LOCAL PROJECT SYNTHETIC MOCK | MERIDIAN SYNTHETIC INFRASTRUCTURE PTE. LTD. / 202400017Q | Synthetic company pack | Four MATCH identity fields; registry-only ownership 30/20/30/20 effective | `b34c6894129f41e898ce54b04cc0a5927ae1d8f56b83be9e602348f49f1ba88c` | scripts/generate_synthetic_company_pack.py | YES - controlled synthetic evidence |

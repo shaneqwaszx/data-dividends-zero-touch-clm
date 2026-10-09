@@ -139,8 +139,19 @@ test("Slice B Merlion fresh cache makes zero new ACRA calls", { tag: "@slice-b-s
   const hit = await summary(page, caseId);
   expect(hit.case.registry_evidence_binding.disposition).toBe("CACHE_HIT");
   expect(hit.case.registry_acquisition).toEqual(warm.case.registry_acquisition);
-  for (const value of Object.values(hit.case.registry_evidence_binding)) {
-    await expect(bindingView).toContainText(String(value));
+  expect(hit.case.registry_evidence_binding.synthetic_seed_namespace).toBeNull();
+  await expect(bindingView.getByRole("note")).toHaveCount(0);
+  const visibleBindingFields = [
+    "disposition",
+    "bound_to_case_at",
+    "expires_at",
+    "freshness_policy_id",
+    "freshness_policy_version",
+    "freshness_duration_seconds",
+    "freshness_comparator",
+  ] as const;
+  for (const field of visibleBindingFields) {
+    await expect(bindingView).toContainText(String(hit.case.registry_evidence_binding[field]));
   }
   await complete(page, caseId);
   expect(await counts(page)).toEqual(before);

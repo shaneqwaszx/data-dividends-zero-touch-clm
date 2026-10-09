@@ -236,8 +236,8 @@ never bound or partially mixed into the provider namespace. Normal provider acqu
 and its existing partial/negative cache semantics then apply. Unknown/malformed stored
 evidence still fails closed; no corrupt entry is overwritten or interpreted.
 
-The four fixture definitions live in scripts/zero_touch_happy_path_fixtures.py.
-Seed creates only these four keys through the existing repository, checks deterministic
+The eight fixture definitions live in scripts/zero_touch_happy_path_fixtures.py.
+Seed creates only these eight keys through the existing repository, checks deterministic
 content before writes, leaves fresh matching entries untouched and CAS-refreshes only
 expired matching entries. Production and unallowlisted databases are refused before
 connection. `--check` performs no writes or index initialization. No raw HTTP payload,
@@ -248,3 +248,15 @@ only its active registry equality binding. The original acquisition bundle and s
 cache entry remain unchanged; the reconciliation decision remains separately retained.
 The unchanged-name path retains its binding. This preserves existing correction behavior
 with the ordinary cache default without weakening the binding validator.
+
+
+## Synthetic company pack correction - 2026-10-09
+
+Orion, Pacific, Straits and Meridian extend the existing LOCAL_SYNTHETIC_UAT_V1
+seed owner. The configured normal provider remains api_marketplace_mock. A fresh
+COMPLETE exact-UEN seed is a CACHE_HIT with zero Marketplace token/HTTP operations;
+missing or stale seeds proceed to the configured provider through the same coordinator.
+The browser binding adds nullable synthetic_seed_namespace, allowlisted only to
+LOCAL_SYNTHETIC_UAT_V1 when the full retained identity equals the approved local seed
+identity. Private keys, arbitrary namespaces, endpoints and contract identifiers remain
+private. Original evidence references and provider configuration are not relabelled.
