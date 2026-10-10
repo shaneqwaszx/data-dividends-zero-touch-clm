@@ -5,6 +5,9 @@ Entries are workspace records, not authoritative runtime decisions.
 
 | Date | Kind | Path | Title |
 | --- | --- | --- | --- |
+| 2026-10-10 | plan | docs/aegis/plans/2026-10-10-final-review-sponsor-demo.md | Final Review editing and eight sponsor demo journeys |
+| 2026-10-10 | work | docs/aegis/work/2026-10-10-final-review-sponsor-demo/10-intent.md | Owner addendum intent and baseline lock |
+| 2026-10-10 | work | docs/aegis/work/2026-10-10-final-review-sponsor-demo/20-checkpoint.md | Additive sponsor demo execution checkpoint |
 | 2026-09-21 | work | docs/aegis/work/2026-09-21-phase-19-factual-case-timing/10-intent.md | Phase 19 factual case timing intent |
 | 2026-09-21 | work | docs/aegis/work/2026-09-21-phase-19-factual-case-timing/20-checkpoint.md | Phase 19 factual case timing checkpoint |
 | 2026-09-21 | work | docs/aegis/work/2026-09-21-phase-19-factual-case-timing/90-evidence.md | Phase 19 factual case timing evidence |

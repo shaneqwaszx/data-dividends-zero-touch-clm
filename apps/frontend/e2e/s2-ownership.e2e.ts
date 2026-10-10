@@ -74,7 +74,7 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   expect(first.manual_review_receipt.rationale).toBeNull();
   expect((await summary(page, caseId)).ownership_edit_authorized).toBe(true);
   await page.getByRole("button", { name: "Edit ownership", exact: true }).click();
-  await expect(page.locator("#case-manual-ownership-evidence")).toBeFocused();
+  await expect(page.locator("#case-manual-ownership-evidence :is(input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]))").first()).toBeFocused();
   await form.getByLabel("Owner type", { exact: true }).nth(0).selectOption("LEGAL_ENTITY");
   await form.getByLabel("Owner name", { exact: true }).nth(0).fill("Synthetic holding entity");
   await form.getByLabel("Registration number (optional)", { exact: true }).nth(0).fill("202400002B");

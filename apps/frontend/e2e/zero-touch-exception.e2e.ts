@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { openStage } from "./stage-disclosures";
+import { reviewSourceChoices } from "./blocker-decisions";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -103,10 +104,11 @@ async function boundedMutation(page: Page, info: TestInfo, suffix: string, actio
     await route.fulfill({ response });
   });
   try {
-    await action();
-    await ready;
+    const performed = action();
+    await Promise.race([ready, performed.then(() => ready)]);
     await capture(page, info, `${milestone}-during`);
     release();
+    await performed;
     await expect(page.getByRole("status").filter({ hasText: /Saving|Submitting|Recording/ }).first()).toHaveCount(0);
   } finally {
     release();
@@ -161,14 +163,13 @@ for (const conflict of [false, true]) {
     await capture(page, info, "before");
     if (conflict) {
       await openStage(page, "Document verification");
-      for (let count = 4; count > 0; count -= 1) {
-        await expect(page.getByRole("button", { name: "Keep registry value", exact: true })).toHaveCount(count);
-        const measure = await boundedMutation(page, info, "/resolve", async () => {
-          await page.getByRole("button", { name: "Keep registry value", exact: true }).first().click();
-        }, `conflict-${count}`);
-        await expect(page.getByRole("button", { name: "Keep registry value", exact: true })).toHaveCount(count - 1);
-        measure();
-      }
+      await page.getByLabel("Decision group", { exact: true }).selectOption("source");
+      await expect(page.locator("select[data-reconciliation-field]")).toHaveCount(4);
+      const measure = await boundedMutation(page, info, "/review-decisions", async () => {
+        await reviewSourceChoices(page);
+      }, "conflict-group");
+      await expect(page.locator("select[data-reconciliation-field]")).toHaveCount(0);
+      measure();
     } else {
       await expect(page.locator(".document-field .tag", { hasText: "AUTO CONFIRMED" })).toHaveCount(4);
       await expect(page.getByRole("button", { name: /^Accept .* suggestion$/ })).toHaveCount(0);

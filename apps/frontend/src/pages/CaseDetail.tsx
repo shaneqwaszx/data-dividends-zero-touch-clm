@@ -1,3 +1,6 @@
+import BlockerDecisionReview, { type ReviewDraftHandle } from "./BlockerDecisionReview";
+import type { ReviewDecisionBatch } from "../types";
+import { confirmReviewDecisions } from "../api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -72,7 +75,7 @@ import CaseStateExplanationPanel, { type EvidenceFocusTarget } from "./CaseState
 import PriorityControl, { PriorityBadge } from "./PriorityControl";
 import DeleteCaseDialog from "./DeleteCaseDialog";
 import DocumentEvidencePanel, {
-  isCurrentDocument, type DocumentReviewRequest,
+  canContinueRecoveredIntake, isCurrentDocument, isDocumentReuploadRequired, type DocumentReviewRequest,
 } from "./DocumentEvidencePanel";
 import OwnershipPathExplorer from "./OwnershipPathExplorer";
 import IntelligencePanel from "./IntelligencePanel";
@@ -144,6 +147,10 @@ export default function CaseDetail({
   initialFocusNodeId?: string;
 }) {
   const queryClient = useQueryClient();
+  const batchReviewRef = useRef<ReviewDraftHandle>(null);
+  const [pendingProcessingFocus, setPendingProcessingFocus] = useState<(CaseActionIdentity & {
+    nodeId: string; automationVersion: number;
+  }) | null>(null);
   const evidenceIdentity = `${actor.user_id}:${caseId}`;
   const detailQuery = useQuery(caseDetailQueryOptions(actor.user_id, caseId));
   const documentQuery = useQuery(documentQueryOptions(actor.user_id, caseId));
@@ -186,6 +193,9 @@ export default function CaseDetail({
   const generation = useRef(0);
   const mounted = useRef(false);
   const mutationPending = useRef<CaseActionIdentity | null>(null);
+  const reviewEdit = useRef<(CaseActionIdentity & { target: EvidenceFocusTarget }) | null>(null);
+  const [classificationReviewRequest, setClassificationReviewRequest] = useState<CaseActionIdentity | null>(null);
+  const [pendingReviewReturn, setPendingReviewReturn] = useState<(CaseActionIdentity & { version: number }) | null>(null);
   const lastNavigationFocus = useRef<string | null>(null);
   const activeIdentity = useRef({ caseId, actorUserId: actor.user_id });
   activeIdentity.current = { caseId, actorUserId: actor.user_id };
@@ -436,10 +446,26 @@ export default function CaseDetail({
     const focusIdentity = `${evidenceIdentity}:${requestedNodeId}`;
     if (lastNavigationFocus.current === focusIdentity) return;
     const node = findProcessingNode(summary.processing_pipeline ?? [], requestedNodeId);
-    if (!node || !processingNodeFocusTarget(node)) return;
+    if (!node || (!processingNodeFocusTarget(node)
+      && !(summary.status === "PENDING_INPUTS" && node.node_id === "DOCUMENT_IDP"))) return;
+    if (["DOCUMENT_IDP", "RECONCILIATION"].includes(node.node_id) && documentQuery.isPending) return;
+    if (node.node_id === "OWNERSHIP_UBO" && ownershipQuery.isPending) return;
     lastNavigationFocus.current = focusIdentity;
     focusProcessingNode(node);
-  }, [evidenceIdentity, initialFocusNodeId, summary?.version]);
+  }, [evidenceIdentity, initialFocusNodeId, summary?.version, documentQuery.isPending, ownershipQuery.isPending]);
+
+  useEffect(() => {
+    if (!pendingProcessingFocus) return;
+    if (!isCurrentCaseAction(pendingProcessingFocus) || summary?.version !== pendingProcessingFocus.automationVersion) {
+      setPendingProcessingFocus(null);
+      return;
+    }
+    if ((["DOCUMENT_IDP", "RECONCILIATION"].includes(pendingProcessingFocus.nodeId) && documentQuery.isPending)
+      || (pendingProcessingFocus.nodeId === "OWNERSHIP_UBO" && ownershipQuery.isPending)) return;
+    const node = findProcessingNode(summary.processing_pipeline ?? [], pendingProcessingFocus.nodeId);
+    setPendingProcessingFocus(null);
+    if (node) focusProcessingNode(node);
+  }, [pendingProcessingFocus, evidenceIdentity, summary?.version, documentQuery.isPending, ownershipQuery.isPending]);
 
   async function runMutation(
     operation: () => Promise<ZeroTouchCaseSummary>,
@@ -447,6 +473,7 @@ export default function CaseDetail({
     effect: "supporting" | "target-confirmation" | "identity-recheck" | "registry-identity" | "manual-ownership" | "policy-rebind" = "supporting",
   ) {
     let action = captureCaseAction();
+    const returnToReview = reviewEdit.current !== null && isCurrentCaseAction(reviewEdit.current);
     if (mutationPending.current || mutationBlocked || confirmationUnknown) return;
     mutationPending.current = action;
     setIsBusy(true);
@@ -470,6 +497,11 @@ export default function CaseDetail({
         policyRebindMutationEffect(queryClient, action.actorUserId, updated);
       } else {
         await caseSupportingMutationEffect(queryClient, action.actorUserId, updated);
+      }
+      if (returnToReview && isCurrentCaseAction(action)) {
+        reviewEdit.current = null;
+        setClassificationReviewRequest(null);
+        setPendingReviewReturn({ ...action, version: updated.version });
       }
     } catch (mutationError) {
       if (!isCurrentCaseAction(action)) return;
@@ -579,6 +611,7 @@ export default function CaseDetail({
     failureText: string,
   ): Promise<void> {
     const action = captureCaseAction();
+    const returnToReview = reviewEdit.current !== null && isCurrentCaseAction(reviewEdit.current);
     if (mutationPending.current || mutationBlocked) return;
     mutationPending.current = action;
     setIsBusy(true);
@@ -597,9 +630,14 @@ export default function CaseDetail({
     const mustRefresh = mutationError === null || shouldRefreshAfterMutationError(mutationError);
     if (mustRefresh) {
       try {
-        await refreshEvidence(action);
+        const latest = await refreshEvidence(action);
         if (!isCurrentCaseAction(action)) return;
         setMutationBlocked(false);
+        if (mutationError === null && returnToReview) {
+          reviewEdit.current = null;
+          setClassificationReviewRequest(null);
+          setPendingReviewReturn({ ...action, version: latest.version });
+        }
         if (mutationError !== null) {
           setError(
             mutationError instanceof ApiError && mutationError.status === 409
@@ -654,7 +692,7 @@ export default function CaseDetail({
 
   function handleReplacement(document: DocumentProcessingRecord, file: File) {
     void settleEvidenceMutation(
-      () => replaceZeroTouchDocument(caseId, document.document_id, document.events.length, file),
+      () => replaceZeroTouchDocument(caseId, document.document_id, document.events.length, file, summary ?? undefined),
       "Replacing current document…",
       "The replacement could not be saved.",
     );
@@ -704,7 +742,70 @@ export default function CaseDetail({
     }
   }
 
+  function focusActionControl(targetId: string, selector?: string): void {
+    const action = captureCaseAction();
+    const section = document.getElementById(targetId);
+    if (!section) {
+      setEvidenceFocusNotice({ identity: evidenceIdentity, message: "The required action is not available for the current case evidence." });
+      return;
+    }
+    revealStage(section);
+    if (targetId === EVIDENCE_TARGET_IDS.identity && !section.querySelector("#identity-registration-number")) {
+      const edit = Array.from(section.querySelectorAll<HTMLButtonElement>("button:not([disabled])"))
+        .find(button => ["Edit UEN", "Enter another UEN"].includes(button.textContent ?? ""));
+      edit?.click();
+    }
+    requestAnimationFrame(() => {
+      if (!isCurrentCaseAction(action)) return;
+      const current = document.getElementById(targetId);
+      if (!current) return;
+      // Entry navigation may run before the disclosure's effect has subscribed.
+      // Reveal again at the mounted frame, then focus after its committed layout.
+      revealStage(current);
+      const controls = selector ?? "input:not([disabled]):not([readonly]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]):not(.review-and-send__print)";
+      const target = (current.matches(controls) ? [current] : Array.from(current.querySelectorAll<HTMLElement>(controls)))
+        .find(element => !element.matches(":disabled"));
+      if (!target) {
+        setEvidenceFocusNotice({ identity: evidenceIdentity, message: "No corrective input is currently authorized here. Review the retained reason and required evidence." });
+        current.focus({ preventScroll: true });
+        return;
+      }
+      revealStage(target);
+      requestAnimationFrame(() => {
+        if (!isCurrentCaseAction(action) || !target.isConnected || target.matches(":disabled")) return;
+        if (target.closest("[hidden]")) {
+          setEvidenceFocusNotice({ identity: evidenceIdentity, message: "The corrective input could not be opened for the current case evidence." });
+          return;
+        }
+        setEvidenceFocusNotice(null);
+        target.focus({ preventScroll: true });
+        const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        target.scrollIntoView?.({ block: "center", behavior: reducedMotion ? "auto" : "smooth" });
+      });
+    });
+  }
+
   function focusEvidence(target: EvidenceFocusTarget): void {
+    if (target === "identity") { focusActionControl(EVIDENCE_TARGET_IDS.identity, "#identity-registration-number:not([disabled])"); return; }
+    if (target === "classification") {
+      const onlySegmentMissing = summary?.target_classification?.kyc_customer_type.selected_value
+        && !summary?.target_classification?.client_segment.selected_value;
+      focusActionControl(EVIDENCE_TARGET_IDS.classification, onlySegmentMissing
+        ? 'select[aria-label="Client segment"]:not([disabled])' : "select:not([disabled])");
+      return;
+    }
+    if (target === "policy") { focusActionControl(EVIDENCE_TARGET_IDS.policy, "#policy-rebind-rationale:not([disabled])"); return; }
+    if (target === "documents" || target === "reconciliation") {
+      const failed = documents.find(doc => isDocumentReuploadRequired(doc, summary ?? undefined));
+      if (failed) { focusActionControl(EVIDENCE_TARGET_IDS.documents, `.document-card[data-document-id="${failed.document_id}"] input[type=file]:not([disabled])`); return; }
+      if (document.getElementById("case-document-intake-continue")) { focusActionControl("case-document-intake-continue", "button:not([disabled])"); return; }
+      if (document.getElementById("case-document-intake-start")) { focusActionControl("case-document-intake-start", "button:not([disabled])"); return; }
+      if (document.getElementById("case-blocker-review")) { focusActionControl("case-blocker-review", "select[data-review-field]:not([disabled]), select[data-reconciliation-field]:not([disabled])"); return; }
+      if (document.getElementById("case-document-checkpoint-repair")) { focusActionControl("case-document-checkpoint-repair", "button:not([disabled])"); return; }
+      focusActionControl(document.getElementById("case-document-upload") ? "case-document-upload" : EVIDENCE_TARGET_IDS.documents, "input[type=file]:not([disabled])"); return;
+    }
+    if (target === "ownership" && document.getElementById(MANUAL_OWNERSHIP_TARGET_ID)) { focusManualOwnership(); return; }
+    if (target === "recovery" && document.getElementById("case-target-recovery")) { focusActionControl("case-target-recovery"); return; }
     const section = document.getElementById(EVIDENCE_TARGET_IDS[target]);
     if (!section) {
       setEvidenceFocusNotice({
@@ -720,23 +821,56 @@ export default function CaseDetail({
     section.scrollIntoView?.({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
   }
 
+  function editFromFinalReview(target: EvidenceFocusTarget): void {
+    reviewEdit.current = { ...captureCaseAction(), target };
+    if (target === "classification") setClassificationReviewRequest(captureCaseAction());
+    focusEvidence(target);
+  }
+
+  useEffect(() => {
+    if (!pendingReviewReturn) return;
+    if (!isCurrentCaseAction(pendingReviewReturn)) { setPendingReviewReturn(null); return; }
+    if (isBusy || documentQuery.isPending || ownershipQuery.isPending || !summary
+      || summary.version < pendingReviewReturn.version) return;
+    setPendingReviewReturn(null);
+    const latest = summary;
+    requestAnimationFrame(() => {
+      if (!isCurrentCaseAction(pendingReviewReturn)) return;
+      if (latest.active_exceptions.some(item => item.exception_type === "TARGET_CONFIRMATION_REQUIRED")) {
+        focusActionControl("case-review-and-send", ".btn-primary:not([disabled])");
+      } else {
+        const node = latest.processing_pipeline?.find(item => item.status === "BLOCKED");
+        if (node) focusProcessingNode(node);
+      }
+    });
+  }, [pendingReviewReturn, summary?.version, isBusy, documentQuery.isPending, ownershipQuery.isPending, evidenceIdentity]);
+
   function focusManualOwnership(): void {
-    const section = document.getElementById(MANUAL_OWNERSHIP_TARGET_ID);
-    if (!section) {
-      setEvidenceFocusNotice({
-        identity: evidenceIdentity,
-        message: "Manual ownership evidence is not authorized for the current case state.",
-      });
-      return;
-    }
-    setEvidenceFocusNotice(null);
-    revealStage(section);
-    section.focus({ preventScroll: true });
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    section.scrollIntoView?.({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
+    focusActionControl(MANUAL_OWNERSHIP_TARGET_ID);
   }
 
   function focusProcessingNode(node: ProcessingNode): void {
+    if (["DOCUMENT_IDP", "RECONCILIATION"].includes(node.node_id) && identityConflict) { focusEvidence("identity"); return; }
+    if (summary && ((["DOCUMENT_IDP", "RECONCILIATION"].includes(node.node_id) && documentQuery.isPending)
+      || (node.node_id === "OWNERSHIP_UBO" && ownershipQuery.isPending))) {
+      setPendingProcessingFocus({ ...captureCaseAction(), nodeId: node.node_id, automationVersion: summary.version });
+      return;
+    }
+    if (node.node_id === "READINESS") {
+      if (document.querySelector("#policy-rebind-rationale:not([disabled])")) { focusEvidence("policy"); return; }
+      if (summary?.active_exceptions.some(item => item.blocker_code === "GOLDTIER_CLASSIFICATION_REQUIRED")) { focusEvidence("classification"); return; }
+      if (document.querySelector("#case-review-and-send .btn-primary:not([disabled])")) { focusActionControl("case-review-and-send", ".btn-primary:not([disabled])"); return; }
+    }
+    if (node.node_id === "INITIAL_IDENTITY" || node.node_id.startsWith("ACRA_")) { focusEvidence("identity"); return; }
+    if (["DOCUMENT_IDP", "RECONCILIATION"].includes(node.node_id)) { focusEvidence(node.node_id === "RECONCILIATION" ? "reconciliation" : "documents"); return; }
+    if (node.node_id === "OWNERSHIP_UBO") { focusEvidence("ownership"); return; }
+    if (node.node_id === "FINAL_REVIEW_SEND") { focusActionControl("case-review-and-send", ".btn-primary:not([disabled])"); return; }
+    if (node.node_id.startsWith("TARGET_CLASSIFICATION")) { focusEvidence(processingNodeFocusTarget(node) === EVIDENCE_TARGET_IDS.policy ? "policy" : "classification"); return; }
+    if (node.node_id.startsWith("GOLDTIER_SEARCH")) {
+      if (document.getElementById("existing-customer-confirmation-rationale")) { focusActionControl("existing-customer-confirmation-form", "input:not([disabled])"); return; }
+      if (document.getElementById(EVIDENCE_TARGET_IDS.identity)) { focusEvidence("identity"); return; }
+    }
+    if (node.node_id.startsWith("GOLDTIER_") && document.getElementById("case-target-recovery")) { focusActionControl("case-target-recovery"); return; }
     const targetId = processingNodeFocusTarget(node);
     const section = targetId ? document.getElementById(targetId) : null;
     if (!section) {
@@ -748,7 +882,7 @@ export default function CaseDetail({
     }
     setEvidenceFocusNotice(null);
     const action = captureCaseAction();
-    window.setTimeout(() => {
+    requestAnimationFrame(() => {
       if (!isCurrentCaseAction(action)) return;
       const currentSection = document.getElementById(targetId!);
       if (!currentSection) return;
@@ -761,7 +895,7 @@ export default function CaseDetail({
         block: "start",
         behavior: reducedMotion ? "auto" : "smooth",
       });
-    }, 50);
+    });
   }
 
   async function deleteCase(action: CaseActionIdentity): Promise<void> {
@@ -807,7 +941,8 @@ export default function CaseDetail({
     && summary.status !== "COMPLETED"
     && !summary.case.goldtier_result
     && !summary.case.target_dispatch_confirmation
-    && !summary.clm.submission;
+    && !summary.clm.submission
+    && !(targetSubmission && targetSubmission.state !== "NOT_SUBMITTED");
   const availableFocusTargets = new Set([
     EVIDENCE_TARGET_IDS.registry,
     EVIDENCE_TARGET_IDS.documents,
@@ -828,7 +963,7 @@ export default function CaseDetail({
           summary={summary}
           stages={stages}
           historyOnly={historyOnly}
-          isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
+          isBusy={isBusy || mutationBlocked || documentQuery.isPending || summary.evidence_decision_authorized !== true}
           onConfirmExisting={(rationale) => void runMutation(
             () => confirmExistingGoldTierCustomer(summary, rationale),
             "Confirming retained existing customer…",
@@ -842,19 +977,23 @@ export default function CaseDetail({
               IDENTITY: EVIDENCE_TARGET_IDS.identity,
               REVIEW_SEND: "case-review-and-send",
             };
-            const element = document.getElementById(targetIds[target]);
-            if (element) revealStage(element);
-            element?.scrollIntoView({ behavior: "smooth", block: "start" });
-            requestAnimationFrame(() => element?.focus({ preventScroll: true }));
+            if (target === "DOCUMENTS") focusEvidence("documents");
+            else if (target === "CLASSIFICATION") focusEvidence("classification");
+            else if (target === "IDENTITY") focusEvidence("identity");
+            else if (target === "REVIEW_SEND") focusActionControl("case-review-and-send", ".btn-primary:not([disabled])");
+            else focusActionControl(targetIds[target], target === "OWNERSHIP_UPLOAD" ? "input[type=file]:not([disabled])" : undefined);
           }}
-          onResolve={(exception, action) => void runMutation(
-            () => resolveZeroTouchException(
-              summary,
-              exception.exception_id,
-              action,
-              exception.evidence_version,
-            ),
-          )}
+          onResolve={(exception, action) => {
+            if (exception.stage === "DOCUMENT" && (action === "KEEP_REGISTRY_VALUE" || action === "USE_DOCUMENT_VALUE") && batchReviewRef.current?.selectSourceDecision(exception.exception_id, action)) {
+              focusActionControl("case-blocker-review", `[data-discrepancy-id="${exception.exception_id}"]`);
+              return;
+            }
+            if (exception.stage === "DOCUMENT") {
+              focusActionControl("case-blocker-review");
+              return;
+            }
+            void runMutation(() => resolveZeroTouchException(summary, exception.exception_id, action, exception.evidence_version));
+          }}
         />
 
   );
@@ -889,7 +1028,9 @@ export default function CaseDetail({
       <div className="side-panel case-pipeline-panel">
         <button type="button" className="btn btn-ghost" onClick={onBack} style={{ paddingLeft: 0 }}>← Back to Cases</button>
         <h4 style={{ marginTop: 16 }}>Pipeline</h4>
-        <PipelineRail summary={summary} />
+        <PipelineRail summary={summary} onStageActivate={focusProcessingNode} />
+        {(targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" || summary.current_stage !== "MOCK_GOLDTIER" || summary.technical_failure?.code !== "CLM_TARGET_OUTCOME_UNCERTAIN") && !preflightUnavailable && summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn case-technical-failure" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
+        {evidenceFocusNotice?.identity === evidenceIdentity && <p className="ds-banner ds-banner-warn" role="status">{evidenceFocusNotice.message}</p>}
         <hr className="hr" />
         <div className="text-muted" style={{ fontSize: 11.5 }}>
           Loop —
@@ -929,6 +1070,7 @@ export default function CaseDetail({
               onboardingCase={summary.case}
               registryRecovery={!identityIncomplete}
               documentCandidates={documentUenCandidates}
+              error={reviewEdit.current?.target === "identity" && isCurrentCaseAction(reviewEdit.current) ? error : null}
               disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
               onSubmit={(values) => void runMutation(
                 () => {
@@ -977,18 +1119,49 @@ export default function CaseDetail({
         </StageDisclosure>
         <StageDisclosure title="Document verification" active={!identityConflict && stageIsActive(["DOCUMENT"])}>
           {renderInterventions(["DOCUMENT"])}
+          {summary.status === "PENDING_INPUTS" && !documents.some(doc => isDocumentReuploadRequired(doc, summary)) && <label id="case-document-upload" className="btn btn-secondary document-upload-control">
+            Upload required document
+            <input type="file" className="sr-only document-upload-input"
+              accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.tif,.tiff"
+              disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
+              onChange={event => {
+                const file = event.target.files?.[0]; event.target.value = "";
+                if (file) void settleEvidenceMutation(() => intakeZeroTouchDocument(caseId, file, false), "Processing uploaded evidence…", "Document upload could not complete.");
+              }} />
+          </label>}
           {summary.status === "PENDING_INPUTS" && documents.some(isCurrentDocument)
-            && summary.timeline.at(-1)?.code === "EXISTING_GOLDTIER_CUSTOMER_CONFIRMED"
-            && <button type="button" className="btn btn-primary"
+            && !documents.some(doc => isCurrentDocument(doc) && doc.state === "FAILED")
+            && !canContinueRecoveredIntake(summary, documents)
+            && <button id="case-document-intake-start" type="button" className="btn btn-primary"
               disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
               onClick={handleContinueRecoveredIntake}>Continue evidence review</button>}
+          {summary.status === "WAITING_FOR_REVIEW" && summary.current_stage === "DOCUMENT"
+            && ["MATCHED", "RESOLVED"].includes(summary.reconciliation?.status ?? "")
+            && summary.active_exceptions.some(item => item.stage === "DOCUMENT")
+            && documents.filter(isCurrentDocument).length > 0
+            && documents.filter(isCurrentDocument).every(doc => doc.semantic_completion === "RECONCILIATION_RESOLVED"
+              || doc.fields.every(field => field.review_status !== "PENDING"))
+            && <section id="case-document-checkpoint-repair" className="ds-banner">
+              <p>Review decisions are retained. Continue once to recheck the remaining onboarding checkpoint.</p>
+              <button type="button" className="btn btn-secondary"
+                disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
+                onClick={handleContinueRecoveredIntake}>Continue retained review checkpoint</button>
+            </section>}
+        <BlockerDecisionReview
+          key={`${evidenceIdentity}:${actor.role}:${actor.team_id}:${summary.evidence_decision_authorized}:${summary.version}:${summary.case.events.length}:${documents.map(doc => `${doc.document_id}:${doc.events.length}:${doc.review_source_fingerprint}`).join("|")}`}
+          ref={batchReviewRef} summary={summary} documents={documents} busy={isBusy || mutationBlocked}
+          onConfirm={(batch: ReviewDecisionBatch) => void settleEvidenceMutation(
+            () => confirmReviewDecisions(caseId, batch), "Applying confirmed review decisions…", "Review confirmation could not be completed.")}
+        />
         {summary.reconciliation && summary.current_stage === "DOCUMENT" && (
           <div key={`${evidenceIdentity}:reconciliation`} id={EVIDENCE_TARGET_IDS.reconciliation} className="evidence-focus-target" tabIndex={-1}>
             <ConfirmDetailsPanel summary={summary} isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true} />
           </div>
         )}
         <div key={`${evidenceIdentity}:documents`} id={EVIDENCE_TARGET_IDS.documents} className="evidence-focus-target" tabIndex={-1}>
-          <DocumentEvidencePanel key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />
+          {error && reviewEdit.current?.target === "documents" && isCurrentCaseAction(reviewEdit.current)
+            && <p role="alert" className="ds-banner ds-banner-warn">{error}</p>}
+          <DocumentEvidencePanel reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />
         </div>
 
         </StageDisclosure>
@@ -1069,10 +1242,13 @@ export default function CaseDetail({
         )}
         {summary.target_classification && (
           <div id="case-target-classification" className="evidence-focus-target" tabIndex={-1}>
+          {error && reviewEdit.current?.target === "classification" && isCurrentCaseAction(reviewEdit.current)
+            && <p role="alert" className="ds-banner ds-banner-warn">{error}</p>}
           <TargetClassificationPanel
+            reviewRequested={classificationReviewRequest !== null && isCurrentCaseAction(classificationReviewRequest)}
             key={`${summary.case.case_id}:${summary.target_classification.vocabulary_version}:${summary.target_classification.evidence_fingerprint ?? "unknown"}:${summary.target_classification.current ?? "unknown"}:${summary.target_classification.kyc_customer_type.selected_value ?? "unresolved"}:${summary.target_classification.client_segment.selected_value ?? "unresolved"}`}
             classification={summary.target_classification}
-            disabled={isBusy || mutationBlocked}
+            disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true || frozenReview}
             onSubmit={(input) => runMutation(
               () => updateGoldTierTargetClassification(caseId, {
                 ...input,
@@ -1119,14 +1295,13 @@ export default function CaseDetail({
         </section>}
         {summary.status === "RECOVERY_PENDING"
           && !targetSubmission && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
-        {(targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" || summary.current_stage !== "MOCK_GOLDTIER" || summary.technical_failure?.code !== "CLM_TARGET_OUTCOME_UNCERTAIN") && !preflightUnavailable && summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn case-technical-failure" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
+
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
         <OperationalTiming summary={summary} />
 
           <details className="evidence-details"><summary>Backend execution details</summary>
           <div key={`${evidenceIdentity}:recovery`} id={EVIDENCE_TARGET_IDS.recovery} className="evidence-focus-target evidence-workbench-column" tabIndex={-1}>
             <CaseStateExplanationPanel summary={summary} onNavigate={focusEvidence} />
-            {evidenceFocusNotice?.identity === evidenceIdentity && <p className="ds-banner ds-banner-warn" role="status">{evidenceFocusNotice.message}</p>}
             <aside className="readiness-panel evidence-run-record" aria-label="Retained execution record">
             <h4>Submission plan</h4>
             <p className="control-help">{summary.clm.submission_plan.environment} · {summary.clm.submission_plan.base_operations.join(" → ")}</p>
@@ -1176,10 +1351,10 @@ export default function CaseDetail({
           onCheckStatus={canCheckTargetStatus && completedVerification ? () => void runTargetStatusCheck(false) : undefined}
           onSaveDraft={onBack}
           onReviewOutstanding={() => focusEvidence("recovery")}
-          onEditIdentity={() => focusEvidence("identity")}
-          onEditClassification={() => focusEvidence("classification")}
-          onEditDocuments={() => focusEvidence("documents")}
-          onEditOwnership={focusManualOwnership}
+          onEditIdentity={() => editFromFinalReview("identity")}
+          onEditClassification={() => editFromFinalReview("classification")}
+          onEditDocuments={() => editFromFinalReview("documents")}
+          onEditOwnership={() => editFromFinalReview("ownership")}
         />}
         </StageDisclosure>
       </div>

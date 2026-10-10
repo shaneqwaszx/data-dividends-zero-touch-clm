@@ -25,7 +25,7 @@ for (const company of companies) {
     const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!,
       backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
     await page.route("**/*", (route) => handleBrowserRoute(route, policy, violations));
-    page.on("request", (request) => { if (request.method() === "POST") posts.push(new URL(request.url()).pathname); });
+    page.on("request", (request) => { if (["POST", "PUT"].includes(request.method())) posts.push(new URL(request.url()).pathname); });
     await page.goto("/");
     await page.getByLabel("User ID").fill("maya-lim");
     await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
@@ -62,13 +62,14 @@ for (const company of companies) {
     expect(ownership.state).toBe("ANALYZED");
     expect(ownership.candidates.filter((c: any) => c.classification === "PROVISIONAL_UBO_CANDIDATE").map((c: any) => c.party.display_name).sort()).toEqual([...company.candidates].sort());
     await openStage(page, "Submission readiness");
-    await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
-    await page.getByLabel("Client segment", { exact: true }).selectOption("Corporate");
-    const saved = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().endsWith("/target-classification"));
-    await page.getByRole("button", { name: "Save target classification" }).click();
-    expect((await saved).status()).toBe(200);
+    expect(initial.target_classification.kyc_customer_type.selected_value).toBe("Company - Private");
+    expect(initial.target_classification.client_segment.selected_value).toBe("Corporate");
+    expect(initial.target_classification.kyc_customer_type.selection.source).toBe("DOCUMENT");
+    expect(initial.target_classification.client_segment.selection.source).toBe("DOCUMENT");
+    await expect(page.getByText(/Automatically classified from document/).first()).toBeVisible();
     await expect.poll(async () => (await summary(page, caseId)).active_exceptions.map((e: any) => e.blocker_code)).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
     expect(posts.some((p) => p.endsWith("/target-confirmation"))).toBe(false);
+    expect(posts.some(p => p.endsWith("/target-classification"))).toBe(false);
     const counts = await (await page.request.get("/api/__slice_b/registry-counts")).json();
     expect(counts.external_calls).toBe(0);
     expect(counts.calls).toEqual([]);

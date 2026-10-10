@@ -299,7 +299,7 @@ async function expectAuthoritativeReviewReady(page: Page, caseId: string) {
   ))).toBe(true);
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Accept legal name suggestion" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Record legal name correction" })).toBeVisible();
+  await expect(page.locator('select[data-review-field="legal_name"]')).toBeVisible();
   await expect(page.getByRole("button", { name: "Assign reviewer" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Return for rework" })).toHaveCount(0);
   await expectDocumentContained(page);
@@ -468,7 +468,7 @@ test("responsive review case exposes only supported authoritative review control
     if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(request.method());
   });
   await evidenceAction.click();
-  await expect(page.locator("#case-evidence-documents")).toBeFocused();
+  await expect(page.locator("select[data-review-field]").first()).toBeFocused();
   expect(mutations).toEqual([]);
   await expect(page.getByRole("button", { name: /replay|retry target/i })).toHaveCount(0);
 });

@@ -94,7 +94,7 @@ class ToolingConfigTests(unittest.TestCase):
         self.assertEqual(
             jobs,
             {
-                "backend", "local-ocr", "frontend", "phase12-mongo", "e2e",
+                "backend", "local-ocr", "frontend", "phase12-mongo", "e2e", "e2e-shards",
                 "demo-lifecycle-windows", "security",
             },
         )

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { openStage } from "./stage-disclosures";
+import { focusPipelineAction, openStage } from "./stage-disclosures";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -193,6 +193,7 @@ test("Slice F ambiguous target match pauses without mutation", { tag: "@slice-f-
   await page.getByRole("button", { name: "Open full case", exact: true }).click();
   const paused = await summary(page, caseId);
   expect(paused.clm.target_search_checkpoint.provider_outcome).toBe("MULTIPLE_MATCHES");
+  await focusPipelineAction(page, "GOLDTIER_SEARCH", page.getByLabel("Singapore UEN", { exact: true }));
   expect(paused.clm.target_search_checkpoint.candidate_count).toBe(2);
   expect(paused.active_exceptions.map((item: any) => item.exception_type)).toContain("ENTITY_RESOLUTION_REVIEW_REQUIRED");
   expect(Object.fromEntries(paused.target_operations.map((item: any) => [item.operation, item.status])))

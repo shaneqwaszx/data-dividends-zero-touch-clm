@@ -33,6 +33,32 @@ export default function HumanInterventionPanel({
   const exceptionById = new Map(
     summary.active_exceptions.map((exception) => [exception.exception_id, exception]),
   );
+  const evidenceActionOwners = new Map<string, string>();
+  for (const intervention of interventions) {
+    for (const action of intervention.evidence_actions ?? []) {
+      if (!evidenceActionOwners.has(action.target)) evidenceActionOwners.set(action.target, intervention.intervention_id);
+    }
+  }
+  // Only informational summaries may share a card. Each retained evidence record
+  // stays separate below; resolution and customer-confirmation authorities never merge.
+  const groups: HumanInterventionProjection[][] = [];
+  const informationalGroups = new Map<string, HumanInterventionProjection[]>();
+  for (const intervention of interventions) {
+    const informational = intervention.authorized_actions.length === 0
+      && !intervention.existing_customer_confirmation_action
+      && intervention.candidate_summaries.length === 0;
+    const key = JSON.stringify([
+      intervention.owning_stage, intervention.owning_stage_label, intervention.title,
+      intervention.explanation, intervention.blocker_class, intervention.no_action_reason,
+    ]);
+    const existing = informational ? informationalGroups.get(key) : undefined;
+    if (existing) existing.push(intervention);
+    else {
+      const group = [intervention];
+      groups.push(group);
+      if (informational) informationalGroups.set(key, group);
+    }
+  }
 
   return (
     <section className="intervention-stack" aria-label="Case interventions and history">
@@ -42,11 +68,16 @@ export default function HumanInterventionPanel({
           <h3>Action required</h3>
         </div>
       </div>}
-      {interventions.map((intervention) => (
+      {groups.map(([intervention, ...related]) => (
         <InterventionCard
           key={intervention.intervention_id}
-          intervention={intervention}
+          intervention={{ ...intervention, evidence_actions: [intervention, ...related].flatMap(
+            item => (item.evidence_actions ?? []).filter(
+              action => evidenceActionOwners.get(action.target) === item.intervention_id,
+            ),
+          ) }}
           exception={exceptionById.get(intervention.intervention_id)}
+          relatedEvidence={related.map(item => ({ intervention: item, exception: exceptionById.get(item.intervention_id) }))}
           isBusy={isBusy}
           onResolve={onResolve}
           onEvidenceAction={onEvidenceAction}
@@ -74,6 +105,7 @@ function InterventionCard({
   onResolve,
   onEvidenceAction,
   onConfirmExisting,
+  relatedEvidence = [],
 }: {
   intervention: HumanInterventionProjection;
   exception: ZeroTouchException | undefined;
@@ -81,11 +113,10 @@ function InterventionCard({
   onResolve: (exception: ZeroTouchException, action: ExceptionResolutionAction) => void;
   onEvidenceAction?: (target: NonNullable<HumanInterventionProjection["evidence_actions"]>[number]["target"]) => void;
   onConfirmExisting?: (rationale: string) => void;
+  relatedEvidence?: Array<{ intervention: HumanInterventionProjection; exception: ZeroTouchException | undefined }>;
 }) {
   const [rationale, setRationale] = useState("");
-  const decisions = intervention.decisions?.length
-    ? intervention.decisions
-    : exception?.decisions ?? [];
+  const evidenceRecords = [{ intervention, exception }, ...relatedEvidence];
   return (
     <article className="card intervention-card" aria-labelledby={`intervention-${intervention.intervention_id}`}>
       <div className="intervention-card__heading">
@@ -95,6 +126,7 @@ function InterventionCard({
         </div>
       </div>
       <p>{intervention.explanation}</p>
+      {relatedEvidence.length > 0 && <p className="control-help">{evidenceRecords.length} related blockers</p>}
 
       {intervention.candidate_summaries.length > 0 && (
         <div className="table-scroll" tabIndex={0} aria-label="Safe GoldTier candidate summary">
@@ -116,22 +148,12 @@ function InterventionCard({
       )}
 
       <details className="evidence-details"><summary>Why is this blocked?</summary>
-      <code>{intervention.blocker_code}</code>
-      {intervention.blocker_class && <p>{intervention.blocker_class.replaceAll("_", " ")}</p>}
-      <dl className="intervention-card__details">
-        <div>
-          <dt>Required evidence or input</dt>
-          <dd>{intervention.required_evidence_or_input.join(" ")}</dd>
-        </div>
-        <div>
-          <dt>Expected next step</dt>
-          <dd>{intervention.expected_next_step}</dd>
-        </div>
-        {intervention.dependent_stages?.length ? <div><dt>Dependent stages</dt><dd>{intervention.dependent_stages.join(", ")}</dd></div> : null}
-        {intervention.resolution_condition && <div><dt>Resolution condition</dt><dd>{intervention.resolution_condition}</dd></div>}
-      </dl>
-
-      <BlockerDecisionDetails decisions={decisions} />
+      {evidenceRecords.map(record => relatedEvidence.length > 0 ? (
+        <article className="intervention-evidence-record" data-intervention-id={record.intervention.intervention_id}
+          key={record.intervention.intervention_id}>
+          <InterventionEvidenceDetails {...record} />
+        </article>
+      ) : <InterventionEvidenceDetails key={record.intervention.intervention_id} {...record} />)}
       </details>
       {onEvidenceAction && intervention.evidence_actions?.map((action) => (
         <button key={action.target} type="button" className="btn btn-primary" disabled={isBusy}
@@ -139,14 +161,14 @@ function InterventionCard({
       ))}
 
       {intervention.existing_customer_confirmation_action && onConfirmExisting && (
-        <form onSubmit={(event) => {
+        <form id="existing-customer-confirmation-form" onSubmit={(event) => {
           event.preventDefault();
           if (!isBusy && rationale.trim().length >= 3) onConfirmExisting(rationale.trim());
         }}>
           <p>Confirm this retained customer after comparing the identity evidence.
             This records your decision and makes no GoldTier call.</p>
           <label>Existing customer confirmation rationale
-            <input value={rationale} maxLength={240} disabled={isBusy}
+            <input id="existing-customer-confirmation-rationale" value={rationale} maxLength={240} disabled={isBusy}
               onChange={(event) => setRationale(event.target.value)} />
           </label>
           <button className="btn btn-primary" type="submit"
@@ -179,4 +201,29 @@ function InterventionCard({
       ) : null}
     </article>
   );
+}
+
+function InterventionEvidenceDetails({ intervention, exception }: {
+  intervention: HumanInterventionProjection;
+  exception: ZeroTouchException | undefined;
+}) {
+  const decisions = intervention.decisions?.length ? intervention.decisions : exception?.decisions ?? [];
+  return <>
+      <code>{intervention.blocker_code}</code>
+      {intervention.blocker_class && <p>{intervention.blocker_class.replaceAll("_", " ")}</p>}
+      <dl className="intervention-card__details">
+        <div>
+          <dt>Required evidence or input</dt>
+          <dd>{intervention.required_evidence_or_input.join(" ")}</dd>
+        </div>
+        <div>
+          <dt>Expected next step</dt>
+          <dd>{intervention.expected_next_step}</dd>
+        </div>
+        {intervention.dependent_stages?.length ? <div><dt>Dependent stages</dt><dd>{intervention.dependent_stages.join(", ")}</dd></div> : null}
+        {intervention.resolution_condition && <div><dt>Resolution condition</dt><dd>{intervention.resolution_condition}</dd></div>}
+      </dl>
+
+      <BlockerDecisionDetails decisions={decisions} />
+  </>;
 }

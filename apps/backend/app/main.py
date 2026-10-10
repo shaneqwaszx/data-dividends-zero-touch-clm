@@ -99,6 +99,7 @@ from app.domain.ownership import (
     SafePartyId,
 )
 from app.domain.reconciliation import ReconciliationDecisionAction
+from app.domain.review_decisions import ReviewDecisionBatch
 from app.domain.target_submission import (
     GoldTierExecutionClassification,
     GoldTierExecutionLedgerEntry,
@@ -1259,9 +1260,13 @@ def create_app(
             team=administration.directory.get(case.team_id),
             ownership=ownership_record,
             evidence_decision_authorized=access_policy.can_decide_evidence(actor, case),
+            document_replacement_authorized=(
+                access_policy.can_decide_evidence(actor, case)
+                and zero_touch.document_replacement_allowed(case_id=case.case_id)
+            ),
             ownership_edit_authorized=(
                 access_policy.can_decide_evidence(actor, case)
-                and clm_record.submission_snapshot is None
+                and not zero_touch.evidence_edit_is_frozen(case_id=case.case_id)
                 and case.goldtier_result is None
                 and ownership_record is not None
                 and ownership_record.state in {
@@ -2237,7 +2242,8 @@ def create_app(
                 expected_case_event_count=classification.expected_case_event_count,
                 actor_id=authenticated_actor(request).profile.user_id,
                 reauthorize=build_case_reauthorizer(
-                    request, authentication, access_policy, service, case_id
+                    request, authentication, access_policy, service, case_id,
+                    require_creator=True,
                 ),
             )
         except ZeroTouchRequestError as exc:
@@ -2825,6 +2831,9 @@ def create_app(
         x_document_event_count: Annotated[
             int | None, Header(alias="X-Document-Event-Count")
         ] = None,
+        x_automation_version: Annotated[int | None, Header(alias="X-Automation-Version")] = None,
+        x_clm_version: Annotated[int | None, Header(alias="X-Clm-Version")] = None,
+        x_case_event_count: Annotated[int | None, Header(alias="X-Case-Event-Count")] = None,
     ) -> ZeroTouchCaseSummaryResponse:
         """Accept a current document's explicit replacement, never an implicit overwrite."""
 
@@ -2844,11 +2853,15 @@ def create_app(
                 case_id=case_id,
                 document_id=document_id,
                 expected_document_event_count=x_document_event_count,
+                expected_automation_version=x_automation_version,
+                expected_clm_version=x_clm_version,
+                expected_case_event_count=x_case_event_count,
                 display_name=x_document_name or "",
                 content_type=request.headers.get("content-type", ""),
                 content=body,
                 reauthorize=build_case_reauthorizer(
-                    request, authentication, access_policy, service, case_id
+                    request, authentication, access_policy, service, case_id,
+                    require_creator=True,
                 ),
             )
             return zero_touch_response(record, actor=authenticated_actor(request))
@@ -3278,6 +3291,39 @@ def create_app(
         except ZeroTouchInfrastructureError as exc:
             raise _zero_touch_infrastructure_http_error(exc) from None
         return document_response(record)
+
+    @application.post(
+        "/api/clm/zero-touch/cases/{case_id}/review-decisions",
+        response_model=ZeroTouchCaseSummaryResponse,
+        tags=["zero-touch"],
+    )
+    def confirm_review_decisions(
+        case_id: UUID,
+        http_request: Request,
+        batch: ReviewDecisionBatch,
+        active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
+    ) -> ZeroTouchCaseSummaryResponse:
+        try:
+            record = active_zero_touch.apply_review_decisions(
+                case_id=case_id,
+                batch=batch,
+                actor_id=authenticated_actor(http_request).profile.user_id,
+                reauthorize=build_case_reauthorizer(
+                    http_request,
+                    authentication,
+                    access_policy,
+                    service,
+                    case_id,
+                    require_creator=True,
+                ),
+            )
+            return zero_touch_response(record, actor=authenticated_actor(http_request))
+        except DocumentRequestError as exc:
+            raise _document_http_error(exc) from None
+        except ZeroTouchRequestError as exc:
+            raise _zero_touch_http_error(exc) from None
+        except ZeroTouchInfrastructureError as exc:
+            raise _zero_touch_infrastructure_http_error(exc) from None
 
     install_auth_boundary(
         application,

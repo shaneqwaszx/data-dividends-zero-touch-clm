@@ -3,7 +3,8 @@ import path from "node:path";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 import type { TargetStatusCheckResult } from "../src/api";
 import type { ZeroTouchCaseSummary } from "../src/types";
-import { openStage } from "./stage-disclosures";
+import { focusPipelineAction, openStage } from "./stage-disclosures";
+import { reviewPendingFields } from "./blocker-decisions";
 
 const syntheticName = "ZERO TOUCH POC ACCEPTANCE TESTS3";
 const syntheticUen = "202698765Z";
@@ -71,12 +72,7 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
   recoveryMilestone("RECOVERY_DOCUMENT_VISIBLE");
   if (existing) {
     await openStage(page, "Document verification");
-    const decision = page.waitForResponse((response) => response.request().method() === "POST"
-      && response.url().endsWith("/reviews"));
-    await page.getByRole("button", { name: "Record legal name correction", exact: true }).click();
-    await page.getByLabel("Correction", { exact: true }).fill(syntheticName);
-    await page.getByRole("button", { name: "Save legal name correction", exact: true }).click();
-    expect((await decision).status()).toBe(200);
+    await reviewPendingFields(page, { legal_name: syntheticName });
     await expect.poll(async () => (await readSummary(page, caseId)).current_stage)
       .toBe("GOLDTIER_SEARCH");
     await openStage(page, "Registry verification");
@@ -263,6 +259,7 @@ async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
   await switchUser(page, "olivia-koh", caseId);
   const check = panel.getByRole("button", { name: "Check GoldTier status", exact: true });
   await expect(check).toBeEnabled();
+  await focusPipelineAction(page, "GOLDTIER_TARGET", check);
   await page.route("**/target-status-check", async (route) => {
     const response = await route.fetch();
     const observation = await response.json();

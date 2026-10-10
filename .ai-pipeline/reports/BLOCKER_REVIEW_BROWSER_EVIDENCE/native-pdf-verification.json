@@ -1,0 +1,54 @@
+[
+  {
+    "fixture": "orion-synthetic-technologies-client.pdf",
+    "identity_fields": 4,
+    "classification_fields": 2,
+    "source_references": [
+      "PAGE_1_LINE_7",
+      "PAGE_1_LINE_8"
+    ],
+    "methods": [
+      "NATIVE_PDF_TEXT",
+      "NATIVE_PDF_TEXT"
+    ]
+  },
+  {
+    "fixture": "pacific-synthetic-ledger-client.pdf",
+    "identity_fields": 4,
+    "classification_fields": 2,
+    "source_references": [
+      "PAGE_1_LINE_7",
+      "PAGE_1_LINE_8"
+    ],
+    "methods": [
+      "NATIVE_PDF_TEXT",
+      "NATIVE_PDF_TEXT"
+    ]
+  },
+  {
+    "fixture": "straits-synthetic-holdings-client.pdf",
+    "identity_fields": 4,
+    "classification_fields": 2,
+    "source_references": [
+      "PAGE_1_LINE_7",
+      "PAGE_1_LINE_8"
+    ],
+    "methods": [
+      "NATIVE_PDF_TEXT",
+      "NATIVE_PDF_TEXT"
+    ]
+  },
+  {
+    "fixture": "meridian-synthetic-infrastructure-client.pdf",
+    "identity_fields": 4,
+    "classification_fields": 2,
+    "source_references": [
+      "PAGE_1_LINE_7",
+      "PAGE_1_LINE_8"
+    ],
+    "methods": [
+      "NATIVE_PDF_TEXT",
+      "NATIVE_PDF_TEXT"
+    ]
+  }
+]

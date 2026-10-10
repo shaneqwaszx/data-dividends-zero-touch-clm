@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openStage } from "./stage-disclosures";
+import { reviewPendingFields } from "./blocker-decisions";
 import type { PolicyCatalogue, RegistryEvidenceBinding } from "../src/types";
 import {
   createBrowserNetworkPolicy,
@@ -340,7 +341,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   });
   await expect(identityStage).toBeVisible();
   await identityStage.click();
-  const identityCorrection = page.locator("#case-identity-correction");
+  const identityCorrection = page.locator("#identity-registration-number");
   await expect(identityCorrection).toBeFocused();
   await expect(page.getByRole("heading", { name: "Complete company details" })).toBeVisible();
 
@@ -398,23 +399,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await expect(page.getByText("INITIAL_IDENTITY_INCOMPLETE", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
 
-  for (const field of ["registration number", "legal name", "registered address", "country of incorporation"]) {
-    const reviewResponse = page.waitForResponse((response) => (
-      response.request().method() === "POST" && response.url().endsWith("/reviews")
-    ));
-    if (field === "legal name") {
-      await expect(page.getByRole("button", { name: "Accept legal name suggestion" })).toHaveCount(0);
-      await page.getByRole("button", { name: "Record legal name correction" }).click();
-      await page.locator(".document-correction").getByLabel("Correction", { exact: true })
-        .fill(legalNameForUen("202400001A"));
-      await page.getByRole("button", { name: "Save legal name correction" }).click();
-    } else {
-      const action = page.getByRole("button", { name: `Accept ${field} suggestion` });
-      await expect(action).toBeVisible();
-      await action.click();
-    }
-    expect((await reviewResponse).status()).toBe(200);
-  }
+  await reviewPendingFields(page, { legal_name: legalNameForUen("202400001A") });
 
   const replacementInput = page.getByLabel("Replace current document");
   await expect(replacementInput).toBeEnabled();
@@ -549,14 +534,14 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await expect(confirm).toBeEnabled();
 
   await review.getByRole("button", { name: "Edit company details" }).click();
-  await expect(page.locator("#case-identity-correction")).toBeFocused();
+  await expect(page.locator("#identity-registration-number")).toBeFocused();
   await expect(page.locator("#case-identity-correction").getByRole("heading", { name: "Registry identity" })).toBeVisible();
   await review.getByRole("button", { name: "Edit classification" }).click();
-  await expect(page.locator("#case-target-classification")).toBeFocused();
+  await expect(page.getByLabel("KYC customer type", { exact: true })).toBeFocused();
   await review.getByRole("button", { name: "Edit documents" }).click();
-  await expect(page.locator("#case-evidence-documents")).toBeFocused();
+  await expect(page.locator("#case-blocker-review select[data-review-field], #case-blocker-review select[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
   await review.getByRole("button", { name: "Edit ownership" }).click();
-  await expect(page.locator("#case-manual-ownership-evidence")).toBeFocused();
+  await expect(page.locator("#case-manual-ownership-evidence :is(input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]))").first()).toBeFocused();
 
   const printButton = review.getByRole("button", { name: "Print / save PDF" });
   for (const width of [320, 360, 768, 1280, 1440, 1920] as const) {
@@ -678,7 +663,7 @@ test("authorized manual ownership action focuses the real evidence form and next
   await expect(page.locator(".stage-disclosure--final")).toContainText("Not yet available");
   await expect(page.getByRole("heading", { name: "Review or edit ownership evidence" })).toBeVisible();
   await page.locator(".intervention-card").getByRole("button", { name: "Add structured ownership details" }).click();
-  await expect(page.locator("#case-manual-ownership-evidence")).toBeFocused();
+  await expect(page.locator("#case-manual-ownership-evidence :is(input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]))").first()).toBeFocused();
   await expect(page.getByRole("button", { name: "Submit manual ownership evidence" })).toBeVisible();
 });
 
@@ -839,7 +824,7 @@ test("Director explicitly selects either team and journey or actor reset clears 
   await expect(page.getByRole("button", { name: "Create onboarding" })).toBeDisabled();
 });
 
-test("problem pipeline stages preserve intent and keyboard-focus real diagnostic panels", async ({ page }) => {
+test("problem pipeline stages focus authorized inputs and explain unavailable correction", async ({ page }) => {
   await page.goto("/");
   await login(page);
   await openFreshOnboarding(page);
@@ -904,7 +889,7 @@ test("problem pipeline stages preserve intent and keyboard-focus real diagnostic
 
   await expect(page).toHaveURL(/\/cases\/[0-9a-f-]{36}\?focus=GOLDTIER_SEARCH$/i);
   await expect(page.getByRole("button", { name: "Back to Cases" })).toBeVisible();
-  await expect(page.locator("#case-search-diagnostic")).toBeFocused();
+  await expect(page.locator("#identity-registration-number")).toBeFocused();
   await expect(page.locator("#case-search-diagnostic")).toContainText("does not prove that the customer is absent");
 
   await expect(page.getByRole("button", { name: "Open details for Registry verification" })).toHaveCount(1);
@@ -912,6 +897,7 @@ test("problem pipeline stages preserve intent and keyboard-focus real diagnostic
   await classificationStage.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#case-target-classification")).toBeFocused();
+  await expect(page.getByText("No corrective input is currently authorized here. Review the retained reason and required evidence.", { exact: true })).toBeVisible();
 
   const targetStage = page.getByRole("button", { name: "Open details for GoldTier submission package" });
   await targetStage.focus();
@@ -1242,14 +1228,14 @@ test("review-ready actions render after authoritative current document evidence 
   expect(pendingField?.confidence).toBe(0.9);
   expect(currentDocument?.fields.every((field) => field.original_extracted_value !== null)).toBe(true);
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Accept .* suggestion/ }).first()).toBeVisible();
+  await expect(page.locator("select[data-review-field]").first()).toBeVisible();
 });
 
 test("current document review progresses authoritatively and keeps superseded history read-only", async ({ page }) => {
   const reviewRequests: string[] = [];
   const resumeRequests: string[] = [];
   page.on("request", (request) => {
-    if (request.method() === "POST" && request.url().endsWith("/reviews")) reviewRequests.push(request.postData() ?? "");
+    if (request.method() === "POST" && request.url().endsWith("/review-decisions")) reviewRequests.push(request.postData() ?? "");
     if (request.method() === "POST" && request.url().endsWith("/resume")) resumeRequests.push(request.url());
   });
 
@@ -1285,7 +1271,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await openStage(page, "GoldTier submission package");
   await page.getByText("Backend execution details", { exact: true }).click();
   await page.getByRole("button", { name: "Focus documents evidence" }).click();
-  await expect(page.locator("#case-evidence-documents")).toBeFocused();
+  await expect(page.locator("#case-blocker-review select[data-review-field], #case-blocker-review select[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
   expect(reviewRequests.length + resumeRequests.length).toBe(focusRequestBaseline);
   await expect(page.getByText("3 final / 4 fields")).toBeVisible();
   await expect(page.getByText(/1 field remains for review/)).toBeVisible();
@@ -1316,21 +1302,22 @@ test("current document review progresses authoritatively and keeps superseded hi
     return current?.fields.filter((item) => item.review_status !== "PENDING").length ?? 0;
   };
 
-  const acceptLegalName = page.getByRole("button", { name: "Accept legal name suggestion" });
+  await page.locator('select[data-review-field="legal_name"]').selectOption("ACCEPTED");
+  expect(reviewRequests).toHaveLength(0);
   const firstMutationResponse = page.waitForResponse((response) =>
-    response.request().method() === "POST" && response.url().endsWith("/reviews"));
+    response.request().method() === "POST" && response.url().endsWith("/review-decisions"));
   const firstDocumentsResponse = page.waitForResponse((response) =>
     response.request().method() === "GET"
       && response.url().endsWith(`/api/onboarding/cases/${caseId}/documents`));
   reviewMilestone("REVIEW_MUTATION_DISPATCHED", 3);
-  await acceptLegalName.dblclick();
+  await page.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true }).dblclick();
   expect((await firstMutationResponse).status()).toBe(200);
   reviewMilestone("REVIEW_MUTATION_RESPONSE_COMPLETE", 4);
   const firstBackendCount = await reviewedCount(await firstDocumentsResponse);
   expect(firstBackendCount).toBe(4);
   reviewMilestone("REVIEW_DOCUMENTS_GET_COMPLETE", firstBackendCount);
   expect(reviewRequests).toHaveLength(1);
-  expect(JSON.parse(reviewRequests[0])).toEqual({ field_key: "legal_name", decision: "ACCEPTED" });
+  expect(JSON.parse(reviewRequests[0]).documents[0].decisions).toEqual([{ field_key: "legal_name", decision: "ACCEPTED" }]);
   expect(resumeRequests).toHaveLength(0);
   await openStage(page, "Document verification");
   await expect(page.getByText("4 final / 4 fields")).toBeVisible({ timeout: 30_000 });

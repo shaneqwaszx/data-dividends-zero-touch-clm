@@ -1,0 +1,18 @@
+{
+  "scenario": "Director recovers uncertain policy and continues the original submission",
+  "node": "GOLDTIER_TARGET",
+  "actual_control": {
+    "tag": "BUTTON",
+    "id": "",
+    "type": "button",
+    "label": null,
+    "field": null
+  },
+  "visible": true,
+  "enabled": true,
+  "focused": true,
+  "in_viewport": true,
+  "unobscured": true,
+  "calls_before_confirmation": 0,
+  "verdict": "PASS"
+}

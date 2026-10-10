@@ -108,3 +108,17 @@ SYNTHETIC_COMPANIES = (
         ),
     ),
 )
+
+# Sponsor-demo shortlist is additive. Orion and the original four fixtures remain.
+AURORA = SyntheticCompany(
+    "AURORA", "202400019S", "AURORA SYNTHETIC SIGNALS PTE. LTD.",
+    "SIGNAL TERRACE", "#10-01", "049019", "aurora-sponsor-demo-registry-annex.pdf",
+    (("AURORA_PERSON_A", "NATURAL_PERSON", "Morgan Synthetic"),
+     ("AURORA_PERSON_B", "NATURAL_PERSON", "Rowan Synthetic")),
+    (("ROOT", "AURORA_PERSON_A", "65"), ("ROOT", "AURORA_PERSON_B", "35")),
+)
+SPONSOR_DEMO_COMPANIES = (AURORA, *SYNTHETIC_COMPANIES[1:])
+
+
+def sponsor_demo_document_name(company: SyntheticCompany) -> str:
+    return f"{company.code.lower()}-sponsor-demo-registry-annex.pdf"

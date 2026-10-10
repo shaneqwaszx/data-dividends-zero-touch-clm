@@ -1,0 +1,1234 @@
+{
+  "outcome": "CURRENT_SUITE_PASS_ROOT_CAUSE_UNPROVEN",
+  "root_cause_category": "F",
+  "first_exact_stalled_operation": null,
+  "corrections_attempted": 0,
+  "source_identity": "5de89b19dda6964828d87ecf744d7b30df4ea3ee8c872a5a4dd2ffabb9df38df",
+  "source_unchanged_from_prior269": true,
+  "assertions_deadline_inventory_preserved": true,
+  "shards": [
+    {
+      "shard": "1/2",
+      "exit_code": 0,
+      "lifecycles": 45,
+      "tests": 65,
+      "configured_deadline_seconds": 60,
+      "selectors": [
+        "e2e/authenticated-zero-touch.e2e.ts:230",
+        "e2e/authenticated-zero-touch.e2e.ts:628",
+        "e2e/authenticated-zero-touch.e2e.ts:761",
+        "e2e/authenticated-zero-touch.e2e.ts:917",
+        "e2e/authenticated-zero-touch.e2e.ts:1188",
+        "e2e/authenticated-zero-touch.e2e.ts:1382",
+        "e2e/authenticated-zero-touch.e2e.ts:1624",
+        "e2e/blocker-simulation.e2e.ts:25",
+        "e2e/blocker-simulation.e2e.ts:122",
+        "e2e/blocker-simulation.e2e.ts:221",
+        "e2e/blocker-simulation.e2e.ts:308",
+        "e2e/database-classification.e2e.ts:97",
+        "e2e/database-classification.e2e.ts:101",
+        "e2e/garden-happy-path.e2e.ts:217",
+        "e2e/garden-happy-path.e2e.ts:315",
+        "e2e/onboarding-recovery.e2e.ts:6",
+        "e2e/performance-browser.e2e.ts:98",
+        "e2e/phase24-identity.e2e.ts:138",
+        "e2e/phase24c-policy.e2e.ts:34",
+        "e2e/responsive-layout.e2e.ts:308",
+        "e2e/responsive-layout.e2e.ts:404",
+        "e2e/responsive-layout.e2e.ts:476",
+        "e2e/responsive-layout.e2e.ts:502",
+        "e2e/s1-workspace-session.e2e.ts:123",
+        "e2e/s1-workspace-session.e2e.ts:213",
+        "e2e/s2-ownership.e2e.ts:112",
+        "e2e/s3-sandbox-submission.e2e.ts:211",
+        "e2e/s3-sandbox-submission.e2e.ts:217",
+        "e2e/s3-sandbox-submission.e2e.ts:339",
+        "e2e/s3-sandbox-submission.e2e.ts:412",
+        "e2e/s3-sandbox-submission.e2e.ts:428",
+        "e2e/slice-b-registry-demo.e2e.ts:118",
+        "e2e/slice-b-registry-demo.e2e.ts:160",
+        "e2e/slice-c-recovery.e2e.ts:122",
+        "e2e/slice-c-recovery.e2e.ts:165",
+        "e2e/slice-c-recovery.e2e.ts:241",
+        "e2e/slice-c-recovery.e2e.ts:247",
+        "e2e/slice-c-recovery.e2e.ts:274",
+        "e2e/slice-e-policy.e2e.ts:64",
+        "e2e/sponsor-demo-journeys.e2e.ts:317",
+        "e2e/sponsor-demo-journeys.e2e.ts:319",
+        "e2e/sponsor-demo-journeys.e2e.ts:321",
+        "e2e/sponsor-demo-journeys.e2e.ts:323",
+        "e2e/synthetic-company-pack.e2e.ts:22",
+        "e2e/zero-touch-exception.e2e.ts:161"
+      ],
+      "lifetimes": [
+        {
+          "index": 1,
+          "seconds": 6.515
+        },
+        {
+          "index": 2,
+          "seconds": 8.313
+        },
+        {
+          "index": 3,
+          "seconds": 9.062
+        },
+        {
+          "index": 4,
+          "seconds": 7.0
+        },
+        {
+          "index": 5,
+          "seconds": 7.094
+        },
+        {
+          "index": 6,
+          "seconds": 9.469
+        },
+        {
+          "index": 7,
+          "seconds": 7.516
+        },
+        {
+          "index": 8,
+          "seconds": 20.734
+        },
+        {
+          "index": 9,
+          "seconds": 9.094
+        },
+        {
+          "index": 10,
+          "seconds": 11.672
+        },
+        {
+          "index": 11,
+          "seconds": 7.921
+        },
+        {
+          "index": 12,
+          "seconds": 11.204
+        },
+        {
+          "index": 13,
+          "seconds": 11.921
+        },
+        {
+          "index": 14,
+          "seconds": 13.391
+        },
+        {
+          "index": 15,
+          "seconds": 7.578
+        },
+        {
+          "index": 16,
+          "seconds": 7.672
+        },
+        {
+          "index": 17,
+          "seconds": 53.938
+        },
+        {
+          "index": 18,
+          "seconds": 8.031
+        },
+        {
+          "index": 19,
+          "seconds": 28.578
+        },
+        {
+          "index": 20,
+          "seconds": 10.125
+        },
+        {
+          "index": 21,
+          "seconds": 7.297
+        },
+        {
+          "index": 22,
+          "seconds": 9.125
+        },
+        {
+          "index": 23,
+          "seconds": 7.609
+        },
+        {
+          "index": 24,
+          "seconds": 12.891
+        },
+        {
+          "index": 25,
+          "seconds": 6.656
+        },
+        {
+          "index": 26,
+          "seconds": 6.75
+        },
+        {
+          "index": 27,
+          "seconds": 7.156
+        },
+        {
+          "index": 28,
+          "seconds": 7.219
+        },
+        {
+          "index": 29,
+          "seconds": 10.125
+        },
+        {
+          "index": 30,
+          "seconds": 7.234
+        },
+        {
+          "index": 31,
+          "seconds": 9.407
+        },
+        {
+          "index": 32,
+          "seconds": 8.453
+        },
+        {
+          "index": 33,
+          "seconds": 9.828
+        },
+        {
+          "index": 34,
+          "seconds": 9.781
+        },
+        {
+          "index": 35,
+          "seconds": 9.813
+        },
+        {
+          "index": 36,
+          "seconds": 10.234
+        },
+        {
+          "index": 37,
+          "seconds": 9.031
+        },
+        {
+          "index": 38,
+          "seconds": 12.313
+        },
+        {
+          "index": 39,
+          "seconds": 14.328
+        },
+        {
+          "index": 40,
+          "seconds": 13.844
+        },
+        {
+          "index": 41,
+          "seconds": 14.109
+        },
+        {
+          "index": 42,
+          "seconds": 19.484
+        },
+        {
+          "index": 43,
+          "seconds": 18.485
+        },
+        {
+          "index": 44,
+          "seconds": 33.734
+        },
+        {
+          "index": 45,
+          "seconds": 11.406
+        }
+      ],
+      "suite_seconds": 544.187,
+      "log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-original-shard1.log",
+        "bytes": 28889,
+        "sha256": "b9b1b443cabe03a47a720f2f672745176978ba561f9dd407254d27870056e864"
+      }
+    },
+    {
+      "shard": "2/2",
+      "exit_code": 0,
+      "lifecycles": 44,
+      "tests": 47,
+      "configured_deadline_seconds": 60,
+      "selectors": [
+        "e2e/authenticated-zero-touch.e2e.ts:242",
+        "e2e/authenticated-zero-touch.e2e.ts:670",
+        "e2e/authenticated-zero-touch.e2e.ts:827",
+        "e2e/authenticated-zero-touch.e2e.ts:1005",
+        "e2e/authenticated-zero-touch.e2e.ts:1234",
+        "e2e/authenticated-zero-touch.e2e.ts:1512",
+        "e2e/blocker-review-performance.e2e.ts:19",
+        "e2e/blocker-simulation.e2e.ts:85",
+        "e2e/blocker-simulation.e2e.ts:167",
+        "e2e/blocker-simulation.e2e.ts:276",
+        "e2e/database-classification.e2e.ts:96",
+        "e2e/database-classification.e2e.ts:98",
+        "e2e/garden-happy-path.e2e.ts:157",
+        "e2e/garden-happy-path.e2e.ts:301",
+        "e2e/garden-happy-path.e2e.ts:366",
+        "e2e/performance-browser.e2e.ts:97",
+        "e2e/phase24-identity.e2e.ts:83",
+        "e2e/phase24-identity.e2e.ts:157",
+        "e2e/phase24c-policy.e2e.ts:79",
+        "e2e/responsive-layout.e2e.ts:347",
+        "e2e/responsive-layout.e2e.ts:440",
+        "e2e/responsive-layout.e2e.ts:494",
+        "e2e/s1-workspace-session.e2e.ts:93",
+        "e2e/s1-workspace-session.e2e.ts:186",
+        "e2e/s2-ownership.e2e.ts:55",
+        "e2e/s3-sandbox-submission.e2e.ts:134",
+        "e2e/s3-sandbox-submission.e2e.ts:214",
+        "e2e/s3-sandbox-submission.e2e.ts:335",
+        "e2e/s3-sandbox-submission.e2e.ts:404",
+        "e2e/s3-sandbox-submission.e2e.ts:420",
+        "e2e/slice-b-registry-demo.e2e.ts:91",
+        "e2e/slice-b-registry-demo.e2e.ts:128",
+        "e2e/slice-b-registry-demo.e2e.ts:183",
+        "e2e/slice-c-recovery.e2e.ts:143",
+        "e2e/slice-c-recovery.e2e.ts:198",
+        "e2e/slice-c-recovery.e2e.ts:244",
+        "e2e/slice-c-recovery.e2e.ts:271",
+        "e2e/slice-c-recovery.e2e.ts:279",
+        "e2e/slice-e-policy.e2e.ts:114",
+        "e2e/sponsor-demo-journeys.e2e.ts:318",
+        "e2e/sponsor-demo-journeys.e2e.ts:320",
+        "e2e/sponsor-demo-journeys.e2e.ts:322",
+        "e2e/sponsor-demo-journeys.e2e.ts:324",
+        "e2e/zero-touch-exception.e2e.ts:126"
+      ],
+      "lifetimes": [
+        {
+          "index": 1,
+          "seconds": 20.766
+        },
+        {
+          "index": 2,
+          "seconds": 11.688
+        },
+        {
+          "index": 3,
+          "seconds": 18.125
+        },
+        {
+          "index": 4,
+          "seconds": 12.046
+        },
+        {
+          "index": 5,
+          "seconds": 11.907
+        },
+        {
+          "index": 6,
+          "seconds": 9.89
+        },
+        {
+          "index": 7,
+          "seconds": 43.36
+        },
+        {
+          "index": 8,
+          "seconds": 7.906
+        },
+        {
+          "index": 9,
+          "seconds": 8.422
+        },
+        {
+          "index": 10,
+          "seconds": 7.828
+        },
+        {
+          "index": 11,
+          "seconds": 10.969
+        },
+        {
+          "index": 12,
+          "seconds": 9.265
+        },
+        {
+          "index": 13,
+          "seconds": 8.969
+        },
+        {
+          "index": 14,
+          "seconds": 9.203
+        },
+        {
+          "index": 15,
+          "seconds": 7.0
+        },
+        {
+          "index": 16,
+          "seconds": 53.578
+        },
+        {
+          "index": 17,
+          "seconds": 8.266
+        },
+        {
+          "index": 18,
+          "seconds": 10.656
+        },
+        {
+          "index": 19,
+          "seconds": 6.281
+        },
+        {
+          "index": 20,
+          "seconds": 12.547
+        },
+        {
+          "index": 21,
+          "seconds": 8.5
+        },
+        {
+          "index": 22,
+          "seconds": 6.25
+        },
+        {
+          "index": 23,
+          "seconds": 7.141
+        },
+        {
+          "index": 24,
+          "seconds": 7.922
+        },
+        {
+          "index": 25,
+          "seconds": 9.328
+        },
+        {
+          "index": 26,
+          "seconds": 7.562
+        },
+        {
+          "index": 27,
+          "seconds": 7.235
+        },
+        {
+          "index": 28,
+          "seconds": 11.422
+        },
+        {
+          "index": 29,
+          "seconds": 7.234
+        },
+        {
+          "index": 30,
+          "seconds": 16.047
+        },
+        {
+          "index": 31,
+          "seconds": 8.578
+        },
+        {
+          "index": 32,
+          "seconds": 9.078
+        },
+        {
+          "index": 33,
+          "seconds": 6.735
+        },
+        {
+          "index": 34,
+          "seconds": 10.625
+        },
+        {
+          "index": 35,
+          "seconds": 10.421
+        },
+        {
+          "index": 36,
+          "seconds": 11.079
+        },
+        {
+          "index": 37,
+          "seconds": 11.078
+        },
+        {
+          "index": 38,
+          "seconds": 11.156
+        },
+        {
+          "index": 39,
+          "seconds": 7.062
+        },
+        {
+          "index": 40,
+          "seconds": 14.125
+        },
+        {
+          "index": 41,
+          "seconds": 14.25
+        },
+        {
+          "index": 42,
+          "seconds": 16.438
+        },
+        {
+          "index": 43,
+          "seconds": 19.312
+        },
+        {
+          "index": 44,
+          "seconds": 9.282
+        }
+      ],
+      "suite_seconds": 537.594,
+      "log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-original-shard2.log",
+        "bytes": 25232,
+        "sha256": "2bba1ef862bf218bd89b014a755b92faba37db73c6e3b4b466b123ff081c3816"
+      }
+    }
+  ],
+  "browser_totals": {
+    "lifecycles": 89,
+    "tests": 112,
+    "skipped": 0,
+    "excluded": 0,
+    "failed": 0
+  },
+  "checks": [
+    {
+      "name": "historical-environment-isolated",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--grep",
+        "onboarding progress is visible while backend-authored stages advance"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:14:58.219356+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 11.859,
+      "log": "tmp/sdq01-r3-historical-environment-isolated.log",
+      "sha256": "007e9ca09d54cc13f844802257abc4c28750a6c8fd7060ab716afd9374fa04fc",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-historical-environment-isolated.log",
+        "bytes": 266,
+        "sha256": "007e9ca09d54cc13f844802257abc4c28750a6c8fd7060ab716afd9374fa04fc"
+      }
+    },
+    {
+      "name": "original-shard1",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--shard",
+        "1/2"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:22:42.828888+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 544.313,
+      "log": "tmp/sdq01-r3-original-shard1.log",
+      "sha256": "b9b1b443cabe03a47a720f2f672745176978ba561f9dd407254d27870056e864",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-original-shard1.log",
+        "bytes": 28889,
+        "sha256": "b9b1b443cabe03a47a720f2f672745176978ba561f9dd407254d27870056e864"
+      }
+    },
+    {
+      "name": "harness",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_run_e2e.py",
+        "-v"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:31:47.137909+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 3.5,
+      "log": "tmp/sdq01-r3-harness.log",
+      "sha256": "84c1b002fc03ad68b3646430ab1019bae18911ac638c305863440af9a0f0bcc3",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-harness.log",
+        "bytes": 7456,
+        "sha256": "84c1b002fc03ad68b3646430ab1019bae18911ac638c305863440af9a0f0bcc3"
+      }
+    },
+    {
+      "name": "focused-backend",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "apps/backend/tests/test_batch_review_decisions.py",
+        "apps/backend/tests/test_final_review_editing.py",
+        "apps/backend/tests/test_sponsor_demo_fixtures.py",
+        "apps/backend/tests/test_idp_classification_line_endings.py",
+        "apps/backend/tests/test_target_reliability_recovery_ux.py",
+        "apps/backend/tests/test_target_classification_continuation.py",
+        "-o",
+        "addopts=",
+        "-p",
+        "no:cacheprovider",
+        "-q"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:31:50.639711+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 49.375,
+      "log": "tmp/sdq01-r3-focused-backend.log",
+      "sha256": "abdbc7d4c98789331a4b39c7c2d1ce0aa722737835d48103b841eb7efe104000",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-focused-backend.log",
+        "bytes": 746,
+        "sha256": "abdbc7d4c98789331a4b39c7c2d1ce0aa722737835d48103b841eb7efe104000"
+      }
+    },
+    {
+      "name": "frontend",
+      "argv": [
+        "npm.cmd",
+        "test",
+        "--",
+        "--reporter=dot"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "started_utc": "2026-10-10T04:32:40.016342+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 8.156,
+      "log": "tmp/sdq01-r3-frontend.log",
+      "sha256": "c2ae6961add2edcfc017268257ed19700c647355f0a0cc277204505494fcb04b",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-frontend.log",
+        "bytes": 146526,
+        "sha256": "c2ae6961add2edcfc017268257ed19700c647355f0a0cc277204505494fcb04b"
+      }
+    },
+    {
+      "name": "typecheck",
+      "argv": [
+        "npm.cmd",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "started_utc": "2026-10-10T04:32:48.178871+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 6.062,
+      "log": "tmp/sdq01-r3-typecheck.log",
+      "sha256": "e509183f941e75d75acd2730534462d1053bf5d19f4ff51e5e43e834cd2adc5d",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-typecheck.log",
+        "bytes": 68,
+        "sha256": "e509183f941e75d75acd2730534462d1053bf5d19f4ff51e5e43e834cd2adc5d"
+      }
+    },
+    {
+      "name": "project_state",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_project_state.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:32:54.235786+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 0.25,
+      "log": "tmp/sdq01-r3-project_state.log",
+      "sha256": "802a21c6c3e8d997e291164394433116a2bbd751758a17d359314ad02ec90362",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-project_state.log",
+        "bytes": 27,
+        "sha256": "802a21c6c3e8d997e291164394433116a2bbd751758a17d359314ad02ec90362"
+      }
+    },
+    {
+      "name": "architecture",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_architecture.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:32:54.490909+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 0.438,
+      "log": "tmp/sdq01-r3-architecture.log",
+      "sha256": "1995542d06f58d4f6cb8133c206109972455ed2e01324defb26ca1d08077634a",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-architecture.log",
+        "bytes": 26,
+        "sha256": "1995542d06f58d4f6cb8133c206109972455ed2e01324defb26ca1d08077634a"
+      }
+    },
+    {
+      "name": "tooling_config",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_tooling_config.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:32:54.919446+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 0.078,
+      "log": "tmp/sdq01-r3-tooling_config.log",
+      "sha256": "e04d4a0126da1a6e28380a8859ef86ace862a937bc14cbdb13c56ac4a37608c5",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-tooling_config.log",
+        "bytes": 74,
+        "sha256": "e04d4a0126da1a6e28380a8859ef86ace862a937bc14cbdb13c56ac4a37608c5"
+      }
+    },
+    {
+      "name": "policy_authority",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_policy_authority.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:32:55.001365+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 0.094,
+      "log": "tmp/sdq01-r3-policy_authority.log",
+      "sha256": "0d8548dd7f1ba239e7e4f10720a01d6e3a34bffce99f7d990575b10ce3460496",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-policy_authority.log",
+        "bytes": 30,
+        "sha256": "0d8548dd7f1ba239e7e4f10720a01d6e3a34bffce99f7d990575b10ce3460496"
+      }
+    },
+    {
+      "name": "external_provider_readiness",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_external_provider_readiness.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:32:55.090843+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 0.078,
+      "log": "tmp/sdq01-r3-external_provider_readiness.log",
+      "sha256": "88c234f2de53c6109e14ab927e84853ee160a6501bf4c296457ad89d7f214fd4",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-external_provider_readiness.log",
+        "bytes": 41,
+        "sha256": "88c234f2de53c6109e14ab927e84853ee160a6501bf4c296457ad89d7f214fd4"
+      }
+    },
+    {
+      "name": "secrets",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_secrets.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:32:55.174853+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 2.766,
+      "log": "tmp/sdq01-r3-secrets.log",
+      "sha256": "1f210c25ed0d9e15e8c5a55264d5a569275f9edbd04b268d5e02d801e6590f5f",
+      "evidence_log": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-secrets.log",
+        "bytes": 57,
+        "sha256": "1f210c25ed0d9e15e8c5a55264d5a569275f9edbd04b268d5e02d801e6590f5f"
+      }
+    }
+  ],
+  "journeys": [
+    {
+      "code": "garden",
+      "track": "A",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "reopen_mutations": 0,
+      "exact_readback_id": "SYNTHETIC-GT-S3",
+      "receipt": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/garden.json",
+        "bytes": 11515,
+        "sha256": "05934b2eb7db7505e0fe8988ad7a237a51e25eedcae8107611923d4c7f6b9d87"
+      },
+      "pictures": [
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/garden-completed.png",
+          "bytes": 465607,
+          "sha256": "2ebcbffb765d5a1f4219a8bc098791566967e0b2ff3b6c69963a72a4790321ab"
+        },
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/garden-final-review.png",
+          "bytes": 578971,
+          "sha256": "4674c413612d41f3acf9b789fe2a6e0e8b8685562bfae44c49b123a86db63cec"
+        }
+      ]
+    },
+    {
+      "code": "merlion",
+      "track": "A",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "reopen_mutations": 0,
+      "exact_readback_id": "SYNTHETIC-GT-S3",
+      "receipt": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/merlion.json",
+        "bytes": 10864,
+        "sha256": "e079ca1e5c44d08fdabcf05b180289cdab2a88b779f9d6e5f03594bee526bcdf"
+      },
+      "pictures": [
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/merlion-completed.png",
+          "bytes": 475269,
+          "sha256": "01c6b7fec4eb2b42b074c4622dc3d5f14934705d00ff351775b38846fec39032"
+        },
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/merlion-final-review.png",
+          "bytes": 537966,
+          "sha256": "b162b6a9122d84209a8f6f41f6ccbaf783de75be3fd4cd789c1ae0d1419d8d7a"
+        }
+      ]
+    },
+    {
+      "code": "multiple",
+      "track": "A",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "reopen_mutations": 0,
+      "exact_readback_id": "SYNTHETIC-GT-S3",
+      "receipt": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/multiple.json",
+        "bytes": 11930,
+        "sha256": "e895f2084af94ed4fec0178964899271aba82f5b1a65313c93ca816da82f4c73"
+      },
+      "pictures": [
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/multiple-completed.png",
+          "bytes": 463710,
+          "sha256": "52b7b897d0294f985cfd58b76bfbbf11b4eaacf65ab47dd5fdadbf8700222705"
+        },
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/multiple-final-review.png",
+          "bytes": 445201,
+          "sha256": "dfa7652db49aafc8e217bf7fe05982b4372d0dd14410d26b531ffbbbad38363d"
+        }
+      ]
+    },
+    {
+      "code": "multilevel",
+      "track": "A",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "reopen_mutations": 0,
+      "exact_readback_id": "SYNTHETIC-GT-S3",
+      "receipt": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/multilevel.json",
+        "bytes": 15326,
+        "sha256": "bc1c5a982cca93c45412461b05b5eb2985d92883b6f2aeb54ba6e4465b9578d1"
+      },
+      "pictures": [
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/multilevel-completed.png",
+          "bytes": 470861,
+          "sha256": "a66df7b9f67bd4a09dcc693db9827c3e6c748ffc5447427caf8ea0444a16e5f4"
+        },
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/multilevel-final-review.png",
+          "bytes": 601458,
+          "sha256": "4f7c90612f99aeb7072d5f4793c16d6430b9980f2c86291ddab50668114550c5"
+        }
+      ]
+    },
+    {
+      "code": "aurora",
+      "track": "B",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "reopen_mutations": 0,
+      "exact_readback_id": "SYNTHETIC-GT-S3",
+      "receipt": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/aurora.json",
+        "bytes": 10732,
+        "sha256": "66634682888b048eeef6d8e69603e79afb29bdc53364d8855d2ef8399dbe09ae"
+      },
+      "pictures": [
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/aurora-completed.png",
+          "bytes": 469126,
+          "sha256": "7c45ad78997c9f49bf226d6e9cf94f569a67fbca1e09a2639ba7967c8d0b14c1"
+        },
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/aurora-final-review.png",
+          "bytes": 446464,
+          "sha256": "d4b211be9d962c3d34aa1aaa667a925cc580714d5f49dba664dfc564b27b37f6"
+        }
+      ]
+    },
+    {
+      "code": "pacific",
+      "track": "B",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "reopen_mutations": 0,
+      "exact_readback_id": "SYNTHETIC-GT-S3",
+      "receipt": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/pacific.json",
+        "bytes": 11085,
+        "sha256": "0141f2e8f1fc51aeb404eecd6a995da959aee2070fb4b3d9f57978257ebd3507"
+      },
+      "pictures": [
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/pacific-completed.png",
+          "bytes": 464931,
+          "sha256": "842b53c082762b3a32c4a6f94b46600bcaee6939ecc978473b5cead8f060a57c"
+        },
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/pacific-final-review.png",
+          "bytes": 444499,
+          "sha256": "c74d3b89e7dd66b768b8a352f5420a461b7ecfd75ee313feeb9c48dee337b69e"
+        }
+      ]
+    },
+    {
+      "code": "straits",
+      "track": "B",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "reopen_mutations": 0,
+      "exact_readback_id": "SYNTHETIC-GT-S3",
+      "receipt": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/straits.json",
+        "bytes": 11093,
+        "sha256": "badb0fa96b8ae870ef5844c2cfa5f26b451446215c6abcdf1fab1f4e4f1fdbb0"
+      },
+      "pictures": [
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/straits-completed.png",
+          "bytes": 468679,
+          "sha256": "ea8c30e101905cfb0a744ee6f5c9ecffd91409f1b1abdc1363046c73739f7cca"
+        },
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/straits-final-review.png",
+          "bytes": 446938,
+          "sha256": "6cc9aea0a223aff0835be62041efdba45717bd8880dcf2ebb13df04e17832829"
+        }
+      ]
+    },
+    {
+      "code": "meridian",
+      "track": "B",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "reopen_mutations": 0,
+      "exact_readback_id": "SYNTHETIC-GT-S3",
+      "receipt": {
+        "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/meridian.json",
+        "bytes": 11471,
+        "sha256": "5e8002768d90ad72bec2257e68de155f5d3ad79b3e00a2c7a7daf0dd3bd6ff79"
+      },
+      "pictures": [
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/meridian-completed.png",
+          "bytes": 471702,
+          "sha256": "8a49a90d91f09dd6452fe9356af59c1156db547c79db7c0dee51b0490aa9d9e3"
+        },
+        {
+          "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/journeys/meridian-final-review.png",
+          "bytes": 449609,
+          "sha256": "08c55542c05f321750b6eced29d241e9600c0d0c2ec9d099ca46324ff16e29bb"
+        }
+      ]
+    }
+  ],
+  "fresh_regression_artifacts": [
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/candidate-after-action-focus.png",
+      "bytes": 52365,
+      "sha256": "4f8aa9024507a43235c619aa62e67376173fe57d7e29f7a45d399867dddddd1e"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/candidate-after-confirm-remaining-blocker.png",
+      "bytes": 81078,
+      "sha256": "31a3494ef30727d25b44aa46fdf2401f3e56a60786979d984b4c5174842d1042"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/candidate-before-navigation.png",
+      "bytes": 55998,
+      "sha256": "d7ae761e17c10b6853a812e13485e7b5e421f8c4be2f9c7760ae14a793788c55"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/candidate-four-draft-choices.png",
+      "bytes": 76647,
+      "sha256": "911d63ca3b4d249f2039b0d99aa42954e6886d2a2f1db50864e448ed1819563a"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/candidate-mobile-draft.png",
+      "bytes": 44846,
+      "sha256": "784ac06560860f7e454198bbd2675048d3164dcebd15afb64a979f06a4004cc6"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Blocker-simulation-actual-native-PDF-intake-failure-targets-retry-and-one-continuation-DOCUMENT-IDP.json",
+      "bytes": 437,
+      "sha256": "640f98240ebfe62a204b65ffd37209778a309cf5b02de808c41b6524e2020280"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Blocker-simulation-uen-source-conflict-RECONCILIATION.json",
+      "bytes": 388,
+      "sha256": "9f3ea6bce8bd7e1ccc564e9818ffe233dcfccaec0a450a1822dfe75dcbfb39f8"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Blocker-simulation-unsupported-initial-country-requires-explicit-Singapore-correction-INITIAL-IDENTITY.json",
+      "bytes": 437,
+      "sha256": "5fffaef69f55ef78c7b472dddf47713a5dec40f2b5b3f9c6e77cddc208e83766"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Director-recovers-uncertain-policy-and-continues-the-original-submission-GOLDTIER-TARGET.json",
+      "bytes": 400,
+      "sha256": "f38709f245138b0cbe5817e42dbb4100c799b79efb71ac0f8d6ceadb93e57a22"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Director-recovers-uncertain-shell-and-continues-the-original-submission-GOLDTIER-TARGET.json",
+      "bytes": 399,
+      "sha256": "4f32a7d968b3ddc28baf5bdb41d7bf5d304d450f455393d745c2f1e757e7e4be"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Phase24-invalid-registry-identity-corrects-the-same-case-and-keeps-final-review-last-ACRA-REGISTRY.json",
+      "bytes": 433,
+      "sha256": "8bba028ae68d1a4801f797eac1d72a8138f36ec4e427f7435f1cdd5ec19d78e6"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-address-discrepancy-resolves-through-document-owner-and-history-FINAL-REVIEW-SEND.json",
+      "bytes": 401,
+      "sha256": "a469601c0197fa7c6a340934c4917ec86bfffae13717e7d5a77c1e8fa25b568f"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-ambiguous-extraction-correction-retains-blocker-until-replacement-evidence-FINAL-REVIEW-SEND.json",
+      "bytes": 412,
+      "sha256": "bf80f5f369163d0ef9339dfde0f6dc2139417626ab782cb910a8e2121b0c2f47"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-country-discrepancy-resolves-through-document-owner-and-history-FINAL-REVIEW-SEND.json",
+      "bytes": 401,
+      "sha256": "5d15056fa51f399dac09d9918a051aac13701b52343caad8dfd976e8078a6007"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-failed-Search-exposes-bounded-read-only-recheck-FINAL-REVIEW-SEND.json",
+      "bytes": 385,
+      "sha256": "99adcd8f27e4ff3c5cc96f6c71f755687862c02da75c99ac0e1e56e5c0bd1378"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-failed-Search-exposes-bounded-read-only-recheck-GOLDTIER-SEARCH.json",
+      "bytes": 406,
+      "sha256": "4d454cfd397030d3040f4399eb67f45cf7b3837192b69fa7d4c3ca9f4c58ccf4"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-legal-name-discrepancy-resolves-through-document-owner-and-history-FINAL-REVIEW-SEND.json",
+      "bytes": 404,
+      "sha256": "61ce71bec953ce226c8653d7e76d4ba052410d7cfa9cefd1a61eba5631f703df"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-missing-field-correction-retains-blocker-until-replacement-evidence-FINAL-REVIEW-SEND.json",
+      "bytes": 405,
+      "sha256": "634ded80a4948b023dbc11433a9bff51073a047450320a1ae7b3486ef09cfb50"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-optional-Amend-and-NO-MATCH-complete-with-neutral-progress-FINAL-REVIEW-SEND.json",
+      "bytes": 396,
+      "sha256": "4643121922489007bc989a73d05691e4d5e3fc358a8ee68f70723640d666d191"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-resolved-mixed-sibling-leaves-only-current-missing-field-policy-FINAL-REVIEW-SEND.json",
+      "bytes": 401,
+      "sha256": "ff22281db85e646ba30df62726e6587d271f9bdfc3645c23c3fc49dcdaa102f4"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-retained-finalization-recovery-makes-no-target-replay-FINAL-REVIEW-SEND.json",
+      "bytes": 391,
+      "sha256": "988bafe161f47406f2dbc690309af371c8a262bf6318e6d7aca2145335ff3ee3"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-stale-policy-rebind-preserves-selection-and-resumes-FINAL-REVIEW-SEND.json",
+      "bytes": 389,
+      "sha256": "6350ad837d103077e9f5ce4b01fcfc6899c17dab840ec9bf824eeae624918b38"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-C-stale-policy-rebind-preserves-selection-and-resumes-READINESS.json",
+      "bytes": 402,
+      "sha256": "5d49b08563620879ef5a13d644ff873abe9e3831a072b9c2d81538f0d902f1a2"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/focus-Slice-F-ambiguous-target-match-pauses-without-mutation-GOLDTIER-SEARCH.json",
+      "bytes": 405,
+      "sha256": "6497f13d27f75ef5a8921e4d48d9f85317ff8160357a93fdb02f31e739cc98d5"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/group-1.json",
+      "bytes": 9623,
+      "sha256": "fffb14d168678e2ea8a156a9ae7b79ac2c2f25c2a40903568727fb2cd76424c0"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/group-2.json",
+      "bytes": 9633,
+      "sha256": "b465381a84a02041c4b6322d7eb246e065c4f2958b0fcd0af65a3defded3e4d3"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/group-3.json",
+      "bytes": 9633,
+      "sha256": "61b436cf04dfc226b4e2b33f67de0ef0246f5a311d8f512faf1fbcf6337df891"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-address-mismatch.json",
+      "bytes": 947,
+      "sha256": "40c561a6d8977de17d57c4964d1efcd4e7bfee84cd65ace90370823f15a0a503"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-ambiguous-low-score.json",
+      "bytes": 942,
+      "sha256": "68a1f1383361570df47158d1b31fbee12dde656afcf0004a583754acca6d694f"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-authorization-isolation.json",
+      "bytes": 385,
+      "sha256": "05fe9e82ee2092e75bc315878a65713596b6618dfdb0b051ea6e6f9aa66e4772"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-classification-conflicting.json",
+      "bytes": 517,
+      "sha256": "7d01b8b0abec381a1325c9f16db5d452de4316a1667556e7dc33bc803718a433"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-classification-missing.json",
+      "bytes": 513,
+      "sha256": "fb08e0eed958797869730e38982df5a6acf66187044f1edb2e08f8b0e54132c9"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-country-mismatch.json",
+      "bytes": 953,
+      "sha256": "6ad6a85a6304392539068b1abea8b322da7ce4ec4d19e9fe6a253b09d408525c"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-cross-document-conflict.json",
+      "bytes": 946,
+      "sha256": "6bfb1ae6b9b867b2609cefb55a92884ad01bc269234ccfd0b3d5c63c5d2cd570"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-delayed-stage-focus.json",
+      "bytes": 559,
+      "sha256": "8e54f253ac2d0e1b3504fb3c487047d843f9735d73e2ff84cc76437f491ae460"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-legal-name-mismatch.json",
+      "bytes": 942,
+      "sha256": "3257b2417b22f79892167d7bf5e82af20111511ee9c17be733ff68368a576956"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-missing-required-field.json",
+      "bytes": 961,
+      "sha256": "0ad834cf2fdc8c1559f99cc470cd3029330972ebd824e6d7d1443a6f11c8124d"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-missing-upload.json",
+      "bytes": 411,
+      "sha256": "8ae25daedc6fb503cb591348b5fa942f2df3402b4d3f6b9f0cea19b26dc94a84"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-multiple-mismatches.json",
+      "bytes": 1006,
+      "sha256": "fe0de485f5ae6ea2f5052cb93ce582fcfaa21bbb7adf000a87df585d58b5f8ff"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-native-failed-retry.json",
+      "bytes": 452,
+      "sha256": "605acf04fea09ec123652dccc5f84ca92157cefd663f3be5f46ada11491ed098"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-ownership-cycle.json",
+      "bytes": 279,
+      "sha256": "5949734819dfcd7427dba7cefefe4581dd48cb3c911374b0c21c9a4aca76d581"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-ownership-incomplete.json",
+      "bytes": 287,
+      "sha256": "13776489064eeb9c1f622cb7285a7b0ab148ba22ef41d6ae18edff471fed7068"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-provider-relationship-failure.json",
+      "bytes": 298,
+      "sha256": "95e26cc9ecbb5770fb79573c3a0143dd4f922bc4a7f23e87bec2dd92e1538435"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-uen-source-conflict.json",
+      "bytes": 500,
+      "sha256": "4dec824037599c4e75d7a7da2ce4f6d9f828b99f1ac2b9150dc1cb16b85b0d62"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-unsupported-registry.json",
+      "bytes": 395,
+      "sha256": "8689dbca36c6f8810edeb06314a9f18a745c0e066e9d1ce350c40a1a97dd4f74"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS/confirmed-aborted.png",
+      "bytes": 45653,
+      "sha256": "03d0dbcffb9667dd17681e8392bea3ca1d3aebaaed2bd3a8965759dd16f273ed"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS/confirmed-held.png",
+      "bytes": 45653,
+      "sha256": "03d0dbcffb9667dd17681e8392bea3ca1d3aebaaed2bd3a8965759dd16f273ed"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS/confirmed-truncated.png",
+      "bytes": 45653,
+      "sha256": "03d0dbcffb9667dd17681e8392bea3ca1d3aebaaed2bd3a8965759dd16f273ed"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS/retained-policy.png",
+      "bytes": 73509,
+      "sha256": "4a1287a5a93cca91f8cd831397c80922283f6fcf7078e17c015cf9afe80c35a7"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS/retained-shell.png",
+      "bytes": 73387,
+      "sha256": "638ae8c6a9911a9d8db39e70eb80085cae973a59666ccaa222760137ce3d85a7"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS/verifying-aborted.png",
+      "bytes": 51873,
+      "sha256": "51a63e6b249f3e0e209a6e5115d555af841db524a0ef102c884ace0f3d82b20c"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS/verifying-held.png",
+      "bytes": 51873,
+      "sha256": "51a63e6b249f3e0e209a6e5115d555af841db524a0ef102c884ace0f3d82b20c"
+    },
+    {
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/regression/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS/verifying-truncated.png",
+      "bytes": 51873,
+      "sha256": "51a63e6b249f3e0e209a6e5115d555af841db524a0ef102c884ace0f3d82b20c"
+    }
+  ],
+  "historical_attribution": "Earlier FAIL remains authoritative for its historical execution; successful current checks do not prove its cause.",
+  "stop_condition": "Owner requires SDQ-01 OPEN when root cause remains unproven; no fourth round."
+}

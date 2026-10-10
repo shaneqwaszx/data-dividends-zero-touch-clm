@@ -1,0 +1,412 @@
+{
+  "track": "A",
+  "document": "synthetic-sponsor-corporate-profile.pdf",
+  "document_sha256": "63a624e1a06be5085c5f5379ec08cc2da43930e94c8edcc5678c694c8da70e39",
+  "original_document_id": "385eab7d-c2c9-4b20-bdc3-d718051c0937",
+  "initial_blockers": [
+    "DOCUMENT_SOURCE_CONFLICT",
+    "DOCUMENT_SOURCE_CONFLICT"
+  ],
+  "checkpoints": [
+    {
+      "stage": "DOCUMENT",
+      "blockers": [
+        "DOCUMENT_SOURCE_CONFLICT",
+        "DOCUMENT_SOURCE_CONFLICT"
+      ],
+      "version": 4
+    },
+    {
+      "stage": "DOCUMENT",
+      "blockers": [
+        "DOCUMENT_SOURCE_CONFLICT",
+        "DOCUMENT_SOURCE_CONFLICT"
+      ],
+      "version": 6
+    },
+    {
+      "stage": "READINESS",
+      "blockers": [
+        "GOLDTIER_CLASSIFICATION_REQUIRED"
+      ],
+      "version": 10
+    },
+    {
+      "stage": "READINESS",
+      "blockers": [
+        "TARGET_CONFIRMATION_REQUIRED"
+      ],
+      "version": 12
+    }
+  ],
+  "draft_mutations": 0,
+  "actions": [
+    "/api/clm/zero-touch/cases",
+    "/api/clm/zero-touch/cases/73bc2593-3b89-4778-af5d-7ae4ec8fab89/intake/documents",
+    "/api/clm/zero-touch/cases/73bc2593-3b89-4778-af5d-7ae4ec8fab89/intake/complete",
+    "/api/clm/zero-touch/cases/73bc2593-3b89-4778-af5d-7ae4ec8fab89/review-decisions",
+    "/api/clm/zero-touch/cases/73bc2593-3b89-4778-af5d-7ae4ec8fab89/review-decisions",
+    "/api/clm/zero-touch/cases/73bc2593-3b89-4778-af5d-7ae4ec8fab89/target-classification",
+    "/api/clm/zero-touch/cases/73bc2593-3b89-4778-af5d-7ae4ec8fab89/target-classification"
+  ],
+  "final_review_edit": "classification",
+  "unauthorized_status": 403,
+  "unauthorized_classification_status": 403,
+  "frozen_replacement_status": 409,
+  "frozen_classification_status": 409,
+  "company": "MULTIPLE OWNER DEMO PTE. LTD.",
+  "uen": "202400008H",
+  "case_id": "73bc2593-3b89-4778-af5d-7ae4ec8fab89",
+  "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+  "real_sandbox_uat": "NOT_VERIFIED",
+  "registry": {
+    "status": "COMPLETE",
+    "binding": {
+      "synthetic_seed_namespace": null,
+      "disposition": "PROVIDER_FETCH",
+      "bound_to_case_at": "2026-10-10T03:27:33.513596Z",
+      "expires_at": "2027-01-08T03:27:33.513071Z",
+      "freshness_policy_id": "MOCK_ACRA_APPROVED_POLICY",
+      "freshness_policy_version": 1,
+      "freshness_duration_seconds": 7776000,
+      "freshness_comparator": "EVALUATION_NOW_LT_EXPIRES_AT"
+    }
+  },
+  "initial_search": "NO_MATCH",
+  "final_review_version": 14,
+  "clm_version": 4,
+  "readiness": {
+    "policy_version": "PHASE_05_POC_V1",
+    "registry": {
+      "status": "READY",
+      "reference_id": "73bc2593-3b89-4778-af5d-7ae4ec8fab89"
+    },
+    "document": {
+      "status": "READY",
+      "reference_id": "385eab7d-c2c9-4b20-bdc3-d718051c0937"
+    },
+    "ownership": {
+      "status": "READY",
+      "reference_id": "1d879c12-aef3-48d5-8cad-044cefeb5aef"
+    },
+    "goldtier": {
+      "status": "READY",
+      "reference_id": "ee63d752-c1a6-4960-a6e7-20b9c917ea39"
+    },
+    "blockers": [],
+    "warnings": [
+      "IDP_PROFILE_PROVISIONAL",
+      "LIVE_HIERARCHY_UNAVAILABLE",
+      "RELATED_PARTY_MAPPING_PENDING",
+      "REAL_GOLDTIER_NOT_CONFIGURED",
+      "READY_FOR_APPROVAL_UNAVAILABLE"
+    ],
+    "evaluated_at": "2026-10-10T03:27:42.290904Z"
+  },
+  "target_before": {
+    "SEARCH": 1,
+    "SHELL": 0,
+    "POLICY": 0,
+    "AMEND": 0,
+    "READBACK": 0
+  },
+  "target_after": {
+    "SEARCH": 2,
+    "SHELL": 1,
+    "POLICY": 1,
+    "AMEND": 0,
+    "READBACK": 1
+  },
+  "stale_status": 409,
+  "document_states": [
+    {
+      "id": "385eab7d-c2c9-4b20-bdc3-d718051c0937",
+      "state": "REVIEWED",
+      "current": true,
+      "completion_method": "HUMAN_REVIEWED"
+    }
+  ],
+  "final_status": "COMPLETED",
+  "submission_state": "SUBMISSION_CONFIRMED",
+  "exact_readback_id": "SYNTHETIC-GT-S3",
+  "reopen_mutations": 0,
+  "verdict": "PASS",
+  "document_evidence": [
+    {
+      "document_id": "385eab7d-c2c9-4b20-bdc3-d718051c0937",
+      "state": "REVIEWED",
+      "supersedes": null,
+      "superseded_by": null,
+      "semantic_completion": "RECONCILIATION_RESOLVED",
+      "event_count": 9,
+      "fields": [
+        {
+          "field": "registration_number",
+          "decision": "ACCEPTED",
+          "comparison": "MATCH",
+          "method": "NATIVE_PDF_TEXT",
+          "quality": "HIGH",
+          "score": 0.97,
+          "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+          "formula": "LABEL_SCORE",
+          "page": 1,
+          "references": [
+            "PAGE_1_LINE_4"
+          ]
+        },
+        {
+          "field": "legal_name",
+          "decision": "ACCEPTED",
+          "comparison": "MISMATCH",
+          "method": "NATIVE_PDF_TEXT",
+          "quality": "HIGH",
+          "score": 0.97,
+          "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+          "formula": "LABEL_SCORE",
+          "page": 1,
+          "references": [
+            "PAGE_1_LINE_3"
+          ]
+        },
+        {
+          "field": "registered_address",
+          "decision": "ACCEPTED",
+          "comparison": "MISMATCH",
+          "method": "NATIVE_PDF_TEXT",
+          "quality": "HIGH",
+          "score": 0.97,
+          "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+          "formula": "LABEL_SCORE",
+          "page": 1,
+          "references": [
+            "PAGE_1_LINE_5"
+          ]
+        },
+        {
+          "field": "country_of_incorporation",
+          "decision": "ACCEPTED",
+          "comparison": "MATCH",
+          "method": "NATIVE_PDF_TEXT",
+          "quality": "HIGH",
+          "score": 0.97,
+          "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+          "formula": "LABEL_SCORE",
+          "page": 1,
+          "references": [
+            "PAGE_1_LINE_6"
+          ]
+        }
+      ]
+    }
+  ],
+  "classification": {
+    "vocabulary_version": "GOLDTIER_OPENAPI_V1_0_0",
+    "editable": true,
+    "evidence_state": "UNSAFE",
+    "evidence_fingerprint": "439db71c2f9a6e2d47110c8aa1344aad1a7040e49c13f2d930b15705df07b897",
+    "current": true,
+    "review_required": false,
+    "evidence_values": {
+      "kyc_customer_type": [],
+      "client_segment": []
+    },
+    "state": "CURRENT",
+    "kyc_customer_type": {
+      "selection": {
+        "field_key": "kyc_customer_type",
+        "value": "Company - Private",
+        "source": "USER",
+        "document_evidence": null,
+        "evidence_fingerprint": "439db71c2f9a6e2d47110c8aa1344aad1a7040e49c13f2d930b15705df07b897",
+        "actor_id": "maya-lim",
+        "classified_at": "2026-10-10T03:27:39.196548Z",
+        "policy_version": 1,
+        "vocabulary_version": "GOLDTIER_OPENAPI_V1_0_0"
+      },
+      "allowed_values": [
+        "Association - Incorporated",
+        "Association - Unincorporated",
+        "Co-Operative",
+        "Company - Private",
+        "Company - Public",
+        "Government",
+        "Individual",
+        "Managed Fund",
+        "Partnership - Regulated",
+        "Partnership - Unregulated",
+        "Regulated Financial Institution",
+        "Regulated Fund Manager - ANZ Approved",
+        "Regulated Fund Manager - Non-ANZ Approved",
+        "Sole Trader",
+        "Trust - Regulated",
+        "Trust - Unregulated",
+        "Unregulated Fund Manager"
+      ],
+      "selected_value": "Company - Private",
+      "authority": "USER_AUTHORIZED_POC",
+      "required": true
+    },
+    "client_segment": {
+      "selection": {
+        "field_key": "client_segment",
+        "value": "Corporate",
+        "source": "USER",
+        "document_evidence": null,
+        "evidence_fingerprint": "439db71c2f9a6e2d47110c8aa1344aad1a7040e49c13f2d930b15705df07b897",
+        "actor_id": "maya-lim",
+        "classified_at": "2026-10-10T03:27:39.196548Z",
+        "policy_version": 1,
+        "vocabulary_version": "GOLDTIER_OPENAPI_V1_0_0"
+      },
+      "allowed_values": [
+        "Corporate",
+        "DI - Diversified Industrials",
+        "DI - Education and Defence",
+        "DI - Food, Beverage, and Agribusiness",
+        "DI - Government",
+        "DI - Telecom, Media, Entertainment, and Technology",
+        "DI - Transport and Logistics",
+        "FIG - Banks",
+        "FIG - Diversified Financials",
+        "FIG - Funds",
+        "FIG - Insurance",
+        "FIG - OSU",
+        "Global Subsidiary Group",
+        "Private Wealth",
+        "Property and Health",
+        "Resource, Energy, and Infrastructure",
+        "Retail",
+        "Commercial BB (Business Banking)",
+        "Commercial RBB (Regional Business Banking)",
+        "Commercial SBB (Small Business Banking)",
+        "Corporate Finance",
+        "Diversified & Specialist Industries",
+        "Personal"
+      ],
+      "selected_value": "Corporate",
+      "authority": "USER_AUTHORIZED_POC",
+      "required": true
+    }
+  },
+  "preview_ready": true,
+  "ownership_state": "ANALYZED",
+  "ownership_version": 5,
+  "ownership_source_classification": "SINGLE_SOURCE",
+  "ownership_provider": "ACRA_REGISTRY_ACQUISITION",
+  "ownership_source_environment": "MOCK",
+  "ownership_review": null,
+  "ownership_results": [
+    {
+      "party_id": "PERSON_A",
+      "direct": "50.0",
+      "indirect": "0",
+      "effective": "50.0",
+      "classification": "PROVISIONAL_UBO_CANDIDATE"
+    },
+    {
+      "party_id": "PERSON_B",
+      "direct": "30.0",
+      "indirect": "0",
+      "effective": "30.0",
+      "classification": "PROVISIONAL_UBO_CANDIDATE"
+    },
+    {
+      "party_id": "PERSON_C",
+      "direct": "20.0",
+      "indirect": "0",
+      "effective": "20.0",
+      "classification": "BELOW_PROVISIONAL_THRESHOLD"
+    }
+  ],
+  "source_decisions": [
+    {
+      "field": "legal_name",
+      "status": "CANCELLED",
+      "decision": null
+    },
+    {
+      "field": "registered_address",
+      "status": "CANCELLED",
+      "decision": null
+    },
+    {
+      "field": "legal_name",
+      "status": "RESOLVED",
+      "decision": {
+        "action": "KEEP_REGISTRY_VALUE",
+        "selected_observation_id": "7ddea36d-adcc-4919-a2c2-c091c5ed5ed6",
+        "selected_value": "MULTIPLE OWNER DEMO PTE. LTD.",
+        "decided_at": "2026-10-10T03:27:37.190295Z",
+        "reconciliation_version": 2
+      }
+    },
+    {
+      "field": "registered_address",
+      "status": "RESOLVED",
+      "decision": {
+        "action": "KEEP_REGISTRY_VALUE",
+        "selected_observation_id": "8a757ffb-9009-402e-afaf-9a257ce68159",
+        "selected_value": "18 SHAREHOLDER ROAD, #03-01, 049003, SG",
+        "decided_at": "2026-10-10T03:27:37.190295Z",
+        "reconciliation_version": 2
+      }
+    }
+  ],
+  "evaluation_counts": {
+    "ZERO_TOUCH_CASE_CREATED": 1,
+    "REGISTRY_AUTOMATED": 1,
+    "GOLDTIER_FIRST_NO_MATCH": 1,
+    "ONBOARDING_STARTED": 1,
+    "DOCUMENT_SOURCE_CONFLICT": 4,
+    "DOCUMENT_REVIEW_UPDATED": 1,
+    "RECONCILIATION_GROUP_CONFIRMED": 1,
+    "RECONCILIATION_RESOLVED": 1,
+    "ONBOARDING_INTELLIGENCE_V1": 1,
+    "OWNERSHIP_AUTOMATED": 1,
+    "GOLDTIER_CLASSIFICATION_REQUIRED": 1,
+    "TARGET_CLASSIFICATION_RECORDED": 2,
+    "TARGET_CONFIRMATION_REQUIRED": 2,
+    "TARGET_DISPATCH_CONFIRMED": 1,
+    "READINESS_CONFIRMED": 1,
+    "MOCK_SUBMISSION_STARTED": 1,
+    "GOLDTIER_SHELL_CHECKPOINTED": 1,
+    "GOLDTIER_POLICY_CHECKPOINTED": 2,
+    "MOCK_GOLDTIER_SUBMITTED": 1
+  },
+  "metrics": {
+    "automated_stages_completed": 6,
+    "human_interventions": 4,
+    "exceptions_raised": 7,
+    "exceptions_resolved": 4,
+    "final_outcome": "MOCK_GOLDTIER_SUBMITTED",
+    "total_duration_ms": 9794,
+    "stage_durations_ms": {
+      "DOCUMENT": 0,
+      "OWNERSHIP": 170,
+      "READINESS": 22,
+      "MOCK_GOLDTIER": 239
+    }
+  },
+  "target_operations": [
+    {
+      "operation": "SEARCH",
+      "status": "NO_MATCH"
+    },
+    {
+      "operation": "SHELL",
+      "status": "CREATED"
+    },
+    {
+      "operation": "POLICY",
+      "status": "CREATED"
+    },
+    {
+      "operation": "AMEND",
+      "status": "SKIPPED"
+    },
+    {
+      "operation": "READBACK",
+      "status": "SUCCESS"
+    }
+  ]
+}

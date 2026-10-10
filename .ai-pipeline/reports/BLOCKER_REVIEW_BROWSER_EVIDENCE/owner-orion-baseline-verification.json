@@ -1,0 +1,11 @@
+{
+  "source_revision": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "sha256": "76e5c9922abbd2ba7b71c51bd8139ede37ba91c599168e2550f2c7e7e5d50d48",
+  "pages": 1,
+  "crlf_separators": 11,
+  "identity_fields": 4,
+  "classification_count": 0,
+  "methods": [
+    "NATIVE_PDF_TEXT"
+  ]
+}

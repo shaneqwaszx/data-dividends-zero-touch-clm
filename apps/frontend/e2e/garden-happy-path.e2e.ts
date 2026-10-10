@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { openStage } from "./stage-disclosures";
+import { reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
 const fixtureRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../backend/tests/fixtures/uat");
@@ -53,35 +54,8 @@ async function reviewedCurrentDocument(page: Page, caseId: string) {
   await expect(card).toHaveCount(1);
   await openStage(page, "Document verification");
   await expect(card.getByRole("heading", { name: document.display_name, exact: true })).toBeVisible();
-  for (const key of ["registration_number", "legal_name", "registered_address", "country_of_incorporation"]) {
-    document = await readCurrent();
-    const field = document.fields.find((item: any) => item.field_key === key);
-    expect(field).toBeTruthy();
-    const section = card.locator(`[aria-labelledby="${document.document_id}-${key}"]`);
-    await expect(section).toBeVisible();
-    if (field.review_status === "PENDING") {
-      expect(field.original_extracted_value).not.toBeNull();
-      const button = section.getByRole("button", {
-        name: `Accept ${key.replaceAll("_", " ")} suggestion`, exact: true,
-      });
-      await expect(button).toBeEnabled();
-      await measured("accept document field", async () => {
-        const response = page.waitForResponse((result) => result.request().method() === "POST"
-          && result.url().endsWith("/reviews"), { timeout: 15_000 });
-        await button.click();
-        const result = await response;
-        expect(result.status()).toBe(200);
-        const reviewed = await result.json();
-        expect(reviewed.document_id).toBe(document.document_id);
-        expect(reviewed.events.length).toBeGreaterThan(document.events.length);
-        expect(reviewed.fields.find((item: any) => item.field_key === key).review_status).toBe("ACCEPTED");
-        await expect(section.locator(".tag")).toHaveText("ACCEPTED");
-        await expect(button).toHaveCount(0);
-      });
-    }
-    expect((await readCurrent()).fields.find((item: any) => item.field_key === key).review_status)
-      .not.toBe("PENDING");
-  }
+  const pending = document.fields.filter((field: any) => field.review_status === "PENDING");
+  if (pending.length) await reviewPendingFields(page);
   await expect.poll(async () => (await readCurrent()).state).toBe("REVIEWED");
   document = await readCurrent();
   expect(document.fields.every((item: any) => item.review_status !== "PENDING")).toBe(true);
@@ -327,16 +301,8 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
 test("Garden discrepancy human intervention clears reviewed conflicts and continues onboarding", async ({ page }) => {
   const caseId = await createGarden(page, true);
   await reviewedCurrentDocument(page, caseId);
-  await expect(page.getByRole("button", { name: "Keep registry value", exact: true })).toHaveCount(4);
-  for (let count = 4; count > 0; count -= 1) {
-    await measured("reconciliation decision", async () => {
-      const response = page.waitForResponse((result) => result.request().method() === "POST"
-        && result.url().endsWith("/resolve"), { timeout: 15_000 });
-      await page.getByRole("button", { name: "Keep registry value", exact: true }).first().click();
-      expect((await response).status()).toBe(200);
-      await expect(page.getByRole("button", { name: "Keep registry value", exact: true })).toHaveCount(count - 1);
-    });
-  }
+  await expect(page.locator("select[data-reconciliation-field]")).toHaveCount(4);
+  await measured("reconciliation decision group", () => reviewSourceChoices(page).then(() => undefined));
   const reconciled = await summary(page, caseId);
   expect(reconciled.case.entity.legal_name).toBe("GARDEN BUSINESS");
   expect(reconciled.case.entity.registration_number).toBe("11111999A");

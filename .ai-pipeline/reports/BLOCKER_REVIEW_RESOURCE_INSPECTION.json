@@ -1,0 +1,34 @@
+{
+  "status": "TASK_OWNED_RESOURCE_INSPECTION_PASS; CLEANUP_PENDING_INDEPENDENT_ACCEPTANCE",
+  "observed_utc": "2026-10-09T23:37:35.746010+00:00",
+  "container": {
+    "id": "dd02d1c543c38415e74c3084b1716da638705bc3c42199c641873bd070a49014",
+    "name": "/clm-blocker-review-20261010",
+    "created": "2026-10-09T17:01:21.993328765Z"
+  },
+  "mounts": [
+    {
+      "type": "volume",
+      "name": "33311a682d3055651ca5d5a3c56190b0d2d9a59ac718b2f9bc1580e4811c8923",
+      "destination": "/data/configdb",
+      "created_utc": "2026-10-09T17:01:22Z",
+      "attached_container_ids": [
+        "dd02d1c543c38415e74c3084b1716da638705bc3c42199c641873bd070a49014"
+      ]
+    },
+    {
+      "type": "volume",
+      "name": "80af14dfb74cb7f51ea62a07f4551dbbc8cf2ee3b693a70d7b79a3f66b4b10f6",
+      "destination": "/data/db",
+      "created_utc": "2026-10-09T17:01:22Z",
+      "attached_container_ids": [
+        "dd02d1c543c38415e74c3084b1716da638705bc3c42199c641873bd070a49014"
+      ]
+    }
+  ],
+  "host_bind_mounts": 0,
+  "image_generated_anonymous_volumes": 2,
+  "ownership_evidence": "Created immediately after the task container; each exact volume is attached only to that exact container.",
+  "scope": "Only this task container and two explicit volume IDs inspected; no environment/payload/URI or unrelated Docker resources read.",
+  "cleanup_boundary": "After reviewer completion remove this container and its two exclusively attached generated anonymous volumes; preserve all other containers/volumes/worktrees."
+}

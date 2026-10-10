@@ -267,7 +267,7 @@ describe("DocumentEvidencePanel", () => {
     ["Replace current document", documentFixture()],
     ["Retry affected document", documentFixture({ state: "FAILED", error: { code: "DOCUMENT_REUPLOAD_REQUIRED", message: "Retry required" } })],
   ])("keeps the %s native file input keyboard-focusable", (label, record) => {
-    const { container: view } = renderPanel([record]);
+    const { container: view } = renderPanel([record], vi.fn(), summary(record.state === "FAILED" ? "PENDING_INPUTS" : "WAITING_FOR_REVIEW"));
     const input = view.querySelector<HTMLInputElement>(".document-upload-input")!;
     expect(input).not.toBeNull();
     expect(input.hidden).toBe(false);

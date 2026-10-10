@@ -2,7 +2,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
-import { openStage } from "./stage-disclosures";
+import { focusPipelineAction, openStage } from "./stage-disclosures";
+import { reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const fixtures = path.join(root, "apps/backend/tests/fixtures/uat");
@@ -63,6 +64,7 @@ async function create(page: Page, file: string | ReturnType<typeof textProfile> 
   await expect.poll(async () => (await summary(page, caseId)).status).toBe(status);
   await page.getByRole("button", { name: "Open full case", exact: true }).click();
   await expect(page).toHaveURL(`/cases/${caseId}`);
+  await expect(page.locator(".document-card")).toHaveCount(1);
   return caseId;
 }
 
@@ -81,7 +83,7 @@ async function classify(page: Page, caseId: string) {
   const current = await summary(page, caseId);
   if (current.active_exceptions.some((item: any) => item.blocker_code === "GOLDTIER_CLASSIFICATION_REQUIRED")) {
     await navigateAction(page, caseId, "CLASSIFICATION");
-    await expect(page.locator("#case-target-classification")).toBeFocused();
+    await expect(page.getByLabel("KYC customer type", { exact: true })).toBeFocused();
   }
   await openStage(page, "Submission readiness");
   await page.getByLabel("KYC customer type", { exact: true }).selectOption("Company - Private");
@@ -97,6 +99,7 @@ async function confirm(page: Page, caseId: string, sandbox = false) {
     .toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
   await openStage(page, "Final review & send");
   await expect(page.locator("#case-review-and-send")).toBeVisible();
+  await focusPipelineAction(page, "FINAL_REVIEW_SEND", page.getByRole("button", { name: sandbox ? "Confirm and send to GoldTier sandbox" : "Confirm and send to Mock GoldTier", exact: true }));
   const response = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/target-confirmation"));
   await page.getByRole("button", { name: sandbox ? "Confirm and send to GoldTier sandbox" : "Confirm and send to Mock GoldTier", exact: true }).click();
@@ -143,6 +146,7 @@ test("Slice C stale policy rebind preserves selection and resumes", { tag: "@sli
   const before = await summary(page, caseId);
   expect(before.case.policy_rebind.configuration_status).toBe("REQUIRES_REBIND");
   await openStage(page, "Submission readiness");
+  await focusPipelineAction(page, "READINESS", page.getByLabel("Rebind rationale", { exact: true }));
   await page.getByLabel("Rebind rationale", { exact: true }).fill("Replace synthetic retained legacy target configuration.");
   const response = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/policy-rebind"));
@@ -205,7 +209,7 @@ test("Slice C failed Search exposes bounded read-only recheck", { tag: "@slice-c
   await expect(page.locator("#registry-state-heading")).toHaveCount(0);
   await expect(page.locator("#registry-provenance-heading")).toBeVisible();
   await expect(page.locator(".identity-correction")).toBeVisible();
-  await page.getByRole("button", { name: "Edit UEN", exact: true }).click();
+  await focusPipelineAction(page, "GOLDTIER_SEARCH", page.getByLabel("Singapore UEN", { exact: true }));
   await page.getByLabel("Singapore UEN", { exact: true }).fill(cleanUen);
   const response = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/registry-identity"));
@@ -222,13 +226,10 @@ async function resolveDiscrepancy(page: Page, file: string | ReturnType<typeof t
     const before = await summary(page, caseId);
     const codes = before.active_exceptions.filter((item: any) => item.stage === "DOCUMENT").map((item: any) => item.blocker_code);
     expect(codes.length).toBeGreaterThan(0);
-    await navigateAction(page, caseId, "DOCUMENTS");
-    await expect(page.locator("#case-evidence-documents")).toBeFocused();
+    await page.locator(".intervention-card").getByRole("button", { name: "Keep registry value", exact: true }).first().click();
+    await expect(page.locator("select[data-reconciliation-field]").first()).toBeFocused();
     await expect(page.getByRole("button", { name: /Confirm and send/ })).toHaveCount(0);
-    const response = page.waitForResponse((result) => result.request().method() === "POST"
-      && result.url().endsWith("/resolve"));
-    await page.getByRole("button", { name: "Keep registry value", exact: true }).click();
-    expect((await response).status()).toBe(200);
+    await reviewSourceChoices(page);
     await expect.poll(async () => (await summary(page, caseId)).active_exceptions.filter((item: any) => item.stage === "DOCUMENT")).toEqual([]);
     await expect(page.getByRole("button", { name: "Keep registry value", exact: true })).toHaveCount(0);
     await classify(page, caseId);
@@ -252,13 +253,7 @@ async function replaceAfterCorrection(page: Page, scenario: { file: string; fiel
     const before = await summary(page, caseId);
     const codes = before.active_exceptions.filter((item: any) => item.stage === "DOCUMENT").map((item: any) => item.blocker_code);
     await navigateAction(page, caseId, "DOCUMENTS");
-    await page.getByRole("button", { name: `Record ${scenario.field.replaceAll("_", " ")} correction`, exact: true }).click();
-    await expect(page.getByLabel("Correction", { exact: true })).toBeFocused();
-    await page.getByLabel("Correction", { exact: true }).fill(scenario.value);
-    const review = page.waitForResponse((result) => result.request().method() === "POST"
-      && result.url().includes("/review"));
-    await page.getByRole("button", { name: `Save ${scenario.field.replaceAll("_", " ")} correction`, exact: true }).click();
-    expect((await review).status()).toBe(200);
+    await reviewPendingFields(page, { [scenario.field]: scenario.value });
     await expect(page.getByText(/Correction retained, but replacement evidence is still required/)).toBeVisible();
     expect((await summary(page, caseId)).active_exceptions.some((item: any) => item.stage === "DOCUMENT")).toBe(true);
     const replacement = page.waitForResponse((result) => result.request().method() === "POST"
@@ -283,11 +278,11 @@ test("Slice C missing field correction retains blocker until replacement evidenc
 
 test("Slice C resolved mixed sibling leaves only current missing-field policy", async ({ page }) => {
   const caseId = await create(page, textProfile({ "Legal Name": "OTHER NAME", Country: "" }));
+  const checkpoint = await summary(page, caseId);
+  const sourceDocuments = await (await page.request.get(`/api/onboarding/cases/${caseId}/documents`)).json();
+  expect(sourceDocuments.map((doc: any) => doc.events.length)).toEqual(checkpoint.reconciliation.source_document_event_counts);
   await openStage(page, "Document verification");
-  const response = page.waitForResponse((result) => result.request().method() === "POST"
-    && result.url().endsWith("/resolve"));
-  await page.getByRole("button", { name: "Keep registry value", exact: true }).click();
-  expect((await response).status()).toBe(200);
+  await reviewSourceChoices(page);
   const pending = await summary(page, caseId);
   expect(pending.active_exceptions.map((item: any) => item.blocker_code))
     .toEqual(["DOCUMENT_REQUIRED_FIELD_MISSING"]);

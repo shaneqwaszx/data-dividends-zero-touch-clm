@@ -229,7 +229,9 @@ class ClmOrchestrationService:
                 message="Case-specific GoldTier target classifications were retained.",
             )
 
-    def refresh_pre_submission_evidence(self, *, case_id: UUID) -> ClmOrchestrationRecord:
+    def refresh_pre_submission_evidence(
+        self, *, case_id: UUID, document_revision: bool = False,
+    ) -> ClmOrchestrationRecord:
         """Re-evaluate current evidence and version the preview without target dispatch."""
         with self._lock_for(case_id):
             record = self._require_record(case_id)
@@ -259,8 +261,11 @@ class ClmOrchestrationService:
                 candidate,
                 event_type=ClmEventType.READINESS_EVALUATED,
                 outcome=EventOutcome.SUCCEEDED,
-                code="OWNERSHIP_EVIDENCE_REVISED",
-                message="Revised ownership evidence refreshed the pre-submission review.",
+                code=("DOCUMENT_EVIDENCE_REVISED" if document_revision
+                      else "OWNERSHIP_EVIDENCE_REVISED"),
+                message=("Revised document evidence refreshed the pre-submission review."
+                         if document_revision else
+                         "Revised ownership evidence refreshed the pre-submission review."),
             )
 
     def refresh_initial_search_after_recheck(

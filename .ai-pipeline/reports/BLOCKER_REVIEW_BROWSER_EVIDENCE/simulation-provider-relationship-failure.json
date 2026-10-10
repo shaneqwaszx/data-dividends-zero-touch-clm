@@ -1,0 +1,10 @@
+{
+  "scenario": "provider-relationship-failure",
+  "initial": [],
+  "actual_control": "No authorized local corrective action",
+  "choices": 0,
+  "calls_before_confirmation": 0,
+  "confirmation": "Evidence must be supplied; blocker not waived",
+  "final": "TECHNICAL_FAILURE",
+  "verdict": "PASS"
+}

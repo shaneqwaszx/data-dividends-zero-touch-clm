@@ -11,6 +11,7 @@ function summaryFixture(environment: "MOCK" | "SANDBOX" = "SANDBOX"): ZeroTouchC
   return {
     version: 7,
     evidence_decision_authorized: true,
+    document_replacement_authorized: true,
     ownership_edit_authorized: false,
     case: {
       case_id: "case-1",

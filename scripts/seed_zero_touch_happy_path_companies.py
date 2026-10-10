@@ -16,7 +16,11 @@ from app.domain.models import RegistryFreshnessPolicy
 from app.persistence.mongo_registry_cache_store import MongoRegistryCacheStore
 from app.services.registry_cache_repository import RegistrySnapshotRepository
 
-from scripts.zero_touch_happy_path_fixtures import ALL_COMPANIES
+from scripts.zero_touch_happy_path_fixtures import (
+    ALL_COMPANIES,
+    SPONSOR_DEMO_COMPANIES,
+    HappyPathCompany,
+)
 
 _UAT_DATABASE = re.compile(r"^(?:clm_uat|clm_p16)_[0-9a-f]{24}$")
 
@@ -33,13 +37,14 @@ def require_safe_target(database: str, app_env: str) -> None:
 
 
 def manage_fixtures(
-    repository: RegistrySnapshotRepository, *, now: datetime, seed: bool
+    repository: RegistrySnapshotRepository, *, now: datetime, seed: bool,
+    companies: tuple[HappyPathCompany, ...] = ALL_COMPANIES,
 ) -> dict[str, int]:
     counts = {"created": 0, "refreshed": 0, "fresh": 0, "missing": 0, "expired": 0}
     policy = RegistryFreshnessPolicy()
     # Validate all known keys before beginning a batch. Concurrent changes still use CAS.
     pending = []
-    for company in ALL_COMPANIES:
+    for company in companies:
         candidate = company.snapshot(now)
         current = repository.get(candidate.key)
         if current is not None:
@@ -75,6 +80,10 @@ def main() -> int:
     action.add_argument("--seed", action="store_true")
     action.add_argument("--check", action="store_true")
     parser.add_argument("--database", required=True)
+    parser.add_argument(
+        "--sponsor-demo", action="store_true",
+        help="Seed/check only Aurora, Pacific, Straits and Meridian.",
+    )
     args = parser.parse_args()
     client = None
     try:
@@ -98,11 +107,16 @@ def main() -> int:
         # Check is read-only; seed establishes the existing owner's exact indexes.
         if args.seed:
             store.initialize()
-        counts = manage_fixtures(store, now=datetime.now(UTC), seed=args.seed)
-        for company in ALL_COMPANIES:
+        companies = SPONSOR_DEMO_COMPANIES if args.sponsor_demo else ALL_COMPANIES
+        counts = manage_fixtures(store, now=datetime.now(UTC), seed=args.seed, companies=companies)
+        print(f"DATABASE={args.database}; COLLECTION={collection}; DATASET=LOCAL_SYNTHETIC_UAT_V1")
+        for company in companies:
             print(f"{company.name} | {company.uen}")
-        print(f"FIXTURE_COUNT={len(ALL_COMPANIES)}; " + "; ".join(f"{k.upper()}={v}" for k, v in counts.items()))
-        return 0 if args.seed or counts["fresh"] == len(ALL_COMPANIES) else 1
+        print(
+            f"FIXTURE_COUNT={len(companies)}; "
+            + "; ".join(f"{k.upper()}={v}" for k, v in counts.items())
+        )
+        return 0 if args.seed or counts["fresh"] == len(companies) else 1
     except Exception:  # noqa: BLE001 - CLI failures must remain sanitized
         print("SEED_CHECK_FAILED: unsafe configuration, conflicting evidence or unavailable store.")
         return 2

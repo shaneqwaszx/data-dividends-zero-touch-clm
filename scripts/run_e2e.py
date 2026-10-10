@@ -37,6 +37,8 @@ RECOVERY_DEMO_MODES = ("optional-amend", "stale-policy", "retained-recovery", "s
 SANDBOX_DEMO_MODES = (
     "success", "uncertain-shell", "uncertain-policy", "failed-policy", "existing-customer",
     "garden-existing-customer", "database-alpha", "database-partnership", "database-government",
+    "sponsor-aurora", "sponsor-pacific", "sponsor-straits", "sponsor-meridian",
+    "sponsor-garden", "sponsor-merlion", "sponsor-multiple", "sponsor-multilevel",
 )
 _URI_PATTERN = re.compile(r"(?i)(?:mongodb(?:\+srv)?|https?)://[^\s\]\[<>{}\"']+")
 _SECRET_ASSIGNMENT = re.compile(
@@ -557,8 +559,10 @@ def run(
     if not 1024 <= synthetic_seed_port <= 65535:
         raise RuntimeError("Synthetic seed Mongo port is outside the allowed range")
     classification_database = (
-        f"clm_p16_{secrets.token_hex(12)}"
+        f"clm_{'uat' if sandbox_demo and sandbox_demo.startswith('sponsor-') else 'p16'}_"
+        f"{secrets.token_hex(12)}"
         if registry_demo == "synthetic-seed" or sandbox_demo in {"database-alpha", "database-partnership", "database-government"}
+        or (sandbox_demo is not None and sandbox_demo.startswith("sponsor-"))
         else None
     )
     backend_environment = {
@@ -690,10 +694,7 @@ def run(
 
         if classification_database is not None:
             try:
-                if registry_demo == "synthetic-seed":
-                    _cleanup_classification_database(classification_database, synthetic_seed_port)
-                else:
-                    _cleanup_classification_database(classification_database)
+                _cleanup_classification_database(classification_database, synthetic_seed_port)
             except Exception:  # noqa: BLE001 - driver errors are deliberately sanitized
                 cleanup_failures.append("Classification disposable database cleanup failed")
 
@@ -708,6 +709,24 @@ def run(
     return result
 
 
+def _parse_shard(value: str) -> tuple[int, int]:
+    match = re.fullmatch(r"([1-9]\d*)/([1-9]\d*)", value)
+    if match is None or int(match[1]) > int(match[2]):
+        raise argparse.ArgumentTypeError("Shard must be INDEX/TOTAL with 1 <= INDEX <= TOTAL")
+    return int(match[1]), int(match[2])
+
+
+def _shard_selectors(
+    selectors: list[str], shard: tuple[int, int] | None,
+) -> list[str]:
+    if shard is None:
+        return selectors
+    index, total = shard
+    if not 1 <= index <= total <= len(selectors):
+        raise ValueError("Shard must select at least one discovered lifecycle")
+    return selectors[index - 1 :: total]
+
+
 def run_isolated_suite(
     *,
     backend_port: int,
@@ -715,6 +734,7 @@ def run_isolated_suite(
     timeout_seconds: float,
     headed: bool,
     diagnostics: bool = False,
+    shard: tuple[int, int] | None = None,
 ) -> int:
     started = time.monotonic()
     try:
@@ -726,6 +746,13 @@ def run_isolated_suite(
                                          registry_selectors=registry_selectors,
                                          recovery_selectors=recovery_selectors,
                                          sandbox_selectors=sandbox_selectors)
+        if shard is not None:
+            discovered_count = len(selectors)
+            selectors = _shard_selectors(selectors, shard)
+            print(
+                f"E2E SHARD: {shard[0]}/{shard[1]}; "
+                f"discovered={discovered_count}; selected={len(selectors)}"
+            )
         lifecycle_ports = _allocate_lifecycle_ports(
             backend_port,
             frontend_port,
@@ -837,7 +864,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Per-lifecycle readiness and Playwright deadline (30-900 seconds); "
         "unfiltered suite safety budget scales with discovered selectors.",
     )
+    parser.add_argument(
+        "--shard", type=_parse_shard,
+        help=("Run INDEX/TOTAL of the discovered isolated lifecycles; "
+              "CI shards cover all selectors."),
+    )
     args = parser.parse_args(argv)
+    if args.shard is not None and args.grep:
+        parser.error("--shard applies only to the unfiltered isolated suite")
     if args.sandbox_demo and (
         not args.grep or args.garden_protocol or args.registry_demo or args.recovery_demo
     ):
@@ -869,6 +903,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         timeout_seconds=args.timeout_seconds,
         headed=args.headed,
         diagnostics=args.diagnostics,
+        shard=args.shard,
     )
 
 

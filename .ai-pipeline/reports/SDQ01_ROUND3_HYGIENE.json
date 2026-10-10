@@ -1,0 +1,21 @@
+{
+  "explicit_markdown_files_checked": 33,
+  "markdown_whitespace_findings": [],
+  "checks": [
+    {
+      "name": "tracked-whitespace",
+      "exit_code": 0,
+      "log": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-tracked-whitespace.log",
+      "sha256": "72ba81fcc81de675fded66b4b1ef57151d49d1f10e712c6fe2f63ef8971aaf04"
+    },
+    {
+      "name": "secrets-final",
+      "exit_code": 0,
+      "log": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-secrets-final.log",
+      "sha256": "1f210c25ed0d9e15e8c5a55264d5a569275f9edbd04b268d5e02d801e6590f5f"
+    }
+  ],
+  "staged_paths": [],
+  "new_confidential_or_secret_artifact": false,
+  "scope": "Tracked repository plus explicit task-owned nonignored records; no .env or unrelated location access."
+}

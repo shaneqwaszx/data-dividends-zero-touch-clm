@@ -1,0 +1,418 @@
+{
+  "result": "PASS",
+  "preserved_files": [
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_RESOLUTION_OPTIMIZATION_IMPLEMENTATION.md",
+      "bytes": 17503,
+      "sha256": "763a3bc205cba26b01a57d41b80e8bf98c8ea49d54953abcc6ae0992b5a871f8"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_RESOLUTION_PERFORMANCE_BEFORE_AFTER.md",
+      "bytes": 6673,
+      "sha256": "2ce9d61f88793d9bad7f07f58cd1d306cbde8f0a463fd9c29ae7eff52de2a208"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_RESOLUTION_SIMULATION_MATRIX.md",
+      "bytes": 25383,
+      "sha256": "d2b67e5f9e9459c233447de572200d18525243eed2cbc932e2748ce68b2c73bc"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BASELINE_METRICS.json",
+      "bytes": 10969,
+      "sha256": "d82cf6d59c3c989a247b4bc6a9d3209f5f405b5f91ae76986a89aa4465855f2f"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/backend-blocker-catalogue.json",
+      "bytes": 221696,
+      "sha256": "0219f34ea8e034d385d21a8a9c900e3b75f280d44a93516a501487160b64d935"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/baseline-after-four-decisions.png",
+      "bytes": 62154,
+      "sha256": "43007f2f500d44b3ccffe07d6f9175e62694dea340b57cb606f291d6b34457e5"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/baseline-before-navigation.png",
+      "bytes": 115746,
+      "sha256": "ac18b71e3f65a01f9a00031d8bbfe026082b49bc03079e481ec38c33dc4dc4d1"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/baseline-group-1.json",
+      "bytes": 58503,
+      "sha256": "fe51a4d018fa725897e831f46bb3cb5193dba9a6fbff5d27f37b15fa4ac1a36b"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/baseline-group-2.json",
+      "bytes": 58513,
+      "sha256": "57b03670f6b263c32d7a3e1890afe57e8c7491d64fed6493c6d981321a74362e"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/baseline-group-3.json",
+      "bytes": 58517,
+      "sha256": "add8c9efa26bd7037c1066a6f609d322b16a9f98963945b8f370c0a7f5d3aa4e"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/baseline-mongo-commands.json",
+      "bytes": 332,
+      "sha256": "f64f128887288a434c28e3a89c92b076b0b33d6aec8fc5ab74a34981f8eca4d3"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/candidate-after-action-focus.png",
+      "bytes": 52365,
+      "sha256": "4f8aa9024507a43235c619aa62e67376173fe57d7e29f7a45d399867dddddd1e"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/candidate-after-confirm-remaining-blocker.png",
+      "bytes": 81033,
+      "sha256": "ec43590eea569ffb7f5c588f92515c11fc7ada494620f660979b1fc4e751b266"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/candidate-before-navigation.png",
+      "bytes": 55998,
+      "sha256": "d7ae761e17c10b6853a812e13485e7b5e421f8c4be2f9c7760ae14a793788c55"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/candidate-four-draft-choices.png",
+      "bytes": 76647,
+      "sha256": "911d63ca3b4d249f2039b0d99aa42954e6886d2a2f1db50864e448ed1819563a"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/candidate-group-1.json",
+      "bytes": 9623,
+      "sha256": "7d487ab6375516725af9e63505677890df7785e55428a8f5415f8c94dda259cb"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/candidate-group-2.json",
+      "bytes": 9633,
+      "sha256": "629453273744d7d636d86d8954b9797ca9c638aac5b64cbf6d14f56a6b545141"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/candidate-group-3.json",
+      "bytes": 9633,
+      "sha256": "779f29c6e62eabde8e1d5c9ad776c799400e34bb0ef024e5fd8c776b8bdf634e"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/candidate-mobile-draft.png",
+      "bytes": 44846,
+      "sha256": "784ac06560860f7e454198bbd2675048d3164dcebd15afb64a979f06a4004cc6"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/candidate-mongo-commands.json",
+      "bytes": 328,
+      "sha256": "d4d5344b21208f18faf523a3df413c6db77edaecc87e99cc38baac77388d5d75"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/current-retained-policy.png",
+      "bytes": 73548,
+      "sha256": "329cbb98a472aeffd3b9b91a78f60a15bc0939997014bd4cefffbad2b06164ba"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/current-retained-shell.png",
+      "bytes": 73602,
+      "sha256": "9ed2b48908a82b541624248906a3c725adb5ad68d6820c6dabd096cc25f8f825"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Blocker-simulation-actual-native-PDF-intake-failure-targets-retry-and-one-continuation-DOCUMENT-IDP.json",
+      "bytes": 437,
+      "sha256": "640f98240ebfe62a204b65ffd37209778a309cf5b02de808c41b6524e2020280"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Blocker-simulation-uen-source-conflict-RECONCILIATION.json",
+      "bytes": 388,
+      "sha256": "9f3ea6bce8bd7e1ccc564e9818ffe233dcfccaec0a450a1822dfe75dcbfb39f8"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Blocker-simulation-unsupported-initial-country-requires-explicit-Singapore-correction-INITIAL-IDENTITY.json",
+      "bytes": 437,
+      "sha256": "5fffaef69f55ef78c7b472dddf47713a5dec40f2b5b3f9c6e77cddc208e83766"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Director-recovers-uncertain-policy-and-continues-the-original-submission-GOLDTIER-TARGET.json",
+      "bytes": 400,
+      "sha256": "f38709f245138b0cbe5817e42dbb4100c799b79efb71ac0f8d6ceadb93e57a22"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Director-recovers-uncertain-shell-and-continues-the-original-submission-GOLDTIER-TARGET.json",
+      "bytes": 399,
+      "sha256": "4f32a7d968b3ddc28baf5bdb41d7bf5d304d450f455393d745c2f1e757e7e4be"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Phase24-invalid-registry-identity-corrects-the-same-case-and-keeps-final-review-last-ACRA-REGISTRY.json",
+      "bytes": 433,
+      "sha256": "8bba028ae68d1a4801f797eac1d72a8138f36ec4e427f7435f1cdd5ec19d78e6"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-address-discrepancy-resolves-through-document-owner-and-history-FINAL-REVIEW-SEND.json",
+      "bytes": 401,
+      "sha256": "a469601c0197fa7c6a340934c4917ec86bfffae13717e7d5a77c1e8fa25b568f"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-ambiguous-extraction-correction-retains-blocker-until-replacement-evidence-FINAL-REVIEW-SEND.json",
+      "bytes": 412,
+      "sha256": "bf80f5f369163d0ef9339dfde0f6dc2139417626ab782cb910a8e2121b0c2f47"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-country-discrepancy-resolves-through-document-owner-and-history-FINAL-REVIEW-SEND.json",
+      "bytes": 401,
+      "sha256": "5d15056fa51f399dac09d9918a051aac13701b52343caad8dfd976e8078a6007"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-failed-Search-exposes-bounded-read-only-recheck-FINAL-REVIEW-SEND.json",
+      "bytes": 385,
+      "sha256": "99adcd8f27e4ff3c5cc96f6c71f755687862c02da75c99ac0e1e56e5c0bd1378"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-failed-Search-exposes-bounded-read-only-recheck-GOLDTIER-SEARCH.json",
+      "bytes": 406,
+      "sha256": "4d454cfd397030d3040f4399eb67f45cf7b3837192b69fa7d4c3ca9f4c58ccf4"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-legal-name-discrepancy-resolves-through-document-owner-and-history-FINAL-REVIEW-SEND.json",
+      "bytes": 404,
+      "sha256": "61ce71bec953ce226c8653d7e76d4ba052410d7cfa9cefd1a61eba5631f703df"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-missing-field-correction-retains-blocker-until-replacement-evidence-FINAL-REVIEW-SEND.json",
+      "bytes": 405,
+      "sha256": "634ded80a4948b023dbc11433a9bff51073a047450320a1ae7b3486ef09cfb50"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-optional-Amend-and-NO-MATCH-complete-with-neutral-progress-FINAL-REVIEW-SEND.json",
+      "bytes": 396,
+      "sha256": "4643121922489007bc989a73d05691e4d5e3fc358a8ee68f70723640d666d191"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-resolved-mixed-sibling-leaves-only-current-missing-field-policy-FINAL-REVIEW-SEND.json",
+      "bytes": 401,
+      "sha256": "ff22281db85e646ba30df62726e6587d271f9bdfc3645c23c3fc49dcdaa102f4"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-retained-finalization-recovery-makes-no-target-replay-FINAL-REVIEW-SEND.json",
+      "bytes": 391,
+      "sha256": "988bafe161f47406f2dbc690309af371c8a262bf6318e6d7aca2145335ff3ee3"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-stale-policy-rebind-preserves-selection-and-resumes-FINAL-REVIEW-SEND.json",
+      "bytes": 389,
+      "sha256": "6350ad837d103077e9f5ce4b01fcfc6899c17dab840ec9bf824eeae624918b38"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-C-stale-policy-rebind-preserves-selection-and-resumes-READINESS.json",
+      "bytes": 402,
+      "sha256": "5d49b08563620879ef5a13d644ff873abe9e3831a072b9c2d81538f0d902f1a2"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/focus-Slice-F-ambiguous-target-match-pauses-without-mutation-GOLDTIER-SEARCH.json",
+      "bytes": 405,
+      "sha256": "6497f13d27f75ef5a8921e4d48d9f85317ff8160357a93fdb02f31e739cc98d5"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/group-1.json",
+      "bytes": 9623,
+      "sha256": "7d487ab6375516725af9e63505677890df7785e55428a8f5415f8c94dda259cb"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/group-2.json",
+      "bytes": 9633,
+      "sha256": "629453273744d7d636d86d8954b9797ca9c638aac5b64cbf6d14f56a6b545141"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/group-3.json",
+      "bytes": 9633,
+      "sha256": "779f29c6e62eabde8e1d5c9ad776c799400e34bb0ef024e5fd8c776b8bdf634e"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/meridian-synthetic-infrastructure-client.png",
+      "bytes": 47318,
+      "sha256": "8c43be9a069a11306d0ab95b9c76f0d7358420271b0285eb31add307098dc5e2"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/native-pdf-verification.json",
+      "bytes": 1160,
+      "sha256": "1503930ac81e2ddada7708614bdd0051a44aaf048b53757c38411cbf69937caa"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/orion-synthetic-technologies-client.png",
+      "bytes": 47668,
+      "sha256": "ecd9f3ceb269d9604bf05576007a7cd6aa4d8a5ed4843a16d3ac98603cf0b9db"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/owner-orion-baseline-verification.json",
+      "bytes": 293,
+      "sha256": "090651ccae75e7d14d9d0ee0eb62f0da1e185d3020a9af6bea9ced8d8a187adb"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/owner-orion-verification.json",
+      "bytes": 506,
+      "sha256": "25169e0680372baa2676a31abeef0911555d9b7d287c1c33f6c7c194882d9d4f"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/pacific-synthetic-ledger-client.png",
+      "bytes": 47767,
+      "sha256": "4ffea9f667f5842c5695a837c6938b210cf5f774c6d638bf6ff75ef517b59d54"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/performance-browser-summary.json",
+      "bytes": 1524,
+      "sha256": "30374e0df2d318cda7338313c806475e7411a9db5c27cd643a978a46b27b1253"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-address-mismatch.json",
+      "bytes": 947,
+      "sha256": "4a1c405192eecd82c84746d257747aade9619765efdd6e601458eebd28b6f9b2"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-ambiguous-low-score.json",
+      "bytes": 942,
+      "sha256": "3eeecea045addcd8961c37964b88fe8243eb669b328c0e2f38dcd6774bd1db5a"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-authorization-isolation.json",
+      "bytes": 385,
+      "sha256": "05fe9e82ee2092e75bc315878a65713596b6618dfdb0b051ea6e6f9aa66e4772"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-classification-conflicting.json",
+      "bytes": 517,
+      "sha256": "7d01b8b0abec381a1325c9f16db5d452de4316a1667556e7dc33bc803718a433"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-classification-missing.json",
+      "bytes": 513,
+      "sha256": "fb08e0eed958797869730e38982df5a6acf66187044f1edb2e08f8b0e54132c9"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-country-mismatch.json",
+      "bytes": 953,
+      "sha256": "7b6c32e3b3387e1051c3839997173cc312b37c0cefe5f4b4472aeb4fcbfa579c"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-cross-document-conflict.json",
+      "bytes": 946,
+      "sha256": "9e28ced9fe009893932e5cd057b58717b031cdd5d71d21a3f5a162e7662259d2"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-delayed-stage-focus.json",
+      "bytes": 559,
+      "sha256": "8e54f253ac2d0e1b3504fb3c487047d843f9735d73e2ff84cc76437f491ae460"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-legal-name-mismatch.json",
+      "bytes": 942,
+      "sha256": "d74b931c956706ad4099ef23a2f38f52b85743a0a9eb0361120a76f0920535ec"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-missing-required-field.json",
+      "bytes": 961,
+      "sha256": "a3e08c166e1cb46d6366750fb096d43dca371a421316d4f16bd956fd6afe42a8"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-missing-upload.json",
+      "bytes": 411,
+      "sha256": "8ae25daedc6fb503cb591348b5fa942f2df3402b4d3f6b9f0cea19b26dc94a84"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-multiple-mismatches.json",
+      "bytes": 1006,
+      "sha256": "94d9fb58f293c7a7a56ffab2bfeead3e5243e9ce503148d57624e7841f5efbf2"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-native-failed-retry.json",
+      "bytes": 452,
+      "sha256": "605acf04fea09ec123652dccc5f84ca92157cefd663f3be5f46ada11491ed098"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-ownership-cycle.json",
+      "bytes": 279,
+      "sha256": "5949734819dfcd7427dba7cefefe4581dd48cb3c911374b0c21c9a4aca76d581"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-ownership-incomplete.json",
+      "bytes": 287,
+      "sha256": "13776489064eeb9c1f622cb7285a7b0ab148ba22ef41d6ae18edff471fed7068"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-provider-relationship-failure.json",
+      "bytes": 298,
+      "sha256": "95e26cc9ecbb5770fb79573c3a0143dd4f922bc4a7f23e87bec2dd92e1538435"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-uen-source-conflict.json",
+      "bytes": 500,
+      "sha256": "4dec824037599c4e75d7a7da2ce4f6d9f828b99f1ac2b9150dc1cb16b85b0d62"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/simulation-unsupported-registry.json",
+      "bytes": 395,
+      "sha256": "8689dbca36c6f8810edeb06314a9f18a745c0e066e9d1ce350c40a1a97dd4f74"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_BROWSER_EVIDENCE/straits-synthetic-holdings-client.png",
+      "bytes": 47665,
+      "sha256": "7d302529bbe4deff3511c4896f37d481cc405f08a0ee61bf9391469d9d938c8d"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_CANDIDATE_METRICS.json",
+      "bytes": 8404,
+      "sha256": "556e38215145cff7979ef45a59b38b6cac2e98b73595bab6802b5dc06fecdc61"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_REMEDIATION.md",
+      "bytes": 5140,
+      "sha256": "2568fae3150fe11cb68a999e4d9ed4ee34997155e2d8a8df076489e59578fe1d"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_RESOURCE_INSPECTION.json",
+      "bytes": 1551,
+      "sha256": "b356f904138fa5ade6b82e9bdaf603fa0d5865272875da1f4db99e0a67905cd3"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_ROUND1_FINDINGS.md",
+      "bytes": 23339,
+      "sha256": "4e2316bdc8e0e5600f25e96061695810d558f6385c0a8ec1fddb27b27de870c8"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_ROUND2_FINDINGS.md",
+      "bytes": 30004,
+      "sha256": "7b14b9be28abbf6550a679945fa07bafbb332ea43f12d681a8f5ee76bd1b8923"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_STATIC_VERIFICATION.json",
+      "bytes": 2500,
+      "sha256": "3ebd80e533973c7811b2ae426eba011fcf080506f5f634164ce63254e46415a8"
+    },
+    {
+      "path": ".ai-pipeline/reports/BLOCKER_REVIEW_VERIFICATION.json",
+      "bytes": 26597,
+      "sha256": "8363ff398be4de363b5c9337caa890d0afb3d66f04302fe21517662ad9b1facf"
+    },
+    {
+      "path": ".ai-pipeline/reports/IDP_CLASSIFICATION_EXTRACTION_VERIFICATION.md",
+      "bytes": 6456,
+      "sha256": "2d757faeb03f131559069e09d12a2ac6859a05222c0a4abbeca697315e86e931"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/meridian-synthetic-infrastructure-client.pdf",
+      "bytes": 1054,
+      "sha256": "2f7935ab8304f9770b25f66087bda17caf4dfcf08b2269c357312c15d6438055"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/orion-synthetic-technologies-client.pdf",
+      "bytes": 1045,
+      "sha256": "37b38963c5f0f7bf06811327e8107164920bc92bf8316751e870a8f1c751a579"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/pacific-synthetic-ledger-client.pdf",
+      "bytes": 1042,
+      "sha256": "e72533ae8c1fe03f0813985c9db922fc79213e21c3e3bab79da07c359c8c75be"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/straits-synthetic-holdings-client.pdf",
+      "bytes": 1045,
+      "sha256": "72a48301de57715b05a9fcace2faac7683ab4b2534072c70bdc52793a9eda648"
+    }
+  ],
+  "prior_review_identity": "8e737f07426d1369f1dcb485db074114a47b01ca2282808f69f95d7880a1dbd7",
+  "owner_supplied_pdf_sha256": "76e5c9922abbd2ba7b71c51bd8139ede37ba91c599168e2550f2c7e7e5d50d48",
+  "owner_supplied_pdf_disposition": "Read-only, not copied or tracked"
+}

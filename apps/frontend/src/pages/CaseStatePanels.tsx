@@ -62,7 +62,7 @@ export function PipelineRail({ summary, onStageActivate }: { summary: ZeroTouchC
       {pipeline.map((node, index) => {
         const state = pipelineRailState(node.status);
         return (
-          <div className="ds-stage" key={node.node_id} data-status={node.status}>
+          <div className="ds-stage" key={node.node_id} data-node-id={node.node_id} data-status={node.status}>
             <div className="ds-stage-marker">
               <span className={`ds-stage-node ${state}`}>
                 {state === "done" ? "✓" : index + 1}

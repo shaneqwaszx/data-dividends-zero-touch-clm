@@ -1,0 +1,23 @@
+{
+  "scenario": "uen-source-conflict",
+  "initial": [
+    "DOCUMENT_SOURCE_CONFLICT"
+  ],
+  "expected_navigation": "#identity-registration-number",
+  "actual_control": {
+    "tag": "INPUT",
+    "id": "identity-registration-number",
+    "field": null,
+    "document": null,
+    "discrepancy": null
+  },
+  "choices": 0,
+  "calls_before_confirmation": 0,
+  "calls": [],
+  "confirmation": "Not applicable",
+  "final": [
+    "DOCUMENT_SOURCE_CONFLICT"
+  ],
+  "verdict": "PASS",
+  "reduced_motion": true
+}

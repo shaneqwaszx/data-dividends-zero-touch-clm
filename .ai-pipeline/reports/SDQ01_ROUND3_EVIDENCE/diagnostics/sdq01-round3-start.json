@@ -1,0 +1,21 @@
+{
+  "authorization": "ONE additional diagnostic/remediation round, owner attachment135583a9",
+  "branch": "feat/blocker-resolution-idp-ux-optimization",
+  "head": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "prior_candidate": "24f30d1411e2ad018b56d410c2eecde7c1012903aeb6848891c8272842844acf",
+  "prior_files": 269,
+  "prior_gate_sha256": "2c7764f80565a0c2b1f3e7508ce96fb5b8ee633568acb92f10bcdfce0edce83c",
+  "archive": "tmp/sdq01-round3-pre-remediation.zip",
+  "sdq02_preserved": true,
+  "corrections_permitted": 1,
+  "corrections_attempted": 0,
+  "forbidden": [
+    "timeout/retry/assertion relaxation",
+    "fourth remediation round",
+    "external traffic",
+    "publication",
+    "protected databases"
+  ],
+  "planned_review_report": ".ai-pipeline/reports/SDQ01_ROUND3_FINAL_QUALITY_GATE.md"
+}

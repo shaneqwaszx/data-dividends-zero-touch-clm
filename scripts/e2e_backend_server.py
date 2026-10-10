@@ -76,6 +76,7 @@ def main() -> int:
     classification_database = (
         _required("CLM_E2E_CLASSIFICATION_DATABASE")
         if registry_demo == "synthetic-seed" or sandbox_demo in {"database-alpha", "database-partnership", "database-government"}
+        or (sandbox_demo is not None and sandbox_demo.startswith("sponsor-"))
         else None
     )
     sys.path.insert(0, str(ROOT))
@@ -207,6 +208,7 @@ def main() -> int:
         reuse_fixture = build_local_reuse_fixture(settings)
         fixture_connector = reuse_fixture.registry
     database_fixture = None
+    sponsor_fixture = None
     sandbox_transport = None
     if sandbox_demo:
         from scripts.run_s3_sandbox_acceptance import SyntheticAcceptanceAcra
@@ -223,7 +225,9 @@ def main() -> int:
             "goldtier_sandbox_allow_writes": True,
         })
         fixture_connector = SyntheticAcceptanceAcra(S3_SYNTHETIC_NAME, S3_SYNTHETIC_UEN)
-        sandbox_transport = OfflineS3SandboxTransport(sandbox_demo)
+        sandbox_transport = OfflineS3SandboxTransport(
+            "success" if sandbox_demo.startswith("sponsor-") else sandbox_demo,
+        )
         if sandbox_demo == "garden-existing-customer":
             from app.composition import build_acra_connector
 
@@ -247,11 +251,25 @@ def main() -> int:
             DatabaseClassificationFixture,
         )
         assert classification_database is not None
-        database_fixture = DatabaseClassificationFixture(settings, sandbox_demo, classification_database)
+        database_fixture = DatabaseClassificationFixture(
+            settings, sandbox_demo, classification_database, synthetic_seed_port,
+        )
         settings = database_fixture.settings
         fixture_connector = database_fixture.registry
         sandbox_transport = database_fixture.target
         application_module.build_persistence_bundle = lambda _settings: database_fixture.bundle
+    if sandbox_demo and sandbox_demo.startswith("sponsor-"):
+        from scripts.sponsor_demo_browser_fixture import SponsorDemoBrowserFixture
+        assert classification_database is not None
+        sponsor_fixture = SponsorDemoBrowserFixture(
+            settings, sandbox_demo, classification_database, synthetic_seed_port,
+        )
+        settings = sponsor_fixture.settings
+        fixture_connector = sponsor_fixture.registry
+        sandbox_transport = sponsor_fixture.target
+        # The legacy banner flag is intentionally memory-only. This separate
+        # physical fixture reports its offline classification through its metadata.
+        protocol_fixture = False
     if registry_demo == "synthetic-seed":
         import secrets
         from datetime import UTC, datetime
@@ -304,7 +322,9 @@ def main() -> int:
         def sandbox_counts() -> dict[str, object]:
             assert sandbox_transport is not None
             return {"fixture": sandbox_demo, "calls": dict(sandbox_transport.counts),
-                    "external_calls": 0, **(database_fixture.metadata() if database_fixture else {})}
+                    "external_calls": 0,
+                    **(database_fixture.metadata() if database_fixture else {}),
+                    **(sponsor_fixture.metadata() if sponsor_fixture else {})}
 
     if ambiguity_fixture:
         @application.get("/api/__slice_f/target-metadata", include_in_schema=False)
@@ -338,6 +358,8 @@ def main() -> int:
     finally:
         if database_fixture is not None:
             database_fixture.close()
+        if sponsor_fixture is not None:
+            sponsor_fixture.close()
     return 0
 
 

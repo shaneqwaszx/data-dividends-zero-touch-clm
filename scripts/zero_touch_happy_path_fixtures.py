@@ -26,7 +26,11 @@ from app.domain.models import (
 )
 from app.domain.registry_dataset import local_synthetic_registry_identity
 
-from scripts.synthetic_company_pack import SYNTHETIC_COMPANIES
+from scripts.synthetic_company_pack import (
+    AURORA,
+    SYNTHETIC_COMPANIES,
+    sponsor_demo_document_name,
+)
 
 
 @dataclass(frozen=True)
@@ -270,3 +274,20 @@ NEW_COMPANIES = tuple(
     ) for c in SYNTHETIC_COMPANIES
 )
 ALL_COMPANIES = (*COMPANIES, *NEW_COMPANIES)
+
+# Explicit opt-in seed selection; legacy default and its negative neighbor stay intact.
+SPONSOR_DEMO_COMPANIES = (
+    HappyPathCompany(
+        code=AURORA.code, name=AURORA.legal_name, uen=AURORA.uen, street=f"18 {AURORA.street}",
+        postal_code=AURORA.postal_code, edges=AURORA.edges,
+        expected=(("AURORA_PERSON_A", "65"), ("AURORA_PERSON_B", "35")),
+        unit=AURORA.unit, native_document_name=sponsor_demo_document_name(AURORA),
+        explicit_parties=AURORA.parties,
+    ),
+    *(HappyPathCompany(
+        code=c.code, name=c.name, uen=c.uen, street=c.street, postal_code=c.postal_code,
+        edges=c.edges, expected=c.expected, unit=c.unit,
+        native_document_name=f"{c.code.lower()}-sponsor-demo-registry-annex.pdf",
+        explicit_parties=c.explicit_parties,
+    ) for c in NEW_COMPANIES[1:]),
+)

@@ -59,7 +59,13 @@ class LocalPdfTextIdpProvider:
         return IdpProviderMetadata(provider_name="LOCAL_PDF_TEXT", environment=IdpEnvironment.LOCAL)
 
     def process(self, document: IdpDocumentInput) -> IdpSourceResult:
-        pages = self._extract_pages(document)
+        # Native PDFium, Office, TXT and OCR have different line separators.
+        # Normalize separators once at the parser boundary, preserving values and
+        # page identities. A CRLF is one line, as is a standalone CR.
+        pages = tuple(
+            _Page(page.text.replace("\r\n", "\n").replace("\r", "\n"), page.evidence)
+            for page in self._extract_pages(document)
+        )
         ownership = tuple(
             observation
             for page in pages
@@ -94,7 +100,9 @@ class LocalPdfTextIdpProvider:
                 )
                 for match in pattern.finditer(page.text):
                     value = match.group(1).strip()
-                    if not value or len(value) > 160:
+                    if not value:
+                        continue
+                    if len(value) > 160:
                         raise LocalDocumentProcessingError("DOCUMENT_OUTPUT_LIMIT_EXCEEDED")
                     row = page.text[: match.start()].count("\n") + 1
                     observations.append(

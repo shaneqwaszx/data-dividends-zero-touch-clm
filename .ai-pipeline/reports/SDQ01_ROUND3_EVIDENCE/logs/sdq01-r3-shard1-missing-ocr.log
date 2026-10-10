@@ -1,0 +1,328 @@
+E2E SHARD: 1/2; discovered=89; selected=45
+E2E TIMEOUT CONTRACT: selectors=45; lifecycle_seconds=60; suite_seconds=8160; overhead_per_lifecycle_seconds=120
+E2E isolated lifecycle 1/45: e2e/authenticated-zero-touch.e2e.ts:230
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:230:1 \u203a protected workspace requires a real login before navigation
+[1A[2K  1 passed (2.3s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=1/45; elapsed_seconds=6.531
+E2E isolated lifecycle 2/45: e2e/authenticated-zero-touch.e2e.ts:628
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:628:1 \u203a authorized manual ownership action focuses the real evidence form and next action
+[1A[2K  1 passed (5.2s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=2/45; elapsed_seconds=9.281
+E2E isolated lifecycle 3/45: e2e/authenticated-zero-touch.e2e.ts:761
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:761:1 \u203a Director explicitly selects either team and journey or actor reset clears the choice
+[1A[2K  1 passed (4.9s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=3/45; elapsed_seconds=9.110
+E2E isolated lifecycle 4/45: e2e/authenticated-zero-touch.e2e.ts:917
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:917:1 \u203a Garden partial registry evidence is presented as incomplete, not unavailable
+[1A[2K  1 passed (2.6s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=4/45; elapsed_seconds=7.047
+E2E isolated lifecycle 5/45: e2e/authenticated-zero-touch.e2e.ts:1188
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:1188:1 \u203a review-ready actions render after authoritative current document evidence loads
+[1A[2K  1 passed (3.0s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=5/45; elapsed_seconds=7.093
+E2E isolated lifecycle 6/45: e2e/authenticated-zero-touch.e2e.ts:1382
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:1382:1 \u203a Cases filters exact open business-exception types without hiding other attention states
+[1A[2K  1 passed (5.4s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=6/45; elapsed_seconds=9.500
+E2E isolated lifecycle 7/45: e2e/authenticated-zero-touch.e2e.ts:1624
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:1624:1 \u203a Case activity uses one paged read with accessible filters, scoped links, and mobile scrolling
+[1A[2K  1 passed (3.3s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=7/45; elapsed_seconds=7.500
+E2E isolated lifecycle 8/45: e2e/blocker-simulation.e2e.ts:25
+
+Running 10 tests using 1 worker
+
+[1A[2K[1/10] e2e\blocker-simulation.e2e.ts:25:3 \u203a Blocker simulation legal-name-mismatch
+[1A[2K[2/10] e2e\blocker-simulation.e2e.ts:25:3 \u203a Blocker simulation address-mismatch
+[1A[2K[3/10] e2e\blocker-simulation.e2e.ts:25:3 \u203a Blocker simulation country-mismatch
+[1A[2K[4/10] e2e\blocker-simulation.e2e.ts:25:3 \u203a Blocker simulation multiple-mismatches
+[1A[2K[5/10] e2e\blocker-simulation.e2e.ts:25:3 \u203a Blocker simulation cross-document-conflict
+[1A[2K[6/10] e2e\blocker-simulation.e2e.ts:25:3 \u203a Blocker simulation missing-required-field
+[1A[2K[7/10] e2e\blocker-simulation.e2e.ts:25:3 \u203a Blocker simulation ambiguous-low-score
+[1A[2K[8/10] e2e\blocker-simulation.e2e.ts:25:3 \u203a Blocker simulation uen-source-conflict
+[1A[2K[9/10] e2e\blocker-simulation.e2e.ts:25:3 \u203a Blocker simulation classification-missing
+[1A[2K[10/10] e2e\blocker-simulation.e2e.ts:25:3 \u203a Blocker simulation classification-conflicting
+[1A[2K  10 passed (16.6s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=8/45; elapsed_seconds=20.750
+E2E isolated lifecycle 9/45: e2e/blocker-simulation.e2e.ts:122
+
+Running 3 tests using 1 worker
+
+[1A[2K[1/3] e2e\blocker-simulation.e2e.ts:122:3 \u203a Blocker simulation ownership-cycle
+[1A[2K[2/3] e2e\blocker-simulation.e2e.ts:122:3 \u203a Blocker simulation ownership-incomplete
+[1A[2K[3/3] e2e\blocker-simulation.e2e.ts:122:3 \u203a Blocker simulation provider-relationship-failure
+[1A[2K  3 passed (5.1s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=9/45; elapsed_seconds=9.328
+E2E isolated lifecycle 10/45: e2e/blocker-simulation.e2e.ts:221
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\blocker-simulation.e2e.ts:221:1 \u203a Blocker simulation actual native PDF intake failure targets retry and one continuation
+[1A[2K  1 passed (7.6s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=10/45; elapsed_seconds=11.750
+E2E isolated lifecycle 11/45: e2e/blocker-simulation.e2e.ts:308
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\blocker-simulation.e2e.ts:308:1 \u203a Blocker simulation early stage click waits for the actual current document decision
+[1A[2K  1 passed (3.8s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=11/45; elapsed_seconds=7.829
+E2E isolated lifecycle 12/45: e2e/database-classification.e2e.ts:97
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\database-classification.e2e.ts:97:1 \u203a database classification Partnership actual scan auto-bound then explicit Send @s3-sandbox-database-partnership
+[1A[2K  1 passed (7.2s)
+
+CLASSIFICATION_DATABASE_CLEANUP=VERIFIED
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=12/45; elapsed_seconds=11.468
+E2E isolated lifecycle 13/45: e2e/database-classification.e2e.ts:101
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\database-classification.e2e.ts:101:1 \u203a database classification conflict prior USER then explicit current review @s3-sandbox-database-alpha
+[1A[2K  1 passed (7.9s)
+
+CLASSIFICATION_DATABASE_CLEANUP=VERIFIED
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=13/45; elapsed_seconds=12.047
+E2E isolated lifecycle 14/45: e2e/garden-happy-path.e2e.ts:217
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\garden-happy-path.e2e.ts:217:1 \u203a Garden happy path uses truthful offline protocol evidence and explicit Mock confirmation
+[1A[2Ke2e\garden-happy-path.e2e.ts:217:1 \u203a Garden happy path uses truthful offline protocol evidence and explicit Mock confirmation
+GARDEN_TIMING {"action":"create/start case","elapsed_ms":159,"browser_network_calls":2,"external_provider_calls":0,"evidence":"offline synthetic protocol; local Mock target; includes UI waits"}
+
+[1A[2KGARDEN_TIMING {"action":"open case","elapsed_ms":215,"browser_network_calls":6,"external_provider_calls":0,"evidence":"offline synthetic protocol; local Mock target; includes UI waits"}
+
+[1A[2KGARDEN_TIMING {"action":"classification save","elapsed_ms":126,"browser_network_calls":1,"external_provider_calls":0,"evidence":"offline synthetic protocol; local Mock target; includes UI waits"}
+
+[1A[2K  1 passed (10.2s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=14/45; elapsed_seconds=13.563
+E2E isolated lifecycle 15/45: e2e/garden-happy-path.e2e.ts:315
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\garden-happy-path.e2e.ts:315:1 \u203a Garden delayed current document rendering cannot skip required field review
+[1A[2Ke2e\garden-happy-path.e2e.ts:315:1 \u203a Garden delayed current document rendering cannot skip required field review
+GARDEN_TIMING {"action":"create/start case","elapsed_ms":151,"browser_network_calls":2,"external_provider_calls":0,"evidence":"offline synthetic protocol; local Mock target; includes UI waits"}
+
+[1A[2K  1 passed (4.1s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=15/45; elapsed_seconds=7.578
+E2E isolated lifecycle 16/45: e2e/onboarding-recovery.e2e.ts:6
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\onboarding-recovery.e2e.ts:6:1 \u203a S1 wrong UEN retains uploaded document and resumes the real onboarding journey
+[1A[2K  1 passed (3.5s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=16/45; elapsed_seconds=7.625
+E2E isolated lifecycle 17/45: e2e/performance-browser.e2e.ts:98
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\performance-browser.e2e.ts:98:1 \u203a Performance browser cache measurement width360
+[1A[2K  1 passed (49.5s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=17/45; elapsed_seconds=53.625
+E2E isolated lifecycle 18/45: e2e/phase24-identity.e2e.ts:138
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\phase24-identity.e2e.ts:138:1 \u203a Phase24 entered UEN choice resolves current identity conflict without silent source selection
+[1A[2K  1 passed (14.2s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=18/45; elapsed_seconds=18.281
+E2E isolated lifecycle 19/45: e2e/phase24c-policy.e2e.ts:34
+
+Running 6 tests using 1 worker
+
+[1A[2K[1/6] e2e\phase24c-policy.e2e.ts:34:3 \u203a Phase24C policy approval and accessible layout 320
+[1A[2K[2/6] e2e\phase24c-policy.e2e.ts:34:3 \u203a Phase24C policy approval and accessible layout 360
+[1A[2K[3/6] e2e\phase24c-policy.e2e.ts:34:3 \u203a Phase24C policy approval and accessible layout 768
+[1A[2K[4/6] e2e\phase24c-policy.e2e.ts:34:3 \u203a Phase24C policy approval and accessible layout 1280
+[1A[2K[5/6] e2e\phase24c-policy.e2e.ts:34:3 \u203a Phase24C policy approval and accessible layout 1440
+[1A[2K[6/6] e2e\phase24c-policy.e2e.ts:34:3 \u203a Phase24C policy approval and accessible layout 1920
+[1A[2K  6 passed (18.9s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=19/45; elapsed_seconds=22.844
+E2E isolated lifecycle 20/45: e2e/responsive-layout.e2e.ts:308
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\responsive-layout.e2e.ts:308:1 \u203a responsive shell contains anonymous auth, navigation, forms, hover, and focus
+[1A[2K  1 passed (6.0s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=20/45; elapsed_seconds=10.109
+E2E isolated lifecycle 21/45: e2e/responsive-layout.e2e.ts:404
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\responsive-layout.e2e.ts:404:1 \u203a starting a fresh onboarding after a retained case binds the new case route
+[1A[2K  1 passed (2.7s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=21/45; elapsed_seconds=7.110
+E2E isolated lifecycle 22/45: e2e/responsive-layout.e2e.ts:476
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\responsive-layout.e2e.ts:476:1 \u203a responsive Relationship Manager policy view and delete dialog
+[1A[2K  1 passed (4.9s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=22/45; elapsed_seconds=9.109
+E2E isolated lifecycle 23/45: e2e/responsive-layout.e2e.ts:502
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\responsive-layout.e2e.ts:502:1 \u203a responsive HR administration contains proposal-only policy controls
+[1A[2K  1 passed (3.6s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=23/45; elapsed_seconds=7.875
+E2E isolated lifecycle 24/45: e2e/s1-workspace-session.e2e.ts:123
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\s1-workspace-session.e2e.ts:123:1 \u203a S1 executing workspace is inert, all 12 stages inspect, failed documents stay truthful, and reset clears drafts
+[1A[2K  1 passed (8.6s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=24/45; elapsed_seconds=12.703
+E2E isolated lifecycle 25/45: e2e/s1-workspace-session.e2e.ts:213
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\s1-workspace-session.e2e.ts:213:1 \u203a S1 case creation date controls describe Singapore days and reject a reversed range
+[1A[2K  1 passed (2.5s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=25/45; elapsed_seconds=6.672
+E2E isolated lifecycle 26/45: e2e/s2-ownership.e2e.ts:112
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\s2-ownership.e2e.ts:112:1 \u203a S2 document proposals require deliberate creator source selection and retain immutable source bindings @garden-protocol
+[1A[2K  1 passed (3.3s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=26/45; elapsed_seconds=6.687
+E2E isolated lifecycle 27/45: e2e/s3-sandbox-submission.e2e.ts:211
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\s3-sandbox-submission.e2e.ts:211:1 \u203a S3 normal Sandbox submission confirms retained operations and customer readback @s3-sandbox-success
+[1A[2K  1 passed (3.7s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=27/45; elapsed_seconds=7.141
+E2E isolated lifecycle 28/45: e2e/s3-sandbox-submission.e2e.ts:217
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\s3-sandbox-submission.e2e.ts:217:1 \u203a S3 definitive Policy failure preserves the target ID and never retries submission @s3-sandbox-failed-policy
+[1A[2K  1 passed (4.8s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=28/45; elapsed_seconds=8.203
+E2E isolated lifecycle 29/45: e2e/s3-sandbox-submission.e2e.ts:339
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\s3-sandbox-submission.e2e.ts:339:1 \u203a Director recovers uncertain policy and continues the original submission @s3-sandbox-uncertain-policy
+[1A[2K  1 passed (6.8s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=29/45; elapsed_seconds=10.141
+E2E isolated lifecycle 30/45: e2e/s3-sandbox-submission.e2e.ts:412
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\s3-sandbox-submission.e2e.ts:412:1 \u203a Lost confirmation response observes backend success without sending again: truncated @s3-sandbox-success
+[1A[2K  1 passed (3.7s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=30/45; elapsed_seconds=7.219
+E2E isolated lifecycle 31/45: e2e/s3-sandbox-submission.e2e.ts:428
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\s3-sandbox-submission.e2e.ts:428:1 \u203a post-UAT Garden scanned evidence auto-confirms, calculates local ownership and verifies retained Sandbox identity @s3-sandbox-garden-existing-customer
+[1A[2K  1) e2e\s3-sandbox-submission.e2e.ts:428:1 \u203a post-UAT Garden scanned evidence auto-confirms, calculates local ownership and verifies retained Sandbox identity @s3-sandbox-garden-existing-customer 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32m201[39m
+    Received: [31m503[39m
+
+      442 |   const caseId = page.url().split("/").at(-1)!;
+      443 |   await expect.poll(async () => (await readSummary(page, caseId)).current_stage).toBe("GOLDTIER_SEARCH");
+    > 444 |   expect((await uploadResponse).status()).toBe(201);
+          |                                           ^
+      445 |   await page.getByRole("button", { name: "Open full case", exact: true }).click();
+      446 |   await openStage(page, "Document verification");
+      447 |   const documents = await (await page.request.get(`/api/onboarding/cases/${caseId}/documents`)).json();
+        at C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\e2e\s3-sandbox-submission.e2e.ts:444:43
+
+
+[1A[2K  1 failed
+    e2e\s3-sandbox-submission.e2e.ts:428:1 \u203a post-UAT Garden scanned evidence auto-confirms, calculates local ownership and verifies retained Sandbox identity @s3-sandbox-garden-existing-customer 
+
+E2E FAILED [ASSERTION_FAILURE]: Playwright returned a non-zero status.
+E2E LIFECYCLE TIMING: selection=31/45; elapsed_seconds=6.828
+E2E SUITE FAILED: isolated selection 31/45 failed.

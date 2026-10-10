@@ -1,0 +1,11 @@
+{
+  "scenario": "unsupported initial country",
+  "initial": "INITIAL_IDENTITY_NOT_ELIGIBLE",
+  "actual_control": "Editable Singapore UEN; explicit fixed SG correction; no provider enablement",
+  "choices": 0,
+  "calls_before_confirmation": 0,
+  "confirmation": "No correction submitted; explicit SG identity required",
+  "final": "WAITING_FOR_REVIEW",
+  "verdict": "PASS",
+  "target_calls": 0
+}

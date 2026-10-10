@@ -1,0 +1,402 @@
+[
+  {
+    "sample": 20,
+    "mode": "batch",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 79,
+    "confirmation_ms": 238,
+    "total_ms": 317,
+    "choice_ms": [
+      20,
+      24,
+      18,
+      17
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/clm/zero-touch/cases/92ab2897-61ab-48c5-b999-dd14e3830d7b/review-decisions"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/92ab2897-61ab-48c5-b999-dd14e3830d7b"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/92ab2897-61ab-48c5-b999-dd14e3830d7b/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/92ab2897-61ab-48c5-b999-dd14e3830d7b/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/92ab2897-61ab-48c5-b999-dd14e3830d7b/intelligence"
+      }
+    ],
+    "selection_requests": []
+  },
+  {
+    "sample": 21,
+    "mode": "batch",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 64,
+    "confirmation_ms": 247,
+    "total_ms": 311,
+    "choice_ms": [
+      18,
+      15,
+      16,
+      15
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/clm/zero-touch/cases/19c8adf8-5750-474c-8fc8-440b5bb2f2eb/review-decisions"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/19c8adf8-5750-474c-8fc8-440b5bb2f2eb"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/19c8adf8-5750-474c-8fc8-440b5bb2f2eb/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/19c8adf8-5750-474c-8fc8-440b5bb2f2eb/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/19c8adf8-5750-474c-8fc8-440b5bb2f2eb/intelligence"
+      }
+    ],
+    "selection_requests": []
+  },
+  {
+    "sample": 22,
+    "mode": "batch",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 68,
+    "confirmation_ms": 229,
+    "total_ms": 297,
+    "choice_ms": [
+      17,
+      18,
+      16,
+      17
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/clm/zero-touch/cases/f16dd051-ebf8-4422-9eec-aa2edaccf328/review-decisions"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f16dd051-ebf8-4422-9eec-aa2edaccf328"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f16dd051-ebf8-4422-9eec-aa2edaccf328/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f16dd051-ebf8-4422-9eec-aa2edaccf328/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f16dd051-ebf8-4422-9eec-aa2edaccf328/intelligence"
+      }
+    ],
+    "selection_requests": []
+  },
+  {
+    "sample": 23,
+    "mode": "batch",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 64,
+    "confirmation_ms": 236,
+    "total_ms": 300,
+    "choice_ms": [
+      18,
+      15,
+      15,
+      16
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/clm/zero-touch/cases/404899fa-cb07-48d5-b5b6-a4637f8d0707/review-decisions"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/404899fa-cb07-48d5-b5b6-a4637f8d0707"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/404899fa-cb07-48d5-b5b6-a4637f8d0707/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/404899fa-cb07-48d5-b5b6-a4637f8d0707/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/404899fa-cb07-48d5-b5b6-a4637f8d0707/intelligence"
+      }
+    ],
+    "selection_requests": []
+  },
+  {
+    "sample": 24,
+    "mode": "batch",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 66,
+    "confirmation_ms": 237,
+    "total_ms": 303,
+    "choice_ms": [
+      18,
+      17,
+      16,
+      15
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/clm/zero-touch/cases/100b69ad-3f42-4e58-98de-f305e7ec1476/review-decisions"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/100b69ad-3f42-4e58-98de-f305e7ec1476"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/100b69ad-3f42-4e58-98de-f305e7ec1476/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/100b69ad-3f42-4e58-98de-f305e7ec1476/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/100b69ad-3f42-4e58-98de-f305e7ec1476/intelligence"
+      }
+    ],
+    "selection_requests": []
+  },
+  {
+    "sample": 25,
+    "mode": "batch",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 64,
+    "confirmation_ms": 240,
+    "total_ms": 304,
+    "choice_ms": [
+      17,
+      16,
+      15,
+      16
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/clm/zero-touch/cases/c9956f46-caaf-4b4f-8150-fdc41a98955b/review-decisions"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/c9956f46-caaf-4b4f-8150-fdc41a98955b"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/c9956f46-caaf-4b4f-8150-fdc41a98955b/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/c9956f46-caaf-4b4f-8150-fdc41a98955b/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/c9956f46-caaf-4b4f-8150-fdc41a98955b/intelligence"
+      }
+    ],
+    "selection_requests": []
+  },
+  {
+    "sample": 26,
+    "mode": "batch",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 66,
+    "confirmation_ms": 246,
+    "total_ms": 312,
+    "choice_ms": [
+      16,
+      17,
+      16,
+      17
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/clm/zero-touch/cases/c799dcc1-349b-415c-b14d-b129a10b640b/review-decisions"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/c799dcc1-349b-415c-b14d-b129a10b640b"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/c799dcc1-349b-415c-b14d-b129a10b640b/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/c799dcc1-349b-415c-b14d-b129a10b640b/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/c799dcc1-349b-415c-b14d-b129a10b640b/intelligence"
+      }
+    ],
+    "selection_requests": []
+  },
+  {
+    "sample": 27,
+    "mode": "batch",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 68,
+    "confirmation_ms": 235,
+    "total_ms": 303,
+    "choice_ms": [
+      19,
+      16,
+      16,
+      17
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/clm/zero-touch/cases/7744f3c7-c004-45f2-9d2d-3b1878953d12/review-decisions"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7744f3c7-c004-45f2-9d2d-3b1878953d12"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7744f3c7-c004-45f2-9d2d-3b1878953d12/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7744f3c7-c004-45f2-9d2d-3b1878953d12/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7744f3c7-c004-45f2-9d2d-3b1878953d12/intelligence"
+      }
+    ],
+    "selection_requests": []
+  },
+  {
+    "sample": 28,
+    "mode": "batch",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 69,
+    "confirmation_ms": 240,
+    "total_ms": 309,
+    "choice_ms": [
+      18,
+      18,
+      16,
+      17
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/clm/zero-touch/cases/5ac08e6a-f4db-4cc9-81c1-b6815a565c1d/review-decisions"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/5ac08e6a-f4db-4cc9-81c1-b6815a565c1d"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/5ac08e6a-f4db-4cc9-81c1-b6815a565c1d/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/5ac08e6a-f4db-4cc9-81c1-b6815a565c1d/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/5ac08e6a-f4db-4cc9-81c1-b6815a565c1d/intelligence"
+      }
+    ],
+    "selection_requests": []
+  },
+  {
+    "sample": 29,
+    "mode": "batch",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 69,
+    "confirmation_ms": 226,
+    "total_ms": 295,
+    "choice_ms": [
+      17,
+      17,
+      17,
+      18
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/clm/zero-touch/cases/df4d3eac-55fe-4ee5-8dd0-5ca12a7f6911/review-decisions"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/df4d3eac-55fe-4ee5-8dd0-5ca12a7f6911"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/df4d3eac-55fe-4ee5-8dd0-5ca12a7f6911/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/df4d3eac-55fe-4ee5-8dd0-5ca12a7f6911/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/df4d3eac-55fe-4ee5-8dd0-5ca12a7f6911/intelligence"
+      }
+    ],
+    "selection_requests": []
+  }
+]

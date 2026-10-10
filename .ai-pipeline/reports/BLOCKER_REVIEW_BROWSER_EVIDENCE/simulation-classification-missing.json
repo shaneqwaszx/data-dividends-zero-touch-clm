@@ -1,0 +1,23 @@
+{
+  "scenario": "classification-missing",
+  "initial": [
+    "GOLDTIER_CLASSIFICATION_REQUIRED"
+  ],
+  "expected_navigation": "#case-target-classification select:not([disabled])",
+  "actual_control": {
+    "tag": "SELECT",
+    "id": "",
+    "field": null,
+    "document": null,
+    "discrepancy": null
+  },
+  "choices": 0,
+  "calls_before_confirmation": 0,
+  "calls": [],
+  "confirmation": "Not applicable",
+  "final": [
+    "GOLDTIER_CLASSIFICATION_REQUIRED"
+  ],
+  "verdict": "PASS",
+  "reduced_motion": true
+}

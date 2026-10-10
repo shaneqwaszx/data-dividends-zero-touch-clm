@@ -1,0 +1,48 @@
+{
+  "checks": [
+    {
+      "name": "historical-environment-isolated",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--grep",
+        "onboarding progress is visible while backend-authored stages advance"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:14:58.219356+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 11.859,
+      "log": "tmp/sdq01-r3-historical-environment-isolated.log",
+      "sha256": "007e9ca09d54cc13f844802257abc4c28750a6c8fd7060ab716afd9374fa04fc"
+    },
+    {
+      "name": "original-shard1",
+      "argv": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--shard",
+        "1/2"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "started_utc": "2026-10-10T04:15:10.079688+00:00",
+      "exit_code": 1,
+      "elapsed_seconds": 353.719,
+      "log": "tmp/sdq01-r3-shard1-missing-ocr.log",
+      "sha256": "6166bef8a81f72f3b158b338772272197fa1ead2befa267fe638c4aee807e0f7"
+    }
+  ]
+}

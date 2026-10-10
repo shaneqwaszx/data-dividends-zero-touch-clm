@@ -256,3 +256,39 @@ and no-replay remain. The owner accepts historical TC-R2-002 as documented execu
 uncertainty: historical protected DB non-access NOT_CERTIFIED, owner accepted limitation
 YES. New acceptance assesses current follow-up isolation only; no protected investigation
 is authorized, and historical gate reports remain unchanged.
+
+## D-071 - owner-authorized grouped blocker review and navigation
+
+The 2026-10-10 assignment authorizes existing owners to apply one explicit group after
+local draft selection, with whole-group validation and resumable section checkpoints
+where atomic persistence is unavailable. ADR-011 records the trade-off. Draft save is
+explicitly current-tab memory; no confidential browser storage or durable draft schema.
+Navigation consumes current backend-authorized actions and focuses enabled controls.
+Native PDF/TXT/DOCX/OCR separator normalization repairs existing explicit classification
+extraction; D-070 vocabulary, compatibility/currentness and source evidence still apply.
+No new sponsor field, source precedence, provider claim, approval or target write authority
+follows. Candidate acceptance requires the fresh assigned independent quality gate.
+
+## D-072 - owner-authorized Final Review editing and sponsor demo expansion
+
+The 2026-10-10 owner addendum permits current creator evidence edits before target
+confirmation/intent/attempt/result. Existing document, reconciliation, classification,
+ownership and orchestration owners retain authority. Final Review document replacement
+requires current automation, CLM and case-event versions as well as the existing document
+version. It supersedes evidence, cancels the old confirmation, re-evaluates readiness and
+requires a new explicit Send. A retained target execution freezes evidence edits; no
+reset or target replay is permitted. Section checkpoints remain resumable, not atomic.
+
+Four separate sponsor PDFs contain native identity/classification labels and an explicitly
+informational LOCAL_SYNTHETIC_UAT_V1 registry annex. Aurora202400019S is a new fictional
+65/35 graph; Pacific, Straits and Meridian retain their exact existing seed graphs. The
+annex is not an independent client ownership declaration or official ACRA evidence. The
+existing parser, source precedence and single Decimal engine are unchanged. Explicit
+--sponsor-demo seed/check selects four through the existing repository owner; the legacy
+eight-fixture default and every Orion asset remain. The existing negative018R test remains.
+
+Acceptance requires eight actual browser journeys, affected checks and the fresh
+SPONSOR_DEMO_FINAL_QUALITY_GATE.md for the expanded frozen content. Offline XPI Sandbox
+simulations do not establish real Sandbox interoperability; real Sandbox UAT is
+NOT_VERIFIED. No new provider status, sponsor mapping/policy, schema or publication
+authority is introduced.

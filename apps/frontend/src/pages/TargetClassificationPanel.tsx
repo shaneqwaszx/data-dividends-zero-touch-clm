@@ -16,10 +16,12 @@ export default function TargetClassificationPanel({
   classification,
   disabled,
   onSubmit,
+  reviewRequested = false,
 }: {
   classification: GoldTierTargetClassification;
   disabled: boolean;
   onSubmit: (input: TargetClassificationInput) => Promise<void>;
+  reviewRequested?: boolean;
 }) {
   const [kycCustomerType, setKycCustomerType] = useState(
     classification.kyc_customer_type.selected_value ?? "",
@@ -29,8 +31,8 @@ export default function TargetClassificationPanel({
   );
   const unresolved = classification.kyc_customer_type.selected_value === null
     || classification.client_segment.selected_value === null;
-  const automaticKyc = classification.current !== false && classification.kyc_customer_type.selection?.source === "DOCUMENT";
-  const automaticSegment = classification.current !== false && classification.client_segment.selection?.source === "DOCUMENT";
+  const automaticKyc = !reviewRequested && classification.current !== false && classification.kyc_customer_type.selection?.source === "DOCUMENT";
+  const automaticSegment = !reviewRequested && classification.current !== false && classification.client_segment.selection?.source === "DOCUMENT";
   const canEdit = classification.editable && !(automaticKyc && automaticSegment);
   const effectiveKyc = automaticKyc ? classification.kyc_customer_type.selected_value ?? "" : kycCustomerType;
   const effectiveSegment = automaticSegment ? classification.client_segment.selected_value ?? "" : clientSegment;
@@ -69,6 +71,7 @@ export default function TargetClassificationPanel({
         only when evidence is missing, uncertain or conflicting. These values prepare the
         submission; GoldTier KYC and four-eye approval remain separate.
       </p>
+      {reviewRequested && <p className="control-help">Review the current values explicitly. The backend checks the selected vocabulary and current document evidence again before preparing a new submission.</p>}
 
       {classification.evidence_values && (
         <div aria-label="Current trusted classification values">

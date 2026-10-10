@@ -5,7 +5,12 @@ tests, contracts, and decisions remain higher authority for their respective fac
 Phase architecture documents provide detail and history; they do not silently override
 this current map.
 
-The inspected main baseline is merged PR #77 at
+This task independently verified origin/main as merged PR80
+`e799d74063678bb0eccbea445d5ab3c8628dd2c0` with successful post-merge
+push37954652603 on2026-10-10. The grouped-review candidate remains uncommitted
+and requires its fresh independent gate. The historical PR77 checkpoint follows.
+
+The earlier inspected main baseline was merged PR #77 at
 `8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4` (2026-10-08), with successful post-merge
 main CI run [37742194816](https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/37742194816).
 PR #77 extends existing recovery owners; it introduces no new owner, dependency,
@@ -23,7 +28,7 @@ owner-assigned Phase27B documentation sync explains the current application-owne
 orchestration, C4 views and recovery decisions in
 [Final POC Architecture](architecture/FINAL_POC_ARCHITECTURE.md). These are views
 of existing owners, not an architecture replacement. Phase27 checkpoint statements
-retain their original attribution; the current inspected main baseline is PR #77 above.
+retain their original attribution; the current assignment baseline is PR #80 above.
 
 ## 1. Purpose and scope
 
@@ -959,3 +964,26 @@ seed namespace while configured-provider and original provenance remain distinct
 Historical reports apply only to their original bytes and requirements. Corrected
 verification belongs to SYNTHETIC_COMPANY_PACK_CORRECTION reports.
 See [the operator guide](demo/SYNTHETIC_COMPANY_PACK.md).
+
+## Grouped blocker review candidate - 2026-10-10
+
+From verified main e799d74063678bb0eccbea445d5ab3c8628dd2c0, the owner-assigned
+blocker-resolution candidate extends the existing document/reconciliation/zero-touch
+owners. ADR-011 records whole-group prevalidation, one save per document, the existing
+reconciliation UoW, resumable section checkpoints and at-most-once continuation per group.
+Case Detail owns ephemeral version-bound drafts and control navigation; backend evidence
+continues to own authorization and progression. No durable schema, dependency, provider,
+canonical owner, mapper, ownership engine or ledger direction changes. Final acceptance
+belongs to BLOCKER_RESOLUTION_FINAL_QUALITY_GATE.md, not this candidate description.
+
+## Final Review and sponsor demo expansion - unmerged candidate, 2026-10-10
+
+D-072 extends pre-submission editing through the existing owners. Case Detail opens
+current enabled controls and returns after the authoritative evidence refresh. The
+ZeroTouchOrchestrator owns document revision/checkpoint advancement; DocumentProcessing
+retains lineage, Onboarding/CLM own classification/currentness/readiness, and the existing
+target ledger freezes edits once execution is retained. No new service, repository,
+source-precedence rule, ownership engine or target path is introduced. Four separate
+native sponsor PDFs use the existing explicit LOCAL seed manager and parser. Their
+informational registry annex does not become independently asserted ownership evidence.
+Expanded acceptance belongs to SPONSOR_DEMO_FINAL_QUALITY_GATE.md.

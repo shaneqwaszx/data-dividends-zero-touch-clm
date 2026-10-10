@@ -46,6 +46,7 @@ from app.domain.reconciliation import (
     ReconciliationSourceKind,
     ReconciliationStatus,
 )
+from app.domain.review_decisions import ReviewDecisionBatch
 from app.domain.target_submission import (
     GoldTierExecutionLedgerEntry,
     GoldTierRecoveryOrigin,
@@ -875,6 +876,28 @@ class ZeroTouchOrchestrator:
                 self._save(record, candidate)
             return self._advance_locked(case_id=case_id)
 
+    def evidence_edit_is_frozen(self, *, case_id: UUID) -> bool:
+        """Current owning projection; a retained target intent/attempt also freezes edits."""
+        case = self._cases.get_case(case_id)
+        clm = self._clm.get(case_id=case_id)
+        return (
+            case is None or clm is None
+            or case.target_dispatch_confirmation is not None
+            or case.goldtier_result is not None
+            or clm.submission_snapshot is not None
+            or clm.execution_receipt is not None
+            or clm.status == ClmStatus.SUBMITTING
+            or self._cases.has_retained_target_execution(case_id)
+        )
+
+    def document_replacement_allowed(self, *, case_id: UUID) -> bool:
+        record = self._require_record(case_id)
+        return (
+            record.status == AutomationStatus.WAITING_FOR_REVIEW
+            and record.current_stage in {AutomationStage.DOCUMENT, AutomationStage.READINESS}
+            and not self.evidence_edit_is_frozen(case_id=case_id)
+        )
+
     def replace_document(
         self,
         *,
@@ -884,27 +907,50 @@ class ZeroTouchOrchestrator:
         display_name: str,
         content_type: str,
         content: bytes,
+        expected_automation_version: int | None = None,
+        expected_clm_version: int | None = None,
+        expected_case_event_count: int | None = None,
         idp_provider: IdpProvider | None = None,
         reauthorize: Callable[[], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
-        """Supersede blocked document evidence and automatically re-evaluate it."""
+        """Supersede current pre-submission evidence and re-evaluate its dependencies."""
 
         with self._cases.case_lock(case_id):
             if reauthorize is not None:
                 reauthorize()
             record = self._require_record(case_id)
+            if self.evidence_edit_is_frozen(case_id=case_id):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_REPLACEMENT_NOT_ALLOWED",
+                    message="Document evidence is frozen for target submission.",
+                )
             if record.status in {AutomationStatus.COMPLETED, AutomationStatus.TECHNICAL_FAILURE}:
                 raise ZeroTouchRequestError(
                     code="ZERO_TOUCH_REPLACEMENT_NOT_ALLOWED",
                     message="Replacement evidence is not accepted after a terminal outcome.",
                 )
-            if (
-                record.status != AutomationStatus.WAITING_FOR_REVIEW
-                or record.current_stage != AutomationStage.DOCUMENT
-            ):
+            if not self.document_replacement_allowed(case_id=case_id):
                 raise ZeroTouchRequestError(
                     code="ZERO_TOUCH_REPLACEMENT_NOT_ALLOWED",
-                    message="Replacement evidence is only accepted for the active document review.",
+                    message=("Replacement evidence is only accepted during current "
+                             "pre-submission review."),
+                )
+            case = self._cases.get_case(case_id)
+            clm = self._clm.get(case_id=case_id)
+            assert case is not None and clm is not None
+            final_review = record.current_stage == AutomationStage.READINESS
+            versions = (
+                (expected_automation_version, record.version),
+                (expected_clm_version, clm.version),
+                (expected_case_event_count, len(case.events)),
+            )
+            if any((final_review and expected is None) or
+                   (expected is not None and expected != actual)
+                   for expected, actual in versions):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_REPLACEMENT_STALE",
+                    message=("The case changed before document replacement; "
+                             "reload current evidence."),
                 )
             try:
                 self._documents.replace_document(
@@ -928,8 +974,19 @@ class ZeroTouchOrchestrator:
                 ) from None
             candidate = record.model_copy(deep=True)
             for exception in candidate.active_exceptions:
-                if exception.stage == AutomationStage.DOCUMENT:
+                if (
+                    exception.stage == AutomationStage.DOCUMENT
+                    or exception.exception_type
+                    == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
+                ):
                     exception.status = BusinessExceptionStatus.CANCELLED
+                    exception.resolved_at = self._clock()
+            candidate.completed_stages = tuple(
+                stage for stage in candidate.completed_stages
+                if stage in {AutomationStage.REGISTRY, AutomationStage.GOLDTIER_SEARCH}
+            )
+            candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
+            candidate.metrics.final_outcome = None
             candidate.status = AutomationStatus.RESUMING
             candidate.current_stage = AutomationStage.DOCUMENT
             candidate.metrics.human_interventions += 1
@@ -942,7 +999,182 @@ class ZeroTouchOrchestrator:
                 message="Replacement document evidence was accepted; onboarding is re-evaluating.",
             )
             self._save(record, candidate)
+            try:
+                self._clm.refresh_pre_submission_evidence(case_id=case_id, document_revision=True)
+            except ClmRequestError as exc:
+                raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
+            except ClmInfrastructureError as exc:
+                raise ZeroTouchInfrastructureError(
+                    case_id=case_id, automation_id=record.automation_id,
+                    code=exc.code, message=exc.public_message,
+                ) from None
             return self._advance_locked(case_id=case_id)
+
+    def apply_review_decisions(
+        self,
+        *,
+        case_id: UUID,
+        batch: ReviewDecisionBatch,
+        actor_id: str | None = None,
+        reauthorize: Callable[[], None] | None = None,
+    ) -> ZeroTouchAutomationRecord:
+        """One explicit group confirmation; section checkpoints precede continuation."""
+        with self._cases.case_lock(case_id):
+            if reauthorize is not None:
+                reauthorize()
+            record = self._require_record(case_id)
+            case = self._cases.get_case(case_id)
+            clm = self._clm.get(case_id=case_id)
+            if (
+                case is None
+                or record.version != batch.expected_automation_version
+                or len(case.events) != batch.expected_case_event_count
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_EXCEPTION_STALE",
+                    message="The case changed before review confirmation.",
+                )
+            if (
+                case.target_dispatch_confirmation is not None
+                or case.goldtier_result is not None
+                or self._cases.has_retained_target_execution(case_id)
+                or (
+                    clm is not None
+                    and (clm.submission_snapshot is not None or clm.status == ClmStatus.SUBMITTING)
+                )
+            ):
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_REVIEW_NOT_ALLOWED",
+                    message="Evidence review is frozen for target submission.",
+                )
+            if batch.documents:
+                ownership = self._ownership.get(case_id=case_id)
+                allowed = record.status == AutomationStatus.PENDING_INPUTS or (
+                    record.status == AutomationStatus.WAITING_FOR_REVIEW
+                    and (
+                        record.current_stage
+                        in {AutomationStage.DOCUMENT, AutomationStage.GOLDTIER_SEARCH}
+                        or (
+                            record.current_stage == AutomationStage.OWNERSHIP
+                            and ownership is not None
+                            and ownership.state == OwnershipAnalysisState.REVIEW_REQUIRED
+                        )
+                    )
+                )
+                if not allowed:
+                    raise ZeroTouchRequestError(
+                        code="ZERO_TOUCH_REVIEW_NOT_ALLOWED",
+                        message="Document review is not accepted at the current onboarding stage.",
+                    )
+                try:
+                    # Prepare every document before the first section write.
+                    prepared = [
+                        self._documents.prepare_review_group(case_id=case_id, group=group)
+                        for group in batch.documents
+                    ]
+                    for candidate in prepared:
+                        self._documents.retain_review_group(candidate=candidate)
+                except DocumentProcessingInfrastructureError as exc:
+                    raise ZeroTouchInfrastructureError(
+                        case_id=case_id,
+                        automation_id=record.automation_id,
+                        code=exc.code,
+                        message=exc.public_message,
+                    ) from None
+                if record.status == AutomationStatus.PENDING_INPUTS:
+                    return record
+                return self._refresh_document_checkpoint_locked(
+                    record,
+                    human_intervention=True,
+                    actor_id=actor_id,
+                    reviewed_field_keys=frozenset(
+                        decision.field_key
+                        for group in batch.documents for decision in group.decisions
+                    ),
+                )
+            active = {item.exception_id: item for item in record.active_exceptions}
+            for choice in batch.reconciliation:
+                item = active.get(choice.discrepancy_id)
+                if (
+                    item is None
+                    or item.stage != AutomationStage.DOCUMENT
+                    or ExceptionResolutionAction(choice.action.value) not in item.available_actions
+                ):
+                    raise ZeroTouchRequestError(
+                        code="ZERO_TOUCH_RESOLUTION_NOT_ALLOWED",
+                        message="A source decision is not authorized for the current blocker.",
+                    )
+            assert batch.expected_reconciliation_version is not None
+            try:
+                reconciliation = self._reconciliation.resolve_discrepancies(
+                    case_id=case_id,
+                    choices=batch.reconciliation,
+                    expected_version=batch.expected_reconciliation_version,
+                )
+            except ReconciliationRequestError as exc:
+                code = (
+                    "ZERO_TOUCH_EXCEPTION_STALE"
+                    if exc.code == "RECONCILIATION_STALE"
+                    else "ZERO_TOUCH_RESOLUTION_NOT_ALLOWED"
+                    if exc.code in {
+                        "RECONCILIATION_ACTION_NOT_ALLOWED",
+                        "RECONCILIATION_CANONICAL_UPDATE_REJECTED",
+                    }
+                    else exc.code
+                )
+                raise ZeroTouchRequestError(code=code, message=exc.public_message) from None
+            except ReconciliationInfrastructureError as exc:
+                raise ZeroTouchInfrastructureError(
+                    case_id=case_id,
+                    automation_id=record.automation_id,
+                    code=exc.code,
+                    message=exc.public_message,
+                ) from None
+            candidate_record = record.model_copy(deep=True)
+            choices = {choice.discrepancy_id: choice for choice in batch.reconciliation}
+            pending = {item.discrepancy_id: item for item in reconciliation.open_discrepancies}
+            for item in candidate_record.active_exceptions:
+                selected_choice = choices.get(item.exception_id)
+                if selected_choice is not None:
+                    item.status = BusinessExceptionStatus.RESOLVED
+                    item.resolved_at = self._clock()
+                    item.resolution = ExceptionResolutionAction(selected_choice.action.value)
+                    self._retain_resolution_actor(item, actor_id)
+                    candidate_record.metrics.exceptions_resolved += 1
+                elif item.exception_id in pending:
+                    item.evidence_version = self._reconciliation_evidence_version(
+                        reconciliation, pending[item.exception_id]
+                    )
+                    item.decisions = tuple(
+                        d.model_copy(update={"evidence_version": item.evidence_version})
+                        for d in item.decisions
+                    )
+                    item.authoritative_evidence_digest = self._authoritative_evidence_digest(
+                        case_id=case_id,
+                        exception_type=item.exception_type,
+                        evidence_version=item.evidence_version,
+                        blocker_codes=item.blocker_codes,
+                    )
+            candidate_record.metrics.human_interventions += 1
+            candidate_record.status = (
+                AutomationStatus.WAITING_FOR_REVIEW
+                if candidate_record.active_exceptions
+                else AutomationStatus.RESUMING
+            )
+            candidate_record.current_stage = (
+                _earliest_open_stage(candidate_record)
+                if candidate_record.active_exceptions
+                else AutomationStage.DOCUMENT
+            )
+            candidate_record = self._append_event(
+                candidate_record,
+                event_type=AutomationEventType.RECONCILIATION_DECISION_RECORDED,
+                outcome=EventOutcome.SUCCEEDED,
+                code="RECONCILIATION_GROUP_CONFIRMED",
+                message="A bounded group of source decisions was confirmed by the reviewer.",
+            )
+            saved = self._save(record, candidate_record)
+            return saved if saved.active_exceptions else self._advance_locked(case_id=case_id)
 
     def review_document_field(
         self,
@@ -1287,7 +1519,7 @@ class ZeroTouchOrchestrator:
                     message="The onboarding case changed before target classification.",
                 )
             clm_record = self._clm.get(case_id=case_id)
-            if clm_record is None or clm_record.submission_snapshot is not None:
+            if clm_record is None or self.evidence_edit_is_frozen(case_id=case_id):
                 raise ZeroTouchRequestError(
                     code="ZERO_TOUCH_TARGET_CLASSIFICATION_FROZEN",
                     message="Target classification is already frozen for submission.",
@@ -1338,7 +1570,11 @@ class ZeroTouchOrchestrator:
                 for item in record.active_exceptions
                 if item.exception_type == BusinessExceptionType.TARGET_CLASSIFICATION_REQUIRED
             ]
-            if not classification_exceptions:
+            confirmation_exceptions = [
+                item for item in record.active_exceptions
+                if item.exception_type == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
+            ]
+            if not classification_exceptions and not confirmation_exceptions:
                 return record
             candidate = record.model_copy(deep=True)
             resolved_at = self._clock()
@@ -1347,6 +1583,9 @@ class ZeroTouchOrchestrator:
                     item.status = BusinessExceptionStatus.RESOLVED
                     item.resolved_at = resolved_at
                     self._retain_resolution_actor(item, actor_id)
+                elif item.exception_type == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED:
+                    item.status = BusinessExceptionStatus.CANCELLED
+                    item.resolved_at = resolved_at
             candidate.metrics.human_interventions += 1
             candidate.metrics.exceptions_resolved += len(classification_exceptions)
             if not candidate.active_exceptions:
@@ -2324,6 +2563,7 @@ class ZeroTouchOrchestrator:
         human_intervention: bool = False,
         actor_id: str | None = None,
         reviewed_field_key: DocumentFieldKey | None = None,
+        reviewed_field_keys: frozenset[DocumentFieldKey] = frozenset(),
     ) -> ZeroTouchAutomationRecord:
         current_documents = self._current_documents(record.case_id)
         if any(item.state == DocumentProcessingState.FAILED for item in current_documents):
@@ -2378,7 +2618,13 @@ class ZeroTouchOrchestrator:
                     else BusinessExceptionStatus.RESOLVED
                 )
                 item.resolved_at = self._clock()
-                if field_key == (
+                if field_key in {
+                    (
+                        "registration_identifier"
+                        if key == DocumentFieldKey.REGISTRATION_NUMBER else key
+                    )
+                    for key in reviewed_field_keys
+                } or field_key == (
                     "registration_identifier"
                     if reviewed_field_key == DocumentFieldKey.REGISTRATION_NUMBER
                     else reviewed_field_key

@@ -195,3 +195,34 @@ TIMEOUT, TRANSPORT, RESPONSE_DECODE, RESPONSE_TOO_LARGE, UNEXPECTED_STATUS or UN
 suffixes. They retain no private exception/payload/header and change no replay rule.
 No new envelope field/schema, migration, timeout setting or provider claim is added.
 See [the recovery operator boundary](../integration/GOLDTIER_POLICY_PROVIDER_RECOVERY.md).
+
+## Grouped review checkpoint candidate - 2026-10-10
+
+ADR-011 extends existing owners without a new schema or repository. All document groups
+are prepared and validated before the first write. Each affected document is retained
+once; a partial failure leaves ordinary reviewed receipts and blocked automation. Exact
+unchanged repeats are idempotent and can complete the checkpoint after restart. Changed
+source/review choices are rejected. Reconciliation/automation retention follows only after
+every document write succeeds. Reconciliation groups use the existing one-envelope UoW.
+There is no cross-document/document-reconciliation-automation transaction. Continuation
+is at most once per completed group and never authorizes GoldTier submission. Physical
+evidence uses only new allowlisted disposable databases. Existing CAS/deletion/freeze
+semantics, target intent/ledger ordering, schema10 and strict historical reads remain.
+
+If a source-group UoW commits before automation retention fails, the API returns a
+technical failure while the canonical/source receipts remain retained. Explicit Resume
+reads those receipts and repairs the outstanding checkpoint. A changed canonical legal
+name requires the existing read-only Search recheck; no target mutation repairs review.
+An old group whose case-event count changed is stale, rather than an exact retry.
+
+## Final Review evidence revision candidate - 2026-10-10
+
+The existing owners may supersede a current document before target execution, retaining
+document lineage and a RESUMING/DOCUMENT section checkpoint before the CLM readiness
+refresh. Current automation/CLM/case-event/document versions and locked creator
+reauthorization guard replacement. Interrupted refresh remains explicitly resumable;
+physical restart must retain the checkpoint, lineage and no target call. Fresh document
+classification/readiness replace the previous confirmation; stale confirmation fails.
+The new document_replacement_authorized API capability is derived and is not a durable
+schema field. Schema10, CAS/create/update/delete, historical reads, the single repository
+owner and target ledger freeze/no-replay rules are unchanged.

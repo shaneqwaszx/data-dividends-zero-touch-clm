@@ -1,0 +1,953 @@
+
+> zero-touch-clm-frontend@0.1.0 test
+> vitest run --reporter=dot
+
+
+ RUN  v3.2.4 C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend
+
+····································stderr | src/Phase17CaseActivity.test.tsx > Phase 17 case activity > renders honest limits, escaped local detail, filters, and bounded paging
+Warning: The current testing environment is not configured to support act(...)
+
+stderr | src/Phase17CaseActivity.test.tsx > Phase 17 case activity > renders honest limits, escaped local detail, filters, and bounded paging
+Warning: The current testing environment is not configured to support act(...)
+    at AuditTrail (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\AuditTrail.tsx:50:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: The current testing environment is not configured to support act(...)
+    at AuditTrail (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\AuditTrail.tsx:50:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: The current testing environment is not configured to support act(...)
+    at AuditTrail (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\AuditTrail.tsx:50:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+·······································stderr | src/Phase17CaseActivity.test.tsx > Phase 17 case activity > renders honest limits, escaped local detail, filters, and bounded paging
+Warning: The current testing environment is not configured to support act(...)
+
+stderr | src/Phase17CaseActivity.test.tsx > Phase 17 case activity > renders honest limits, escaped local detail, filters, and bounded paging
+Warning: The current testing environment is not configured to support act(...)
+Warning: The current testing environment is not configured to support act(...)
+
+stderr | src/Phase17CaseActivity.test.tsx > Phase 17 case activity > renders honest limits, escaped local detail, filters, and bounded paging
+Warning: The current testing environment is not configured to support act(...)
+Warning: The current testing environment is not configured to support act(...)
+Warning: The current testing environment is not configured to support act(...)
+
+···········stderr | src/Phase17CaseActivity.test.tsx > Phase 17 case activity > renders honest limits, escaped local detail, filters, and bounded paging
+Warning: The current testing environment is not configured to support act(...)
+
+··························stderr | src/Phase17CaseActivity.test.tsx > Phase 17 case activity > renders honest limits, escaped local detail, filters, and bounded paging
+Warning: The current testing environment is not configured to support act(...)
+
+··························································stderr | src/pages/AcraDiagnostics.test.tsx > ACRA diagnostics access and query ownership > shows navigation to HR capability holders and omits it for relationship managers
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+···············stderr | src/GoldTierSandbox.test.tsx > GoldTier Sandbox frontend boundary > explains unconfigured composition without a network Search or write
+Warning: An update to GoldTierSandbox inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at GoldTierSandbox (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\GoldTierSandbox.tsx:51:28)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+
+··············································stderr | src/EvidenceWorkbenchIsolation.test.tsx > Evidence workbench integration isolation > defers a clicked document stage until its current decision control mounts
+Warning: An update to CaseDetail inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at CaseDetail (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\CaseDetail.tsx:74:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+
+stderr | src/EvidenceWorkbenchIsolation.test.tsx > Evidence workbench integration isolation > defers a clicked document stage until its current decision control mounts
+Warning: An update to CaseDetail inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at CaseDetail (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\CaseDetail.tsx:74:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+Warning: flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+    at CaseDetail (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\CaseDetail.tsx:74:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+
+·stderr | src/EvidenceWorkbenchIsolation.test.tsx > Evidence workbench integration isolation > waits for current document controls before enabling the blocker action
+Warning: An update to CaseDetail inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at CaseDetail (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\CaseDetail.tsx:74:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+
+············································································································stderr | src/Phase14_5AdminPolicy.test.tsx > Phase 14.5 administration and team filtering > renders capability-driven HR navigation without case surfaces
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+··················································stderr | src/EvidenceWorkbenchIsolation.test.tsx > Evidence workbench integration isolation > reports an unavailable corrective control without issuing a request
+Warning: An update to CaseDetail inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at CaseDetail (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\CaseDetail.tsx:74:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+
+·········stderr | src/App.test.tsx > Phase 04 onboarding, document review, and ownership UI > renders the purpose-based workspace structure
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+stderr | src/Dashboard.test.tsx > historical RBAC dashboard > is the first authenticated landing view and preserves existing navigation
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+stderr | src/UiV2Integration.test.tsx > UI v2 backend integration adapters > preserves the screenshot navigation and multi-format/folder uploader
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+stderr | src/App.test.tsx > Phase 04 onboarding, document review, and ownership UI > defaults to Dashboard and preserves the screenshot-authoritative onboarding view
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+stderr | src/App.test.tsx > Phase 04 onboarding, document review, and ownership UI > keeps deterministic demo controls gated on the Start landing page
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+stderr | src/Dashboard.test.tsx > historical RBAC dashboard > renders exact backend totals, status, priority, recent, active, and trend data
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at td
+    at tr
+    at tbody
+    at table
+    at div
+    at CaseTable (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\Dashboard.tsx:25:3)
+    at article
+    at section
+    at DashboardView (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\Dashboard.tsx:145:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at td
+    at tr
+    at tbody
+    at table
+    at div
+    at CaseTable (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\Dashboard.tsx:25:3)
+    at article
+    at section
+    at DashboardView (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\Dashboard.tsx:145:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+····stderr | src/Dashboard.test.tsx > historical RBAC dashboard > renders both backend-returned teams only for the Director
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at td
+    at tr
+    at tbody
+    at table
+    at div
+    at CaseTable (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\Dashboard.tsx:25:3)
+    at article
+    at section
+    at DashboardView (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\Dashboard.tsx:145:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at td
+    at tr
+    at tbody
+    at table
+    at div
+    at CaseTable (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\Dashboard.tsx:25:3)
+    at article
+    at section
+    at DashboardView (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\Dashboard.tsx:145:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at td
+    at tr
+    at tbody
+    at table
+    at div
+    at CaseTable (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\Dashboard.tsx:25:3)
+    at article
+    at section
+    at DashboardView (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\Dashboard.tsx:145:3)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+stderr | src/Dashboard.test.tsx > historical RBAC dashboard > renders a safe empty state without NaN or undefined
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+······stderr | src/UiV2Integration.test.tsx > UI v2 backend integration adapters > renders the authenticated profile separately from the execution profile
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at NavLinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:462:21)
+    at div
+    at nav
+    at WorkspaceTabs (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\navigation.tsx:167:3)
+    at main
+    at App (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\App.tsx:4094:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+stderr | src/Phase13AuthPriority.test.tsx > Phase 13 authenticated frontend boundary > presents an empty login form and Director global scope without a password hint
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at AuthProvider (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\auth.tsx:28:25)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+···················stderr | src/UiV2Integration.test.tsx > UI v2 backend integration adapters > preserves unsupported risk, record export, review, and rework controls as disabled disclosures
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+    at QueryClientProvider (file:///C:/Users/shane/.codex-clean2/worktrees/blocker-resolution-idp-ux/data-dividends-zero-touch-clm/apps/frontend/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:12:32)
+
+stderr | src/UiV2Integration.test.tsx > UI v2 backend integration adapters > routes an onboarded client back to the authoritative case controls
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+Warning: useLayoutEffect does nothing on the server, because its effect cannot be encoded into the server renderer's output format. This will lead to a mismatch between the initial, non-hydrated UI and the intended UI. To avoid this, useLayoutEffect should only be used in components that render exclusively on the client. See https://reactjs.org/link/uselayouteffect-ssr for common fixes.
+    at LinkWithRef (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-HQO5H5CC.js:385:5)
+    at ClientCaseControls (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\src\pages\ClientDetail.tsx:53:31)
+    at Router (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9996:13)
+    at MemoryRouter (C:\Users\shane\.codex-clean2\worktrees\blocker-resolution-idp-ux\data-dividends-zero-touch-clm\apps\frontend\node_modules\react-router\dist\development\chunk-GR4NQCSD.js:9906:3)
+
+····················································································································································
+
+ Test Files  49 passed (49)
+      Tests  576 passed (576)
+   Start at  12:32:41
+   Duration  6.90s (transform 8.35s, setup 0ms, collect 34.04s, tests 11.58s, environment 95.41s, prepare 11.27s)
+

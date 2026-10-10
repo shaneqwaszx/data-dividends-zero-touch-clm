@@ -1,0 +1,18 @@
+{
+  "scenario": "Blocker simulation unsupported initial country requires explicit Singapore correction",
+  "node": "INITIAL_IDENTITY",
+  "actual_control": {
+    "tag": "INPUT",
+    "id": "identity-registration-number",
+    "type": null,
+    "label": null,
+    "field": null
+  },
+  "visible": true,
+  "enabled": true,
+  "focused": true,
+  "in_viewport": true,
+  "unobscured": true,
+  "calls_before_confirmation": 0,
+  "verdict": "PASS"
+}

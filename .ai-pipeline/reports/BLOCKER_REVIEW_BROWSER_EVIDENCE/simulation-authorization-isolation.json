@@ -1,0 +1,11 @@
+{
+  "scenario": "unauthorized/cross-team",
+  "initial": "WAITING_FOR_REVIEW",
+  "actual_control": "Creator draft select; same-team controls disabled; cross-team controls absent",
+  "choices": 1,
+  "calls_before_confirmation": 0,
+  "confirmation": "Same-team noncreator 403; cross-team 404",
+  "final": "No accepted review or target write",
+  "verdict": "PASS",
+  "draft_leak": false
+}

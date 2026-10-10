@@ -1,0 +1,29 @@
+{
+  "scenario": "cross-document-conflict",
+  "initial": [
+    "DOCUMENT_SOURCE_CONFLICT"
+  ],
+  "expected_navigation": "select[data-reconciliation-field]",
+  "actual_control": {
+    "tag": "SELECT",
+    "id": "",
+    "field": "legal_name",
+    "document": null,
+    "discrepancy": "e92d2acd-ba13-48c2-9fb6-9fa571352159"
+  },
+  "choices": 1,
+  "calls_before_confirmation": 0,
+  "calls": [
+    "POST /api/clm/zero-touch/cases/20a4c7db-992c-4f48-976d-85b3f71e0d35/review-decisions",
+    "GET /api/clm/zero-touch/cases/20a4c7db-992c-4f48-976d-85b3f71e0d35",
+    "GET /api/onboarding/cases/20a4c7db-992c-4f48-976d-85b3f71e0d35/documents",
+    "GET /api/onboarding/cases/20a4c7db-992c-4f48-976d-85b3f71e0d35/ownership",
+    "GET /api/clm/zero-touch/cases/20a4c7db-992c-4f48-976d-85b3f71e0d35/intelligence"
+  ],
+  "confirmation": "WAITING_FOR_REVIEW",
+  "final": [
+    "TARGET_CONFIRMATION_REQUIRED"
+  ],
+  "verdict": "PASS",
+  "reduced_motion": true
+}

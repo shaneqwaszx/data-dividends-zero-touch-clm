@@ -1,0 +1,83 @@
+{
+  "backend_ruff": {
+    "command": "python -B -m ruff check .",
+    "cwd": "apps/backend",
+    "verdict": "PASS"
+  },
+  "backend_mypy": {
+    "command": "python -B -m mypy --config-file apps/backend/pyproject.toml --cache-dir tmp/blocker-final-mypy apps/backend/app",
+    "files": 127,
+    "verdict": "PASS"
+  },
+  "owned_measurement_ruff": {
+    "command": "python -B -m ruff check --config apps/backend/pyproject.toml scripts/benchmark_blocker_review.py scripts/benchmark_blocker_review_mongo.py",
+    "verdict": "PASS"
+  },
+  "owned_new_test_ruff": {
+    "command": "python -B -m ruff check tests/test_batch_review_decisions.py tests/test_batch_review_real_mongo.py tests/test_idp_classification_line_endings.py",
+    "cwd": "apps/backend",
+    "verdict": "PASS"
+  },
+  "python_dependencies": {
+    "command": "python -B -m pip check",
+    "verdict": "PASS"
+  },
+  "frontend_dependencies": {
+    "command": "npm ls --all",
+    "cwd": "apps/frontend",
+    "verdict": "PASS"
+  },
+  "browser_inventory": {
+    "command": "npm run e2e:list",
+    "cwd": "apps/frontend",
+    "tests": 104,
+    "files": 18,
+    "isolated_selectors": 81,
+    "verdict": "PASS"
+  },
+  "governance": [
+    {
+      "command": "python -B scripts/check_project_state.py",
+      "verdict": "PASS"
+    },
+    {
+      "command": "python -B scripts/check_architecture.py",
+      "verdict": "PASS"
+    },
+    {
+      "command": "python -B scripts/check_tooling_config.py",
+      "verdict": "PASS"
+    },
+    {
+      "command": "python -B scripts/check_policy_authority.py",
+      "verdict": "PASS"
+    },
+    {
+      "command": "python -B scripts/check_external_provider_readiness.py",
+      "verdict": "PASS"
+    },
+    {
+      "command": "python -B scripts/check_secrets.py",
+      "verdict": "PASS"
+    }
+  ],
+  "new_paths_hygiene": {
+    "paths": 91,
+    "findings": 0,
+    "verdict": "PASS",
+    "scope": "explicit task-owned new paths in final manifest; all new Markdown whitespace checked"
+  },
+  "remediation": {
+    "scope": "BR-QG-01 presentation only; backend/static tooling hashes unchanged; final governance/explicit-path hygiene rerun",
+    "frontend_files": 49,
+    "frontend_tests": 574,
+    "typecheck": "PASS",
+    "build": "PASS"
+  },
+  "resource_documentation_correction": {
+    "finding": "BR-QG-02",
+    "inspection": "PASS",
+    "frozen_product_tests_unchanged": "PASS",
+    "explicit_path_secret_whitespace": "PASS"
+  }
+}

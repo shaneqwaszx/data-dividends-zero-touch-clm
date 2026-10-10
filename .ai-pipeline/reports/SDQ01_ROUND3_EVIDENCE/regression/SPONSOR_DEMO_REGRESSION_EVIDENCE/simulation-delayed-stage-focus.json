@@ -1,0 +1,17 @@
+{
+  "scenario": "early stage click with delayed actual document read",
+  "initial": [
+    "DOCUMENT_REQUIRED_FIELD_MISSING"
+  ],
+  "expected_navigation": "Current missing-country decision SELECT",
+  "actual_control": "SELECT:data-review-field=country_of_incorporation (visible, enabled, focused, in viewport)",
+  "choices": 1,
+  "calls_before_confirmation": 0,
+  "initial_reads": 14,
+  "confirmation": "Local draft only; no confirmation submitted",
+  "final": [
+    "DOCUMENT_REQUIRED_FIELD_MISSING"
+  ],
+  "verdict": "PASS",
+  "fabricated_response": false
+}

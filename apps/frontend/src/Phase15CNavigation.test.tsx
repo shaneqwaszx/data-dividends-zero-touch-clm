@@ -140,6 +140,7 @@ function summaryFixture(caseId: string, label = "SYNTHETIC CASE"): ZeroTouchCase
       priority: 5,
       client_scope_label: "DBS",
       created_by_actor_id: actor.user_id,
+      events: [{ sequence: 1, event_type: "CASE_CREATED", timestamp: NOW }],
     },
     evidence_decision_authorized: true,
     ownership_edit_authorized: false,
@@ -174,6 +175,7 @@ function documentFixture(caseId: string): DocumentProcessingRecord {
     profile: "PROVISIONAL_CORPORATE",
     provider_environment: "LOCAL",
     state: "REVIEW_REQUIRED",
+    review_source_fingerprint: "a".repeat(64),
     fields: [{
       field_key: "legal_name",
       original_extracted_value: "SYNTHETIC CASE",
@@ -196,6 +198,17 @@ function documentFixture(caseId: string): DocumentProcessingRecord {
     supersedes_document_id: null,
     superseded_by_document_id: null,
   } as DocumentProcessingRecord;
+}
+
+
+async function acceptDraftControl(): Promise<HTMLButtonElement> {
+  const control = container!.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]');
+  if (control && !control.disabled) await act(async () => {
+    control.value = "ACCEPTED";
+    control.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  return Array.from(container!.querySelectorAll<HTMLButtonElement>("button"))
+    .find(button => button.textContent === "Confirm decisions & continue onboarding")!;
 }
 
 function json(value: unknown, status = 200): Response {
@@ -241,9 +254,11 @@ function caseDetailFixture(caseId: string, label: string): ZeroTouchCaseSummary 
       registry_acquisition: null,
       goldtier_result: null,
       created_by_actor_id: relationshipActor.user_id,
+      events: [{ sequence: 1, event_type: "CASE_CREATED", timestamp: NOW }],
     },
     evidence_decision_authorized: true,
     ownership_edit_authorized: false,
+    version: 1,
     status: "WAITING_FOR_REVIEW",
     current_stage: "DOCUMENT",
     completed_stages: ["REGISTRY"],
@@ -771,10 +786,14 @@ describe("Phase 15C case-bound action lifetime", () => {
     expect(container?.textContent).not.toContain("Delete case permanently?");
 
     await click("Open A");
-    await click("Record legal name correction");
-    expect(container?.querySelector(".document-correction")).not.toBeNull();
+    await act(async () => {
+      const control = container!.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]')!;
+      control.value = "CORRECTED";
+      control.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).not.toBeNull();
     await click("Open B");
-    expect(container?.querySelector(".document-correction")).toBeNull();
+    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).toBeNull();
     expect(container?.textContent).not.toMatch(/Assign reviewer|Return for rework/);
     expect(request.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(0);
   });
@@ -861,7 +880,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     async (outcome) => {
       const pendingReview = deferred<Response>();
       const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-        if (init?.method === "POST" && String(input).endsWith("/reviews")) return pendingReview.promise;
+        if (init?.method === "POST" && String(input).endsWith("/review-decisions")) return pendingReview.promise;
         return unavailable();
       });
       const queryClient = testClient();
@@ -875,8 +894,7 @@ describe("Phase 15C case-bound action lifetime", () => {
         </MemoryRouter>,
       ));
 
-      const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-        .find((button) => button.textContent === "Accept legal name suggestion")!;
+      const accept = await acceptDraftControl();
       act(() => {
         accept.click();
         accept.click();
@@ -914,7 +932,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     let documentReads = 0;
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
-      if (init?.method === "POST" && url.endsWith("/reviews")) return json(reviewedDocument);
+      if (init?.method === "POST" && url.endsWith("/review-decisions")) return json(reviewedDocument);
       if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) {
         return json(caseDetailFixture(CASE_A, "CASE A"));
       }
@@ -938,8 +956,7 @@ describe("Phase 15C case-bound action lifetime", () => {
       exact: true,
     });
     await vi.waitFor(() => expect(documentReads).toBe(1));
-    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    const accept = await acceptDraftControl();
     await act(async () => {
       accept.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -968,7 +985,7 @@ describe("Phase 15C case-bound action lifetime", () => {
     };
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
-      if (init?.method === "POST" && url.endsWith("/reviews")) return json(reviewedDocument);
+      if (init?.method === "POST" && url.endsWith("/review-decisions")) return json(reviewedDocument);
       if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) {
         return json(caseDetailFixture(CASE_A, "CASE A"));
       }
@@ -988,8 +1005,7 @@ describe("Phase 15C case-bound action lifetime", () => {
       </QueryClientProvider>,
     ));
 
-    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    const accept = await acceptDraftControl();
     await act(async () => {
       accept.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1006,7 +1022,7 @@ describe("Phase 15C case-bound action lifetime", () => {
   it("contains a pending review after actor replacement on the same case", async () => {
     const pendingReview = deferred<Response>();
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      if (init?.method === "POST" && String(input).endsWith("/reviews")) return pendingReview.promise;
+      if (init?.method === "POST" && String(input).endsWith("/review-decisions")) return pendingReview.promise;
       return unavailable();
     });
     const queryClient = testClient();
@@ -1023,8 +1039,7 @@ describe("Phase 15C case-bound action lifetime", () => {
         <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
       </QueryClientProvider>,
     ));
-    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    const accept = await acceptDraftControl();
     await act(async () => accept.click());
     await vi.waitFor(() => expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
 
@@ -1042,8 +1057,7 @@ describe("Phase 15C case-bound action lifetime", () => {
 
     expect(container?.textContent).toContain("CASE A REPLACEMENT ACTOR");
     expect(container?.textContent).toContain("Evidence decisions are read-only for this viewer.");
-    const replacementAccept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    const replacementAccept = await acceptDraftControl();
     expect(replacementAccept.disabled).toBe(true);
     act(() => replacementAccept.click());
     expect(container?.textContent).not.toContain("Old actor uncertain review");
@@ -1053,7 +1067,7 @@ describe("Phase 15C case-bound action lifetime", () => {
   it("serializes priority and delete controls behind a pending evidence mutation", async () => {
     const pendingReview = deferred<Response>();
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      if (init?.method === "POST" && String(input).endsWith("/reviews")) return pendingReview.promise;
+      if (init?.method === "POST" && String(input).endsWith("/review-decisions")) return pendingReview.promise;
       return unavailable();
     });
     const queryClient = testClient();
@@ -1066,8 +1080,7 @@ describe("Phase 15C case-bound action lifetime", () => {
       </MemoryRouter>,
     ));
 
-    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    const accept = await acceptDraftControl();
     await act(async () => accept.click());
     await vi.waitFor(() => expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
     expect(container?.querySelector<HTMLSelectElement>(".priority-select")?.disabled).toBe(true);
@@ -1100,8 +1113,7 @@ describe("Phase 15C case-bound action lifetime", () => {
       .find((button) => button.textContent === "Set")!;
     await act(async () => setPriority.click());
     await vi.waitFor(() => expect(request.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1));
-    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    const accept = await acceptDraftControl();
     const deleteButton = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
       .find((button) => button.textContent === "Delete case")!;
     expect(accept.disabled).toBe(true);
@@ -1147,7 +1159,7 @@ describe("Phase 15C case-bound action lifetime", () => {
       </QueryClientProvider>,
     ));
 
-    const input = container?.querySelector<HTMLInputElement>(".document-upload-input")!;
+    const input = container?.querySelector<HTMLInputElement>(".document-card .document-upload-input")!;
     const file = new File(["safe synthetic retry"], "retry.txt", { type: "text/plain" });
     Object.defineProperty(input, "files", { configurable: true, value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
@@ -1161,7 +1173,7 @@ describe("Phase 15C case-bound action lifetime", () => {
 
   it("locks mutations after review success plus refresh failure and exposes only read-only refresh recovery", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      if (init?.method === "POST" && String(input).endsWith("/reviews")) return json(documentFixture(CASE_A));
+      if (init?.method === "POST" && String(input).endsWith("/review-decisions")) return json(documentFixture(CASE_A));
       return json({ detail: { code: "UNAVAILABLE", message: "Temporarily unavailable" } }, 503);
     });
     const queryClient = testClient();
@@ -1173,13 +1185,11 @@ describe("Phase 15C case-bound action lifetime", () => {
         </QueryClientProvider>
       </MemoryRouter>,
     ));
-    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    const accept = await acceptDraftControl();
     await act(async () => accept.click());
     await vi.waitFor(() => expect(container?.textContent).toContain("Evidence reload could not be confirmed."));
     expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
-    const reject = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .find((button) => button.textContent === "Reject legal name suggestion")!;
+    const reject = container!.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]')!;
     expect(reject.disabled).toBe(true);
     const refresh = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
       .find((button) => button.textContent === "Refresh case evidence")!;
@@ -1195,7 +1205,7 @@ describe("Phase 15C case-bound action lifetime", () => {
       const refreshedSummary = caseDetailFixture(CASE_A, "CASE A REFRESHED");
       const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
         const url = String(input);
-        if (init?.method === "POST" && url.endsWith("/reviews")) {
+        if (init?.method === "POST" && url.endsWith("/review-decisions")) {
           if (outcome === "network") throw new TypeError("uncertain transport");
           return json({ detail: { code: `REVIEW_${outcome}`, message: "Safe review outcome" } }, Number(outcome));
         }
@@ -1213,15 +1223,18 @@ describe("Phase 15C case-bound action lifetime", () => {
           </QueryClientProvider>
         </MemoryRouter>,
       ));
-      const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-        .find((button) => button.textContent === "Accept legal name suggestion")!;
+      const accept = await acceptDraftControl();
       await act(async () => accept.click());
       await vi.waitFor(() => expect(container?.querySelector("h1")?.textContent).toBe("CASE A REFRESHED"));
 
       const posts = request.mock.calls.filter(([, init]) => init?.method === "POST");
       expect(posts).toHaveLength(1);
-      expect(String(posts[0][0])).toContain(`/cases/${CASE_A}/documents/`);
-      expect(JSON.parse(String(posts[0][1]?.body))).toEqual({ field_key: "legal_name", decision: "ACCEPTED" });
+      expect(String(posts[0][0])).toBe(`/api/clm/zero-touch/cases/${CASE_A}/review-decisions`);
+      expect(JSON.parse(String(posts[0][1]?.body))).toEqual({
+        expected_automation_version: 1, expected_case_event_count: 1,
+        documents: [{ document_id: documentFixture(CASE_A).document_id, expected_event_count: 0,
+          source_fingerprint: "a".repeat(64), decisions: [{ field_key: "legal_name", decision: "ACCEPTED" }] }],
+      });
       expect(request.mock.calls.filter(([url]) => String(url).endsWith("/resume"))).toHaveLength(0);
       expect(request.mock.calls.filter(([, init]) => !init?.method || init.method === "GET")).toHaveLength(4);
       expect(container?.textContent).toContain(
@@ -1243,8 +1256,7 @@ describe("Phase 15C case-bound action lifetime", () => {
         </QueryClientProvider>
       </MemoryRouter>,
     ));
-    const accept = Array.from(container?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .find((button) => button.textContent === "Accept legal name suggestion")!;
+    const accept = await acceptDraftControl();
     await act(async () => accept.click());
     await vi.waitFor(() => expect(container?.textContent).toContain("The case is unavailable."));
     expect(container?.textContent).not.toContain("CASE A");
@@ -1267,18 +1279,22 @@ describe("Phase 15C case-bound action lifetime", () => {
         .find((item) => item.textContent === label);
       await act(async () => target?.click());
     };
-    await click("Record legal name correction");
-    expect(container?.querySelector(".document-correction")).not.toBeNull();
+    await act(async () => {
+      const control = container!.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]')!;
+      control.value = "CORRECTED";
+      control.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).not.toBeNull();
     await click("Open B");
-    expect(container?.querySelector(".document-correction")).toBeNull();
+    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).toBeNull();
     await click("History back");
     await vi.waitFor(() => expect(container?.querySelector("[data-testid='location']")?.textContent)
       .toBe(paths.caseDetail(CASE_A)));
-    expect(container?.querySelector(".document-correction")).toBeNull();
+    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).toBeNull();
     await click("History forward");
     await vi.waitFor(() => expect(container?.querySelector("[data-testid='location']")?.textContent)
       .toBe(paths.caseDetail(CASE_B)));
-    expect(container?.querySelector(".document-correction")).toBeNull();
+    expect(container?.querySelector('#case-blocker-review input[maxlength="512"]')).toBeNull();
   });
 });
 
@@ -1813,15 +1829,9 @@ it("does not apply a deferred A processing-focus action to the routed B case", a
     status: "REVIEW_REQUIRED", children: [] }];
   queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A), value);
   const callbacks: (() => void)[] = [];
-  const originalTimeout = window.setTimeout.bind(window);
-  vi.spyOn(window, "setTimeout").mockImplementation(((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
-    if (timeout === 50 && typeof handler === "function") {
-      callbacks.push(() => handler(...args));
-      return 0;
-    }
-    return originalTimeout(handler, timeout, ...args);
-  }) as typeof window.setTimeout);
-  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 0; });
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    callbacks.push(() => callback(0)); return 0;
+  });
   await act(async () => root?.render(
     <MemoryRouter initialEntries={[paths.caseDetail(CASE_A)]}>
       <QueryClientProvider client={queryClient}>
@@ -1836,7 +1846,7 @@ it("does not apply a deferred A processing-focus action to the routed B case", a
   const openB = [...container!.querySelectorAll<HTMLAnchorElement>("a")].find((item) => item.textContent === "Open B")!;
   await act(async () => openB.click());
   await vi.waitFor(() => expect(container?.querySelector("h1")?.textContent).toBe("CASE B"));
-  const currentSection = container!.querySelector<HTMLElement>("#case-evidence-documents")!;
+  const currentSection = container!.querySelector<HTMLElement>("select[data-review-field]")!;
   expect(currentSection).toBeTruthy();
   const focus = vi.spyOn(currentSection, "focus");
   await act(async () => callbacks.forEach((callback) => callback()));

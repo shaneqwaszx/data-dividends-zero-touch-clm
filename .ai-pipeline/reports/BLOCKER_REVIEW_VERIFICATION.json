@@ -1,0 +1,666 @@
+{
+  "status": "REQUIRED_EXECUTION_LANES_PASS; INDEPENDENT_GATE_PENDING",
+  "recorded_utc": "2026-10-09T23:37:35.748020+00:00",
+  "branch": "feat/blocker-resolution-idp-ux-optimization",
+  "base_sha": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "head": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "latest_fetched_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "content_state": "uncommitted working tree",
+  "lanes": [
+    {
+      "name": "baseline-browser",
+      "exit_code": 0,
+      "elapsed_seconds": 59.671,
+      "command": [
+        "C:\\Users\\shane\\Desktop\\FYP\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-u",
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18920",
+        "--frontend-port",
+        "18921",
+        "--grep",
+        "Blocker decision review performance sample group"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\blocker-baseline-e799d74",
+      "log": "blocker-final-baseline-browser.log"
+    },
+    {
+      "name": "baseline-api",
+      "exit_code": 0,
+      "elapsed_seconds": 30.954,
+      "command": [
+        "C:\\Users\\shane\\Desktop\\FYP\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/benchmark_blocker_review.py",
+        "--samples",
+        "30",
+        "--output",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\BLOCKER_REVIEW_BASELINE_METRICS.json"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\blocker-baseline-e799d74",
+      "log": "blocker-final-baseline-api.log"
+    },
+    {
+      "name": "candidate-api",
+      "exit_code": 0,
+      "elapsed_seconds": 23.781,
+      "command": [
+        "C:\\Users\\shane\\Desktop\\FYP\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/benchmark_blocker_review.py",
+        "--batch",
+        "--samples",
+        "30",
+        "--output",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\BLOCKER_REVIEW_CANDIDATE_METRICS.json"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "log": "blocker-final-candidate-api.log"
+    },
+    {
+      "name": "baseline-mongo-counts",
+      "exit_code": 0,
+      "elapsed_seconds": 5.625,
+      "command": [
+        "C:\\Users\\shane\\Desktop\\FYP\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\scripts\\benchmark_blocker_review_mongo.py",
+        "--root",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\blocker-baseline-e799d74",
+        "--output",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\BLOCKER_REVIEW_BROWSER_EVIDENCE\\baseline-mongo-commands.json"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\blocker-baseline-e799d74",
+      "log": "blocker-final-baseline-mongo-counts.log"
+    },
+    {
+      "name": "candidate-mongo-counts",
+      "exit_code": 0,
+      "elapsed_seconds": 4.047,
+      "command": [
+        "C:\\Users\\shane\\Desktop\\FYP\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/benchmark_blocker_review_mongo.py",
+        "--root",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+        "--batch",
+        "--output",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\BLOCKER_REVIEW_BROWSER_EVIDENCE\\candidate-mongo-commands.json"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "log": "blocker-final-candidate-mongo-counts.log"
+    },
+    {
+      "name": "e2e",
+      "exit_code": 0,
+      "shards": [
+        {
+          "name": "e2e-shard-1",
+          "exit_code": 0,
+          "elapsed_seconds": 505.672,
+          "command": [
+            "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+            "-B",
+            "-u",
+            "scripts/run_e2e.py",
+            "--backend-port",
+            "18900",
+            "--frontend-port",
+            "19400",
+            "--timeout-seconds",
+            "60",
+            "--shard",
+            "1/2"
+          ],
+          "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+          "log": "blocker-remediation-e2e-shard-1.log"
+        },
+        {
+          "name": "e2e-shard-2",
+          "exit_code": 0,
+          "elapsed_seconds": 469.813,
+          "command": [
+            "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+            "-B",
+            "-u",
+            "scripts/run_e2e.py",
+            "--backend-port",
+            "18900",
+            "--frontend-port",
+            "19400",
+            "--timeout-seconds",
+            "60",
+            "--shard",
+            "2/2"
+          ],
+          "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+          "log": "blocker-remediation-e2e-shard-2.log"
+        }
+      ],
+      "command": "two complete existing isolated CI shards, serial on local host; exact argv retained per shard",
+      "elapsed_seconds": 975.485
+    },
+    {
+      "name": "physical-mongo",
+      "exit_code": 0,
+      "elapsed_seconds": 219.563,
+      "command": [
+        "C:\\Users\\shane\\Desktop\\FYP\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-u",
+        "scripts/run_physical_mongo_tests.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "log": "blocker-final-physical-mongo.log"
+    },
+    {
+      "name": "backend",
+      "exit_code": 0,
+      "elapsed_seconds": 959.031,
+      "command": [
+        "C:\\Users\\shane\\Desktop\\FYP\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "apps/backend/tests",
+        "-o",
+        "addopts=",
+        "-p",
+        "no:cacheprovider",
+        "-q",
+        "--tb=short"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "log": "blocker-final-backend.log"
+    },
+    {
+      "name": "root",
+      "exit_code": 0,
+      "elapsed_seconds": 479.047,
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_*.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "log": "blocker-final-root.log"
+    }
+  ],
+  "counts": {
+    "backend": {
+      "passed": 2617,
+      "skipped": 136,
+      "collected": 2753,
+      "skip_reason": "physical prerequisites absent in this non-Mongo lane; all owned physical suites separately executed with zero skips"
+    },
+    "physical_mongo": {
+      "suites": 21,
+      "collected": 136,
+      "passed": 136,
+      "skipped": 0
+    },
+    "frontend": {
+      "files": 49,
+      "passed": 574,
+      "typecheck": "PASS",
+      "build": "PASS"
+    },
+    "browser": {
+      "isolated_selectors": 81,
+      "passed_tests": 104,
+      "per_lifecycle_seconds": 60
+    },
+    "root_unittest": {
+      "passed": 373,
+      "skipped": 0
+    },
+    "focused_current": {
+      "batch_api": 16,
+      "parser_media": 21,
+      "real_ocr": 36,
+      "physical_restart": 4,
+      "combined_backend_focus": 77,
+      "frontend_navigation_isolation": 64,
+      "intervention_presentation": 3,
+      "intervention_affected": 56
+    }
+  },
+  "executed_source_files": [
+    {
+      "path": "apps/backend/app/api_models.py",
+      "sha256": "961fa45febf17559189e638572c4f47654f2b5c59beb034a4c70d769c444c2ef"
+    },
+    {
+      "path": "apps/backend/app/connectors/local_pdf_idp.py",
+      "sha256": "380741a0e4136a6832f9c433de5d9eca6b8ce20313d4f08c55b848744a063432"
+    },
+    {
+      "path": "apps/backend/app/domain/review_decisions.py",
+      "sha256": "73aad2e41bd9766bfc3f694023b1373cd2807a346c88bbafc9415f7115ab0e12"
+    },
+    {
+      "path": "apps/backend/app/main.py",
+      "sha256": "502d272a44a9a2e3003919dd811f790e3b5b7bcece8d9cc9c9d7cce2fb0fe359"
+    },
+    {
+      "path": "apps/backend/app/services/authorization.py",
+      "sha256": "7c670151b797c51599e01d3459182b101daacd48269778390a03e93b6fe7d53a"
+    },
+    {
+      "path": "apps/backend/app/services/document_processing.py",
+      "sha256": "e79c39136f4470171f87edb1d193ec6dd9418b23439cc973b2e7935f5c80a5cf"
+    },
+    {
+      "path": "apps/backend/app/services/reconciliation.py",
+      "sha256": "e27326046447ba665b16d626eb520d252a904b559df02f4a75bdf0c5b665f62e"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "sha256": "73a116a4fd5c105f9b0ae3bbde4261ee145ee580df1b3c5c8c8050098fbdcce1"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/README.md",
+      "sha256": "3ff0958e8b3c4d3c59545b8a60b992d4b05f4f4741cf3f506f6d4fd7db194817"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/README.md",
+      "sha256": "b023db968e0f795e46001b3bbd5a3a991693c0b9ef3185883ce56fdc66d71d55"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/meridian-synthetic-infrastructure-client.pdf",
+      "sha256": "2f7935ab8304f9770b25f66087bda17caf4dfcf08b2269c357312c15d6438055"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/orion-synthetic-technologies-client.pdf",
+      "sha256": "37b38963c5f0f7bf06811327e8107164920bc92bf8316751e870a8f1c751a579"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/pacific-synthetic-ledger-client.pdf",
+      "sha256": "e72533ae8c1fe03f0813985c9db922fc79213e21c3e3bab79da07c359c8c75be"
+    },
+    {
+      "path": "apps/backend/tests/fixtures/uat/zero-touch-database/straits-synthetic-holdings-client.pdf",
+      "sha256": "72a48301de57715b05a9fcace2faac7683ab4b2534072c70bdc52793a9eda648"
+    },
+    {
+      "path": "apps/backend/tests/test_batch_review_decisions.py",
+      "sha256": "aa752fa2982072bcab2f6229ffc98a6effa3b95ee37d92feaedfd1d2119ff7dc"
+    },
+    {
+      "path": "apps/backend/tests/test_batch_review_real_mongo.py",
+      "sha256": "c77b1ff8592657f7b4169a56e27cfa2de296fbe7a6ecd5ff18fe963e60ba73a0"
+    },
+    {
+      "path": "apps/backend/tests/test_idp_classification_line_endings.py",
+      "sha256": "50ce266ae8e7d7fe2a19ad40934fa0a9456b5bf46de78cb730afaa30fdf98b1d"
+    },
+    {
+      "path": "apps/backend/tests/test_phase13_auth_rbac.py",
+      "sha256": "591c62396c1d9dbc88db50974cad1e8be0901a83bda94ed3e7b3c575a15c1fde"
+    },
+    {
+      "path": "apps/backend/tests/test_synthetic_company_pack.py",
+      "sha256": "016edbfc8d5a3ae84215ebfcbcd8ebe5ef92ee843f8f876b5530acea750ad399"
+    },
+    {
+      "path": "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
+      "sha256": "552b5d8bcc78851608af892997254921fb2e8402bf3008973883c5840321074b"
+    },
+    {
+      "path": "apps/frontend/e2e/blocker-decisions.ts",
+      "sha256": "9cce37a74af1b55885ec3cb5d0c68d37601e9476a1fc07f480423a13beb075df"
+    },
+    {
+      "path": "apps/frontend/e2e/blocker-review-performance.e2e.ts",
+      "sha256": "dae093cd8862e8cec32d86322d7f865a7cc8aeb16b08204f5a8ca584203e6f15"
+    },
+    {
+      "path": "apps/frontend/e2e/blocker-simulation.e2e.ts",
+      "sha256": "2ba684900fc6100c7c703a27a6f56b9e59a070204913a1193bae56782fb4f179"
+    },
+    {
+      "path": "apps/frontend/e2e/garden-happy-path.e2e.ts",
+      "sha256": "3ec96bbae47f71eb45717130e155350a8ad948e6798c4b234580ebe8c01fc3a6"
+    },
+    {
+      "path": "apps/frontend/e2e/phase24-identity.e2e.ts",
+      "sha256": "58ce99313ccf9dc90cf62154db6f0d8cbbb8f7664bfa2054a5762a81a4f10ca4"
+    },
+    {
+      "path": "apps/frontend/e2e/responsive-layout.e2e.ts",
+      "sha256": "8b6e5f26be333e94e37c90a5fac4ab86da09fd4945499e3fc455f64b4a6f4654"
+    },
+    {
+      "path": "apps/frontend/e2e/s2-ownership.e2e.ts",
+      "sha256": "9120e9fd5c01299e9305e243741961ba4d95af90925572350adf61120ce62b7a"
+    },
+    {
+      "path": "apps/frontend/e2e/s3-sandbox-submission.e2e.ts",
+      "sha256": "c6dad2cd98bb0112784ddf570f24865f12b747bcc1688138476888ff6f4db73f"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-b-registry-demo.e2e.ts",
+      "sha256": "dad6505598ba73ae522ac3899e98432dd52aaaff145b7edaac1fb1f7d171023a"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-c-recovery.e2e.ts",
+      "sha256": "4ef255b6558839d293e80064c342dae9b84ea54413fdbda912453b16a3de1feb"
+    },
+    {
+      "path": "apps/frontend/e2e/stage-disclosures.ts",
+      "sha256": "d7a23fd1c48252760483bc7fa3e4d99bd2e370148e609704a61da4ab8868cde6"
+    },
+    {
+      "path": "apps/frontend/e2e/synthetic-company-pack.e2e.ts",
+      "sha256": "fb41e4e9dff54df7752dad8ea25afecebe84f8bd829a7083e240bae0a2fd931b"
+    },
+    {
+      "path": "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+      "sha256": "66466836e298af40394a71a3a9dc6e575c47d8c60d50f16a83548ce26d5a4696"
+    },
+    {
+      "path": "apps/frontend/src/EvidenceWorkbenchIsolation.test.tsx",
+      "sha256": "ac84c2663b760a03c1c0b9a0c20cff28369ca33f830297089cf606db7404117e"
+    },
+    {
+      "path": "apps/frontend/src/Phase15CNavigation.test.tsx",
+      "sha256": "8df3081c361df8f8b91e9e4080521c55d8e0a2937baf687dee0292b894482c5e"
+    },
+    {
+      "path": "apps/frontend/src/api.ts",
+      "sha256": "87435b418aa69a9e3f70a61718cb7002adbf2788fbd038bd375f5eb35bdf0bcb"
+    },
+    {
+      "path": "apps/frontend/src/pages/BlockerDecisionReview.test.tsx",
+      "sha256": "655ff6996b7a2a97933e32fbeb6d9c58f69a4c6f3e7ebb5d16309e79987a14b0"
+    },
+    {
+      "path": "apps/frontend/src/pages/BlockerDecisionReview.tsx",
+      "sha256": "1df296832ea8733729d38b5bf60c786d2ca045dd95419ba701ea0512fb9b9d60"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseDetail.tsx",
+      "sha256": "596c00d5c272470cf5a4a7f8606b069ceb946383c8326cd8ca00aa927851e666"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.tsx",
+      "sha256": "f5e6329e61d9f74efbe770797fee9eb3160fa81206723ecdf95ff665f35526fb"
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx",
+      "sha256": "d1f4415112df7883476364c2a041bbea2cc9bfb2f73cabde61906b42615acdc2"
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.tsx",
+      "sha256": "5107d7ccc13a23a8af61bd508df0c375b42153ad1136e0d6afe0d2c7a6b799df"
+    },
+    {
+      "path": "apps/frontend/src/pages/HumanInterventionPanel.tsx",
+      "sha256": "3e65b1afabc480cd814a5850f3966247f3c551ffffce25ea02b92c3e325f9620"
+    },
+    {
+      "path": "apps/frontend/src/pages/TargetRecoveryPanel.tsx",
+      "sha256": "0170a047158c4e737057118ac077af80dee550bf336b2df11d445027574a7b64"
+    },
+    {
+      "path": "apps/frontend/src/styles.css",
+      "sha256": "cf32d275226975ebd27fad4001a29c1ea74a5dc1f7f076fb8020b588e0e25c5e"
+    },
+    {
+      "path": "apps/frontend/src/types.ts",
+      "sha256": "cb3b18540439b4ad9a08ae9262681f55088e2a87f47d8a330a62131f223c4063"
+    },
+    {
+      "path": "scripts/benchmark_blocker_review.py",
+      "sha256": "e201ad0ce2a65d132cccf0d75e2bb8c34a1623ac096f26c3909484de9d486f2a"
+    },
+    {
+      "path": "scripts/benchmark_blocker_review_mongo.py",
+      "sha256": "869bf66e071765d8ee8f80666e1f1119f9cd529a44f51b3efed0369e708400c4"
+    },
+    {
+      "path": "scripts/generate_synthetic_company_pack.py",
+      "sha256": "d0f532e8f20659f0d1ff615ae90beb315a36110e65e670e157474a905f09efb4"
+    },
+    {
+      "path": "scripts/run_physical_mongo_tests.py",
+      "sha256": "12bbad9d4e2b770f3fc7ce69d97cbb6bd5a50dd6fe67375e3a4bc524042d228c"
+    },
+    {
+      "path": "apps/frontend/src/pages/HumanInterventionPanel.test.tsx",
+      "sha256": "b152085575f8130f62d499fe72c034e01d27b1ba589a74edc1db6b73ab841618"
+    }
+  ],
+  "executed_ci_files": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "44029aa49cb1fa7d7d196800cebfe73e2872c101220134af4d10b952948598c5"
+    },
+    {
+      "path": "scripts/run_e2e.py",
+      "sha256": "ae6335e35e315477030f9814d3aeaf12e10b606bb8247791c287891c4eb0a083"
+    },
+    {
+      "path": "tests/test_run_e2e.py",
+      "sha256": "25a984330bc8aa6681dca4fc36b9051cd1eff1d44b3625c17c6f9a073188feef"
+    },
+    {
+      "path": "docs/DEVELOPMENT_WORKFLOW.md",
+      "sha256": "8d7104d92dcae76c747eb1c5fe6955e045f047a1469a0453a9602bbd50667f9d"
+    },
+    {
+      "path": "tests/test_check_tooling_config.py",
+      "sha256": "683073f4b301d168fb306dec9db72a69bc2db6b45c76e3b802320aedfb45a980"
+    }
+  ],
+  "frontend_final_checks": [
+    {
+      "name": "typecheck",
+      "exit_code": 0,
+      "elapsed_seconds": 6.344,
+      "command": [
+        "cmd.exe",
+        "/d",
+        "/c",
+        "npm run typecheck"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "log": "blocker-remediation-typecheck.log"
+    },
+    {
+      "name": "build",
+      "exit_code": 0,
+      "elapsed_seconds": 7.609,
+      "command": [
+        "cmd.exe",
+        "/d",
+        "/c",
+        "npm run build"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "log": "blocker-remediation-build.log"
+    }
+  ],
+  "scheduler_unit_tests": {
+    "passed": 47,
+    "deadline_change": false,
+    "shard_coverage": "disjoint41/40 union81; every test retained; aggregate requires both success"
+  },
+  "first_causal_failures_retained": [
+    "Actual owner PDF CRLF extraction omitted classification; unchanged-byte baseline/current receipts retained.",
+    "Two identical event-type/time review-receipt tests failed before retained-value/note comparison.",
+    "Actual SELECT center hit-test failed with sticky footer; normal-layout footer passed.",
+    "Delayed actual document-read stage focus failed before actor/case/generation/version-bound deferred focus.",
+    "First broad backend run: 2616 passed,136 skipped,one existing HTTP seeder socket-read timeout; unchanged focused11 passed; final full run outcome recorded above.",
+    "Last original browser selector expected controls before source-family selection; response-holding test helper then deadlocked with response-awaiting shared helper. Both corrected Garden cases and final unfiltered suite passed.",
+    "One focused Garden invocation omitted the required offline protocol fixture and timed out; excluded from acceptance.",
+    "Supplemental root-relative Ruff invocation exceeded configured scope and changed import classification; exact CI backend-directory command passed unchanged, as did the three new tests and two new scripts.",
+    "First root run366: nine Windows failures from missing task .venv, two contract helper import errors, two missing-psutil errors, and one obsolete73-selector CI budget assertion. Ignored runtime/import prerequisites fixed; exact-coverage CI shards added without a deadline increase.",
+    "New task-runtime browser retry omitted the app import path after server environment sanitization; corrected only ignored environment paths, all21 native/media tests passed, then both complete CI shards passed."
+  ],
+  "static_evidence": "BLOCKER_REVIEW_STATIC_VERIFICATION.json",
+  "boundaries": [
+    "No commit/push/PR/merge",
+    "No private dotenv access",
+    "No original checkout or owner-PDF edit",
+    "No protected database or real external-provider write",
+    "Drafts remain only while current case is open in tab",
+    "Resumable section checkpoints; no cross-owner transaction or new multi-process lock guarantee"
+  ],
+  "independent_review": "Only assigned reviewer may write BLOCKER_RESOLUTION_FINAL_QUALITY_GATE.md; this receipt supplies no independent verdict.",
+  "remediation": {
+    "finding": "BR-QG-01",
+    "remediation_round": 1,
+    "results": [
+      {
+        "name": "frontend",
+        "exit_code": 0,
+        "elapsed_seconds": 8.703,
+        "command": [
+          "cmd.exe",
+          "/d",
+          "/c",
+          "npm test -- --cache false"
+        ],
+        "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+        "log": "blocker-remediation-frontend.log"
+      },
+      {
+        "name": "typecheck",
+        "exit_code": 0,
+        "elapsed_seconds": 6.344,
+        "command": [
+          "cmd.exe",
+          "/d",
+          "/c",
+          "npm run typecheck"
+        ],
+        "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+        "log": "blocker-remediation-typecheck.log"
+      },
+      {
+        "name": "build",
+        "exit_code": 0,
+        "elapsed_seconds": 7.609,
+        "command": [
+          "cmd.exe",
+          "/d",
+          "/c",
+          "npm run build"
+        ],
+        "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+        "log": "blocker-remediation-build.log"
+      },
+      {
+        "name": "four-field-focus",
+        "exit_code": 0,
+        "elapsed_seconds": 20.406,
+        "command": [
+          "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+          "-B",
+          "-u",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--grep",
+          "Blocker decision review performance sample group 1"
+        ],
+        "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+        "log": "blocker-remediation-four-field-focus.log"
+      },
+      {
+        "name": "e2e-shard-1",
+        "exit_code": 0,
+        "elapsed_seconds": 505.672,
+        "command": [
+          "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+          "-B",
+          "-u",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--shard",
+          "1/2"
+        ],
+        "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+        "log": "blocker-remediation-e2e-shard-1.log"
+      },
+      {
+        "name": "e2e-shard-2",
+        "exit_code": 0,
+        "elapsed_seconds": 469.813,
+        "command": [
+          "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.venv\\Scripts\\python.exe",
+          "-B",
+          "-u",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--shard",
+          "2/2"
+        ],
+        "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+        "log": "blocker-remediation-e2e-shard-2.log"
+      }
+    ],
+    "executed_paths": [
+      {
+        "path": "apps/frontend/src/pages/HumanInterventionPanel.tsx",
+        "sha256": "3e65b1afabc480cd814a5850f3966247f3c551ffffce25ea02b92c3e325f9620"
+      },
+      {
+        "path": "apps/frontend/src/pages/HumanInterventionPanel.test.tsx",
+        "sha256": "b152085575f8130f62d499fe72c034e01d27b1ba589a74edc1db6b73ab841618"
+      },
+      {
+        "path": "apps/frontend/e2e/blocker-review-performance.e2e.ts",
+        "sha256": "dae093cd8862e8cec32d86322d7f865a7cc8aeb16b08204f5a8ca584203e6f15"
+      }
+    ],
+    "prior_independent_gate_sha256": "4e2316bdc8e0e5600f25e96061695810d558f6385c0a8ec1fddb27b27de870c8",
+    "finding_status": "FIXED; FRESH_INDEPENDENT_REVIEW_PENDING",
+    "reproduction": {
+      "failed_before": 2,
+      "passed_before": 1,
+      "focused_after": 56,
+      "full_frontend_after": 574
+    },
+    "unchanged_execution_scopes": [
+      "backend source/tests",
+      "physical Mongo source/tests",
+      "root source/tests",
+      "CI scheduler/workflow source/tests"
+    ],
+    "prior_reviewed_content_sha256": "db2c9d916c0cb2f8210965e31f0bc3cfe0121a6e06046ddd49d5d6b5412f3709"
+  },
+  "documentation_remediation": {
+    "finding": "BR-QG-02",
+    "round": 1,
+    "prior_reviewed_content_sha256": "b7ba066c91389050bd4466cab5daee4f56f402614e31ab26777fd34bc7fe90a7",
+    "prior_gate_sha256": "7b14b9be28abbf6550a679945fa07bafbb332ea43f12d681a8f5ee76bd1b8923",
+    "resource_inspection": "BLOCKER_REVIEW_RESOURCE_INSPECTION.json",
+    "product_tests_ci_metrics_screenshots_changed": false,
+    "new_runtime_test_execution": false,
+    "status": "RESOURCE_DESCRIPTION_CORRECTED; FRESH_INDEPENDENT_DOCUMENTARY_REVIEW_PENDING"
+  }
+}

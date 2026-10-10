@@ -70,6 +70,7 @@ function summaryFixture(caseId: string, label = "EVIDENCE CASE"): ZeroTouchCaseS
       registry_acquisition: null,
       registry_evidence_binding: null,
       goldtier_result: null,
+      events: [{ sequence: 1, event_type: "CASE_CREATED", timestamp: NOW }],
     },
     evidence_decision_authorized: true,
     ownership_edit_authorized: false,
@@ -130,6 +131,7 @@ function documentFixture(caseId: string): DocumentProcessingRecord {
     profile: "PROVISIONAL_CORPORATE",
     provider_environment: "LOCAL",
     state: "REVIEW_REQUIRED",
+    review_source_fingerprint: "a".repeat(64),
     fields: [{
       field_key: "legal_name",
       original_extracted_value: "EVIDENCE CASE",
@@ -314,6 +316,97 @@ async function clickAndFlush(label: string): Promise<void> {
 }
 
 describe("Evidence workbench integration isolation", () => {
+  it.each(["case", "version"] as const)("cancels a pending stage focus when its %s changes", async change => {
+    const client = createTestClient();
+    seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    seedCase(client, actorA, CASE_B, "analysis-b", "B");
+    const summary = summaryFixture(CASE_A);
+    summary.processing_pipeline = [{ node_id: "DOCUMENT_IDP", label: "Document verification",
+      status: "REVIEW_REQUIRED", children: [] }];
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    client.removeQueries({ queryKey: caseQueryKeys.documents(actorA.user_id, CASE_A), exact: true });
+    let release!: (value: Response) => void;
+    const pending = new Promise<Response>(resolve => { release = resolve; });
+    vi.spyOn(globalThis, "fetch").mockReturnValue(pending);
+    renderCase(client, actorA, CASE_A);
+    const stage = container!.querySelector<HTMLButtonElement>('.ds-stage[data-node-id="DOCUMENT_IDP"] button')!;
+    act(() => stage.click());
+    if (change === "case") renderCase(client, actorA, CASE_B);
+    else act(() => client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), { ...summary, version: 2 }));
+    await act(async () => { release(response([documentFixture(CASE_A)])); });
+    await vi.waitFor(() => expect(container?.querySelector("select[data-review-field]")).not.toBeNull());
+    expect(document.activeElement?.getAttribute("data-review-field")).toBeNull();
+  });
+
+  it("defers a clicked document stage until its current decision control mounts", async () => {
+    const client = createTestClient();
+    seedCase(client, actorA, CASE_A, "analysis-1", "LOADING");
+    const summary = summaryFixture(CASE_A);
+    summary.processing_pipeline = [{ node_id: "DOCUMENT_IDP", label: "Document verification",
+      status: "REVIEW_REQUIRED", children: [] }];
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    client.removeQueries({ queryKey: caseQueryKeys.documents(actorA.user_id, CASE_A), exact: true });
+    let release!: (value: Response) => void;
+    const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending);
+    renderCase(client, actorA, CASE_A);
+    const stage = container!.querySelector<HTMLButtonElement>('.ds-stage[data-node-id="DOCUMENT_IDP"] button')!;
+    expect(stage).toBeTruthy();
+    act(() => stage.click());
+    await act(async () => { release(response([documentFixture(CASE_A)])); });
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-review-field")).toBe("legal_name"));
+    expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
+  });
+
+  it("waits for current document controls before enabling the blocker action", async () => {
+    const client = createTestClient();
+    seedCase(client, actorA, CASE_A, "analysis-1", "LOADING");
+    const summary = summaryFixture(CASE_A);
+    summary.interventions = [{
+      intervention_id: summary.active_exceptions[0].exception_id,
+      owning_stage: "DOCUMENT", owning_stage_label: "Document review",
+      title: "Review current document", blocker_code: "DOCUMENT_REVIEW_REQUIRED",
+      explanation: "Current document evidence is loading.",
+      required_evidence_or_input: ["Current document"], authorized_actions: [],
+      no_action_reason: null,
+      expected_next_step: "Review current fields", candidate_summaries: [],
+      evidence_actions: [{ target: "DOCUMENTS", label: "Open current review" }],
+    }] as ZeroTouchCaseSummary["interventions"];
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    client.removeQueries({ queryKey: caseQueryKeys.documents(actorA.user_id, CASE_A), exact: true });
+    let release!: (value: Response) => void;
+    const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending);
+    renderCase(client, actorA, CASE_A);
+    expect(button("Open current review").disabled).toBe(true);
+    await act(async () => { release(response([documentFixture(CASE_A)])); });
+    await vi.waitFor(() => expect(button("Open current review").disabled).toBe(false));
+    click("Open current review");
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-review-field")).toBe("legal_name"));
+    expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
+  });
+
+  it("exposes retained source checkpoint continuation without inventing pending field decisions", async () => {
+    const client = createTestClient();
+    seedCase(client, actorA, CASE_A, "analysis-1", "RETAINED");
+    const summary = summaryFixture(CASE_A);
+    const doc = { ...documentFixture(CASE_A), semantic_completion: "RECONCILIATION_RESOLVED" as const };
+    summary.reconciliation = {
+      reconciliation_id: "safe-reconciliation", version: 2, status: "RESOLVED",
+      source_document_ids: [doc.document_id], source_document_event_counts: [doc.events.length],
+      fields: [], discrepancies: [], updated_at: NOW,
+    };
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), [doc]);
+    const fetch = vi.spyOn(globalThis, "fetch");
+    renderCase(client, actorA, CASE_A);
+    expect(button("Continue retained review checkpoint").disabled).toBe(false);
+    expect(container?.querySelector("#case-blocker-review")).toBeNull();
+    click("Focus documents evidence");
+    await vi.waitFor(() => expect(document.activeElement).toBe(button("Continue retained review checkpoint")));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it.each([true, false, undefined])("uses the backend ownership edit capability for calculable evidence (%s)", (authorized) => {
     const client = createTestClient();
     seedCase(client, actorA, CASE_A, "analysis-1", "CALCULABLE");
@@ -478,7 +571,7 @@ describe("Evidence workbench integration isolation", () => {
     )).toBeNull());
     expect(container!.textContent).not.toContain("OLD_UEN Candidate");
   });
-  it("keeps candidate, retained-path, and explanation exploration local and read only", () => {
+  it("keeps candidate, retained-path, and explanation exploration local and read only", async () => {
     const client = createTestClient();
     seedCase(client, actorA, CASE_A, "analysis-a", "a");
     const fetchSpy = vi.spyOn(globalThis, "fetch");
@@ -493,53 +586,43 @@ describe("Evidence workbench integration isolation", () => {
     expect(container?.textContent).toContain("Selected retained path: a-candidate-two-path");
     click("Focus documents evidence");
 
-    expect(document.activeElement?.id).toBe("case-evidence-documents");
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-review-field")).toBe("legal_name"));
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(storageSet).not.toHaveBeenCalled();
     expect(storageRemove).not.toHaveBeenCalled();
     expect(storageClear).not.toHaveBeenCalled();
   });
 
-  it("reports a missing fixed evidence destination without issuing a request", () => {
+  it("reports an unavailable corrective control without issuing a request", async () => {
     const client = createTestClient();
     seedCase(client, actorA, CASE_A, "analysis-a", "a");
+    client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), []);
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-
     renderCase(client, actorA, CASE_A);
-    click("Focus evidence for DOCUMENT_SOURCE_CONFLICT");
-
-    expect(container?.textContent).toContain("reconciliation evidence is not available for this case.");
+    click("Focus documents evidence");
+    await vi.waitFor(() => expect(container?.textContent).toContain("No corrective input is currently authorized here."));
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("clears focused evidence and its notice synchronously across case and actor identities", () => {
+  it("clears focused draft controls synchronously across case and actor identities", async () => {
     const client = createTestClient();
     seedCase(client, actorA, CASE_A, "analysis-a", "a");
     seedCase(client, actorA, CASE_B, "analysis-b", "b");
     seedCase(client, actorB, CASE_B, "analysis-c", "c");
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-
     renderCase(client, actorA, CASE_A);
     click("Focus documents evidence");
-    const caseADocuments = document.activeElement;
-    expect(caseADocuments?.id).toBe("case-evidence-documents");
-    click("Focus evidence for DOCUMENT_SOURCE_CONFLICT");
-    expect(container?.textContent).toContain("reconciliation evidence is not available for this case.");
-
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-review-field")).toBe("legal_name"));
+    const caseAControl = document.activeElement;
     renderCase(client, actorA, CASE_B);
-    expect(caseADocuments?.isConnected).toBe(false);
-    expect(document.activeElement?.id).not.toBe("case-evidence-documents");
-    expect(container?.textContent).not.toContain("reconciliation evidence is not available for this case.");
-
+    expect(caseAControl?.isConnected).toBe(false);
+    expect(document.activeElement).not.toBe(caseAControl);
     click("Focus documents evidence");
-    const actorADocuments = document.activeElement;
-    expect(actorADocuments?.id).toBe("case-evidence-documents");
-    click("Focus evidence for DOCUMENT_SOURCE_CONFLICT");
-
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-review-field")).toBe("legal_name"));
+    const actorAControl = document.activeElement;
     renderCase(client, actorB, CASE_B);
-    expect(actorADocuments?.isConnected).toBe(false);
-    expect(document.activeElement?.id).not.toBe("case-evidence-documents");
-    expect(container?.textContent).not.toContain("reconciliation evidence is not available for this case.");
+    expect(actorAControl?.isConnected).toBe(false);
+    expect(document.activeElement).not.toBe(actorAControl);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -582,7 +665,14 @@ describe("Evidence workbench integration isolation", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("offline"));
     renderCase(client, actorA, CASE_A);
 
-    await clickAndFlush("Accept legal name suggestion");
+    const choice = container?.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]');
+    expect(choice).toBeTruthy();
+    await act(async () => {
+      choice!.value = "ACCEPTED";
+      choice!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    await clickAndFlush("Confirm decisions & continue onboarding");
     await vi.waitFor(() => expect(container?.textContent).toContain("Evidence reload could not be confirmed."));
 
     fetchSpy.mockClear();

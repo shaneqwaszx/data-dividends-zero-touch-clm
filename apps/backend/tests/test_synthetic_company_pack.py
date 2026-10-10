@@ -102,16 +102,6 @@ def start(client, company):
     case_id = current["case"]["case_id"]
     assert current["target_classification"]["kyc_customer_type"]["selected_value"] is None
     assert current["case"]["goldtier_result"] is None
-    saved = client.put(
-        f"/api/clm/zero-touch/cases/{case_id}/target-classification",
-        json={
-            "kyc_customer_type": company.kyc_customer_type,
-            "client_segment": company.client_segment,
-            "expected_automation_version": current["version"],
-            "expected_case_event_count": len(current["case"]["events"]),
-        },
-    )
-    assert saved.status_code == 200, saved.json()
     uploaded = client.post(
         f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
         content=(DOCUMENTS / company.document_name).read_bytes(),
@@ -168,6 +158,14 @@ def assert_prepared(client, current, company):
     assert [e["blocker_code"] for e in current["active_exceptions"]] == [
         "TARGET_CONFIRMATION_REQUIRED",
     ]
+    classification = current["target_classification"]
+    assert classification["current"]
+    assert classification["kyc_customer_type"]["selected_value"] == "Company - Private"
+    assert classification["client_segment"]["selected_value"] == "Corporate"
+    assert all(
+        classification[key]["selection"]["source"] == "DOCUMENT"
+        for key in ["kyc_customer_type", "client_segment"]
+    )
     assert current["case"]["goldtier_result"] is None
     return ownership
 
@@ -247,10 +245,12 @@ def test_existing_four_use_actual_marketplace_composition_without_requests(compa
 
 
 @pytest.mark.parametrize("company", SYNTHETIC_COMPANIES, ids=lambda c: c.code)
-def test_matching_native_pdf_is_deterministic_identity_only(company):
+def test_matching_native_pdf_has_exact_identity_and_explicit_classification(company):
     content = (DOCUMENTS / company.document_name).read_bytes()
     assert content == text_pdf(
-        company.document_fields,
+        company.document_fields | {
+            "KYC Customer Type": "Company - Private", "Client Segment": "Corporate",
+        },
         extra_lines=(
             "LOCAL PROJECT SYNTHETIC MOCK - fictional identity only.",
             "Ownership evidence comes from the synthetic registry graph.",
@@ -261,6 +261,7 @@ def test_matching_native_pdf_is_deterministic_identity_only(company):
     text = reader.pages[0].extract_text()
     for key, value in company.document_fields.items():
         assert f"{key}: {value}" in text
+    assert "KYC Customer Type: Company - Private" in text and "Client Segment: Corporate" in text
     assert "SYNTHETIC MOCK" in text and "%" not in text
     assert all(name not in text for _, _, name in company.parties)
 

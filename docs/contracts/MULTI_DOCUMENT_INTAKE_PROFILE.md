@@ -53,3 +53,39 @@ single-document auto-start route remains for compatibility.
 
 The frontend selected-file total is advisory and includes only accepted, deduplicated
 files. Backend count, per-file size, and total-current-intake checks remain authoritative.
+
+## Owner-authorized grouped review candidate - 2026-10-10
+
+POST /api/clm/zero-touch/cases/{case_id}/review-decisions accepts one bounded decision
+family: document groups (at most20 documents, at most4 unique field decisions each), or
+reconciliation choices (at most80 unique discrepancies). Case event count and automation
+version are required. Each document binds its current immutable review_source_fingerprint
+and expected event count; reconciliation binds its version and every fingerprint.
+Document actions remain ACCEPTED/REJECTED/CORRECTED; source actions remain
+KEEP_REGISTRY_VALUE/USE_DOCUMENT_VALUE. Corrections/notes retain existing validation.
+
+The response is the authoritative ZeroTouchCaseSummaryResponse. Authenticated creator,
+team scope, capability, CSRF and in-lock reauthorization apply. Stale groups fail closed;
+no currentness, confidence, missing identity or target confirmation requirement is waived.
+The frontend makes no request on choice/change/save-in-tab. Explicit group confirmation
+performs one mutation and the existing coherent case/documents/ownership/intelligence
+refresh wave. Tab drafts are lost on refresh/session/evidence changes and are never stored
+in localStorage/sessionStorage. Schema10 is unchanged. See ADR-011 for checkpoint limits.
+
+## Owner-authorized Final Review replacement - 2026-10-10
+
+The existing replacement route also accepts WAITING_FOR_REVIEW/READINESS when the
+backend document_replacement_authorized capability is true. Creator/team authorization
+is repeated inside the owning case lock. The existing document version remains required;
+Final Review additionally requires X-Automation-Version, X-Clm-Version and
+X-Case-Event-Count. Missing or stale context fails before an evidence write. The document
+owner retains original observations and supersession links. Existing orchestration
+refreshes document/reconciliation/ownership/readiness and cancels the old confirmation.
+The user receives fresh Final Review or a genuine remaining blocker and must explicitly
+Send again. Classification review follows its current owner and similarly refreshes
+confirmation. Confirmation, retained target intent/attempt/result or submission uncertainty
+freezes editing. Policy/booking/external-system constants remain read-only.
+
+Replacement may retain its document/automation section before a subsequent CLM refresh
+fails. A sanitized technical failure and existing explicit Resume repair that checkpoint;
+the operation is not a cross-repository transaction. No target call repairs evidence.

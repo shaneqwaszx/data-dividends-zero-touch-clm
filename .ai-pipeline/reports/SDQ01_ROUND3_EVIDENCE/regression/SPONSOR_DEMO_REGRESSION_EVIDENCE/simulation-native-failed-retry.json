@@ -1,0 +1,13 @@
+{
+  "scenario": "failed document retry",
+  "initial": "Actual native extraction text bound / PENDING_INPUTS",
+  "actual_control": "Retry affected document INPUT:file; then Continue evidence review BUTTON",
+  "choices": 0,
+  "calls_before_confirmation": 0,
+  "confirmation": "Initial intake 503, failed retry 503, valid native retry 201, one Resume 200",
+  "final": [
+    "TARGET_CONFIRMATION_REQUIRED"
+  ],
+  "verdict": "PASS",
+  "external_calls": 0
+}

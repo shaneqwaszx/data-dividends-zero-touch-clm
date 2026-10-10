@@ -73,6 +73,9 @@ ROUTE_POLICIES: tuple[RoutePolicy, ...] = (
     RoutePolicy("POST", "/api/clm/zero-touch/cases", RouteAccess.CASE_CREATION),
     RoutePolicy("POST", "/api/demo/clm/zero-touch/cases", RouteAccess.CASE_CREATION),
     RoutePolicy("GET", "/api/onboarding/cases/{case_id}", RouteAccess.CASE_SCOPED),
+    RoutePolicy(
+        "POST", "/api/clm/zero-touch/cases/{case_id}/review-decisions", RouteAccess.CASE_SCOPED,
+    ),
     RoutePolicy("GET", "/api/clm/cases/{case_id}", RouteAccess.CASE_SCOPED),
     RoutePolicy(
         "POST",

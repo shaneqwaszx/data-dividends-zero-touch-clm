@@ -1,0 +1,13 @@
+{
+  "scenario": "missing-upload",
+  "initial": "PENDING_INPUTS / DOCUMENT_IDP",
+  "expected_navigation": "#case-document-upload input[type=file]",
+  "actual_control": "INPUT:file (focused, upload label fully in viewport)",
+  "choices": 0,
+  "calls_before_confirmation": 0,
+  "confirmation": "One upload POST then explicit Resume POST",
+  "final": [
+    "TARGET_CONFIRMATION_REQUIRED"
+  ],
+  "verdict": "PASS"
+}

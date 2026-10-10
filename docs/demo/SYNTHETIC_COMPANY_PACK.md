@@ -63,17 +63,21 @@ provider namespaces remain hidden. Production/Live ACRA is outside this task.
 
 ## Documents and journey
 
-The four byte-preserved native-text PDFs reside under
+The four classification-bearing native-text PDFs reside under
 apps/backend/tests/fixtures/uat/zero-touch-database. Regenerate only these four using
 python scripts/generate_synthetic_company_pack.py. Legal Name/UEN/Registered Address/
-Country are the only identity fields; PDFs contain no ownership quantities. Quantitative
+Country remain the identity fields. Explicit KYC Customer Type: Company - Private and
+Client Segment: Corporate labels are also present; PDFs contain no ownership quantities. Quantitative
 ownership comes from the LOCAL_SYNTHETIC_UAT_V1 registry seed.
 
 Enter the exact company name/UEN, choose SG and upload its matching PDF. The four fields
 reach MATCH/ACCEPTED/HIGH with deterministic0.97 evidence scores. The ordinary Decimal
 engine produces the table's ownership results without manual ownership supplementation.
-Select target classification explicitly (Company - Private / Corporate for the four new
-companies), inspect the package and use Review & Send. Mock GoldTier remains supported;
+The matching updated PDF supplies Company - Private / Corporate automatically through
+two DOCUMENT-source selections. Check "Automatically classified from document"; no
+manual classification save is needed for these four trusted current fixtures. Missing,
+conflicting or stale classification still requires the indicated explicit review.
+Inspect the package and use Review & Send. Mock GoldTier remains supported;
 use its existing configuration or the separately approved target configuration.
 No target mutation precedes confirmation. Expected completion is COMPLETED /
 SUBMISSION_CONFIRMED with verified exact-ID readback; reload/reopen causes no Marketplace
@@ -87,15 +91,40 @@ all four existing companies. An eligible neighboring unseeded UEN and an expired
 reach the ordinary Marketplace seam without synthetic evidence. Physical Mongo checks
 exercise eight-record CLI/idempotence/restart and four new normal-runtime completions.
 Browser tests exercise actual HTTP and Mongo with configured Marketplace, local seed
-provenance, four documents, explicit classification, Send and reload.
-Executed counts and the fresh independent verdict belong to the CORRECTION implementation,
-manifest and quality-gate reports. The earlier gate does not certify this candidate.
+provenance, four documents, automatic DOCUMENT classification, Send and reload.
+Earlier database-first acceptance remains attributed to the CORRECTION reports. The
+2026-10-10 classification-bearing documents and grouped-review candidate have their own
+BLOCKER_RESOLUTION implementation, simulation, performance, IDP, manifest and independent
+quality-gate evidence. The earlier gate does not certify these changed bytes.
 
 ## Document byte identities
 
 | PDF | SHA256 |
 |---|---|
-| meridian-synthetic-infrastructure-client.pdf | `b34c6894129f41e898ce54b04cc0a5927ae1d8f56b83be9e602348f49f1ba88c` |
-| orion-synthetic-technologies-client.pdf | `87420d3b16467f157fafe16c59d05940dbfb2f7566eb34b1976193420bb07f38` |
-| pacific-synthetic-ledger-client.pdf | `ab228e462648f022b5bf4c1a8262d919b7975d33e0114eb11da41c150f3eb30d` |
-| straits-synthetic-holdings-client.pdf | `ed24243f5b7ad02d51222975b9348f61cb9091c17882ca8082d32f4eb3b09597` |
+| meridian-synthetic-infrastructure-client.pdf | `2f7935ab8304f9770b25f66087bda17caf4dfcf08b2269c357312c15d6438055` |
+| orion-synthetic-technologies-client.pdf | `37b38963c5f0f7bf06811327e8107164920bc92bf8316751e870a8f1c751a579` |
+| pacific-synthetic-ledger-client.pdf | `e72533ae8c1fe03f0813985c9db922fc79213e21c3e3bab79da07c359c8c75be` |
+| straits-synthetic-holdings-client.pdf | `72a48301de57715b05a9fcace2faac7683ab4b2534072c70bdc52793a9eda648` |
+
+## Separate sponsor demo shortlist - 2026-10-10
+
+The owner addendum selects Aurora202400019S (new fictional Morgan65%/Rowan35% direct),
+Pacific202400015O, Straits202400016P and Meridian202400017Q. The last three keep the exact
+table graphs above. Orion and its original document/seed/history remain available.
+The earlier negative unknown-neighbor202400018R fixture is preserved.
+
+Generate only the four new annex documents with
+python scripts/generate_synthetic_company_pack.py --sponsor-demo. Seed/check the shortlist
+with the existing commands above plus --sponsor-demo. Both flags are explicit: ordinary
+startup does not seed and the manager's default eight records are unchanged. Each new
+native PDF supplies the six explicit labels and identifies its ownership appendix as
+an informational LOCAL_SYNTHETIC_UAT_V1 registry annex. The current parser does not treat
+that annex as independent declaration evidence. The authoritative quantitative source
+remains the exact complete LOCAL registry seed and the single Decimal engine.
+
+The sponsor acceptance uses actual browser HTTP/Mongo and strict offline XPI Sandbox
+transports. Ordinary configured Sandbox Search and human final Send remain required.
+Real Sandbox UAT is NOT_VERIFIED; successful offline readback is not a provider approval
+or Live claim. See .ai-pipeline/reports/SPONSOR_DEMO_OPERATOR_RUNBOOK.md and the separate
+fixture/document manifest for exact bytes, seeds and eight journey evidence. The prior
+blocker quality gate does not accept the expanded content.
