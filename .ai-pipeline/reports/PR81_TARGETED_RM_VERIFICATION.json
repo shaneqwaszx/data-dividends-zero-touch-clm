@@ -1,0 +1,1382 @@
+{
+  "verdict": "ALL REQUIRED LOCAL GATES PASS; fresh independent acceptance pending",
+  "recorded_utc": "2026-10-10T14:10:43.813339+00:00",
+  "authority_sha256": "c5d0adbe905c1ef6a1f677fd0baa6b34c0a1e2746a3cecffb11dfb41ea20af17",
+  "branch": "feat/blocker-resolution-idp-ux-optimization",
+  "published_head": "973ce93a21ef7ca1cda1a2458f316b8030b96b12",
+  "main_cached": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "source8_identity": "fcddc61073095c8fcc2b09051ae626581499b02fa608d22ca144fcc8fc0bcc38",
+  "source_hashes": {
+    ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+    "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+    "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+    "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+    "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+    "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+    "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+    "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+  },
+  "new_rm_source_correction": null,
+  "rm_cause": "UNPROVEN; original assertion discarded before this continuation; exact original selector and full second shard now pass; no speculative fix or new failure waiver",
+  "focused": {
+    "mode": "focused",
+    "started_utc": "2026-10-10T13:35:11.437525+00:00",
+    "finished_utc": "2026-10-10T13:35:35.452463+00:00",
+    "seconds": 24.015,
+    "exit_code": 0,
+    "command": [
+      "-c",
+      "import runpy; runner=runpy.run_path('scripts/run_e2e.py'); raise SystemExit(runner['run'](backend_port=18900, frontend_port=19400, timeout_seconds=60, selection='e2e/authenticated-zero-touch.e2e.ts:242', diagnostics=True))"
+    ],
+    "original_lifecycle_deadline_seconds": 60,
+    "complete_canonical_sanitized_log": "tmp\\pr81-rm-focused.log",
+    "log_sha256": "d78175932e04013c607548ae8d4e9076cadad9ee28e9717b675bcacac5548752",
+    "source_hashes": {
+      ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+      "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+      "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+      "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+      "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+      "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+      "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+      "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f",
+      "scripts/run_e2e.py": "bc031eaa2679ff7661cff7a34668e73ab2b168f5801e76a645bfa1634d25a10f",
+      "apps/frontend/e2e/authenticated-zero-touch.e2e.ts": "552b5d8bcc78851608af892997254921fb2e8402bf3008973883c5840321074b",
+      "apps/frontend/e2e/stage-disclosures.ts": "1a591a073e13e2a539ae96ed4b28baec85ca093b035a83deb406c1be7ced6463",
+      "apps/frontend/playwright.config.ts": "3b4caed9f8762ed07a96ece218e526110f90dbec3c0f944eff44bcefb92eee20"
+    },
+    "selectors": [],
+    "lifecycles": 1,
+    "tests_passed": 1,
+    "skipped": 0
+  },
+  "diagnostic": {
+    "purpose": "supplemental diagnostic only; original uninstrumented tests are acceptance evidence",
+    "started_utc": "2026-10-10T13:49:21.659252+00:00",
+    "finished_utc": "2026-10-10T13:49:46.245739+00:00",
+    "exit_code": 0,
+    "original_test_sha256": "552b5d8bcc78851608af892997254921fb2e8402bf3008973883c5840321074b",
+    "diagnostic_test_sha256": "7f791453248c5ff79c972ce52cada7ae0269678b84eb9bfc54b5102abafc6e54",
+    "original_bytes_restored": true,
+    "log_sha256": "3362303312980b0c834301b16d904853f39441e2f0ce2365278574b41b922c51",
+    "complete_canonical_sanitized_log": "tmp\\pr81-rm-telemetry-2.log",
+    "deadline_seconds": 60,
+    "safe_chronology_sha256": "a599ce36cdf4907ece88923e9db433057d7b38f6c6ca775f30436ac7d4962e2d",
+    "safe_chronology_path": "tmp\\pr81-rm-safe-chronology.jsonl"
+  },
+  "diagnostic_collection_failure": {
+    "recorded_utc": "2026-10-10T13:49:17.035654+00:00",
+    "diagnostic_test": "PASS, 16.6 seconds in Playwright",
+    "collection": "FAILED; existing preserveOutput=never removed diagnostic artifact after test completion",
+    "candidate_source_changed": false,
+    "original_scratch_bytes_restored": true,
+    "full_canonical_sanitized_log": "tmp/pr81-rm-telemetry.log",
+    "log_sha256": "155d6a806dc04f94933315695a05f9f80de6f6f1363006f11374112928e44900",
+    "next": "Only diagnostic file destination corrected outside Playwright output cleanup; original controls unchanged"
+  },
+  "browser_shards": [
+    {
+      "mode": "shard1",
+      "started_utc": "2026-10-10T13:50:06.071132+00:00",
+      "finished_utc": "2026-10-10T14:02:06.019721+00:00",
+      "seconds": 719.953,
+      "exit_code": 0,
+      "command": [
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--diagnostics",
+        "--shard",
+        "1/2"
+      ],
+      "original_lifecycle_deadline_seconds": 60,
+      "complete_canonical_sanitized_log": "tmp\\pr81-rm-shard1.log",
+      "log_sha256": "b47bf47b328203864f39f2e23a9503a2e5ea57b2f6107404837247c91e2a4f90",
+      "source_hashes": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f",
+        "scripts/run_e2e.py": "bc031eaa2679ff7661cff7a34668e73ab2b168f5801e76a645bfa1634d25a10f",
+        "apps/frontend/e2e/authenticated-zero-touch.e2e.ts": "552b5d8bcc78851608af892997254921fb2e8402bf3008973883c5840321074b",
+        "apps/frontend/e2e/stage-disclosures.ts": "1a591a073e13e2a539ae96ed4b28baec85ca093b035a83deb406c1be7ced6463",
+        "apps/frontend/playwright.config.ts": "3b4caed9f8762ed07a96ece218e526110f90dbec3c0f944eff44bcefb92eee20"
+      },
+      "selectors": [
+        "e2e/authenticated-zero-touch.e2e.ts:230",
+        "e2e/authenticated-zero-touch.e2e.ts:628",
+        "e2e/authenticated-zero-touch.e2e.ts:761",
+        "e2e/authenticated-zero-touch.e2e.ts:917",
+        "e2e/authenticated-zero-touch.e2e.ts:1188",
+        "e2e/authenticated-zero-touch.e2e.ts:1382",
+        "e2e/authenticated-zero-touch.e2e.ts:1624",
+        "e2e/blocker-simulation.e2e.ts:25",
+        "e2e/blocker-simulation.e2e.ts:122",
+        "e2e/blocker-simulation.e2e.ts:221",
+        "e2e/blocker-simulation.e2e.ts:308",
+        "e2e/database-classification.e2e.ts:97",
+        "e2e/database-classification.e2e.ts:101",
+        "e2e/garden-happy-path.e2e.ts:217",
+        "e2e/garden-happy-path.e2e.ts:315",
+        "e2e/onboarding-recovery.e2e.ts:6",
+        "e2e/performance-browser.e2e.ts:98",
+        "e2e/phase24-identity.e2e.ts:138",
+        "e2e/phase24c-policy.e2e.ts:34",
+        "e2e/responsive-layout.e2e.ts:308",
+        "e2e/responsive-layout.e2e.ts:404",
+        "e2e/responsive-layout.e2e.ts:476",
+        "e2e/responsive-layout.e2e.ts:502",
+        "e2e/s1-workspace-session.e2e.ts:123",
+        "e2e/s1-workspace-session.e2e.ts:213",
+        "e2e/s2-ownership.e2e.ts:112",
+        "e2e/s3-sandbox-submission.e2e.ts:211",
+        "e2e/s3-sandbox-submission.e2e.ts:217",
+        "e2e/s3-sandbox-submission.e2e.ts:339",
+        "e2e/s3-sandbox-submission.e2e.ts:412",
+        "e2e/s3-sandbox-submission.e2e.ts:428",
+        "e2e/slice-b-registry-demo.e2e.ts:118",
+        "e2e/slice-b-registry-demo.e2e.ts:160",
+        "e2e/slice-c-recovery.e2e.ts:122",
+        "e2e/slice-c-recovery.e2e.ts:165",
+        "e2e/slice-c-recovery.e2e.ts:241",
+        "e2e/slice-c-recovery.e2e.ts:247",
+        "e2e/slice-c-recovery.e2e.ts:274",
+        "e2e/slice-e-policy.e2e.ts:64",
+        "e2e/sponsor-demo-journeys.e2e.ts:317",
+        "e2e/sponsor-demo-journeys.e2e.ts:319",
+        "e2e/sponsor-demo-journeys.e2e.ts:321",
+        "e2e/sponsor-demo-journeys.e2e.ts:323",
+        "e2e/synthetic-company-pack.e2e.ts:22",
+        "e2e/zero-touch-exception.e2e.ts:161"
+      ],
+      "lifecycles": 45,
+      "tests_passed": 65,
+      "skipped": 0
+    },
+    {
+      "mode": "shard2",
+      "started_utc": "2026-10-10T13:35:59.093626+00:00",
+      "finished_utc": "2026-10-10T13:47:37.906606+00:00",
+      "seconds": 698.812,
+      "exit_code": 0,
+      "command": [
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--diagnostics",
+        "--shard",
+        "2/2"
+      ],
+      "original_lifecycle_deadline_seconds": 60,
+      "complete_canonical_sanitized_log": "tmp\\pr81-rm-shard2.log",
+      "log_sha256": "0f282566602dbd3d7a669e3ddfc0d471555690506805a051019d7124efddba31",
+      "source_hashes": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f",
+        "scripts/run_e2e.py": "bc031eaa2679ff7661cff7a34668e73ab2b168f5801e76a645bfa1634d25a10f",
+        "apps/frontend/e2e/authenticated-zero-touch.e2e.ts": "552b5d8bcc78851608af892997254921fb2e8402bf3008973883c5840321074b",
+        "apps/frontend/e2e/stage-disclosures.ts": "1a591a073e13e2a539ae96ed4b28baec85ca093b035a83deb406c1be7ced6463",
+        "apps/frontend/playwright.config.ts": "3b4caed9f8762ed07a96ece218e526110f90dbec3c0f944eff44bcefb92eee20"
+      },
+      "selectors": [
+        "e2e/authenticated-zero-touch.e2e.ts:242",
+        "e2e/authenticated-zero-touch.e2e.ts:670",
+        "e2e/authenticated-zero-touch.e2e.ts:827",
+        "e2e/authenticated-zero-touch.e2e.ts:1005",
+        "e2e/authenticated-zero-touch.e2e.ts:1234",
+        "e2e/authenticated-zero-touch.e2e.ts:1512",
+        "e2e/blocker-review-performance.e2e.ts:19",
+        "e2e/blocker-simulation.e2e.ts:85",
+        "e2e/blocker-simulation.e2e.ts:167",
+        "e2e/blocker-simulation.e2e.ts:276",
+        "e2e/database-classification.e2e.ts:96",
+        "e2e/database-classification.e2e.ts:98",
+        "e2e/garden-happy-path.e2e.ts:157",
+        "e2e/garden-happy-path.e2e.ts:301",
+        "e2e/garden-happy-path.e2e.ts:366",
+        "e2e/performance-browser.e2e.ts:97",
+        "e2e/phase24-identity.e2e.ts:83",
+        "e2e/phase24-identity.e2e.ts:157",
+        "e2e/phase24c-policy.e2e.ts:79",
+        "e2e/responsive-layout.e2e.ts:347",
+        "e2e/responsive-layout.e2e.ts:440",
+        "e2e/responsive-layout.e2e.ts:494",
+        "e2e/s1-workspace-session.e2e.ts:93",
+        "e2e/s1-workspace-session.e2e.ts:186",
+        "e2e/s2-ownership.e2e.ts:55",
+        "e2e/s3-sandbox-submission.e2e.ts:134",
+        "e2e/s3-sandbox-submission.e2e.ts:214",
+        "e2e/s3-sandbox-submission.e2e.ts:335",
+        "e2e/s3-sandbox-submission.e2e.ts:404",
+        "e2e/s3-sandbox-submission.e2e.ts:420",
+        "e2e/slice-b-registry-demo.e2e.ts:91",
+        "e2e/slice-b-registry-demo.e2e.ts:128",
+        "e2e/slice-b-registry-demo.e2e.ts:183",
+        "e2e/slice-c-recovery.e2e.ts:143",
+        "e2e/slice-c-recovery.e2e.ts:198",
+        "e2e/slice-c-recovery.e2e.ts:244",
+        "e2e/slice-c-recovery.e2e.ts:271",
+        "e2e/slice-c-recovery.e2e.ts:279",
+        "e2e/slice-e-policy.e2e.ts:114",
+        "e2e/sponsor-demo-journeys.e2e.ts:318",
+        "e2e/sponsor-demo-journeys.e2e.ts:320",
+        "e2e/sponsor-demo-journeys.e2e.ts:322",
+        "e2e/sponsor-demo-journeys.e2e.ts:324",
+        "e2e/zero-touch-exception.e2e.ts:126"
+      ],
+      "lifecycles": 44,
+      "tests_passed": 47,
+      "skipped": 0
+    }
+  ],
+  "inventory": {
+    "lifecycles": 89,
+    "tests": 112,
+    "skipped": 0,
+    "excluded": 0
+  },
+  "journeys": [
+    {
+      "code": "aurora",
+      "receipt_sha256": "4356ccfbcc6f75e5eed968b800db5d41c134e50fd54ac6f5b9f42b4db7cf0b85",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      }
+    },
+    {
+      "code": "garden",
+      "receipt_sha256": "9674cbc39cba497a87d2fefc729a5120774f69bc68fa6d75397f3041203104c9",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      }
+    },
+    {
+      "code": "meridian",
+      "receipt_sha256": "b0e7a94d6c52c813126e0499498cea6b0896f10cf421579c1fffcaee4a58539c",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      }
+    },
+    {
+      "code": "merlion",
+      "receipt_sha256": "6946ff07840afdd689762767f755a30b74de83e85ad6527e16a9481176532b67",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 3,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 4,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      }
+    },
+    {
+      "code": "multilevel",
+      "receipt_sha256": "e29f641cb3430f9a48dcfa776463f01540fbfff2ac49519a913486f2fb33f647",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      }
+    },
+    {
+      "code": "multiple",
+      "receipt_sha256": "b21b836b69ca515b71b41f0dede36ab1baba0fd4e2a805241b37f49fdc600dfb",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      }
+    },
+    {
+      "code": "pacific",
+      "receipt_sha256": "d97fce57f9e487a7a6cd02bde44cfea7c8c4f66cb12cc295fe16aa4fc96ec275",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      }
+    },
+    {
+      "code": "straits",
+      "receipt_sha256": "bddb8f0e4eb1c409c112a38dbcbfe947abb80a74b749c484350630eef04bd8bc",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      }
+    }
+  ],
+  "current_revalidation": {
+    "focused": {
+      "lane": "focused",
+      "scheduling": "one heavy suite at a time",
+      "started_utc": "2026-10-10T14:02:33.562096+00:00",
+      "source_hashes": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "commands": [
+        {
+          "name": "race_group_reconciliation",
+          "command": [
+            "-m",
+            "pytest",
+            "tests/test_phase14_case_management_performance.py",
+            "tests/test_batch_review_decisions.py",
+            "tests/test_phase11_reconciliation.py"
+          ],
+          "cwd": "apps\\backend",
+          "exit_code": 0,
+          "seconds": 32.343,
+          "output_sha256": "0741da6b438e698a357b8fc188267e8f9a6601a10a3d667c1f71178dab58722b",
+          "safe_summary": [
+            "77 passed, 1 warning in 31.04s"
+          ]
+        }
+      ],
+      "success": true,
+      "finished_utc": "2026-10-10T14:03:05.905797+00:00"
+    },
+    "windows": {
+      "lane": "windows",
+      "scheduling": "one heavy suite at a time",
+      "started_utc": "2026-10-10T14:03:20.512876+00:00",
+      "source_hashes": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "commands": [
+        {
+          "name": "windows31",
+          "command": [
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_demo_lifecycle_windows.py",
+            "-v"
+          ],
+          "cwd": "tmp\\pr81-final-windows-checkout",
+          "exit_code": 0,
+          "seconds": 345.203,
+          "output_sha256": "314a9ef8e4d04ab6898a2f94305b73d83c17ea1e116c2bfadc31fbe71e9a4105",
+          "safe_summary": [
+            "Ran 31 tests in 344.809s",
+            "OK"
+          ]
+        }
+      ],
+      "success": true,
+      "finished_utc": "2026-10-10T14:09:05.724251+00:00"
+    },
+    "static": {
+      "lane": "static",
+      "scheduling": "one heavy suite at a time",
+      "started_utc": "2026-10-10T14:09:23.738448+00:00",
+      "source_hashes": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "commands": [
+        {
+          "name": "ruff",
+          "command": [
+            "-m",
+            "ruff",
+            "check",
+            "."
+          ],
+          "cwd": "apps\\backend",
+          "exit_code": 0,
+          "seconds": 0.11,
+          "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+          "safe_summary": [
+            "All checks passed!"
+          ]
+        },
+        {
+          "name": "mypy",
+          "command": [
+            "-m",
+            "mypy",
+            "app"
+          ],
+          "cwd": "apps\\backend",
+          "exit_code": 0,
+          "seconds": 0.39,
+          "output_sha256": "9936b895f3d463c7f667ddb1f2e5420b3fc7f48d3362f8497d22ce95dcb2b9ab",
+          "safe_summary": [
+            "Success: no issues found in 127 source files"
+          ]
+        },
+        {
+          "name": "dependencies",
+          "command": [
+            "-m",
+            "pip",
+            "check"
+          ],
+          "cwd": ".",
+          "exit_code": 0,
+          "seconds": 0.594,
+          "output_sha256": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09",
+          "safe_summary": [
+            "No broken requirements found."
+          ]
+        }
+      ],
+      "success": true,
+      "finished_utc": "2026-10-10T14:09:24.825083+00:00"
+    },
+    "frontend": {
+      "lane": "frontend",
+      "scheduling": "one heavy suite at a time",
+      "started_utc": "2026-10-10T14:09:34.021343+00:00",
+      "source_hashes": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "commands": [
+        {
+          "name": "typecheck",
+          "command": [
+            "run",
+            "typecheck"
+          ],
+          "cwd": "apps\\frontend",
+          "exit_code": 0,
+          "seconds": 6.0,
+          "output_sha256": "e509183f941e75d75acd2730534462d1053bf5d19f4ff51e5e43e834cd2adc5d",
+          "safe_summary": []
+        },
+        {
+          "name": "build",
+          "command": [
+            "run",
+            "build"
+          ],
+          "cwd": "apps\\frontend",
+          "exit_code": 0,
+          "seconds": 7.468,
+          "output_sha256": "ff8cde1639543d00e5653faed7a7c5eb43424a003c62b433f6469dde114ca545",
+          "safe_summary": []
+        }
+      ],
+      "success": true,
+      "finished_utc": "2026-10-10T14:09:47.493647+00:00"
+    },
+    "governance": {
+      "lane": "governance",
+      "scheduling": "one heavy suite at a time",
+      "started_utc": "2026-10-10T14:10:11.943311+00:00",
+      "source_hashes": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "commands": [
+        {
+          "name": "project_state",
+          "command": [
+            "scripts/check_project_state.py"
+          ],
+          "cwd": ".",
+          "exit_code": 0,
+          "seconds": 0.296,
+          "output_sha256": "3262c6b3886f45ebcdfba7a99060f2e8c913ba3932474833ac1ac4ab25b34b4e",
+          "safe_summary": []
+        },
+        {
+          "name": "architecture",
+          "command": [
+            "scripts/check_architecture.py"
+          ],
+          "cwd": ".",
+          "exit_code": 0,
+          "seconds": 0.438,
+          "output_sha256": "0354b987ed77a425690ed8e0846be649216b327ce3f8911b799cbf24262eb8ae",
+          "safe_summary": []
+        },
+        {
+          "name": "tooling_config",
+          "command": [
+            "scripts/check_tooling_config.py"
+          ],
+          "cwd": ".",
+          "exit_code": 0,
+          "seconds": 0.078,
+          "output_sha256": "497e4efb7ef5889bb1796963c7849e27a2cef9fed485d647d4e5e294f7866036",
+          "safe_summary": [
+            "TOOLING_CONFIG=PASS: exact optional Docs and disabled cluster MCP policy"
+          ]
+        },
+        {
+          "name": "policy_authority",
+          "command": [
+            "scripts/check_policy_authority.py"
+          ],
+          "cwd": ".",
+          "exit_code": 0,
+          "seconds": 0.094,
+          "output_sha256": "d628ddd9d73d021930573eae8f24cf00bb494d6fd6b9c487d353db7a9df300cb",
+          "safe_summary": []
+        },
+        {
+          "name": "external_provider_readiness",
+          "command": [
+            "scripts/check_external_provider_readiness.py"
+          ],
+          "cwd": ".",
+          "exit_code": 0,
+          "seconds": 0.094,
+          "output_sha256": "5ca11d84bd58300bf0a32513ca41af7e5d04e5480d414083807b93b26ae63ef9",
+          "safe_summary": []
+        },
+        {
+          "name": "secrets",
+          "command": [
+            "scripts/check_secrets.py"
+          ],
+          "cwd": ".",
+          "exit_code": 0,
+          "seconds": 2.828,
+          "output_sha256": "181703e90a6e28cdb928cb8068e8aab8f41fb732bebc2ee96ba064f1436cb42b",
+          "safe_summary": []
+        },
+        {
+          "name": "contracts44",
+          "command": [
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests/contract",
+            "-p",
+            "test_*.py"
+          ],
+          "cwd": ".",
+          "exit_code": 0,
+          "seconds": 2.718,
+          "output_sha256": "a6c86eb8b3e8e7dc41d594efeedfc97f2c2d3fccd7048ddfe68fc77d6910b88f",
+          "safe_summary": [
+            "Ran 44 tests in 1.182s",
+            "OK"
+          ]
+        },
+        {
+          "name": "goldtier_examples",
+          "command": [
+            "scripts/validate_goldtier_examples.py",
+            "--if-present"
+          ],
+          "cwd": ".",
+          "exit_code": 0,
+          "seconds": 0.125,
+          "output_sha256": "b25f0a5b46ff0bf34282141dff2f8a39e8569b5caec84c8627c547afda826ab7",
+          "safe_summary": []
+        }
+      ],
+      "success": true,
+      "finished_utc": "2026-10-10T14:10:18.609189+00:00"
+    }
+  },
+  "unchanged_broader_evidence": {
+    "backend": {
+      "lane": "backend",
+      "scheduling": "one heavy suite at a time",
+      "started_utc": "2026-10-10T12:12:49.532549+00:00",
+      "source_hashes": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "commands": [
+        {
+          "name": "backend_pytest",
+          "command": [
+            "-m",
+            "pytest"
+          ],
+          "cwd": "apps\\backend",
+          "started_utc": "2026-10-10T12:12:49.534552+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 944.953,
+          "finished_utc": "2026-10-10T12:28:34.479179+00:00",
+          "output_sha256": "0081ba1cb729baa7f361feca9e95a2f8a3ea2a1b54d2f738deda5ef8d8ef7cac",
+          "safe_summary": [
+            "2638 passed, 145 skipped, 4 warnings in 942.89s (0:15:42)"
+          ]
+        }
+      ],
+      "source_hashes_after": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "success": true,
+      "finished_utc": "2026-10-10T12:28:34.481172+00:00"
+    },
+    "mongo": {
+      "lane": "mongo",
+      "scheduling": "one heavy suite at a time",
+      "started_utc": "2026-10-10T12:46:57.087291+00:00",
+      "source_hashes": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "commands": [
+        {
+          "name": "physical_mongo",
+          "command": [
+            "scripts/run_physical_mongo_tests.py"
+          ],
+          "cwd": ".",
+          "started_utc": "2026-10-10T12:46:57.089292+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 255.172,
+          "finished_utc": "2026-10-10T12:51:12.265200+00:00",
+          "output_sha256": "e15755f413aa09476cb90b7c5738d4f2f0883e8a81b3a99f01a422a3864859ac",
+          "safe_summary": [
+            "PHYSICAL_MONGO_RESULT=PASSED; SUITES=23; COLLECTED=145; PASSED=145; FAILED=0; ERRORS=0; SKIPPED=0"
+          ]
+        }
+      ],
+      "source_hashes_after": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "success": true,
+      "finished_utc": "2026-10-10T12:51:12.267195+00:00"
+    },
+    "frontend": {
+      "lane": "frontend",
+      "scheduling": "one heavy suite at a time",
+      "started_utc": "2026-10-10T12:51:31.209829+00:00",
+      "source_hashes": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "commands": [
+        {
+          "name": "post_provisioning_pip_check",
+          "command": [
+            "-m",
+            "pip",
+            "check"
+          ],
+          "cwd": ".",
+          "started_utc": "2026-10-10T12:51:31.211951+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 0.562,
+          "finished_utc": "2026-10-10T12:51:31.776154+00:00",
+          "output_sha256": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09",
+          "safe_summary": [
+            "No broken requirements found."
+          ]
+        },
+        {
+          "name": "npm_integrity",
+          "command": [
+            "ls",
+            "--all"
+          ],
+          "cwd": "apps\\frontend",
+          "started_utc": "2026-10-10T12:51:31.778336+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 0.875,
+          "finished_utc": "2026-10-10T12:51:32.652622+00:00",
+          "output_sha256": "ffe4e40e5d51e3968ec49b8170e2e91a21bab504178e2f0dc27840c7a4f002d7",
+          "safe_summary": []
+        },
+        {
+          "name": "browser_discovery",
+          "command": [
+            "run",
+            "e2e:list"
+          ],
+          "cwd": "apps\\frontend",
+          "started_utc": "2026-10-10T12:51:32.655623+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 1.813,
+          "finished_utc": "2026-10-10T12:51:34.468827+00:00",
+          "output_sha256": "8e5b6713d04db39449ba411b4fda38309f917804daf084a175b89b7f8707efcf",
+          "safe_summary": [
+            "Total: 112 tests in 19 files"
+          ]
+        },
+        {
+          "name": "typecheck",
+          "command": [
+            "run",
+            "typecheck"
+          ],
+          "cwd": "apps\\frontend",
+          "started_utc": "2026-10-10T12:51:34.471845+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 5.984,
+          "finished_utc": "2026-10-10T12:51:40.461160+00:00",
+          "output_sha256": "e509183f941e75d75acd2730534462d1053bf5d19f4ff51e5e43e834cd2adc5d",
+          "safe_summary": []
+        },
+        {
+          "name": "frontend_tests",
+          "command": [
+            "test"
+          ],
+          "cwd": "apps\\frontend",
+          "started_utc": "2026-10-10T12:51:40.463160+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 7.359,
+          "finished_utc": "2026-10-10T12:51:47.831765+00:00",
+          "output_sha256": "f7089479bf2d80916c4259ba874e58a414a479b559e01a0beb7b990de1828687",
+          "safe_summary": [
+            " Test Files  49 passed (49)",
+            "      Tests  576 passed (576)"
+          ]
+        },
+        {
+          "name": "build",
+          "command": [
+            "run",
+            "build"
+          ],
+          "cwd": "apps\\frontend",
+          "started_utc": "2026-10-10T12:51:47.848602+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 7.312,
+          "finished_utc": "2026-10-10T12:51:55.156510+00:00",
+          "output_sha256": "ab92d9036786513be5768c6dda2aeaf837ec2697e2c5105476211f38f3b895ef",
+          "safe_summary": []
+        }
+      ],
+      "source_hashes_after": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "success": true,
+      "finished_utc": "2026-10-10T12:51:55.158518+00:00"
+    },
+    "governance-provisioned": {
+      "lane": "governance-provisioned",
+      "scheduling": "one heavy suite at a time",
+      "started_utc": "2026-10-10T12:38:48.306258+00:00",
+      "source_hashes": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "commands": [
+        {
+          "name": "root_unittest",
+          "command": [
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-v"
+          ],
+          "cwd": ".",
+          "started_utc": "2026-10-10T12:38:48.307275+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 446.359,
+          "finished_utc": "2026-10-10T12:46:14.665915+00:00",
+          "output_sha256": "90f4f3ab21ff415ef42bb9934cac387470a5c4498f505ae59e974385a6128dfb",
+          "safe_summary": [
+            "Ran 374 tests in 444.512s",
+            "OK"
+          ]
+        },
+        {
+          "name": "project_state",
+          "command": [
+            "scripts/check_project_state.py"
+          ],
+          "cwd": ".",
+          "started_utc": "2026-10-10T12:46:14.673423+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 0.25,
+          "finished_utc": "2026-10-10T12:46:14.918950+00:00",
+          "output_sha256": "3262c6b3886f45ebcdfba7a99060f2e8c913ba3932474833ac1ac4ab25b34b4e",
+          "safe_summary": []
+        },
+        {
+          "name": "architecture",
+          "command": [
+            "scripts/check_architecture.py"
+          ],
+          "cwd": ".",
+          "started_utc": "2026-10-10T12:46:14.920000+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 0.437,
+          "finished_utc": "2026-10-10T12:46:15.359929+00:00",
+          "output_sha256": "0354b987ed77a425690ed8e0846be649216b327ce3f8911b799cbf24262eb8ae",
+          "safe_summary": []
+        },
+        {
+          "name": "tooling_config",
+          "command": [
+            "scripts/check_tooling_config.py"
+          ],
+          "cwd": ".",
+          "started_utc": "2026-10-10T12:46:15.361905+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 0.094,
+          "finished_utc": "2026-10-10T12:46:15.447248+00:00",
+          "output_sha256": "497e4efb7ef5889bb1796963c7849e27a2cef9fed485d647d4e5e294f7866036",
+          "safe_summary": [
+            "TOOLING_CONFIG=PASS: exact optional Docs and disabled cluster MCP policy"
+          ]
+        },
+        {
+          "name": "policy_authority",
+          "command": [
+            "scripts/check_policy_authority.py"
+          ],
+          "cwd": ".",
+          "started_utc": "2026-10-10T12:46:15.448250+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 0.078,
+          "finished_utc": "2026-10-10T12:46:15.539596+00:00",
+          "output_sha256": "d628ddd9d73d021930573eae8f24cf00bb494d6fd6b9c487d353db7a9df300cb",
+          "safe_summary": []
+        },
+        {
+          "name": "external_provider_readiness",
+          "command": [
+            "scripts/check_external_provider_readiness.py"
+          ],
+          "cwd": ".",
+          "started_utc": "2026-10-10T12:46:15.540678+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 0.078,
+          "finished_utc": "2026-10-10T12:46:15.630763+00:00",
+          "output_sha256": "5ca11d84bd58300bf0a32513ca41af7e5d04e5480d414083807b93b26ae63ef9",
+          "safe_summary": []
+        },
+        {
+          "name": "secrets",
+          "command": [
+            "scripts/check_secrets.py"
+          ],
+          "cwd": ".",
+          "started_utc": "2026-10-10T12:46:15.632402+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 3.125,
+          "finished_utc": "2026-10-10T12:46:18.746432+00:00",
+          "output_sha256": "181703e90a6e28cdb928cb8068e8aab8f41fb732bebc2ee96ba064f1436cb42b",
+          "safe_summary": []
+        },
+        {
+          "name": "contract",
+          "command": [
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests/contract",
+            "-p",
+            "test_*.py"
+          ],
+          "cwd": ".",
+          "started_utc": "2026-10-10T12:46:18.747424+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 2.719,
+          "finished_utc": "2026-10-10T12:46:21.470463+00:00",
+          "output_sha256": "7755c370b7e48454fa199c48b594c647cd2a24a60dfeb15175f8960cc8937e93",
+          "safe_summary": [
+            "Ran 44 tests in 1.177s",
+            "OK"
+          ]
+        },
+        {
+          "name": "goldtier_examples",
+          "command": [
+            "scripts/validate_goldtier_examples.py",
+            "--if-present"
+          ],
+          "cwd": ".",
+          "started_utc": "2026-10-10T12:46:21.472899+00:00",
+          "source_hashes": {
+            ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+            "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+            "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+            "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+            "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+            "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+            "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+            "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+          },
+          "exit_code": 0,
+          "seconds": 0.109,
+          "finished_utc": "2026-10-10T12:46:21.574535+00:00",
+          "output_sha256": "b25f0a5b46ff0bf34282141dff2f8a39e8569b5caec84c8627c547afda826ab7",
+          "safe_summary": []
+        }
+      ],
+      "source_hashes_after": {
+        ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+        "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+        "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+        "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+        "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+        "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+        "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+        "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+      },
+      "success": true,
+      "finished_utc": "2026-10-10T12:46:21.576039+00:00"
+    }
+  },
+  "broader_applicability": "Same HEAD, exact eight raw correction hashes and no other tracked modification; unchanged broader suites were fully executed against these exact bytes in the immediately preceding run. Earlier failed receipts remain unchanged.",
+  "historical_reports_preserved": 785,
+  "prior_records_preserved": 9,
+  "windows_prior_evidence": ".ai-pipeline/reports/PR81_FINAL_WINDOWS_EVIDENCE.json",
+  "windows_prior_evidence_sha256": "1477a7cca5a5802142ac1981850a666491dab699c12cb87029b9134efd3ee374",
+  "sdq01": "Historical root cause unresolved; conditional owner extension requires independent confirmation on this frozen corrected candidate",
+  "sdq02": "Independently closed; historical reports unchanged",
+  "audit": {
+    "source8_identity": "fcddc61073095c8fcc2b09051ae626581499b02fa608d22ca144fcc8fc0bcc38",
+    "source_hashes": {
+      ".github/workflows/ci.yml": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+      "apps/backend/app/main.py": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+      "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+      "apps/backend/app/services/zero_touch_orchestration.py": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+      "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+      "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+      "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+      "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+    },
+    "historical_reports_preserved": 785,
+    "prior_records_preserved": 9,
+    "published_unchanged_paths_verified": 405,
+    "progress_exact": true,
+    "staged_count": 0,
+    "untracked_task_paths": [
+      ".ai-pipeline/001_planner/PR81_CI_FAILURE_REMEDIATION_PLAN.md",
+      ".ai-pipeline/001_planner/PR81_FINAL_STABILIZATION_PLAN.md",
+      ".ai-pipeline/001_planner/PR81_TARGETED_RM_CONTINUATION_PLAN.md",
+      ".ai-pipeline/reports/PR81_CI_FAILURE_REMEDIATION.md",
+      ".ai-pipeline/reports/PR81_CI_FAILURE_STOP_EVIDENCE.json",
+      ".ai-pipeline/reports/PR81_CI_FAILURE_STOP_REPORT.md",
+      ".ai-pipeline/reports/PR81_FINAL_STABILIZATION_STOP_EVIDENCE.json",
+      ".ai-pipeline/reports/PR81_FINAL_STABILIZATION_STOP_REPORT.md",
+      ".ai-pipeline/reports/PR81_FINAL_WINDOWS_EVIDENCE.json",
+      ".ai-pipeline/reports/PR81_FINAL_WINDOWS_INVESTIGATION.md"
+    ],
+    "tracked_diff_whitespace": "PASS",
+    "new_file_whitespace": "PASS"
+  },
+  "publication": "No new commit, pre-PR, push or review resolution yet"
+}

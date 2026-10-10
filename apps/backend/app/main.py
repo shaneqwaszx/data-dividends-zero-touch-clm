@@ -1874,17 +1874,24 @@ def create_app(
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
         actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
     ) -> ZeroTouchCaseSummaryResponse:
+        response: ZeroTouchCaseSummaryResponse | None = None
+
+        def project_established_case(record: ZeroTouchAutomationRecord) -> None:
+            nonlocal response
+            response = zero_touch_response(record, actor=actor)
+
         try:
-            return zero_touch_response(
-                active_zero_touch.create_case(
-                    request.uen,
-                    request.country_of_incorporation,
-                    legal_name=request.legal_name,
-                    team_id=creation_team(request, actor),
-                    created_by_actor_id=actor.profile.user_id,
-                    priority=request.priority,
-                )
-            , actor=actor)
+            active_zero_touch.create_case(
+                request.uen,
+                request.country_of_incorporation,
+                legal_name=request.legal_name,
+                team_id=creation_team(request, actor),
+                created_by_actor_id=actor.profile.user_id,
+                priority=request.priority,
+                establishment_projection=project_established_case,
+            )
+            assert response is not None
+            return response
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
 
@@ -2677,20 +2684,28 @@ def create_app(
     ) -> ZeroTouchCaseSummaryResponse:
         require_demo_controls()
         uen = zero_touch_demo.uen_for(request.uen, request.scenario)
+        response: ZeroTouchCaseSummaryResponse | None = None
+
+        def project_established_case(record: ZeroTouchAutomationRecord) -> None:
+            nonlocal response
+            response = zero_touch_response(record, actor=actor)
+
         try:
-            record = active_zero_touch.create_case(
+            active_zero_touch.create_case(
                 uen,
                 request.country_of_incorporation,
                 legal_name=request.legal_name,
                 team_id=creation_team(request, actor),
-                    created_by_actor_id=actor.profile.user_id,
+                created_by_actor_id=actor.profile.user_id,
                 priority=request.priority,
                 establishment_action=lambda case_id: zero_touch_demo.register(
                     case_id, request.scenario
                 ),
                 establishment_rollback=zero_touch_demo.discard_case,
+                establishment_projection=project_established_case,
             )
-            return zero_touch_response(record, actor=actor)
+            assert response is not None
+            return response
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
 

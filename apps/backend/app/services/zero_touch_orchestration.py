@@ -193,6 +193,7 @@ class ZeroTouchOrchestrator:
         created_by_actor_id: str | None = None,
         establishment_action: Callable[[UUID], None] | None = None,
         establishment_rollback: Callable[[UUID], None] | None = None,
+        establishment_projection: Callable[[ZeroTouchAutomationRecord], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Atomically establish every initial case-owned record under one case lock."""
 
@@ -211,6 +212,8 @@ class ZeroTouchOrchestrator:
                 )
                 if establishment_action is not None:
                     establishment_action(record.case_id)
+                if establishment_projection is not None:
+                    establishment_projection(record)
                 return record
             except Exception as primary_error:
                 try:

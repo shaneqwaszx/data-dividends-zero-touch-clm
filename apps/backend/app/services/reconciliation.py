@@ -205,6 +205,13 @@ class ReconciliationService:
                     message="Authoritative case or source evidence changed before this decision.",
                 )
             by_id = {d.discrepancy_id: d for d in record.discrepancies}
+            # A source commit can precede its automation checkpoint. Its decision
+            # version identifies the entire retained group, not a resubmitted subset.
+            committed_group_ids = {
+                d.discrepancy_id for d in record.discrepancies
+                if d.decision is not None
+                and d.decision.reconciliation_version == expected_version
+            }
             if all(
                 (d := by_id.get(c.discrepancy_id)) is not None
                 and d.discrepancy_id in active_ids
@@ -215,6 +222,14 @@ class ReconciliationService:
                 and d.evidence_fingerprint == c.evidence_fingerprint
                 for c in choices
             ):
+                if (
+                    record.version != expected_version + 1
+                    or {c.discrepancy_id for c in choices} != committed_group_ids
+                ):
+                    raise ReconciliationRequestError(
+                        code="RECONCILIATION_STALE",
+                        message="The complete retained source decision group is required.",
+                    )
                 return record
             if record.version != expected_version:
                 raise ReconciliationRequestError(

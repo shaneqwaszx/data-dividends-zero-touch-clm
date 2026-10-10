@@ -181,6 +181,10 @@ test("Slice F same-process verified target reuse retains readback", { tag: "@sli
 });
 
 test("Slice F ambiguous target match pauses without mutation", { tag: "@slice-f-target-ambiguity" }, async ({ page }) => {
+  // Search can pause during creation before the retained upload flow finishes.
+  // Settle that earlier mutation before measuring stage navigation.
+  const intakeCompleted = page.waitForResponse(response =>
+    response.request().method() === "POST" && response.url().endsWith("/intake/complete"));
   await page.getByRole("link", { name: "New onboarding", exact: true }).click();
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption("SG");
   await page.getByLabel("Company Legal Name", { exact: true }).fill(merlion.name);
@@ -189,6 +193,7 @@ test("Slice F ambiguous target match pauses without mutation", { tag: "@slice-f-
   await page.getByRole("button", { name: "Create onboarding", exact: true }).click();
   await expect(page).toHaveURL(/\/new-onboarding\/[0-9a-f-]{36}$/i);
   const caseId = page.url().split("/").at(-1)!;
+  expect((await intakeCompleted).status()).toBe(200);
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("WAITING_FOR_REVIEW");
   await page.getByRole("button", { name: "Open full case", exact: true }).click();
   const paused = await summary(page, caseId);

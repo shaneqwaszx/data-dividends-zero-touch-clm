@@ -1,5 +1,6 @@
 """Batch confirmation through real owners and HTTP; no external writes."""
 
+from copy import deepcopy
 from unittest.mock import patch
 from uuid import UUID
 
@@ -63,6 +64,27 @@ def test_four_choices_have_one_save_and_one_reconciliation_boundary():
     assert all(f.review_status == "ACCEPTED" and f.confidence == 0.6 for f in final.fields)
     assert len([e for e in final.events if e.event_type == "DOCUMENT_FIELD_ACCEPTED"]) == 4
     assert target.calls == before
+
+
+def test_source_group_retry_rejects_later_reconciliation_revision():
+    from app.services.zero_touch_errors import ZeroTouchInfrastructureError
+
+    client, zero, documents, target, cid, batch = source_review()
+    failure = ZeroTouchInfrastructureError(
+        case_id=cid, automation_id=zero.get(case_id=cid).automation_id,
+        code="TEST_CHECKPOINT_FAILURE", message="Synthetic checkpoint retention failure.",
+    )
+    with patch.object(zero, "_save", side_effect=failure):
+        response = client.post(f"/api/clm/zero-touch/cases/{cid}/review-decisions", json=batch)
+        assert response.status_code == 503
+    reconciliation = zero._reconciliation
+    committed = reconciliation.get(case_id=cid)
+    reconciliation._repository.save(committed, expected_version=committed.version)
+    before = zero.get(case_id=cid).model_dump(mode="json")
+    response = client.post(f"/api/clm/zero-touch/cases/{cid}/review-decisions", json=batch)
+    assert response.status_code == 409
+    assert zero.get(case_id=cid).model_dump(mode="json") == before
+    assert client.post(f"/api/clm/zero-touch/cases/{cid}/resume").status_code == 200
 
 
 def test_same_case_concurrent_group_cannot_duplicate_receipts_or_continue_twice():
@@ -374,3 +396,57 @@ def test_committed_source_group_repairs_automation_checkpoint_through_explicit_r
     assert [e["blocker_code"] for e in resumed.json()["active_exceptions"]] == [
         "TARGET_CONFIRMATION_REQUIRED",
     ]
+
+
+@pytest.mark.parametrize(
+    "unsafe_retry",
+    ["subset", "changed_action", "duplicate", "stale_fingerprint", "stale_version", "extra"],
+)
+def test_committed_source_group_rejects_subset_retry_before_checkpoint_recovery(unsafe_retry):
+    from app.services.zero_touch_errors import ZeroTouchInfrastructureError
+
+    client, zero, documents, target, cid, batch = source_review()
+    failure = ZeroTouchInfrastructureError(
+        case_id=cid, automation_id=zero.get(case_id=cid).automation_id,
+        code="TEST_CHECKPOINT_FAILURE", message="Synthetic checkpoint retention failure.",
+    )
+    before = list(target.calls)
+    with patch.object(zero, "_save", side_effect=failure):
+        response = client.post(f"/api/clm/zero-touch/cases/{cid}/review-decisions", json=batch)
+        assert response.status_code == 503
+    retained = zero._reconciliation.get(case_id=cid)
+    assert not retained.open_discrepancies
+    source_version = retained.version
+    automation_before = zero.get(case_id=cid).model_dump(mode="json")
+    retry = deepcopy(batch)
+    if unsafe_retry == "subset":
+        retry["reconciliation"] = retry["reconciliation"][:1]
+    elif unsafe_retry == "changed_action":
+        retry["reconciliation"][0]["action"] = "USE_DOCUMENT_VALUE"
+    elif unsafe_retry == "duplicate":
+        retry["reconciliation"].append(deepcopy(retry["reconciliation"][0]))
+    elif unsafe_retry == "stale_fingerprint":
+        retry["reconciliation"][0]["evidence_fingerprint"] = "0" * 64
+    elif unsafe_retry == "stale_version":
+        retry["expected_reconciliation_version"] += 1
+    else:
+        extra = deepcopy(retry["reconciliation"][0])
+        extra["discrepancy_id"] = "00000000-0000-4000-8000-000000000001"
+        retry["reconciliation"].append(extra)
+    response = client.post(f"/api/clm/zero-touch/cases/{cid}/review-decisions", json=retry)
+    assert response.status_code == (422 if unsafe_retry in {"duplicate", "extra"} else 409), {
+        "http_status": response.status_code,
+        "source_status": retained.status.value,
+        "remaining_automation_blockers": len(response.json().get("active_exceptions", [])),
+    }
+    assert zero.get(case_id=cid).model_dump(mode="json") == automation_before
+    assert zero._reconciliation.get(case_id=cid).version == source_version
+    # Group ordering is presentation only; identical complete choices recover once.
+    batch["reconciliation"].reverse()
+    recovered = client.post(f"/api/clm/zero-touch/cases/{cid}/review-decisions", json=batch)
+    assert recovered.status_code == 200
+    assert [e["blocker_code"] for e in recovered.json()["active_exceptions"]] == [
+        "TARGET_CONFIRMATION_REQUIRED"
+    ]
+    assert zero._reconciliation.get(case_id=cid).version == source_version
+    assert target.calls == before

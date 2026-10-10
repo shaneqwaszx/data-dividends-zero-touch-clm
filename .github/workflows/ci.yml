@@ -142,6 +142,12 @@ jobs:
 
   demo-lifecycle-windows:
     runs-on: windows-latest
+    # Checkout must retain archived evidence paths longer than Windows MAX_PATH.
+    # Command-scope configuration reaches checkout without changing host settings.
+    env:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

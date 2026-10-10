@@ -132,8 +132,9 @@ def test_partial_document_checkpoints_resume_after_physical_restart(database):
 
 
 @pytest.mark.parametrize("use_document", [False, True])
+@pytest.mark.parametrize("group_size", [1, 2])
 def test_source_commit_then_automation_failure_repairs_after_physical_restart(
-    database, use_document
+    database, use_document, group_size
 ):
     from app.services.zero_touch_errors import ZeroTouchInfrastructureError
 
@@ -150,7 +151,10 @@ def test_source_commit_then_automation_failure_repairs_after_physical_restart(
             {
                 "Legal Name": "OTHER SYNTHETIC COMPANY",
                 "UEN": "202400001A",
-                "Registered Address": "18 INNOVATION WAY, #04-01, 018956, SG",
+                "Registered Address": (
+                    "18 OTHER SYNTHETIC ROAD, SG" if group_size == 2
+                    else "18 INNOVATION WAY, #04-01, 018956, SG"
+                ),
                 "Country": "SG",
             }
         )
@@ -168,11 +172,12 @@ def test_source_commit_then_automation_failure_repairs_after_physical_restart(
             == 200
         )
         current = client.get(f"/api/clm/zero-touch/cases/{cid}").json()
-        choice = next(
+        choices = [
             d
             for d in current["reconciliation"]["discrepancies"]
-            if d["status"] == "OPEN" and d["field_name"] == "legal_name"
-        )
+            if d["status"] == "OPEN"
+        ]
+        assert len(choices) == group_size
         batch = {
             "expected_automation_version": current["version"],
             "expected_case_event_count": len(current["case"]["events"]),
@@ -180,9 +185,13 @@ def test_source_commit_then_automation_failure_repairs_after_physical_restart(
             "reconciliation": [
                 {
                     "discrepancy_id": choice["discrepancy_id"],
-                    "action": "USE_DOCUMENT_VALUE" if use_document else "KEEP_REGISTRY_VALUE",
+                    "action": (
+                        "USE_DOCUMENT_VALUE"
+                        if use_document and choice["field_name"] == "legal_name"
+                        else "KEEP_REGISTRY_VALUE"
+                    ),
                     "evidence_fingerprint": choice["evidence_fingerprint"],
-                }
+                } for choice in choices
             ],
         }
         before = list(target.calls)
@@ -217,6 +226,23 @@ def test_source_commit_then_automation_failure_repairs_after_physical_restart(
             "OTHER SYNTHETIC COMPANY" if use_document else "MERLION CIRCULAR LABS PTE. LTD."
         )
         assert restored["case"]["entity"]["legal_name"] == expected_name
+        if group_size == 2:
+            before_retry = restored["reconciliation"]["version"]
+            subset = {**batch, "reconciliation": batch["reconciliation"][:1]}
+            assert restarted.post(
+                f"/api/clm/zero-touch/cases/{cid}/review-decisions", json=subset
+            ).status_code == 409
+            after_retry = restarted.get(f"/api/clm/zero-touch/cases/{cid}").json()
+            assert after_retry["reconciliation"]["version"] == before_retry
+            assert after_retry["version"] == restored["version"]
+            if not use_document:
+                repaired = restarted.post(
+                    f"/api/clm/zero-touch/cases/{cid}/review-decisions", json=batch
+                )
+                assert repaired.status_code == 200
+                assert [e["blocker_code"] for e in repaired.json()["active_exceptions"]] == [
+                    "TARGET_CONFIRMATION_REQUIRED"
+                ]
         resumed = restarted.post(f"/api/clm/zero-touch/cases/{cid}/resume")
         assert resumed.status_code == 200
         assert [e["blocker_code"] for e in resumed.json()["active_exceptions"]] == [
