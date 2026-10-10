@@ -1,0 +1,148 @@
+{
+  "sealed_utc": "2026-10-10T09:50:33.604310+00:00",
+  "status": "INDEPENDENT_PASS_AUTHORIZED_PUBLICATION_PENDING",
+  "independent_verdict": "PASS",
+  "independent_gate_sha256": "ef8ce61b0628214dd624335218d1445296c50e85c2d4ffed48274ba9e9208373",
+  "reviewed_content_sha256": "042b1551ed48b03a491ce1818185a846b4fef99a3c870a63f72593edbfaea5fa",
+  "reviewed_file_count": 407,
+  "source_identity": "5de89b19dda6964828d87ecf744d7b30df4ea3ee8c872a5a4dd2ffabb9df38df",
+  "attributes_sha256": "d05c12bd6b01f93474ff48c7e66f5e8faa054dd13ea973d5e1f1ff4ef2484564",
+  "review_manifest_sha256": "f49c2772f8095aa9ec1b94a66ce47342d01b557c81f2d4402489e38990345cb0",
+  "handoff_sha256": "7846f602f77e54a1e8385ceea68fa0547716734edd43481af3780c80f573e752",
+  "publication_file_entries_sha256": "fd86cc757d40bd9e16781f541c175f50cbc65a47eead818b892b5e165651942e",
+  "publication_hashed_entries": 410,
+  "publication_total_files": 412,
+  "original_commit_scope": 388,
+  "governance_commit_scope": 24,
+  "self_and_manifest_files": {
+    ".ai-pipeline/reports/ARCHIVAL_WHITESPACE_PUBLICATION_FILE_MANIFEST.json": "9fbde387ae474fbd62dbb613f71f60584b15cea54102ef1b94663a6e7696d8d5"
+  },
+  "receipt_self_sha256": "External seal record, excluded from its own circular identity",
+  "old403_all_raw_bytes_preserved": true,
+  "all_source68_bytes_preserved": true,
+  "all_pdf_and_log_bytes_preserved": true,
+  "five_exception_log_hashes": {
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-frontend.log": "c2ae6961add2edcfc017268257ed19700c647355f0a0cc277204505494fcb04b",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-shard1-missing-ocr.log": "6166bef8a81f72f3b158b338772272197fa1ead2befa267fe638c4aee807e0f7",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-typecheck.log": "e509183f941e75d75acd2730534462d1053bf5d19f4ff51e5e43e834cd2adc5d",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-controlled.log": "5f57d445c76a7ceafc7a2b8713e135f6aeac89b6d989c058e33afb645d398e49",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-fixed.log": "5395ab0eb378acbcd9d48a17ae158d77314e2844c405c03786e5847fafe6dbb1"
+  },
+  "actual_full407_canonical_whitespace_exit": 0,
+  "falsification_cases": 16,
+  "ordinary_source_whitespace_effective": true,
+  "exact_archival_exception_count": 5,
+  "real_index_unchanged_at_freeze": true,
+  "applicable_checks": {
+    "class": "CI_TOOLING",
+    "focused_tooling_tests": {
+      "argv": [
+        ".venv/Scripts/python.exe",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_pre_pr_check",
+        "tests.test_check_secrets",
+        "tests.test_check_tooling_config",
+        "-q"
+      ],
+      "tests": 69,
+      "exit_code": 0,
+      "duration_seconds": 57.355
+    },
+    "ruff": {
+      "cwd": "apps/backend",
+      "argv": [
+        "../../.venv/Scripts/python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "."
+      ],
+      "exit_code": 0
+    },
+    "six_governance_checks": [
+      {
+        "name": "project_state",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_project_state.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "802a21c6c3e8d997e291164394433116a2bbd751758a17d359314ad02ec90362",
+        "safe_summary": "PROJECT STATE CHECK: PASS"
+      },
+      {
+        "name": "architecture",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_architecture.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "1995542d06f58d4f6cb8133c206109972455ed2e01324defb26ca1d08077634a",
+        "safe_summary": "ARCHITECTURE CHECK: PASS"
+      },
+      {
+        "name": "tooling_config",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_tooling_config.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "e04d4a0126da1a6e28380a8859ef86ace862a937bc14cbdb13c56ac4a37608c5",
+        "safe_summary": "TOOLING_CONFIG=PASS: exact optional Docs and disabled cluster MCP policy"
+      },
+      {
+        "name": "policy_authority",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_policy_authority.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "0d8548dd7f1ba239e7e4f10720a01d6e3a34bffce99f7d990575b10ce3460496",
+        "safe_summary": "POLICY AUTHORITY CHECK: PASS"
+      },
+      {
+        "name": "external_provider_readiness",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_external_provider_readiness.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "88c234f2de53c6109e14ab927e84853ee160a6501bf4c296457ad89d7f214fd4",
+        "safe_summary": "EXTERNAL PROVIDER READINESS CHECK: PASS"
+      },
+      {
+        "name": "secrets",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_secrets.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "1f210c25ed0d9e15e8c5a55264d5a569275f9edbd04b268d5e02d801e6590f5f",
+        "safe_summary": "Secret scan passed: no supported secret patterns found."
+      }
+    ],
+    "unchanged_product_lanes": "Exact owning-byte reuse from frozen independent gate; no source/API/persistence/provider/runtime change",
+    "pre_pr_check": "NOT_RUN until independent PASS and clean authorized commits",
+    "candidate_ci": "NOT_RUN before publication"
+  },
+  "sdq01": "historical root cause unresolved - owner-accepted residual risk; categoryF; no timeout fix",
+  "sdq02": "INDEPENDENTLY_CLOSED",
+  "real_sandbox_uat": "NOT_VERIFIED",
+  "base_sha": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "head_sha": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "latest_fetched_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "pre_pr_check": "NOT_RUN at freeze, mandatory after authorized clean commits",
+  "candidate_ci": "NOT_RUN at freeze, actual push and PR jobs mandatory",
+  "publication_authorized": true,
+  "human_merge_authorized_for_agent": false,
+  "current_live_execution_evidence": "Task-owned ignored tmp/archival-publication-state.json and final closeout; frozen records are historical snapshots"
+}

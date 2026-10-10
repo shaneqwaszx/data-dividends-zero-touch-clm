@@ -1,2 +1,12 @@
 # PDF cross-reference tables contain byte offsets and must not be line-ending normalized.
 *.pdf binary
+
+# Preserve normal whitespace validation while treating CRLF as a line ending.
+* whitespace=cr-at-eol
+
+# Immutable historical diagnostic logs: preserve exact archived bytes.
+.ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-frontend.log -text whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+.ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-shard1-missing-ocr.log -text whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+.ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-typecheck.log -text whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+.ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-controlled.log -text whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+.ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-fixed.log -text whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
