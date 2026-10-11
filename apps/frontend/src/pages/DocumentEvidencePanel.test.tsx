@@ -79,7 +79,7 @@ function renderPanel(
   documents: DocumentProcessingRecord[],
   onReview = vi.fn(),
   suppliedSummary = summary(),
-  uploads: { onReplace?: (document: DocumentProcessingRecord, file: File) => void; onRetry?: (document: DocumentProcessingRecord, file: File) => void } = {},
+  uploads: { onReplace?: (document: DocumentProcessingRecord, file: File) => void; onRetry?: (document: DocumentProcessingRecord, file: File) => void; onRecoverRefresh?: () => void } = {},
 ) {
   container = document.createElement("div");
   document.body.append(container);
@@ -95,6 +95,7 @@ function renderPanel(
       onReplace={uploads.onReplace ?? (() => undefined)}
       onRetry={uploads.onRetry ?? (() => undefined)}
       onContinue={() => undefined}
+      onRecoverRefresh={uploads.onRecoverRefresh}
       onRefresh={() => undefined}
     />,
   ));
@@ -116,6 +117,21 @@ function setInputValue(input: HTMLInputElement, value: string) {
 }
 
 describe("DocumentEvidencePanel", () => {
+  it.each([true, false])("projects retained replacement recovery using backend eligibility %s", (canResume) => {
+    const retained = summary("RESUMING");
+    retained.document_refresh_recovery = { can_resume: canResume };
+    const recover = vi.fn();
+    renderPanel([documentFixture({ state: "REVIEWED" })], vi.fn(), retained, { onRecoverRefresh: recover });
+    const button = container!.querySelector<HTMLButtonElement>("#case-document-refresh-recovery button")!;
+    expect(button.disabled).toBe(!canResume);
+    expect(container!.textContent).toContain("Replacement saved; evidence refresh needs recovery.");
+    if (canResume) {
+      button.focus(); expect(document.activeElement).toBe(button);
+      act(() => button.click()); expect(recover).toHaveBeenCalledTimes(1);
+    } else {
+      act(() => button.click()); expect(recover).not.toHaveBeenCalled();
+    }
+  });
   it("keeps creator document decisions usable while GoldTier Search is unresolved", () => {
     const onReview = vi.fn();
     const paused = summary();

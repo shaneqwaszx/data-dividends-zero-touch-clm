@@ -119,6 +119,16 @@ describe("Garden action performance boundaries", () => {
 });
 
 
+it("labels isolated document refresh as Local/Mock evidence", () => {
+  vi.stubEnv("VITE_E2E_RECOVERY_DEMO", "document-refresh");
+  try {
+    const html = renderToStaticMarkup(<SimulationBanner profile={null} />);
+    expect(html).toContain("Local document evidence and Mock target");
+    expect(html).toContain("Zero external provider calls");
+    expect(html).not.toContain("XPI");
+  } finally { vi.unstubAllEnvs(); }
+});
+
 it("labels the isolated Slice C inert XPI seam as synthetic offline evidence", () => {
   vi.stubEnv("VITE_E2E_RECOVERY_DEMO", "optional-amend");
   try {

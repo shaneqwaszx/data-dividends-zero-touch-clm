@@ -1,0 +1,65 @@
+{
+  "scope": "Independent safe-only FIELD_COUNT diagnosis; STOP, no remediation or capture authority",
+  "utc": "2026-10-11T07:39:43.133055+00:00",
+  "run_id": "ce2590f5-11d3-414a-9cee-b7ca50b980be",
+  "git": {
+    "branch": "feat/blocker-resolution-idp-ux-optimization",
+    "head": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+    "cached_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+    "base": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+    "staged": "",
+    "tracked_status": "M .github/workflows/ci.yml\n M apps/backend/app/api_models.py\n M apps/backend/app/main.py\n M apps/backend/app/services/zero_touch_orchestration.py\n M apps/backend/tests/test_final_review_editing_real_mongo.py\n M apps/frontend/e2e/blocker-review-performance.e2e.ts\n M apps/frontend/e2e/blocker-simulation.e2e.ts\n M apps/frontend/src/App.tsx\n M apps/frontend/src/DemoPerformance.test.tsx\n M apps/frontend/src/api.ts\n M apps/frontend/src/pages/CaseDetail.tsx\n M apps/frontend/src/pages/DocumentEvidencePanel.test.tsx\n M apps/frontend/src/pages/DocumentEvidencePanel.tsx\n M apps/frontend/src/pages/OnboardingWorkspace.tsx\n M apps/frontend/src/pages/S1PipelineWorkspace.test.tsx\n M apps/frontend/src/types.ts\n M docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md\n M docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md\n M scripts/e2e_backend_server.py\n M scripts/run_e2e.py\n M scripts/slice_c_recovery_fixture.py\n M tests/test_run_e2e.py\n M tests/test_slice_c_e2e_fixture_routing.py"
+  },
+  "source_identity": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+  "preserved_count": 1204,
+  "historical_count": 1175,
+  "original_fixture_exit": 0,
+  "target_confirmation_count": 10,
+  "original_confirmation_assertions": "COMPLETED / MOCK_GOLDTIER_SUBMITTED",
+  "recorded_native_cleanup": {
+    "disable": 0,
+    "stop": 0,
+    "absence_query": 4201,
+    "cleanup_failed": false,
+    "absent": true
+  },
+  "operator_final_error": {
+    "id": "FIELD_COUNT",
+    "hresult": -2146233087,
+    "file": "Sanitize-TcpTrace.ps1",
+    "line": 20
+  },
+  "proven_synthetic_defect": "Production Properties.Value pipeline enumerates binary socket address arrays; nine fields become39 values; strict count guard rejects. Preserved-array control passes.",
+  "installed_schema_match": "35 templates /319fields",
+  "exact_failed_event_attribution": "UNKNOWN: ID/version/counts not recorded",
+  "http_transport_root_cause": "UNKNOWN",
+  "sanitized_export_present": false,
+  "capture_attempts": 1,
+  "retries": 0,
+  "raw_etl_accessed": false,
+  "helper_or_product_changed": false,
+  "commit_push_pr_merge": false,
+  "release_verdict": "NOT READY FOR HUMAN MERGE",
+  "next_action": "Owner reassessment; contingent helper-only production extraction correction plus regression, preserving all strict checks; no further execution under this assignment",
+  "bound_paths": {
+    ".ai-pipeline/reports/PR81_TCP_V61_FIELD_COUNT_INDEPENDENT_STOP_REVIEW.md": "cf8183e1f0c7d02c806a9567cbc7d65d8198fede64b1c5325af45edd31d88fa3",
+    ".ai-pipeline/reports/PR81_TCP_V61_ce2590f5_OPERATOR_FINAL_STATUS.json": "a60004a220efed393bca99e081e4c2c3418e55b009a59255e87fdb6266b34fe3",
+    ".ai-pipeline/reports/PR81_TCP_V61_CAPTURE_ce2590f5_STOP.md": "6f7a1c95fe27aad70b1c3d3f58d86c637fb9cee8ed1bce855022849c7b23b706",
+    ".ai-pipeline/reports/PR81_TCP_V61_CAPTURE_ce2590f5_STOP.json": "6fdbcf5c8792f1d01f85cae35e1b4b78df13291f7eceade657e4da8f2e24bca6",
+    ".ai-pipeline/reports/pr81-tcp-capture-v6-1/bundle.json": "53b6657eae510f4a022ea6d164bc1344b66f2f72563eb762709a792fed69422f"
+  },
+  "safe_capture_record_hashes": {
+    "tmp/pr81-tcp-capture-control/ce2590f5-11d3-414a-9cee-b7ca50b980be/armed.json": "adee928b3875e6720c819a6d38f4fad23d89591b8a4c3db12616f6259eafcba5",
+    "tmp/pr81-tcp-capture-control/ce2590f5-11d3-414a-9cee-b7ca50b980be/fixture-request.json": "6d300465d9d693fb2c2818b50f53f46fb97ed3970d54fddd8e8f42e1f8c555c9",
+    "tmp/pr81-tcp-capture-control/ce2590f5-11d3-414a-9cee-b7ca50b980be/active.json": "e9eb68a821ddbba0321ddf8b82c232b06c9d9632c84698cbeb02f5281edd0096",
+    "tmp/pr81-tcp-capture-control/ce2590f5-11d3-414a-9cee-b7ca50b980be/fixture-done.json": "1292a03d55365380c5fbb8fee31cca9c090533e414214a0e0179f95dc3223cbe",
+    "tmp/pr81-tcp-capture-control/ce2590f5-11d3-414a-9cee-b7ca50b980be/stopped.json": "7792d3ebffbe5b366a7ec2c062b3f410ed80818c9767a4482910996ede47f5c5",
+    "tmp/pr81-tcp-capture-control/ce2590f5-11d3-414a-9cee-b7ca50b980be/capture-provenance.json": "f45952708489bdd7baf8c9ac8937cf9c086edffd963835a5fe5cfd750e06670d",
+    "tmp/pr81-tcp-capture-control/ce2590f5-11d3-414a-9cee-b7ca50b980be/diagnostic-limits.json": "87624c4d8b39ac48e518125768acd33ae2f7a563d952de5f12a0ffff5117036d",
+    "tmp/pr81-tcp-capture-control/ce2590f5-11d3-414a-9cee-b7ca50b980be/diagnostic-watchdog.json": "f8d2469d355c173ec2738eb3ab988d23a7866265b33ce303e0a8439b5717b91a",
+    "tmp/pr81-tcp-capture-control/ce2590f5-11d3-414a-9cee-b7ca50b980be/diagnostic-enabled.json": "d393842b4e6512c574546334537ef5ba149566af9bf1e59add934efb1521f68a",
+    "tmp/pr81-tcp-capture-control/ce2590f5-11d3-414a-9cee-b7ca50b980be/diagnostic-stopped.json": "a39a5ab8fe3954722eed625cde4f91c48d3581fb639b6e8a4d2f5c1f1b917ad3",
+    "tmp/pr81-tcp-native-ce2590f5-11d3-414a-9cee-b7ca50b980be.json": "b4d8e9a98205175fcc8b9ffa8458ca2f01c768f2408f53d938997094984cbf90"
+  },
+  "content_identity": "cc568391a686d3c094cad8790dad3a89c4515cb8fc5d474daf6e285d1dd62396"
+}

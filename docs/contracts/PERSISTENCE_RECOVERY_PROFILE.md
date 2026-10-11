@@ -226,3 +226,11 @@ classification/readiness replace the previous confirmation; stale confirmation f
 The new document_replacement_authorized API capability is derived and is not a durable
 schema field. Schema10, CAS/create/update/delete, historical reads, the single repository
 owner and target ledger freeze/no-replay rules are unchanged.
+
+The derived document_refresh_recovery projection also uses this existing persisted
+checkpoint; it adds no envelope field, status or migration. Restart preserves original
+superseded history, the current replacement and the accepted-but-incomplete continuation.
+Recovery requires current automation identity and automation/CLM/case-event versions,
+creator reauthorization and unfrozen target state inside the case lock. Refresh failure
+retains the actionable checkpoint; successful continuation recomputes dependent evidence
+without insertion or Search/target replay. No GET projection writes this checkpoint.

@@ -1,0 +1,42 @@
+{
+  "source36": "f6607f766b36ec1e2b6fc251b93b22c4940985fac394d28160b1878e802cfbae",
+  "contract_calls_identical": true,
+  "rows": [
+    {
+      "path": "apps/frontend/playwright.config.ts",
+      "unchanged_contract_calls": 0
+    },
+    {
+      "path": "apps/frontend/e2e/blocker-review-performance.e2e.ts",
+      "unchanged_contract_calls": 46
+    },
+    {
+      "path": "apps/frontend/e2e/blocker-simulation.e2e.ts",
+      "unchanged_contract_calls": 176
+    },
+    {
+      "path": "apps/frontend/e2e/stage-disclosures.ts",
+      "unchanged_contract_calls": 14
+    },
+    {
+      "path": "apps/frontend/e2e/sponsor-demo-journeys.e2e.ts",
+      "unchanged_contract_calls": 102
+    },
+    {
+      "path": "apps/frontend/e2e/s3-sandbox-submission.e2e.ts",
+      "unchanged_contract_calls": 183
+    },
+    {
+      "path": "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+      "unchanged_contract_calls": 56
+    },
+    {
+      "path": "apps/frontend/e2e/phase24c-policy.e2e.ts",
+      "unchanged_contract_calls": 41
+    },
+    {
+      "path": "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
+      "unchanged_contract_calls": 417
+    }
+  ]
+}

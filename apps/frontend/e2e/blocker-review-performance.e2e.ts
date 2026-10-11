@@ -1,11 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
-import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
+import { expect, test, type Page } from "@playwright/test";
+import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 import { expectDisclosureContrast, openStage } from "./stage-disclosures";
 
-const evidence = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..", ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE");
 const fields = ["legal_name", "registration_number", "registered_address", "country_of_incorporation"];
 const content = Buffer.from([
   "LOCAL PROJECT SYNTHETIC AMBIGUITY TEST ONLY",
@@ -15,8 +13,8 @@ const content = Buffer.from([
   "Country: SG", "Country: MY",
 ].join("\r\n"));
 
-for (let group = 0; group < 3; group++) {
-  test(`Blocker decision review performance sample group ${group + 1}`, async ({ page }) => {
+async function runPerformanceGroup(page: Page, group: number) {
+    const evidence = retainedEvidencePath("blocker-regression");
     await page.setViewportSize({ width: 1280, height: 900 });
     const violations: string[] = [];
     const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!, backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
@@ -135,5 +133,16 @@ for (let group = 0; group < 3; group++) {
     }
     await writeFile(path.join(evidence, `group-${group + 1}.json`), JSON.stringify(rows, null, 2)+"\n");
     expect(violations).toEqual([]);
-  });
 }
+
+test("Blocker decision review performance sample group 1", async ({ page }) => {
+  await runPerformanceGroup(page, 0);
+});
+
+test("Blocker decision review performance sample group 2", async ({ page }) => {
+  await runPerformanceGroup(page, 1);
+});
+
+test("Blocker decision review performance sample group 3", async ({ page }) => {
+  await runPerformanceGroup(page, 2);
+});

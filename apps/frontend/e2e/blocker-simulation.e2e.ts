@@ -2,11 +2,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
+import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 import { focusPipelineAction, openStage } from "./stage-disclosures";
 import { confirmBatch } from "./blocker-decisions";
 
-const evidence = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..", ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE");
+const evidence = () => retainedEvidencePath("blocker-regression");
 const identity = { "Legal Name": "MERLION CIRCULAR LABS PTE. LTD.", UEN: "202400001A", "Registered Address": "18 INNOVATION WAY, #04-01, 018956, SG", Country: "SG" };
 const scenarios = [
   { name: "legal-name-mismatch", overrides: { "Legal Name": "OTHER SYNTHETIC NAME" }, target: "DOCUMENTS", choice: "source" },
@@ -76,8 +76,8 @@ for (const scenario of scenarios) {
       if (scenario.choice === "document") expect(result.active_exceptions.some((item: any) => item.stage === "DOCUMENT")).toBe(true);
       else expect(result.active_exceptions.filter((item: any) => item.stage === "DOCUMENT")).toEqual([]);
     }
-    await mkdir(evidence, { recursive: true });
-    await writeFile(path.join(evidence, `simulation-${scenario.name}.json`), JSON.stringify({ scenario: scenario.name, initial: before.active_exceptions.map((item: any) => item.blocker_code), expected_navigation: selector, actual_control: focusedControl, choices: decisions, calls_before_confirmation: callsBeforeConfirmation, calls, confirmation, final: result.active_exceptions.map((item: any) => item.blocker_code), verdict: "PASS", reduced_motion: true }, null, 2) + "\n");
+    await mkdir(evidence(), { recursive: true });
+    await writeFile(path.join(evidence(), `simulation-${scenario.name}.json`), JSON.stringify({ scenario: scenario.name, initial: before.active_exceptions.map((item: any) => item.blocker_code), expected_navigation: selector, actual_control: focusedControl, choices: decisions, calls_before_confirmation: callsBeforeConfirmation, calls, confirmation, final: result.active_exceptions.map((item: any) => item.blocker_code), verdict: "PASS", reduced_motion: true }, null, 2) + "\n");
     expect(violations).toEqual([]);
   });
 }
@@ -106,8 +106,8 @@ test("Blocker simulation missing upload focuses actual file then permits one con
   await page.getByRole("button", { name: "Continue evidence review", exact: true }).click();
   const result = await continued; expect(result.status()).toBe(200);
   const final = await result.json(); expect(final.case.goldtier_result).toBeNull();
-  await mkdir(evidence, { recursive: true });
-  await writeFile(path.join(evidence, "simulation-missing-upload.json"), JSON.stringify({ scenario: "missing-upload",
+  await mkdir(evidence(), { recursive: true });
+  await writeFile(path.join(evidence(), "simulation-missing-upload.json"), JSON.stringify({ scenario: "missing-upload",
     initial: "PENDING_INPUTS / DOCUMENT_IDP", expected_navigation: "#case-document-upload input[type=file]",
     actual_control: "INPUT:file (focused, upload label fully in viewport)", choices: 0, calls_before_confirmation: 0,
     confirmation: "One upload POST then explicit Resume POST", final: final.active_exceptions.map((item: any) => item.blocker_code), verdict: "PASS" }, null, 2) + "\n");
@@ -158,8 +158,8 @@ for (const fixture of [
       await expect(page.getByRole("button", { name: /retry target|ignore and continue/i })).toHaveCount(0);
     }
     expect(mutations).toEqual([]);
-    await mkdir(evidence, { recursive: true });
-    await writeFile(path.join(evidence, `simulation-${fixture.name}.json`), JSON.stringify({ scenario: fixture.name, initial: initial.active_exceptions.map((item: any) => item.blocker_code), actual_control: focused, choices: 0, calls_before_confirmation: 0, confirmation: "Evidence must be supplied; blocker not waived", final: initial.status, verdict: "PASS" }, null, 2) + "\n");
+    await mkdir(evidence(), { recursive: true });
+    await writeFile(path.join(evidence(), `simulation-${fixture.name}.json`), JSON.stringify({ scenario: fixture.name, initial: initial.active_exceptions.map((item: any) => item.blocker_code), actual_control: focused, choices: 0, calls_before_confirmation: 0, confirmation: "Evidence must be supplied; blocker not waived", final: initial.status, verdict: "PASS" }, null, 2) + "\n");
     expect(violations).toEqual([]);
   });
 }
@@ -211,14 +211,14 @@ test("Blocker simulation draft isolation and same-team/cross-team authorization"
   await expect(page.locator("#case-blocker-review")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true })).toHaveCount(0);
   expect((await page.request.post(`/api/clm/zero-touch/cases/${cid}/review-decisions`, { headers: crossHeaders, data: batch })).status()).toBe(404);
-  await mkdir(evidence, { recursive: true });
-  await writeFile(path.join(evidence, "simulation-authorization-isolation.json"), JSON.stringify({ scenario: "unauthorized/cross-team", initial: current.status,
+  await mkdir(evidence(), { recursive: true });
+  await writeFile(path.join(evidence(), "simulation-authorization-isolation.json"), JSON.stringify({ scenario: "unauthorized/cross-team", initial: current.status,
     actual_control: "Creator draft select; same-team controls disabled; cross-team controls absent", choices: 1, calls_before_confirmation: 0,
     confirmation: "Same-team noncreator 403; cross-team 404", final: "No accepted review or target write", verdict: "PASS", draft_leak: false }, null, 2)+"\n");
   expect(violations).toEqual([]);
 });
 
-test("Blocker simulation actual native PDF intake failure targets retry and one continuation", async ({ page }) => {
+test("Blocker simulation actual native PDF intake failure targets retry and one continuation", { tag: "@slice-c-document-refresh" }, async ({ page }) => {
   const violations: string[] = [];
   const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!, backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
   await page.route("**/*", route => handleBrowserRoute(route, policy, violations));
@@ -230,6 +230,7 @@ test("Blocker simulation actual native PDF intake failure targets retry and one 
   const created = await page.request.post("/api/clm/zero-touch/cases", { headers, data: { uen: "202400001A" } });
   expect(created.status()).toBe(201); const cid = (await created.json()).case.case_id;
   await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+  await expect(page.getByText(/Synthetic offline document refresh recovery fixture/)).toBeVisible();
   // Six valid pages fit the media bounds but exceed the unchanged native text
   // limit during extraction. No provider stub or timeout/configuration change.
   const stream = "BT /F1 6 Tf 72 720 Td " + Array.from({ length: 100 }, () => `(SYNTHETIC ${"A".repeat(140)})`).join(" Tj 0 -6 Td ") + " Tj ET";
@@ -266,10 +267,64 @@ test("Blocker simulation actual native PDF intake failure targets retry and one 
   const continued = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/resume"));
   await continuation.click(); const response = await continued; expect(response.status()).toBe(200);
   const final = await response.json(); expect(final.case.goldtier_result).toBeNull();
-  await mkdir(evidence, { recursive: true });
-  await writeFile(path.join(evidence, "simulation-native-failed-retry.json"), JSON.stringify({ scenario: "failed document retry", initial: "Actual native extraction text bound / PENDING_INPUTS",
+  await mkdir(evidence(), { recursive: true });
+  await writeFile(path.join(evidence(), "simulation-native-failed-retry.json"), JSON.stringify({ scenario: "failed document retry", initial: "Actual native extraction text bound / PENDING_INPUTS",
     actual_control: "Retry affected document INPUT:file; then Continue evidence review BUTTON", choices: 0, calls_before_confirmation: 0,
     confirmation: "Initial intake 503, failed retry 503, valid native retry 201, one Resume 200", final: final.active_exceptions.map((item: any) => item.blocker_code), verdict: "PASS", external_calls: 0 }, null, 2)+"\n");
+  // Continue the same real case through a saved replacement / failed dependent
+  // refresh. No browser response interception or direct recovery POST.
+  await openStage(page, "Document verification");
+  const replace = page.getByLabel("Replace current document", { exact: true });
+  await expect(replace).toBeEnabled();
+  const savedBefore = await (await page.request.get(`/api/onboarding/cases/${cid}/documents`)).json();
+  const replacementRefresh = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/replacement"));
+  await replace.setInputFiles(fixture);
+  expect((await replacementRefresh).status()).toBe(503);
+  await expect(page.getByRole("button", { name: "Resume document evidence refresh", exact: true })).toBeEnabled();
+  const pending = await (await page.request.get(`/api/clm/zero-touch/cases/${cid}`)).json();
+  expect(pending.status).toBe("RESUMING"); expect(pending.current_stage).toBe("DOCUMENT");
+  expect(pending.document_refresh_recovery).toEqual({ can_resume: true });
+  expect(pending.active_exceptions).toEqual([]); expect(pending.technical_failure).toBeNull();
+  const saved = await (await page.request.get(`/api/onboarding/cases/${cid}/documents`)).json();
+  const targetBeforeRecovery = await (await page.request.get("/api/__slice_c/document-refresh-metadata")).json();
+  expect(targetBeforeRecovery.operations).toEqual(["SEARCH"]);
+  expect(targetBeforeRecovery.refresh_attempts).toBe(1);
+  expect(saved).toHaveLength(savedBefore.length + 1);
+  const currentDocument = saved.filter((item: any) => item.superseded_by_document_id === null);
+  expect(currentDocument).toHaveLength(1);
+  expect(saved.find((item: any) => item.document_id === currentDocument[0].supersedes_document_id).superseded_by_document_id).toBe(currentDocument[0].document_id);
+  await page.reload(); await openStage(page, "Document verification");
+  const recovery = page.getByRole("button", { name: "Resume document evidence refresh", exact: true });
+  await expect(recovery).toBeEnabled();
+  await expect(page.getByText("Replacement saved; evidence refresh needs recovery.", { exact: true })).toBeVisible();
+  await expect(page.locator(".processing-workspace__content[inert]")).toHaveCount(0);
+  await expect(page.locator(".processing-workspace__overlay")).toHaveCount(0);
+  await recovery.focus(); await expect(recovery).toBeFocused();
+  const recoveredResponse = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/resume"));
+  await recovery.click(); const recovered = await recoveredResponse;
+  expect(recovered.status()).toBe(200);
+  expect(recovered.request().headers()["x-automation-id"]).toBe(pending.automation_id);
+  const after = await recovered.json();
+  expect(after.document_refresh_recovery).toBeNull();
+  expect(after.status).toBe("WAITING_FOR_REVIEW"); expect(after.current_stage).toBe("READINESS");
+  expect(after.technical_failure).toBeNull();
+  expect(after.clm.version).toBeGreaterThan(pending.clm.version);
+  expect(after.active_exceptions.map((item: any) => item.blocker_code)).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
+  expect(after.active_exceptions[0].exception_id).not.toBe(final.active_exceptions[0].exception_id);
+  expect(after.case.goldtier_result).toBeNull();
+  expect(after.case.initial_target_search).toEqual(pending.case.initial_target_search);
+  expect(after.target_operations).toEqual(pending.target_operations);
+  const targetAfterRecovery = await (await page.request.get("/api/__slice_c/document-refresh-metadata")).json();
+  expect(targetAfterRecovery.operations).toEqual(["SEARCH"]);
+  expect(targetAfterRecovery.refresh_attempts).toBe(2);
+  expect(targetAfterRecovery.external_calls).toBe(0);
+  expect((await (await page.request.get(`/api/onboarding/cases/${cid}/documents`)).json()).map((item: any) => item.document_id).sort()).toEqual(saved.map((item: any) => item.document_id).sort());
+  await expect(recovery).toHaveCount(0);
+  await writeFile(path.join(evidence(), "simulation-document-refresh-recovery.json"), JSON.stringify({ scenario: "saved replacement refresh 503",
+    classification: "AUTOMATED_OFFLINE_SIMULATION", actual_control: "Visible enabled focused Resume document evidence refresh BUTTON after reload",
+    checkpoint: "RESUMING/DOCUMENT", final_stage: after.current_stage, final_status: after.status,
+    fresh_confirmation_required: true, response: 200, documents_before: savedBefore.length, documents_retained: saved.length,
+    duplicate_documents: 0, retained_search_unchanged: true, target_operations_unchanged: true, verdict: "PASS" }, null, 2)+"\n");
   expect(violations).toEqual([]);
 });
 
@@ -298,8 +353,8 @@ test("Blocker simulation unsupported initial country requires explicit Singapore
   await focusPipelineAction(page, "INITIAL_IDENTITY", page.locator("#identity-registration-number"));
   await expect(page.getByLabel("Country of incorporation", { exact: true })).toHaveValue("SG");
   expect(mutations).toEqual([]); expect(initial.case.goldtier_result).toBeNull();
-  await mkdir(evidence, { recursive: true });
-  await writeFile(path.join(evidence, "simulation-unsupported-registry.json"), JSON.stringify({ scenario: "unsupported initial country", initial: initial.case.error.code,
+  await mkdir(evidence(), { recursive: true });
+  await writeFile(path.join(evidence(), "simulation-unsupported-registry.json"), JSON.stringify({ scenario: "unsupported initial country", initial: initial.case.error.code,
     actual_control: "Editable Singapore UEN; explicit fixed SG correction; no provider enablement", choices: 0, calls_before_confirmation: 0,
     confirmation: "No correction submitted; explicit SG identity required", final: initial.status, verdict: "PASS", target_calls: 0 }, null, 2)+"\n");
   expect(violations).toEqual([]);
@@ -344,8 +399,8 @@ test("Blocker simulation early stage click waits for the actual current document
   expect(requests.slice(boundary)).toEqual([]);
   expect(requests.every(method => method === "GET")).toBe(true);
   expect(initial.case.goldtier_result).toBeNull();
-  await mkdir(evidence, { recursive: true });
-  await writeFile(path.join(evidence, "simulation-delayed-stage-focus.json"), JSON.stringify({ scenario: "early stage click with delayed actual document read",
+  await mkdir(evidence(), { recursive: true });
+  await writeFile(path.join(evidence(), "simulation-delayed-stage-focus.json"), JSON.stringify({ scenario: "early stage click with delayed actual document read",
     initial: initial.active_exceptions.map((item: any) => item.blocker_code), expected_navigation: "Current missing-country decision SELECT",
     actual_control: "SELECT:data-review-field=country_of_incorporation (visible, enabled, focused, in viewport)", choices: 1,
     calls_before_confirmation: 0, initial_reads: requests.length, confirmation: "Local draft only; no confirmation submitted",

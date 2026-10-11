@@ -192,7 +192,7 @@ def main() -> int:
 
         fixture_connector = CountingSyntheticRegistry()
     recovery_fixture = None
-    if recovery_demo:
+    if recovery_demo and recovery_demo != "document-refresh":
         from scripts.slice_c_recovery_fixture import build_offline_recovery_fixture
 
         recovery_fixture = build_offline_recovery_fixture(settings, recovery_demo)
@@ -303,6 +303,57 @@ def main() -> int:
         acra_api_marketplace_auth.HttpxAcraMarketplaceTokenTransport = lambda: seed_transport
         # create_app builds its actual configured connector and normal Mongo composition.
 
+    if recovery_demo == "document-refresh":
+        # One real backend refresh failure, only in this isolated memory/mock
+        # process. The replacement is saved by the normal production owners.
+        from uuid import uuid4
+
+        from app import composition
+        from app.services.clm_errors import ClmInfrastructureError
+
+        original_clm_builder = application_module.build_clm_orchestration_service
+        refresh_attempts = []
+        document_recovery_operations = []
+
+        class RecordingRefreshTarget(composition.MockGoldTierConnector):
+            def search_party(self, *args, **kwargs):
+                document_recovery_operations.append("SEARCH")
+                return super().search_party(*args, **kwargs)
+
+            def create_shell_customer(self, *args, **kwargs):
+                document_recovery_operations.append("SHELL")
+                return super().create_shell_customer(*args, **kwargs)
+
+            def create_policy(self, *args, **kwargs):
+                document_recovery_operations.append("POLICY")
+                return super().create_policy(*args, **kwargs)
+
+            def amend_party(self, *args, **kwargs):
+                document_recovery_operations.append("AMEND")
+                return super().amend_party(*args, **kwargs)
+
+        composition.MockGoldTierConnector = RecordingRefreshTarget
+
+        def build_faulted_clm(*args, **kwargs):
+            clm = original_clm_builder(*args, **kwargs)
+            original_refresh = clm.refresh_pre_submission_evidence
+
+            def refresh(*, case_id, document_revision=False):
+                if document_revision:
+                    refresh_attempts.append(case_id)
+                    if len(refresh_attempts) == 1:
+                        raise ClmInfrastructureError(
+                            case_id=case_id, orchestration_id=uuid4(), correlation_id=uuid4(),
+                            code="CLM_PERSISTENCE_UNAVAILABLE",
+                            message="Synthetic dependent evidence refresh unavailable.",
+                        )
+                return original_refresh(case_id=case_id, document_revision=document_revision)
+
+            clm.refresh_pre_submission_evidence = refresh
+            return clm
+
+        application_module.build_clm_orchestration_service = build_faulted_clm
+
     application = application_module.create_app(
         settings=settings,
         onboarding_service=(recovery_fixture.onboarding if recovery_fixture else
@@ -337,6 +388,15 @@ def main() -> int:
         def recovery_metadata() -> dict[str, object]:
             assert recovery_fixture is not None
             return recovery_fixture.metadata()
+
+    if recovery_demo == "document-refresh":
+        @application.get("/api/__slice_c/document-refresh-metadata", include_in_schema=False)
+        def document_refresh_metadata() -> dict[str, object]:
+            return {
+                "classification": "AUTOMATED_OFFLINE_SIMULATION", "external_calls": 0,
+                "refresh_attempts": len(refresh_attempts),
+                "operations": list(document_recovery_operations),
+            }
 
     if registry_demo:
         # This endpoint exists only in this isolated test server, never app.main.

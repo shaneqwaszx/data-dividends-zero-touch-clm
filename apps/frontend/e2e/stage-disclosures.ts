@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { retainedEvidencePath } from "../playwright.config";
 
 export async function expectDisclosureContrast(button: Locator): Promise<void> {
   const ratio = await button.evaluate((element) => {
@@ -55,7 +56,7 @@ export async function focusPipelineAction(page: Page, nodeId: string, control: L
   })).toBe(true);
   page.off("request", listener);
   expect(mutations).toEqual([]);
-  const evidence = path.resolve("../../.ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE");
+  const evidence = retainedEvidencePath("blocker-regression");
   await mkdir(evidence, { recursive: true });
   const name = `${test.info().title}-${nodeId}`.replace(/[^a-z0-9-]/gi, "-");
   const actual = await control.evaluate(element => ({ tag: element.tagName, id: element.id,

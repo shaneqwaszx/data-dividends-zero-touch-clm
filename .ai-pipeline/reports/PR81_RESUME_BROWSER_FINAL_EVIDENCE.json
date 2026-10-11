@@ -1,0 +1,1044 @@
+{
+  "verdict": "PASS",
+  "utc": "2026-10-11T10:39:44.168738+00:00",
+  "source36": "f6607f766b36ec1e2b6fc251b93b22c4940985fac394d28160b1878e802cfbae",
+  "shards": [
+    {
+      "ordinal": 1,
+      "status": "PASS",
+      "passed_tests": 66,
+      "skipped_tests": 0,
+      "seconds": 557.219,
+      "exit_code": 0
+    },
+    {
+      "ordinal": 2,
+      "status": "PASS",
+      "passed_tests": 46,
+      "skipped_tests": 0,
+      "seconds": 525.172,
+      "exit_code": 0
+    }
+  ],
+  "lifecycles": 91,
+  "tests_passed": 112,
+  "skips": 0,
+  "eight_journeys": {
+    "straits": {
+      "ordinal": 1,
+      "receipt_path": "tmp/browser-evidence/934d53a2-9494-4119-bf3b-6ee340f9f13a/retained/sponsor-demo-journeys.e2e.-f0bba--guarded-Sandbox-completion/sponsor-demo/straits.json",
+      "receipt_sha256": "8f88e4aa85beea0e63bbe0654d08f46c43759b4c8a06bdd5c48d5f1676e25fd3",
+      "screenshots": {
+        "final-review": {
+          "path": "tmp/browser-evidence/934d53a2-9494-4119-bf3b-6ee340f9f13a/retained/sponsor-demo-journeys.e2e.-f0bba--guarded-Sandbox-completion/sponsor-demo/straits-final-review.png",
+          "sha256": "338cd0257320c2357eb88c61ff6c9f5bb4c15ca7749c26e5bbc2cdafeda031a4"
+        },
+        "completed": {
+          "path": "tmp/browser-evidence/934d53a2-9494-4119-bf3b-6ee340f9f13a/retained/sponsor-demo-journeys.e2e.-f0bba--guarded-Sandbox-completion/sponsor-demo/straits-completed.png",
+          "sha256": "97a1886fbadcdcb9a03c120c2519cdb1f6c398bdf589b11b584e13cbe958a419"
+        }
+      },
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "ownership_source_classification": "SINGLE_SOURCE",
+      "ownership_provider": "ACRA_REGISTRY_ACQUISITION",
+      "ownership_source_environment": "MOCK"
+    },
+    "aurora": {
+      "ordinal": 1,
+      "receipt_path": "tmp/browser-evidence/9b982f7b-7352-4de6-aae0-23984cdd2bfc/retained/sponsor-demo-journeys.e2e.-b4915--guarded-Sandbox-completion/sponsor-demo/aurora.json",
+      "receipt_sha256": "427ab555906348032324d3df7f2104357cdf1add30c25a3ce6411bd46f300744",
+      "screenshots": {
+        "final-review": {
+          "path": "tmp/browser-evidence/9b982f7b-7352-4de6-aae0-23984cdd2bfc/retained/sponsor-demo-journeys.e2e.-b4915--guarded-Sandbox-completion/sponsor-demo/aurora-final-review.png",
+          "sha256": "e065a44a62e0e431d36b181343a9bc963cb85465acf9e4897a47117cb1c0d168"
+        },
+        "completed": {
+          "path": "tmp/browser-evidence/9b982f7b-7352-4de6-aae0-23984cdd2bfc/retained/sponsor-demo-journeys.e2e.-b4915--guarded-Sandbox-completion/sponsor-demo/aurora-completed.png",
+          "sha256": "f8ef33d82fc4cf7ed0b661d52eb1e2bf072eb2f79c19380b4c16547da9625b37"
+        }
+      },
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "ownership_source_classification": "SINGLE_SOURCE",
+      "ownership_provider": "ACRA_REGISTRY_ACQUISITION",
+      "ownership_source_environment": "MOCK"
+    },
+    "garden": {
+      "ordinal": 1,
+      "receipt_path": "tmp/browser-evidence/c32b8a19-2568-4699-9402-9314e91d394f/retained/sponsor-demo-journeys.e2e.-a7e87--guarded-Sandbox-completion/sponsor-demo/garden.json",
+      "receipt_sha256": "3bcdfedef4546012cbacf00453aa93de700fbb0e6dc57d16cc6dace9ad134e5e",
+      "screenshots": {
+        "final-review": {
+          "path": "tmp/browser-evidence/c32b8a19-2568-4699-9402-9314e91d394f/retained/sponsor-demo-journeys.e2e.-a7e87--guarded-Sandbox-completion/sponsor-demo/garden-final-review.png",
+          "sha256": "6cccf6c3920b85a24f56c36f3901fcbb7ca4d451ea7e5a1c03fb111aba2fc008"
+        },
+        "completed": {
+          "path": "tmp/browser-evidence/c32b8a19-2568-4699-9402-9314e91d394f/retained/sponsor-demo-journeys.e2e.-a7e87--guarded-Sandbox-completion/sponsor-demo/garden-completed.png",
+          "sha256": "c5b6a23387b4d11e67dce2c5843d5935955bb42da968a1f23d16018e22a7bac4"
+        }
+      },
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "ownership_source_classification": "SINGLE_SOURCE",
+      "ownership_provider": "MANUAL_DECLARATION_POC",
+      "ownership_source_environment": "LOCAL"
+    },
+    "multiple": {
+      "ordinal": 1,
+      "receipt_path": "tmp/browser-evidence/ec220a77-d082-4f9d-8c94-1f5de9dc651e/retained/sponsor-demo-journeys.e2e.-3587f--guarded-Sandbox-completion/sponsor-demo/multiple.json",
+      "receipt_sha256": "a7e90436b1c3eba41854d45c5fe0a3cf54bbec2da48ca317f414d5499b1e68b5",
+      "screenshots": {
+        "final-review": {
+          "path": "tmp/browser-evidence/ec220a77-d082-4f9d-8c94-1f5de9dc651e/retained/sponsor-demo-journeys.e2e.-3587f--guarded-Sandbox-completion/sponsor-demo/multiple-final-review.png",
+          "sha256": "7704a85f732e959be40aeb3412aabdc4f219645158202602555b3efc5fd6c65e"
+        },
+        "completed": {
+          "path": "tmp/browser-evidence/ec220a77-d082-4f9d-8c94-1f5de9dc651e/retained/sponsor-demo-journeys.e2e.-3587f--guarded-Sandbox-completion/sponsor-demo/multiple-completed.png",
+          "sha256": "01b5154240cf15c2996dd1c8dd3f078229b3500ac33e2e7dc8c5bfa3f0605bc5"
+        }
+      },
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "ownership_source_classification": "SINGLE_SOURCE",
+      "ownership_provider": "ACRA_REGISTRY_ACQUISITION",
+      "ownership_source_environment": "MOCK"
+    },
+    "pacific": {
+      "ordinal": 2,
+      "receipt_path": "tmp/browser-evidence/1e63c54a-7db3-4474-945f-006cbfba1857/retained/sponsor-demo-journeys.e2e.-a81c4--guarded-Sandbox-completion/sponsor-demo/pacific.json",
+      "receipt_sha256": "e855c4566204c38d6891501a3158a922bb26bfc7fc94950a18fe89a73705dd9d",
+      "screenshots": {
+        "final-review": {
+          "path": "tmp/browser-evidence/1e63c54a-7db3-4474-945f-006cbfba1857/retained/sponsor-demo-journeys.e2e.-a81c4--guarded-Sandbox-completion/sponsor-demo/pacific-final-review.png",
+          "sha256": "d9b7ce50716246e042ae3c3092e3119764331696619ae43a2902a900d73d8dd3"
+        },
+        "completed": {
+          "path": "tmp/browser-evidence/1e63c54a-7db3-4474-945f-006cbfba1857/retained/sponsor-demo-journeys.e2e.-a81c4--guarded-Sandbox-completion/sponsor-demo/pacific-completed.png",
+          "sha256": "526bea783e35eaf8af1ce2acf93d66cba6017fc4f2a40719dac344782cdd38cb"
+        }
+      },
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "ownership_source_classification": "SINGLE_SOURCE",
+      "ownership_provider": "ACRA_REGISTRY_ACQUISITION",
+      "ownership_source_environment": "MOCK"
+    },
+    "multilevel": {
+      "ordinal": 2,
+      "receipt_path": "tmp/browser-evidence/288291f9-ad23-4e11-853c-4a6a25670946/retained/sponsor-demo-journeys.e2e.-0dc51--guarded-Sandbox-completion/sponsor-demo/multilevel.json",
+      "receipt_sha256": "c3d43a37e05b1883d2ce0b81ea5c65818fe5d6fab45b3535cb272c9e8f0dbb93",
+      "screenshots": {
+        "final-review": {
+          "path": "tmp/browser-evidence/288291f9-ad23-4e11-853c-4a6a25670946/retained/sponsor-demo-journeys.e2e.-0dc51--guarded-Sandbox-completion/sponsor-demo/multilevel-final-review.png",
+          "sha256": "d98e6444f580a6f8639a5b31a566e72dbda7db3a14e45b4a3341a6216111c802"
+        },
+        "completed": {
+          "path": "tmp/browser-evidence/288291f9-ad23-4e11-853c-4a6a25670946/retained/sponsor-demo-journeys.e2e.-0dc51--guarded-Sandbox-completion/sponsor-demo/multilevel-completed.png",
+          "sha256": "1f5b5b92d2cf6a6524028aede151331f902a85c99ca82fe27420031ba940b1ec"
+        }
+      },
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "ownership_source_classification": "SINGLE_SOURCE",
+      "ownership_provider": "ACRA_REGISTRY_ACQUISITION",
+      "ownership_source_environment": "MOCK"
+    },
+    "merlion": {
+      "ordinal": 2,
+      "receipt_path": "tmp/browser-evidence/84ea6852-672f-4f2c-9f48-5a045a3d7e13/retained/sponsor-demo-journeys.e2e.-e49c3--guarded-Sandbox-completion/sponsor-demo/merlion.json",
+      "receipt_sha256": "53b68f4f50f161143486e9fd3dbbccea0f26e3790418ceba47f57da280628aff",
+      "screenshots": {
+        "final-review": {
+          "path": "tmp/browser-evidence/84ea6852-672f-4f2c-9f48-5a045a3d7e13/retained/sponsor-demo-journeys.e2e.-e49c3--guarded-Sandbox-completion/sponsor-demo/merlion-final-review.png",
+          "sha256": "b38612e60364b336c301a4d658e0b20f6b375653011d00c293badd72a269bd62"
+        },
+        "completed": {
+          "path": "tmp/browser-evidence/84ea6852-672f-4f2c-9f48-5a045a3d7e13/retained/sponsor-demo-journeys.e2e.-e49c3--guarded-Sandbox-completion/sponsor-demo/merlion-completed.png",
+          "sha256": "01754aa38e6420c0e8ec41ed6dcff97bb31454cf723524d0ee690d1789a89b5f"
+        }
+      },
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 3,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 4,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "ownership_source_classification": "SINGLE_SOURCE",
+      "ownership_provider": "ACRA_REGISTRY_ACQUISITION",
+      "ownership_source_environment": "MOCK"
+    },
+    "meridian": {
+      "ordinal": 2,
+      "receipt_path": "tmp/browser-evidence/e1b4fbec-544e-45d6-aca2-842fa1dde09c/retained/sponsor-demo-journeys.e2e.-32aeb--guarded-Sandbox-completion/sponsor-demo/meridian.json",
+      "receipt_sha256": "4f52700f2846707db4ae63e876e3ac33a36304c38b8bbe2f463cb94073f6db3e",
+      "screenshots": {
+        "final-review": {
+          "path": "tmp/browser-evidence/e1b4fbec-544e-45d6-aca2-842fa1dde09c/retained/sponsor-demo-journeys.e2e.-32aeb--guarded-Sandbox-completion/sponsor-demo/meridian-final-review.png",
+          "sha256": "af4c63e8bc6c016f800d8dbc82ce3b0e3d9dcae99ff8a72a6d35fb38d7369ecd"
+        },
+        "completed": {
+          "path": "tmp/browser-evidence/e1b4fbec-544e-45d6-aca2-842fa1dde09c/retained/sponsor-demo-journeys.e2e.-32aeb--guarded-Sandbox-completion/sponsor-demo/meridian-completed.png",
+          "sha256": "6b903871fb59ba86d397cd19339dff1bde58348c6e01fcc5c1da910d90d95927"
+        }
+      },
+      "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+      "real_sandbox_uat": "NOT_VERIFIED",
+      "verdict": "PASS",
+      "final_status": "COMPLETED",
+      "submission_state": "SUBMISSION_CONFIRMED",
+      "unauthorized_status": 403,
+      "unauthorized_classification_status": 403,
+      "stale_status": 409,
+      "frozen_replacement_status": 409,
+      "frozen_classification_status": 409,
+      "reopen_mutations": 0,
+      "target_before": {
+        "SEARCH": 1,
+        "SHELL": 0,
+        "POLICY": 0,
+        "AMEND": 0,
+        "READBACK": 0
+      },
+      "target_after": {
+        "SEARCH": 2,
+        "SHELL": 1,
+        "POLICY": 1,
+        "AMEND": 0,
+        "READBACK": 1
+      },
+      "ownership_source_classification": "SINGLE_SOURCE",
+      "ownership_provider": "ACRA_REGISTRY_ACQUISITION",
+      "ownership_source_environment": "MOCK"
+    }
+  },
+  "blocker_groups": {
+    "group-2.json": {
+      "path": "tmp/browser-evidence/e6ee4f04-a135-4639-99d4-cda698ff1733/retained/blocker-review-performance-7d4e6--performance-sample-group-2/blocker-regression/group-2.json",
+      "sha256": "848bb43b8f96055a193c047c5434f210f680c96b0ec75e514653a0b42d6978bc",
+      "ordinal": 1,
+      "observations": [
+        {
+          "sample": 10,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 83,
+          "confirmation_ms": 241,
+          "total_ms": 324,
+          "choice_ms": [
+            28,
+            20,
+            17,
+            18
+          ]
+        },
+        {
+          "sample": 11,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 73,
+          "confirmation_ms": 222,
+          "total_ms": 295,
+          "choice_ms": [
+            18,
+            16,
+            20,
+            19
+          ]
+        },
+        {
+          "sample": 12,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 70,
+          "confirmation_ms": 239,
+          "total_ms": 309,
+          "choice_ms": [
+            19,
+            17,
+            17,
+            17
+          ]
+        },
+        {
+          "sample": 13,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 75,
+          "confirmation_ms": 230,
+          "total_ms": 305,
+          "choice_ms": [
+            18,
+            17,
+            23,
+            17
+          ]
+        },
+        {
+          "sample": 14,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 70,
+          "confirmation_ms": 234,
+          "total_ms": 304,
+          "choice_ms": [
+            18,
+            17,
+            18,
+            17
+          ]
+        },
+        {
+          "sample": 15,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 73,
+          "confirmation_ms": 230,
+          "total_ms": 303,
+          "choice_ms": [
+            20,
+            17,
+            17,
+            19
+          ]
+        },
+        {
+          "sample": 16,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 71,
+          "confirmation_ms": 224,
+          "total_ms": 295,
+          "choice_ms": [
+            19,
+            17,
+            18,
+            17
+          ]
+        },
+        {
+          "sample": 17,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 78,
+          "confirmation_ms": 257,
+          "total_ms": 335,
+          "choice_ms": [
+            20,
+            21,
+            18,
+            19
+          ]
+        },
+        {
+          "sample": 18,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 68,
+          "confirmation_ms": 220,
+          "total_ms": 288,
+          "choice_ms": [
+            18,
+            17,
+            17,
+            16
+          ]
+        },
+        {
+          "sample": 19,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 67,
+          "confirmation_ms": 231,
+          "total_ms": 298,
+          "choice_ms": [
+            17,
+            16,
+            16,
+            18
+          ]
+        }
+      ]
+    },
+    "group-1.json": {
+      "path": "tmp/browser-evidence/6dcfe76f-dfdb-4167-bd1e-1c6424e2be55/retained/blocker-review-performance-02e11--performance-sample-group-1/blocker-regression/group-1.json",
+      "sha256": "a0a06e46379f8c6895e8eb443cadb4549013ea28f011e995fa7619ab2b0a488a",
+      "ordinal": 2,
+      "observations": [
+        {
+          "sample": 0,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 74,
+          "confirmation_ms": 242,
+          "total_ms": 316,
+          "choice_ms": [
+            19,
+            20,
+            17,
+            18
+          ]
+        },
+        {
+          "sample": 1,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 68,
+          "confirmation_ms": 235,
+          "total_ms": 303,
+          "choice_ms": [
+            18,
+            16,
+            17,
+            17
+          ]
+        },
+        {
+          "sample": 2,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 64,
+          "confirmation_ms": 228,
+          "total_ms": 292,
+          "choice_ms": [
+            16,
+            17,
+            16,
+            15
+          ]
+        },
+        {
+          "sample": 3,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 67,
+          "confirmation_ms": 239,
+          "total_ms": 306,
+          "choice_ms": [
+            17,
+            17,
+            17,
+            16
+          ]
+        },
+        {
+          "sample": 4,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 68,
+          "confirmation_ms": 238,
+          "total_ms": 306,
+          "choice_ms": [
+            19,
+            17,
+            16,
+            16
+          ]
+        },
+        {
+          "sample": 5,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 66,
+          "confirmation_ms": 234,
+          "total_ms": 300,
+          "choice_ms": [
+            17,
+            17,
+            15,
+            17
+          ]
+        },
+        {
+          "sample": 6,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 66,
+          "confirmation_ms": 228,
+          "total_ms": 294,
+          "choice_ms": [
+            18,
+            16,
+            16,
+            16
+          ]
+        },
+        {
+          "sample": 7,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 77,
+          "confirmation_ms": 247,
+          "total_ms": 324,
+          "choice_ms": [
+            20,
+            20,
+            18,
+            19
+          ]
+        },
+        {
+          "sample": 8,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 77,
+          "confirmation_ms": 238,
+          "total_ms": 315,
+          "choice_ms": [
+            21,
+            17,
+            21,
+            18
+          ]
+        },
+        {
+          "sample": 9,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 66,
+          "confirmation_ms": 229,
+          "total_ms": 295,
+          "choice_ms": [
+            17,
+            16,
+            17,
+            16
+          ]
+        }
+      ]
+    },
+    "group-3.json": {
+      "path": "tmp/browser-evidence/93cf2963-ed0c-44da-a976-7450af0a1a91/retained/blocker-review-performance-bf914--performance-sample-group-3/blocker-regression/group-3.json",
+      "sha256": "8776962022e5d668a364c3a420e85af01fc20f18e25495db8b7ea8c8450ec941",
+      "ordinal": 2,
+      "observations": [
+        {
+          "sample": 20,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 79,
+          "confirmation_ms": 247,
+          "total_ms": 326,
+          "choice_ms": [
+            26,
+            17,
+            19,
+            17
+          ]
+        },
+        {
+          "sample": 21,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 72,
+          "confirmation_ms": 220,
+          "total_ms": 292,
+          "choice_ms": [
+            18,
+            17,
+            18,
+            19
+          ]
+        },
+        {
+          "sample": 22,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 73,
+          "confirmation_ms": 238,
+          "total_ms": 311,
+          "choice_ms": [
+            18,
+            18,
+            18,
+            19
+          ]
+        },
+        {
+          "sample": 23,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 64,
+          "confirmation_ms": 234,
+          "total_ms": 298,
+          "choice_ms": [
+            17,
+            16,
+            15,
+            16
+          ]
+        },
+        {
+          "sample": 24,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 70,
+          "confirmation_ms": 236,
+          "total_ms": 306,
+          "choice_ms": [
+            18,
+            16,
+            19,
+            17
+          ]
+        },
+        {
+          "sample": 25,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 66,
+          "confirmation_ms": 240,
+          "total_ms": 306,
+          "choice_ms": [
+            18,
+            15,
+            16,
+            17
+          ]
+        },
+        {
+          "sample": 26,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 66,
+          "confirmation_ms": 266,
+          "total_ms": 332,
+          "choice_ms": [
+            17,
+            17,
+            16,
+            16
+          ]
+        },
+        {
+          "sample": 27,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 62,
+          "confirmation_ms": 242,
+          "total_ms": 304,
+          "choice_ms": [
+            17,
+            15,
+            16,
+            14
+          ]
+        },
+        {
+          "sample": 28,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 65,
+          "confirmation_ms": 249,
+          "total_ms": 314,
+          "choice_ms": [
+            18,
+            16,
+            16,
+            15
+          ]
+        },
+        {
+          "sample": 29,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 65,
+          "confirmation_ms": 238,
+          "total_ms": 303,
+          "choice_ms": [
+            16,
+            16,
+            16,
+            17
+          ]
+        }
+      ]
+    }
+  },
+  "artifact_hashes": {
+    "tmp/browser-evidence/18a9ea55-0672-4db2-bc90-b06414157d15/retained/s3-sandbox-submission.e2e.-81078-ues-the-original-submission/blocker-regression/focus-Director-recovers-uncertain-policy-and-continues-the-original-submission-GOLDTIER-TARGET.json": "f38709f245138b0cbe5817e42dbb4100c799b79efb71ac0f8d6ceadb93e57a22",
+    "tmp/browser-evidence/18a9ea55-0672-4db2-bc90-b06414157d15/retained/s3-sandbox-submission.e2e.-81078-ues-the-original-submission/goldtier-recovery/retained-policy.png": "7449870b222e61f85ca7ed3674b4627f7f96a3ba91b14474011ae07f5d3f347c",
+    "tmp/browser-evidence/22772acb-3cd7-415a-b86e-07913f92fe0a/retained/slice-c-recovery.e2e.ts-Sl-1b08d-plete-with-neutral-progress/blocker-regression/focus-Slice-C-optional-Amend-and-NO-MATCH-complete-with-neutral-progress-FINAL-REVIEW-SEND.json": "4643121922489007bc989a73d05691e4d5e3fc358a8ee68f70723640d666d191",
+    "tmp/browser-evidence/3119d3be-0aac-48a8-a8e6-e62596126765/retained/blocker-simulation.e2e.ts--14174-simulation-country-mismatch/blocker-regression/simulation-country-mismatch.json": "f7d1984c335bb9714e953c52ef0f5e5ac8a9d2d2db8574bfa5a86e53f86820e6",
+    "tmp/browser-evidence/3119d3be-0aac-48a8-a8e6-e62596126765/retained/blocker-simulation.e2e.ts--50cc4-tion-missing-required-field/blocker-regression/simulation-missing-required-field.json": "17ba80b53629e65176fa60001ddf0ccf8e9e032ce74bcc7a2b1412cb370db069",
+    "tmp/browser-evidence/3119d3be-0aac-48a8-a8e6-e62596126765/retained/blocker-simulation.e2e.ts--5460d-ulation-uen-source-conflict/blocker-regression/focus-Blocker-simulation-uen-source-conflict-RECONCILIATION.json": "9f3ea6bce8bd7e1ccc564e9818ffe233dcfccaec0a450a1822dfe75dcbfb39f8",
+    "tmp/browser-evidence/3119d3be-0aac-48a8-a8e6-e62596126765/retained/blocker-simulation.e2e.ts--5460d-ulation-uen-source-conflict/blocker-regression/simulation-uen-source-conflict.json": "4dec824037599c4e75d7a7da2ce4f6d9f828b99f1ac2b9150dc1cb16b85b0d62",
+    "tmp/browser-evidence/3119d3be-0aac-48a8-a8e6-e62596126765/retained/blocker-simulation.e2e.ts--6eae1-simulation-address-mismatch/blocker-regression/simulation-address-mismatch.json": "faa236c750f32546c3412ae9d4ff7b5f3c1fbf151c9790a9e37e17301deb5dfc",
+    "tmp/browser-evidence/3119d3be-0aac-48a8-a8e6-e62596126765/retained/blocker-simulation.e2e.ts--796f8--classification-conflicting/blocker-regression/simulation-classification-conflicting.json": "7d01b8b0abec381a1325c9f16db5d452de4316a1667556e7dc33bc803718a433",
+    "tmp/browser-evidence/3119d3be-0aac-48a8-a8e6-e62596126765/retained/blocker-simulation.e2e.ts--8e8d9-ulation-ambiguous-low-score/blocker-regression/simulation-ambiguous-low-score.json": "607d3d74111bca02585e03ad8b2b04825ea36d0d959117a6f76c0c4268c4c266",
+    "tmp/browser-evidence/3119d3be-0aac-48a8-a8e6-e62596126765/retained/blocker-simulation.e2e.ts--a6ecd-tion-classification-missing/blocker-regression/simulation-classification-missing.json": "fb08e0eed958797869730e38982df5a6acf66187044f1edb2e08f8b0e54132c9",
+    "tmp/browser-evidence/3119d3be-0aac-48a8-a8e6-e62596126765/retained/blocker-simulation.e2e.ts--d2c7a-ion-cross-document-conflict/blocker-regression/simulation-cross-document-conflict.json": "2f69b21ef721f2a49b7cc9d1256a23aee668418d4abff1c8d0259d24b4abf461",
+    "tmp/browser-evidence/3119d3be-0aac-48a8-a8e6-e62596126765/retained/blocker-simulation.e2e.ts--efad4-ulation-multiple-mismatches/blocker-regression/simulation-multiple-mismatches.json": "e5107e54ec465b0e80daaea2e7677fb41b6c057a6822fe119971bf22f79afca2",
+    "tmp/browser-evidence/3119d3be-0aac-48a8-a8e6-e62596126765/retained/blocker-simulation.e2e.ts--f4e27-ulation-legal-name-mismatch/blocker-regression/simulation-legal-name-mismatch.json": "b012acdf0ca4e58f62dfe4bf20b132d919e9b82571684744d4f757819e9166f6",
+    "tmp/browser-evidence/7c0be1d0-7e43-41d0-8b5d-a4240d05c7c9/retained/slice-c-recovery.e2e.ts-Sl-18246-very-makes-no-target-replay/blocker-regression/focus-Slice-C-retained-finalization-recovery-makes-no-target-replay-FINAL-REVIEW-SEND.json": "988bafe161f47406f2dbc690309af371c8a262bf6318e6d7aca2145335ff3ee3",
+    "tmp/browser-evidence/89bbbc01-5678-4849-acc1-72bf8d2feb4a/retained/slice-c-recovery.e2e.ts-Sl-a290c--document-owner-and-history/blocker-regression/focus-Slice-C-legal-name-discrepancy-resolves-through-document-owner-and-history-FINAL-REVIEW-SEND.json": "61ce71bec953ce226c8653d7e76d4ba052410d7cfa9cefd1a61eba5631f703df",
+    "tmp/browser-evidence/90a2af7e-dd22-42ab-89ed-e0b54d3459c1/retained/blocker-simulation.e2e.ts--b11a6--retry-and-one-continuation/blocker-regression/focus-Blocker-simulation-actual-native-PDF-intake-failure-targets-retry-and-one-continuation-DOCUMENT-IDP.json": "640f98240ebfe62a204b65ffd37209778a309cf5b02de808c41b6524e2020280",
+    "tmp/browser-evidence/90a2af7e-dd22-42ab-89ed-e0b54d3459c1/retained/blocker-simulation.e2e.ts--b11a6--retry-and-one-continuation/blocker-regression/simulation-document-refresh-recovery.json": "9b8f4e27c3a635a8d98617054df090fb7904978262e5e26618e3450489bb7246",
+    "tmp/browser-evidence/90a2af7e-dd22-42ab-89ed-e0b54d3459c1/retained/blocker-simulation.e2e.ts--b11a6--retry-and-one-continuation/blocker-regression/simulation-native-failed-retry.json": "605acf04fea09ec123652dccc5f84ca92157cefd663f3be5f46ada11491ed098",
+    "tmp/browser-evidence/934d53a2-9494-4119-bf3b-6ee340f9f13a/retained/sponsor-demo-journeys.e2e.-f0bba--guarded-Sandbox-completion/sponsor-demo/straits-completed.png": "97a1886fbadcdcb9a03c120c2519cdb1f6c398bdf589b11b584e13cbe958a419",
+    "tmp/browser-evidence/934d53a2-9494-4119-bf3b-6ee340f9f13a/retained/sponsor-demo-journeys.e2e.-f0bba--guarded-Sandbox-completion/sponsor-demo/straits-final-review.png": "338cd0257320c2357eb88c61ff6c9f5bb4c15ca7749c26e5bbc2cdafeda031a4",
+    "tmp/browser-evidence/934d53a2-9494-4119-bf3b-6ee340f9f13a/retained/sponsor-demo-journeys.e2e.-f0bba--guarded-Sandbox-completion/sponsor-demo/straits.json": "8f88e4aa85beea0e63bbe0654d08f46c43759b4c8a06bdd5c48d5f1676e25fd3",
+    "tmp/browser-evidence/9b982f7b-7352-4de6-aae0-23984cdd2bfc/retained/sponsor-demo-journeys.e2e.-b4915--guarded-Sandbox-completion/sponsor-demo/aurora-completed.png": "f8ef33d82fc4cf7ed0b661d52eb1e2bf072eb2f79c19380b4c16547da9625b37",
+    "tmp/browser-evidence/9b982f7b-7352-4de6-aae0-23984cdd2bfc/retained/sponsor-demo-journeys.e2e.-b4915--guarded-Sandbox-completion/sponsor-demo/aurora-final-review.png": "e065a44a62e0e431d36b181343a9bc963cb85465acf9e4897a47117cb1c0d168",
+    "tmp/browser-evidence/9b982f7b-7352-4de6-aae0-23984cdd2bfc/retained/sponsor-demo-journeys.e2e.-b4915--guarded-Sandbox-completion/sponsor-demo/aurora.json": "427ab555906348032324d3df7f2104357cdf1add30c25a3ce6411bd46f300744",
+    "tmp/browser-evidence/a7a04ae9-610e-4837-97f2-8e7cf347bbe8/retained/slice-c-recovery.e2e.ts-Sl-15b74--until-replacement-evidence/blocker-regression/focus-Slice-C-missing-field-correction-retains-blocker-until-replacement-evidence-FINAL-REVIEW-SEND.json": "634ded80a4948b023dbc11433a9bff51073a047450320a1ae7b3486ef09cfb50",
+    "tmp/browser-evidence/c1b9af59-772f-4158-a5e1-421ad9a264d0/retained/s3-sandbox-submission.e2e.-4c37b-out-sending-again-truncated/goldtier-recovery/confirmed-truncated.png": "03d0dbcffb9667dd17681e8392bea3ca1d3aebaaed2bd3a8965759dd16f273ed",
+    "tmp/browser-evidence/c1b9af59-772f-4158-a5e1-421ad9a264d0/retained/s3-sandbox-submission.e2e.-4c37b-out-sending-again-truncated/goldtier-recovery/verifying-truncated.png": "51a63e6b249f3e0e209a6e5115d555af841db524a0ef102c884ace0f3d82b20c",
+    "tmp/browser-evidence/c23b6f8e-3e4f-46bb-ab36-e87f508502e2/retained/blocker-simulation.e2e.ts--4a13e-lation-ownership-incomplete/blocker-regression/simulation-ownership-incomplete.json": "13776489064eeb9c1f622cb7285a7b0ab148ba22ef41d6ae18edff471fed7068",
+    "tmp/browser-evidence/c23b6f8e-3e4f-46bb-ab36-e87f508502e2/retained/blocker-simulation.e2e.ts--baf7a-ovider-relationship-failure/blocker-regression/simulation-provider-relationship-failure.json": "95e26cc9ecbb5770fb79573c3a0143dd4f922bc4a7f23e87bec2dd92e1538435",
+    "tmp/browser-evidence/c23b6f8e-3e4f-46bb-ab36-e87f508502e2/retained/blocker-simulation.e2e.ts-Blocker-simulation-ownership-cycle/blocker-regression/simulation-ownership-cycle.json": "5949734819dfcd7427dba7cefefe4581dd48cb3c911374b0c21c9a4aca76d581",
+    "tmp/browser-evidence/c32b8a19-2568-4699-9402-9314e91d394f/retained/sponsor-demo-journeys.e2e.-a7e87--guarded-Sandbox-completion/sponsor-demo/garden-completed.png": "c5b6a23387b4d11e67dce2c5843d5935955bb42da968a1f23d16018e22a7bac4",
+    "tmp/browser-evidence/c32b8a19-2568-4699-9402-9314e91d394f/retained/sponsor-demo-journeys.e2e.-a7e87--guarded-Sandbox-completion/sponsor-demo/garden-final-review.png": "6cccf6c3920b85a24f56c36f3901fcbb7ca4d451ea7e5a1c03fb111aba2fc008",
+    "tmp/browser-evidence/c32b8a19-2568-4699-9402-9314e91d394f/retained/sponsor-demo-journeys.e2e.-a7e87--guarded-Sandbox-completion/sponsor-demo/garden.json": "3bcdfedef4546012cbacf00453aa93de700fbb0e6dc57d16cc6dace9ad134e5e",
+    "tmp/browser-evidence/c3d7ad5a-6210-4067-8c9f-54bd67fd4403/retained/blocker-simulation.e2e.ts--6625a-l-current-document-decision/blocker-regression/simulation-delayed-stage-focus.json": "8e54f253ac2d0e1b3504fb3c487047d843f9735d73e2ff84cc76437f491ae460",
+    "tmp/browser-evidence/cbd360ce-2822-4162-9d37-9ff3ca7ebf99/retained/zero-touch-exception.e2e.t-970e1-ption-automatically-resumes/zero-touch/Zero-touch-Garden-conflict-exception-automatically-resumes-after-viewport.png": "abaa0e93c86a069a4ca74edc53ba5058104be8255df0ffe2fde6936b4f43912c",
+    "tmp/browser-evidence/cbd360ce-2822-4162-9d37-9ff3ca7ebf99/retained/zero-touch-exception.e2e.t-970e1-ption-automatically-resumes/zero-touch/Zero-touch-Garden-conflict-exception-automatically-resumes-after.png": "70db4fd89d74fac879b84b7d8375d4e26734a6bfb66efd2e5d872354afa33fbd",
+    "tmp/browser-evidence/cbd360ce-2822-4162-9d37-9ff3ca7ebf99/retained/zero-touch-exception.e2e.t-970e1-ption-automatically-resumes/zero-touch/Zero-touch-Garden-conflict-exception-automatically-resumes-before-viewport.png": "a52b4c18041b5a02961dd735e955ab5bc6cf5e2ee087083ca439a53b410ed6e8",
+    "tmp/browser-evidence/cbd360ce-2822-4162-9d37-9ff3ca7ebf99/retained/zero-touch-exception.e2e.t-970e1-ption-automatically-resumes/zero-touch/Zero-touch-Garden-conflict-exception-automatically-resumes-before.png": "c7ac669fe6e88fc6d85f77d505103b57ea4b8842ca39c2ca00c3ad4937b633ce",
+    "tmp/browser-evidence/cbd360ce-2822-4162-9d37-9ff3ca7ebf99/retained/zero-touch-exception.e2e.t-970e1-ption-automatically-resumes/zero-touch/Zero-touch-Garden-conflict-exception-automatically-resumes-conflict-group-during-viewport.png": "a5f3ef992174375aa49d2e41382e9c7901d8e135435439da3adcd8f7676e52c5",
+    "tmp/browser-evidence/cbd360ce-2822-4162-9d37-9ff3ca7ebf99/retained/zero-touch-exception.e2e.t-970e1-ption-automatically-resumes/zero-touch/Zero-touch-Garden-conflict-exception-automatically-resumes-conflict-group-during.png": "61979d0834a5f7bc536acbb9f756716e2345ce2ee67654ad894f28a8ede1021d",
+    "tmp/browser-evidence/cbd360ce-2822-4162-9d37-9ff3ca7ebf99/retained/zero-touch-exception.e2e.t-b6474-ption-automatically-resumes/zero-touch/Zero-touch-Garden-clean-exception-automatically-resumes-after-viewport.png": "a80a62b0bfb728dd77dc44a9be607ea973ea8eff72768ce765d3dd301d449d66",
+    "tmp/browser-evidence/cbd360ce-2822-4162-9d37-9ff3ca7ebf99/retained/zero-touch-exception.e2e.t-b6474-ption-automatically-resumes/zero-touch/Zero-touch-Garden-clean-exception-automatically-resumes-after.png": "58d64bf459e696327e8e1bb8f2c85808ba76373b2681e8c8ad62daab9c640ca1",
+    "tmp/browser-evidence/cbd360ce-2822-4162-9d37-9ff3ca7ebf99/retained/zero-touch-exception.e2e.t-b6474-ption-automatically-resumes/zero-touch/Zero-touch-Garden-clean-exception-automatically-resumes-before-viewport.png": "bc5e78853ee09ea5ad3c8b24f8ad1158f08461487fbcd32d77626a610df1d961",
+    "tmp/browser-evidence/cbd360ce-2822-4162-9d37-9ff3ca7ebf99/retained/zero-touch-exception.e2e.t-b6474-ption-automatically-resumes/zero-touch/Zero-touch-Garden-clean-exception-automatically-resumes-before.png": "50a0621632bf1d17b395a7f395bc131079b82fe1576c152f2db8704afefb6904",
+    "tmp/browser-evidence/e132cf62-58b7-4095-b3af-5cb3c4e41bc3/retained/slice-c-recovery.e2e.ts-Sl-24528--document-owner-and-history/blocker-regression/focus-Slice-C-country-discrepancy-resolves-through-document-owner-and-history-FINAL-REVIEW-SEND.json": "5d15056fa51f399dac09d9918a051aac13701b52343caad8dfd976e8078a6007",
+    "tmp/browser-evidence/e6ee4f04-a135-4639-99d4-cda698ff1733/retained/blocker-review-performance-7d4e6--performance-sample-group-2/blocker-regression/group-2.json": "848bb43b8f96055a193c047c5434f210f680c96b0ec75e514653a0b42d6978bc",
+    "tmp/browser-evidence/ec220a77-d082-4f9d-8c94-1f5de9dc651e/retained/sponsor-demo-journeys.e2e.-3587f--guarded-Sandbox-completion/sponsor-demo/multiple-completed.png": "01b5154240cf15c2996dd1c8dd3f078229b3500ac33e2e7dc8c5bfa3f0605bc5",
+    "tmp/browser-evidence/ec220a77-d082-4f9d-8c94-1f5de9dc651e/retained/sponsor-demo-journeys.e2e.-3587f--guarded-Sandbox-completion/sponsor-demo/multiple-final-review.png": "7704a85f732e959be40aeb3412aabdc4f219645158202602555b3efc5fd6c65e",
+    "tmp/browser-evidence/ec220a77-d082-4f9d-8c94-1f5de9dc651e/retained/sponsor-demo-journeys.e2e.-3587f--guarded-Sandbox-completion/sponsor-demo/multiple.json": "a7e90436b1c3eba41854d45c5fe0a3cf54bbec2da48ca317f414d5499b1e68b5",
+    "tmp/browser-evidence/f3e8d9e8-c217-4097-b957-ebc23be13086/retained/phase24c-policy.e2e.ts-Pha-7e4a6--and-accessible-layout-1280/clm-phase24c-policy-1280.png": "f32b5cdd46f51b8b0dfed28bf83e4e45be30bba905c405eb25d12c2a9d582f04",
+    "tmp/browser-evidence/f3e8d9e8-c217-4097-b957-ebc23be13086/retained/phase24c-policy.e2e.ts-Pha-91ade-l-and-accessible-layout-320/clm-phase24c-policy-320.png": "ea47883a3d0ccd6f8e407c924c054d67404d642050c24136f4d73b1c9acba492",
+    "tmp/browser-evidence/030c02a8-43bb-416a-82b9-c8e63db6d942/retained/s3-sandbox-submission.e2e.-3d51e-thout-sending-again-aborted/goldtier-recovery/confirmed-aborted.png": "03d0dbcffb9667dd17681e8392bea3ca1d3aebaaed2bd3a8965759dd16f273ed",
+    "tmp/browser-evidence/030c02a8-43bb-416a-82b9-c8e63db6d942/retained/s3-sandbox-submission.e2e.-3d51e-thout-sending-again-aborted/goldtier-recovery/verifying-aborted.png": "51a63e6b249f3e0e209a6e5115d555af841db524a0ef102c884ace0f3d82b20c",
+    "tmp/browser-evidence/0f8eb757-4a67-4f54-ae84-3aec32e0eac5/retained/slice-c-recovery.e2e.ts-Sl-c4502-s-bounded-read-only-recheck/blocker-regression/focus-Slice-C-failed-Search-exposes-bounded-read-only-recheck-FINAL-REVIEW-SEND.json": "99adcd8f27e4ff3c5cc96f6c71f755687862c02da75c99ac0e1e56e5c0bd1378",
+    "tmp/browser-evidence/0f8eb757-4a67-4f54-ae84-3aec32e0eac5/retained/slice-c-recovery.e2e.ts-Sl-c4502-s-bounded-read-only-recheck/blocker-regression/focus-Slice-C-failed-Search-exposes-bounded-read-only-recheck-GOLDTIER-SEARCH.json": "4d454cfd397030d3040f4399eb67f45cf7b3837192b69fa7d4c3ca9f4c58ccf4",
+    "tmp/browser-evidence/10464ac8-c8a4-4073-a3b3-a27a00abb794/retained/phase24-identity.e2e.ts-Ph-7bd79-and-keeps-final-review-last/blocker-regression/focus-Phase24-invalid-registry-identity-corrects-the-same-case-and-keeps-final-review-last-ACRA-REGISTRY.json": "8bba028ae68d1a4801f797eac1d72a8138f36ec4e427f7435f1cdd5ec19d78e6",
+    "tmp/browser-evidence/1e63c54a-7db3-4474-945f-006cbfba1857/retained/sponsor-demo-journeys.e2e.-a81c4--guarded-Sandbox-completion/sponsor-demo/pacific-completed.png": "526bea783e35eaf8af1ce2acf93d66cba6017fc4f2a40719dac344782cdd38cb",
+    "tmp/browser-evidence/1e63c54a-7db3-4474-945f-006cbfba1857/retained/sponsor-demo-journeys.e2e.-a81c4--guarded-Sandbox-completion/sponsor-demo/pacific-final-review.png": "d9b7ce50716246e042ae3c3092e3119764331696619ae43a2902a900d73d8dd3",
+    "tmp/browser-evidence/1e63c54a-7db3-4474-945f-006cbfba1857/retained/sponsor-demo-journeys.e2e.-a81c4--guarded-Sandbox-completion/sponsor-demo/pacific.json": "e855c4566204c38d6891501a3158a922bb26bfc7fc94950a18fe89a73705dd9d",
+    "tmp/browser-evidence/288291f9-ad23-4e11-853c-4a6a25670946/retained/sponsor-demo-journeys.e2e.-0dc51--guarded-Sandbox-completion/sponsor-demo/multilevel-completed.png": "1f5b5b92d2cf6a6524028aede151331f902a85c99ca82fe27420031ba940b1ec",
+    "tmp/browser-evidence/288291f9-ad23-4e11-853c-4a6a25670946/retained/sponsor-demo-journeys.e2e.-0dc51--guarded-Sandbox-completion/sponsor-demo/multilevel-final-review.png": "d98e6444f580a6f8639a5b31a566e72dbda7db3a14e45b4a3341a6216111c802",
+    "tmp/browser-evidence/288291f9-ad23-4e11-853c-4a6a25670946/retained/sponsor-demo-journeys.e2e.-0dc51--guarded-Sandbox-completion/sponsor-demo/multilevel.json": "c3d43a37e05b1883d2ce0b81ea5c65818fe5d6fab45b3535cb272c9e8f0dbb93",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/1280-review-default.png": "28373a5b104e4e424db660f2d50ece5d42897c8057a7e3b13a556b46ded83e27",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/1280-review-focus.png": "eecad866f5a7e37e64a65f36908027cabf36753826e35a076cf03d30aebab838",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/1280-review-hover.png": "eecad866f5a7e37e64a65f36908027cabf36753826e35a076cf03d30aebab838",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/1440-final-review.png": "e9d59639450040bdf25ec14e1f6ae269e58a91f8286628fa4ad4c605a755d6b3",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/1440-review-and-send.png": "530d1075398fbe16ddc1c11c7446589b1c748921468c53d39132faebede78683",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/1440-review-default.png": "48c2d255c50fc611c639152eab80b1f4a440e1e5fda2daf68218937c31f6c0fc",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/1440-review-focus.png": "222f21af6bd4cec8ea1ff044dc0290442e54f10e1a21498e33e9e26429bd753e",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/1440-review-hover.png": "222f21af6bd4cec8ea1ff044dc0290442e54f10e1a21498e33e9e26429bd753e",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/1920-review-default.png": "1431e35d635b30cc7c7b239b34dd2314bc34b38fcf52f027235eefd8e5b0d5c8",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/1920-review-focus.png": "de5da63afc1dfeb0247826c69014f79e3b7546a8bff80772da181742c8fc575f",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/1920-review-hover.png": "de5da63afc1dfeb0247826c69014f79e3b7546a8bff80772da181742c8fc575f",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/200-percent-review-reflow.png": "a6896989a964a4906b7290ef1b3e39b0d822034f555879b2ef55d6cc09adb9fa",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/320-long-label-default.png": "98f4c08a2ef327ae0a061e48e956858a577c8f151dd713a694f21169e916c8f6",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/320-long-label-focus-context.png": "fdb3a49ce2331c7356c3652bfcd8743bd5548fd8e91fa6144bf2d897d81598d0",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/320-long-label-focus.png": "0bd7790dbf39f9f5433c33acd4ad607cd6d5a255e56cf7130bd78cb2ed0df975",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/320-long-label-hover.png": "466d18d1e4e2af0b9b0693857e4dcf99dbe1bab5357c3dccfbaa274856a91bc7",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/320-review-default.png": "60e7a26fa984a68b966a0b7980a03e9f1407359edb2044407425e8c54280fbb9",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/320-review-focus.png": "895b65391b6c374cde4f0792bf6beb3222fdedab2c062f8dfa09b60328e76622",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/320-review-hover.png": "895b65391b6c374cde4f0792bf6beb3222fdedab2c062f8dfa09b60328e76622",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/320-review-reflow.png": "60e7a26fa984a68b966a0b7980a03e9f1407359edb2044407425e8c54280fbb9",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/360-long-label-default.png": "32ace9de732c647f43db6ab030c73957ba954ac8b563748a674eb5e0bce0f67e",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/360-long-label-focus-context.png": "24d5a0d5da78e1c61a266250821fbe4301d0a305720de0fc6d51665610ea7dbb",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/360-long-label-focus.png": "74fb963396f67c6da6affa1f417605894b6a5ba6b1234ee8adcee97f74a8138b",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/360-long-label-hover.png": "3ee20851ced73d8cfda5ec4d05797ba04192f70fb6c9a49a8b90189e186c5d57",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/360-review-default.png": "fe80a3fc1d6fe8df06694d12520aee8b0d1a78d3f3532735cfa038fbd333afbd",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/360-review-focus.png": "936dd6db1957101831a6cc892ed9daa86c2df0962c744551930724fdd829f2a2",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/360-review-hover.png": "936dd6db1957101831a6cc892ed9daa86c2df0962c744551930724fdd829f2a2",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/768-review-default.png": "0fb323bff221a969b541edf7c267b0b387994ec4b07f06c09b6659e5b4238591",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/768-review-focus.png": "9356475da6e93f50cdb7b5f7a38dd6d5037a9115cdd0e40ddb788b83e42a9559",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/768-review-hover.png": "9356475da6e93f50cdb7b5f7a38dd6d5037a9115cdd0e40ddb788b83e42a9559",
+    "tmp/browser-evidence/5066cda0-f5e8-4532-9e9c-a5e2527ba690/retained/authenticated-zero-touch.e-607bc-views-without-target-writes/operator-route/review-and-send-a4.pdf": "c70b70f5babe34f2e3fcc620a58765b33a4f26335ee4db6ccf8311e6a4ad7c34",
+    "tmp/browser-evidence/50a80c31-8801-49b2-89d9-bff2a8f1b90c/retained/s3-sandbox-submission.e2e.-5c22d-ues-the-original-submission/blocker-regression/focus-Director-recovers-uncertain-shell-and-continues-the-original-submission-GOLDTIER-TARGET.json": "4f32a7d968b3ddc28baf5bdb41d7bf5d304d450f455393d745c2f1e757e7e4be",
+    "tmp/browser-evidence/50a80c31-8801-49b2-89d9-bff2a8f1b90c/retained/s3-sandbox-submission.e2e.-5c22d-ues-the-original-submission/goldtier-recovery/retained-shell.png": "de4def79c3b92863b4e62544b802300bf530425d9abdfce1ad1bd96da9825d92",
+    "tmp/browser-evidence/55765a47-dd4f-45ae-be66-57270a5ffcbe/retained/s3-sandbox-submission.e2e.-d1f39--without-sending-again-held/goldtier-recovery/confirmed-held.png": "03d0dbcffb9667dd17681e8392bea3ca1d3aebaaed2bd3a8965759dd16f273ed",
+    "tmp/browser-evidence/55765a47-dd4f-45ae-be66-57270a5ffcbe/retained/s3-sandbox-submission.e2e.-d1f39--without-sending-again-held/goldtier-recovery/verifying-held.png": "51a63e6b249f3e0e209a6e5115d555af841db524a0ef102c884ace0f3d82b20c",
+    "tmp/browser-evidence/6dcfe76f-dfdb-4167-bd1e-1c6424e2be55/retained/blocker-review-performance-02e11--performance-sample-group-1/blocker-regression/candidate-after-action-focus.png": "4f8aa9024507a43235c619aa62e67376173fe57d7e29f7a45d399867dddddd1e",
+    "tmp/browser-evidence/6dcfe76f-dfdb-4167-bd1e-1c6424e2be55/retained/blocker-review-performance-02e11--performance-sample-group-1/blocker-regression/candidate-after-confirm-remaining-blocker.png": "f7f2963c98b7e67087163fb40e577af72fd4c0070abe3a7d80078dc2f18dc47c",
+    "tmp/browser-evidence/6dcfe76f-dfdb-4167-bd1e-1c6424e2be55/retained/blocker-review-performance-02e11--performance-sample-group-1/blocker-regression/candidate-before-navigation.png": "d7ae761e17c10b6853a812e13485e7b5e421f8c4be2f9c7760ae14a793788c55",
+    "tmp/browser-evidence/6dcfe76f-dfdb-4167-bd1e-1c6424e2be55/retained/blocker-review-performance-02e11--performance-sample-group-1/blocker-regression/candidate-four-draft-choices.png": "911d63ca3b4d249f2039b0d99aa42954e6886d2a2f1db50864e448ed1819563a",
+    "tmp/browser-evidence/6dcfe76f-dfdb-4167-bd1e-1c6424e2be55/retained/blocker-review-performance-02e11--performance-sample-group-1/blocker-regression/candidate-mobile-draft.png": "784ac06560860f7e454198bbd2675048d3164dcebd15afb64a979f06a4004cc6",
+    "tmp/browser-evidence/6dcfe76f-dfdb-4167-bd1e-1c6424e2be55/retained/blocker-review-performance-02e11--performance-sample-group-1/blocker-regression/group-1.json": "a0a06e46379f8c6895e8eb443cadb4549013ea28f011e995fa7619ab2b0a488a",
+    "tmp/browser-evidence/84ea6852-672f-4f2c-9f48-5a045a3d7e13/retained/sponsor-demo-journeys.e2e.-e49c3--guarded-Sandbox-completion/sponsor-demo/merlion-completed.png": "01754aa38e6420c0e8ec41ed6dcff97bb31454cf723524d0ee690d1789a89b5f",
+    "tmp/browser-evidence/84ea6852-672f-4f2c-9f48-5a045a3d7e13/retained/sponsor-demo-journeys.e2e.-e49c3--guarded-Sandbox-completion/sponsor-demo/merlion-final-review.png": "b38612e60364b336c301a4d658e0b20f6b375653011d00c293badd72a269bd62",
+    "tmp/browser-evidence/84ea6852-672f-4f2c-9f48-5a045a3d7e13/retained/sponsor-demo-journeys.e2e.-e49c3--guarded-Sandbox-completion/sponsor-demo/merlion.json": "53b68f4f50f161143486e9fd3dbbccea0f26e3790418ceba47f57da280628aff",
+    "tmp/browser-evidence/85ca708f-e1b9-49c3-af5e-af04c1ca7334/retained/slice-c-recovery.e2e.ts-Sl-e0454--until-replacement-evidence/blocker-regression/focus-Slice-C-ambiguous-extraction-correction-retains-blocker-until-replacement-evidence-FINAL-REVIEW-SEND.json": "bf80f5f369163d0ef9339dfde0f6dc2139417626ab782cb910a8e2121b0c2f47",
+    "tmp/browser-evidence/8a7c5963-712c-4556-b34f-ba9f9a22b5c1/retained/slice-c-recovery.e2e.ts-Sl-001c6--document-owner-and-history/blocker-regression/focus-Slice-C-address-discrepancy-resolves-through-document-owner-and-history-FINAL-REVIEW-SEND.json": "a469601c0197fa7c6a340934c4917ec86bfffae13717e7d5a77c1e8fa25b568f",
+    "tmp/browser-evidence/8b51d975-15dd-41c8-8982-4a0e1aa152a4/retained/slice-c-recovery.e2e.ts-Sl-17a81-urrent-missing-field-policy/blocker-regression/focus-Slice-C-resolved-mixed-sibling-leaves-only-current-missing-field-policy-FINAL-REVIEW-SEND.json": "ff22281db85e646ba30df62726e6587d271f9bdfc3645c23c3fc49dcdaa102f4",
+    "tmp/browser-evidence/8c2633e8-3392-4a21-b71a-3646078052a2/retained/slice-c-recovery.e2e.ts-Sl-3543d-erves-selection-and-resumes/blocker-regression/focus-Slice-C-stale-policy-rebind-preserves-selection-and-resumes-FINAL-REVIEW-SEND.json": "6350ad837d103077e9f5ce4b01fcfc6899c17dab840ec9bf824eeae624918b38",
+    "tmp/browser-evidence/8c2633e8-3392-4a21-b71a-3646078052a2/retained/slice-c-recovery.e2e.ts-Sl-3543d-erves-selection-and-resumes/blocker-regression/focus-Slice-C-stale-policy-rebind-preserves-selection-and-resumes-READINESS.json": "5d49b08563620879ef5a13d644ff873abe9e3831a072b9c2d81538f0d902f1a2",
+    "tmp/browser-evidence/8daf14e5-a16d-4453-a2f4-bfa2b26093be/retained/slice-b-registry-demo.e2e.-53ffc-tch-pauses-without-mutation/blocker-regression/focus-Slice-F-ambiguous-target-match-pauses-without-mutation-GOLDTIER-SEARCH.json": "6497f13d27f75ef5a8921e4d48d9f85317ff8160357a93fdb02f31e739cc98d5",
+    "tmp/browser-evidence/93cf2963-ed0c-44da-a976-7450af0a1a91/retained/blocker-review-performance-bf914--performance-sample-group-3/blocker-regression/group-3.json": "8776962022e5d668a364c3a420e85af01fc20f18e25495db8b7ea8c8450ec941",
+    "tmp/browser-evidence/dd6849f4-79b4-4c81-9d91-4f77a0746fbc/retained/blocker-simulation.e2e.ts--5ec99-plicit-Singapore-correction/blocker-regression/focus-Blocker-simulation-unsupported-initial-country-requires-explicit-Singapore-correction-INITIAL-IDENTITY.json": "5fffaef69f55ef78c7b472dddf47713a5dec40f2b5b3f9c6e77cddc208e83766",
+    "tmp/browser-evidence/dd6849f4-79b4-4c81-9d91-4f77a0746fbc/retained/blocker-simulation.e2e.ts--5ec99-plicit-Singapore-correction/blocker-regression/simulation-unsupported-registry.json": "8689dbca36c6f8810edeb06314a9f18a745c0e066e9d1ce350c40a1a97dd4f74",
+    "tmp/browser-evidence/e1950cb9-9058-42b2-9528-a7704d273512/retained/blocker-simulation.e2e.ts--b8c83-en-permits-one-continuation/blocker-regression/simulation-missing-upload.json": "8ae25daedc6fb503cb591348b5fa942f2df3402b4d3f6b9f0cea19b26dc94a84",
+    "tmp/browser-evidence/e1b4fbec-544e-45d6-aca2-842fa1dde09c/retained/sponsor-demo-journeys.e2e.-32aeb--guarded-Sandbox-completion/sponsor-demo/meridian-completed.png": "6b903871fb59ba86d397cd19339dff1bde58348c6e01fcc5c1da910d90d95927",
+    "tmp/browser-evidence/e1b4fbec-544e-45d6-aca2-842fa1dde09c/retained/sponsor-demo-journeys.e2e.-32aeb--guarded-Sandbox-completion/sponsor-demo/meridian-final-review.png": "af4c63e8bc6c016f800d8dbc82ce3b0e3d9dcae99ff8a72a6d35fb38d7369ecd",
+    "tmp/browser-evidence/e1b4fbec-544e-45d6-aca2-842fa1dde09c/retained/sponsor-demo-journeys.e2e.-32aeb--guarded-Sandbox-completion/sponsor-demo/meridian.json": "4f52700f2846707db4ae63e876e3ac33a36304c38b8bbe2f463cb94073f6db3e",
+    "tmp/browser-evidence/ef3d8e94-5d1f-4a3b-a97c-e41fbffc8ee8/retained/zero-touch-exception.e2e.t-8b897-ero-exception-interventions/zero-touch/Zero-touch-Golden-STP-normal-UI-has-zero-exception-interventions-after-viewport.png": "c4c90c6a6350bdca93abbac7e6f609b50141a3b20a8cccdb0c3d10bfd5807375",
+    "tmp/browser-evidence/ef3d8e94-5d1f-4a3b-a97c-e41fbffc8ee8/retained/zero-touch-exception.e2e.t-8b897-ero-exception-interventions/zero-touch/Zero-touch-Golden-STP-normal-UI-has-zero-exception-interventions-after.png": "8c0977d82bd54841da0bf8a2b42bc0ab7dd378fa8e4afa714999706ef7e3aeb0",
+    "tmp/browser-evidence/ef3d8e94-5d1f-4a3b-a97c-e41fbffc8ee8/retained/zero-touch-exception.e2e.t-8b897-ero-exception-interventions/zero-touch/Zero-touch-Golden-STP-normal-UI-has-zero-exception-interventions-before-viewport.png": "18b994a92d0294f56213c88256bd23a7c3d4c2f67a0124e7e2f90b780ed8cb43",
+    "tmp/browser-evidence/ef3d8e94-5d1f-4a3b-a97c-e41fbffc8ee8/retained/zero-touch-exception.e2e.t-8b897-ero-exception-interventions/zero-touch/Zero-touch-Golden-STP-normal-UI-has-zero-exception-interventions-before.png": "b8b0a5626bdf33e11cc6c4ebd0a8bfbfea89a0caddbcee2645ca6475641205c2",
+    "tmp/browser-evidence/ef3d8e94-5d1f-4a3b-a97c-e41fbffc8ee8/retained/zero-touch-exception.e2e.t-8b897-ero-exception-interventions/zero-touch/Zero-touch-Golden-STP-normal-UI-has-zero-exception-interventions-confirmation-during-viewport.png": "78efb0c21cc54c3b0a06af61ff21003edae0dc617eb6f0bf1369ea3ab35ebfd2",
+    "tmp/browser-evidence/ef3d8e94-5d1f-4a3b-a97c-e41fbffc8ee8/retained/zero-touch-exception.e2e.t-8b897-ero-exception-interventions/zero-touch/Zero-touch-Golden-STP-normal-UI-has-zero-exception-interventions-confirmation-during.png": "757794cc26020dd3ce9e1be4bd2cc8f4d569fdf5eb44b221a28940a665a41ead",
+    "tmp/browser-evidence/fe305306-6557-4f7a-a7af-67946391ccc2/retained/blocker-simulation.e2e.ts--71171-am-cross-team-authorization/blocker-regression/simulation-authorization-isolation.json": "05fe9e82ee2092e75bc315878a65713596b6618dfdb0b051ea6e6f9aa66e4772"
+  },
+  "all_actual_historical_evidence_preserved": true,
+  "historical1175": "1173 exact current matches plus2 authorized source deltas whose raw originals are exact archived copies",
+  "preserved1204": "1202 exact current matches plus same2 archived originals",
+  "eight_restored_exact": true,
+  "receipt_hashes": {
+    "PR81_RESUME_BROWSER_SHARD_1.json": "6334cc8fd495f6f9121a2fd50077922452c62d9e6c5a416f26df3ae02f8ca703",
+    "PR81_RESUME_BROWSER_SHARD_2.json": "7f607404b8d31d4333638a8c6e43e92f44bb028c8f10e081abbb3d5c9a06f566"
+  },
+  "automatic_artifacts_read": false,
+  "raw_etl_accessed": false
+}

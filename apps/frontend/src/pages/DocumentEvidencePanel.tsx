@@ -332,6 +332,7 @@ export default function DocumentEvidencePanel({
   onReplace,
   onRetry,
   onContinue,
+  onRecoverRefresh,
   onRefresh,
 }: {
   summary: ZeroTouchCaseSummary;
@@ -346,6 +347,7 @@ export default function DocumentEvidencePanel({
   loading?: boolean;
   loadFailed?: boolean;
   onContinue: () => void;
+  onRecoverRefresh?: () => void;
   onRefresh: () => void;
 }) {
   const current = documents.filter(isCurrentDocument);
@@ -357,6 +359,7 @@ export default function DocumentEvidencePanel({
       <div className="document-evidence-panel__title"><div><p className="card-kicker">Local/Mock evidence · not approval</p><h4 id="documents-heading">Document evidence and review</h4></div>{busyLabel && <span role="status">{busyLabel}</span>}</div>
       {summary.evidence_decision_authorized !== true && <p className="control-help">Evidence decisions are read-only for this viewer. The backend authorizes the case creator before applying any decision.</p>}
       {mutationBlocked && <div className="ds-banner ds-banner-warn"><strong>Evidence reload could not be confirmed.</strong><span>Last-confirmed information remains visible. Refresh before attempting another case mutation.</span><button type="button" className="btn btn-secondary" disabled={busy} onClick={onRefresh}>Refresh case evidence</button></div>}
+      {summary.document_refresh_recovery && <div id="case-document-refresh-recovery" className="ds-banner ds-banner-warn"><strong>Replacement saved; evidence refresh needs recovery.</strong><span>Your replacement and original history are retained. Resume the evidence refresh without uploading again. Target submission remains subject to fresh review.</span><button type="button" className="btn btn-primary" disabled={busy || loading || loadFailed || mutationBlocked || !summary.document_refresh_recovery.can_resume || !onRecoverRefresh} onClick={onRecoverRefresh}>Resume document evidence refresh</button></div>}
       {loadFailed && <p className="ds-banner ds-banner-warn" role="alert">Document information could not be loaded. {documents.length > 0 && "Last-confirmed document information remains visible."}</p>}
       {loading && !loadFailed && <p className="text-muted" role="status">Loading document information…</p>}
       {!loading && !loadFailed && current.length === 0 && <p className="text-muted">{history.length > 0 ? "No current document is retained; historical evidence is shown below." : "No document uploaded"}</p>}

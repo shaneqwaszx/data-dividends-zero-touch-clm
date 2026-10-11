@@ -1,0 +1,210 @@
+{
+  "verdict": "SAFE TO STOP",
+  "verified_utc": "2026-10-11T09:55:28.769788+00:00",
+  "worktree": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+  "branch": "feat/blocker-resolution-idp-ux-optimization",
+  "HEAD": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+  "published_HEAD_tree": "2bbef607d571b4fb7a734582cb9112debed1a305",
+  "cached_origin_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "merge_base_cached_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "remote_freshness": "No fetch/integration/publication during this checkpoint; cached baseline only",
+  "source27": "916d57b043be8a5d29e85992b9df9cb2dbdab855fa909e776208391ad934dcab",
+  "original_source25": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+  "hash_checks": {
+    "original25": {
+      "count": 25,
+      "mismatches": 0,
+      "pass": true,
+      "identity": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490"
+    },
+    "historical1175": {
+      "count": 1175,
+      "mismatches": 0,
+      "pass": true,
+      "identity": "caa2bf3e7066903094f41be17179f7620170962ad4cbc164de70b8cb03f9a4f6"
+    },
+    "preserved1204": {
+      "count": 1204,
+      "mismatches": 0,
+      "pass": true,
+      "identity": "40948034f5c890f157d772adc45c7c95ecdbedaff5317c74848e03d291087fb6"
+    },
+    "current27": {
+      "count": 27,
+      "mismatches": 0,
+      "pass": true,
+      "identity": "916d57b043be8a5d29e85992b9df9cb2dbdab855fa909e776208391ad934dcab"
+    },
+    "browser27": {
+      "count": 27,
+      "mismatches": 0,
+      "pass": true,
+      "identity": "33c76f69c973f5b88f1db2cd9d4e40ce6332793ba957cd77bc2a8a9fc0f0edf2"
+    }
+  },
+  "restored_eight": [
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/group-2.json",
+      "new_observation_sha256": "17a8cec17f49eeadf1eff91f65941c89a04707f2be0a2be6cb92968fb6062288",
+      "frozen_sha256": "08ce1d2726532511bdaf64a573a2dcba16e1f404963f28d38c00f51b0b6c9d2e",
+      "exact_head_blob_verified": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-address-mismatch.json",
+      "new_observation_sha256": "d5cb841f869e5655b5a2ad38a5e2d377086bb9c4c903ce0c200ec06401ecc108",
+      "frozen_sha256": "e99b308e32fa14f8ea7b265ebf466336f387db3d0dadb8c3facfb1739f56e546",
+      "exact_head_blob_verified": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-ambiguous-low-score.json",
+      "new_observation_sha256": "6acefc7e5d941768b50e73246037937ee3130e3c250427c147374b3f7f4700ea",
+      "frozen_sha256": "75d77af1300f810ac5c2da030661ec7276c8f8f359c487ae3f6e3c059cfbc8cd",
+      "exact_head_blob_verified": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-country-mismatch.json",
+      "new_observation_sha256": "940058c35f4723d6e6c25d7edd7d6e886654d1438c299567ac94287a6ab2dedf",
+      "frozen_sha256": "c2ea8c01ccf772ca21f0298991e8430aad7ad6cffa994aff2962aa9c910f3c8b",
+      "exact_head_blob_verified": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-cross-document-conflict.json",
+      "new_observation_sha256": "8b4451d7b7d0740051663ce440a503c854fc96d12bd31cad192026e55589fd18",
+      "frozen_sha256": "314aea7375ff37980fb39502b58b77f25659ab10e721ad70a95fdb142fba7079",
+      "exact_head_blob_verified": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-legal-name-mismatch.json",
+      "new_observation_sha256": "aa48cd8b5433cc65050427b9bcdde746207a23de451f39a22ee5d1103ef12ed6",
+      "frozen_sha256": "2c75736f5643acf15c6a97d61d96ef31606575fc08387259763f8e919b38e489",
+      "exact_head_blob_verified": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-missing-required-field.json",
+      "new_observation_sha256": "3f9a5a311ce1f19fb345c430922b0be5d084d3acfacc74dba1d5d4ffe15f6151",
+      "frozen_sha256": "75439282f67068f7454adb69afb7a9538ea7c71c8508a623c02b69499c665ece",
+      "exact_head_blob_verified": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-multiple-mismatches.json",
+      "new_observation_sha256": "6a3b9e96c8508dec9e4089451d7b24e2b292935de9fd00eaa3298a26d89b91aa",
+      "frozen_sha256": "127af8338c0640854974909a7af575793618410da2855b68eb1df47a29eaf211",
+      "exact_head_blob_verified": true
+    }
+  ],
+  "preservation_recovery": "8 exact HEAD byte restorations after verified raw hashes; no reset/restore/clean/checkout/staging",
+  "cleanup": {
+    "browser_tree": "All14 observed descendantPIDs absent",
+    "ports18900_19400": "FREE",
+    "owned_mongo": "Exact ID/label verified, exited, retained; no removal"
+  },
+  "uncommitted": {
+    "tracked_modified": [
+      ".github/workflows/ci.yml",
+      "apps/backend/app/api_models.py",
+      "apps/backend/app/main.py",
+      "apps/backend/app/services/zero_touch_orchestration.py",
+      "apps/backend/tests/test_final_review_editing_real_mongo.py",
+      "apps/frontend/e2e/blocker-review-performance.e2e.ts",
+      "apps/frontend/e2e/blocker-simulation.e2e.ts",
+      "apps/frontend/src/App.tsx",
+      "apps/frontend/src/DemoPerformance.test.tsx",
+      "apps/frontend/src/api.ts",
+      "apps/frontend/src/pages/CaseDetail.tsx",
+      "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx",
+      "apps/frontend/src/pages/DocumentEvidencePanel.tsx",
+      "apps/frontend/src/pages/OnboardingWorkspace.tsx",
+      "apps/frontend/src/pages/S1PipelineWorkspace.test.tsx",
+      "apps/frontend/src/types.ts",
+      "docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md",
+      "docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md",
+      "scripts/e2e_backend_server.py",
+      "scripts/run_e2e.py",
+      "scripts/seed_phase13_demo.py",
+      "scripts/slice_c_recovery_fixture.py",
+      "tests/test_run_e2e.py",
+      "tests/test_slice_c_e2e_fixture_routing.py"
+    ],
+    "tracked_modified_count": 24,
+    "source_additions_preserved": [
+      "apps/backend/tests/test_document_refresh_recovery.py",
+      "apps/frontend/src/ResumeDocumentRecovery.test.ts",
+      "apps/backend/tests/test_http_seed_response_completion.py"
+    ],
+    "staging": "EMPTY",
+    "all_task_owned_reports_and_new_test_evidence_preserved": true
+  },
+  "completed_acceptance": {
+    "focused_completion_regressions": "10PASS; initial adverse FAILs preserved",
+    "original_http_window": "3PASS at e876200d203fc5869373b88274d83b878c892c56a448dd08bdf5bb7cccb5d1f7; signed unchanged26/AST format continuity to916d; no second window",
+    "backend_exact_final": "2661PASS,145 physical-only skips,4warnings; one exact-final full process",
+    "physical_mongo": "23suites145PASS,0FAIL,0errors,0skips; disposable allowlisted DBs only",
+    "frontend": "50files582PASS; typecheck/build/npm integrityPASS",
+    "root": "374PASS; ordinary Windows root discovery, no failed tests",
+    "fixture_routing": "16PASS",
+    "contracts": "44PASS",
+    "static": "Canonical full-backend RuffPASS, mypy127filesPASS; applicable bytes unchanged",
+    "security_governance": "Project state, architecture, tooling policy, policy authority, provider readiness, secrets and examples exit0",
+    "width360_window": "3PASS,3distinct validated numeric40sample measurements, zero target-confirmation requests, no retry"
+  },
+  "remaining_browser": {
+    "status": "INTERRUPTED_NOT_PASS",
+    "discovered_lifecycles": 91,
+    "selected_lifecycles": 46,
+    "completed_before_stop": 17,
+    "interrupted_ordinal": 18,
+    "interrupted_selector": "e2e/performance-browser.e2e.ts:98",
+    "later_undispatched": 28,
+    "test_count": "UNKNOWN because supervisor memory buffer lost on forced stop",
+    "canonical_assertion_failure": "NOT OBSERVED; do not infer from forced termination",
+    "owning_exec_exit": 1,
+    "shard2": {
+      "status": "NOT_DISPATCHED",
+      "lifecycles": 45
+    },
+    "current_fresh_sponsor_journeys": "0/8; existing historical receipts excluded",
+    "complete112test_count": "NOT VERIFIED",
+    "full30_blocker_observations": "NOT VERIFIED"
+  },
+  "independent_QG": {
+    "focused": "PASS exact bound guard",
+    "format": "PASS exact AST-identical supplementary-test whitespace delta",
+    "stability": "Scoped prerequisitePASS with retained UNKNOWN historical causality; fullreleasePROVISIONAL",
+    "full_final": "INCOMPLETE / NOT PASS; reviewer stopped for preservation checkpoint; no publication authority"
+  },
+  "historical_causality": "Original missing506/noEOF failure rootUNKNOWN. Completion guard rejects earlyEOF but does not deliver withheldbytes/prevent noEOF15s timeout. All historicalFAILs retained. No old SDQ risk waiver inherited.",
+  "next_authorized_action": "Read this checkpoint in the same conversation and verify its bindings only. Acceptance execution remains stopped. Before any browser rerun, owner must explicitly authorize a bounded E2E evidence-output isolation correction and fresh independent review/new acceptance protocol. No current authorization to retry/reset this incomplete window or publish.",
+  "proposed_owner_reassessment": "Own browser evidence writers use frozen report roots; audit all writers and establish fresh task/run/test-local output ownership with no-overwrite/confidentiality checks. This is a proposal, not implemented or authorized by safe-stop request.",
+  "publication": "NOT STARTED; no commit/push/PR update/merge; clean committed prePR and both newCI not run",
+  "readiness": "NOT READY FOR HUMAN MERGE",
+  "evidence_sha256": {
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_COMPLETION_INDEPENDENT_GATE.md": "2358086499c141d3f710be74be934033ba58bc5d9480f0c17ebd32fb1144aa4d",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_FORMAT_INDEPENDENT_GATE.md": "de7e77617d7b3a891652c8d7ed8870de198c4967748bfd17ea0ea1fc6e970376",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_STABILITY_INDEPENDENT_ASSESSMENT.md": "3d12d3c89e46b206ba79fba4332336dd73e58e6f016b805255f036318b2fad66",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_FORMAT_CANDIDATE_BINDING.json": "dd39088502a302dd15a5e79d2fd5561afa510e8c394f2e20b5bbc55716ed7d50",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_WINDOW_RECEIPT.json": "631dc54c4f38d5321f331ec774b69b0aff9d8e1fe044709a06bc87c72d94e05c",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_WINDOW_EXECUTION_ATTRIBUTION.json": "606b938e908a0e854575774065c16a4acf73a9bdde0e43bc9648d0f9d0f0f418",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_FULL_BACKEND_FINAL.json": "a5378894650b51bcfbec4c336d67547a149ddecd310aae875d4385d6ad01ecee",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_PHYSICAL_ACCEPTANCE.json": "733a8f0a8949215187cdc6d72bd803a835e9aab820f5a41deba6173eb6f6d330",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_FRONTEND_FINAL_ACCEPTANCE.json": "dd9d5c91c3426611fb83ae477705b6cba7e2e4db19249406614d0dd65a93183c",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_GOVERNANCE_FINAL_ACCEPTANCE.json": "457b36fc5b056b5ee3a1a3a8761d0206b58d0b04240e17663a1f073964369185",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_BROWSER_DISCOVERY.json": "39e22d4eb3376dffa79f9ba9b46cbccedaee50f8bf271fbd9cada1f0ab957359",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_BROWSER_PROTOCOL_FINAL.json": "218f5e63c106e308c59d14fc79e257708bb488eb8c180d2e523cad3ec29e649c",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_BROWSER_PRESERVATION_RECOVERY.json": "bf69f51e517b72acf46b6d29b7162413515e4315940340725dd49efdf3c40197",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_BROWSER_ABORT_RECEIPT.json": "9d787e5ed515d14efa1c6a7f8aa39481d89a6e766f8a2ffb416bf0ad378d2f0f",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_SPONSOR_PRE_DISPATCH.json": "5cdd5c9ef98d758f680baee47513ddb67b2713396d089e439f5d6d8e2db3c57b",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_BROWSER_WIDTH360_1.json": "74c2ac10dea7402787f8b1cf2bda657ec3c4b7728616fa7707578ff169c776f2",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_BROWSER_WIDTH360_2.json": "67f4dd228382c7c74cf6dc08ac273bb4fd3c458ceb01e64bfe84bddb496b608a",
+    ".ai-pipeline/reports/PR81_FINAL_HTTP_BROWSER_WIDTH360_3.json": "fbab34e791e80685b5afcdd0d8d3ff9e7d570465c45ce1b97e8efcc2e0f3fff2",
+    "tmp\\pr81-final-http-width360-1-measurement.json": "c39d9d62e2c455238fb22acb0250f6043e85e93cbc22da01ca0b17644a47bcb6",
+    "tmp\\pr81-final-http-width360-2-measurement.json": "28efe783b20cbafbc674135b3a3b4880a55930c0df9334cb0bb7d183d7c4ec85",
+    "tmp\\pr81-final-http-width360-3-measurement.json": "dba7591a041287b0319211ccf9638afc15e567b3d1b72c8f82a629f2277db13b"
+  },
+  "independent_preservation_review": {
+    "reviewer": "pr81_http_completion_independent_gate",
+    "verdict": "PASS for preservation recovery ONLY",
+    "independently_verified": "All25/27/1175/1204/browser27 hashes; eight-file restoration; all14PIDs absent; ports free; exactownedMongo exited",
+    "full_quality_gate": "INCOMPLETE / NOT PASS",
+    "no_new_tests_fixtures_source_or_Git_changes_by_reviewer": true
+  }
+}

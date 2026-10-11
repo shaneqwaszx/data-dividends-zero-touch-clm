@@ -1,0 +1,287 @@
+{
+  "helper_version": 6,
+  "failed_cases": 0,
+  "native_trace_control_invoked": false,
+  "case_count": 50,
+  "cases": [
+    {
+      "mode": 272629762,
+      "approved": true,
+      "name": "approved",
+      "pass": true
+    },
+    {
+      "mode": 268435458,
+      "approved": false,
+      "name": "missing_stop_v5",
+      "pass": true
+    },
+    {
+      "mode": 272630018,
+      "approved": false,
+      "name": "extra_realtime",
+      "pass": true
+    },
+    {
+      "mode": 276824066,
+      "approved": false,
+      "name": "persist_substitutes_stop",
+      "pass": true
+    },
+    {
+      "mode": 281018370,
+      "approved": false,
+      "name": "stop_and_persist",
+      "pass": true
+    },
+    {
+      "mode": 272629760,
+      "approved": false,
+      "name": "missing_circular",
+      "pass": true
+    },
+    {
+      "mode": 4194306,
+      "approved": false,
+      "name": "missing_shared_buffers",
+      "pass": true
+    },
+    {
+      "mode": 0,
+      "approved": false,
+      "name": "zero",
+      "pass": true
+    },
+    {
+      "mode": 2,
+      "approved": false,
+      "name": "circular_only",
+      "pass": true
+    },
+    {
+      "mode": 4294967295,
+      "approved": false,
+      "name": "all_bits",
+      "pass": true
+    },
+    {
+      "mode": 272629763,
+      "approved": false,
+      "name": "unexpected_bit_0",
+      "pass": true
+    },
+    {
+      "mode": 272629766,
+      "approved": false,
+      "name": "unexpected_bit_2",
+      "pass": true
+    },
+    {
+      "mode": 272629770,
+      "approved": false,
+      "name": "unexpected_bit_3",
+      "pass": true
+    },
+    {
+      "mode": 272629778,
+      "approved": false,
+      "name": "unexpected_bit_4",
+      "pass": true
+    },
+    {
+      "mode": 272629794,
+      "approved": false,
+      "name": "unexpected_bit_5",
+      "pass": true
+    },
+    {
+      "mode": 272629826,
+      "approved": false,
+      "name": "unexpected_bit_6",
+      "pass": true
+    },
+    {
+      "mode": 272629890,
+      "approved": false,
+      "name": "unexpected_bit_7",
+      "pass": true
+    },
+    {
+      "mode": 272630018,
+      "approved": false,
+      "name": "unexpected_bit_8",
+      "pass": true
+    },
+    {
+      "mode": 272630274,
+      "approved": false,
+      "name": "unexpected_bit_9",
+      "pass": true
+    },
+    {
+      "mode": 272630786,
+      "approved": false,
+      "name": "unexpected_bit_10",
+      "pass": true
+    },
+    {
+      "mode": 272631810,
+      "approved": false,
+      "name": "unexpected_bit_11",
+      "pass": true
+    },
+    {
+      "mode": 272633858,
+      "approved": false,
+      "name": "unexpected_bit_12",
+      "pass": true
+    },
+    {
+      "mode": 272637954,
+      "approved": false,
+      "name": "unexpected_bit_13",
+      "pass": true
+    },
+    {
+      "mode": 272646146,
+      "approved": false,
+      "name": "unexpected_bit_14",
+      "pass": true
+    },
+    {
+      "mode": 272662530,
+      "approved": false,
+      "name": "unexpected_bit_15",
+      "pass": true
+    },
+    {
+      "mode": 272695298,
+      "approved": false,
+      "name": "unexpected_bit_16",
+      "pass": true
+    },
+    {
+      "mode": 272760834,
+      "approved": false,
+      "name": "unexpected_bit_17",
+      "pass": true
+    },
+    {
+      "mode": 272891906,
+      "approved": false,
+      "name": "unexpected_bit_18",
+      "pass": true
+    },
+    {
+      "mode": 273154050,
+      "approved": false,
+      "name": "unexpected_bit_19",
+      "pass": true
+    },
+    {
+      "mode": 273678338,
+      "approved": false,
+      "name": "unexpected_bit_20",
+      "pass": true
+    },
+    {
+      "mode": 274726914,
+      "approved": false,
+      "name": "unexpected_bit_21",
+      "pass": true
+    },
+    {
+      "mode": 281018370,
+      "approved": false,
+      "name": "unexpected_bit_23",
+      "pass": true
+    },
+    {
+      "mode": 289406978,
+      "approved": false,
+      "name": "unexpected_bit_24",
+      "pass": true
+    },
+    {
+      "mode": 306184194,
+      "approved": false,
+      "name": "unexpected_bit_25",
+      "pass": true
+    },
+    {
+      "mode": 339738626,
+      "approved": false,
+      "name": "unexpected_bit_26",
+      "pass": true
+    },
+    {
+      "mode": 406847490,
+      "approved": false,
+      "name": "unexpected_bit_27",
+      "pass": true
+    },
+    {
+      "mode": 809500674,
+      "approved": false,
+      "name": "unexpected_bit_29",
+      "pass": true
+    },
+    {
+      "mode": 1346371586,
+      "approved": false,
+      "name": "unexpected_bit_30",
+      "pass": true
+    },
+    {
+      "mode": 2420113410,
+      "approved": false,
+      "name": "unexpected_bit_31",
+      "pass": true
+    },
+    {
+      "name": "bound_BufferSize",
+      "pass": true
+    },
+    {
+      "name": "bound_MinimumBuffers",
+      "pass": true
+    },
+    {
+      "name": "bound_MaximumBuffers",
+      "pass": true
+    },
+    {
+      "name": "bound_MaximumFileSize",
+      "pass": true
+    },
+    {
+      "name": "bound_NumberOfBuffers",
+      "pass": true
+    },
+    {
+      "name": "bound_EnableFlags",
+      "pass": true
+    },
+    {
+      "name": "owned_guid",
+      "pass": true
+    },
+    {
+      "name": "foreign_guid",
+      "pass": true
+    },
+    {
+      "name": "empty_guid",
+      "pass": true
+    },
+    {
+      "name": "actual_start_properties_without_native_call",
+      "pass": true
+    },
+    {
+      "name": "profile_mode_and_constraints",
+      "pass": true
+    }
+  ],
+  "fixture_executed": false
+}

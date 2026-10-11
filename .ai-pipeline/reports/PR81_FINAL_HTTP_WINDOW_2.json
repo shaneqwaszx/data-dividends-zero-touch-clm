@@ -1,0 +1,13 @@
+{
+  "ordinal": 2,
+  "exit_code": 0,
+  "duration_seconds": 8.5398164,
+  "started_utc": "2026-10-11T08:34:37.9524919+00:00",
+  "ended_utc": "2026-10-11T08:34:46.4961832+00:00",
+  "source27": "e876200d203fc5869373b88274d83b878c892c56a448dd08bdf5bb7cccb5d1f7",
+  "ordinary_token": true,
+  "instrumented": false,
+  "retries": 0,
+  "original_request_timeout": 15,
+  "original_cleanup_bound": 10
+}

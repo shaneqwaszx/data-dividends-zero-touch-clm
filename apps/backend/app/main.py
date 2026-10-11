@@ -1264,6 +1264,11 @@ def create_app(
                 access_policy.can_decide_evidence(actor, case)
                 and zero_touch.document_replacement_allowed(case_id=case.case_id)
             ),
+            document_refresh_recovery_authorized=(
+                access_policy.can_decide_evidence(actor, case)
+                and not zero_touch.evidence_edit_is_frozen(case_id=case.case_id)
+                if zero_touch.document_refresh_pending(automation) else None
+            ),
             ownership_edit_authorized=(
                 access_policy.can_decide_evidence(actor, case)
                 and not zero_touch.evidence_edit_is_frozen(case_id=case.case_id)
@@ -2940,6 +2945,10 @@ def create_app(
         case_id: UUID,
         request: Request,
         active_zero_touch: Annotated[ZeroTouchOrchestrator, Depends(get_zero_touch_orchestrator)],
+        x_automation_id: Annotated[UUID | None, Header()] = None,
+        x_automation_version: Annotated[int | None, Header(ge=1)] = None,
+        x_clm_version: Annotated[int | None, Header(ge=1)] = None,
+        x_case_event_count: Annotated[int | None, Header(ge=0)] = None,
     ) -> ZeroTouchCaseSummaryResponse:
         """Idempotently resume only when no unresolved exception blocks progress."""
 
@@ -2951,6 +2960,14 @@ def create_app(
                         request, authentication, access_policy, service, case_id
                     ),
                     refresh_document_checkpoint=True,
+                    expected_automation_id=x_automation_id,
+                    expected_automation_version=x_automation_version,
+                    expected_clm_version=x_clm_version,
+                    expected_case_event_count=x_case_event_count,
+                    reauthorize_document_recovery=build_case_reauthorizer(
+                        request, authentication, access_policy, service, case_id,
+                        require_creator=True,
+                    ),
                 )
             , actor=authenticated_actor(request))
         except ZeroTouchRequestError as exc:

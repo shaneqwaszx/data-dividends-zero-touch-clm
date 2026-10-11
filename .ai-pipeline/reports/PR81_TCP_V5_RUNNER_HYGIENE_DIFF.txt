@@ -1,0 +1,31 @@
+--- frozen V4 runner
++++ V5 import-hygiene runner
+@@ -1,6 +1,18 @@
+ """One fresh original fixture after an independently reviewed manual controller handshake."""
++import ast
++import ctypes
++import ctypes.wintypes as w
++import hashlib
++import json
++import os
++import socket
++import struct
++import sys
++import time
++import uuid
++import winreg
+ from pathlib import Path
+-import ast,ctypes,ctypes.wintypes as w,hashlib,json,os,socket,struct,sys,time,uuid,winreg
++
+ ROOT=Path(__file__).resolve().parents[3]
+ sys.dont_write_bytecode=True
+ run=uuid.UUID(sys.argv[1]) if len(sys.argv)>1 and sys.argv[1]!="--validate" else None
+@@ -66,6 +78,8 @@
+ sys.argv=[sys.argv[0],"d1-native-"+str(run)]
+ import pr81_http_delivery_observe as d
+ import pytest
++
++
+ class Plugin(d.Plugin):
+  def pytest_collection_finish(self,session):
+   super().pytest_collection_finish(session)

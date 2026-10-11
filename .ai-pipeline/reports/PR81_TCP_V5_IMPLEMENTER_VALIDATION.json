@@ -1,0 +1,121 @@
+{
+  "scope": "V5 helper-only tests and governance; no capture or fixture",
+  "source_identity": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+  "checks": [
+    {
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v5\\Test-ControllerDiagnostics.ps1",
+        "-OutputPath",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\PR81_TCP_V5_SYNTHETIC_RESULTS.json"
+      ],
+      "exit_code": 0,
+      "output": "V5 synthetic diagnostics: 30 cases; failures=0; bounded numeric writer; no ETW/fixture\n"
+    },
+    {
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v5\\Test-WatchdogSafety.ps1",
+        "-OutputPath",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\PR81_TCP_V5_WATCHDOG_RESULTS.json"
+      ],
+      "exit_code": 0,
+      "output": "V5 watchdog safety PASS: 39 site/adverse cases + 6 actual process checks; no process started/ETW/fixture\n"
+    },
+    {
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v5\\Invoke-Pr81TcpCapture.ps1",
+        "-Mode",
+        "Validate"
+      ],
+      "exit_code": 0,
+      "output": "Sanitizer checks=19: complete matching lifetime only, unknown ID/version, string payload, temporal/same-tuple reuse, missing boundaries/send, process key, PID and address rejection; no ETL read\nV5 synthetic diagnostics: 30 cases; failures=0; bounded numeric writer; no ETW/fixture\nV5 watchdog safety PASS: 39 site/adverse cases + 6 actual process checks; no process started/ETW/fixture\nValidation PASS: compile/layout/schema/source/ownership/bounds/loss; no native trace-control call\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v5\\Run-FreshFixture.py",
+        "--validate"
+      ],
+      "exit_code": 0,
+      "output": "Runner validation PASS; no fixture/trace executed\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "--no-cache",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v5\\Run-FreshFixture.py"
+      ],
+      "exit_code": 0,
+      "output": "All checks passed!\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_project_state.py"
+      ],
+      "exit_code": 0,
+      "output": "PROJECT STATE CHECK: PASS\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_architecture.py"
+      ],
+      "exit_code": 0,
+      "output": "ARCHITECTURE CHECK: PASS\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "tests/test_check_secrets.py",
+        "-q"
+      ],
+      "exit_code": 0,
+      "output": "........                                                                 [100%]\n8 passed in 0.03s\n"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "warning: in the working copy of 'apps/backend/app/main.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/backend/app/services/zero_touch_orchestration.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/backend/tests/test_final_review_editing_real_mongo.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/e2e/blocker-review-performance.e2e.ts', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/DemoPerformance.test.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/CaseDetail.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/DocumentEvidencePanel.test.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/DocumentEvidencePanel.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/OnboardingWorkspace.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/S1PipelineWorkspace.test.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'scripts/slice_c_recovery_fixture.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'tests/test_slice_c_e2e_fixture_routing.py', LF will be replaced by CRLF the next time Git touches it\n"
+    },
+    {
+      "command": [
+        "ordinary token administrator-role observation"
+      ],
+      "exit_code": 0,
+      "administrator": false
+    }
+  ],
+  "all_pass": true,
+  "elevated_capture_executed": false,
+  "fixture_executed": false,
+  "preserved_count": 1142,
+  "preservation_pass": true,
+  "bundle_sha256": "a6a1891b717dced37bc991363df1193526367a6f03532b9f6b2d108b72043e3d",
+  "runner_hygiene": "Only imports/blank lines changed; contiguous import normalization AST identical; exact diff included",
+  "source_changed": false
+}

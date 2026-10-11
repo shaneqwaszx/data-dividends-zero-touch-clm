@@ -1,0 +1,104 @@
+{
+  "commands": [
+    {
+      "name": "path_regressions",
+      "command": [
+        "node",
+        "node_modules/@playwright/test/cli.js",
+        "test",
+        "--config",
+        "playwright.evidence.config.ts",
+        "--reporter=line"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "exit": 0,
+      "seconds": 1.735,
+      "safe_summary": [
+        "7 passed (736ms)"
+      ],
+      "failed_ids": []
+    },
+    {
+      "name": "runner_security_contracts",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_run_e2e",
+        "-v"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 3.859,
+      "safe_summary": [
+        "Ran 48 tests in 3.702s",
+        "OK"
+      ],
+      "failed_ids": []
+    },
+    {
+      "name": "typecheck",
+      "command": [
+        "npm.cmd",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "exit": 0,
+      "seconds": 5.687,
+      "safe_summary": [],
+      "failed_ids": []
+    },
+    {
+      "name": "architecture",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_architecture.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 0.438,
+      "safe_summary": [
+        "ARCHITECTURE CHECK: PASS"
+      ],
+      "failed_ids": []
+    },
+    {
+      "name": "project_state",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_project_state.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 0.234,
+      "safe_summary": [
+        "PROJECT STATE CHECK: PASS"
+      ],
+      "failed_ids": []
+    },
+    {
+      "name": "secrets",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_secrets.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit": 0,
+      "seconds": 3.234,
+      "safe_summary": [
+        "Secret scan passed: no supported secret patterns found."
+      ],
+      "failed_ids": []
+    }
+  ],
+  "success": true,
+  "source36": "f6607f766b36ec1e2b6fc251b93b22c4940985fac394d28160b1878e802cfbae",
+  "metadata_control_failure_preserved": "Earlier supervisor exited1 only because it treated two authorized source deltas in legacy preservation map as immutable. No acceptance test failed; no six successful commands repeated.",
+  "history_attribution": "1173 exact current matches; two explicitly authorized owning-source deltas with preserved original rawbytes; frozen map/report bytes unchanged",
+  "verified_utc": "2026-10-11T10:10:01.927299+00:00"
+}

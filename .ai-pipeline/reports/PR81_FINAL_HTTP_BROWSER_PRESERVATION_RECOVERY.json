@@ -1,0 +1,419 @@
+{
+  "scope": "Observed evidence-output ownership conflict; safe current observations retained before exact historical byte recovery; not browser acceptance",
+  "source27": "916d57b043be8a5d29e85992b9df9cb2dbdab855fa909e776208391ad934dcab",
+  "at_utc": "2026-10-11T09:52:36.590354+00:00",
+  "paths": [
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/group-2.json",
+      "new_observation_sha256": "17a8cec17f49eeadf1eff91f65941c89a04707f2be0a2be6cb92968fb6062288",
+      "frozen_sha256": "08ce1d2726532511bdaf64a573a2dcba16e1f404963f28d38c00f51b0b6c9d2e",
+      "exact_head_blob_verified": true,
+      "safe_new_observation": [
+        {
+          "sample": 10,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 83,
+          "confirmation_ms": 242,
+          "total_ms": 325,
+          "choice_ms": [
+            28,
+            21,
+            17,
+            17
+          ],
+          "request_methods": {
+            "POST": 1,
+            "GET": 4
+          },
+          "selection_request_methods": {}
+        },
+        {
+          "sample": 11,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 71,
+          "confirmation_ms": 238,
+          "total_ms": 309,
+          "choice_ms": [
+            19,
+            17,
+            18,
+            17
+          ],
+          "request_methods": {
+            "POST": 1,
+            "GET": 4
+          },
+          "selection_request_methods": {}
+        },
+        {
+          "sample": 12,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 77,
+          "confirmation_ms": 250,
+          "total_ms": 327,
+          "choice_ms": [
+            20,
+            18,
+            20,
+            19
+          ],
+          "request_methods": {
+            "POST": 1,
+            "GET": 4
+          },
+          "selection_request_methods": {}
+        },
+        {
+          "sample": 13,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 68,
+          "confirmation_ms": 235,
+          "total_ms": 303,
+          "choice_ms": [
+            17,
+            16,
+            18,
+            17
+          ],
+          "request_methods": {
+            "POST": 1,
+            "GET": 4
+          },
+          "selection_request_methods": {}
+        },
+        {
+          "sample": 14,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 70,
+          "confirmation_ms": 223,
+          "total_ms": 293,
+          "choice_ms": [
+            18,
+            17,
+            18,
+            17
+          ],
+          "request_methods": {
+            "POST": 1,
+            "GET": 4
+          },
+          "selection_request_methods": {}
+        },
+        {
+          "sample": 15,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 84,
+          "confirmation_ms": 245,
+          "total_ms": 329,
+          "choice_ms": [
+            21,
+            20,
+            18,
+            25
+          ],
+          "request_methods": {
+            "POST": 1,
+            "GET": 4
+          },
+          "selection_request_methods": {}
+        },
+        {
+          "sample": 16,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 68,
+          "confirmation_ms": 233,
+          "total_ms": 301,
+          "choice_ms": [
+            19,
+            16,
+            16,
+            17
+          ],
+          "request_methods": {
+            "POST": 1,
+            "GET": 4
+          },
+          "selection_request_methods": {}
+        },
+        {
+          "sample": 17,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 71,
+          "confirmation_ms": 239,
+          "total_ms": 310,
+          "choice_ms": [
+            20,
+            17,
+            16,
+            18
+          ],
+          "request_methods": {
+            "POST": 1,
+            "GET": 4
+          },
+          "selection_request_methods": {}
+        },
+        {
+          "sample": 18,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 73,
+          "confirmation_ms": 222,
+          "total_ms": 295,
+          "choice_ms": [
+            20,
+            16,
+            19,
+            18
+          ],
+          "request_methods": {
+            "POST": 1,
+            "GET": 4
+          },
+          "selection_request_methods": {}
+        },
+        {
+          "sample": 19,
+          "mode": "batch",
+          "viewport": {
+            "width": 1280,
+            "height": 900
+          },
+          "selection_ms": 87,
+          "confirmation_ms": 255,
+          "total_ms": 342,
+          "choice_ms": [
+            20,
+            21,
+            22,
+            24
+          ],
+          "request_methods": {
+            "POST": 1,
+            "GET": 4
+          },
+          "selection_request_methods": {}
+        }
+      ],
+      "observation_is_not_independent_acceptance": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-address-mismatch.json",
+      "new_observation_sha256": "d5cb841f869e5655b5a2ad38a5e2d377086bb9c4c903ce0c200ec06401ecc108",
+      "frozen_sha256": "e99b308e32fa14f8ea7b265ebf466336f387db3d0dadb8c3facfb1739f56e546",
+      "exact_head_blob_verified": true,
+      "safe_new_observation": {
+        "scenario": "address-mismatch",
+        "initial": [
+          "DOCUMENT_SOURCE_CONFLICT"
+        ],
+        "final": [
+          "TARGET_CONFIRMATION_REQUIRED"
+        ],
+        "choices": 1,
+        "calls_before_confirmation": 0,
+        "confirmation": "WAITING_FOR_REVIEW",
+        "reduced_motion": true,
+        "request_methods": {
+          "POST": 1,
+          "GET": 4
+        },
+        "observed_producer_verdict": "PASS"
+      },
+      "observation_is_not_independent_acceptance": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-ambiguous-low-score.json",
+      "new_observation_sha256": "6acefc7e5d941768b50e73246037937ee3130e3c250427c147374b3f7f4700ea",
+      "frozen_sha256": "75d77af1300f810ac5c2da030661ec7276c8f8f359c487ae3f6e3c059cfbc8cd",
+      "exact_head_blob_verified": true,
+      "safe_new_observation": {
+        "scenario": "ambiguous-low-score",
+        "initial": [
+          "DOCUMENT_AMBIGUOUS_EXTRACTION"
+        ],
+        "final": [
+          "DOCUMENT_REQUIRED_FIELD_MISSING"
+        ],
+        "choices": 1,
+        "calls_before_confirmation": 0,
+        "confirmation": "WAITING_FOR_REVIEW",
+        "reduced_motion": true,
+        "request_methods": {
+          "POST": 1,
+          "GET": 4
+        },
+        "observed_producer_verdict": "PASS"
+      },
+      "observation_is_not_independent_acceptance": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-country-mismatch.json",
+      "new_observation_sha256": "940058c35f4723d6e6c25d7edd7d6e886654d1438c299567ac94287a6ab2dedf",
+      "frozen_sha256": "c2ea8c01ccf772ca21f0298991e8430aad7ad6cffa994aff2962aa9c910f3c8b",
+      "exact_head_blob_verified": true,
+      "safe_new_observation": {
+        "scenario": "country-mismatch",
+        "initial": [
+          "DOCUMENT_SOURCE_CONFLICT"
+        ],
+        "final": [
+          "TARGET_CONFIRMATION_REQUIRED"
+        ],
+        "choices": 1,
+        "calls_before_confirmation": 0,
+        "confirmation": "WAITING_FOR_REVIEW",
+        "reduced_motion": true,
+        "request_methods": {
+          "POST": 1,
+          "GET": 4
+        },
+        "observed_producer_verdict": "PASS"
+      },
+      "observation_is_not_independent_acceptance": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-cross-document-conflict.json",
+      "new_observation_sha256": "8b4451d7b7d0740051663ce440a503c854fc96d12bd31cad192026e55589fd18",
+      "frozen_sha256": "314aea7375ff37980fb39502b58b77f25659ab10e721ad70a95fdb142fba7079",
+      "exact_head_blob_verified": true,
+      "safe_new_observation": {
+        "scenario": "cross-document-conflict",
+        "initial": [
+          "DOCUMENT_SOURCE_CONFLICT"
+        ],
+        "final": [
+          "TARGET_CONFIRMATION_REQUIRED"
+        ],
+        "choices": 1,
+        "calls_before_confirmation": 0,
+        "confirmation": "WAITING_FOR_REVIEW",
+        "reduced_motion": true,
+        "request_methods": {
+          "POST": 1,
+          "GET": 4
+        },
+        "observed_producer_verdict": "PASS"
+      },
+      "observation_is_not_independent_acceptance": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-legal-name-mismatch.json",
+      "new_observation_sha256": "aa48cd8b5433cc65050427b9bcdde746207a23de451f39a22ee5d1103ef12ed6",
+      "frozen_sha256": "2c75736f5643acf15c6a97d61d96ef31606575fc08387259763f8e919b38e489",
+      "exact_head_blob_verified": true,
+      "safe_new_observation": {
+        "scenario": "legal-name-mismatch",
+        "initial": [
+          "DOCUMENT_SOURCE_CONFLICT"
+        ],
+        "final": [
+          "TARGET_CONFIRMATION_REQUIRED"
+        ],
+        "choices": 1,
+        "calls_before_confirmation": 0,
+        "confirmation": "WAITING_FOR_REVIEW",
+        "reduced_motion": true,
+        "request_methods": {
+          "POST": 1,
+          "GET": 4
+        },
+        "observed_producer_verdict": "PASS"
+      },
+      "observation_is_not_independent_acceptance": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-missing-required-field.json",
+      "new_observation_sha256": "3f9a5a311ce1f19fb345c430922b0be5d084d3acfacc74dba1d5d4ffe15f6151",
+      "frozen_sha256": "75439282f67068f7454adb69afb7a9538ea7c71c8508a623c02b69499c665ece",
+      "exact_head_blob_verified": true,
+      "safe_new_observation": {
+        "scenario": "missing-required-field",
+        "initial": [
+          "DOCUMENT_REQUIRED_FIELD_MISSING"
+        ],
+        "final": [
+          "DOCUMENT_REQUIRED_FIELD_MISSING"
+        ],
+        "choices": 1,
+        "calls_before_confirmation": 0,
+        "confirmation": "WAITING_FOR_REVIEW",
+        "reduced_motion": true,
+        "request_methods": {
+          "POST": 1,
+          "GET": 4
+        },
+        "observed_producer_verdict": "PASS"
+      },
+      "observation_is_not_independent_acceptance": true
+    },
+    {
+      "path": ".ai-pipeline/reports/SPONSOR_DEMO_REGRESSION_EVIDENCE/simulation-multiple-mismatches.json",
+      "new_observation_sha256": "6a3b9e96c8508dec9e4089451d7b24e2b292935de9fd00eaa3298a26d89b91aa",
+      "frozen_sha256": "127af8338c0640854974909a7af575793618410da2855b68eb1df47a29eaf211",
+      "exact_head_blob_verified": true,
+      "safe_new_observation": {
+        "scenario": "multiple-mismatches",
+        "initial": [
+          "DOCUMENT_SOURCE_CONFLICT",
+          "DOCUMENT_SOURCE_CONFLICT",
+          "DOCUMENT_SOURCE_CONFLICT"
+        ],
+        "final": [
+          "TARGET_CONFIRMATION_REQUIRED"
+        ],
+        "choices": 3,
+        "calls_before_confirmation": 0,
+        "confirmation": "WAITING_FOR_REVIEW",
+        "reduced_motion": true,
+        "request_methods": {
+          "POST": 1,
+          "GET": 4
+        },
+        "observed_producer_verdict": "PASS"
+      },
+      "observation_is_not_independent_acceptance": true
+    }
+  ],
+  "preservation_before": "FAIL8",
+  "restoration_complete": true,
+  "all_preserved1204_match": true,
+  "all_historical1175_match": true,
+  "final_source27_match": true,
+  "restoration_method": "Exact independently hash-verified HEAD bytes only; no reset, checkout, staging or source change"
+}

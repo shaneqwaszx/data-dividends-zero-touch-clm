@@ -1,0 +1,569 @@
+{
+  "verdict": "NOT_READY_FOR_HUMAN_MERGE",
+  "generated_utc": "2026-10-10T16:38:38.212414+00:00",
+  "branch": "feat/blocker-resolution-idp-ux-optimization",
+  "head": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+  "cached_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "published_tree": "2bbef607d571b4fb7a734582cb9112debed1a305",
+  "source_identity": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+  "source_hashes": {
+    ".github/workflows/ci.yml": "09e1f4702f520d48e89e6bb91684d58ca8beba40900755164ace44801085a766",
+    "apps/backend/app/api_models.py": "15d6b9f08112eed9055e6f94aa863f129446221e263af74c99976d50950e0923",
+    "apps/backend/app/main.py": "a45be7fc76c667136a601812d0d02b9cd5793605f1a4f4e55250886b8b7a1a58",
+    "apps/backend/app/services/zero_touch_orchestration.py": "f97556ae259bf7aeabedb6d08ff96b8c21f2b91cec69bf707023328c994ee411",
+    "apps/backend/tests/test_document_refresh_recovery.py": "35171d0dcbad271e822c23562ffcbb21482ae5aff5938ae181a5f239a07b2578",
+    "apps/backend/tests/test_final_review_editing_real_mongo.py": "ac8106f4e387e790114787221306c16bae9eeb482be3398609a4be7182de266c",
+    "apps/frontend/e2e/blocker-review-performance.e2e.ts": "df4408f22eeeabec78338b14efdf44c5af732f762c274fe5533c2ed44b18377b",
+    "apps/frontend/e2e/blocker-simulation.e2e.ts": "59275b4de4ec1fb5d9ba2c764e597451e15622ce6da8caa53856a08a7513eb60",
+    "apps/frontend/src/App.tsx": "486631624f6e1ea8a6aa3bbb7c5bc4117b23957f11f5f24cfd8f0fd9f156bab3",
+    "apps/frontend/src/DemoPerformance.test.tsx": "6472cd41c6a5ba3f99b51184bd415e9ec4ac8c510eb3794bcc3ac3079258cedb",
+    "apps/frontend/src/ResumeDocumentRecovery.test.ts": "6c891c932ec6a06fcb363b37c1a5dec7d02e93ae383d8dc19d89469f9ff6a53d",
+    "apps/frontend/src/api.ts": "6fec47d7215fdd5b256052ac942e8419afdf92b37dc2e7076643c5cd10e957e5",
+    "apps/frontend/src/pages/CaseDetail.tsx": "259a28976f37beca416034b4af2efa82579e5d1c0222168fefee80edb1d1253c",
+    "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx": "622f50223bd668622374d2917ef092d00cd09e241bbb18c0cd922aa01b42fbba",
+    "apps/frontend/src/pages/DocumentEvidencePanel.tsx": "474ede49c581c01b6b904b457356b5011ebee8573a51c2467ae4947553ea5941",
+    "apps/frontend/src/pages/OnboardingWorkspace.tsx": "f04b24ae131bb941209c38bd18d53285a46deb0f2cbdf7effb3c395ddb65a21f",
+    "apps/frontend/src/pages/S1PipelineWorkspace.test.tsx": "45db6bd50dd8f6c86aa777df22050d286e79bb35b1122fbddd8961700a720139",
+    "apps/frontend/src/types.ts": "b2141cfb5068dfecb30707f79aeec0635254ed6e10d925a3aaea2197ad61119e",
+    "docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md": "203ad8dfa7e4489c7a236d88f12119734810620be6e2499f97bc414331dd43c8",
+    "docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md": "3fbf91c9641ef3382c7141901be1d786590260933ff7926101410fd364000c07",
+    "scripts/e2e_backend_server.py": "2485c7f9f979f92b36c2cc789c0fec0f156cea71d9fbd5576dcecea0c272d981",
+    "scripts/run_e2e.py": "1ca9ee2fc8dfa82aaf2156b7ddc4c9d8b901e99043c31890218cfb732eb1ee70",
+    "scripts/slice_c_recovery_fixture.py": "e0dde54dd34c999f3309ae481e4b09e88d0532911af32d32af3727bec27984c9",
+    "tests/test_run_e2e.py": "baa4bcb320d762ca593a72c08377d61e2a7e1f2c59d203f8f63db92a1511b39f",
+    "tests/test_slice_c_e2e_fixture_routing.py": "219370b0a4547ce8881d4eef7bd9af5bcefa217d4ea4575cc3e2329b9cf390d9"
+  },
+  "candidate_paths": {
+    ".ai-pipeline/001_planner/PR81_FINAL_CI_RECOVERY_PLAN.md": "9e2623c2af6cd40176fa5e5e0358b0c1a2c7efd14a308b2ecd9cf8671fb07c93",
+    ".ai-pipeline/reports/PR81_FINAL_CI_RECOVERY_IMPLEMENTATION.md": "8da675b13df463c15d5f7574c7f1d152c468e3094edf62382ed41445e1e5b458",
+    ".ai-pipeline/reports/PR81_FINAL_CI_RECOVERY_STOP_REPORT.md": "8ab9e29f27ade2a8cafdb0ad684b964162d70e26965ae289b646e781da70ca41",
+    ".github/workflows/ci.yml": "09e1f4702f520d48e89e6bb91684d58ca8beba40900755164ace44801085a766",
+    "apps/backend/app/api_models.py": "15d6b9f08112eed9055e6f94aa863f129446221e263af74c99976d50950e0923",
+    "apps/backend/app/main.py": "a45be7fc76c667136a601812d0d02b9cd5793605f1a4f4e55250886b8b7a1a58",
+    "apps/backend/app/services/zero_touch_orchestration.py": "f97556ae259bf7aeabedb6d08ff96b8c21f2b91cec69bf707023328c994ee411",
+    "apps/backend/tests/test_document_refresh_recovery.py": "35171d0dcbad271e822c23562ffcbb21482ae5aff5938ae181a5f239a07b2578",
+    "apps/backend/tests/test_final_review_editing_real_mongo.py": "ac8106f4e387e790114787221306c16bae9eeb482be3398609a4be7182de266c",
+    "apps/frontend/e2e/blocker-review-performance.e2e.ts": "df4408f22eeeabec78338b14efdf44c5af732f762c274fe5533c2ed44b18377b",
+    "apps/frontend/e2e/blocker-simulation.e2e.ts": "59275b4de4ec1fb5d9ba2c764e597451e15622ce6da8caa53856a08a7513eb60",
+    "apps/frontend/src/App.tsx": "486631624f6e1ea8a6aa3bbb7c5bc4117b23957f11f5f24cfd8f0fd9f156bab3",
+    "apps/frontend/src/DemoPerformance.test.tsx": "6472cd41c6a5ba3f99b51184bd415e9ec4ac8c510eb3794bcc3ac3079258cedb",
+    "apps/frontend/src/ResumeDocumentRecovery.test.ts": "6c891c932ec6a06fcb363b37c1a5dec7d02e93ae383d8dc19d89469f9ff6a53d",
+    "apps/frontend/src/api.ts": "6fec47d7215fdd5b256052ac942e8419afdf92b37dc2e7076643c5cd10e957e5",
+    "apps/frontend/src/pages/CaseDetail.tsx": "259a28976f37beca416034b4af2efa82579e5d1c0222168fefee80edb1d1253c",
+    "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx": "622f50223bd668622374d2917ef092d00cd09e241bbb18c0cd922aa01b42fbba",
+    "apps/frontend/src/pages/DocumentEvidencePanel.tsx": "474ede49c581c01b6b904b457356b5011ebee8573a51c2467ae4947553ea5941",
+    "apps/frontend/src/pages/OnboardingWorkspace.tsx": "f04b24ae131bb941209c38bd18d53285a46deb0f2cbdf7effb3c395ddb65a21f",
+    "apps/frontend/src/pages/S1PipelineWorkspace.test.tsx": "45db6bd50dd8f6c86aa777df22050d286e79bb35b1122fbddd8961700a720139",
+    "apps/frontend/src/types.ts": "b2141cfb5068dfecb30707f79aeec0635254ed6e10d925a3aaea2197ad61119e",
+    "docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md": "203ad8dfa7e4489c7a236d88f12119734810620be6e2499f97bc414331dd43c8",
+    "docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md": "3fbf91c9641ef3382c7141901be1d786590260933ff7926101410fd364000c07",
+    "scripts/e2e_backend_server.py": "2485c7f9f979f92b36c2cc789c0fec0f156cea71d9fbd5576dcecea0c272d981",
+    "scripts/run_e2e.py": "1ca9ee2fc8dfa82aaf2156b7ddc4c9d8b901e99043c31890218cfb732eb1ee70",
+    "scripts/slice_c_recovery_fixture.py": "e0dde54dd34c999f3309ae481e4b09e88d0532911af32d32af3727bec27984c9",
+    "tests/test_run_e2e.py": "baa4bcb320d762ca593a72c08377d61e2a7e1f2c59d203f8f63db92a1511b39f",
+    "tests/test_slice_c_e2e_fixture_routing.py": "219370b0a4547ce8881d4eef7bd9af5bcefa217d4ea4575cc3e2329b9cf390d9"
+  },
+  "candidate_content_identity": "d35ac0fc7254c509b83934fb9ed324c5da338e41f5623746e058ed76ccad7d56",
+  "independently_accepted_identity": null,
+  "preserved_history_count": 868,
+  "preserved_history_identical": true,
+  "controls_identical": true,
+  "checks": {
+    "focused-final": [
+      {
+        "name": "recovery_group",
+        "exit_code": 0,
+        "seconds": 45.734,
+        "log_sha256": "1bfce8535761352975969d53b418064818607d7f7942d7938e26b03e72eaf69a"
+      }
+    ],
+    "backend": [
+      {
+        "name": "backend",
+        "exit_code": 0,
+        "seconds": 1892.328,
+        "log_sha256": "2f25e987824ff4f5b6c642fe00b36da8850f4313325da067e3f973657ac0a737"
+      }
+    ],
+    "mongo": [
+      {
+        "name": "physical",
+        "exit_code": 0,
+        "seconds": 334.0,
+        "log_sha256": "d9ff8048ae8aa9abb3c675aeee04d42fa4f1f982e17b6414fb61c3fe4fa2b79b"
+      }
+    ],
+    "frontend-final": [
+      {
+        "name": "integrity",
+        "exit_code": 0,
+        "seconds": 0.875,
+        "log_sha256": "59b01b7ce77944707666453ec885772dc9d88efba4a66d56e3aa9edd0cfa2d2e"
+      },
+      {
+        "name": "vitest",
+        "exit_code": 0,
+        "seconds": 8.328,
+        "log_sha256": "dffdfca77036b8dfd97c04472473c1c7f72c09f364f7f32ac0887f6d70b64abd"
+      },
+      {
+        "name": "typecheck",
+        "exit_code": 0,
+        "seconds": 7.922,
+        "log_sha256": "c296395303f3564b665f739c2d8d900618e017a8fcbde365f16e41ca9e3e6bcd"
+      },
+      {
+        "name": "build",
+        "exit_code": 0,
+        "seconds": 8.89,
+        "log_sha256": "8b46cd0f9971d4aab3734aa07106dc1e2c88f63ceffe024fbb78a3c4575c8582"
+      }
+    ],
+    "windows": [
+      {
+        "name": "windows31",
+        "exit_code": 0,
+        "seconds": 372.453,
+        "log_sha256": "579018562e14ac5442f5eea119130fa10d14f654b48126ac1ae09399e6a99228"
+      }
+    ],
+    "governance": [
+      {
+        "name": "root",
+        "exit_code": 0,
+        "seconds": 697.453,
+        "log_sha256": "a19c3edccb5b9171f8c5331be72689c057ea26e52cdd5d9e23a4020efc1f03e1"
+      },
+      {
+        "name": "fixture_routing",
+        "exit_code": 0,
+        "seconds": 14.468,
+        "log_sha256": "42de327c0ae5e98eed1c8bbe8f453befdbce610a70b9b743de9f26c55b15ad56"
+      },
+      {
+        "name": "contracts",
+        "exit_code": 0,
+        "seconds": 6.391,
+        "log_sha256": "8422b16462b1a023aec6cfc684c1de2d9283d6ff859d7979a0e0e81e94ee8083"
+      },
+      {
+        "name": "project_state",
+        "exit_code": 0,
+        "seconds": 0.516,
+        "log_sha256": "ebdc22ba72b356ef2ca2e983410f01f2b6a5dc2c3122edf918519df9a5992440"
+      },
+      {
+        "name": "architecture",
+        "exit_code": 0,
+        "seconds": 0.953,
+        "log_sha256": "c28b379b92fe242e9fd4e7e5a7c6482aa0e7d4522cafe1e440681bbcf874be6c"
+      },
+      {
+        "name": "tooling_config",
+        "exit_code": 0,
+        "seconds": 0.188,
+        "log_sha256": "eaa8c14bbccb5cffcca28eb8eb8afb25722ad5a8826570b392a04bf5dbb247e1"
+      },
+      {
+        "name": "policy_authority",
+        "exit_code": 0,
+        "seconds": 0.219,
+        "log_sha256": "032ae78929f477e42ea0ed12ef22654cad78b5e966ce7dcf7fadcd32a8401fe8"
+      },
+      {
+        "name": "external_provider_readiness",
+        "exit_code": 0,
+        "seconds": 0.219,
+        "log_sha256": "3d4bdf0f519d151ce0e71a0b975aa74f306239f6d4a31530e8ab774893ac9f8e"
+      },
+      {
+        "name": "secrets",
+        "exit_code": 0,
+        "seconds": 8.5,
+        "log_sha256": "4f8fdf76860222a3a9e2431d7f42d994e54a61180539c09d803a4bec34cf4ae1"
+      },
+      {
+        "name": "examples",
+        "exit_code": 0,
+        "seconds": 0.265,
+        "log_sha256": "65fc9d47c359600ec7498bdf595d135c584cd6d5f07ca55c68edeafdd913d440"
+      }
+    ],
+    "static-canonical": [
+      {
+        "name": "ruff",
+        "exit_code": 0,
+        "seconds": 0.312,
+        "log_sha256": "98733c3446b52dc3e6b6943142b19a142025d9727521f6abc3783a20e4b6d3c6"
+      },
+      {
+        "name": "mypy",
+        "exit_code": 0,
+        "seconds": 3.531,
+        "log_sha256": "1fc5819dc1d92324ce4f0f8a146eeb12beca55ec5a3e5e06d4044c259ddfd8f1"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "seconds": 2.203,
+        "log_sha256": "a10f75b992f2f250449978aa5040718b580021919b995d4757300e84e5c3a219"
+      }
+    ]
+  },
+  "inventory": {
+    "selectors": [
+      "e2e/authenticated-zero-touch.e2e.ts:230",
+      "e2e/authenticated-zero-touch.e2e.ts:242",
+      "e2e/authenticated-zero-touch.e2e.ts:628",
+      "e2e/authenticated-zero-touch.e2e.ts:670",
+      "e2e/authenticated-zero-touch.e2e.ts:761",
+      "e2e/authenticated-zero-touch.e2e.ts:827",
+      "e2e/authenticated-zero-touch.e2e.ts:917",
+      "e2e/authenticated-zero-touch.e2e.ts:1005",
+      "e2e/authenticated-zero-touch.e2e.ts:1188",
+      "e2e/authenticated-zero-touch.e2e.ts:1234",
+      "e2e/authenticated-zero-touch.e2e.ts:1382",
+      "e2e/authenticated-zero-touch.e2e.ts:1512",
+      "e2e/authenticated-zero-touch.e2e.ts:1624",
+      "e2e/blocker-review-performance.e2e.ts:139",
+      "e2e/blocker-review-performance.e2e.ts:143",
+      "e2e/blocker-review-performance.e2e.ts:147",
+      "e2e/blocker-simulation.e2e.ts:25",
+      "e2e/blocker-simulation.e2e.ts:85",
+      "e2e/blocker-simulation.e2e.ts:122",
+      "e2e/blocker-simulation.e2e.ts:167",
+      "e2e/blocker-simulation.e2e.ts:221",
+      "e2e/blocker-simulation.e2e.ts:331",
+      "e2e/blocker-simulation.e2e.ts:363",
+      "e2e/database-classification.e2e.ts:96",
+      "e2e/database-classification.e2e.ts:97",
+      "e2e/database-classification.e2e.ts:98",
+      "e2e/database-classification.e2e.ts:101",
+      "e2e/garden-happy-path.e2e.ts:157",
+      "e2e/garden-happy-path.e2e.ts:217",
+      "e2e/garden-happy-path.e2e.ts:301",
+      "e2e/garden-happy-path.e2e.ts:315",
+      "e2e/garden-happy-path.e2e.ts:366",
+      "e2e/onboarding-recovery.e2e.ts:6",
+      "e2e/performance-browser.e2e.ts:97",
+      "e2e/performance-browser.e2e.ts:98",
+      "e2e/phase24-identity.e2e.ts:83",
+      "e2e/phase24-identity.e2e.ts:138",
+      "e2e/phase24-identity.e2e.ts:157",
+      "e2e/phase24c-policy.e2e.ts:34",
+      "e2e/phase24c-policy.e2e.ts:79",
+      "e2e/responsive-layout.e2e.ts:308",
+      "e2e/responsive-layout.e2e.ts:347",
+      "e2e/responsive-layout.e2e.ts:404",
+      "e2e/responsive-layout.e2e.ts:440",
+      "e2e/responsive-layout.e2e.ts:476",
+      "e2e/responsive-layout.e2e.ts:494",
+      "e2e/responsive-layout.e2e.ts:502",
+      "e2e/s1-workspace-session.e2e.ts:93",
+      "e2e/s1-workspace-session.e2e.ts:123",
+      "e2e/s1-workspace-session.e2e.ts:186",
+      "e2e/s1-workspace-session.e2e.ts:213",
+      "e2e/s2-ownership.e2e.ts:55",
+      "e2e/s2-ownership.e2e.ts:112",
+      "e2e/s3-sandbox-submission.e2e.ts:134",
+      "e2e/s3-sandbox-submission.e2e.ts:211",
+      "e2e/s3-sandbox-submission.e2e.ts:214",
+      "e2e/s3-sandbox-submission.e2e.ts:217",
+      "e2e/s3-sandbox-submission.e2e.ts:335",
+      "e2e/s3-sandbox-submission.e2e.ts:339",
+      "e2e/s3-sandbox-submission.e2e.ts:404",
+      "e2e/s3-sandbox-submission.e2e.ts:412",
+      "e2e/s3-sandbox-submission.e2e.ts:420",
+      "e2e/s3-sandbox-submission.e2e.ts:428",
+      "e2e/slice-b-registry-demo.e2e.ts:91",
+      "e2e/slice-b-registry-demo.e2e.ts:118",
+      "e2e/slice-b-registry-demo.e2e.ts:128",
+      "e2e/slice-b-registry-demo.e2e.ts:160",
+      "e2e/slice-b-registry-demo.e2e.ts:183",
+      "e2e/slice-c-recovery.e2e.ts:122",
+      "e2e/slice-c-recovery.e2e.ts:143",
+      "e2e/slice-c-recovery.e2e.ts:165",
+      "e2e/slice-c-recovery.e2e.ts:198",
+      "e2e/slice-c-recovery.e2e.ts:241",
+      "e2e/slice-c-recovery.e2e.ts:244",
+      "e2e/slice-c-recovery.e2e.ts:247",
+      "e2e/slice-c-recovery.e2e.ts:271",
+      "e2e/slice-c-recovery.e2e.ts:274",
+      "e2e/slice-c-recovery.e2e.ts:279",
+      "e2e/slice-e-policy.e2e.ts:64",
+      "e2e/slice-e-policy.e2e.ts:114",
+      "e2e/sponsor-demo-journeys.e2e.ts:317",
+      "e2e/sponsor-demo-journeys.e2e.ts:318",
+      "e2e/sponsor-demo-journeys.e2e.ts:319",
+      "e2e/sponsor-demo-journeys.e2e.ts:320",
+      "e2e/sponsor-demo-journeys.e2e.ts:321",
+      "e2e/sponsor-demo-journeys.e2e.ts:322",
+      "e2e/sponsor-demo-journeys.e2e.ts:323",
+      "e2e/sponsor-demo-journeys.e2e.ts:324",
+      "e2e/synthetic-company-pack.e2e.ts:22",
+      "e2e/zero-touch-exception.e2e.ts:126",
+      "e2e/zero-touch-exception.e2e.ts:161"
+    ],
+    "performance": [
+      "e2e/blocker-review-performance.e2e.ts:139",
+      "e2e/blocker-review-performance.e2e.ts:143",
+      "e2e/blocker-review-performance.e2e.ts:147"
+    ],
+    "recovery": {
+      "e2e/blocker-simulation.e2e.ts:221": "document-refresh",
+      "e2e/slice-c-recovery.e2e.ts:122": "optional-amend",
+      "e2e/slice-c-recovery.e2e.ts:143": "stale-policy",
+      "e2e/slice-c-recovery.e2e.ts:165": "retained-recovery",
+      "e2e/slice-c-recovery.e2e.ts:198": "search-recheck"
+    },
+    "tests": 112,
+    "shards": [
+      46,
+      45
+    ]
+  },
+  "shard1": {
+    "mode": "shard1",
+    "exit_code": 1,
+    "seconds": 524.968,
+    "source_hashes": {
+      ".github/workflows/ci.yml": "09e1f4702f520d48e89e6bb91684d58ca8beba40900755164ace44801085a766",
+      "apps/backend/app/api_models.py": "15d6b9f08112eed9055e6f94aa863f129446221e263af74c99976d50950e0923",
+      "apps/backend/app/main.py": "a45be7fc76c667136a601812d0d02b9cd5793605f1a4f4e55250886b8b7a1a58",
+      "apps/backend/app/services/reconciliation.py": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+      "apps/backend/app/services/zero_touch_orchestration.py": "f97556ae259bf7aeabedb6d08ff96b8c21f2b91cec69bf707023328c994ee411",
+      "apps/backend/tests/test_batch_review_decisions.py": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+      "apps/backend/tests/test_batch_review_real_mongo.py": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+      "apps/backend/tests/test_final_review_editing_real_mongo.py": "ac8106f4e387e790114787221306c16bae9eeb482be3398609a4be7182de266c",
+      "apps/backend/tests/test_phase14_case_management_performance.py": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+      "apps/frontend/e2e/authenticated-zero-touch.e2e.ts": "552b5d8bcc78851608af892997254921fb2e8402bf3008973883c5840321074b",
+      "apps/frontend/e2e/blocker-review-performance.e2e.ts": "df4408f22eeeabec78338b14efdf44c5af732f762c274fe5533c2ed44b18377b",
+      "apps/frontend/e2e/blocker-simulation.e2e.ts": "59275b4de4ec1fb5d9ba2c764e597451e15622ce6da8caa53856a08a7513eb60",
+      "apps/frontend/e2e/slice-b-registry-demo.e2e.ts": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f",
+      "apps/frontend/e2e/stage-disclosures.ts": "1a591a073e13e2a539ae96ed4b28baec85ca093b035a83deb406c1be7ced6463",
+      "apps/frontend/playwright.config.ts": "3b4caed9f8762ed07a96ece218e526110f90dbec3c0f944eff44bcefb92eee20",
+      "apps/frontend/src/App.tsx": "486631624f6e1ea8a6aa3bbb7c5bc4117b23957f11f5f24cfd8f0fd9f156bab3",
+      "apps/frontend/src/DemoPerformance.test.tsx": "6472cd41c6a5ba3f99b51184bd415e9ec4ac8c510eb3794bcc3ac3079258cedb",
+      "apps/frontend/src/api.ts": "6fec47d7215fdd5b256052ac942e8419afdf92b37dc2e7076643c5cd10e957e5",
+      "apps/frontend/src/pages/CaseDetail.tsx": "259a28976f37beca416034b4af2efa82579e5d1c0222168fefee80edb1d1253c",
+      "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx": "622f50223bd668622374d2917ef092d00cd09e241bbb18c0cd922aa01b42fbba",
+      "apps/frontend/src/pages/DocumentEvidencePanel.tsx": "474ede49c581c01b6b904b457356b5011ebee8573a51c2467ae4947553ea5941",
+      "apps/frontend/src/pages/OnboardingWorkspace.tsx": "f04b24ae131bb941209c38bd18d53285a46deb0f2cbdf7effb3c395ddb65a21f",
+      "apps/frontend/src/pages/S1PipelineWorkspace.test.tsx": "45db6bd50dd8f6c86aa777df22050d286e79bb35b1122fbddd8961700a720139",
+      "apps/frontend/src/types.ts": "b2141cfb5068dfecb30707f79aeec0635254ed6e10d925a3aaea2197ad61119e",
+      "docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md": "203ad8dfa7e4489c7a236d88f12119734810620be6e2499f97bc414331dd43c8",
+      "docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md": "3fbf91c9641ef3382c7141901be1d786590260933ff7926101410fd364000c07",
+      "scripts/e2e_backend_server.py": "2485c7f9f979f92b36c2cc789c0fec0f156cea71d9fbd5576dcecea0c272d981",
+      "scripts/run_e2e.py": "1ca9ee2fc8dfa82aaf2156b7ddc4c9d8b901e99043c31890218cfb732eb1ee70",
+      "scripts/slice_c_recovery_fixture.py": "e0dde54dd34c999f3309ae481e4b09e88d0532911af32d32af3727bec27984c9",
+      "tests/test_run_e2e.py": "baa4bcb320d762ca593a72c08377d61e2a7e1f2c59d203f8f63db92a1511b39f",
+      "tests/test_slice_c_e2e_fixture_routing.py": "219370b0a4547ce8881d4eef7bd9af5bcefa217d4ea4575cc3e2329b9cf390d9"
+    },
+    "log_sha256": "f07aae48e8a5bd07cac74e6aa4760679d89f8fef23e0fb9f4e11cb0835195843",
+    "original_lifecycle_seconds": 60,
+    "tests_passed": 28,
+    "skipped": 0
+  },
+  "diagnostic": {
+    "exit_code": 1,
+    "seconds": 66.61,
+    "diagnostic_only": true,
+    "deadline_seconds": 60,
+    "source_sha256": "b658b6088895981c1d6e535e9a97b5b4dad5b70ec85faf6262fe66e34f556ee6",
+    "scratch_restored": true,
+    "log_sha256": "0737dc0fc0d7db7e22a60046591bd047630d2130be640d3a2ec42269f8778d63"
+  },
+  "remote_pr": {
+    "baseRefName": "main",
+    "baseRefOid": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+    "headRefName": "feat/blocker-resolution-idp-ux-optimization",
+    "headRefOid": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+    "mergeStateStatus": "BLOCKED",
+    "mergeable": "MERGEABLE",
+    "reviewDecision": "",
+    "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/pull/81"
+  },
+  "review_threads": [
+    {
+      "id": "PRRT_kwDOTzXN-86rDEUB",
+      "isResolved": false,
+      "viewerCanResolve": true,
+      "comments": {
+        "nodes": [
+          {
+            "databaseId": 4237256422,
+            "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/pull/81#discussion_r4237256422",
+            "author": {
+              "login": "chatgpt-codex-connector"
+            }
+          },
+          {
+            "databaseId": 4237925391,
+            "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/pull/81#discussion_r4237925391",
+            "author": {
+              "login": "shaneqwaszx"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PRRT_kwDOTzXN-86rEvEp",
+      "isResolved": false,
+      "viewerCanResolve": true,
+      "comments": {
+        "nodes": [
+          {
+            "databaseId": 4237939469,
+            "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/pull/81#discussion_r4237939469",
+            "author": {
+              "login": "chatgpt-codex-connector"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "historical_ci_only": [
+    {
+      "databaseId": 38059426119,
+      "event": "push",
+      "headSha": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+      "attempt": 1,
+      "conclusion": "failure",
+      "jobs": [
+        {
+          "name": "demo-lifecycle-windows",
+          "conclusion": "success"
+        },
+        {
+          "name": "phase12-mongo",
+          "conclusion": "success"
+        },
+        {
+          "name": "frontend",
+          "conclusion": "success"
+        },
+        {
+          "name": "e2e-shards (2)",
+          "conclusion": "failure"
+        },
+        {
+          "name": "backend",
+          "conclusion": "success"
+        },
+        {
+          "name": "e2e-shards (1)",
+          "conclusion": "success"
+        },
+        {
+          "name": "security",
+          "conclusion": "success"
+        },
+        {
+          "name": "local-ocr",
+          "conclusion": "success"
+        },
+        {
+          "name": "e2e",
+          "conclusion": "failure"
+        }
+      ]
+    },
+    {
+      "databaseId": 38059430379,
+      "event": "pull_request",
+      "headSha": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+      "attempt": 1,
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "demo-lifecycle-windows",
+          "conclusion": "success"
+        },
+        {
+          "name": "local-ocr",
+          "conclusion": "success"
+        },
+        {
+          "name": "e2e-shards (2)",
+          "conclusion": "success"
+        },
+        {
+          "name": "frontend",
+          "conclusion": "success"
+        },
+        {
+          "name": "e2e-shards (1)",
+          "conclusion": "success"
+        },
+        {
+          "name": "security",
+          "conclusion": "success"
+        },
+        {
+          "name": "phase12-mongo",
+          "conclusion": "success"
+        },
+        {
+          "name": "backend",
+          "conclusion": "success"
+        },
+        {
+          "name": "e2e",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "publication": {
+    "staged": false,
+    "committed": false,
+    "fresh_gate": false,
+    "pre_pr": false,
+    "push": false,
+    "pr_update": false,
+    "merge": false
+  },
+  "safe_logs": {
+    "tmp/pr81-closure-backend-backend.log": "2f25e987824ff4f5b6c642fe00b36da8850f4313325da067e3f973657ac0a737",
+    "tmp/pr81-closure-cache360-diagnostic.log": "0737dc0fc0d7db7e22a60046591bd047630d2130be640d3a2ec42269f8778d63",
+    "tmp/pr81-closure-focused-final-recovery_group.log": "1bfce8535761352975969d53b418064818607d7f7942d7938e26b03e72eaf69a",
+    "tmp/pr81-closure-focused-recovery_group.log": "339cafbf3109e650dfd514e1087f8697a47c38d98c7b8bbadae94fd5d1a71d61",
+    "tmp/pr81-closure-frontend-final-build.log": "8b46cd0f9971d4aab3734aa07106dc1e2c88f63ceffe024fbb78a3c4575c8582",
+    "tmp/pr81-closure-frontend-final-integrity.log": "59b01b7ce77944707666453ec885772dc9d88efba4a66d56e3aa9edd0cfa2d2e",
+    "tmp/pr81-closure-frontend-final-typecheck.log": "c296395303f3564b665f739c2d8d900618e017a8fcbde365f16e41ca9e3e6bcd",
+    "tmp/pr81-closure-frontend-final-vitest.log": "dffdfca77036b8dfd97c04472473c1c7f72c09f364f7f32ac0887f6d70b64abd",
+    "tmp/pr81-closure-frontend-integrity.log": "59b01b7ce77944707666453ec885772dc9d88efba4a66d56e3aa9edd0cfa2d2e",
+    "tmp/pr81-closure-frontend-vitest.log": "892e0795b22e58025ba010353899e417e0053121116c357da8095ec631e6f705",
+    "tmp/pr81-closure-governance-architecture.log": "c28b379b92fe242e9fd4e7e5a7c6482aa0e7d4522cafe1e440681bbcf874be6c",
+    "tmp/pr81-closure-governance-contracts.log": "8422b16462b1a023aec6cfc684c1de2d9283d6ff859d7979a0e0e81e94ee8083",
+    "tmp/pr81-closure-governance-examples.log": "65fc9d47c359600ec7498bdf595d135c584cd6d5f07ca55c68edeafdd913d440",
+    "tmp/pr81-closure-governance-external_provider_readiness.log": "3d4bdf0f519d151ce0e71a0b975aa74f306239f6d4a31530e8ab774893ac9f8e",
+    "tmp/pr81-closure-governance-fixture_routing.log": "42de327c0ae5e98eed1c8bbe8f453befdbce610a70b9b743de9f26c55b15ad56",
+    "tmp/pr81-closure-governance-policy_authority.log": "032ae78929f477e42ea0ed12ef22654cad78b5e966ce7dcf7fadcd32a8401fe8",
+    "tmp/pr81-closure-governance-project_state.log": "ebdc22ba72b356ef2ca2e983410f01f2b6a5dc2c3122edf918519df9a5992440",
+    "tmp/pr81-closure-governance-root.log": "a19c3edccb5b9171f8c5331be72689c057ea26e52cdd5d9e23a4020efc1f03e1",
+    "tmp/pr81-closure-governance-secrets.log": "4f8fdf76860222a3a9e2431d7f42d994e54a61180539c09d803a4bec34cf4ae1",
+    "tmp/pr81-closure-governance-tooling_config.log": "eaa8c14bbccb5cffcca28eb8eb8afb25722ad5a8826570b392a04bf5dbb247e1",
+    "tmp/pr81-closure-mongo-physical.log": "d9ff8048ae8aa9abb3c675aeee04d42fa4f1f982e17b6414fb61c3fe4fa2b79b",
+    "tmp/pr81-closure-performance1.log": "47a9bf3bfdaf27d70d51270afbc21637611ac1c581459203fe1026cdd8efecc1",
+    "tmp/pr81-closure-performance2.log": "9b7ffbe4a108717196b9b4300b373701db34d567a1b815c09ef87e24b9ea485c",
+    "tmp/pr81-closure-performance3.log": "ac5c89f05881795c66c30ff97a0ba95095e13dfcbf02d0598d5ca454f4de0793",
+    "tmp/pr81-closure-physical-child-output.log": "9afadae1397dfc114e131a01e2aa4ee14c06f2f69508a9b6f962a56600756bee",
+    "tmp/pr81-closure-recovery-final.log": "2b86098e380c97f5cdc254b8f3e9c3d9a362c1cdac27a27bde24bfc1029b5970",
+    "tmp/pr81-closure-recovery-labelled.log": "22a09ee599040eff1c5ed39d0084636aea329444bdf3bd51f9ac953a638c767d",
+    "tmp/pr81-closure-recovery.log": "8436df0c27a26c06e147e85d07acb3efed6fe6e42631b2b353d7b2a6f9c11fa2",
+    "tmp/pr81-closure-shard1.log": "f07aae48e8a5bd07cac74e6aa4760679d89f8fef23e0fb9f4e11cb0835195843",
+    "tmp/pr81-closure-static-canonical-dependencies.log": "a10f75b992f2f250449978aa5040718b580021919b995d4757300e84e5c3a219",
+    "tmp/pr81-closure-static-canonical-mypy.log": "1fc5819dc1d92324ce4f0f8a146eeb12beca55ec5a3e5e06d4044c259ddfd8f1",
+    "tmp/pr81-closure-static-canonical-ruff.log": "98733c3446b52dc3e6b6943142b19a142025d9727521f6abc3783a20e4b6d3c6",
+    "tmp/pr81-closure-static-ruff.log": "ddc8faeac2129269e55edd42eeb6d15043eddbebb3e47d4cc76eea2d555bf90a",
+    "tmp/pr81-closure-windows-windows31.log": "579018562e14ac5442f5eea119130fa10d14f654b48126ac1ae09399e6a99228"
+  },
+  "risks": {
+    "SDQ-01": "historically unresolved, not fixed; current mandatory failure is not waived",
+    "SDQ-02": "independently closed",
+    "real_sandbox_interoperability": "NOT_VERIFIED"
+  }
+}

@@ -346,6 +346,12 @@ only when authorized; never rebase a shared branch. Resolve conflicts by current
 intent and the smallest feature delta. Run affected regression against the integrated
 state, then `python scripts/pre_pr_check.py` on a clean committed feature tree.
 
+Immutable archival whitespace follows the exact owner-approved
+[publication policy](development/IMMUTABLE_ARCHIVE_WHITESPACE_POLICY.md) through
+`scripts/pre_pr_check.py`. Native Git failures remain explicitly recorded; only
+reviewed full-hash/path/diagnostic/line-bound historical evidence may be accepted.
+Ordinary source whitespace and all unapproved diagnostics remain blocking.
+
 The PR records change class, baseline, owners/invariants, sponsor/provisional behavior,
 provider truth, security/persistence impact, verification, independent QG, and context
 refresh. CI evidence and human review precede the human merge.

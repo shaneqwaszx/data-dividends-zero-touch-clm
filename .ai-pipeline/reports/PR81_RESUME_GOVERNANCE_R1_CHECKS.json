@@ -1,0 +1,184 @@
+{
+  "utc": "2026-10-11T10:58:07.782648+00:00",
+  "source36": "f6607f766b36ec1e2b6fc251b93b22c4940985fac394d28160b1878e802cfbae",
+  "source38": "7367a34bd49ea3bc0c46a8ba5a04ce7c38611603ec5140bf1bf50bc7440e956b",
+  "source_hashes": {
+    ".github/workflows/ci.yml": "09e1f4702f520d48e89e6bb91684d58ca8beba40900755164ace44801085a766",
+    "apps/backend/app/api_models.py": "15d6b9f08112eed9055e6f94aa863f129446221e263af74c99976d50950e0923",
+    "apps/backend/app/main.py": "a45be7fc76c667136a601812d0d02b9cd5793605f1a4f4e55250886b8b7a1a58",
+    "apps/backend/app/services/zero_touch_orchestration.py": "f97556ae259bf7aeabedb6d08ff96b8c21f2b91cec69bf707023328c994ee411",
+    "apps/backend/tests/test_document_refresh_recovery.py": "35171d0dcbad271e822c23562ffcbb21482ae5aff5938ae181a5f239a07b2578",
+    "apps/backend/tests/test_final_review_editing_real_mongo.py": "ac8106f4e387e790114787221306c16bae9eeb482be3398609a4be7182de266c",
+    "apps/backend/tests/test_http_seed_response_completion.py": "44da4c56a85229be30f39b88e1fb0ca78fe7f51df61890a8cc6c0069dad0adbf",
+    "apps/frontend/e2e/authenticated-zero-touch.e2e.ts": "45735ee4b86c6cd55718e5529a36d53ae8c46f7b5fda622e8ba32d1db22e7ff0",
+    "apps/frontend/e2e/blocker-review-performance.e2e.ts": "e978692927d25b67c30356921193efb8c9a9edfcc3ba69e21b0109c4976a0789",
+    "apps/frontend/e2e/blocker-simulation.e2e.ts": "c4ba5721051d0a140ec10c56598e6c56af7c3240fae27fe58e12545afcec0817",
+    "apps/frontend/e2e/phase24c-policy.e2e.ts": "397677bd0e5206d497f3cbbfce380f8d08ba3628700115d8b208552740ce5bb3",
+    "apps/frontend/e2e/s3-sandbox-submission.e2e.ts": "cbf790d5df7207e3ec43014bdb03ab4da5b9cee7e873b26a6f149d49a89872a5",
+    "apps/frontend/e2e/sponsor-demo-journeys.e2e.ts": "3a5b3dfc7e189fb7e2d8d2f111c3d82124ba7005d6dd83d433a256bf41a12c23",
+    "apps/frontend/e2e/stage-disclosures.ts": "fda8a2421bbe6f7c9140bea57353f6a6984c9b2990e7b6c06519b3e13df76b58",
+    "apps/frontend/e2e/zero-touch-exception.e2e.ts": "256fa3844f119859e8d6558c9c721779de8f8b296f3a284d2024f07cf9f33ef7",
+    "apps/frontend/evidence-tests/output-isolation.evidence.ts": "09191b4cf72e45631e2dd3bd97416c85cfa3bb5cabe01392697bd51cdd196de0",
+    "apps/frontend/playwright.config.ts": "566653a56dc234f51016e278a738e0377eb29e1bd1ecf7faa7b14184e5e74a03",
+    "apps/frontend/playwright.evidence.config.ts": "efa9ba599696b942760984bd3b573adc1426a044faa8254f798b5f911e5ad088",
+    "apps/frontend/src/App.tsx": "486631624f6e1ea8a6aa3bbb7c5bc4117b23957f11f5f24cfd8f0fd9f156bab3",
+    "apps/frontend/src/DemoPerformance.test.tsx": "6472cd41c6a5ba3f99b51184bd415e9ec4ac8c510eb3794bcc3ac3079258cedb",
+    "apps/frontend/src/ResumeDocumentRecovery.test.ts": "6c891c932ec6a06fcb363b37c1a5dec7d02e93ae383d8dc19d89469f9ff6a53d",
+    "apps/frontend/src/api.ts": "6fec47d7215fdd5b256052ac942e8419afdf92b37dc2e7076643c5cd10e957e5",
+    "apps/frontend/src/pages/CaseDetail.tsx": "259a28976f37beca416034b4af2efa82579e5d1c0222168fefee80edb1d1253c",
+    "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx": "622f50223bd668622374d2917ef092d00cd09e241bbb18c0cd922aa01b42fbba",
+    "apps/frontend/src/pages/DocumentEvidencePanel.tsx": "474ede49c581c01b6b904b457356b5011ebee8573a51c2467ae4947553ea5941",
+    "apps/frontend/src/pages/OnboardingWorkspace.tsx": "f04b24ae131bb941209c38bd18d53285a46deb0f2cbdf7effb3c395ddb65a21f",
+    "apps/frontend/src/pages/S1PipelineWorkspace.test.tsx": "45db6bd50dd8f6c86aa777df22050d286e79bb35b1122fbddd8961700a720139",
+    "apps/frontend/src/types.ts": "b2141cfb5068dfecb30707f79aeec0635254ed6e10d925a3aaea2197ad61119e",
+    "docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md": "203ad8dfa7e4489c7a236d88f12119734810620be6e2499f97bc414331dd43c8",
+    "docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md": "3fbf91c9641ef3382c7141901be1d786590260933ff7926101410fd364000c07",
+    "scripts/e2e_backend_server.py": "2485c7f9f979f92b36c2cc789c0fec0f156cea71d9fbd5576dcecea0c272d981",
+    "scripts/run_e2e.py": "1ca9ee2fc8dfa82aaf2156b7ddc4c9d8b901e99043c31890218cfb732eb1ee70",
+    "scripts/seed_phase13_demo.py": "b2c225009ae050a003f14ff4309c949a442edb0705b7e92b1faff69c4b599223",
+    "scripts/slice_c_recovery_fixture.py": "e0dde54dd34c999f3309ae481e4b09e88d0532911af32d32af3727bec27984c9",
+    "tests/test_run_e2e.py": "baa4bcb320d762ca593a72c08377d61e2a7e1f2c59d203f8f63db92a1511b39f",
+    "tests/test_slice_c_e2e_fixture_routing.py": "219370b0a4547ce8881d4eef7bd9af5bcefa217d4ea4575cc3e2329b9cf390d9",
+    "scripts/pre_pr_check.py": "de2f21674b8297eda538882f036dc246eab06206e6647e9786d86f035d7a50ac",
+    "tests/test_pre_pr_check.py": "e23a373846800b8b5c1ef4d63ae9c12ef07dc11e3bad3def78d675ac6b560305"
+  },
+  "ordinary_token": true,
+  "commands": [
+    {
+      "name": "affected_units",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_pre_pr_check",
+        "tests.test_check_tooling_config",
+        "tests.test_check_secrets",
+        "-v"
+      ],
+      "exit_code": 0,
+      "seconds": 64.062,
+      "safe_summary": [
+        "Ran 75 tests in 63.900s",
+        "OK"
+      ]
+    },
+    {
+      "name": "root_ruff",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "--no-cache",
+        "scripts/pre_pr_check.py",
+        "tests/test_pre_pr_check.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.11,
+      "safe_summary": [
+        "All checks passed!"
+      ]
+    },
+    {
+      "name": "owning_whitespace",
+      "command": [
+        "git",
+        "-c",
+        "core.autocrlf=false",
+        "diff",
+        "--check",
+        "--",
+        "scripts/pre_pr_check.py",
+        "tests/test_pre_pr_check.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.031,
+      "safe_summary": []
+    },
+    {
+      "name": "check_project_state",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_project_state.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.25,
+      "safe_summary": [
+        "PROJECT STATE CHECK: PASS"
+      ]
+    },
+    {
+      "name": "check_architecture",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_architecture.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.453,
+      "safe_summary": [
+        "ARCHITECTURE CHECK: PASS"
+      ]
+    },
+    {
+      "name": "check_tooling_config",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_tooling_config.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.078,
+      "safe_summary": [
+        "TOOLING_CONFIG=PASS: exact optional Docs and disabled cluster MCP policy"
+      ]
+    },
+    {
+      "name": "check_policy_authority",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_policy_authority.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.078,
+      "safe_summary": [
+        "POLICY AUTHORITY CHECK: PASS"
+      ]
+    },
+    {
+      "name": "check_external_provider_readiness",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_external_provider_readiness.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.11,
+      "safe_summary": [
+        "EXTERNAL PROVIDER READINESS CHECK: PASS"
+      ]
+    },
+    {
+      "name": "check_secrets",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_secrets.py"
+      ],
+      "exit_code": 0,
+      "seconds": 3.39,
+      "safe_summary": [
+        "Secret scan passed: no supported secret patterns found."
+      ]
+    }
+  ],
+  "success": true,
+  "initial_full_FAIL_sha256": "4f71a90a365e358187c475d0ceaf42612d88e80f152628fb6142b10e79d2cf36",
+  "source_history_unchanged": true,
+  "post_source_history_index_verified": true,
+  "finished_utc": "2026-10-11T10:59:16.521140+00:00"
+}

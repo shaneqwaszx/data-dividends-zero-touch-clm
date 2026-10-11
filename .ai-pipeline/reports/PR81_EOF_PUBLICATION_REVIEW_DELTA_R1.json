@@ -1,0 +1,13 @@
+{
+  "utc": "2026-10-11T11:23:32.253614+00:00",
+  "finding": "Revieweridentified8 pre-existing LF lines normalizedtoCRLF while insertingworkflowpolicy link",
+  "disposition": "Reconstructexactbefore bytes withpolicy-link insertiononly; alloriginalnoninsertedbytes restoredexact",
+  "first_manifest_sha256": "535e1f17d7857e8fa45f56c5d2f74158089365199f8565ba76fcea9a2a0078cc",
+  "first_workflow_sha256": "c137b6f83ddc0d43f335f38dbaa1d45a310c05d34c12826c0ad3c8766850ccdc",
+  "before_workflow_sha256": "8d7104d92dcae76c747eb1c5fe6955e045f047a1469a0453a9602bbd50667f9d",
+  "final_workflow_sha256": "0ab42b8252311f37f9247e9871c91df7d485e461b05671456035b2765b123e1b",
+  "source38_unchanged": "eaee6136a4bf3dd875b73e0563c0a7b289db09bc0341bb7ac5acdddc0d6cf581",
+  "code_tests_unchanged": true,
+  "first_candidate_workflow_copy": "tmp/pr81-eof-policy-workflow-first-candidate.md",
+  "product_browser_runs": false
+}

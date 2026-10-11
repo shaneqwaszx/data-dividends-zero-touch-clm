@@ -1,0 +1,1060 @@
+{
+  "source36": "f6607f766b36ec1e2b6fc251b93b22c4940985fac394d28160b1878e802cfbae",
+  "discovery_only": true,
+  "lifecycles": 91,
+  "tests": 112,
+  "shard1": [
+    "e2e/authenticated-zero-touch.e2e.ts:231",
+    "e2e/authenticated-zero-touch.e2e.ts:629",
+    "e2e/authenticated-zero-touch.e2e.ts:762",
+    "e2e/authenticated-zero-touch.e2e.ts:918",
+    "e2e/authenticated-zero-touch.e2e.ts:1189",
+    "e2e/authenticated-zero-touch.e2e.ts:1383",
+    "e2e/authenticated-zero-touch.e2e.ts:1625",
+    "e2e/blocker-review-performance.e2e.ts:142",
+    "e2e/blocker-simulation.e2e.ts:25",
+    "e2e/blocker-simulation.e2e.ts:122",
+    "e2e/blocker-simulation.e2e.ts:221",
+    "e2e/blocker-simulation.e2e.ts:363",
+    "e2e/database-classification.e2e.ts:97",
+    "e2e/database-classification.e2e.ts:101",
+    "e2e/garden-happy-path.e2e.ts:217",
+    "e2e/garden-happy-path.e2e.ts:315",
+    "e2e/onboarding-recovery.e2e.ts:6",
+    "e2e/performance-browser.e2e.ts:98",
+    "e2e/phase24-identity.e2e.ts:138",
+    "e2e/phase24c-policy.e2e.ts:34",
+    "e2e/responsive-layout.e2e.ts:308",
+    "e2e/responsive-layout.e2e.ts:404",
+    "e2e/responsive-layout.e2e.ts:476",
+    "e2e/responsive-layout.e2e.ts:502",
+    "e2e/s1-workspace-session.e2e.ts:123",
+    "e2e/s1-workspace-session.e2e.ts:213",
+    "e2e/s2-ownership.e2e.ts:112",
+    "e2e/s3-sandbox-submission.e2e.ts:211",
+    "e2e/s3-sandbox-submission.e2e.ts:217",
+    "e2e/s3-sandbox-submission.e2e.ts:339",
+    "e2e/s3-sandbox-submission.e2e.ts:412",
+    "e2e/s3-sandbox-submission.e2e.ts:428",
+    "e2e/slice-b-registry-demo.e2e.ts:118",
+    "e2e/slice-b-registry-demo.e2e.ts:160",
+    "e2e/slice-c-recovery.e2e.ts:122",
+    "e2e/slice-c-recovery.e2e.ts:165",
+    "e2e/slice-c-recovery.e2e.ts:241",
+    "e2e/slice-c-recovery.e2e.ts:247",
+    "e2e/slice-c-recovery.e2e.ts:274",
+    "e2e/slice-e-policy.e2e.ts:64",
+    "e2e/sponsor-demo-journeys.e2e.ts:317",
+    "e2e/sponsor-demo-journeys.e2e.ts:319",
+    "e2e/sponsor-demo-journeys.e2e.ts:321",
+    "e2e/sponsor-demo-journeys.e2e.ts:323",
+    "e2e/synthetic-company-pack.e2e.ts:22",
+    "e2e/zero-touch-exception.e2e.ts:161"
+  ],
+  "shard2": [
+    "e2e/authenticated-zero-touch.e2e.ts:243",
+    "e2e/authenticated-zero-touch.e2e.ts:671",
+    "e2e/authenticated-zero-touch.e2e.ts:828",
+    "e2e/authenticated-zero-touch.e2e.ts:1006",
+    "e2e/authenticated-zero-touch.e2e.ts:1235",
+    "e2e/authenticated-zero-touch.e2e.ts:1513",
+    "e2e/blocker-review-performance.e2e.ts:138",
+    "e2e/blocker-review-performance.e2e.ts:146",
+    "e2e/blocker-simulation.e2e.ts:85",
+    "e2e/blocker-simulation.e2e.ts:167",
+    "e2e/blocker-simulation.e2e.ts:331",
+    "e2e/database-classification.e2e.ts:96",
+    "e2e/database-classification.e2e.ts:98",
+    "e2e/garden-happy-path.e2e.ts:157",
+    "e2e/garden-happy-path.e2e.ts:301",
+    "e2e/garden-happy-path.e2e.ts:366",
+    "e2e/performance-browser.e2e.ts:97",
+    "e2e/phase24-identity.e2e.ts:83",
+    "e2e/phase24-identity.e2e.ts:157",
+    "e2e/phase24c-policy.e2e.ts:79",
+    "e2e/responsive-layout.e2e.ts:347",
+    "e2e/responsive-layout.e2e.ts:440",
+    "e2e/responsive-layout.e2e.ts:494",
+    "e2e/s1-workspace-session.e2e.ts:93",
+    "e2e/s1-workspace-session.e2e.ts:186",
+    "e2e/s2-ownership.e2e.ts:55",
+    "e2e/s3-sandbox-submission.e2e.ts:134",
+    "e2e/s3-sandbox-submission.e2e.ts:214",
+    "e2e/s3-sandbox-submission.e2e.ts:335",
+    "e2e/s3-sandbox-submission.e2e.ts:404",
+    "e2e/s3-sandbox-submission.e2e.ts:420",
+    "e2e/slice-b-registry-demo.e2e.ts:91",
+    "e2e/slice-b-registry-demo.e2e.ts:128",
+    "e2e/slice-b-registry-demo.e2e.ts:183",
+    "e2e/slice-c-recovery.e2e.ts:143",
+    "e2e/slice-c-recovery.e2e.ts:198",
+    "e2e/slice-c-recovery.e2e.ts:244",
+    "e2e/slice-c-recovery.e2e.ts:271",
+    "e2e/slice-c-recovery.e2e.ts:279",
+    "e2e/slice-e-policy.e2e.ts:114",
+    "e2e/sponsor-demo-journeys.e2e.ts:318",
+    "e2e/sponsor-demo-journeys.e2e.ts:320",
+    "e2e/sponsor-demo-journeys.e2e.ts:322",
+    "e2e/sponsor-demo-journeys.e2e.ts:324",
+    "e2e/zero-touch-exception.e2e.ts:126"
+  ],
+  "selectors": [
+    "e2e/authenticated-zero-touch.e2e.ts:231",
+    "e2e/authenticated-zero-touch.e2e.ts:243",
+    "e2e/authenticated-zero-touch.e2e.ts:629",
+    "e2e/authenticated-zero-touch.e2e.ts:671",
+    "e2e/authenticated-zero-touch.e2e.ts:762",
+    "e2e/authenticated-zero-touch.e2e.ts:828",
+    "e2e/authenticated-zero-touch.e2e.ts:918",
+    "e2e/authenticated-zero-touch.e2e.ts:1006",
+    "e2e/authenticated-zero-touch.e2e.ts:1189",
+    "e2e/authenticated-zero-touch.e2e.ts:1235",
+    "e2e/authenticated-zero-touch.e2e.ts:1383",
+    "e2e/authenticated-zero-touch.e2e.ts:1513",
+    "e2e/authenticated-zero-touch.e2e.ts:1625",
+    "e2e/blocker-review-performance.e2e.ts:138",
+    "e2e/blocker-review-performance.e2e.ts:142",
+    "e2e/blocker-review-performance.e2e.ts:146",
+    "e2e/blocker-simulation.e2e.ts:25",
+    "e2e/blocker-simulation.e2e.ts:85",
+    "e2e/blocker-simulation.e2e.ts:122",
+    "e2e/blocker-simulation.e2e.ts:167",
+    "e2e/blocker-simulation.e2e.ts:221",
+    "e2e/blocker-simulation.e2e.ts:331",
+    "e2e/blocker-simulation.e2e.ts:363",
+    "e2e/database-classification.e2e.ts:96",
+    "e2e/database-classification.e2e.ts:97",
+    "e2e/database-classification.e2e.ts:98",
+    "e2e/database-classification.e2e.ts:101",
+    "e2e/garden-happy-path.e2e.ts:157",
+    "e2e/garden-happy-path.e2e.ts:217",
+    "e2e/garden-happy-path.e2e.ts:301",
+    "e2e/garden-happy-path.e2e.ts:315",
+    "e2e/garden-happy-path.e2e.ts:366",
+    "e2e/onboarding-recovery.e2e.ts:6",
+    "e2e/performance-browser.e2e.ts:97",
+    "e2e/performance-browser.e2e.ts:98",
+    "e2e/phase24-identity.e2e.ts:83",
+    "e2e/phase24-identity.e2e.ts:138",
+    "e2e/phase24-identity.e2e.ts:157",
+    "e2e/phase24c-policy.e2e.ts:34",
+    "e2e/phase24c-policy.e2e.ts:79",
+    "e2e/responsive-layout.e2e.ts:308",
+    "e2e/responsive-layout.e2e.ts:347",
+    "e2e/responsive-layout.e2e.ts:404",
+    "e2e/responsive-layout.e2e.ts:440",
+    "e2e/responsive-layout.e2e.ts:476",
+    "e2e/responsive-layout.e2e.ts:494",
+    "e2e/responsive-layout.e2e.ts:502",
+    "e2e/s1-workspace-session.e2e.ts:93",
+    "e2e/s1-workspace-session.e2e.ts:123",
+    "e2e/s1-workspace-session.e2e.ts:186",
+    "e2e/s1-workspace-session.e2e.ts:213",
+    "e2e/s2-ownership.e2e.ts:55",
+    "e2e/s2-ownership.e2e.ts:112",
+    "e2e/s3-sandbox-submission.e2e.ts:134",
+    "e2e/s3-sandbox-submission.e2e.ts:211",
+    "e2e/s3-sandbox-submission.e2e.ts:214",
+    "e2e/s3-sandbox-submission.e2e.ts:217",
+    "e2e/s3-sandbox-submission.e2e.ts:335",
+    "e2e/s3-sandbox-submission.e2e.ts:339",
+    "e2e/s3-sandbox-submission.e2e.ts:404",
+    "e2e/s3-sandbox-submission.e2e.ts:412",
+    "e2e/s3-sandbox-submission.e2e.ts:420",
+    "e2e/s3-sandbox-submission.e2e.ts:428",
+    "e2e/slice-b-registry-demo.e2e.ts:91",
+    "e2e/slice-b-registry-demo.e2e.ts:118",
+    "e2e/slice-b-registry-demo.e2e.ts:128",
+    "e2e/slice-b-registry-demo.e2e.ts:160",
+    "e2e/slice-b-registry-demo.e2e.ts:183",
+    "e2e/slice-c-recovery.e2e.ts:122",
+    "e2e/slice-c-recovery.e2e.ts:143",
+    "e2e/slice-c-recovery.e2e.ts:165",
+    "e2e/slice-c-recovery.e2e.ts:198",
+    "e2e/slice-c-recovery.e2e.ts:241",
+    "e2e/slice-c-recovery.e2e.ts:244",
+    "e2e/slice-c-recovery.e2e.ts:247",
+    "e2e/slice-c-recovery.e2e.ts:271",
+    "e2e/slice-c-recovery.e2e.ts:274",
+    "e2e/slice-c-recovery.e2e.ts:279",
+    "e2e/slice-e-policy.e2e.ts:64",
+    "e2e/slice-e-policy.e2e.ts:114",
+    "e2e/sponsor-demo-journeys.e2e.ts:317",
+    "e2e/sponsor-demo-journeys.e2e.ts:318",
+    "e2e/sponsor-demo-journeys.e2e.ts:319",
+    "e2e/sponsor-demo-journeys.e2e.ts:320",
+    "e2e/sponsor-demo-journeys.e2e.ts:321",
+    "e2e/sponsor-demo-journeys.e2e.ts:322",
+    "e2e/sponsor-demo-journeys.e2e.ts:323",
+    "e2e/sponsor-demo-journeys.e2e.ts:324",
+    "e2e/synthetic-company-pack.e2e.ts:22",
+    "e2e/zero-touch-exception.e2e.ts:126",
+    "e2e/zero-touch-exception.e2e.ts:161"
+  ],
+  "specs": [
+    {
+      "title": "protected workspace requires a real login before navigation",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 231,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "ordinary RM repairs same-case identity, resolves evidence, and reviews without target writes",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 243,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "authorized manual ownership action focuses the real evidence form and next action",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 629,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "onboarding progress is visible while backend-authored stages advance",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 671,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Director explicitly selects either team and journey or actor reset clears the choice",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 762,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "problem pipeline stages focus authorized inputs and explain unavailable correction",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 828,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Garden partial registry evidence is presented as incomplete, not unavailable",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 918,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Singapore clean fixture completes the truthful Mock target path",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 1006,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "review-ready actions render after authoritative current document evidence loads",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 1189,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "current document review progresses authoritatively and keeps superseded history read-only",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 1235,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Cases filters exact open business-exception types without hiding other attention states",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 1383,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Cases uses one bounded backend page for search, filters, paging, mutation refresh, and deletion",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 1513,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Case activity uses one paged read with accessible filters, scoped links, and mobile scrolling",
+      "file": "authenticated-zero-touch.e2e.ts",
+      "line": 1625,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker decision review performance sample group 1",
+      "file": "blocker-review-performance.e2e.ts",
+      "line": 138,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker decision review performance sample group 2",
+      "file": "blocker-review-performance.e2e.ts",
+      "line": 142,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker decision review performance sample group 3",
+      "file": "blocker-review-performance.e2e.ts",
+      "line": 146,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation legal-name-mismatch",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 25,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation address-mismatch",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 25,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation country-mismatch",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 25,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation multiple-mismatches",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 25,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation cross-document-conflict",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 25,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation missing-required-field",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 25,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation ambiguous-low-score",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 25,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation uen-source-conflict",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 25,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation classification-missing",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 25,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation classification-conflicting",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 25,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation missing upload focuses actual file then permits one continuation",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 85,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation ownership-cycle",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 122,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation ownership-incomplete",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 122,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation provider-relationship-failure",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 122,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation draft isolation and same-team/cross-team authorization",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 167,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation actual native PDF intake failure targets retry and one continuation",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 221,
+      "tests": 1,
+      "tags": [
+        "slice-c-document-refresh"
+      ]
+    },
+    {
+      "title": "Blocker simulation unsupported initial country requires explicit Singapore correction",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 331,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Blocker simulation early stage click waits for the actual current document decision",
+      "file": "blocker-simulation.e2e.ts",
+      "line": 363,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "database classification Alpha actual scan auto-bound then explicit Send",
+      "file": "database-classification.e2e.ts",
+      "line": 96,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-database-alpha"
+      ]
+    },
+    {
+      "title": "database classification Partnership actual scan auto-bound then explicit Send",
+      "file": "database-classification.e2e.ts",
+      "line": 97,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-database-partnership"
+      ]
+    },
+    {
+      "title": "database classification Government actual scan auto-bound with unsupported ownership",
+      "file": "database-classification.e2e.ts",
+      "line": 98,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-database-government"
+      ]
+    },
+    {
+      "title": "database classification conflict prior USER then explicit current review",
+      "file": "database-classification.e2e.ts",
+      "line": 101,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-database-alpha"
+      ]
+    },
+    {
+      "title": "Garden late preconfirmation detail GET cannot replace completed case",
+      "file": "garden-happy-path.e2e.ts",
+      "line": 157,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Garden happy path uses truthful offline protocol evidence and explicit Mock confirmation",
+      "file": "garden-happy-path.e2e.ts",
+      "line": 217,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Garden discrepancy human intervention clears reviewed conflicts and continues onboarding",
+      "file": "garden-happy-path.e2e.ts",
+      "line": 301,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Garden delayed current document rendering cannot skip required field review",
+      "file": "garden-happy-path.e2e.ts",
+      "line": 315,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Garden document arrival settles identity focus before explicit Documents inspection",
+      "file": "garden-happy-path.e2e.ts",
+      "line": 366,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "S1 wrong UEN retains uploaded document and resumes the real onboarding journey",
+      "file": "onboarding-recovery.e2e.ts",
+      "line": 6,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Performance browser cache measurement width1440",
+      "file": "performance-browser.e2e.ts",
+      "line": 97,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Performance browser cache measurement width360",
+      "file": "performance-browser.e2e.ts",
+      "line": 98,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Phase24 invalid registry identity corrects the same case and keeps final review last",
+      "file": "phase24-identity.e2e.ts",
+      "line": 83,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Phase24 entered UEN choice resolves current identity conflict without silent source selection",
+      "file": "phase24-identity.e2e.ts",
+      "line": 138,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Phase24 document UEN choice rebinds ownership with retained history",
+      "file": "phase24-identity.e2e.ts",
+      "line": 157,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Phase24 other UEN choice rebinds ownership with retained history",
+      "file": "phase24-identity.e2e.ts",
+      "line": 157,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Phase24C policy approval and accessible layout 320",
+      "file": "phase24c-policy.e2e.ts",
+      "line": 34,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Phase24C policy approval and accessible layout 360",
+      "file": "phase24c-policy.e2e.ts",
+      "line": 34,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Phase24C policy approval and accessible layout 768",
+      "file": "phase24c-policy.e2e.ts",
+      "line": 34,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Phase24C policy approval and accessible layout 1280",
+      "file": "phase24c-policy.e2e.ts",
+      "line": 34,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Phase24C policy approval and accessible layout 1440",
+      "file": "phase24c-policy.e2e.ts",
+      "line": 34,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Phase24C policy approval and accessible layout 1920",
+      "file": "phase24c-policy.e2e.ts",
+      "line": 34,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Phase24C RM views policy without draft or decision controls",
+      "file": "phase24c-policy.e2e.ts",
+      "line": 79,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "responsive shell contains anonymous auth, navigation, forms, hover, and focus",
+      "file": "responsive-layout.e2e.ts",
+      "line": 308,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "responsive cases and representative routes preserve tables, priorities, and policy visibility",
+      "file": "responsive-layout.e2e.ts",
+      "line": 347,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "starting a fresh onboarding after a retained case binds the new case route",
+      "file": "responsive-layout.e2e.ts",
+      "line": 404,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "responsive review case exposes only supported authoritative review controls",
+      "file": "responsive-layout.e2e.ts",
+      "line": 440,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "responsive Relationship Manager policy view and delete dialog",
+      "file": "responsive-layout.e2e.ts",
+      "line": 476,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "responsive Director policy separates decision authority",
+      "file": "responsive-layout.e2e.ts",
+      "line": 494,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "responsive HR administration contains proposal-only policy controls",
+      "file": "responsive-layout.e2e.ts",
+      "line": 502,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "S1 blank login and onboarding forms retain readable team ownership at three widths",
+      "file": "s1-workspace-session.e2e.ts",
+      "line": 93,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "S1 executing workspace is inert, all 12 stages inspect, failed documents stay truthful, and reset clears drafts",
+      "file": "s1-workspace-session.e2e.ts",
+      "line": 123,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "S1 logout and interactive role changes start at each role's normal landing and clear onboarding drafts",
+      "file": "s1-workspace-session.e2e.ts",
+      "line": 186,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "S1 case creation date controls describe Singapore days and reject a reversed range",
+      "file": "s1-workspace-session.e2e.ts",
+      "line": 213,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "S2 creator edits calculable multi-level ownership before send and inspects exact collapsed calculations",
+      "file": "s2-ownership.e2e.ts",
+      "line": 55,
+      "tests": 1,
+      "tags": [
+        "garden-protocol"
+      ]
+    },
+    {
+      "title": "S2 document proposals require deliberate creator source selection and retain immutable source bindings",
+      "file": "s2-ownership.e2e.ts",
+      "line": 112,
+      "tests": 1,
+      "tags": [
+        "garden-protocol"
+      ]
+    },
+    {
+      "title": "post-closeout existing-customer confirmation preserves independent review and skips writes",
+      "file": "s3-sandbox-submission.e2e.ts",
+      "line": 134,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-existing-customer"
+      ]
+    },
+    {
+      "title": "S3 normal Sandbox submission confirms retained operations and customer readback",
+      "file": "s3-sandbox-submission.e2e.ts",
+      "line": 211,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-success"
+      ]
+    },
+    {
+      "title": "S3 uncertain Policy checks customer identity once without completing Policy or replaying writes",
+      "file": "s3-sandbox-submission.e2e.ts",
+      "line": 214,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-uncertain-policy"
+      ]
+    },
+    {
+      "title": "S3 definitive Policy failure preserves the target ID and never retries submission",
+      "file": "s3-sandbox-submission.e2e.ts",
+      "line": 217,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-failed-policy"
+      ]
+    },
+    {
+      "title": "Director recovers uncertain shell and continues the original submission",
+      "file": "s3-sandbox-submission.e2e.ts",
+      "line": 335,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-uncertain-shell"
+      ]
+    },
+    {
+      "title": "Director recovers uncertain policy and continues the original submission",
+      "file": "s3-sandbox-submission.e2e.ts",
+      "line": 339,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-uncertain-policy"
+      ]
+    },
+    {
+      "title": "Lost confirmation response observes backend success without sending again: aborted",
+      "file": "s3-sandbox-submission.e2e.ts",
+      "line": 404,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-success"
+      ]
+    },
+    {
+      "title": "Lost confirmation response observes backend success without sending again: truncated",
+      "file": "s3-sandbox-submission.e2e.ts",
+      "line": 412,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-success"
+      ]
+    },
+    {
+      "title": "Lost confirmation response observes backend success without sending again: held",
+      "file": "s3-sandbox-submission.e2e.ts",
+      "line": 420,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-success"
+      ]
+    },
+    {
+      "title": "post-UAT Garden scanned evidence auto-confirms, calculates local ownership and verifies retained Sandbox identity",
+      "file": "s3-sandbox-submission.e2e.ts",
+      "line": 428,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-garden-existing-customer"
+      ]
+    },
+    {
+      "title": "Slice B Garden partnership automatically uses labelled local ownership",
+      "file": "slice-b-registry-demo.e2e.ts",
+      "line": 91,
+      "tests": 1,
+      "tags": [
+        "slice-b-garden-partnership"
+      ]
+    },
+    {
+      "title": "Slice B second synthetic company completes",
+      "file": "slice-b-registry-demo.e2e.ts",
+      "line": 118,
+      "tests": 1,
+      "tags": [
+        "slice-b-synthetic-cache"
+      ]
+    },
+    {
+      "title": "Slice B Merlion fresh cache makes zero new ACRA calls",
+      "file": "slice-b-registry-demo.e2e.ts",
+      "line": 128,
+      "tests": 1,
+      "tags": [
+        "slice-b-synthetic-cache"
+      ]
+    },
+    {
+      "title": "Slice F same-process verified target reuse retains readback",
+      "file": "slice-b-registry-demo.e2e.ts",
+      "line": 160,
+      "tests": 1,
+      "tags": [
+        "slice-f-target-reuse"
+      ]
+    },
+    {
+      "title": "Slice F ambiguous target match pauses without mutation",
+      "file": "slice-b-registry-demo.e2e.ts",
+      "line": 183,
+      "tests": 1,
+      "tags": [
+        "slice-f-target-ambiguity"
+      ]
+    },
+    {
+      "title": "Slice C optional Amend and NO_MATCH complete with neutral progress",
+      "file": "slice-c-recovery.e2e.ts",
+      "line": 122,
+      "tests": 1,
+      "tags": [
+        "slice-c-optional-amend"
+      ]
+    },
+    {
+      "title": "Slice C stale policy rebind preserves selection and resumes",
+      "file": "slice-c-recovery.e2e.ts",
+      "line": 143,
+      "tests": 1,
+      "tags": [
+        "slice-c-stale-policy"
+      ]
+    },
+    {
+      "title": "Slice C retained finalization recovery makes no target replay",
+      "file": "slice-c-recovery.e2e.ts",
+      "line": 165,
+      "tests": 1,
+      "tags": [
+        "slice-c-retained-recovery"
+      ]
+    },
+    {
+      "title": "Slice C failed Search exposes bounded read-only recheck",
+      "file": "slice-c-recovery.e2e.ts",
+      "line": 198,
+      "tests": 1,
+      "tags": [
+        "slice-c-search-recheck"
+      ]
+    },
+    {
+      "title": "Slice C legal name discrepancy resolves through document owner and history",
+      "file": "slice-c-recovery.e2e.ts",
+      "line": 241,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Slice C address discrepancy resolves through document owner and history",
+      "file": "slice-c-recovery.e2e.ts",
+      "line": 244,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Slice C country discrepancy resolves through document owner and history",
+      "file": "slice-c-recovery.e2e.ts",
+      "line": 247,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Slice C ambiguous extraction correction retains blocker until replacement evidence",
+      "file": "slice-c-recovery.e2e.ts",
+      "line": 271,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Slice C missing field correction retains blocker until replacement evidence",
+      "file": "slice-c-recovery.e2e.ts",
+      "line": 274,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Slice C resolved mixed sibling leaves only current missing-field policy",
+      "file": "slice-c-recovery.e2e.ts",
+      "line": 279,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Slice E HR and Director same impact, stale approval, reject and frozen cases",
+      "file": "slice-e-policy.e2e.ts",
+      "line": 64,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Slice E late impact after edit and accessible narrow layout",
+      "file": "slice-e-policy.e2e.ts",
+      "line": 114,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Sponsor happy path aurora has zero intermediate interventions and guarded Sandbox completion",
+      "file": "sponsor-demo-journeys.e2e.ts",
+      "line": 317,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-sponsor-aurora"
+      ]
+    },
+    {
+      "title": "Sponsor happy path pacific has zero intermediate interventions and guarded Sandbox completion",
+      "file": "sponsor-demo-journeys.e2e.ts",
+      "line": 318,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-sponsor-pacific"
+      ]
+    },
+    {
+      "title": "Sponsor happy path straits has zero intermediate interventions and guarded Sandbox completion",
+      "file": "sponsor-demo-journeys.e2e.ts",
+      "line": 319,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-sponsor-straits"
+      ]
+    },
+    {
+      "title": "Sponsor happy path meridian has zero intermediate interventions and guarded Sandbox completion",
+      "file": "sponsor-demo-journeys.e2e.ts",
+      "line": 320,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-sponsor-meridian"
+      ]
+    },
+    {
+      "title": "Sponsor blocker journey garden recovers through current controls and guarded Sandbox completion",
+      "file": "sponsor-demo-journeys.e2e.ts",
+      "line": 321,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-sponsor-garden"
+      ]
+    },
+    {
+      "title": "Sponsor blocker journey merlion recovers through current controls and guarded Sandbox completion",
+      "file": "sponsor-demo-journeys.e2e.ts",
+      "line": 322,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-sponsor-merlion"
+      ]
+    },
+    {
+      "title": "Sponsor blocker journey multiple recovers through current controls and guarded Sandbox completion",
+      "file": "sponsor-demo-journeys.e2e.ts",
+      "line": 323,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-sponsor-multiple"
+      ]
+    },
+    {
+      "title": "Sponsor blocker journey multilevel recovers through current controls and guarded Sandbox completion",
+      "file": "sponsor-demo-journeys.e2e.ts",
+      "line": 324,
+      "tests": 1,
+      "tags": [
+        "s3-sandbox-sponsor-multilevel"
+      ]
+    },
+    {
+      "title": "Synthetic company pack Orion complete database-first Marketplace happy path",
+      "file": "synthetic-company-pack.e2e.ts",
+      "line": 22,
+      "tests": 1,
+      "tags": [
+        "slice-b-synthetic-seed"
+      ]
+    },
+    {
+      "title": "Synthetic company pack Pacific complete database-first Marketplace happy path",
+      "file": "synthetic-company-pack.e2e.ts",
+      "line": 22,
+      "tests": 1,
+      "tags": [
+        "slice-b-synthetic-seed"
+      ]
+    },
+    {
+      "title": "Synthetic company pack Straits complete database-first Marketplace happy path",
+      "file": "synthetic-company-pack.e2e.ts",
+      "line": 22,
+      "tests": 1,
+      "tags": [
+        "slice-b-synthetic-seed"
+      ]
+    },
+    {
+      "title": "Synthetic company pack Meridian complete database-first Marketplace happy path",
+      "file": "synthetic-company-pack.e2e.ts",
+      "line": 22,
+      "tests": 1,
+      "tags": [
+        "slice-b-synthetic-seed"
+      ]
+    },
+    {
+      "title": "Zero-touch Golden STP normal UI has zero exception interventions",
+      "file": "zero-touch-exception.e2e.ts",
+      "line": 126,
+      "tests": 1,
+      "tags": []
+    },
+    {
+      "title": "Zero-touch Garden clean exception automatically resumes",
+      "file": "zero-touch-exception.e2e.ts",
+      "line": 161,
+      "tests": 1,
+      "tags": [
+        "garden-protocol"
+      ]
+    },
+    {
+      "title": "Zero-touch Garden conflict exception automatically resumes",
+      "file": "zero-touch-exception.e2e.ts",
+      "line": 161,
+      "tests": 1,
+      "tags": [
+        "garden-protocol"
+      ]
+    }
+  ]
+}

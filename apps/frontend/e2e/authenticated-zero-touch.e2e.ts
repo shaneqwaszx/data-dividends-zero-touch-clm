@@ -8,6 +8,7 @@ import { reviewPendingFields } from "./blocker-decisions";
 import type { PolicyCatalogue, RegistryEvidenceBinding } from "../src/types";
 import {
   createBrowserNetworkPolicy,
+  retainedEvidencePath,
   handleBrowserRoute,
   type BrowserNetworkPolicy,
 } from "../playwright.config";
@@ -240,7 +241,7 @@ test("protected workspace requires a real login before navigation", async ({ pag
 });
 
 test("ordinary RM repairs same-case identity, resolves evidence, and reviews without target writes", async ({ page }, testInfo) => {
-  const operatorRouteArtifactDirectory = testInfo.outputPath("operator-route");
+  const operatorRouteArtifactDirectory = retainedEvidencePath("operator-route");
   test.setTimeout(240_000);
   const mutationRequests: Array<{ method: string; path: string }> = [];
   page.on("request", (request) => {

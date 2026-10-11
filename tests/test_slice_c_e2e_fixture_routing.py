@@ -46,6 +46,12 @@ def test_discovery_preserves_slice_b_and_routes_slice_c_separately():
                         "line": 5,
                         "tags": ["@slice-c-search-recheck"],
                     },
+                    {
+                        "ok": True,
+                        "file": "blocker-simulation.e2e.ts",
+                        "line": 6,
+                        "tags": ["@slice-c-document-refresh"],
+                    },
                 ]
             }
         ]
@@ -432,4 +438,9 @@ def test_offline_fixture_never_constructs_http_transport_and_rejects_normal_comp
     with pytest.raises(ValueError, match="isolated"):
         build_offline_recovery_fixture(
             Settings(_env_file=None, app_env="development"), "optional-amend"
+        )
+    with pytest.raises(ValueError, match="Unknown"):
+        build_offline_recovery_fixture(
+            Settings(_env_file=None, app_env="test", idp_connector_mode="local_pdf_text"),
+            "document-refresh",
         )

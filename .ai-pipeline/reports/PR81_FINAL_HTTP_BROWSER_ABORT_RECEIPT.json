@@ -1,0 +1,65 @@
+{
+  "stop_reason": "IMMUTABLE_EVIDENCE_OUTPUT_OWNERSHIP_CONFLICT",
+  "source27": "916d57b043be8a5d29e85992b9df9cb2dbdab855fa909e776208391ad934dcab",
+  "at_utc": "2026-10-11T09:53:34.983108+00:00",
+  "shard1": {
+    "status": "INTERRUPTED_NOT_PASS",
+    "discovered_lifecycles": 91,
+    "selected_lifecycles": 46,
+    "completed_before_stop": 17,
+    "interrupted_ordinal": 18,
+    "interrupted_selector": "e2e/performance-browser.e2e.ts:98",
+    "later_undispatched": 28,
+    "test_count": "UNKNOWN because supervisor memory buffer lost on forced stop",
+    "canonical_assertion_failure": "NOT OBSERVED; do not infer from forced termination",
+    "owning_exec_exit": 1
+  },
+  "shard2": {
+    "status": "NOT_DISPATCHED",
+    "lifecycles": 45
+  },
+  "width360_predeclared_window": "All3 PASS with separately validated40samples each; retained unchanged; no retry authorized",
+  "stop_control": {
+    "first_lookup": "Rejected; zero processes terminated",
+    "second_lookup": "Rejected because virtualenv launcher/native child both matched; zero processes terminated",
+    "final_exact_executable_lookup": "Unique task-owned virtualenv launcher4420 verified; /T /F descendants stopped",
+    "taskkill_exit": 0,
+    "terminated_pids": [
+      50396,
+      20380,
+      35784,
+      25712,
+      45088,
+      54436,
+      39376,
+      4536,
+      57172,
+      61796,
+      53064,
+      940,
+      31588,
+      4420
+    ],
+    "remaining_known_pids": [],
+    "ports": {
+      "18900": "FREE",
+      "19400": "FREE"
+    },
+    "canonical_finally": "Not claimed; native tree termination followed by explicit owned-resource verification"
+  },
+  "mongo": {
+    "owned_id": "701abdade3ed2e4276d8092d8f1c142aa9d3fcba0f2a2610b3ea9157b87df4f2",
+    "state": "exited",
+    "running": false,
+    "removed": false
+  },
+  "sponsor_journeys": {
+    "fresh_receipts": 0,
+    "required": 8,
+    "historical_receipts_not_counted": 8
+  },
+  "retry": false,
+  "product_source_changed": false,
+  "commit_push_pr_merge": false,
+  "readiness": "NOT READY FOR HUMAN MERGE"
+}

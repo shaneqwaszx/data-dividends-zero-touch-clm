@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
-import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
+import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 import type { TargetStatusCheckResult } from "../src/api";
 import type { ZeroTouchCaseSummary } from "../src/types";
 import { focusPipelineAction, openStage } from "./stage-disclosures";
@@ -313,7 +313,7 @@ async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
   await expect(page.locator("#target-continuation-title")).toBeFocused();
   await expect(page.locator("#target-continuation-title")).toBeInViewport({ ratio: 1 });
   await expect(page.getByRole("region", { name: "Verified work is saved", exact: true })).toContainText("Continue the same submission");
-  await page.screenshot({ path: path.resolve("../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS", `retained-${operation}.png`) });
+  await page.screenshot({ path: retainedEvidencePath("goldtier-recovery", `retained-${operation}.png`) });
   await page.reload();
   await expect(resume).toBeVisible();
   await resume.click();
@@ -381,7 +381,7 @@ async function runLostConfirmationResponse(
     await expect(page.getByRole("button", { name: "Verify submission outcome", exact: true })).toBeDisabled();
     await expect(page.getByRole("alert")).toHaveCount(0);
     recoveryMilestone(`LOST_${loss}_SCREENSHOT_START`);
-    await page.screenshot({ path: path.resolve("../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS", `verifying-${loss}.png`) });
+    await page.screenshot({ path: retainedEvidencePath("goldtier-recovery", `verifying-${loss}.png`) });
     recoveryMilestone(`LOST_${loss}_SCREENSHOT_COMPLETE`);
     releaseObservation();
     await expect(page.locator("#submission-state-title")).toHaveText("Submission confirmed");
@@ -389,7 +389,7 @@ async function runLostConfirmationResponse(
     await expect(page.locator("#submission-state-title")).toBeFocused();
     await expect(page.locator("#submission-state-title")).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toHaveCount(0);
-    await page.screenshot({ path: path.resolve("../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS", `confirmed-${loss}.png`) });
+    await page.screenshot({ path: retainedEvidencePath("goldtier-recovery", `confirmed-${loss}.png`) });
   } finally {
     releaseObservation();
     releaseConfirmation();

@@ -1,0 +1,18 @@
+{
+  "scope": "Owner-reported safe final controller status; no raw ETL access",
+  "utc": "2026-10-11T07:35:52.519838+00:00",
+  "run_id": "ce2590f5-11d3-414a-9cee-b7ca50b980be",
+  "origin": "owner reply to safe final-controller-status question",
+  "controller_returned": true,
+  "error_id": "FIELD_COUNT",
+  "hresult": -2146233087,
+  "reported_file": "Sanitize-TcpTrace.ps1",
+  "reported_line": 20,
+  "reported_condition": "$row.Values.Count -ne $defs.Count",
+  "sanitized_export_message": false,
+  "retry_initiated": false,
+  "failed_event_id": null,
+  "failed_event_version": null,
+  "observed_values_count": null,
+  "expected_fields_count": null
+}

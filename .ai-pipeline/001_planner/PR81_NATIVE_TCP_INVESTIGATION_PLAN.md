@@ -1,0 +1,9 @@
+# PR81 native TCP bounded investigation
+
+Current owner authorization permits capability assessment, at most two controlled experiments and only a proven smallest correction. Existing isolated feature worktree, HEADdd8c36c8a911f4b5f3b80e7441d049f1aa976599, cachedmain/merge-basee799d74063678bb0eccbea445d5ab3c8628dd2c0, unchanged source25 identityba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490.
+
+Capability prerequisite: native TCP sequence/ACK/FIN/RST metadata for the same fresh uniquely correlated direct connection, no persisted bodies or secrets. Preserve Selector, request15, cleanup10, assertions, first/second-seed idempotence and no replay. ExperimentA: original direct path plus native observation. ExperimentB only if A identifies one discriminating mechanism; change exactly one isolated test configuration. No relay repeat, speculative maintained changes or release/publication.
+
+Actual host preflight: PktMon installed but status access denied; administrator=false, PerformanceLogUsers=false, PerformanceMonitorUsers=false. WPR/netsh status showed no recording; TCPIP provider metadata query works but gives no capture rights or runtime connection evidence. Per explicit owner stop instruction, A/B are NOT EXECUTED. No trace, fixture, privileged workaround, driver installation or machine configuration change. Preserve all1075 named previous paths.
+
+Root owns only additive new plan/evidence/final report/manifest. Independent reviewer assigned only .ai-pipeline/reports/PR81_NATIVE_TCP_INDEPENDENT_ASSESSMENT.md, read-only otherwise; no tests or machine/Git changes. Final handoff must distinguish historical received506-byte deficit from unmeasured TCP outstanding/transmitted/acknowledged bytes; specific cause UNKNOWN. No commit/push/merge or acceptance inherited.

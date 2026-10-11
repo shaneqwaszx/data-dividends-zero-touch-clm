@@ -502,10 +502,18 @@ export async function dryRunGoldTierSandbox(
   return parseResponse<GoldTierSandboxDryRunResult>(response);
 }
 
-export async function resumeZeroTouchCase(caseId: string): Promise<ZeroTouchCaseSummary> {
+export async function resumeZeroTouchCase(caseId: string, recoveryContext?: ZeroTouchCaseSummary): Promise<ZeroTouchCaseSummary> {
+  if (recoveryContext && recoveryContext.case.case_id !== caseId) {
+    throw new Error("Reload the current case before recovery.");
+  }
   const response = await fetch(
     `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/resume`,
-    { method: "POST" },
+    { method: "POST", ...(recoveryContext ? { headers: {
+      "X-Automation-Id": recoveryContext.automation_id,
+      "X-Automation-Version": String(recoveryContext.version),
+      "X-Clm-Version": String(recoveryContext.clm.version),
+      "X-Case-Event-Count": String(recoveryContext.case.events.length),
+    } } : {}) },
   );
   return parseResponse<ZeroTouchCaseSummary>(response);
 }

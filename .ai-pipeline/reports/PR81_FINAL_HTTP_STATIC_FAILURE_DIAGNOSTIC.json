@@ -1,0 +1,14 @@
+{
+  "exit_code": 1,
+  "findings": [
+    {
+      "code": "I001",
+      "message": "Import block is un-sorted or un-formatted",
+      "filename": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\backend\\tests\\test_http_seed_response_completion.py",
+      "location": {
+        "column": 1,
+        "row": 1
+      }
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import type { ZeroTouchCaseSummary } from "../types";
 
 export function onboardingIsExecuting(summary: ZeroTouchCaseSummary | null, busy: boolean, error: string | null): boolean {
+  if (summary?.document_refresh_recovery) return busy;
   if (error || summary?.technical_failure || summary?.active_exceptions.length) return false;
   if (summary && ["WAITING_FOR_REVIEW", "TECHNICAL_FAILURE", "RECOVERY_PENDING", "COMPLETED"].includes(summary.status)) return false;
   return busy || summary?.status === "RUNNING" || summary?.status === "RESUMING";

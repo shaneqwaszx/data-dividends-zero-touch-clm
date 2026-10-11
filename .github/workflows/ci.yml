@@ -98,8 +98,8 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2]
-    # 89 discovered lifecycles partition into 45/44, with all tests retained.
-    # Largest shard: 45 * (60s execution + 120s cleanup) + 60s = 136 minutes.
+    # 91 discovered lifecycles partition into 46/45, with all tests retained.
+    # Largest shard: 46 * (60s execution + 120s cleanup) + 60s = 139 minutes.
     # Keep the existing job deadline and 14-minute installation allowance.
     timeout-minutes: 234
     services:

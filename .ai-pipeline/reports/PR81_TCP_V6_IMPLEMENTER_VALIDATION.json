@@ -1,0 +1,38 @@
+{
+  "utc": "2026-10-11T02:55:42.722154+00:00",
+  "all_pass": true,
+  "counts": {
+    "controller": 30,
+    "watchdog": 39,
+    "actual_process": 6,
+    "mode": 50,
+    "sanitizer": 19,
+    "scanner_tests": 8
+  },
+  "source_identity": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+  "bundle_sha256": "b072fb20d5002a9d94f7baef38204c4b5547ba2de64eece1e31c6446ab8150a7",
+  "preserved_count": 1175,
+  "preservation_pass": true,
+  "profile_changed_keys": [
+    "log_file_mode",
+    "log_file_mode_description",
+    "revision"
+  ],
+  "runner_sanitizer_schema_bytes_identical_to_v5": true,
+  "native_other_runtime_bodies_identical_to_v5": true,
+  "scope_secret_scan": true,
+  "native_trace_control_invoked": false,
+  "fixture_executed": false,
+  "checks": {
+    "Invoke-Pr81TcpCapture.ps1 -Mode Validate": "PASS",
+    "Run-FreshFixture.py --validate": "PASS",
+    "ruff check --no-cache Run-FreshFixture.py": "PASS",
+    "scripts/check_project_state.py": "PASS",
+    "scripts/check_architecture.py": "PASS",
+    "pytest -p no:cacheprovider tests/test_check_secrets.py -q": "8 passed",
+    "git diff --check": "PASS"
+  },
+  "initial_test_harness_failure": "New mode suite initially referenced nonexistent Record-ControlAbort; corrected to existing Set-DiagnosticAbort before final PASS. No capture/fixture.",
+  "initial_hygiene_aggregation_failure": "Whitespace checker initially included unified-diff blank context prefix. Corrected checker scope to authored source/JSON/Markdown; patch added lines checked separately. All actual test commands had passed before aggregation assertion; no helper changed.",
+  "scope_whitespace_pass": true
+}

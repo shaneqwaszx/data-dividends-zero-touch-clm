@@ -811,15 +811,46 @@ class ZeroTouchOrchestrator:
         expected_document_count: int | None = None,
         reauthorize: Callable[[], None] | None = None,
         refresh_document_checkpoint: bool = False,
+        expected_automation_id: UUID | None = None,
+        expected_automation_version: int | None = None,
+        expected_clm_version: int | None = None,
+        expected_case_event_count: int | None = None,
+        reauthorize_document_recovery: Callable[[], None] | None = None,
     ) -> ZeroTouchAutomationRecord:
         """Idempotently start or continue; normal upload already invokes this."""
 
         with self._cases.case_lock(case_id):
             if reauthorize is not None:
                 reauthorize()
-            record = self._recover_obsolete_registry_ownership_locked(
-                self._require_record(case_id)
+            record = self._require_record(case_id)
+            pending_refresh = self.document_refresh_pending(record)
+            recovery_context = (
+                expected_automation_id, expected_automation_version,
+                expected_clm_version, expected_case_event_count,
             )
+            if pending_refresh or any(value is not None for value in recovery_context):
+                if reauthorize_document_recovery is not None:
+                    reauthorize_document_recovery()
+                case = self._cases.get_case(case_id)
+                clm = self._clm.get(case_id=case_id)
+                assert case is not None and clm is not None
+                current_context = (
+                    record.automation_id, record.version, clm.version, len(case.events),
+                )
+                if recovery_context != current_context:
+                    raise ZeroTouchRequestError(
+                        code="ZERO_TOUCH_DOCUMENT_REFRESH_STALE",
+                        message="The case changed; reload current evidence before recovery.",
+                    )
+                if self.evidence_edit_is_frozen(case_id=case_id):
+                    raise ZeroTouchRequestError(
+                        code="ZERO_TOUCH_DOCUMENT_REFRESH_FROZEN",
+                        message="Document evidence is frozen for target submission.",
+                    )
+            if pending_refresh:
+                self._refresh_replacement_evidence_locked(record)
+                return self._advance_locked(case_id=case_id)
+            record = self._recover_obsolete_registry_ownership_locked(record)
             if (
                 refresh_document_checkpoint
                 and record.status == AutomationStatus.WAITING_FOR_REVIEW
@@ -878,6 +909,29 @@ class ZeroTouchOrchestrator:
                 )
                 self._save(record, candidate)
             return self._advance_locked(case_id=case_id)
+
+    @staticmethod
+    def document_refresh_pending(record: ZeroTouchAutomationRecord) -> bool:
+        """The durable accepted replacement still awaits dependent continuation."""
+        return (
+            record.status == AutomationStatus.RESUMING
+            and record.current_stage == AutomationStage.DOCUMENT
+            and bool(record.events)
+            and record.events[-1].code == "DOCUMENT_REPLACEMENT_ACCEPTED"
+        )
+
+    def _refresh_replacement_evidence_locked(self, record: ZeroTouchAutomationRecord) -> None:
+        try:
+            self._clm.refresh_pre_submission_evidence(
+                case_id=record.case_id, document_revision=True,
+            )
+        except ClmRequestError as exc:
+            raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
+        except ClmInfrastructureError as exc:
+            raise ZeroTouchInfrastructureError(
+                case_id=record.case_id, automation_id=record.automation_id,
+                code=exc.code, message=exc.public_message,
+            ) from None
 
     def evidence_edit_is_frozen(self, *, case_id: UUID) -> bool:
         """Current owning projection; a retained target intent/attempt also freezes edits."""
@@ -1001,16 +1055,8 @@ class ZeroTouchOrchestrator:
                 code="DOCUMENT_REPLACEMENT_ACCEPTED",
                 message="Replacement document evidence was accepted; onboarding is re-evaluating.",
             )
-            self._save(record, candidate)
-            try:
-                self._clm.refresh_pre_submission_evidence(case_id=case_id, document_revision=True)
-            except ClmRequestError as exc:
-                raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
-            except ClmInfrastructureError as exc:
-                raise ZeroTouchInfrastructureError(
-                    case_id=case_id, automation_id=record.automation_id,
-                    code=exc.code, message=exc.public_message,
-                ) from None
+            record = self._save(record, candidate)
+            self._refresh_replacement_evidence_locked(record)
             return self._advance_locked(case_id=case_id)
 
     def apply_review_decisions(

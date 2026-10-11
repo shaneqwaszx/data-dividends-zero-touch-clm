@@ -1434,6 +1434,7 @@ export interface ZeroTouchCaseSummary {
   } | null;
   evidence_decision_authorized?: boolean;
   document_replacement_authorized?: boolean;
+  document_refresh_recovery?: { can_resume: boolean } | null;
   ownership_edit_authorized?: boolean;
   case: OnboardingCase;
   clm: ClmCaseSummary;

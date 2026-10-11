@@ -1,0 +1,10 @@
+{
+  "gate_sha256": "d90c300f4333b9d14853a21fe066594fea4545043df069d6c2803917d5444f19",
+  "readset_binding": "9ac90a032e42021900e431db954da408b951f7e962ca0b461c102aea718b026a",
+  "all_reviewed_readset_hashes_match": true,
+  "ordinary_token": true,
+  "owned_mongo_identity": "701abdade3ed2e4276d8092d8f1c142aa9d3fcba0f2a2610b3ea9157b87df4f2",
+  "owned_mongo_ready": true,
+  "accepted_original_width360_window_repeated": false,
+  "scope": "Exact prerequisites only; fixture execution is next"
+}

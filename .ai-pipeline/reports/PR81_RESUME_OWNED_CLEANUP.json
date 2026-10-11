@@ -1,0 +1,15 @@
+{
+  "utc": "2026-10-11T10:40:18.4946023Z",
+  "owned_container_id": "701abdade3ed2e4276d8092d8f1c142aa9d3fcba0f2a2610b3ea9157b87df4f2",
+  "owned_name": "/clm-pr81-remediation-20261010",
+  "owned_label": "pr81-remediation-20261010",
+  "container_status": "exited",
+  "container_running": false,
+  "container_retained": true,
+  "task_root_processes": [],
+  "playwright_headless_processes": [],
+  "owned_port_listeners": [],
+  "complete_canonical_launchers_exit_zero": true,
+  "source36": "f6607f766b36ec1e2b6fc251b93b22c4940985fac394d28160b1878e802cfbae",
+  "no_unrelated_process_termination": true
+}

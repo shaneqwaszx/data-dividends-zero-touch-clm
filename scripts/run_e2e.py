@@ -33,7 +33,7 @@ PROCESS_STOP_TIMEOUT_SECONDS = 5.0
 # 120 seconds per lifecycle for those bounded phases, capture joins and dispatch.
 LIFECYCLE_OVERHEAD_SECONDS = 120.0
 DISCOVERY_TIMEOUT_SECONDS = 60.0
-RECOVERY_DEMO_MODES = ("optional-amend", "stale-policy", "retained-recovery", "search-recheck")
+RECOVERY_DEMO_MODES = ("optional-amend", "stale-policy", "retained-recovery", "search-recheck", "document-refresh")
 SANDBOX_DEMO_MODES = (
     "success", "uncertain-shell", "uncertain-policy", "failed-policy", "existing-customer",
     "garden-existing-customer", "database-alpha", "database-partnership", "database-government",

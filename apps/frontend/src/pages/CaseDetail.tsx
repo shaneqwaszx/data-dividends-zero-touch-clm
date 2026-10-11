@@ -416,7 +416,7 @@ export default function CaseDetail({
   }, [canCheckTargetStatus, completedVerification, runTargetStatusCheck]);
 
   useEffect(() => {
-    if (!summary || !shouldPollAutomation(summary.status)) return;
+    if (!summary || summary.document_refresh_recovery || !shouldPollAutomation(summary.status)) return;
     const activeGeneration = generation.current;
     return startAutomationPolling({
       caseId,
@@ -437,7 +437,7 @@ export default function CaseDetail({
       onWarning: (warning) => setError(warning),
       shouldContinue: shouldPollAutomation,
     });
-  }, [actor.user_id, caseId, queryClient, summary?.status, summary?.version]);
+  }, [actor.user_id, caseId, queryClient, summary?.status, summary?.version, summary?.document_refresh_recovery]);
 
   useEffect(() => {
     if (!summary) return;
@@ -711,6 +711,15 @@ export default function CaseDetail({
       () => resumeZeroTouchCase(caseId),
       "Continuing recovered intake…",
       "Recovered intake could not continue.",
+    );
+  }
+
+  function handleRecoverDocumentRefresh() {
+    if (!summary?.document_refresh_recovery?.can_resume) return;
+    void settleEvidenceMutation(
+      () => resumeZeroTouchCase(caseId, summary),
+      "Refreshing retained replacement evidence…",
+      "The replacement is retained. Reload current evidence before retrying recovery.",
     );
   }
 
@@ -1161,7 +1170,7 @@ export default function CaseDetail({
         <div key={`${evidenceIdentity}:documents`} id={EVIDENCE_TARGET_IDS.documents} className="evidence-focus-target" tabIndex={-1}>
           {error && reviewEdit.current?.target === "documents" && isCurrentCaseAction(reviewEdit.current)
             && <p role="alert" className="ds-banner ds-banner-warn">{error}</p>}
-          <DocumentEvidencePanel reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />
+          <DocumentEvidencePanel reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRecoverRefresh={handleRecoverDocumentRefresh} onRefresh={() => void handleReadOnlyRefresh()} />
         </div>
 
         </StageDisclosure>

@@ -1,0 +1,242 @@
+{
+  "verdict": "NOT READY FOR HUMAN MERGE",
+  "started_utc": "2026-10-10T17:44:23Z",
+  "stopped_utc": "2026-10-10T18:03:40.960052+00:00",
+  "deadline_utc": "2026-10-11T01:44:23Z",
+  "stop_reason": "Unresolved reproducible mandatory seeder body-delivery failure after bounded informative diagnosis; independent FAIL with no proven authorized correction",
+  "source_edits": 0,
+  "substantive_remediation_cycles": 0,
+  "newly_published_heads": 0,
+  "branch": "feat/blocker-resolution-idp-ux-optimization",
+  "worktree": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+  "initial_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "final_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "head_local": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+  "head_remote": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+  "published_tree": "2bbef607d571b4fb7a734582cb9112debed1a305",
+  "source_identity": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+  "limited_review_identity": "a6504b70353a79025e860d7f0370ca06a7ec4242b6454ead3b57b75444ef0f4b",
+  "independent_gate_sha256": "1d286d8e51e5f5471499ce51a0dcc51179be6f2e04e356889de833d7d3c7327f",
+  "manifest_sha256": "543b0c573870ab23ea0294026585a7f0ead18fa286deaab443160b2fe3a55dc9",
+  "manifest_content_identity": "8c16ba445aae2d74ffd9fe633da7907f3998c5e1f355c254240f7e90283f17b0",
+  "pre_pr": "BLOCKED / NOT RUN; uncommitted, no independent PASS",
+  "full_candidate_independent_acceptance": "FAIL / INCOMPLETE",
+  "publication": "NONE; no commit/staging/push/PR update/thread resolution",
+  "focused_accounting": {
+    "coordinator_diagnostics": {
+      "executed": 15,
+      "passed": 13,
+      "failed": 2
+    },
+    "predefined_seeder": {
+      "executed": 2,
+      "passed": 1,
+      "failed": 1,
+      "third": "NOT_DISPATCHED",
+      "reset": false
+    },
+    "independent_original_seeder": {
+      "executed": 1,
+      "passed": 1
+    },
+    "total_executions": 18,
+    "total_pass": 15,
+    "total_fail": 3
+  },
+  "latest_full_backend": {
+    "origin": "preserved previous program, same raw source; newest full evidence",
+    "passed": 2650,
+    "failed": 1,
+    "physical_deferrals": 145,
+    "log": "tmp/pr81-closure-perf-backend-backend.log",
+    "log_sha256": "836e10ea38551afcade908fc3710c074d86689fe9a388b97755508aa91ffe5f1"
+  },
+  "current_release_matrix": "NOT COMPLETED; no old PASS overrides seeder FAIL",
+  "browser": {
+    "last_discovered_lifecycles": 91,
+    "last_discovered_tests": 112,
+    "shards": [
+      46,
+      45
+    ],
+    "current_complete_shards": "NOT RUN",
+    "new_tests": 0,
+    "eight_current_journeys": "NOT RUN: Aurora,Straits,Garden,Multiple,Pacific,Meridian,Merlion,Multilevel; no new ledger acceptance"
+  },
+  "physical": {
+    "new_execution": "NOT RUN",
+    "prior_preserved_evidence": "145/145 from23suites; no ordinary deferral countedPASS",
+    "resource": "owned container exited; no protected DB or real provider access"
+  },
+  "historical_ci": {
+    "push": {
+      "attempt": 1,
+      "event": "push",
+      "headSha": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059426119",
+      "jobs": [
+        {
+          "databaseId": 114234475788,
+          "name": "demo-lifecycle-windows",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059426119/job/114234475788"
+        },
+        {
+          "databaseId": 114234475886,
+          "name": "phase12-mongo",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059426119/job/114234475886"
+        },
+        {
+          "databaseId": 114234475919,
+          "name": "frontend",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059426119/job/114234475919"
+        },
+        {
+          "databaseId": 114234475940,
+          "name": "e2e-shards (2)",
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059426119/job/114234475940"
+        },
+        {
+          "databaseId": 114234475945,
+          "name": "backend",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059426119/job/114234475945"
+        },
+        {
+          "databaseId": 114234475964,
+          "name": "e2e-shards (1)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059426119/job/114234475964"
+        },
+        {
+          "databaseId": 114234475996,
+          "name": "security",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059426119/job/114234475996"
+        },
+        {
+          "databaseId": 114234476069,
+          "name": "local-ocr",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059426119/job/114234476069"
+        },
+        {
+          "databaseId": 114236301913,
+          "name": "e2e",
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059426119/job/114236301913"
+        }
+      ],
+      "successful_jobs": 7,
+      "classification": "HISTORICAL_PUBLISHED_HEAD_ONLY"
+    },
+    "pull_request": {
+      "attempt": 1,
+      "event": "pull_request",
+      "headSha": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059430379",
+      "jobs": [
+        {
+          "databaseId": 114234488219,
+          "name": "demo-lifecycle-windows",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059430379/job/114234488219"
+        },
+        {
+          "databaseId": 114234488336,
+          "name": "local-ocr",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059430379/job/114234488336"
+        },
+        {
+          "databaseId": 114234488394,
+          "name": "e2e-shards (2)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059430379/job/114234488394"
+        },
+        {
+          "databaseId": 114234488411,
+          "name": "frontend",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059430379/job/114234488411"
+        },
+        {
+          "databaseId": 114234488421,
+          "name": "e2e-shards (1)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059430379/job/114234488421"
+        },
+        {
+          "databaseId": 114234488449,
+          "name": "security",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059430379/job/114234488449"
+        },
+        {
+          "databaseId": 114234488524,
+          "name": "phase12-mongo",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059430379/job/114234488524"
+        },
+        {
+          "databaseId": 114234488768,
+          "name": "backend",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059430379/job/114234488768"
+        },
+        {
+          "databaseId": 114236423324,
+          "name": "e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/actions/runs/38059430379/job/114236423324"
+        }
+      ],
+      "successful_jobs": 9,
+      "classification": "HISTORICAL_PUBLISHED_HEAD_ONLY"
+    }
+  },
+  "new_candidate_ci": "NOT RUN; no new published candidate",
+  "remote": {
+    "autoMergeRequest": null,
+    "baseRefOid": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+    "headRefOid": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+    "mergeStateStatus": "BLOCKED",
+    "mergeable": "MERGEABLE",
+    "reviewDecision": "",
+    "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/pull/81"
+  },
+  "threads": {
+    "4237256422": "UNRESOLVED; retained grouped retry correction; no new publication proof",
+    "4237939469": "UNRESOLVED; retained document-refresh correction still uncommitted"
+  },
+  "required_approval": "No approving reviews observed; no required policy inferred fromnull reviewDecision; no independent PASS or readiness",
+  "auto_merge": "OFF",
+  "preservation_count": 1011,
+  "preservation_pass": true,
+  "remaining_action": "Owner considers new bounded program with a materially new failure-time wire/framing/receive-byte diagnostic or proved existing-owner transport correction; then affected canonical acceptance, independent PASS, clean pre-PR and both new CI events. Do not merge now."
+}

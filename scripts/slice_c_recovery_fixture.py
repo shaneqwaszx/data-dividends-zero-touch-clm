@@ -162,7 +162,7 @@ class OfflineRecoveryFixture:
 def build_offline_recovery_fixture(
     settings: Settings, mode: str
 ) -> OfflineRecoveryFixture:
-    if mode not in RECOVERY_DEMO_MODES:
+    if mode not in RECOVERY_DEMO_MODES or mode == "document-refresh":
         raise ValueError("Unknown Slice-C offline recovery fixture")
     if (
         settings.app_env != "test"

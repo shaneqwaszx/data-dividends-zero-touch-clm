@@ -1,0 +1,417 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PR81 V4 numeric-only diagnostic.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "LastCompleted",
+    "CurrentAttempt",
+    "CurrentCategory",
+    "CompletedStages",
+    "Aborted",
+    "DiagnosticWriteFailed",
+    "FailureLastCompleted",
+    "FailureAttempt",
+    "FailureCategory",
+    "ExceptionHResult",
+    "DiagnosticWriteHResult",
+    "CleanupHResult",
+    "AbsenceHResult",
+    "QueryCode",
+    "BufferSize",
+    "MinimumBuffers",
+    "MaximumBuffers",
+    "MaximumFileSize",
+    "NumberOfBuffers",
+    "LogFileMode",
+    "EnableFlags",
+    "FailedComparisons",
+    "OwnershipMatch",
+    "BufferSizeMatch",
+    "MinimumBuffersMatch",
+    "MaximumBuffersMatch",
+    "MaximumFileSizeMatch",
+    "NumberOfBuffersMatch",
+    "LogFileModeMatch",
+    "EnableFlagsMatch",
+    "LimitsGuard",
+    "WatchdogObjectExists",
+    "WatchdogAlive",
+    "WatchdogGuard",
+    "WatchdogHResult",
+    "WatchdogTick",
+    "DeadlineRemaining",
+    "WrapperEntered",
+    "NativeAttempted",
+    "NativeReturned",
+    "ControllerAssigned",
+    "NativeReturnCode",
+    "ControllerReturnCode",
+    "FailureNativeStatus",
+    "StopCode",
+    "DisableCode",
+    "AbsenceCode",
+    "StopAttempted",
+    "DisableAttempted",
+    "Absent",
+    "CaptureFailed",
+    "CleanupFailed",
+    "WatchdogValueKnown",
+    "WatchdogEvaluationErrorObserved"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": 4
+    },
+    "LastCompleted": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 22
+    },
+    "CurrentAttempt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 22
+    },
+    "CurrentCategory": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9
+    },
+    "CompletedStages": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "Aborted": {
+      "type": "boolean"
+    },
+    "DiagnosticWriteFailed": {
+      "type": "boolean"
+    },
+    "FailureLastCompleted": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 22
+    },
+    "FailureAttempt": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 22
+    },
+    "FailureCategory": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 9
+    },
+    "ExceptionHResult": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": -2147483648,
+      "maximum": 2147483647
+    },
+    "DiagnosticWriteHResult": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": -2147483648,
+      "maximum": 2147483647
+    },
+    "CleanupHResult": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": -2147483648,
+      "maximum": 2147483647
+    },
+    "AbsenceHResult": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": -2147483648,
+      "maximum": 2147483647
+    },
+    "QueryCode": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "BufferSize": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "MinimumBuffers": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "MaximumBuffers": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "MaximumFileSize": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "NumberOfBuffers": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "LogFileMode": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "EnableFlags": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "FailedComparisons": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 255
+    },
+    "OwnershipMatch": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "BufferSizeMatch": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "MinimumBuffersMatch": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "MaximumBuffersMatch": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "MaximumFileSizeMatch": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "NumberOfBuffersMatch": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "LogFileModeMatch": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "EnableFlagsMatch": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "LimitsGuard": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "WatchdogObjectExists": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "WatchdogAlive": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "WatchdogGuard": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "WatchdogHResult": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": -2147483648,
+      "maximum": 2147483647
+    },
+    "WatchdogTick": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": -9223372036854775808,
+      "maximum": 9223372036854775807
+    },
+    "DeadlineRemaining": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": -9223372036854775808,
+      "maximum": 9223372036854775807
+    },
+    "WrapperEntered": {
+      "type": "boolean"
+    },
+    "NativeAttempted": {
+      "type": "boolean"
+    },
+    "NativeReturned": {
+      "type": "boolean"
+    },
+    "ControllerAssigned": {
+      "type": "boolean"
+    },
+    "NativeReturnCode": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "ControllerReturnCode": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "FailureNativeStatus": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "StopCode": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "DisableCode": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "AbsenceCode": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "StopAttempted": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "DisableAttempted": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "Absent": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "CaptureFailed": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "CleanupFailed": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "WatchdogValueKnown": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "WatchdogEvaluationErrorObserved": {
+      "type": "boolean"
+    }
+  }
+}

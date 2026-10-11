@@ -106,6 +106,242 @@ class PrePrCheckTests(unittest.TestCase):
         (self.repo / "README.md").write_bytes(b"baseline\n")
         return relative
 
+    def _copy_pr81_archive(self, name: str, suffix: bytes = b"") -> str:
+        relative = ".ai-pipeline/reports/" + name
+        target = self.repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / relative).read_bytes() + suffix)
+        self._git("config", "core.autocrlf", "false")
+        (self.repo / "README.md").write_bytes(b"baseline\n")
+        return relative
+
+    def test_exact_pr81_archives_pass_only_canonical_whitespace_checker(self) -> None:
+        self._switch_to_feature()
+        paths = [self._copy_pr81_archive(name) for name in (
+            "PR81_TCP_V61_DIFF.txt", "PR81_TCP_V6_HELPER_DIFF.txt",
+        )]
+        self._commit_feature_files(*paths)
+        raw = subprocess.run(
+            ["git", "diff", "--check", "origin/main...HEAD"],
+            cwd=self.repo, check=False, capture_output=True, text=True, encoding="utf-8",
+        )
+        self.assertEqual(raw.returncode, 2)
+        self.assertEqual(raw.stdout.count("trailing whitespace."), 3)
+        result, output = self._run_checker()
+        self.assertEqual(result, 0, output)
+        for relative in paths:
+            self.assertIn("Exact historical patch whitespace identity: " + relative, output)
+
+    def test_pr81_changed_byte_and_additional_whitespace_fail(self) -> None:
+        self._switch_to_feature()
+        first = self._copy_pr81_archive("PR81_TCP_V61_DIFF.txt")
+        target = self.repo / first
+        raw = target.read_bytes()
+        target.write_bytes(b"?" + raw[1:])
+        second = self._copy_pr81_archive(
+            "PR81_TCP_V6_HELPER_DIFF.txt", b"unexpected whitespace \n",
+        )
+        self._commit_feature_files(first, second)
+        result, output = self._run_checker()
+        self.assertEqual(result, 1)
+        for relative in (first, second):
+            self.assertIn("Historical patch identity mismatch: " + relative, output)
+            self.assertIn(relative + ":", output)
+        self.assertIn("trailing whitespace", output)
+
+    def test_pr81_exact_bytes_at_unsupported_path_are_not_exempt(self) -> None:
+        self._switch_to_feature()
+        relative = ".ai-pipeline/reports/PR81_UNAPPROVED_DIFF.txt"
+        target = self.repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / ".ai-pipeline/reports/PR81_TCP_V61_DIFF.txt").read_bytes())
+        self._git("config", "core.autocrlf", "false")
+        (self.repo / "README.md").write_bytes(b"baseline\n")
+        self._commit_feature_files(relative)
+        result, output = self._run_checker()
+        self.assertEqual(result, 1)
+        self.assertIn(relative + ":425: trailing whitespace", output)
+
+    def test_pr81_unsupported_diagnostic_line_still_fails(self) -> None:
+        for name in ("PR81_TCP_V61_DIFF.txt", "PR81_TCP_V6_HELPER_DIFF.txt"):
+            with self.subTest(name=name):
+                relative = ".ai-pipeline/reports/" + name
+                report = PRE_PR_CHECK.Report()
+                completed = subprocess.CompletedProcess(
+                    [], 2, relative + ":1: trailing whitespace.\n+ \n", "",
+                )
+                PRE_PR_CHECK._check_diff_whitespace(
+                    report, completed, "staged changes",
+                    {relative: (ROOT / relative).read_text(encoding="utf-8")},
+                )
+                self.assertTrue(report.failures)
+
+    def test_pr81_unrecognized_diagnostic_shape_still_fails(self) -> None:
+        for name, line in (("PR81_TCP_V61_DIFF.txt", 425), ("PR81_TCP_V6_HELPER_DIFF.txt", 196)):
+            for diagnostic, content in (
+                ("trailing whitespace.", "+unexpected "),
+                ("space before tab in indent.", "+ "),
+            ):
+                with self.subTest(name=name, diagnostic=diagnostic):
+                    relative = ".ai-pipeline/reports/" + name
+                    report = PRE_PR_CHECK.Report()
+                    completed = subprocess.CompletedProcess(
+                        [], 2, f"{relative}:{line}: {diagnostic}\n{content}\n", "",
+                    )
+                    PRE_PR_CHECK._check_diff_whitespace(
+                        report, completed, "staged changes",
+                        {relative: (ROOT / relative).read_text(encoding="utf-8")},
+                    )
+                    self.assertTrue(report.failures)
+
+    def test_pr81_changed_clean_text_still_fails_identity(self) -> None:
+        self._switch_to_feature()
+        paths = [self._copy_pr81_archive(name) for name in (
+            "PR81_TCP_V61_DIFF.txt", "PR81_TCP_V6_HELPER_DIFF.txt",
+        )]
+        for relative in paths:
+            (self.repo / relative).write_bytes(b"ordinary clean text\n")
+        self._commit_feature_files(*paths)
+        result, output = self._run_checker()
+        self.assertEqual(result, 1)
+        for relative in paths:
+            self.assertIn("Historical patch identity mismatch: " + relative, output)
+
+    def _archive_eof_texts(self) -> dict[str, str]:
+        return {
+            path: (ROOT / path).read_bytes().decode("utf-8")
+            for path in PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF
+        }
+
+    def _archive_eof_report(
+        self, texts: dict[str, str | None], output: str, code: int = 2
+    ) -> object:
+        report = PRE_PR_CHECK.Report()
+        result = subprocess.CompletedProcess([], code, output, "")
+        PRE_PR_CHECK._check_diff_whitespace(report, result, "archive probe", texts)
+        return report
+
+    def test_exact_25_archive_eof_and_three_context_alerts_pass_policy(self) -> None:
+        self._switch_to_feature()
+        paths = [
+            self._copy_pr81_archive(path.removeprefix(".ai-pipeline/reports/"))
+            for path in PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF
+        ]
+        paths.extend(self._copy_pr81_archive(name) for name in (
+            "PR81_TCP_V61_DIFF.txt", "PR81_TCP_V6_HELPER_DIFF.txt",
+        ))
+        (self.repo / ".gitattributes").write_bytes((ROOT / ".gitattributes").read_bytes())
+        self._commit_feature_files(*paths, ".gitattributes")
+        raw = subprocess.run(
+            ["git", "diff", "--check", "origin/main...HEAD"],
+            cwd=self.repo, check=False, capture_output=True, text=True, encoding="utf-8",
+        )
+        self.assertEqual(raw.returncode, 2)
+        self.assertEqual(raw.stdout.count("new blank line at EOF."), 25)
+        self.assertEqual(raw.stdout.count("trailing whitespace."), 3)
+        result, output = self._run_checker()
+        self.assertEqual(result, 0, output)
+        self.assertIn("Native git diff --check exit2 retained", output)
+        for path in PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF:
+            self.assertEqual(
+                self._readonly_git("show", "HEAD:" + path, binary=True).stdout,
+                (ROOT / path).read_bytes(),
+            )
+            self.assertIn("Exact historical archive EOF identity: " + path, output)
+
+    def test_archive_eof_changed_bytes_or_added_blank_line_reject(self) -> None:
+        for path, text in self._archive_eof_texts().items():
+            line = PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF[path][1]
+            for changed in ("?" + text[1:], text + "\n", "clean\n"):
+                with self.subTest(path=path, changed=changed[-8:]):
+                    report = self._archive_eof_report(
+                        {path: changed}, f"{path}:{line}: new blank line at EOF.\n",
+                    )
+                    self.assertTrue(report.failures)
+                    self.assertIn("identity mismatch", report.failures[0])
+
+    def test_archive_eof_unknown_paths_and_product_whitespace_reject(self) -> None:
+        text = next(iter(self._archive_eof_texts().values()))
+        for path in (".ai-pipeline/reports/unapproved.md", "apps/backend/app/new.py"):
+            for diagnostic in ("new blank line at EOF.", "trailing whitespace."):
+                with self.subTest(path=path, diagnostic=diagnostic):
+                    report = self._archive_eof_report(
+                        {path: text}, f"{path}:{len(text.splitlines())}: {diagnostic}\n",
+                    )
+                    self.assertTrue(report.failures)
+
+    def test_archive_eof_wrong_location_type_shape_or_duplicate_reject(self) -> None:
+        path, text = next(iter(self._archive_eof_texts().items()))
+        line = PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF[path][1]
+        valid = f"{path}:{line}: new blank line at EOF.\n"
+        for output in (
+            f"{path}:{line - 1}: new blank line at EOF.\n",
+            f"{path}:{line}: trailing whitespace.\n+ \n",
+            f"{path}:{line}: space before tab in indent.\n",
+            valid.rstrip() + " unexpected\n",
+            valid + valid,
+        ):
+            with self.subTest(output=output):
+                self.assertTrue(self._archive_eof_report({path: text}, output).failures)
+
+    def test_archive_eof_malformed_policy_records_fail_closed(self) -> None:
+        path, text = next(iter(self._archive_eof_texts().items()))
+        original = PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF[path]
+        for record in (
+            (), list(original), (original[0], original[1]),
+            ("invalid", original[1], original[2]),
+            (original[0], str(original[1]), original[2]),
+            (original[0], True, original[2]),
+            (original[0], -1, original[2]),
+            (original[0], original[1], "PRODUCT"),
+            (*original, "extra"),
+        ):
+            with self.subTest(record=record):
+                records = dict(PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF)
+                records[path] = record
+                with patch.object(PRE_PR_CHECK, "HISTORICAL_ARCHIVE_EOF", records):
+                    report = self._archive_eof_report({path: text}, "", code=0)
+                self.assertTrue(report.failures)
+                self.assertIn("policy record", report.failures[0])
+
+    def test_archive_eof_invalid_path_and_count_records_reject(self) -> None:
+        records = dict(PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF)
+        path = next(iter(records))
+        record = records.pop(path)
+        for invalid in ("apps/backend/app/new.py", ".ai-pipeline/reports/../new.py"):
+            with self.subTest(invalid=invalid):
+                changed = dict(records, **{invalid: record})
+                with patch.object(PRE_PR_CHECK, "HISTORICAL_ARCHIVE_EOF", changed):
+                    self.assertTrue(self._archive_eof_report({}, "", code=0).failures)
+        with patch.object(PRE_PR_CHECK, "HISTORICAL_ARCHIVE_EOF", records):
+            self.assertTrue(self._archive_eof_report({}, "", code=0).failures)
+
+    def test_archive_eof_missing_text_normalized_bytes_and_native_error_reject(self) -> None:
+        texts = self._archive_eof_texts()
+        path = next(p for p, t in texts.items() if "\r\n" in t)
+        text = texts[path]
+        line = PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF[path][1]
+        output = f"{path}:{line}: new blank line at EOF.\n"
+        for changed in (None, text.replace("\r\n", "\n")):
+            self.assertTrue(self._archive_eof_report({path: changed}, output).failures)
+        self.assertTrue(self._archive_eof_report({path: text}, output, code=1).failures)
+        self.assertTrue(self._archive_eof_report({path: text}, "", code=2).failures)
+
+    def test_archive_eof_policy_never_hides_other_product_errors(self) -> None:
+        self._switch_to_feature()
+        archive = next(iter(PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF))
+        path = self._copy_pr81_archive(archive.removeprefix(".ai-pipeline/reports/"))
+        self._write("ordinary.py", "value = 1 \n\n")
+        self._write("ordinary.md", "text\n\n")
+        (self.repo / ".gitattributes").write_bytes((ROOT / ".gitattributes").read_bytes())
+        self._commit_feature_files(path, "ordinary.py", "ordinary.md", ".gitattributes")
+        result, output = self._run_checker()
+        self.assertEqual(result, 1)
+        self.assertIn("ordinary.py", output)
+        self.assertIn("ordinary.md", output)
+        self.assertIn("trailing whitespace.", output)
+        self.assertIn("new blank line at EOF.", output)
+
     def test_exact_three_historical_patches_pass_committed_checker(self) -> None:
         self._switch_to_feature()
         paths = [self._copy_historical_patch(name) for name in (

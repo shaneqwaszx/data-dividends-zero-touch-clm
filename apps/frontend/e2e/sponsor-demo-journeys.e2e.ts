@@ -3,13 +3,12 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
+import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 import { openStage } from "./stage-disclosures";
 import { reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const fixtures = path.join(root, "apps/backend/tests/fixtures/uat/zero-touch-database");
-const evidence = path.join(root, "tmp/sponsor-demo-browser");
 const happy = [
   { code: "aurora", name: "AURORA SYNTHETIC SIGNALS PTE. LTD.", uen: "202400019S", candidates: { AURORA_PERSON_A: "65", AURORA_PERSON_B: "35" } },
   { code: "pacific", name: "PACIFIC SYNTHETIC LEDGER PTE. LTD.", uen: "202400015O", candidates: { PACIFIC_OWNER_A: "40", PACIFIC_OWNER_B: "35", PACIFIC_OWNER_C: "25" } },
@@ -101,6 +100,7 @@ async function currentKnownReview(page: Page, cid: string, checkpoints: any[]) {
   }
 }
 async function finish(page: Page, company: Company, cid: string, headers: Record<string, string>, receipt: any) {
+  const evidence = retainedEvidencePath("sponsor-demo");
   await expect.poll(async () => (await summary(page, cid)).active_exceptions.map((e: any) => e.blocker_code)).toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
   const current = await summary(page, cid); const doc = (await documents(page, cid)).find((d: any) => !d.superseded_by_document_id);
   expect(current.case.entity.registration_number).toBe(company.uen);

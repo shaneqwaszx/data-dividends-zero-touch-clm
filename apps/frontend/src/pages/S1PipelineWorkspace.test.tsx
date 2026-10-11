@@ -17,6 +17,14 @@ function summary(status: ZeroTouchCaseSummary["status"] = "RUNNING"): ZeroTouchC
 const node: ProcessingNode = { node_id: "DOCUMENT_IDP", label: "Document verification", status: "NOT_REACHED", children: [], safe_result: "Document intake has not started.", provider: "LOCAL_PDF_TEXT", environment: "LOCAL", timestamp: "2026-10-04T01:00:00Z" };
 
 describe("Session 1 workspace presentation", () => {
+  it("keeps retained document refresh recovery accessible until an explicit mutation starts", () => {
+    const retained = summary("RESUMING");
+    retained.document_refresh_recovery = { can_resume: true };
+    expect(onboardingIsExecuting(retained, false, null)).toBe(false);
+    expect(onboardingIsExecuting(retained, true, null)).toBe(true);
+    retained.document_refresh_recovery = { can_resume: false };
+    expect(onboardingIsExecuting(retained, false, null)).toBe(false);
+  });
   it("makes only executing workspace content inert while preserving shell keyboard controls", async () => {
     document.body.append(host);
     const render = (active: boolean) => root.render(<><button id="shell">Navigation</button><OnboardingWorkspace active={active} message="Processing uploaded documents…"><button id="workspace">Document action</button></OnboardingWorkspace></>);

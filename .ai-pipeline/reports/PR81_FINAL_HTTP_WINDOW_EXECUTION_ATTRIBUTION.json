@@ -1,0 +1,77 @@
+{
+  "attribution": "post-run immutable record of exact orchestrator invocations and successful recorded assertions; not a fabricated pre-run artifact",
+  "command_each_ordinal": [
+    "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+    "-B",
+    "-m",
+    "pytest",
+    "tests/test_phase13_demo_scripts.py::test_http_seeder_runs_twice_against_one_live_memory_backend",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short"
+  ],
+  "cwd_each_ordinal": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\backend",
+  "runtime": {
+    "pytest": "8.4.2",
+    "uvicorn": "0.52.1",
+    "fastapi": "0.141.1",
+    "starlette": "1.7.0",
+    "anyio": "4.15.1",
+    "httptools": "0.9.0",
+    "h11": "0.16.0"
+  },
+  "python": "3.12.10",
+  "host": "SHANE",
+  "os": "nt",
+  "source27": "e876200d203fc5869373b88274d83b878c892c56a448dd08bdf5bb7cccb5d1f7",
+  "source_checks": "exact source27 checked before1; post1/pre2; post2/pre3; post3; all MATCH",
+  "package_checks": "exact expected runtime versions checked before each ordinal; all MATCH",
+  "ordinary_token_checks": "WindowsPrincipal administrator=False before each ordinal",
+  "ordinal_receipts": [
+    {
+      "ordinal": 1,
+      "exit_code": 0,
+      "duration_seconds": 9.0527661,
+      "started_utc": "2026-10-11T08:34:07.7379095+00:00",
+      "ended_utc": "2026-10-11T08:34:16.7956131+00:00",
+      "source27": "e876200d203fc5869373b88274d83b878c892c56a448dd08bdf5bb7cccb5d1f7",
+      "ordinary_token": true,
+      "instrumented": false,
+      "retries": 0,
+      "original_request_timeout": 15,
+      "original_cleanup_bound": 10
+    },
+    {
+      "ordinal": 2,
+      "exit_code": 0,
+      "duration_seconds": 8.5398164,
+      "started_utc": "2026-10-11T08:34:37.9524919+00:00",
+      "ended_utc": "2026-10-11T08:34:46.4961832+00:00",
+      "source27": "e876200d203fc5869373b88274d83b878c892c56a448dd08bdf5bb7cccb5d1f7",
+      "ordinary_token": true,
+      "instrumented": false,
+      "retries": 0,
+      "original_request_timeout": 15,
+      "original_cleanup_bound": 10
+    },
+    {
+      "ordinal": 3,
+      "exit_code": 0,
+      "duration_seconds": 8.4557539,
+      "started_utc": "2026-10-11T08:35:04.9082236+00:00",
+      "ended_utc": "2026-10-11T08:35:13.3676277+00:00",
+      "source27": "e876200d203fc5869373b88274d83b878c892c56a448dd08bdf5bb7cccb5d1f7",
+      "ordinary_token": true,
+      "instrumented": false,
+      "retries": 0,
+      "original_request_timeout": 15,
+      "original_cleanup_bound": 10
+    }
+  ],
+  "no_modified_environment_for_window": true,
+  "stdout_only_tee": true,
+  "no_import_wrappers_or_plugins_added": true,
+  "original_fixture_sha256": "435d3feba400b00e23a946a6785b193c3bb7b355b39b7f05d6abb0060b73fbb6",
+  "gate_sha256": "2358086499c141d3f710be74be934033ba58bc5d9480f0c17ebd32fb1144aa4d"
+}

@@ -27,7 +27,7 @@ DIFF_CHECK_MARKER = re.compile(
 )
 CHANGE_FILTER = "ACMRDT"
 
-# Owner-authorized immutable Phase 24 remediation evidence. No glob or baseline exemption.
+# Owner-authorized immutable remediation evidence. No glob or baseline exemption.
 HISTORICAL_PATCH_WHITESPACE: dict[str, tuple[str, frozenset[int]]] = {
     ".ai-pipeline/reports/PHASE_24B_REMEDIATION_ROUND_1_DELTA.patch": (
         "73fca2299b9038a90968871497e8e181160e44a28141b55018cd26509a8cf1ec",
@@ -41,10 +41,127 @@ HISTORICAL_PATCH_WHITESPACE: dict[str, tuple[str, frozenset[int]]] = {
         "5baa7225bd15c0b5e4e18f20e2fb45b686530eca0f55ef2491372b25b02cff63",
         frozenset({57}),
     ),
+    ".ai-pipeline/reports/PR81_TCP_V61_DIFF.txt": (
+        "ee7603a84a59648b769e24124802f8b05458fa632a6a69a4eff4f838c9bf711e",
+        frozenset({425, 464}),
+    ),
+    ".ai-pipeline/reports/PR81_TCP_V6_HELPER_DIFF.txt": (
+        "4a107bbf6e77d4d28a700ac112df17b36002c2f7b05a8c7960053d377251295f",
+        frozenset({196}),
+    ),
 }
 PATCH_WHITESPACE_DIAGNOSTIC = re.compile(
     r"^(?P<path>.+):(?P<line>[1-9][0-9]*): trailing whitespace\.$"
 )
+
+# Owner-authorized frozen historical evidence; exact raw bytes and terminal line only.
+# Policy: docs/development/IMMUTABLE_ARCHIVE_WHITESPACE_POLICY.md
+HISTORICAL_ARCHIVE_EOF: dict[str, tuple[str, int, str]] = {
+    ".ai-pipeline/reports/PR81_TCP_TRACE_MANUAL_PROCEDURE.md": (
+        "338ffd09afef8e0b9e3a6c5109bdd3391351cd8aa36c0138cdb3ec3f887e98ef",
+        99, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/PR81_TCP_TRACE_MANUAL_PROCEDURE_V5.md": (
+        "9017f764de79c3ad61294e66e6e87dca3db0016f71f4c1fd8f08a68434762dff",
+        132, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/PR81_TCP_TRACE_MANUAL_PROCEDURE_V6.md": (
+        "239de2a9609a1411c8bf25cd0819e76ae00e7c8b5e5d01026f16236c38d686b0",
+        140, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/PR81_TCP_TRACE_MANUAL_PROCEDURE_V61.md": (
+        "2134799af859117e34add134108dd35379933335d00c4651606a78d2e957eecf",
+        148, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/PR81_TCP_TRACE_PREPARATION_HANDOFF.md": (
+        "9dde58d1467abc8d55442dc6563bed4b67c923cf4648e55f4f79a117553387d4",
+        89, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v2/Invoke-Pr81TcpCapture.ps1": (
+        "bd1f3edf16bff3aa32774706cd0ad559f14aed873594189051d8764449c9c3b3",
+        124, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v2/Run-FreshFixture.py": (
+        "431466a2e139578928ba4de98cdb61ac682c06d6995242e07d0c75950c3c3776",
+        103, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v2/Sanitize-TcpTrace.ps1": (
+        "69b61440e79a2e72964b5e2cc644bf79a1df0ee1c8c7f61884ebc575f1e4c0aa",
+        149, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v3/Invoke-Pr81TcpCapture.ps1": (
+        "e74c3d18745f7cace342cd5280f87b88a584993e74377f84d6093c11784aa618",
+        124, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v3/Run-FreshFixture.py": (
+        "431466a2e139578928ba4de98cdb61ac682c06d6995242e07d0c75950c3c3776",
+        103, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v3/Sanitize-TcpTrace.ps1": (
+        "f4b67b37fc9980a4731698559ff0dbfbcdfc72cc1d85868ba79d0aad74c1392c",
+        153, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v4/Invoke-Pr81TcpCapture.ps1": (
+        "36d6ebf6ccef44f533a943a217dd10323f6373f2c088dc0b6871c9492efd12af",
+        133, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v4/Run-FreshFixture.py": (
+        "431466a2e139578928ba4de98cdb61ac682c06d6995242e07d0c75950c3c3776",
+        103, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v4/Sanitize-TcpTrace.ps1": (
+        "f4b67b37fc9980a4731698559ff0dbfbcdfc72cc1d85868ba79d0aad74c1392c",
+        153, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v5/Invoke-Pr81TcpCapture.ps1": (
+        "cfe79d91e276ab0720de094361e9e614c1c648a8a2140e74d2eb99f36a2735b7",
+        151, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v5/Run-FreshFixture.py": (
+        "3cb70d06728c8a64eeb9f66d94c3d2a33e7b707d63fc181cfcb634f4ff2ec871",
+        117, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v5/Sanitize-TcpTrace.ps1": (
+        "f4b67b37fc9980a4731698559ff0dbfbcdfc72cc1d85868ba79d0aad74c1392c",
+        153, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v6-1/Invoke-Pr81TcpCapture.ps1": (
+        "b5aa4ad7d10150c4f2570b75926aea91d58202be8bcda841e4230d014193ce51",
+        156, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v6-1/Run-FreshFixture.py": (
+        "dd88249f557b8bf891e18f9690dc2d63a96d0f03966dfcf3d0f79c6131f49234",
+        117, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v6/Invoke-Pr81TcpCapture.ps1": (
+        "bd46e6cc617ab0b07573448e24c9454345259583e811f13900e0b2e769c760e1",
+        152, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v6/Run-FreshFixture.py": (
+        "3cb70d06728c8a64eeb9f66d94c3d2a33e7b707d63fc181cfcb634f4ff2ec871",
+        117, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture-v6/Sanitize-TcpTrace.ps1": (
+        "f4b67b37fc9980a4731698559ff0dbfbcdfc72cc1d85868ba79d0aad74c1392c",
+        153, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture/Invoke-Pr81TcpCapture.ps1": (
+        "f3c64712e584c0a49d5b4a1216c918554a664329ff1686a0babff207f0a19899",
+        123, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture/Run-FreshFixture.py": (
+        "0f5e3307a0f518639e0dcf4cb72cc13245cf486041f5eede5bf76ab6aca27cd2",
+        78, "HISTORICAL_EVIDENCE",
+    ),
+    ".ai-pipeline/reports/pr81-tcp-capture/Sanitize-TcpTrace.ps1": (
+        "6356841bca49305138359165449b44d5fd3bf1b0f8fdc66981680f9914f63c68",
+        126, "HISTORICAL_EVIDENCE",
+    ),
+}
+ARCHIVE_EOF_DIAGNOSTIC = re.compile(
+    r"^(?P<path>.+):(?P<line>[1-9][0-9]*): new blank line at EOF\.$"
+)
+
 
 HOTSPOTS = {
     ".github/workflows/ci.yml",
@@ -397,6 +514,67 @@ def _historical_patch_diff_check_output(output: str, verified_paths: set[str]) -
     return "\n".join(retained)
 
 
+def _verified_historical_archive_eof_paths(
+    report: Report, source_texts: dict[str, str | None]
+) -> set[str]:
+    verified: set[str] = set()
+    if len(HISTORICAL_ARCHIVE_EOF) != 25:
+        report.fail("Invalid historical archive EOF policy record count.")
+        return verified
+    for path, record in HISTORICAL_ARCHIVE_EOF.items():
+        if (
+            not isinstance(path, str)
+            or not path.startswith(".ai-pipeline/reports/")
+            or "\\" in path
+            or any(part in {"", ".", ".."} for part in path.split("/"))
+            or not isinstance(record, tuple)
+            or len(record) != 3
+            or not isinstance(record[0], str)
+            or re.fullmatch(r"[0-9a-f]{64}", record[0]) is None
+            or type(record[1]) is not int
+            or record[1] < 2
+            or record[2] != "HISTORICAL_EVIDENCE"
+        ):
+            report.fail("Invalid historical archive EOF policy record.")
+            continue
+        if path not in source_texts:
+            continue
+        text = source_texts[path]
+        lines = text.splitlines() if text is not None else []
+        if (
+            text is None
+            or hashlib.sha256(text.encode("utf-8")).hexdigest() != record[0]
+            or len(lines) != record[1]
+            or lines[-1] != ""
+            or lines[-2] == ""
+        ):
+            report.fail(f"Historical archive EOF identity mismatch: {path}.")
+        else:
+            verified.add(path)
+            report.detail(f"Exact historical archive EOF identity: {path}")
+    return verified
+
+
+def _historical_archive_eof_diff_check_output(
+    output: str, verified_paths: set[str]
+) -> str:
+    retained: list[str] = []
+    consumed: set[str] = set()
+    for line in output.splitlines():
+        diagnostic = ARCHIVE_EOF_DIAGNOSTIC.fullmatch(line)
+        if diagnostic is not None:
+            path = diagnostic.group("path")
+            if (
+                path in verified_paths
+                and path not in consumed
+                and int(diagnostic.group("line")) == HISTORICAL_ARCHIVE_EOF[path][1]
+            ):
+                consumed.add(path)
+                continue
+        retained.append(line)
+    return "\n".join(retained)
+
+
 def _check_diff_whitespace(
     report: Report,
     result: subprocess.CompletedProcess,
@@ -417,11 +595,14 @@ def _check_diff_whitespace(
         else:
             verified_paths.add(path)
             report.detail(f"Exact historical patch whitespace identity: {path}")
+    verified_eof_paths = _verified_historical_archive_eof_paths(report, source_texts)
     if result.returncode == 0:
         return
     output = result.stdout
     if result.returncode == 2:
         output = _historical_patch_diff_check_output(output, verified_paths)
+        output = _historical_archive_eof_diff_check_output(output, verified_eof_paths)
+        report.detail(f"Native git diff --check exit2 retained; exact archive policy: {label}")
     relevant_output = _non_marker_diff_check_output(output, source_texts)
     if relevant_output:
         report.fail(f"git diff --check failed for {label}:\n{relevant_output}")

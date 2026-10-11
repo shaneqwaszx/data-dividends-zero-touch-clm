@@ -4,12 +4,10 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { openStage } from "./stage-disclosures";
 import { reviewSourceChoices } from "./blocker-decisions";
-import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
+import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const fixtures = path.join(root, "apps/backend/tests/fixtures/uat");
-const evidence = path.join(root, "tmp/zero-touch-browser", String(Date.now()));
-mkdirSync(evidence, { recursive: true });
 let requests: string[];
 let violations: string[];
 
@@ -28,6 +26,8 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(() => expect(violations).toEqual([]));
 
 async function capture(page: Page, info: TestInfo, milestone: string) {
+  const evidence = retainedEvidencePath("zero-touch");
+  mkdirSync(evidence, { recursive: true });
   const filename = path.join(evidence, `${info.title.replaceAll(/[^A-Za-z0-9]/g, "-")}-${milestone}.png`);
   await page.screenshot({ path: filename, fullPage: true });
   await page.screenshot({ path: filename.replace(".png", "-viewport.png") });

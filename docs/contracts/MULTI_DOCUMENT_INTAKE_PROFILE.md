@@ -87,5 +87,20 @@ confirmation. Confirmation, retained target intent/attempt/result or submission 
 freezes editing. Policy/booking/external-system constants remain read-only.
 
 Replacement may retain its document/automation section before a subsequent CLM refresh
-fails. A sanitized technical failure and existing explicit Resume repair that checkpoint;
-the operation is not a cross-repository transaction. No target call repairs evidence.
+fails with503. The saved RESUMING/DOCUMENT checkpoint ending DOCUMENT_REPLACEMENT_ACCEPTED
+means dependent continuation remains incomplete. The additive document_refresh_recovery
+projection is present at that checkpoint, with can_resume derived from creator authority
+and the existing target freeze owner. It is absent after continuation advances. The
+browser shows retained-evidence guidance and an explicit Resume document evidence refresh
+action after reload, stops automatic progress polling, and removes the inert processing
+overlay until the user starts a mutation. A read-only viewer sees a disabled action.
+
+POST /api/clm/zero-touch/cases/{case_id}/resume requires X-Automation-Id,
+X-Automation-Version, X-Clm-Version and X-Case-Event-Count for this checkpoint. Identity,
+all versions, current session/team/creator permission and target freeze are checked inside
+the owning case lock before refresh. Missing/stale context returns409, inaccessible cases
+404, noncreator403, expired/missing session401. Other existing resume flows retain their
+contract. CLM refresh and normal continuation use the retained replacement without another
+upload, Search or target mutation. Concurrent stale requests fail closed; an already
+advanced current-context retry is idempotent. The operation is not a cross-repository
+transaction and the projection is not a stored schema field.
