@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { OwnershipAnalysisRecord, OwnershipPath, RegistryAcquisition } from "../types";
 
+import OwnershipStructure from "./OwnershipStructure";
+import UboSummary from "./UboSummary";
+
 const PAGE_SIZE = 20;
 const VISUAL_EDGE_LIMIT = 11;
 
@@ -23,6 +26,7 @@ function EdgeList({ edges }: { edges: OwnershipPath["edges"] }) {
 
 export default function OwnershipPathExplorer({ record, acquisition, primaryBlockerVisible = false }: { record: OwnershipAnalysisRecord | null; acquisition?: RegistryAcquisition | null; primaryBlockerVisible?: boolean }) {
   const [candidateId, setCandidateId] = useState<string | null>(null);
+  const [selectionRequest, setSelectionRequest] = useState(0);
   const [pathId, setPathId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
 
@@ -91,8 +95,23 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
       <p className="s2-ownership-summary">{record.candidates.length} retained natural-person candidate{record.candidates.length === 1 ? "" : "s"} · {record.parties.length} parties · {record.relationships.length} direct relationships. {record.state === "ANALYZED" ? "Calculable provisional view." : "Incomplete or disputed evidence requires review."}</p>
       <p className="control-help">{record.candidates.slice(0, 3).map((item) => `${item.party.display_name}: ${item.aggregated_ownership_percent}% effective (${item.classification})`).join("; ") || "No calculable candidate retained."}</p>
       {record.source_classification === "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT" && <p className="ds-banner">Official Marketplace Mock facts with separately labelled LOCAL_SYNTHETIC_SUPPLEMENT ownership evidence. These sources remain distinct and are not Live registry evidence.</p>}
+      <UboSummary record={record} />
+          <div aria-label="Ownership candidates">
+            {record.candidates.map((item) => (
+              <button
+                className="btn btn-secondary"
+                type="button"
+                key={item.party.party_id}
+                aria-pressed={candidate?.party.party_id === item.party.party_id}
+                onClick={() => { setCandidateId(item.party.party_id); setSelectionRequest(value => value + 1); setPathId(item.paths[0]?.path_id ?? null); setPage(0); }}
+              >
+                {item.party.display_name}
+              </button>
+            ))}
+          </div>
+      <OwnershipStructure key={`structure:${record.analysis_id}`} record={record} selectionRequest={selectionRequest} selectedPartyId={candidate?.party.party_id ?? null} onSelectPerson={(partyId) => { setCandidateId(partyId); setPathId(null); setPage(0); }} />
       <details key={record.analysis_id} className="evidence-details s2-ownership-structure">
-        <summary>View ownership structure and calculations</summary>
+        <summary>Technical calculations and retained paths</summary>
       {record.parties.length > 0 && <div className="table-scroll" tabIndex={0} aria-label="Ownership parties and retained calculations"><table className="table">
         <caption>Parties and backend-calculated effective interests</caption>
         <thead><tr><th>Party</th><th>Type</th><th>Country</th><th>Identifier</th><th>Direct interests in owned entities</th><th>Effective in root</th></tr></thead>
@@ -184,19 +203,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
 
       {record.candidates.length === 0 ? <p className="text-muted">No retained ownership candidates are available. This does not establish that the hierarchy is complete.</p> : (
         <>
-          <div aria-label="Ownership candidates">
-            {record.candidates.map((item) => (
-              <button
-                className="btn btn-secondary"
-                type="button"
-                key={item.party.party_id}
-                aria-pressed={candidate?.party.party_id === item.party.party_id}
-                onClick={() => { setCandidateId(item.party.party_id); setPathId(item.paths[0]?.path_id ?? null); setPage(0); }}
-              >
-                {item.party.display_name}
-              </button>
-            ))}
-          </div>
+
 
           {candidate && (
             <article aria-label={`Ownership candidate ${candidate.party.display_name}`}>

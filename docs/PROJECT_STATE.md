@@ -905,3 +905,42 @@ and XPI Sandbox; no external provider write occurs. Real Sandbox UAT is NOT_VERI
 No schema, mapper, Decimal policy, provider capability or sponsor-controlled rule changes.
 Expanded source/evidence acceptance requires SPONSOR_DEMO_FINAL_QUALITY_GATE.md; the prior
 blocker gate certifies only its historical frozen package.
+
+
+## Ownership presentation and document continuation candidate — 2026-10-12
+
+Owner-assigned bounded hotfix on feat/ownership-ubo-doc-review-streamline from freshly
+fetched PR82 main a6c80d2f20048ce64b3f6184df34c098f8fff4ab. Current implementation
+arranges retained graph relationships into a bounded responsive explorer, with collapsible
+levels, person selection and original backend path/aggregate values. Ownership and Final
+Review share a provisional qualifying-natural-person summary. Unknown intermediate values
+stay unknown; there is no browser calculator or legal UBO determination.
+
+The existing zero-touch owner continues complete current grouped review confirmations,
+explicit slot replacements and successful final failed-intake retries. Independent evidence
+blockers and final target confirmation remain. Lineage/receipts, lock/currentness/CAS,
+section persistence and the target ledger remain unchanged. No new source winner,
+provider/schema/configuration/mapping/threshold/auth grant is introduced. Initial
+multi-document intake remains explicit; additional uploads are not implicit replacement.
+Acceptance belongs to the task's fresh implementation evidence and independent gate,
+not prior reports. Publication is reserved for separate owner approval under the
+superseding principal-engineering brief. Provider classifications and sponsor questions
+remain unchanged; no external provider mutation or Live interoperability is tested.
+
+The initial independent candidate gate failed on independent failed-sibling recovery.
+The bounded remediation preserves PENDING and targeted retry across grouped confirmation,
+replacement and dependent-refresh recovery. Its narrow existing document-reupload
+transition guard admits RESUMING at DOCUMENT, retaining prefix/event validation;
+statuses, schema and general transition table remain unchanged. Only the fresh remediation
+gate can accept the changed candidate; the original FAIL is retained as history.
+
+The owner-authorized overnight release closure addresses ODS-FQG-03 with structured,
+disjoint presentation occurrence keys for client, retained paths and unlinked holders.
+Selection, collapse and graph-refresh reconciliation share that identity; backend IDs,
+Decimal values and provenance remain unchanged. The independent valid-source selection
+probe is now GREEN and normally discovered coverage includes sentinel/delimiter IDs,
+repeated paths and refresh. Real authenticated keyboard/mobile/reload verification uses
+the existing manual-evidence API with a valid root relationship and LOCAL declaration
+provenance. Acceptance remains conditional on a fresh independent combined PASS; all
+historical FAIL reports remain immutable. Normal scoped commit/push/PR is now expressly
+authorized after local publication gates and latest-main integration, with human merge.

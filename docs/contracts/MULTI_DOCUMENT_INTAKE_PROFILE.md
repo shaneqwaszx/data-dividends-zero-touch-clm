@@ -46,10 +46,30 @@ name, media type, byte count, provider/environment, timestamps, extraction score
 field observations, state, and supersession links. Raw bytes and extracted bodies are
 transient and never stored in repositories, API responses, events, or logs.
 
-The intake-only API accepts one file per request. Automation begins only through explicit
-intake completion bound to `expected_document_count`. A failed upload does not complete
+The intake-only API accepts one file per request. Initial multi-file intake completion
+is explicit and bound to `expected_document_count`. A complete current grouped document
+review confirmation also authorizes the existing pipeline to continue automatically.
+Explicit active-slot replacement, and the final successful targeted retry after all
+failed siblings are replaced, similarly continue through existing orchestration to the
+next genuine blocker or final review. An ordinary additional-document upload remains
+intake-only. A failed upload does not complete
 intake; successful files remain attached and the same case may be retried. The existing
 single-document auto-start route remains for compatibility.
+
+Incomplete required document decisions fail before any group receipt is written.
+Confirmation does not waive rejected, low-confidence, missing or conflicting evidence;
+such evidence continues to the truthful review/replacement checkpoint. Existing
+section-level persistence and reconciliation UoW semantics are unchanged: this does
+not add a cross-document/case transaction. Replacement supersedes the current slot,
+retains original IDs/observations/receipts and reruns extraction once. Version/fingerprint,
+creator/lock/CAS and target-freeze checks remain authoritative. Final target confirmation
+is a separate explicit action; continuation never supplies that confirmation.
+
+An independent current failed document keeps the case at its targeted reupload
+checkpoint after another document's confirmation or replacement. Dependent replacement
+refresh recovery obeys the same stop. The guarded document-reupload recovery permits
+RESUMING at DOCUMENT to return to PENDING_INPUTS only with the existing completed-stage
+prefix and DOCUMENT_REUPLOAD_REQUIRED event; it does not add a general status transition.
 
 The frontend selected-file total is advisory and includes only accepted, deduplicated
 files. Backend count, per-file size, and total-current-intake checks remain authoritative.

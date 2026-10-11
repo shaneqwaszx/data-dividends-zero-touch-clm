@@ -261,16 +261,15 @@ test("Blocker simulation actual native PDF intake failure targets retry and one 
   const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../backend/tests/fixtures/uat/clean-company-profile.pdf");
   await page.getByLabel("Retry affected document", { exact: true }).setInputFiles(fixture);
   expect((await goodRetry).status()).toBe(201);
-  const continuation = page.getByRole("button", { name: "Continue evidence review", exact: true });
-  await expect(continuation).toHaveCount(1); await expect(continuation).toBeEnabled();
-  await focusPipelineAction(page, "DOCUMENT_IDP", continuation);
-  const continued = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/resume"));
-  await continuation.click(); const response = await continued; expect(response.status()).toBe(200);
-  const final = await response.json(); expect(final.case.goldtier_result).toBeNull();
+  await expect(page.locator(".case-action-progress")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue evidence review", exact: true })).toHaveCount(0);
+  const final = await (await page.request.get(`/api/clm/zero-touch/cases/${cid}`)).json();
+  expect(final.status).toBe("WAITING_FOR_REVIEW"); expect(final.current_stage).toBe("READINESS");
+  expect(final.case.target_dispatch_confirmation).toBeNull(); expect(final.case.goldtier_result).toBeNull();
   await mkdir(evidence(), { recursive: true });
   await writeFile(path.join(evidence(), "simulation-native-failed-retry.json"), JSON.stringify({ scenario: "failed document retry", initial: "Actual native extraction text bound / PENDING_INPUTS",
-    actual_control: "Retry affected document INPUT:file; then Continue evidence review BUTTON", choices: 0, calls_before_confirmation: 0,
-    confirmation: "Initial intake 503, failed retry 503, valid native retry 201, one Resume 200", final: final.active_exceptions.map((item: any) => item.blocker_code), verdict: "PASS", external_calls: 0 }, null, 2)+"\n");
+    actual_control: "Retry affected document INPUT:file; automatic owning continuation", choices: 0, calls_before_confirmation: 0,
+    confirmation: "Initial intake 503, failed retry 503, valid native retry 201, automatic continuation with no Resume", final: final.active_exceptions.map((item: any) => item.blocker_code), verdict: "PASS", external_calls: 0 }, null, 2)+"\n");
   // Continue the same real case through a saved replacement / failed dependent
   // refresh. No browser response interception or direct recovery POST.
   await openStage(page, "Document verification");

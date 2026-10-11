@@ -676,7 +676,7 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_INTAKE_RETRY_INVALID",
                     message="The failed intake document is no longer retryable.",
                 )
-            return self._documents.replace_document(
+            replacement = self._documents.replace_document(
                 case_id=case_id,
                 document_id=failed.document_id,
                 expected_event_count=len(failed.events),
@@ -684,6 +684,12 @@ class ZeroTouchOrchestrator:
                 content_type=content_type,
                 content=content,
                 provider=idp_provider,
+            )
+            if not self._has_required_document_reuploads(case_id):
+                self.start(case_id=case_id)
+            return (
+                self._documents.get_document(case_id=case_id, document_id=replacement.document_id)
+                or replacement
             )
 
     def _has_required_document_reuploads(self, case_id: UUID) -> bool:
@@ -848,8 +854,7 @@ class ZeroTouchOrchestrator:
                         message="Document evidence is frozen for target submission.",
                     )
             if pending_refresh:
-                self._refresh_replacement_evidence_locked(record)
-                return self._advance_locked(case_id=case_id)
+                return self._continue_replacement_locked(record)
             record = self._recover_obsolete_registry_ownership_locked(record)
             if (
                 refresh_document_checkpoint
@@ -933,6 +938,14 @@ class ZeroTouchOrchestrator:
                 code=exc.code, message=exc.public_message,
             ) from None
 
+    def _continue_replacement_locked(
+        self, record: ZeroTouchAutomationRecord,
+    ) -> ZeroTouchAutomationRecord:
+        self._refresh_replacement_evidence_locked(record)
+        if self._has_required_document_reuploads(record.case_id):
+            return self._return_to_document_intake(record)
+        return self._advance_locked(case_id=record.case_id)
+
     def evidence_edit_is_frozen(self, *, case_id: UUID) -> bool:
         """Current owning projection; a retained target intent/attempt also freezes edits."""
         case = self._cases.get_case(case_id)
@@ -950,7 +963,7 @@ class ZeroTouchOrchestrator:
     def document_replacement_allowed(self, *, case_id: UUID) -> bool:
         record = self._require_record(case_id)
         return (
-            record.status == AutomationStatus.WAITING_FOR_REVIEW
+            record.status in {AutomationStatus.PENDING_INPUTS, AutomationStatus.WAITING_FOR_REVIEW}
             and record.current_stage in {AutomationStage.DOCUMENT, AutomationStage.READINESS}
             and not self.evidence_edit_is_frozen(case_id=case_id)
         )
@@ -1046,6 +1059,7 @@ class ZeroTouchOrchestrator:
             candidate.metrics.final_outcome = None
             candidate.status = AutomationStatus.RESUMING
             candidate.current_stage = AutomationStage.DOCUMENT
+            candidate.started_at = candidate.started_at or self._clock()
             candidate.metrics.human_interventions += 1
             candidate.metrics.exceptions_resolved += 1
             candidate = self._append_event(
@@ -1056,8 +1070,7 @@ class ZeroTouchOrchestrator:
                 message="Replacement document evidence was accepted; onboarding is re-evaluating.",
             )
             record = self._save(record, candidate)
-            self._refresh_replacement_evidence_locked(record)
-            return self._advance_locked(case_id=case_id)
+            return self._continue_replacement_locked(record)
 
     def apply_review_decisions(
         self,
@@ -1115,6 +1128,26 @@ class ZeroTouchOrchestrator:
                         code="ZERO_TOUCH_REVIEW_NOT_ALLOWED",
                         message="Document review is not accepted at the current onboarding stage.",
                     )
+                supplied = {
+                    (group.document_id, decision.field_key)
+                    for group in batch.documents for decision in group.decisions
+                }
+                required = {
+                    (document.document_id, field.field_key)
+                    for document in self._current_documents(case_id)
+                    if document.state == DocumentProcessingState.REVIEW_REQUIRED
+                    and self._reconciliation.resolved_document_checkpoint(
+                        case_id=case_id, document_id=document.document_id,
+                        event_count=len(document.events),
+                    ) is None
+                    for field in document.fields if field.review_status == FieldReviewStatus.PENDING
+                }
+                if not required.issubset(supplied):
+                    raise ZeroTouchRequestError(
+                        code="ZERO_TOUCH_REVIEW_INCOMPLETE",
+                        message=("Select a decision for every required document field "
+                                 "before continuing."),
+                    )
                 try:
                     # Prepare every document before the first section write.
                     prepared = [
@@ -1131,7 +1164,9 @@ class ZeroTouchOrchestrator:
                         message=exc.public_message,
                     ) from None
                 if record.status == AutomationStatus.PENDING_INPUTS:
-                    return record
+                    if self._has_required_document_reuploads(case_id):
+                        return record
+                    return self.start(case_id=case_id)
                 return self._refresh_document_checkpoint_locked(
                     record,
                     human_intervention=True,

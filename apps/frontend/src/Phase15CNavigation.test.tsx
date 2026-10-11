@@ -1127,7 +1127,9 @@ describe("Phase 15C case-bound action lifetime", () => {
     });
   });
 
-  it("submits one targeted retry and authoritatively refreshes all case evidence", async () => {
+  it.each(["accepted", "continuation-failed"] as const)(
+    "submits one targeted retry and authoritatively refreshes all case evidence after %s",
+    async (outcome) => {
     const failed = {
       ...documentFixture(CASE_A),
       state: "FAILED" as const,
@@ -1139,17 +1141,29 @@ describe("Phase 15C case-bound action lifetime", () => {
       supersedes_document_id: failed.document_id,
     };
     const historical = { ...failed, superseded_by_document_id: recovered.document_id };
-    const refreshedSummary = { ...caseDetailFixture(CASE_A, "CASE A"), status: "PENDING_INPUTS" as const };
+    const refreshedSummary = outcome === "accepted"
+      ? { ...caseDetailFixture(CASE_A, "CASE A"), status: "PENDING_INPUTS" as const }
+      : { ...caseDetailFixture(CASE_A, "CASE A"), status: "TECHNICAL_FAILURE" as const,
+          current_stage: "OWNERSHIP" as const,
+          technical_failure: { code: "OWNERSHIP_PERSISTENCE_UNAVAILABLE",
+            message: "Ownership evidence is unavailable." } };
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
-      if (init?.method === "POST" && url.endsWith(`/intake/documents/${failed.document_id}/retry`)) return json(recovered);
+      if (init?.method === "POST" && url.endsWith(`/intake/documents/${failed.document_id}/retry`)) {
+        return outcome === "accepted" ? json(recovered) : json({ detail: {
+          code: "OWNERSHIP_PERSISTENCE_UNAVAILABLE", message: "Ownership evidence is unavailable.",
+          case_id: CASE_A, automation_id: refreshedSummary.automation_id,
+        } }, 503);
+      }
       if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) return json(refreshedSummary);
       if (url.endsWith(`/api/onboarding/cases/${CASE_A}/documents`)) return json([historical, recovered]);
       if (url.endsWith(`/api/onboarding/cases/${CASE_A}/ownership`)) return unavailable();
       return unavailable();
     });
     const queryClient = testClient();
-    queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A), refreshedSummary);
+    queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A), {
+      ...caseDetailFixture(CASE_A, "CASE A"), status: "PENDING_INPUTS" as const,
+    });
     queryClient.setQueryData(caseQueryKeys.documents(relationshipActor.user_id, CASE_A), [failed]);
     queryClient.setQueryData(caseQueryKeys.ownership(relationshipActor.user_id, CASE_A), null);
     queryClient.setQueryData(caseQueryKeys.intelligence(relationshipActor.user_id, CASE_A), null);
@@ -1169,6 +1183,13 @@ describe("Phase 15C case-bound action lifetime", () => {
     expect(posts).toHaveLength(1);
     expect(String(posts[0][0])).toContain(`/intake/documents/${failed.document_id}/retry`);
     expect(request.mock.calls.filter(([, init]) => !init?.method || init.method === "GET")).toHaveLength(4);
+    if (outcome === "continuation-failed") {
+      expect(container?.textContent).toContain("The outcome could not be confirmed. Current case evidence was reloaded");
+      expect(queryClient.getQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A)))
+        .toEqual(refreshedSummary);
+      expect(container?.querySelector(".document-card .document-upload-input")).toBeNull();
+      expect(request.mock.calls.filter(([url]) => String(url).endsWith("/resume"))).toHaveLength(0);
+    }
   });
 
   it("locks mutations after review success plus refresh failure and exposes only read-only refresh recovery", async () => {

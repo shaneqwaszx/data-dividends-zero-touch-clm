@@ -1583,7 +1583,7 @@ def test_interrupted_current_document_recovers_automation_to_targeted_retry(
 
 def test_multiple_interrupted_documents_require_individual_targeted_retries() -> None:
     store = MemoryEnvelopeStore()
-    with TestClient(_durable_adapter_app(store)) as first:  # type: ignore[arg-type]
+    with TestClient(_durable_adapter_app(store, require_confirmation=True)) as first:  # type: ignore[arg-type]
         created = first.post("/api/clm/zero-touch/cases", json={"uen": "202400001A"})
         assert created.status_code == 201
         case_id = UUID(created.json()["case"]["case_id"])
@@ -1644,7 +1644,7 @@ def test_multiple_interrupted_documents_require_individual_targeted_retries() ->
     store.records[case_id] = codec._recover_interrupted(candidate)  # noqa: SLF001
 
     headers = {"Content-Type": "text/plain", "X-Document-Name": "Retry.txt"}
-    with TestClient(_durable_adapter_app(store)) as second:  # type: ignore[arg-type]
+    with TestClient(_durable_adapter_app(store, require_confirmation=True)) as second:  # type: ignore[arg-type]
         unrelated = second.post(
             f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
             headers=headers,
@@ -1659,6 +1659,8 @@ def test_multiple_interrupted_documents_require_individual_targeted_retries() ->
             content=TEXT_PROFILE.encode(),
         )
         assert first_retry.status_code == 201
+        pending_retry = second.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        assert pending_retry["status"] == "PENDING_INPUTS"
         still_blocked = second.post(
             f"/api/clm/zero-touch/cases/{case_id}/intake/documents",
             headers=headers,
@@ -1683,7 +1685,10 @@ def test_multiple_interrupted_documents_require_individual_targeted_retries() ->
     preserved = next(item for item in records if item["document_id"] == str(preserved_id))
     assert preserved["superseded_by_document_id"] is None
     assert len(preserved["events"]) == preserved_event_count
-    assert automation.json()["status"] == "PENDING_INPUTS"
+    assert automation.json()["status"] == "WAITING_FOR_REVIEW"
+    assert automation.json()["current_stage"] == "READINESS"
+    assert automation.json()["case"]["target_dispatch_confirmation"] is None
+    assert automation.json()["case"]["goldtier_result"] is None
     assert automation.json()["case"]["case_id"] == str(case_id)
 
 

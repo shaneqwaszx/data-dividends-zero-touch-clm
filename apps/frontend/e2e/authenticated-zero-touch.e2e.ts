@@ -1093,7 +1093,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   }));
   const ownershipStructure = page.locator(".s2-ownership-structure");
   await expect(ownershipStructure).not.toHaveAttribute("open", "");
-  await ownershipStructure.getByText("View ownership structure and calculations", { exact: true }).click();
+  const calculations = ownershipStructure.getByText("Technical calculations and retained paths", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
   const candidate = page.locator('[aria-label="Ownership candidates"] button').first();
   await expect(candidate).toBeVisible();
   await candidate.click();

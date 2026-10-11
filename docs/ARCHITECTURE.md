@@ -600,7 +600,11 @@ The case evidence workbench is a presentation layer over those same authorized q
 owners. It renders the minimized registry projection, selects only retained
 backend-authored ownership candidates/paths, and explains typed workflow/readiness/
 exception/target state. Ownership selection is local and remounts across actor, case,
-or analysis identity; it performs no arithmetic, graph reconstruction, provider/cache
+or analysis identity. The bounded hierarchy arranges retained relationships, preserves
+repeated-holder paths, stops cycles and labels unlinked/limited evidence. It uses only
+backend-retained percentages/classifications; uncalculated intermediate values remain
+explicitly unavailable. The same read-only provisional candidate summary is rendered
+in Ownership and Final Review. Selection performs no arithmetic, inferred relationships, provider/cache
 read, API lookup, target replay, mutation, or browser persistence. Evidence-focus
 controls use fixed stage/code-to-section mappings rather than matching names,
 timestamps, or timeline prose. Unknown typed values and missing evidence remain visibly
