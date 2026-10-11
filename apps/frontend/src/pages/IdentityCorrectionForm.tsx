@@ -27,6 +27,8 @@ export default function IdentityCorrectionForm({
   documentCandidates?: Array<{ uen: string; documentId: string; eventCount: number }>;
 }) {
   const initial = onboardingCase.initial_identity;
+  const originalUen = onboardingCase.identity_corrections?.[0]?.previous_identity?.registration_number
+    ?? onboardingCase.requested_uen;
   const [legalName, setLegalName] = useState(initial?.legal_name ?? "");
   const [registrationNumber, setRegistrationNumber] = useState(
     initial?.registration_number ?? onboardingCase.requested_uen ?? "",
@@ -63,13 +65,17 @@ export default function IdentityCorrectionForm({
     <section className="identity-correction" aria-labelledby="identity-correction-title">
       <p className="card-kicker">Corrective action · same case</p>
       <h2 id="identity-correction-title">{registryRecovery ? "Registry identity" : "Complete company details"}</h2>
+      {registryRecovery && <>
+        <p>Original entered UEN: <strong>{originalUen}</strong></p>
+        {originalUen !== onboardingCase.requested_uen && <p>Current corrected UEN: <strong>{onboardingCase.requested_uen}</strong></p>}
+      </>}
       {registryRecovery && onboardingCase.error &&
         (onboardingCase.error.code.startsWith("ACRA_") ||
          onboardingCase.error.code.startsWith("REGISTRY_")) &&
         <p role="status">Registry verification could not verify this UEN.</p>}
       {registryRecovery && documentCandidates.length > 0 && <section aria-label="UEN identity choices">
         <h3>Entity identity requires confirmation</h3>
-        <p>Entered UEN: <strong>{onboardingCase.requested_uen}</strong></p>
+        <p>Use the current entered identity: <strong>{onboardingCase.requested_uen}</strong></p>
         <button type="button" className="btn btn-secondary" disabled={disabled || !legalNameValue} onClick={() => choose(onboardingCase.requested_uen, "ENTERED")}>Use entered UEN</button>
         {documentCandidates.map((candidate) => <div key={candidate.documentId}>
           <p>Document-detected UEN: <strong>{candidate.uen}</strong></p>

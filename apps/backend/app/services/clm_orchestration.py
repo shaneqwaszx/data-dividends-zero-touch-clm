@@ -330,6 +330,8 @@ class ClmOrchestrationService:
                 code=(
                     "GOLDTIER_SEARCH_RECHECK_COMPLETED"
                     if status == GoldTierSearchCheckpointStatus.COMPLETED
+                    else "GT_SEARCH_IDENTITY_REVIEW_REQUIRED"
+                    if status == GoldTierSearchCheckpointStatus.REVIEW_REQUIRED
                     else search.provider_outcome
                 ),
                 message="Authorized read-only GoldTier Search recheck was retained.",

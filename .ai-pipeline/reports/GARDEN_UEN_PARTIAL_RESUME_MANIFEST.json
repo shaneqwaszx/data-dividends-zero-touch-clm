@@ -1,0 +1,87 @@
+{
+  "branch": "fix/garden-uen-partial-resume",
+  "base_sha": "40c530dde5edc0c714beae764fc760c741a5fdbf",
+  "content_sha256": "c951c08a93c0d98024c1184e76fd955d05528056a9d313f493dc5d19d1728880",
+  "paths": [
+    {
+      "path": ".ai-pipeline/001_planner/GARDEN_UEN_PARTIAL_RESUME_PLAN.md",
+      "size": 4659,
+      "sha256": "69fb0cd5a59311fb27c3fa59fa177905b05c9337628c226f4616c6ad947b37c8"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "size": 6748,
+      "sha256": "808a4bb3950db7690a6fd3bf7803f66fc91e90ba8719ec4f35c335881949b7f1"
+    },
+    {
+      "path": "apps/backend/app/services/clm_orchestration.py",
+      "size": 81664,
+      "sha256": "0154808aa349087b6b4aea6055583ac237c1fa285568939b4de28fbdf7f75d97"
+    },
+    {
+      "path": "apps/backend/app/services/onboarding.py",
+      "size": 221818,
+      "sha256": "0c3c90f4d1d6c5f2ebf2ee73531008ef7a17e20345dfb0cba4b190f6910f0390"
+    },
+    {
+      "path": "apps/backend/tests/test_garden_uen_partial_resume.py",
+      "size": 10844,
+      "sha256": "06ac92c8d4e8a7e9a373aeecf66dfce3230d0ef23b78a0e66c8414ee86fdaf9a"
+    },
+    {
+      "path": "apps/backend/tests/test_garden_uen_partial_resume_real_mongo.py",
+      "size": 2561,
+      "sha256": "853ea35de56e3a36822bf76f05d1cd5634ff6231add9334c65d81a41c31df20f"
+    },
+    {
+      "path": "apps/frontend/e2e/garden-uen-partial-resume.e2e.ts",
+      "size": 5790,
+      "sha256": "45b752eff0fde323d97d9e19fea37e7236d37a4293a46659cbe16d7e912c96e0"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseDetail.tsx",
+      "size": 78695,
+      "sha256": "500220de77a5d77b57e867048b3517dc3c25b2d6aaaae890f9dc06aa03d090e4"
+    },
+    {
+      "path": "apps/frontend/src/pages/IdentityCorrectionForm.test.tsx",
+      "size": 8168,
+      "sha256": "cf26212aef9a1e0da1deba7f35eb203a135a553029504571494b982c8f288394"
+    },
+    {
+      "path": "apps/frontend/src/pages/IdentityCorrectionForm.tsx",
+      "size": 6914,
+      "sha256": "5827c0b94ea28dcf0ccacde88d6052d3957af6a6bc90da11efa1dadf1082dfeb"
+    },
+    {
+      "path": "docs/integration/GARDEN_UEN_PARTIAL_RESUME.md",
+      "size": 2885,
+      "sha256": "a9ab1e49a05ed85ed8e892e586244f3331e1d98659107dde1dc25a898fd11403"
+    },
+    {
+      "path": "scripts/e2e_backend_server.py",
+      "size": 19171,
+      "sha256": "11daccf7167d2ebd25e546accd80f45d05586b3d184fecbbae2ddf00527af3af"
+    },
+    {
+      "path": "scripts/run_physical_mongo_tests.py",
+      "size": 8279,
+      "sha256": "d77a561e7ccdef4a634a7781cfe70461eeab480f1ed4c87cd45109aebbe6103f"
+    },
+    {
+      "path": "scripts/slice_b_registry_fixture.py",
+      "size": 5373,
+      "sha256": "42bd6f7b2cdb5ff605711aa3e18710576d54a010a951d66d44923fac84406dbc"
+    },
+    {
+      "path": "tests/test_run_e2e.py",
+      "size": 50538,
+      "sha256": "4af73113417c2f0582bcf02d8e2c189fbc9383fdeb19930e3acb6f2235c1256d"
+    }
+  ],
+  "exclusions": [
+    ".ai-pipeline/reports/GARDEN_UEN_PARTIAL_RESUME_MANIFEST.json",
+    ".ai-pipeline/reports/GARDEN_UEN_PARTIAL_RESUME_QUALITY_GATE.md",
+    ".ai-pipeline/reports/GARDEN_UEN_PARTIAL_RESUME_IMPLEMENTATION.md"
+  ]
+}

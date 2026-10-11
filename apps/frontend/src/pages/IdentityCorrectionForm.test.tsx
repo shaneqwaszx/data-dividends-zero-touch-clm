@@ -49,6 +49,23 @@ function enter(input: HTMLInputElement, value: string): void {
 }
 
 describe("IdentityCorrectionForm", () => {
+  it("distinguishes original and corrected Garden UEN and selects the current entered identity", () => {
+    const { view, onSubmit } = render(vi.fn(), {
+      registryRecovery: true,
+      onboardingCase: {
+        ...onboardingCase,
+        requested_uen: "11111999A",
+        initial_identity: { legal_name: "GARDEN BUSINESS", registration_number: "11111999A", country_of_incorporation: "SG" },
+        identity_corrections: [{ previous_identity: { registration_number: "11111998B" }, corrected_identity: { registration_number: "11111999A" } }],
+      } as unknown as OnboardingCase,
+      documentCandidates: [{ uen: "11111997C", documentId: "garden-doc", eventCount: 8 }],
+    });
+    expect(view.textContent).toContain("Original entered UEN: 11111998B");
+    expect(view.textContent).toContain("Current corrected UEN: 11111999A");
+    expect(view.textContent).toContain("Document-detected UEN: 11111997C");
+    act(() => Array.from(view.querySelectorAll("button")).find((item) => item.textContent === "Use entered UEN")!.click());
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ registration_number: "11111999A", choice: "ENTERED" }));
+  });
   it("rejects an invalid UEN inline without submitting an identity mutation", () => {
     const { view, onSubmit } = render();
     act(() => { enter(view.querySelector("#identity-registration-number") as HTMLInputElement, "NOT-A-UEN"); });

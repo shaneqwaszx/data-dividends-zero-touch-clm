@@ -1027,7 +1027,7 @@ export default function CaseDetail({
       discrepancy.observations.some((observation) => observation.source_kind === "DOCUMENT_IDP" &&
         observation.validity === "VALID" && observation.normalized_value === uen &&
         (!observation.document_id || observation.document_id === item.document_id)));
-    return unresolved && uen && uen !== summary.case.requested_uen && field?.review_status !== "REJECTED"
+    return (unresolved || !summary.case.registry_acquisition) && uen && uen !== summary.case.requested_uen && field?.review_status !== "REJECTED"
       ? [{ uen, documentId: item.document_id, eventCount: item.events.length }] : [];
   });
   const identityConflict = identityEditable && documentUenCandidates.length > 0;
