@@ -1,0 +1,153 @@
+{
+  "verdict": "STOPPED / NOT READY FOR HUMAN MERGE",
+  "recorded_utc": "2026-10-10T11:18:49.531956+00:00",
+  "owner_authority_sha256": "94c2315b283531f51f7816fe9bdeeca636758d522e4f66f895f9ce1cde644448",
+  "branch": "feat/blocker-resolution-idp-ux-optimization",
+  "head_sha": "973ce93a21ef7ca1cda1a2458f316b8030b96b12",
+  "published_tree": "2459d685b291e7233677001dd7872f095261f2a9",
+  "origin_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "new_commit_sha": null,
+  "new_publication_tree": null,
+  "unaccepted_remediation_source_count": 8,
+  "unaccepted_remediation_source_sha256": "fcddc61073095c8fcc2b09051ae626581499b02fa608d22ca144fcc8fc0bcc38",
+  "identity_method": "SHA256 of UTF-8 sorted-entry JSON, sort_keys=true, separators=comma/colon; raw file sizes and SHA256",
+  "source_files": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "bytes": 6747,
+      "sha256": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7"
+    },
+    {
+      "path": "apps/backend/app/main.py",
+      "bytes": 144232,
+      "sha256": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904"
+    },
+    {
+      "path": "apps/backend/app/services/reconciliation.py",
+      "bytes": 31227,
+      "sha256": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "bytes": 200469,
+      "sha256": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9"
+    },
+    {
+      "path": "apps/backend/tests/test_batch_review_decisions.py",
+      "bytes": 20925,
+      "sha256": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48"
+    },
+    {
+      "path": "apps/backend/tests/test_batch_review_real_mongo.py",
+      "bytes": 10515,
+      "sha256": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd"
+    },
+    {
+      "path": "apps/backend/tests/test_phase14_case_management_performance.py",
+      "bytes": 34249,
+      "sha256": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-b-registry-demo.e2e.ts",
+      "bytes": 13227,
+      "sha256": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f"
+    }
+  ],
+  "historical_reports_unchanged": 785,
+  "progress_file": "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
+  "progress_sha256": "552b5d8bcc78851608af892997254921fb2e8402bf3008973883c5840321074b",
+  "new_blocker": {
+    "test": "test_reset_restarts_and_clears_process_local_case",
+    "file": "tests/test_demo_lifecycle_windows.py",
+    "line": 2214,
+    "helper_line": 1590,
+    "deadline_ms": 5000,
+    "probe_elapsed_ms": 9234,
+    "remaining_budget_ms": -4234,
+    "http_status": 200,
+    "headers_completed": true,
+    "body_completed": true,
+    "classification": "deadline_overrun",
+    "underlying_classification": "healthy",
+    "root_cause": "UNRESOLVED",
+    "resource_contention": "UNTESTED HYPOTHESIS",
+    "log_sha256": "0aa97c1f90c66c3f8f47900243d57c2c9c77cab2ff1a0b55ad1c1e2e0b66c63d",
+    "passed": 30,
+    "failed": 1,
+    "executed": 31,
+    "seconds": 439.865
+  },
+  "observed_pass": {
+    "initial_fresh_windows_lifecycle": 31,
+    "frontend_tests": 576,
+    "frontend_files": 49,
+    "typecheck": true,
+    "build": true,
+    "physical_mongo_tests": 145,
+    "physical_suites": 23,
+    "physical_skips": 0,
+    "focused_owning_tests_before_later_version_guard": 76,
+    "focused_reconciliation_batch_tests_after_guard": 47,
+    "corrected_controlled_browser_tests": 1,
+    "navigation_mutations": 0,
+    "ruff": true,
+    "mypy_source_files": 127,
+    "dependency_integrity": true
+  },
+  "cancelled_or_unverified": [
+    "full backend final result",
+    "corrected root governance final result",
+    "complete browser shard 1",
+    "browser shard 2",
+    "89 lifecycle / 112 test total",
+    "all eight sponsor journeys",
+    "separate canonical contracts"
+  ],
+  "browser_completed_lifecycles_last_observed": 33,
+  "fresh_independent_gate": "NOT RUN",
+  "pre_pr": "NOT RUN",
+  "push_run": {
+    "id": 38043104062,
+    "head_sha": "973ce93a21ef7ca1cda1a2458f316b8030b96b12",
+    "success": 5,
+    "failure": 4
+  },
+  "pr_run": {
+    "id": 38043119154,
+    "head_sha": "973ce93a21ef7ca1cda1a2458f316b8030b96b12",
+    "success": 5,
+    "failure": 4
+  },
+  "revised_ci_dispatched": false,
+  "pr": {
+    "number": 81,
+    "state": "OPEN",
+    "mergeable": "MERGEABLE",
+    "merge_state": "BLOCKED",
+    "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/pull/81"
+  },
+  "p2_thread": {
+    "id": "PRRT_kwDOTzXN-86rDEUB",
+    "comment": 4237256422,
+    "resolved": false,
+    "outdated": false,
+    "local_correction_independently_accepted": false
+  },
+  "repair_cycles_unsuccessful": {
+    "windows_checkout": 0,
+    "backend_race": 0,
+    "browser": 0,
+    "group_retry": 1,
+    "new_windows_deadline": 0
+  },
+  "cleanup": {
+    "owned_verification_trees_stopped": true,
+    "owned_processes_remaining_after_audit": 0,
+    "assigned_ports_listening_after_audit": 0,
+    "owned_mongo_container": "clm-pr81-remediation-20261010",
+    "mongo_container_disposition": "STOPPED / RETAINED",
+    "ignored_launcher_metadata": "RETAINED FOR AUDIT; recorded processes no longer running",
+    "unowned_resources_modified": false
+  },
+  "next_action": "Owner reassessment of new deadline failure and risk applicability; no automatic continuation"
+}

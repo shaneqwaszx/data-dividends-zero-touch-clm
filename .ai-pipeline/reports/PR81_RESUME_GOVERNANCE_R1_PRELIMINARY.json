@@ -1,0 +1,82 @@
+{
+  "utc": "2026-10-11T10:59:34.627309+00:00",
+  "draft_affected_units": {
+    "tests": 75,
+    "verdict": "PASS",
+    "exit_code": 0,
+    "source38": "e03431336d8260366c111d9c83065eb0052e537819b371df119d4d5a50158e3d",
+    "local_log": "tmp/pr81-resume-governance-r1-unit.log",
+    "log_sha256": "a0ec9c303437a74c4a537f7aa975e3f1d57985fba63019c7d21a4d0ccfc8f41f"
+  },
+  "extra_backend_rule_probes": [
+    {
+      "name": "additional_backend_rules_before",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "--no-cache",
+        "--config",
+        "apps/backend/pyproject.toml",
+        "--output-format",
+        "json",
+        "tmp/pr81-resume-governance-r1-before/pre_pr_check.py",
+        "tmp/pr81-resume-governance-r1-before/test_pre_pr_check.py"
+      ],
+      "exit_code": 1,
+      "findings": [
+        {
+          "path": "tmp/pr81-resume-governance-r1-before/pre_pr_check.py",
+          "line": 725,
+          "rule": "E501"
+        },
+        {
+          "path": "tmp/pr81-resume-governance-r1-before/test_pre_pr_check.py",
+          "line": 182,
+          "rule": "E501"
+        }
+      ]
+    },
+    {
+      "name": "additional_backend_rules_current",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "--no-cache",
+        "--config",
+        "apps/backend/pyproject.toml",
+        "--output-format",
+        "json",
+        "scripts/pre_pr_check.py",
+        "tests/test_pre_pr_check.py"
+      ],
+      "exit_code": 1,
+      "findings": [
+        {
+          "path": "scripts/pre_pr_check.py",
+          "line": 733,
+          "rule": "E501"
+        },
+        {
+          "path": "tests/test_pre_pr_check.py",
+          "line": 283,
+          "rule": "E501"
+        }
+      ]
+    }
+  ],
+  "initial_root_ruff_new_test_finding": {
+    "rule": "PLW1510",
+    "location": "new exact-archive positive test subprocess.run",
+    "verdict": "FAIL at draft; check=False now explicitly preserves intended nonraising subprocess behavior",
+    "original_native_exit_unrecorded": true
+  },
+  "final_affected_checks": "separately recorded at exact final source38; no historical/app fixture rerun",
+  "unrelated_formatting": false,
+  "ignored_rule_flags": false
+}

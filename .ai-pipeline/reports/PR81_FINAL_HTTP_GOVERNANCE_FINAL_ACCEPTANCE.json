@@ -1,0 +1,156 @@
+{
+  "lane": "governance",
+  "source27": "916d57b043be8a5d29e85992b9df9cb2dbdab855fa909e776208391ad934dcab",
+  "started_utc": "2026-10-11T09:26:10.799763+00:00",
+  "commands": [
+    {
+      "name": "root",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-c",
+        "from phase13_test_settings import enforce_ordinary_test_environment; enforce_ordinary_test_environment(); from phase13_test_credentials import provision_test_hash_environment; provision_test_hash_environment(); import unittest; result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.discover('tests')); raise SystemExit(not result.wasSuccessful())"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit_code": 0,
+      "seconds": 478.422,
+      "safe_summary": [
+        "Ran 374 tests in 476.450s",
+        "OK"
+      ],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "fixture_routing",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-c",
+        "from phase13_test_settings import enforce_ordinary_test_environment; enforce_ordinary_test_environment(); from phase13_test_credentials import provision_test_hash_environment; provision_test_hash_environment(); import pytest; raise SystemExit(pytest.main(['tests/test_slice_c_e2e_fixture_routing.py','-q','-p','no:cacheprovider','--tb=no']))"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit_code": 0,
+      "seconds": 6.829,
+      "safe_summary": [
+        "16 passed, 1 warning in 5.98s"
+      ],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "contracts",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-c",
+        "from phase13_test_settings import enforce_ordinary_test_environment; enforce_ordinary_test_environment(); from phase13_test_credentials import provision_test_hash_environment; provision_test_hash_environment(); import unittest; result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.discover('tests/contract',pattern='test_*.py')); raise SystemExit(not result.wasSuccessful())"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit_code": 0,
+      "seconds": 2.812,
+      "safe_summary": [
+        "Ran 44 tests in 1.186s",
+        "OK"
+      ],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "project_state",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_project_state.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit_code": 0,
+      "seconds": 0.25,
+      "safe_summary": [],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "architecture",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_architecture.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit_code": 0,
+      "seconds": 0.437,
+      "safe_summary": [],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "tooling_config",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_tooling_config.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit_code": 0,
+      "seconds": 0.078,
+      "safe_summary": [
+        "TOOLING_CONFIG=PASS: exact optional Docs and disabled cluster MCP policy"
+      ],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "policy_authority",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_policy_authority.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit_code": 0,
+      "seconds": 0.094,
+      "safe_summary": [],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "external_provider_readiness",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_external_provider_readiness.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit_code": 0,
+      "seconds": 0.078,
+      "safe_summary": [],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "secrets",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_secrets.py"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit_code": 0,
+      "seconds": 3.391,
+      "safe_summary": [
+        "Secret scan passed: no supported secret patterns found."
+      ],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "examples",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/validate_goldtier_examples.py",
+        "--if-present"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+      "exit_code": 0,
+      "seconds": 0.109,
+      "safe_summary": [],
+      "failed_test_identifiers": []
+    }
+  ],
+  "retries": 0,
+  "success": true,
+  "finished_utc": "2026-10-11T09:34:23.366637+00:00"
+}

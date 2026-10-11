@@ -1,0 +1,1812 @@
+[
+  {
+    "sample": 0,
+    "mode": "baseline",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 976,
+    "confirmation_ms": 0,
+    "total_ms": 976,
+    "choice_ms": [
+      246,
+      232,
+      250,
+      248
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents/77fc7002-a44c-40c4-94ae-7d056e168c73/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents/77fc7002-a44c-40c4-94ae-7d056e168c73/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents/77fc7002-a44c-40c4-94ae-7d056e168c73/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents/77fc7002-a44c-40c4-94ae-7d056e168c73/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/intelligence"
+      }
+    ],
+    "selection_requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents/77fc7002-a44c-40c4-94ae-7d056e168c73/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents/77fc7002-a44c-40c4-94ae-7d056e168c73/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents/77fc7002-a44c-40c4-94ae-7d056e168c73/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents/77fc7002-a44c-40c4-94ae-7d056e168c73/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/f9dff702-3bc5-46f8-aa42-069a4c086041/intelligence"
+      }
+    ]
+  },
+  {
+    "sample": 1,
+    "mode": "baseline",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 968,
+    "confirmation_ms": 0,
+    "total_ms": 968,
+    "choice_ms": [
+      222,
+      230,
+      251,
+      265
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents/2a75a323-5d1a-4b54-bd0f-d01da09d46ad/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents/2a75a323-5d1a-4b54-bd0f-d01da09d46ad/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents/2a75a323-5d1a-4b54-bd0f-d01da09d46ad/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents/2a75a323-5d1a-4b54-bd0f-d01da09d46ad/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/intelligence"
+      }
+    ],
+    "selection_requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents/2a75a323-5d1a-4b54-bd0f-d01da09d46ad/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents/2a75a323-5d1a-4b54-bd0f-d01da09d46ad/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents/2a75a323-5d1a-4b54-bd0f-d01da09d46ad/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents/2a75a323-5d1a-4b54-bd0f-d01da09d46ad/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7beffbb5-1768-4049-b6c3-475dcd5a72c0/intelligence"
+      }
+    ]
+  },
+  {
+    "sample": 2,
+    "mode": "baseline",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 970,
+    "confirmation_ms": 0,
+    "total_ms": 970,
+    "choice_ms": [
+      225,
+      247,
+      248,
+      250
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents/4f97ec0d-00a2-4739-8958-93a0030ad55c/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents/4f97ec0d-00a2-4739-8958-93a0030ad55c/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents/4f97ec0d-00a2-4739-8958-93a0030ad55c/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents/4f97ec0d-00a2-4739-8958-93a0030ad55c/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/intelligence"
+      }
+    ],
+    "selection_requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents/4f97ec0d-00a2-4739-8958-93a0030ad55c/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents/4f97ec0d-00a2-4739-8958-93a0030ad55c/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents/4f97ec0d-00a2-4739-8958-93a0030ad55c/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents/4f97ec0d-00a2-4739-8958-93a0030ad55c/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/fb86c6a6-3530-4b2b-b74f-e3c9af75a1b2/intelligence"
+      }
+    ]
+  },
+  {
+    "sample": 3,
+    "mode": "baseline",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 956,
+    "confirmation_ms": 0,
+    "total_ms": 956,
+    "choice_ms": [
+      234,
+      244,
+      229,
+      249
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents/4121b6ab-bd82-42b8-8df1-5c4bd63427c8/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents/4121b6ab-bd82-42b8-8df1-5c4bd63427c8/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents/4121b6ab-bd82-42b8-8df1-5c4bd63427c8/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents/4121b6ab-bd82-42b8-8df1-5c4bd63427c8/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/intelligence"
+      }
+    ],
+    "selection_requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents/4121b6ab-bd82-42b8-8df1-5c4bd63427c8/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents/4121b6ab-bd82-42b8-8df1-5c4bd63427c8/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents/4121b6ab-bd82-42b8-8df1-5c4bd63427c8/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents/4121b6ab-bd82-42b8-8df1-5c4bd63427c8/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7e9f7cfd-5126-4227-9dc5-e2763c42ddb8/intelligence"
+      }
+    ]
+  },
+  {
+    "sample": 4,
+    "mode": "baseline",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 952,
+    "confirmation_ms": 0,
+    "total_ms": 952,
+    "choice_ms": [
+      222,
+      263,
+      233,
+      234
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents/211ac16f-8771-4159-978e-4fad58898e2e/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents/211ac16f-8771-4159-978e-4fad58898e2e/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents/211ac16f-8771-4159-978e-4fad58898e2e/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents/211ac16f-8771-4159-978e-4fad58898e2e/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/intelligence"
+      }
+    ],
+    "selection_requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents/211ac16f-8771-4159-978e-4fad58898e2e/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents/211ac16f-8771-4159-978e-4fad58898e2e/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents/211ac16f-8771-4159-978e-4fad58898e2e/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents/211ac16f-8771-4159-978e-4fad58898e2e/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/50550431-92f1-40e7-9acb-af2ea19f4e13/intelligence"
+      }
+    ]
+  },
+  {
+    "sample": 5,
+    "mode": "baseline",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 940,
+    "confirmation_ms": 0,
+    "total_ms": 940,
+    "choice_ms": [
+      222,
+      217,
+      235,
+      266
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents/4b236463-72f5-4c65-a0e9-f08bbb58414f/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents/4b236463-72f5-4c65-a0e9-f08bbb58414f/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents/4b236463-72f5-4c65-a0e9-f08bbb58414f/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents/4b236463-72f5-4c65-a0e9-f08bbb58414f/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/intelligence"
+      }
+    ],
+    "selection_requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents/4b236463-72f5-4c65-a0e9-f08bbb58414f/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents/4b236463-72f5-4c65-a0e9-f08bbb58414f/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents/4b236463-72f5-4c65-a0e9-f08bbb58414f/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents/4b236463-72f5-4c65-a0e9-f08bbb58414f/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/de290d55-4dd8-47cb-8b15-bcd604312dde/intelligence"
+      }
+    ]
+  },
+  {
+    "sample": 6,
+    "mode": "baseline",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 940,
+    "confirmation_ms": 0,
+    "total_ms": 940,
+    "choice_ms": [
+      209,
+      233,
+      233,
+      265
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents/42342244-89e3-4975-883c-122fa52419f7/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents/42342244-89e3-4975-883c-122fa52419f7/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents/42342244-89e3-4975-883c-122fa52419f7/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents/42342244-89e3-4975-883c-122fa52419f7/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/intelligence"
+      }
+    ],
+    "selection_requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents/42342244-89e3-4975-883c-122fa52419f7/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents/42342244-89e3-4975-883c-122fa52419f7/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents/42342244-89e3-4975-883c-122fa52419f7/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents/42342244-89e3-4975-883c-122fa52419f7/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ed7688b9-ea13-4e40-a706-a2dc6a0816bd/intelligence"
+      }
+    ]
+  },
+  {
+    "sample": 7,
+    "mode": "baseline",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 941,
+    "confirmation_ms": 0,
+    "total_ms": 941,
+    "choice_ms": [
+      239,
+      235,
+      233,
+      234
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents/e6a2f437-512e-45a9-bc5c-99951f1024c2/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents/e6a2f437-512e-45a9-bc5c-99951f1024c2/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents/e6a2f437-512e-45a9-bc5c-99951f1024c2/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents/e6a2f437-512e-45a9-bc5c-99951f1024c2/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/intelligence"
+      }
+    ],
+    "selection_requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents/e6a2f437-512e-45a9-bc5c-99951f1024c2/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents/e6a2f437-512e-45a9-bc5c-99951f1024c2/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents/e6a2f437-512e-45a9-bc5c-99951f1024c2/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents/e6a2f437-512e-45a9-bc5c-99951f1024c2/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/ac5f17a1-8abd-426f-a4d1-d96d5b1c1acd/intelligence"
+      }
+    ]
+  },
+  {
+    "sample": 8,
+    "mode": "baseline",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 958,
+    "confirmation_ms": 0,
+    "total_ms": 958,
+    "choice_ms": [
+      213,
+      233,
+      247,
+      265
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents/1368d698-47ee-4480-992d-98b5ed92af69/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents/1368d698-47ee-4480-992d-98b5ed92af69/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents/1368d698-47ee-4480-992d-98b5ed92af69/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents/1368d698-47ee-4480-992d-98b5ed92af69/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d/intelligence"
+      }
+    ],
+    "selection_requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents/1368d698-47ee-4480-992d-98b5ed92af69/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents/1368d698-47ee-4480-992d-98b5ed92af69/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents/1368d698-47ee-4480-992d-98b5ed92af69/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents/1368d698-47ee-4480-992d-98b5ed92af69/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/e65cef97-cdf8-4515-b520-0f885353716d/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/e65cef97-cdf8-4515-b520-0f885353716d/intelligence"
+      }
+    ]
+  },
+  {
+    "sample": 9,
+    "mode": "baseline",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "selection_ms": 924,
+    "confirmation_ms": 0,
+    "total_ms": 924,
+    "choice_ms": [
+      221,
+      252,
+      221,
+      230
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents/6a3faa19-754b-45a2-9e66-f87b9608a190/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents/6a3faa19-754b-45a2-9e66-f87b9608a190/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents/6a3faa19-754b-45a2-9e66-f87b9608a190/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents/6a3faa19-754b-45a2-9e66-f87b9608a190/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/intelligence"
+      }
+    ],
+    "selection_requests": [
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents/6a3faa19-754b-45a2-9e66-f87b9608a190/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents/6a3faa19-754b-45a2-9e66-f87b9608a190/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents/6a3faa19-754b-45a2-9e66-f87b9608a190/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/intelligence"
+      },
+      {
+        "method": "POST",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents/6a3faa19-754b-45a2-9e66-f87b9608a190/reviews"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/onboarding/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/ownership"
+      },
+      {
+        "method": "GET",
+        "path": "/api/clm/zero-touch/cases/7d4314ce-b2d9-43dc-ae77-9595106cc994/intelligence"
+      }
+    ]
+  }
+]

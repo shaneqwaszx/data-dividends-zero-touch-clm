@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
-import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
+import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 import type { TargetStatusCheckResult } from "../src/api";
 import type { ZeroTouchCaseSummary } from "../src/types";
-import { openStage } from "./stage-disclosures";
+import { focusPipelineAction, openStage } from "./stage-disclosures";
+import { reviewPendingFields } from "./blocker-decisions";
 
 const syntheticName = "ZERO TOUCH POC ACCEPTANCE TESTS3";
 const syntheticUen = "202698765Z";
@@ -71,12 +72,7 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
   recoveryMilestone("RECOVERY_DOCUMENT_VISIBLE");
   if (existing) {
     await openStage(page, "Document verification");
-    const decision = page.waitForResponse((response) => response.request().method() === "POST"
-      && response.url().endsWith("/reviews"));
-    await page.getByRole("button", { name: "Record legal name correction", exact: true }).click();
-    await page.getByLabel("Correction", { exact: true }).fill(syntheticName);
-    await page.getByRole("button", { name: "Save legal name correction", exact: true }).click();
-    expect((await decision).status()).toBe(200);
+    await reviewPendingFields(page, { legal_name: syntheticName });
     await expect.poll(async () => (await readSummary(page, caseId)).current_stage)
       .toBe("GOLDTIER_SEARCH");
     await openStage(page, "Registry verification");
@@ -263,6 +259,7 @@ async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
   await switchUser(page, "olivia-koh", caseId);
   const check = panel.getByRole("button", { name: "Check GoldTier status", exact: true });
   await expect(check).toBeEnabled();
+  await focusPipelineAction(page, "GOLDTIER_TARGET", check);
   await page.route("**/target-status-check", async (route) => {
     const response = await route.fetch();
     const observation = await response.json();
@@ -316,7 +313,7 @@ async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
   await expect(page.locator("#target-continuation-title")).toBeFocused();
   await expect(page.locator("#target-continuation-title")).toBeInViewport({ ratio: 1 });
   await expect(page.getByRole("region", { name: "Verified work is saved", exact: true })).toContainText("Continue the same submission");
-  await page.screenshot({ path: path.resolve("../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS", `retained-${operation}.png`) });
+  await page.screenshot({ path: retainedEvidencePath("goldtier-recovery", `retained-${operation}.png`) });
   await page.reload();
   await expect(resume).toBeVisible();
   await resume.click();
@@ -384,7 +381,7 @@ async function runLostConfirmationResponse(
     await expect(page.getByRole("button", { name: "Verify submission outcome", exact: true })).toBeDisabled();
     await expect(page.getByRole("alert")).toHaveCount(0);
     recoveryMilestone(`LOST_${loss}_SCREENSHOT_START`);
-    await page.screenshot({ path: path.resolve("../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS", `verifying-${loss}.png`) });
+    await page.screenshot({ path: retainedEvidencePath("goldtier-recovery", `verifying-${loss}.png`) });
     recoveryMilestone(`LOST_${loss}_SCREENSHOT_COMPLETE`);
     releaseObservation();
     await expect(page.locator("#submission-state-title")).toHaveText("Submission confirmed");
@@ -392,7 +389,7 @@ async function runLostConfirmationResponse(
     await expect(page.locator("#submission-state-title")).toBeFocused();
     await expect(page.locator("#submission-state-title")).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toHaveCount(0);
-    await page.screenshot({ path: path.resolve("../../.ai-pipeline/reports/GOLDTIER_RELIABILITY_RECOVERY_UX_UAT_SCREENSHOTS", `confirmed-${loss}.png`) });
+    await page.screenshot({ path: retainedEvidencePath("goldtier-recovery", `confirmed-${loss}.png`) });
   } finally {
     releaseObservation();
     releaseConfirmation();

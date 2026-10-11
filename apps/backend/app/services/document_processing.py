@@ -42,6 +42,10 @@ from app.domain.documents import (
 )
 from app.domain.models import CanonicalLegalEntity, EventOutcome, OnboardingCase, SafeError
 from app.domain.policy import GOLDTIER_CLIENT_SEGMENT_VALUES, GOLDTIER_KYC_CUSTOMER_TYPE_VALUES
+from app.domain.review_decisions import (
+    DocumentDecisionGroup,
+    document_review_source_fingerprint,
+)
 from app.domain.target_classification import (
     AUTO_KYC_TYPES,
     VOCABULARY_VERSION,
@@ -648,8 +652,10 @@ class DocumentProcessingService:
         decision: ReviewDecision,
         corrected_value: str | None,
         note: str | None,
+        record: DocumentProcessingRecord | None = None,
+        persist: bool = True,
     ) -> DocumentProcessingRecord:
-        record = self.get_document(case_id=case_id, document_id=document_id)
+        record = record or self.get_document(case_id=case_id, document_id=document_id)
         if record is None:
             raise DocumentRequestError(
                 code="DOCUMENT_NOT_FOUND",
@@ -720,6 +726,7 @@ class DocumentProcessingService:
             }[decision],
             code=event_type.value,
             field_key=field_key,
+            persist=persist,
         )
 
         if all(item.review_status != FieldReviewStatus.PENDING for item in record.fields):
@@ -732,8 +739,93 @@ class DocumentProcessingService:
                 outcome=EventOutcome.SUCCEEDED,
                 message="All provisional document fields received a human review decision.",
                 code="DOCUMENT_REVIEW_COMPLETED",
+                persist=persist,
             )
         return record.model_copy(deep=True)
+
+    def prepare_review_group(
+        self,
+        *,
+        case_id: UUID,
+        group: DocumentDecisionGroup,
+    ) -> DocumentProcessingRecord:
+        """Validate all choices without writes; unchanged partial receipts can resume."""
+        current = self.get_document(case_id=case_id, document_id=group.document_id)
+        if (
+            current is None
+            or not current.is_current_evidence
+            or document_review_source_fingerprint(current) != group.source_fingerprint
+            or len(current.events) < group.expected_event_count
+        ):
+            raise DocumentRequestError(
+                code="DOCUMENT_REVIEW_STALE",
+                message="Document source evidence changed before review.",
+            )
+        by_key = {item.field_key: item for item in group.decisions}
+        if len(current.events) != group.expected_event_count:
+            # Only receipts from this exact group may appear after its base version.
+            # Replacement, auto-confirm, comparison refresh and other decisions fail closed.
+            allowed_events = {
+                DocumentEventType.DOCUMENT_FIELD_ACCEPTED,
+                DocumentEventType.DOCUMENT_FIELD_REJECTED,
+                DocumentEventType.DOCUMENT_FIELD_CORRECTED,
+                DocumentEventType.DOCUMENT_REVIEW_COMPLETED,
+            }
+            tail = current.events[group.expected_event_count :]
+            if any(
+                event.event_type not in allowed_events
+                or (event.field_key is not None and event.field_key not in by_key)
+                for event in tail
+            ):
+                raise DocumentRequestError(
+                    code="DOCUMENT_REVIEW_STALE",
+                    message="Document review changed before confirmation.",
+                )
+        candidate = current.model_copy(deep=True)
+        for decision in group.decisions:
+            candidate = self._review_field_locked(
+                case_id=case_id,
+                document_id=group.document_id,
+                field_key=decision.field_key,
+                decision=decision.decision,
+                corrected_value=decision.corrected_value,
+                note=decision.note,
+                record=candidate,
+                persist=False,
+            )
+        return DocumentProcessingRecord.model_validate(candidate)
+
+    def retain_review_group(self, *, candidate: DocumentProcessingRecord) -> None:
+        """One section checkpoint per document, called under the canonical case lock."""
+        current = self.get_document(case_id=candidate.case_id, document_id=candidate.document_id)
+        if (
+            current is None
+            or not current.is_current_evidence
+            or document_review_source_fingerprint(current)
+            != document_review_source_fingerprint(candidate)
+            or len(current.events) > len(candidate.events)
+            or current.events != candidate.events[: len(current.events)]
+            or any(
+                field.review_status != FieldReviewStatus.PENDING
+                and field
+                != next(item for item in candidate.fields if item.field_key == field.field_key)
+                for field in current.fields
+            )
+        ):
+            raise DocumentRequestError(
+                code="DOCUMENT_REVIEW_STALE", message="Document evidence is no longer current."
+            )
+        if len(current.events) != len(candidate.events):
+            try:
+                self._repository.save(candidate)
+            except Exception:
+                raise DocumentProcessingInfrastructureError(
+                    case_id=candidate.case_id,
+                    document_id=candidate.document_id,
+                    correlation_id=candidate.correlation_id,
+                    code="DOCUMENT_REVIEW_COMMIT_FAILED",
+                    message="Document decisions could not be retained safely.",
+                ) from None
 
     def assess_auto_clear(self, *, case_id: UUID, document_id: UUID) -> DocumentAutoClearAssessment:
         """Evaluate the shared Phase 05/06 semantic document checkpoint."""
@@ -1113,6 +1205,7 @@ class DocumentProcessingService:
         message: str,
         code: str | None = None,
         field_key: DocumentFieldKey | None = None,
+        persist: bool = True,
     ) -> DocumentProcessingRecord:
         timestamp = self._clock()
         candidate = record.model_copy(deep=True)
@@ -1133,7 +1226,8 @@ class DocumentProcessingService:
                 message=message,
             )
         )
-        self._repository.save(candidate)
+        if persist:
+            self._repository.save(candidate)
         return candidate
 
     def _raise_terminal_failure(

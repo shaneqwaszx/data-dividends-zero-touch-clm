@@ -1,0 +1,270 @@
+{
+  "scope": "Prior observations retained before canonical full browser dispatch; never final candidate PASS evidence",
+  "source27": "916d57b043be8a5d29e85992b9df9cb2dbdab855fa909e776208391ad934dcab",
+  "journeys": {
+    "aurora": {
+      "path": "tmp\\sponsor-demo-browser\\aurora.json",
+      "exists": true,
+      "sha256": "04ff9004fe5d3365bd7f52bc3b3e6642cf090f4bbeb6e3a46a1f810df9986e4f",
+      "mtime_ns": 1791607097536321400,
+      "safe_prior_projection": {
+        "verdict": "PASS",
+        "final_status": "COMPLETED",
+        "submission_state": "SUBMISSION_CONFIRMED",
+        "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+        "real_sandbox_uat": "NOT_VERIFIED",
+        "unauthorized_status": 403,
+        "unauthorized_classification_status": 403,
+        "stale_status": 409,
+        "frozen_replacement_status": 409,
+        "frozen_classification_status": 409,
+        "reopen_mutations": 0,
+        "target_before": {
+          "SEARCH": 1,
+          "SHELL": 0,
+          "POLICY": 0,
+          "AMEND": 0,
+          "READBACK": 0
+        },
+        "target_after": {
+          "SEARCH": 2,
+          "SHELL": 1,
+          "POLICY": 1,
+          "AMEND": 0,
+          "READBACK": 1
+        }
+      }
+    },
+    "straits": {
+      "path": "tmp\\sponsor-demo-browser\\straits.json",
+      "exists": true,
+      "sha256": "badb0fa96b8ae870ef5844c2cfa5f26b451446215c6abcdf1fab1f4e4f1fdbb0",
+      "mtime_ns": 1791606623311754700,
+      "safe_prior_projection": {
+        "verdict": "PASS",
+        "final_status": "COMPLETED",
+        "submission_state": "SUBMISSION_CONFIRMED",
+        "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+        "real_sandbox_uat": "NOT_VERIFIED",
+        "unauthorized_status": 403,
+        "unauthorized_classification_status": 403,
+        "stale_status": 409,
+        "frozen_replacement_status": 409,
+        "frozen_classification_status": 409,
+        "reopen_mutations": 0,
+        "target_before": {
+          "SEARCH": 1,
+          "SHELL": 0,
+          "POLICY": 0,
+          "AMEND": 0,
+          "READBACK": 0
+        },
+        "target_after": {
+          "SEARCH": 2,
+          "SHELL": 1,
+          "POLICY": 1,
+          "AMEND": 0,
+          "READBACK": 1
+        }
+      }
+    },
+    "garden": {
+      "path": "tmp\\sponsor-demo-browser\\garden.json",
+      "exists": true,
+      "sha256": "05934b2eb7db7505e0fe8988ad7a237a51e25eedcae8107611923d4c7f6b9d87",
+      "mtime_ns": 1791606642824973600,
+      "safe_prior_projection": {
+        "verdict": "PASS",
+        "final_status": "COMPLETED",
+        "submission_state": "SUBMISSION_CONFIRMED",
+        "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+        "real_sandbox_uat": "NOT_VERIFIED",
+        "unauthorized_status": 403,
+        "unauthorized_classification_status": 403,
+        "stale_status": 409,
+        "frozen_replacement_status": 409,
+        "frozen_classification_status": 409,
+        "reopen_mutations": 0,
+        "target_before": {
+          "SEARCH": 1,
+          "SHELL": 0,
+          "POLICY": 0,
+          "AMEND": 0,
+          "READBACK": 0
+        },
+        "target_after": {
+          "SEARCH": 2,
+          "SHELL": 1,
+          "POLICY": 1,
+          "AMEND": 0,
+          "READBACK": 1
+        }
+      }
+    },
+    "multiple": {
+      "path": "tmp\\sponsor-demo-browser\\multiple.json",
+      "exists": true,
+      "sha256": "e895f2084af94ed4fec0178964899271aba82f5b1a65313c93ca816da82f4c73",
+      "mtime_ns": 1791606661371916600,
+      "safe_prior_projection": {
+        "verdict": "PASS",
+        "final_status": "COMPLETED",
+        "submission_state": "SUBMISSION_CONFIRMED",
+        "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+        "real_sandbox_uat": "NOT_VERIFIED",
+        "unauthorized_status": 403,
+        "unauthorized_classification_status": 403,
+        "stale_status": 409,
+        "frozen_replacement_status": 409,
+        "frozen_classification_status": 409,
+        "reopen_mutations": 0,
+        "target_before": {
+          "SEARCH": 1,
+          "SHELL": 0,
+          "POLICY": 0,
+          "AMEND": 0,
+          "READBACK": 0
+        },
+        "target_after": {
+          "SEARCH": 2,
+          "SHELL": 1,
+          "POLICY": 1,
+          "AMEND": 0,
+          "READBACK": 1
+        }
+      }
+    },
+    "pacific": {
+      "path": "tmp\\sponsor-demo-browser\\pacific.json",
+      "exists": true,
+      "sha256": "0141f2e8f1fc51aeb404eecd6a995da959aee2070fb4b3d9f57978257ebd3507",
+      "mtime_ns": 1791605608380198400,
+      "safe_prior_projection": {
+        "verdict": "PASS",
+        "final_status": "COMPLETED",
+        "submission_state": "SUBMISSION_CONFIRMED",
+        "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+        "real_sandbox_uat": "NOT_VERIFIED",
+        "unauthorized_status": 403,
+        "unauthorized_classification_status": 403,
+        "stale_status": 409,
+        "frozen_replacement_status": 409,
+        "frozen_classification_status": 409,
+        "reopen_mutations": 0,
+        "target_before": {
+          "SEARCH": 1,
+          "SHELL": 0,
+          "POLICY": 0,
+          "AMEND": 0,
+          "READBACK": 0
+        },
+        "target_after": {
+          "SEARCH": 2,
+          "SHELL": 1,
+          "POLICY": 1,
+          "AMEND": 0,
+          "READBACK": 1
+        }
+      }
+    },
+    "meridian": {
+      "path": "tmp\\sponsor-demo-browser\\meridian.json",
+      "exists": true,
+      "sha256": "5e8002768d90ad72bec2257e68de155f5d3ad79b3e00a2c7a7daf0dd3bd6ff79",
+      "mtime_ns": 1791605622673393700,
+      "safe_prior_projection": {
+        "verdict": "PASS",
+        "final_status": "COMPLETED",
+        "submission_state": "SUBMISSION_CONFIRMED",
+        "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+        "real_sandbox_uat": "NOT_VERIFIED",
+        "unauthorized_status": 403,
+        "unauthorized_classification_status": 403,
+        "stale_status": 409,
+        "frozen_replacement_status": 409,
+        "frozen_classification_status": 409,
+        "reopen_mutations": 0,
+        "target_before": {
+          "SEARCH": 1,
+          "SHELL": 0,
+          "POLICY": 0,
+          "AMEND": 0,
+          "READBACK": 0
+        },
+        "target_after": {
+          "SEARCH": 2,
+          "SHELL": 1,
+          "POLICY": 1,
+          "AMEND": 0,
+          "READBACK": 1
+        }
+      }
+    },
+    "merlion": {
+      "path": "tmp\\sponsor-demo-browser\\merlion.json",
+      "exists": true,
+      "sha256": "e079ca1e5c44d08fdabcf05b180289cdab2a88b779f9d6e5f03594bee526bcdf",
+      "mtime_ns": 1791605639121315300,
+      "safe_prior_projection": {
+        "verdict": "PASS",
+        "final_status": "COMPLETED",
+        "submission_state": "SUBMISSION_CONFIRMED",
+        "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+        "real_sandbox_uat": "NOT_VERIFIED",
+        "unauthorized_status": 403,
+        "unauthorized_classification_status": 403,
+        "stale_status": 409,
+        "frozen_replacement_status": 409,
+        "frozen_classification_status": 409,
+        "reopen_mutations": 0,
+        "target_before": {
+          "SEARCH": 3,
+          "SHELL": 0,
+          "POLICY": 0,
+          "AMEND": 0,
+          "READBACK": 0
+        },
+        "target_after": {
+          "SEARCH": 4,
+          "SHELL": 1,
+          "POLICY": 1,
+          "AMEND": 0,
+          "READBACK": 1
+        }
+      }
+    },
+    "multilevel": {
+      "path": "tmp\\sponsor-demo-browser\\multilevel.json",
+      "exists": true,
+      "sha256": "bc1c5a982cca93c45412461b05b5eb2985d92883b6f2aeb54ba6e4465b9578d1",
+      "mtime_ns": 1791605658467788600,
+      "safe_prior_projection": {
+        "verdict": "PASS",
+        "final_status": "COMPLETED",
+        "submission_state": "SUBMISSION_CONFIRMED",
+        "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+        "real_sandbox_uat": "NOT_VERIFIED",
+        "unauthorized_status": 403,
+        "unauthorized_classification_status": 403,
+        "stale_status": 409,
+        "frozen_replacement_status": 409,
+        "frozen_classification_status": 409,
+        "reopen_mutations": 0,
+        "target_before": {
+          "SEARCH": 1,
+          "SHELL": 0,
+          "POLICY": 0,
+          "AMEND": 0,
+          "READBACK": 0
+        },
+        "target_after": {
+          "SEARCH": 2,
+          "SHELL": 1,
+          "POLICY": 1,
+          "AMEND": 0,
+          "READBACK": 1
+        }
+      }
+    }
+  }
+}

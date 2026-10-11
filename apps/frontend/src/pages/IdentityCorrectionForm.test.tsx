@@ -49,6 +49,13 @@ function enter(input: HTMLInputElement, value: string): void {
 }
 
 describe("IdentityCorrectionForm", () => {
+  it("rejects an invalid UEN inline without submitting an identity mutation", () => {
+    const { view, onSubmit } = render();
+    act(() => { enter(view.querySelector("#identity-registration-number") as HTMLInputElement, "NOT-A-UEN"); });
+    act(() => { view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(view.querySelector('[role="alert"]')?.textContent).toContain("Singapore UEN");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
   it("exposes all bounded identity choices with selected document version", () => {
     const { view, onSubmit } = render(vi.fn(), {
       registryRecovery: true,

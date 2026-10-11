@@ -1,0 +1,309 @@
+{
+  "scope": "Final recovery baseline/disposition stop; no release publication",
+  "utc": "2026-10-11T07:53:07.087322+00:00",
+  "git": {
+    "branch": "feat/blocker-resolution-idp-ux-optimization",
+    "head": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+    "main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+    "merge_base": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+    "published_head_tree": "2bbef607d571b4fb7a734582cb9112debed1a305",
+    "staged": "",
+    "tracked_status": "M .github/workflows/ci.yml\n M apps/backend/app/api_models.py\n M apps/backend/app/main.py\n M apps/backend/app/services/zero_touch_orchestration.py\n M apps/backend/tests/test_final_review_editing_real_mongo.py\n M apps/frontend/e2e/blocker-review-performance.e2e.ts\n M apps/frontend/e2e/blocker-simulation.e2e.ts\n M apps/frontend/src/App.tsx\n M apps/frontend/src/DemoPerformance.test.tsx\n M apps/frontend/src/api.ts\n M apps/frontend/src/pages/CaseDetail.tsx\n M apps/frontend/src/pages/DocumentEvidencePanel.test.tsx\n M apps/frontend/src/pages/DocumentEvidencePanel.tsx\n M apps/frontend/src/pages/OnboardingWorkspace.tsx\n M apps/frontend/src/pages/S1PipelineWorkspace.test.tsx\n M apps/frontend/src/types.ts\n M docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md\n M docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md\n M scripts/e2e_backend_server.py\n M scripts/run_e2e.py\n M scripts/slice_c_recovery_fixture.py\n M tests/test_run_e2e.py\n M tests/test_slice_c_e2e_fixture_routing.py"
+  },
+  "source_identity": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+  "source_hashes": {
+    ".github/workflows/ci.yml": "09e1f4702f520d48e89e6bb91684d58ca8beba40900755164ace44801085a766",
+    "apps/backend/app/api_models.py": "15d6b9f08112eed9055e6f94aa863f129446221e263af74c99976d50950e0923",
+    "apps/backend/app/main.py": "a45be7fc76c667136a601812d0d02b9cd5793605f1a4f4e55250886b8b7a1a58",
+    "apps/backend/app/services/zero_touch_orchestration.py": "f97556ae259bf7aeabedb6d08ff96b8c21f2b91cec69bf707023328c994ee411",
+    "apps/backend/tests/test_document_refresh_recovery.py": "35171d0dcbad271e822c23562ffcbb21482ae5aff5938ae181a5f239a07b2578",
+    "apps/backend/tests/test_final_review_editing_real_mongo.py": "ac8106f4e387e790114787221306c16bae9eeb482be3398609a4be7182de266c",
+    "apps/frontend/e2e/blocker-review-performance.e2e.ts": "df4408f22eeeabec78338b14efdf44c5af732f762c274fe5533c2ed44b18377b",
+    "apps/frontend/e2e/blocker-simulation.e2e.ts": "59275b4de4ec1fb5d9ba2c764e597451e15622ce6da8caa53856a08a7513eb60",
+    "apps/frontend/src/App.tsx": "486631624f6e1ea8a6aa3bbb7c5bc4117b23957f11f5f24cfd8f0fd9f156bab3",
+    "apps/frontend/src/DemoPerformance.test.tsx": "6472cd41c6a5ba3f99b51184bd415e9ec4ac8c510eb3794bcc3ac3079258cedb",
+    "apps/frontend/src/ResumeDocumentRecovery.test.ts": "6c891c932ec6a06fcb363b37c1a5dec7d02e93ae383d8dc19d89469f9ff6a53d",
+    "apps/frontend/src/api.ts": "6fec47d7215fdd5b256052ac942e8419afdf92b37dc2e7076643c5cd10e957e5",
+    "apps/frontend/src/pages/CaseDetail.tsx": "259a28976f37beca416034b4af2efa82579e5d1c0222168fefee80edb1d1253c",
+    "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx": "622f50223bd668622374d2917ef092d00cd09e241bbb18c0cd922aa01b42fbba",
+    "apps/frontend/src/pages/DocumentEvidencePanel.tsx": "474ede49c581c01b6b904b457356b5011ebee8573a51c2467ae4947553ea5941",
+    "apps/frontend/src/pages/OnboardingWorkspace.tsx": "f04b24ae131bb941209c38bd18d53285a46deb0f2cbdf7effb3c395ddb65a21f",
+    "apps/frontend/src/pages/S1PipelineWorkspace.test.tsx": "45db6bd50dd8f6c86aa777df22050d286e79bb35b1122fbddd8961700a720139",
+    "apps/frontend/src/types.ts": "b2141cfb5068dfecb30707f79aeec0635254ed6e10d925a3aaea2197ad61119e",
+    "docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md": "203ad8dfa7e4489c7a236d88f12119734810620be6e2499f97bc414331dd43c8",
+    "docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md": "3fbf91c9641ef3382c7141901be1d786590260933ff7926101410fd364000c07",
+    "scripts/e2e_backend_server.py": "2485c7f9f979f92b36c2cc789c0fec0f156cea71d9fbd5576dcecea0c272d981",
+    "scripts/run_e2e.py": "1ca9ee2fc8dfa82aaf2156b7ddc4c9d8b901e99043c31890218cfb732eb1ee70",
+    "scripts/slice_c_recovery_fixture.py": "e0dde54dd34c999f3309ae481e4b09e88d0532911af32d32af3727bec27984c9",
+    "tests/test_run_e2e.py": "baa4bcb320d762ca593a72c08377d61e2a7e1f2c59d203f8f63db92a1511b39f",
+    "tests/test_slice_c_e2e_fixture_routing.py": "219370b0a4547ce8881d4eef7bd9af5bcefa217d4ea4575cc3e2329b9cf390d9"
+  },
+  "preserved_count": 1204,
+  "historical_count": 1175,
+  "review_verdict": "FAIL/BLOCKED prerequisite; no complete final product gate",
+  "reviewed_readset_identity": "b76a3b6cc60d6d4194d9b86dc89fc57f257356c3362480585d0609514510fb3f",
+  "release_verdict": "NOT READY FOR HUMAN MERGE",
+  "sanitizer_disposition": "OPEN optionaltooling; no correction/capture",
+  "sdq01": "Historical rootcause unresolved,candidate-scoped residualrisk; no newcurrent-failurewaiver",
+  "remote": {
+    "pr": {
+      "url": "https://github.com/shaneqwaszx/data-dividends-zero-touch-clm/pull/81",
+      "state": "open",
+      "head_sha": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+      "base_sha": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+      "merge_commit_sha": "84a8e1945877cd670104a9f26a7f1e3fe78ef3e4",
+      "changed_files": 428,
+      "merged": false,
+      "mergeable": true,
+      "merge_state": "BLOCKED",
+      "auto_merge": null,
+      "review_decision": ""
+    },
+    "threads": [
+      {
+        "id": "PRRT_kwDOTzXN-86rDEUB",
+        "resolved": false,
+        "outdated": false,
+        "path": "apps/backend/app/services/reconciliation.py",
+        "line": 215,
+        "comment_ids": [
+          4237256422,
+          4237925391
+        ]
+      },
+      {
+        "id": "PRRT_kwDOTzXN-86rEvEp",
+        "resolved": false,
+        "outdated": false,
+        "path": "apps/backend/app/services/zero_touch_orchestration.py",
+        "line": 1006,
+        "comment_ids": [
+          4237939469
+        ]
+      }
+    ],
+    "reviews": [
+      {
+        "id": "PRR_kwDOTzXN-88AAAABRowcAw",
+        "state": "COMMENTED",
+        "submitted_at": "2026-10-10T10:02:41Z"
+      },
+      {
+        "id": "PRR_kwDOTzXN-88AAAABRpdjTA",
+        "state": "COMMENTED",
+        "submitted_at": "2026-10-10T14:24:29Z"
+      },
+      {
+        "id": "PRR_kwDOTzXN-88AAAABRpep1w",
+        "state": "COMMENTED",
+        "submitted_at": "2026-10-10T14:29:17Z"
+      }
+    ],
+    "ci": [
+      {
+        "run_id": 38059426119,
+        "event": "push",
+        "jobs": [
+          {
+            "id": 114234475788,
+            "name": "demo-lifecycle-windows",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234475886,
+            "name": "phase12-mongo",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234475919,
+            "name": "frontend",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234475940,
+            "name": "e2e-shards (2)",
+            "conclusion": "failure"
+          },
+          {
+            "id": 114234475945,
+            "name": "backend",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234475964,
+            "name": "e2e-shards (1)",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234475996,
+            "name": "security",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234476069,
+            "name": "local-ocr",
+            "conclusion": "success"
+          },
+          {
+            "id": 114236301913,
+            "name": "e2e",
+            "conclusion": "failure"
+          }
+        ]
+      },
+      {
+        "run_id": 38059430379,
+        "event": "pull_request",
+        "jobs": [
+          {
+            "id": 114234488219,
+            "name": "demo-lifecycle-windows",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234488336,
+            "name": "local-ocr",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234488394,
+            "name": "e2e-shards (2)",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234488411,
+            "name": "frontend",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234488421,
+            "name": "e2e-shards (1)",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234488449,
+            "name": "security",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234488524,
+            "name": "phase12-mongo",
+            "conclusion": "success"
+          },
+          {
+            "id": 114234488768,
+            "name": "backend",
+            "conclusion": "success"
+          },
+          {
+            "id": 114236423324,
+            "name": "e2e",
+            "conclusion": "success"
+          }
+        ]
+      }
+    ]
+  },
+  "matrix": [
+    {
+      "lane": "Full backend",
+      "latest_available": "FAIL: 2650 PASS,1 FAIL,145 physical-only deferrals",
+      "final_acceptance": "BLOCKED; no new full run"
+    },
+    {
+      "lane": "Original seeder stability window",
+      "latest_available": "ordinal1 PASS / ordinal2 FAIL / ordinal3 undispatched",
+      "final_acceptance": "FAIL; no replacement or reset"
+    },
+    {
+      "lane": "V6.1 original fixture under tracing",
+      "latest_available": "PASS once,10 completeHTTP200 confirmations,firstcreated10/secondreused10",
+      "final_acceptance": "Diagnostic only; excluded from fixed acceptance window"
+    },
+    {
+      "lane": "Physical Mongo",
+      "latest_available": "Prior23suites/145PASS/0skips",
+      "final_acceptance": "Historical; no current final-run acceptance"
+    },
+    {
+      "lane": "Frontend / typecheck / build / integrity",
+      "latest_available": "Prior50files/582PASS plus static/build/integrity PASS",
+      "final_acceptance": "Historical; no coherent new final matrix"
+    },
+    {
+      "lane": "Root / contracts / Windows / fixture routing",
+      "latest_available": "Prior374root/44contracts/31Windows/16fixture checks PASS",
+      "final_acceptance": "Historical; no coherent new final matrix"
+    },
+    {
+      "lane": "Ruff / mypy / security / architecture / governance",
+      "latest_available": "Prior canonical PASS,including mypy127files",
+      "final_acceptance": "Historical; current final product gate not executed"
+    },
+    {
+      "lane": "Browser inventory",
+      "latest_available": "Fresh discovery-only 91 lifecycles/112 tests;shards46/45",
+      "final_acceptance": "Inventory PASS; zero tests/lifecycles executed this continuation"
+    },
+    {
+      "lane": "Full browser shards",
+      "latest_available": "Prior candidate shard1 FAIL at18/46:17lifecycles/28testsPASS;remaining28undispatched;shard2undispatched",
+      "final_acceptance": "FAIL / incomplete; original deadlines preserved"
+    },
+    {
+      "lane": "Eight sponsor journeys",
+      "latest_available": "Earlier accepted candidate PASS; current final matrix not completed",
+      "final_acceptance": "NOT RUN: Aurora,Straits,Garden,Multiple,Pacific,Meridian,Merlion,Multilevel"
+    },
+    {
+      "lane": "Fresh independent disposition",
+      "latest_available": "FAIL/BLOCKED,read-set identity b76a3b6cc60d6d4194d9b86dc89fc57f257356c3362480585d0609514510fb3f",
+      "final_acceptance": "Mandatory prerequisite remains unmet; not full final-candidate review"
+    },
+    {
+      "lane": "Full final independent QG",
+      "latest_available": "Earlier limited overnightFAIL and scoped/historicalPASS retained",
+      "final_acceptance": "NOT RUN / no full current PASS"
+    },
+    {
+      "lane": "Clean committed pre-PR/checklist/publication",
+      "latest_available": "Historical publishedHEAD pre-PRPASS",
+      "final_acceptance": "BLOCKED; current candidate intentionally uncommitted"
+    },
+    {
+      "lane": "Published push CI",
+      "latest_available": "38059426119 completedFAIL,7/9jobsSUCCESS",
+      "final_acceptance": "PublishedHEAD only; current corrections untested by CI"
+    },
+    {
+      "lane": "Published PR CI",
+      "latest_available": "38059430379 completedSUCCESS,9/9jobsSUCCESS",
+      "final_acceptance": "PublishedHEAD only; does not cancel pushFAIL"
+    }
+  ],
+  "discovery": {
+    "lifecycles": 91,
+    "tests": 112,
+    "shard1": 46,
+    "shard2": 45,
+    "returncode": 0,
+    "scope": "Discovery-only; no test/server/browser/fixture/database started"
+  },
+  "product_remediation_rounds_used": 0,
+  "maximum_product_remediation_rounds": 2,
+  "test_fixture_executions_this_continuation": 0,
+  "native_captures_this_continuation": 0,
+  "raw_etl_accessed": false,
+  "published_heads_this_continuation": 0,
+  "scope_paths": {
+    ".ai-pipeline/reports/PR81_FINAL_RECOVERY_RELEASE_HANDOFF.md": "fd394816a44f93d954f172b6293f08d6b77195ff20539bb147f1e5ab0489251c",
+    ".ai-pipeline/reports/PR81_FINAL_RECOVERY_DEPENDENCY_DISPOSITION.md": "604957241c3c7119715ac26bd9728e748afd3ba353902d3de77bfcb6aa8b59a9",
+    ".ai-pipeline/reports/PR81_FINAL_RECOVERY_DISCOVERY.json": "e29554b4e5953042ceead34a6929c25eddffc865412650c1927cbde3da6c2780",
+    ".ai-pipeline/reports/PR81_TCP_V61_FIELD_COUNT_INDEPENDENT_STOP_REVIEW.md": "cf8183e1f0c7d02c806a9567cbc7d65d8198fede64b1c5325af45edd31d88fa3",
+    ".ai-pipeline/reports/PR81_TCP_V61_FIELD_COUNT_STOP_MANIFEST.json": "8e3ca68c1d27a65e1439e567bcef5e856b70c4eef5056140bf536a5ddf642ab0",
+    ".ai-pipeline/reports/PR81_OVERNIGHT_INDEPENDENT_QUALITY_GATE.md": "1d286d8e51e5f5471499ce51a0dcc51179be6f2e04e356889de833d7d3c7327f",
+    ".ai-pipeline/reports/PR81_HTTP_DELIVERY_INDEPENDENT_ASSESSMENT.md": "6ed1a50cba0302bf81842ce5db0b49c4992309129845d525855527b09cbb7e8b",
+    ".ai-pipeline/reports/PR81_OVERNIGHT_RELEASE_STOP_REPORT.md": "205601567c66b3fa4fd992d7aed7df1e8a4bcd524d4dc7acee3c650bc82f2577"
+  },
+  "content_identity": "a096b7e19b25cf02613e772ed30a1db60053d0d3e4196cf9ff25725e19c11aaa"
+}

@@ -76,6 +76,7 @@ def main() -> int:
     classification_database = (
         _required("CLM_E2E_CLASSIFICATION_DATABASE")
         if registry_demo == "synthetic-seed" or sandbox_demo in {"database-alpha", "database-partnership", "database-government"}
+        or (sandbox_demo is not None and sandbox_demo.startswith("sponsor-"))
         else None
     )
     sys.path.insert(0, str(ROOT))
@@ -191,7 +192,7 @@ def main() -> int:
 
         fixture_connector = CountingSyntheticRegistry()
     recovery_fixture = None
-    if recovery_demo:
+    if recovery_demo and recovery_demo != "document-refresh":
         from scripts.slice_c_recovery_fixture import build_offline_recovery_fixture
 
         recovery_fixture = build_offline_recovery_fixture(settings, recovery_demo)
@@ -207,6 +208,7 @@ def main() -> int:
         reuse_fixture = build_local_reuse_fixture(settings)
         fixture_connector = reuse_fixture.registry
     database_fixture = None
+    sponsor_fixture = None
     sandbox_transport = None
     if sandbox_demo:
         from scripts.run_s3_sandbox_acceptance import SyntheticAcceptanceAcra
@@ -223,7 +225,9 @@ def main() -> int:
             "goldtier_sandbox_allow_writes": True,
         })
         fixture_connector = SyntheticAcceptanceAcra(S3_SYNTHETIC_NAME, S3_SYNTHETIC_UEN)
-        sandbox_transport = OfflineS3SandboxTransport(sandbox_demo)
+        sandbox_transport = OfflineS3SandboxTransport(
+            "success" if sandbox_demo.startswith("sponsor-") else sandbox_demo,
+        )
         if sandbox_demo == "garden-existing-customer":
             from app.composition import build_acra_connector
 
@@ -247,11 +251,25 @@ def main() -> int:
             DatabaseClassificationFixture,
         )
         assert classification_database is not None
-        database_fixture = DatabaseClassificationFixture(settings, sandbox_demo, classification_database)
+        database_fixture = DatabaseClassificationFixture(
+            settings, sandbox_demo, classification_database, synthetic_seed_port,
+        )
         settings = database_fixture.settings
         fixture_connector = database_fixture.registry
         sandbox_transport = database_fixture.target
         application_module.build_persistence_bundle = lambda _settings: database_fixture.bundle
+    if sandbox_demo and sandbox_demo.startswith("sponsor-"):
+        from scripts.sponsor_demo_browser_fixture import SponsorDemoBrowserFixture
+        assert classification_database is not None
+        sponsor_fixture = SponsorDemoBrowserFixture(
+            settings, sandbox_demo, classification_database, synthetic_seed_port,
+        )
+        settings = sponsor_fixture.settings
+        fixture_connector = sponsor_fixture.registry
+        sandbox_transport = sponsor_fixture.target
+        # The legacy banner flag is intentionally memory-only. This separate
+        # physical fixture reports its offline classification through its metadata.
+        protocol_fixture = False
     if registry_demo == "synthetic-seed":
         import secrets
         from datetime import UTC, datetime
@@ -285,6 +303,57 @@ def main() -> int:
         acra_api_marketplace_auth.HttpxAcraMarketplaceTokenTransport = lambda: seed_transport
         # create_app builds its actual configured connector and normal Mongo composition.
 
+    if recovery_demo == "document-refresh":
+        # One real backend refresh failure, only in this isolated memory/mock
+        # process. The replacement is saved by the normal production owners.
+        from uuid import uuid4
+
+        from app import composition
+        from app.services.clm_errors import ClmInfrastructureError
+
+        original_clm_builder = application_module.build_clm_orchestration_service
+        refresh_attempts = []
+        document_recovery_operations = []
+
+        class RecordingRefreshTarget(composition.MockGoldTierConnector):
+            def search_party(self, *args, **kwargs):
+                document_recovery_operations.append("SEARCH")
+                return super().search_party(*args, **kwargs)
+
+            def create_shell_customer(self, *args, **kwargs):
+                document_recovery_operations.append("SHELL")
+                return super().create_shell_customer(*args, **kwargs)
+
+            def create_policy(self, *args, **kwargs):
+                document_recovery_operations.append("POLICY")
+                return super().create_policy(*args, **kwargs)
+
+            def amend_party(self, *args, **kwargs):
+                document_recovery_operations.append("AMEND")
+                return super().amend_party(*args, **kwargs)
+
+        composition.MockGoldTierConnector = RecordingRefreshTarget
+
+        def build_faulted_clm(*args, **kwargs):
+            clm = original_clm_builder(*args, **kwargs)
+            original_refresh = clm.refresh_pre_submission_evidence
+
+            def refresh(*, case_id, document_revision=False):
+                if document_revision:
+                    refresh_attempts.append(case_id)
+                    if len(refresh_attempts) == 1:
+                        raise ClmInfrastructureError(
+                            case_id=case_id, orchestration_id=uuid4(), correlation_id=uuid4(),
+                            code="CLM_PERSISTENCE_UNAVAILABLE",
+                            message="Synthetic dependent evidence refresh unavailable.",
+                        )
+                return original_refresh(case_id=case_id, document_revision=document_revision)
+
+            clm.refresh_pre_submission_evidence = refresh
+            return clm
+
+        application_module.build_clm_orchestration_service = build_faulted_clm
+
     application = application_module.create_app(
         settings=settings,
         onboarding_service=(recovery_fixture.onboarding if recovery_fixture else
@@ -304,7 +373,9 @@ def main() -> int:
         def sandbox_counts() -> dict[str, object]:
             assert sandbox_transport is not None
             return {"fixture": sandbox_demo, "calls": dict(sandbox_transport.counts),
-                    "external_calls": 0, **(database_fixture.metadata() if database_fixture else {})}
+                    "external_calls": 0,
+                    **(database_fixture.metadata() if database_fixture else {}),
+                    **(sponsor_fixture.metadata() if sponsor_fixture else {})}
 
     if ambiguity_fixture:
         @application.get("/api/__slice_f/target-metadata", include_in_schema=False)
@@ -317,6 +388,15 @@ def main() -> int:
         def recovery_metadata() -> dict[str, object]:
             assert recovery_fixture is not None
             return recovery_fixture.metadata()
+
+    if recovery_demo == "document-refresh":
+        @application.get("/api/__slice_c/document-refresh-metadata", include_in_schema=False)
+        def document_refresh_metadata() -> dict[str, object]:
+            return {
+                "classification": "AUTOMATED_OFFLINE_SIMULATION", "external_calls": 0,
+                "refresh_attempts": len(refresh_attempts),
+                "operations": list(document_recovery_operations),
+            }
 
     if registry_demo:
         # This endpoint exists only in this isolated test server, never app.main.
@@ -338,6 +418,8 @@ def main() -> int:
     finally:
         if database_fixture is not None:
             database_fixture.close()
+        if sponsor_fixture is not None:
+            sponsor_fixture.close()
     return 0
 
 

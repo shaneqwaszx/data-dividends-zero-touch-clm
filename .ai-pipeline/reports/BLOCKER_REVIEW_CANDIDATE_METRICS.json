@@ -1,0 +1,341 @@
+{
+  "mode": "batch",
+  "samples": 30,
+  "measurement": "in-process TestClient HTTP + four explicit supporting GETs; not browser/production SLA",
+  "median_request_and_refresh_ms": 69.93660000443924,
+  "p95_request_and_refresh_ms": 93.59880001284182,
+  "median_four_decisions_ms": 69.94020000274759,
+  "p95_four_decisions_ms": 93.6204000026919,
+  "rows": [
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 66.67919998290017,
+      "request_and_refresh_ms": [
+        66.67810000362806
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 68.12700000591576,
+      "request_and_refresh_ms": [
+        68.12420001369901
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 69.58470001700334,
+      "request_and_refresh_ms": [
+        69.58189999568276
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 68.34629998775199,
+      "request_and_refresh_ms": [
+        68.34379999781959
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 70.281199994497,
+      "request_and_refresh_ms": [
+        70.27799999923445
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 67.2439000045415,
+      "request_and_refresh_ms": [
+        67.24129998474382
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 68.66719998652115,
+      "request_and_refresh_ms": [
+        68.66449999506585
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 66.37020001653582,
+      "request_and_refresh_ms": [
+        66.36690002051182
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 75.16860001487657,
+      "request_and_refresh_ms": [
+        75.1649999874644
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 93.6204000026919,
+      "request_and_refresh_ms": [
+        93.59880001284182
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 72.29370001005009,
+      "request_and_refresh_ms": [
+        72.29030001326464
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 68.39509998098947,
+      "request_and_refresh_ms": [
+        68.39080000645481
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 84.75730000645854,
+      "request_and_refresh_ms": [
+        84.7541999828536
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 69.5504000177607,
+      "request_and_refresh_ms": [
+        69.54759999644011
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 66.8471000099089,
+      "request_and_refresh_ms": [
+        66.84350001160055
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 112.61909999302588,
+      "request_and_refresh_ms": [
+        112.61589999776334
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 81.92000002600253,
+      "request_and_refresh_ms": [
+        81.91390000865795
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 66.89590000314638,
+      "request_and_refresh_ms": [
+        66.89339998411015
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 64.81280000298284,
+      "request_and_refresh_ms": [
+        64.8092000046745
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 70.47429998056032,
+      "request_and_refresh_ms": [
+        70.47099998453632
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 70.7070000062231,
+      "request_and_refresh_ms": [
+        70.70389998261817
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 73.88419998460449,
+      "request_and_refresh_ms": [
+        73.88070001616143
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 122.10889998823404,
+      "request_and_refresh_ms": [
+        122.1058999944944
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 66.72999999136664,
+      "request_and_refresh_ms": [
+        66.72699999762699
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 76.88179999240674,
+      "request_and_refresh_ms": [
+        76.87879999866709
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 66.01599999703467,
+      "request_and_refresh_ms": [
+        66.01219999720342
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 75.45830000890419,
+      "request_and_refresh_ms": [
+        75.4546000098344
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 69.59920001099817,
+      "request_and_refresh_ms": [
+        69.59520000964403
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 78.01279998966493,
+      "request_and_refresh_ms": [
+        78.00939999287948
+      ]
+    },
+    {
+      "mutations": 1,
+      "gets": 4,
+      "reconciliation_calls": 1,
+      "continuation_calls": 0,
+      "document_saves": 1,
+      "four_decisions_ms": 73.79260001471266,
+      "request_and_refresh_ms": [
+        73.78900001640432
+      ]
+    }
+  ]
+}

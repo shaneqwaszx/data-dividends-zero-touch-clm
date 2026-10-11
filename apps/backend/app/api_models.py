@@ -512,10 +512,15 @@ class DocumentProcessingResponse(BaseModel):
     superseded_by_document_id: UUID | None = None
     superseded_at: datetime | None = None
     updated_at: datetime
+    review_source_fingerprint: str | None = None
 
     @classmethod
     def from_domain(cls, record: DocumentProcessingRecord) -> "DocumentProcessingResponse":
-        return cls.model_validate(record)
+        from app.domain.review_decisions import document_review_source_fingerprint
+
+        return cls.model_validate(record).model_copy(update={
+            "review_source_fingerprint": document_review_source_fingerprint(record),
+        })
 
 
 class OwnershipAnalysisResponse(BaseModel):
@@ -1459,6 +1464,12 @@ class BrowserTargetSubmissionEvidence(BaseModel):
     lifecycle_resolved_operations: tuple[str, ...] = ()
 
 
+class BrowserDocumentRefreshRecovery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    can_resume: bool
+
+
 class ZeroTouchCaseSummaryResponse(BaseModel):
     """Sponsor-facing authoritative automation and bounded CLM summary."""
 
@@ -1486,6 +1497,8 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
     classification_consistency: ClassificationConsistencyAdvisory
     ownership_recovery: BrowserOwnershipRecovery | None
     evidence_decision_authorized: bool = False
+    document_replacement_authorized: bool = False
+    document_refresh_recovery: BrowserDocumentRefreshRecovery | None = None
     ownership_edit_authorized: bool = False
     timeline: list[AutomationEvent]
     created_at: datetime
@@ -1507,6 +1520,8 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         ownership: OwnershipAnalysisRecord | None = None,
         classification_assessment: TargetClassificationAssessment | None = None,
         evidence_decision_authorized: bool = False,
+        document_replacement_authorized: bool = False,
+        document_refresh_recovery_authorized: bool | None = None,
         ownership_edit_authorized: bool = False,
     ) -> "ZeroTouchCaseSummaryResponse":
         target_classification = BrowserTargetClassification.from_case(
@@ -1518,6 +1533,11 @@ class ZeroTouchCaseSummaryResponse(BaseModel):
         return cls(
             case=OnboardingCaseResponse.from_domain(case, team),
             evidence_decision_authorized=evidence_decision_authorized,
+            document_replacement_authorized=document_replacement_authorized,
+            document_refresh_recovery=(
+                BrowserDocumentRefreshRecovery(can_resume=document_refresh_recovery_authorized)
+                if document_refresh_recovery_authorized is not None else None
+            ),
             ownership_edit_authorized=ownership_edit_authorized,
             clm=ClmCaseSummaryResponse.from_domain(clm_record, case, team),
             automation_id=record.automation_id,

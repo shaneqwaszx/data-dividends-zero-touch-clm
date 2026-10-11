@@ -1,0 +1,25 @@
+{
+  "lane": "static",
+  "source27": "e876200d203fc5869373b88274d83b878c892c56a448dd08bdf5bb7cccb5d1f7",
+  "started_utc": "2026-10-11T08:54:44.234416+00:00",
+  "commands": [
+    {
+      "name": "ruff",
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "--no-cache",
+        "."
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\backend",
+      "exit_code": 1,
+      "seconds": 0.234,
+      "safe_summary": [],
+      "failed_test_identifiers": []
+    }
+  ],
+  "retries": 0
+}

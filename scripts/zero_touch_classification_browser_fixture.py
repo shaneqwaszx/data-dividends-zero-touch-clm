@@ -76,16 +76,18 @@ class GovernmentIdentityOnly(NoRegistryCalls):
 class DatabaseClassificationFixture:
     """Test-server only; neither a runtime provider nor a seed endpoint."""
 
-    def __init__(self, settings: Settings, mode: str, database: str):
+    def __init__(self, settings: Settings, mode: str, database: str, port: int = 27185):
         if (
             mode
             not in {"database-alpha", "database-partnership", "database-government"}
             or settings.app_env != "test"
         ):
             raise ValueError("Unknown isolated classification fixture")
+        if not 1024 <= port <= 65535:
+            raise ValueError("Classification Mongo port is outside the allowed range")
         self.database = require_ephemeral_mongo_database(database)
         self.cleanup_client = MongoClient(
-            host="127.0.0.1", port=27185, serverSelectionTimeoutMS=3000
+            host="127.0.0.1", port=port, serverSelectionTimeoutMS=3000
         )
         # Only the task-owned loopback Mongo container on the reserved port is used.
         tesseract = shutil.which("tesseract")
@@ -100,7 +102,7 @@ class DatabaseClassificationFixture:
         self.settings = settings.model_copy(
             update={
                 "clm_persistence_mode": "mongo",
-                "mongo_uri": SecretStr("mongodb" + "://127.0.0.1:27185"),
+                "mongo_uri": SecretStr("mongodb" + f"://127.0.0.1:{port}"),
                 "mongo_database": self.database,
                 "acra_connector_mode": "api_marketplace_mock",
                 "local_ocr_executable": tesseract,

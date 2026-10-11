@@ -1,0 +1,98 @@
+{
+  "scope": "diagnostic dummy HTTP only; original integration test not run",
+  "candidate_source_identity": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+  "probe_sha256": "1b91da66f18d32bd2447f4933116f2a13f78582ed360f9e9c89472a37c7c09e5",
+  "runtime": "3.12.10",
+  "cases": [
+    {
+      "case": "complete_without_eof",
+      "declared_body_bytes": 65786,
+      "dummy_body_bytes_sent": 65786,
+      "actual_client_wire_bytes_received": 65847,
+      "actual_client_body_bytes_received": 65786,
+      "api_outcome": "RETURN",
+      "api_accepted_dummy_json": true,
+      "client_read": [
+        {
+          "declared": 65786,
+          "amount": 1048577,
+          "returned_bytes": 65786,
+          "remaining": 0,
+          "body_sha256": "91fbbf4b3d601f537ac3e98dc5da031d80456ac0c361f4d0b0b30ba35f49028b",
+          "outcome": "RETURN",
+          "server_closed_before_read_return": false,
+          "seconds": 0.0
+        }
+      ],
+      "server": {
+        "sendall_returned": true
+      },
+      "worker_alive_after_cleanup": false,
+      "seconds": 0.078,
+      "original_request_timeout": 15,
+      "cleanup_bound": 10,
+      "requests": 1
+    },
+    {
+      "case": "short_506_with_eof",
+      "declared_body_bytes": 65786,
+      "dummy_body_bytes_sent": 65280,
+      "actual_client_wire_bytes_received": 65341,
+      "actual_client_body_bytes_received": 65280,
+      "api_outcome": "RETURN",
+      "api_accepted_dummy_json": true,
+      "client_read": [
+        {
+          "declared": 65786,
+          "amount": 1048577,
+          "returned_bytes": 65280,
+          "remaining": 506,
+          "body_sha256": "406fd7e32c3eb26ee490dc7bef9f91b7c5a1eb5720fa77813b449ea4ffd9ca57",
+          "outcome": "RETURN",
+          "server_closed_before_read_return": true,
+          "seconds": 0.0
+        }
+      ],
+      "server": {
+        "sendall_returned": true
+      },
+      "worker_alive_after_cleanup": false,
+      "seconds": 0.063,
+      "original_request_timeout": 15,
+      "cleanup_bound": 10,
+      "requests": 1
+    },
+    {
+      "case": "short_506_without_eof",
+      "declared_body_bytes": 65786,
+      "dummy_body_bytes_sent": 65280,
+      "actual_client_wire_bytes_received": 65341,
+      "actual_client_body_bytes_received": 65280,
+      "api_outcome": "TimeoutError",
+      "api_accepted_dummy_json": false,
+      "client_read": [
+        {
+          "declared": 65786,
+          "amount": 1048577,
+          "returned_bytes": null,
+          "remaining": 65786,
+          "outcome": "TimeoutError",
+          "server_closed_before_read_return": false,
+          "seconds": 15.0
+        }
+      ],
+      "server": {
+        "sendall_returned": true
+      },
+      "worker_alive_after_cleanup": false,
+      "seconds": 15.078,
+      "original_request_timeout": 15,
+      "cleanup_bound": 10,
+      "requests": 1
+    }
+  ],
+  "no_credentials": true,
+  "no_provider_target_case_state": true,
+  "no_retries": true,
+  "not_release_acceptance": true
+}

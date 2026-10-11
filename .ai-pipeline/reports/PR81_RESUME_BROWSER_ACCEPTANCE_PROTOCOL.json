@@ -1,0 +1,49 @@
+{
+  "source36": "f6607f766b36ec1e2b6fc251b93b22c4940985fac394d28160b1878e802cfbae",
+  "scope": "Fresh complete browser acceptance after independently accepted preservation fix; former interrupted run stays incomplete; no reset or width360 standalone window repeat",
+  "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+  "commands": {
+    "1": [
+      "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+      "-B",
+      "scripts/run_e2e.py",
+      "--backend-port",
+      "18900",
+      "--frontend-port",
+      "19400",
+      "--timeout-seconds",
+      "60",
+      "--shard",
+      "1/2"
+    ],
+    "2": [
+      "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+      "-B",
+      "scripts/run_e2e.py",
+      "--backend-port",
+      "18900",
+      "--frontend-port",
+      "19400",
+      "--timeout-seconds",
+      "60",
+      "--shard",
+      "2/2"
+    ]
+  },
+  "inventory_sha256": "33ed5f68555e4a9cdd1a4cec942ea433fa028155491b02bd1ffec0ba4a74156f",
+  "output_owner": "fresh UUID tmp/browser-evidence/{uuid}/retained per-test authored artifacts; transient automatic output preserveOutput never; screenshot/trace/video off",
+  "original_assertions_and_fixture_modes": "unchanged; independently verify AST against exact before copies",
+  "shard_order": "1 then2, stop first assertion/control/cleanup/preservation failure; no automatic retry",
+  "width360_original_method": "e8f6fda4ff88b36fd41ac25b2d60b6a9fa523b17688dded43959ffdbba4cc19b unchanged; recorded3/3 window retained, complete suite still executes configured selector",
+  "mongo": "identity-verified task-owned container701abdade3ed2e4276d8092d8f1c142aa9d3fcba0f2a2610b3ea9157b87df4f2 localhost27419 for allowlisted classification DB only; fresh DB per lifecycle; no realproviderwrites",
+  "safe_output": "retain only allowlisted scalar metadata and validated authored synthetic artifacts; never raw subprocess/provider bodies",
+  "preexisting_output_run_dirs": [
+    "4d6f0fb3-09ec-4cfa-b3c6-d2617732beba",
+    "507870c6-f891-498d-8aba-05692ab347c4",
+    "5794a7c7-1c0e-457a-bebc-af7c0f182065",
+    "7b12513d-f4d5-4583-ab46-5d874949bc53",
+    "8c26a165-444f-4430-8c46-05616f691583",
+    "d1a82aef-2084-4d4d-90d5-6db5d84ea9e7"
+  ],
+  "approval": "PENDING independent exact-bound review; do not dispatch"
+}

@@ -1,0 +1,322 @@
+{
+  "verified_utc": "2026-10-10T09:18:49.661333+00:00",
+  "git_version": "git version 2.56.0.windows.1",
+  "branch": "feat/blocker-resolution-idp-ux-optimization",
+  "head": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "origin_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "merge_base": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "change_class": "CI_TOOLING",
+  "authority_sha256": "957877382e8a25ac3585a0f93ef03e93f684de95cabf78f13d44257959614d08",
+  "attributes_sha256": "d05c12bd6b01f93474ff48c7e66f5e8faa054dd13ea973d5e1f1ff4ef2484564",
+  "prior403_unchanged": true,
+  "prior398_content": "df9dd08ffc482b60aaa0951899fd20adf72cdc628e370c71ed222b1704cb499a",
+  "prior_source68_unchanged": true,
+  "source_identity": "5de89b19dda6964828d87ecf744d7b30df4ea3ee8c872a5a4dd2ffabb9df38df",
+  "pdf_hashes_preserved": {
+    "apps/backend/tests/fixtures/uat/zero-touch-database/aurora-sponsor-demo-registry-annex.pdf": "c0d99c4984cd8d6420b32d5892b2fc29c5d836d7d34cfc821c0d51147a2d2d57",
+    "apps/backend/tests/fixtures/uat/zero-touch-database/meridian-sponsor-demo-registry-annex.pdf": "eda014f1509bd8c00f2d53bbf841877976c96883bf493b85f5a19caaf02721bd",
+    "apps/backend/tests/fixtures/uat/zero-touch-database/meridian-synthetic-infrastructure-client.pdf": "2f7935ab8304f9770b25f66087bda17caf4dfcf08b2269c357312c15d6438055",
+    "apps/backend/tests/fixtures/uat/zero-touch-database/orion-synthetic-technologies-client.pdf": "37b38963c5f0f7bf06811327e8107164920bc92bf8316751e870a8f1c751a579",
+    "apps/backend/tests/fixtures/uat/zero-touch-database/pacific-sponsor-demo-registry-annex.pdf": "60a60626709300ba218ac153354e2bbddea148923d9d3c46224e8c5be5081f80",
+    "apps/backend/tests/fixtures/uat/zero-touch-database/pacific-synthetic-ledger-client.pdf": "e72533ae8c1fe03f0813985c9db922fc79213e21c3e3bab79da07c359c8c75be",
+    "apps/backend/tests/fixtures/uat/zero-touch-database/straits-sponsor-demo-registry-annex.pdf": "ac98ff29f57ed4586fd3ec350242bc6128c977373d007452576f7d16c206e929",
+    "apps/backend/tests/fixtures/uat/zero-touch-database/straits-synthetic-holdings-client.pdf": "72a48301de57715b05a9fcace2faac7683ab4b2534072c70bdc52793a9eda648"
+  },
+  "all29_log_hashes_preserved": {
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-tooling_config.log": "e04d4a0126da1a6e28380a8859ef86ace862a937bc14cbdb13c56ac4a37608c5",
+    ".ai-pipeline/reports/BLOCKER_OPTIMIZATION_ACCEPTANCE_EVIDENCE/owner-acceptance-architecture.log": "1995542d06f58d4f6cb8133c206109972455ed2e01324defb26ca1d08077634a",
+    ".ai-pipeline/reports/BLOCKER_OPTIMIZATION_ACCEPTANCE_EVIDENCE/owner-acceptance-project_state.log": "802a21c6c3e8d997e291164394433116a2bbd751758a17d359314ad02ec90362",
+    ".ai-pipeline/reports/BLOCKER_OPTIMIZATION_ACCEPTANCE_EVIDENCE/owner-acceptance-secrets.log": "1f210c25ed0d9e15e8c5a55264d5a569275f9edbd04b268d5e02d801e6590f5f",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-original-shard1.log": "b9b1b443cabe03a47a720f2f672745176978ba561f9dd407254d27870056e864",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-historical-environment-isolated.log": "007e9ca09d54cc13f844802257abc4c28750a6c8fd7060ab716afd9374fa04fc",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-architecture.log": "1995542d06f58d4f6cb8133c206109972455ed2e01324defb26ca1d08077634a",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-project_state.log": "802a21c6c3e8d997e291164394433116a2bbd751758a17d359314ad02ec90362",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-original-shard2.log": "2bba1ef862bf218bd89b014a755b92faba37db73c6e3b4b466b123ff081c3816",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-controlled.log": "5f57d445c76a7ceafc7a2b8713e135f6aeac89b6d989c058e33afb645d398e49",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-typecheck.log": "e509183f941e75d75acd2730534462d1053bf5d19f4ff51e5e43e834cd2adc5d",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-external_provider_readiness.log": "88c234f2de53c6109e14ab927e84853ee160a6501bf4c296457ad89d7f214fd4",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-harness.log": "84c1b002fc03ad68b3646430ab1019bae18911ac638c305863440af9a0f0bcc3",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-baseline-isolated.log": "2d6ad49b244671e2ed1bec4f33561aa4da65b6d31b210a64717f567aa1b758be",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-policy_authority.log": "0d8548dd7f1ba239e7e4f10720a01d6e3a34bffce99f7d990575b10ce3460496",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-shard1-missing-ocr.log": "6166bef8a81f72f3b158b338772272197fa1ead2befa267fe638c4aee807e0f7",
+    ".ai-pipeline/reports/BLOCKER_OPTIMIZATION_ACCEPTANCE_EVIDENCE/owner-acceptance-policy_authority.log": "0d8548dd7f1ba239e7e4f10720a01d6e3a34bffce99f7d990575b10ce3460496",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-diagnostic.log": "972935b447f92a2ac8df294752c6a6dac06e35ab40f29554e4d78c6b02ab4f1c",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-e2e-final-shard2.log": "34c7ea10c1d6cca18a198b1180b681af853415b10bfc3f6c821e883d8e37a082",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-fixed.log": "5395ab0eb378acbcd9d48a17ae158d77314e2844c405c03786e5847fafe6dbb1",
+    ".ai-pipeline/reports/BLOCKER_OPTIMIZATION_ACCEPTANCE_EVIDENCE/owner-acceptance-tooling_config.log": "e04d4a0126da1a6e28380a8859ef86ace862a937bc14cbdb13c56ac4a37608c5",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-focused-backend.log": "abdbc7d4c98789331a4b39c7c2d1ce0aa722737835d48103b841eb7efe104000",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-tracked-whitespace.log": "72ba81fcc81de675fded66b4b1ef57151d49d1f10e712c6fe2f63ef8971aaf04",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-frontend.log": "c2ae6961add2edcfc017268257ed19700c647355f0a0cc277204505494fcb04b",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-secrets-final.log": "1f210c25ed0d9e15e8c5a55264d5a569275f9edbd04b268d5e02d801e6590f5f",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-secrets.log": "1f210c25ed0d9e15e8c5a55264d5a569275f9edbd04b268d5e02d801e6590f5f",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-untraced-isolated.log": "818a4f5b2ea7f5f4660e21673513a9a659bd6614756a8a3bd559d218e671a44d",
+    ".ai-pipeline/reports/BLOCKER_OPTIMIZATION_ACCEPTANCE_EVIDENCE/owner-acceptance-external_provider_readiness.log": "88c234f2de53c6109e14ab927e84853ee160a6501bf4c296457ad89d7f214fd4",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-baseline-shard2.log": "1d9199faa3a66ea3a0b850eb5445998f7aac3d194141e61a6bb84e409da0cfaf"
+  },
+  "five_exception_log_hashes": {
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-frontend.log": "c2ae6961add2edcfc017268257ed19700c647355f0a0cc277204505494fcb04b",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-shard1-missing-ocr.log": "6166bef8a81f72f3b158b338772272197fa1ead2befa267fe638c4aee807e0f7",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-typecheck.log": "e509183f941e75d75acd2730534462d1053bf5d19f4ff51e5e43e834cd2adc5d",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-controlled.log": "5f57d445c76a7ceafc7a2b8713e135f6aeac89b6d989c058e33afb645d398e49",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-fixed.log": "5395ab0eb378acbcd9d48a17ae158d77314e2844c405c03786e5847fafe6dbb1"
+  },
+  "attributes_paths_checked": 1749,
+  "archival_exception_paths": [
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-frontend.log",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-shard1-missing-ocr.log",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-typecheck.log",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-controlled.log",
+    ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-fixed.log"
+  ],
+  "all_ordinary_paths_whitespace": "cr-at-eol",
+  "pdf_binary_rule_preserved": true,
+  "full_candidate_paths": 404,
+  "raw_indexed_hashes_match": true,
+  "candidate_tree": "4fa2496bf66c75b079d9f138c6dc48dcd2a1b07b",
+  "actual_full_git_diff_cached_check_exit": 0,
+  "custom_filtered_check": false,
+  "falsification_probes": [
+    {
+      "name": "ordinary_crlf_only",
+      "path": "tmp/archival-whitespace-ordinary-source-probe.py",
+      "input_sha256": "f05a65413338d4d74cc2e7115db156601cfcb7838936e091cb74c7ecf0609277",
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "matching_diagnostic": "none"
+    },
+    {
+      "name": "ordinary_lf_only",
+      "path": "tmp/archival-whitespace-ordinary-source-probe.py",
+      "input_sha256": "585c93666fcb046b7b264d3fa73202aa2a38254ae82a4b3ba19e873c2d5a9886",
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "matching_diagnostic": "none"
+    },
+    {
+      "name": "ordinary_trailing_space_rejected",
+      "path": "tmp/archival-whitespace-ordinary-source-probe.py",
+      "input_sha256": "496c29f66c31f618a71cac6a5a1d598177854875ccb138fd337e100562d19e71",
+      "expected_exit": 2,
+      "actual_exit": 2,
+      "matching_diagnostic": "trailing whitespace"
+    },
+    {
+      "name": "ordinary_extra_eof_blank_rejected",
+      "path": "tmp/archival-whitespace-ordinary-source-probe.py",
+      "input_sha256": "24bd2a7761f1270580a8945d7315d9266b320e6faefbe96920e40c8cca540bce",
+      "expected_exit": 2,
+      "actual_exit": 2,
+      "matching_diagnostic": "new blank line at EOF"
+    },
+    {
+      "name": "ordinary_space_before_tab_rejected",
+      "path": "tmp/archival-whitespace-ordinary-source-probe.py",
+      "input_sha256": "e3dcc841f55a2cc164f860bbada08788ec21fea621131df4935e88ad1bec06c3",
+      "expected_exit": 2,
+      "actual_exit": 2,
+      "matching_diagnostic": "space before tab"
+    },
+    {
+      "name": "exact_archive_accepts_retained_space_and_eof",
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-frontend.log",
+      "input_sha256": "2ee409bebc8c88d89ed51e9cc965583c6bdbb7b5ebd1f7dd986dd049c00680df",
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "matching_diagnostic": "none"
+    },
+    {
+      "name": "exact_archive_accepts_retained_space_and_eof",
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-shard1-missing-ocr.log",
+      "input_sha256": "2ee409bebc8c88d89ed51e9cc965583c6bdbb7b5ebd1f7dd986dd049c00680df",
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "matching_diagnostic": "none"
+    },
+    {
+      "name": "exact_archive_accepts_retained_space_and_eof",
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-typecheck.log",
+      "input_sha256": "2ee409bebc8c88d89ed51e9cc965583c6bdbb7b5ebd1f7dd986dd049c00680df",
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "matching_diagnostic": "none"
+    },
+    {
+      "name": "exact_archive_accepts_retained_space_and_eof",
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-controlled.log",
+      "input_sha256": "2ee409bebc8c88d89ed51e9cc965583c6bdbb7b5ebd1f7dd986dd049c00680df",
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "matching_diagnostic": "none"
+    },
+    {
+      "name": "exact_archive_accepts_retained_space_and_eof",
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-fixed.log",
+      "input_sha256": "2ee409bebc8c88d89ed51e9cc965583c6bdbb7b5ebd1f7dd986dd049c00680df",
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "matching_diagnostic": "none"
+    },
+    {
+      "name": "archive_space_before_tab_still_rejected",
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-frontend.log",
+      "input_sha256": "66603f78b4a28561f1b40c3686a1d3e3be7dfc6126a5ccd457b96d9e6a48988c",
+      "expected_exit": 2,
+      "actual_exit": 2,
+      "matching_diagnostic": "space before tab"
+    },
+    {
+      "name": "unlisted_neighbor_rejected",
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-frontend.log.unlisted",
+      "input_sha256": "7c0ec6193fb8cd1a63decb172d8087881c33a1064bdc34ff6cabb5634e2aecee",
+      "expected_exit": 2,
+      "actual_exit": 2,
+      "matching_diagnostic": "trailing whitespace"
+    },
+    {
+      "name": "unlisted_neighbor_rejected",
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-shard1-missing-ocr.log.unlisted",
+      "input_sha256": "7c0ec6193fb8cd1a63decb172d8087881c33a1064bdc34ff6cabb5634e2aecee",
+      "expected_exit": 2,
+      "actual_exit": 2,
+      "matching_diagnostic": "trailing whitespace"
+    },
+    {
+      "name": "unlisted_neighbor_rejected",
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sdq01-r3-typecheck.log.unlisted",
+      "input_sha256": "7c0ec6193fb8cd1a63decb172d8087881c33a1064bdc34ff6cabb5634e2aecee",
+      "expected_exit": 2,
+      "actual_exit": 2,
+      "matching_diagnostic": "trailing whitespace"
+    },
+    {
+      "name": "unlisted_neighbor_rejected",
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-controlled.log.unlisted",
+      "input_sha256": "7c0ec6193fb8cd1a63decb172d8087881c33a1064bdc34ff6cabb5634e2aecee",
+      "expected_exit": 2,
+      "actual_exit": 2,
+      "matching_diagnostic": "trailing whitespace"
+    },
+    {
+      "name": "unlisted_neighbor_rejected",
+      "path": ".ai-pipeline/reports/SDQ01_ROUND3_EVIDENCE/logs/sponsor-demo-progress-fixed.log.unlisted",
+      "input_sha256": "7c0ec6193fb8cd1a63decb172d8087881c33a1064bdc34ff6cabb5634e2aecee",
+      "expected_exit": 2,
+      "actual_exit": 2,
+      "matching_diagnostic": "trailing whitespace"
+    }
+  ],
+  "real_index_byte_hash_unchanged": "1c1547cbfe6b500c61d0b220fb7248602d86f0cdcea43b54e053dbbaf7ea822a",
+  "persistent_git_configuration_unchanged": {
+    "core.autocrlf": "true",
+    "core.longpaths": "",
+    "core.whitespace": ""
+  },
+  "temporary_test_artifacts_removed": true,
+  "source_probe_file_written_to_real_worktree": false,
+  "official_documentation": [
+    "https://git-scm.com/docs/gitattributes#_checking_whitespace_errors",
+    "https://git-scm.com/docs/git-config#Documentation/git-config.txt-corewhitespace"
+  ],
+  "applicable_check_matrix": {
+    "class": "CI_TOOLING",
+    "focused_tooling_tests": {
+      "argv": [
+        ".venv/Scripts/python.exe",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_pre_pr_check",
+        "tests.test_check_secrets",
+        "tests.test_check_tooling_config",
+        "-q"
+      ],
+      "tests": 69,
+      "exit_code": 0,
+      "duration_seconds": 57.355
+    },
+    "ruff": {
+      "cwd": "apps/backend",
+      "argv": [
+        "../../.venv/Scripts/python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "."
+      ],
+      "exit_code": 0
+    },
+    "six_governance_checks": [
+      {
+        "name": "project_state",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_project_state.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "802a21c6c3e8d997e291164394433116a2bbd751758a17d359314ad02ec90362",
+        "safe_summary": "PROJECT STATE CHECK: PASS"
+      },
+      {
+        "name": "architecture",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_architecture.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "1995542d06f58d4f6cb8133c206109972455ed2e01324defb26ca1d08077634a",
+        "safe_summary": "ARCHITECTURE CHECK: PASS"
+      },
+      {
+        "name": "tooling_config",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_tooling_config.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "e04d4a0126da1a6e28380a8859ef86ace862a937bc14cbdb13c56ac4a37608c5",
+        "safe_summary": "TOOLING_CONFIG=PASS: exact optional Docs and disabled cluster MCP policy"
+      },
+      {
+        "name": "policy_authority",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_policy_authority.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "0d8548dd7f1ba239e7e4f10720a01d6e3a34bffce99f7d990575b10ce3460496",
+        "safe_summary": "POLICY AUTHORITY CHECK: PASS"
+      },
+      {
+        "name": "external_provider_readiness",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_external_provider_readiness.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "88c234f2de53c6109e14ab927e84853ee160a6501bf4c296457ad89d7f214fd4",
+        "safe_summary": "EXTERNAL PROVIDER READINESS CHECK: PASS"
+      },
+      {
+        "name": "secrets",
+        "argv": [
+          ".venv/Scripts/python.exe",
+          "-B",
+          "scripts/check_secrets.py"
+        ],
+        "exit_code": 0,
+        "output_sha256": "1f210c25ed0d9e15e8c5a55264d5a569275f9edbd04b268d5e02d801e6590f5f",
+        "safe_summary": "Secret scan passed: no supported secret patterns found."
+      }
+    ],
+    "unchanged_product_lanes": "Exact owning-byte reuse from frozen independent gate; no source/API/persistence/provider/runtime change",
+    "pre_pr_check": "NOT_RUN until independent PASS and clean authorized commits",
+    "candidate_ci": "NOT_RUN before publication"
+  },
+  "temporary_helper_sha256": "6e81a2af971327ca5194f590434be7b4122fc103bb4e004ad52c90f415aba231"
+}

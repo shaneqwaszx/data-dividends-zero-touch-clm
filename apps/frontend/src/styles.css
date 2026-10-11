@@ -4080,3 +4080,15 @@ dd {
   .target-recovery-facts dd { margin-bottom: 8px; }
   .target-recovery-panel .btn { max-width: 100%; white-space: normal; }
 }
+.blocker-review { display: grid; gap: 1rem; }
+.blocker-review fieldset { min-width: 0; }
+.blocker-review label { display: grid; gap: .4rem; margin: .5rem 0; }
+.blocker-review__footer { background: var(--surface, #fff); padding: 1rem; border-top: 1px solid var(--border, #d6dce4); }
+.blocker-review__footer .document-card__actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.blocker-review select:focus-visible, .blocker-review input:focus-visible { outline: 3px solid var(--accent, #2563eb); outline-offset: 3px; }
+@media (max-width: 640px) { .blocker-review__footer button { width: 100%; } }
+.ds-root .blocker-review-confirm { color: #fff; background: var(--color-accent-700); border-color: var(--color-accent-700); min-height: 44px; }
+.ds-root .blocker-review-confirm:hover:not(:disabled) { color: #fff; background: var(--color-accent-800); border-color: var(--color-accent-800); }
+.ds-root .blocker-review-confirm:focus-visible { outline: 3px solid var(--color-accent-700); outline-offset: 3px; }
+.document-upload-control { position: relative; }
+.document-upload-control:focus-within { outline: 3px solid var(--color-accent-700); outline-offset: 3px; }

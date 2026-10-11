@@ -216,6 +216,7 @@ export default function ReviewAndSend({
   const canAccessCase = actor.capabilities.includes("CASE_ACCESS");
   const canEditReview = canAccessCase && !projectionFrozen;
   const canEditEvidence = canEditReview && summary.evidence_decision_authorized === true;
+  const canReplaceDocument = canEditEvidence && summary.document_replacement_authorized === true;
   const canEditOwnership = canEditReview && summary.ownership_edit_authorized === true;
   const eligibleForConfirmation = confirmationRequired
     && preview?.dispatch_ready
@@ -346,7 +347,7 @@ export default function ReviewAndSend({
         <section>
           <div className="review-and-send__section-heading">
             <h3>KYC and segment</h3>
-            {canEditReview && <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditClassification}>Edit classification</button>}
+            {canEditEvidence && <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditClassification}>Edit classification</button>}
           </div>
           <dl>
             <div><dt>KYC customer type</dt><dd>{label(summary.target_classification?.kyc_customer_type.selected_value)}</dd></div>
@@ -357,7 +358,7 @@ export default function ReviewAndSend({
               <strong>{classificationConsistency.title}</strong>
               <p>{classificationConsistency.explanation}</p>
               <span>Non-blocking advisory - no sponsor or regulatory incompatibility rule is claimed.</span>
-              {canEditReview && <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditClassification}>Review KYC classification</button>}
+              {canEditEvidence && <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditClassification}>Review KYC classification</button>}
             </div>
           )}
         </section>
@@ -385,9 +386,9 @@ export default function ReviewAndSend({
         <section>
           <div className="review-and-send__section-heading">
             <h3>Evidence and limitations</h3>
-            {(canEditEvidence || canEditOwnership) && (
+            {(canReplaceDocument || canEditOwnership) && (
               <div className="review-and-send__section-actions">
-                {canEditEvidence && <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditDocuments}>Edit documents</button>}
+                {canReplaceDocument && <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditDocuments}>Edit documents</button>}
                 {canEditOwnership ? (
                   <button type="button" className="btn btn-ghost review-and-send__edit" onClick={onEditOwnership}>Edit ownership</button>
                 ) : (

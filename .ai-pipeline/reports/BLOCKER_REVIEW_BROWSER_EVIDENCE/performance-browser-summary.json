@@ -1,0 +1,73 @@
+{
+  "p95_method": "sorted index floor(0.95*(n-1))",
+  "workload": "four ambiguous TXT fields rejected; setup/screenshots/mobile checks excluded",
+  "candidate_execution": "BR-QG-01 remediation round1, complete two-shard browser rerun",
+  "metrics": {
+    "baseline": {
+      "groups": 30,
+      "choices": 120,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "selection_ms": {
+        "median": 954.5,
+        "p95": 986
+      },
+      "confirmation_ms": {
+        "median": 0.0,
+        "p95": 0
+      },
+      "total_ms": {
+        "median": 954.5,
+        "p95": 986
+      },
+      "choice_ms": {
+        "median": 234.0,
+        "p95": 265
+      },
+      "POST_counts": {
+        "4": 30
+      },
+      "GET_counts": {
+        "16": 30
+      },
+      "selection_request_counts": {
+        "20": 30
+      }
+    },
+    "candidate": {
+      "groups": 30,
+      "choices": 120,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "selection_ms": {
+        "median": 70.0,
+        "p95": 87
+      },
+      "confirmation_ms": {
+        "median": 226.0,
+        "p95": 250
+      },
+      "total_ms": {
+        "median": 296.5,
+        "p95": 327
+      },
+      "choice_ms": {
+        "median": 17.5,
+        "p95": 22
+      },
+      "POST_counts": {
+        "1": 30
+      },
+      "GET_counts": {
+        "4": 30
+      },
+      "selection_request_counts": {
+        "0": 30
+      }
+    }
+  }
+}

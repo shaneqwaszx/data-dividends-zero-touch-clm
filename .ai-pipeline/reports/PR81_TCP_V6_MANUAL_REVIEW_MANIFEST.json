@@ -1,0 +1,22 @@
+{
+  "scope": "V6 manual procedure safety preparation only",
+  "bundle_sha256": "b072fb20d5002a9d94f7baef38204c4b5547ba2de64eece1e31c6446ab8150a7",
+  "code_gate_sha256": "64e8e6759196a1c0c7f27cee5273fe13d81a49f0fa6c7ca09d7970c811cdf61b",
+  "source_identity": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+  "git": {
+    "branch": "feat/blocker-resolution-idp-ux-optimization",
+    "head": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+    "cached_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+    "base": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+    "staged": "",
+    "tracked_status": "M .github/workflows/ci.yml\n M apps/backend/app/api_models.py\n M apps/backend/app/main.py\n M apps/backend/app/services/zero_touch_orchestration.py\n M apps/backend/tests/test_final_review_editing_real_mongo.py\n M apps/frontend/e2e/blocker-review-performance.e2e.ts\n M apps/frontend/e2e/blocker-simulation.e2e.ts\n M apps/frontend/src/App.tsx\n M apps/frontend/src/DemoPerformance.test.tsx\n M apps/frontend/src/api.ts\n M apps/frontend/src/pages/CaseDetail.tsx\n M apps/frontend/src/pages/DocumentEvidencePanel.test.tsx\n M apps/frontend/src/pages/DocumentEvidencePanel.tsx\n M apps/frontend/src/pages/OnboardingWorkspace.tsx\n M apps/frontend/src/pages/S1PipelineWorkspace.test.tsx\n M apps/frontend/src/types.ts\n M docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md\n M docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md\n M scripts/e2e_backend_server.py\n M scripts/run_e2e.py\n M scripts/slice_c_recovery_fixture.py\n M tests/test_run_e2e.py\n M tests/test_slice_c_e2e_fixture_routing.py"
+  },
+  "reviewed_paths": {
+    ".ai-pipeline/reports/PR81_TCP_TRACE_MANUAL_PROCEDURE_V6.md": "239de2a9609a1411c8bf25cd0819e76ae00e7c8b5e5d01026f16236c38d686b0",
+    ".ai-pipeline/reports/PR81_TCP_V6_ISSUED_BINDING_MANIFEST.json": "fdc75fc6bc8e528b8da40c08c8e2f8a5f88f10a36cf535a3d5e64f07d3fe8618"
+  },
+  "code_manifest_sha256": "8888ad82038cc147aa42eb345654947dd86dc03f44205e1b2f2fd7a45100acde",
+  "helper_capture_executed": false,
+  "fixture_executed": false,
+  "content_identity": "70c07164a74f5009b130a7d6b00aaf203506647c39a1bff46d885318363ec8fc"
+}

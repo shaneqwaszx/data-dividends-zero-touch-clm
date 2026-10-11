@@ -220,6 +220,12 @@ database; never `clm_poc`.
   changes require the lifecycle harness. Remote PR/CI status requires authoritative
   GitHub evidence. Installed-version framework behavior requires official documentation
   for that version plus local execution where acceptance depends on behavior.
+- CI browser scheduling uses `scripts/run_e2e.py --timeout-seconds 60 --shard 1/2`
+  and `--shard 2/2`; the disjoint union covers every discovered selector. The required
+  `e2e` aggregate succeeds only when both shard jobs succeed. Failure, cancellation or
+  a skipped shard cannot pass it. Local execution without `--shard` remains the complete
+  unfiltered suite. Discovery, execution, cleanup and CI job deadlines are unchanged.
+  Partition coverage and each shard's outer budget are tested in `tests/test_run_e2e.py`.
 - Before QG, inspect the implementation diff against the approved criteria, examine
   relevant failure, stale-state, authorization, restart and replay paths, reproduce a
   suspected defect with a test or concrete evidence, remediate it, then rerun every
@@ -339,6 +345,12 @@ Before PR readiness, fetch and compare latest `origin/main` to `BASE_SHA`. Merge
 only when authorized; never rebase a shared branch. Resolve conflicts by current-main
 intent and the smallest feature delta. Run affected regression against the integrated
 state, then `python scripts/pre_pr_check.py` on a clean committed feature tree.
+
+Immutable archival whitespace follows the exact owner-approved
+[publication policy](development/IMMUTABLE_ARCHIVE_WHITESPACE_POLICY.md) through
+`scripts/pre_pr_check.py`. Native Git failures remain explicitly recorded; only
+reviewed full-hash/path/diagnostic/line-bound historical evidence may be accepted.
+Ordinary source whitespace and all unapproved diagnostics remain blocking.
 
 The PR records change class, baseline, owners/invariants, sponsor/provisional behavior,
 provider truth, security/persistence impact, verification, independent QG, and context

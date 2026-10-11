@@ -1,4 +1,7 @@
-import { defineConfig } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig, test } from "@playwright/test";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173";
 
@@ -173,7 +176,27 @@ export async function handleBrowserRoute(
 
 parseOwnedOrigin(baseURL, "PLAYWRIGHT_BASE_URL");
 
+// A new invocation owns its outputs; later CLI runs cannot clean historical evidence.
+export function browserOutputDirectory(): string {
+  return fileURLToPath(new URL(`../../tmp/browser-evidence/${randomUUID()}/transient/`, import.meta.url));
+}
+
+// Preserve only explicitly authored synthetic artifacts, outside automatic-output cleanup.
+export function retainedEvidencePath(...segments: string[]): string {
+  const info = test.info();
+  const ownedRoot = fileURLToPath(new URL("../../tmp/browser-evidence/", import.meta.url));
+  const runRelative = path.relative(ownedRoot, info.project.outputDir);
+  const parts = runRelative.split(path.sep);
+  if (parts.length !== 2 || !/^[0-9a-f-]{36}$/.test(parts[0]) || parts[1] !== "transient") {
+    throw new Error("Browser evidence requires an owned invocation output directory.");
+  }
+  // Playwright validates containment and supplies the distinct per-test directory.
+  const relative = path.relative(info.project.outputDir, info.outputPath(...segments));
+  return path.join(ownedRoot, parts[0], "retained", relative);
+}
+
 export default defineConfig({
+  outputDir: browserOutputDirectory(),
   testDir: "./e2e",
   testMatch: "*.e2e.ts",
   fullyParallel: false,

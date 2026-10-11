@@ -1,0 +1,22 @@
+{
+  "sha256": "76e5c9922abbd2ba7b71c51bd8139ede37ba91c599168e2550f2c7e7e5d50d48",
+  "pages": 1,
+  "identity_fields": 4,
+  "classification_count": 2,
+  "classification": [
+    {
+      "value": "Company - Private",
+      "page": 1,
+      "reference": "PAGE_1_LINE_10",
+      "method": "NATIVE_PDF_TEXT",
+      "score": 0.97
+    },
+    {
+      "value": "Corporate",
+      "page": 1,
+      "reference": "PAGE_1_LINE_11",
+      "method": "NATIVE_PDF_TEXT",
+      "score": 0.97
+    }
+  ]
+}

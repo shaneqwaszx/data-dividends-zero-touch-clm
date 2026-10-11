@@ -1,0 +1,13 @@
+E2E FAILED [INDIVIDUAL_SELECTION_TIMEOUT]: Playwright test execution timed out
+[frontend sanitized output]
+
+  VITE v7.1.11  ready in 254 ms
+
+  \u279c  Local:   [REDACTED_URI][1m19400/
+
+[playwright sanitized output]
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:670:1 \u203a onboarding progress is visible while backend-authored stages advance
+

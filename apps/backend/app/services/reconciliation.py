@@ -30,6 +30,7 @@ from app.domain.reconciliation import (
     derive_allowed_actions,
     derive_reconciliation_outcome,
 )
+from app.domain.review_decisions import ReconciliationChoice
 from app.services.document_processing import (
     DocumentProcessingService,
     canonical_value_for_field,
@@ -159,8 +160,26 @@ class ReconciliationService:
         expected_version: int,
         evidence_fingerprint: str,
     ) -> ReconciliationCaseRecord:
-        """Resolve exactly one discrepancy, preserving every source observation."""
+        return self.resolve_discrepancies(
+            case_id=case_id,
+            expected_version=expected_version,
+            choices=(
+                ReconciliationChoice(
+                    discrepancy_id=discrepancy_id,
+                    action=action,
+                    evidence_fingerprint=evidence_fingerprint,
+                ),
+            ),
+        )
 
+    def resolve_discrepancies(
+        self,
+        *,
+        case_id: UUID,
+        choices: tuple[ReconciliationChoice, ...],
+        expected_version: int,
+    ) -> ReconciliationCaseRecord:
+        """Validate the entire group before one canonical/reconciliation UoW commit."""
         with self._cases.case_lock(case_id):
             record = self._repository.get_for_case(case_id)
             if record is None:
@@ -169,117 +188,130 @@ class ReconciliationService:
                     message="Reconciliation evidence was not found for this case.",
                 )
             case, documents = self._current_evidence(case_id)
-            current_fingerprint = self._evidence_fingerprint(case, documents)
-            current_document_ids = tuple(item.document_id for item in documents)
-            current_document_versions = tuple(len(item.events) for item in documents)
-            existing = next(
-                (item for item in record.discrepancies if item.discrepancy_id == discrepancy_id),
-                None,
-            )
-            current_discrepancy_ids = {
-                item.discrepancy_id for item in record.fields if item.discrepancy_id is not None
-            }
-            if (
-                existing is not None
-                and existing.status == DiscrepancyStatus.RESOLVED
-                and existing.decision is not None
-            ):
-                if (
-                    existing.discrepancy_id in current_discrepancy_ids
-                    and existing.decision.reconciliation_version == expected_version
-                    and existing.decision.action == action
-                    and hmac.compare_digest(existing.evidence_fingerprint, evidence_fingerprint)
-                    and hmac.compare_digest(record.evidence_fingerprint, current_fingerprint)
-                    and record.source_document_ids == current_document_ids
-                    and record.source_document_event_counts == current_document_versions
-                ):
-                    return record
+            fingerprint = self._evidence_fingerprint(case, documents)
+            active_ids = {f.discrepancy_id for f in record.fields if f.discrepancy_id is not None}
+            if not choices or len({c.discrepancy_id for c in choices}) != len(choices):
                 raise ReconciliationRequestError(
-                    code="RECONCILIATION_STALE",
-                    message="The previous decision no longer matches current evidence.",
-                )
-            if record.version != expected_version:
-                raise ReconciliationRequestError(
-                    code="RECONCILIATION_STALE",
-                    message="Reconciliation changed before this decision.",
+                    code="RECONCILIATION_ACTION_NOT_ALLOWED",
+                    message="Source decisions must be a nonempty unique group.",
                 )
             if (
-                existing is None
-                or existing.status != DiscrepancyStatus.OPEN
-                or existing.discrepancy_id not in current_discrepancy_ids
-            ):
-                raise ReconciliationRequestError(
-                    code="RECONCILIATION_DISCREPANCY_NOT_FOUND",
-                    message="The active reconciliation discrepancy was not found.",
-                )
-            if not hmac.compare_digest(existing.evidence_fingerprint, evidence_fingerprint):
-                raise ReconciliationRequestError(
-                    code="RECONCILIATION_STALE",
-                    message="Reconciliation evidence changed before this decision.",
-                )
-            if (
-                not hmac.compare_digest(record.evidence_fingerprint, current_fingerprint)
-                or record.source_document_ids != current_document_ids
-                or record.source_document_event_counts != current_document_versions
+                record.evidence_fingerprint != fingerprint
+                or record.source_document_ids != tuple(d.document_id for d in documents)
+                or record.source_document_event_counts != tuple(len(d.events) for d in documents)
             ):
                 raise ReconciliationRequestError(
                     code="RECONCILIATION_STALE",
                     message="Authoritative case or source evidence changed before this decision.",
                 )
-            if action not in existing.allowed_actions:
-                raise ReconciliationRequestError(
-                    code="RECONCILIATION_ACTION_NOT_ALLOWED",
-                    message="This action is not authorized for the active discrepancy.",
-                )
-            selected_source = (
-                ReconciliationSourceKind.REGISTRY
-                if action == ReconciliationDecisionAction.KEEP_REGISTRY_VALUE
-                else ReconciliationSourceKind.DOCUMENT_IDP
-            )
-            selected = self._select_observation(existing, selected_source)
-            if selected is None or selected.normalized_value is None:
-                raise ReconciliationRequestError(
-                    code="RECONCILIATION_ACTION_NOT_ALLOWED",
-                    message="The selected source has no usable value for this discrepancy.",
-                )
-            now = self._clock()
-            candidate = record.model_copy(deep=True)
-            target = next(
-                item for item in candidate.discrepancies if item.discrepancy_id == discrepancy_id
-            )
-            target.status = DiscrepancyStatus.RESOLVED
-            target.decision = ReconciliationDecision(
-                action=action,
-                selected_observation_id=selected.observation_id,
-                selected_value=selected.normalized_value,
-                decided_at=now,
-                reconciliation_version=record.version,
-                evidence_fingerprint=target.evidence_fingerprint,
-            )
-            expected_entity_fingerprint = self._cases.canonical_entity_fingerprint(case_id)
-            expected_onboarding_fingerprint = sha256(
-                case.model_dump_json().encode("utf-8")
-            ).hexdigest()
-            onboarding_candidate = None
-            if action == ReconciliationDecisionAction.USE_DOCUMENT_VALUE:
-                try:
-                    onboarding_candidate = self._cases.prepare_reconciled_value(
-                        case_id=case_id,
-                        field_name=existing.field_name,
-                        selected_value=selected.raw_value or selected.normalized_value,
-                        expected_entity_fingerprint=expected_entity_fingerprint,
-                    )
-                except ValueError:
+            by_id = {d.discrepancy_id: d for d in record.discrepancies}
+            # A source commit can precede its automation checkpoint. Its decision
+            # version identifies the entire retained group, not a resubmitted subset.
+            committed_group_ids = {
+                d.discrepancy_id for d in record.discrepancies
+                if d.decision is not None
+                and d.decision.reconciliation_version == expected_version
+            }
+            if all(
+                (d := by_id.get(c.discrepancy_id)) is not None
+                and d.discrepancy_id in active_ids
+                and d.status == DiscrepancyStatus.RESOLVED
+                and d.decision is not None
+                and d.decision.reconciliation_version == expected_version
+                and d.decision.action == c.action
+                and d.evidence_fingerprint == c.evidence_fingerprint
+                for c in choices
+            ):
+                if (
+                    record.version != expected_version + 1
+                    or {c.discrepancy_id for c in choices} != committed_group_ids
+                ):
                     raise ReconciliationRequestError(
-                        code="RECONCILIATION_CANONICAL_UPDATE_REJECTED",
-                        message="The selected document value cannot safely update canonical data.",
-                    ) from None
+                        code="RECONCILIATION_STALE",
+                        message="The complete retained source decision group is required.",
+                    )
+                return record
+            if record.version != expected_version:
+                raise ReconciliationRequestError(
+                    code="RECONCILIATION_STALE",
+                    message="Reconciliation changed before this decision.",
+                )
+            selected_choices = []
+            for choice in choices:
+                existing = by_id.get(choice.discrepancy_id)
+                if (
+                    existing is None
+                    or existing.status != DiscrepancyStatus.OPEN
+                    or existing.discrepancy_id not in active_ids
+                ):
+                    raise ReconciliationRequestError(
+                        code="RECONCILIATION_DISCREPANCY_NOT_FOUND",
+                        message="The active reconciliation discrepancy was not found.",
+                    )
+                if existing.evidence_fingerprint != choice.evidence_fingerprint:
+                    raise ReconciliationRequestError(
+                        code="RECONCILIATION_STALE",
+                        message="Reconciliation evidence changed before this decision.",
+                    )
+                if choice.action not in existing.allowed_actions:
+                    raise ReconciliationRequestError(
+                        code="RECONCILIATION_ACTION_NOT_ALLOWED",
+                        message="This action is not authorized for the active discrepancy.",
+                    )
+                kind = (
+                    ReconciliationSourceKind.REGISTRY
+                    if choice.action == ReconciliationDecisionAction.KEEP_REGISTRY_VALUE
+                    else ReconciliationSourceKind.DOCUMENT_IDP
+                )
+                selected = self._select_observation(existing, kind)
+                if selected is None or selected.normalized_value is None:
+                    raise ReconciliationRequestError(
+                        code="RECONCILIATION_ACTION_NOT_ALLOWED",
+                        message="The selected source has no usable value for this discrepancy.",
+                    )
+                selected_choices.append((choice, existing, selected))
+            entity_fingerprint = self._cases.canonical_entity_fingerprint(case_id)
+            onboarding_fingerprint = sha256(case.model_dump_json().encode("utf-8")).hexdigest()
+            candidate = record.model_copy(deep=True)
+            onboarding_candidate = None
+            now = self._clock()
+            for choice, existing, selected in selected_choices:
+                assert selected.normalized_value is not None
+                if choice.action == ReconciliationDecisionAction.USE_DOCUMENT_VALUE:
+                    try:
+                        # The existing owner permits only its bounded legal-name update.
+                        onboarding_candidate = self._cases.prepare_reconciled_value(
+                            case_id=case_id,
+                            field_name=existing.field_name,
+                            selected_value=selected.raw_value or selected.normalized_value,
+                            expected_entity_fingerprint=entity_fingerprint,
+                        )
+                    except ValueError:
+                        raise ReconciliationRequestError(
+                            code="RECONCILIATION_CANONICAL_UPDATE_REJECTED",
+                            message=(
+                                "The selected document value cannot safely update canonical data."
+                            ),
+                        ) from None
+                target = next(
+                    d for d in candidate.discrepancies if d.discrepancy_id == choice.discrepancy_id
+                )
+                target.status = DiscrepancyStatus.RESOLVED
+                target.decision = ReconciliationDecision(
+                    action=choice.action,
+                    selected_observation_id=selected.observation_id,
+                    selected_value=selected.normalized_value,
+                    decided_at=now,
+                    reconciliation_version=record.version,
+                    evidence_fingerprint=target.evidence_fingerprint,
+                )
+            if onboarding_candidate is not None:
                 candidate.evidence_fingerprint = self._evidence_fingerprint(
                     onboarding_candidate, documents
                 )
-                for item in candidate.open_discrepancies:
-                    item.evidence_fingerprint = self._discrepancy_fingerprint(
-                        candidate.evidence_fingerprint, item.field_name, item.observations
+                for pending in candidate.open_discrepancies:
+                    pending.evidence_fingerprint = self._discrepancy_fingerprint(
+                        candidate.evidence_fingerprint, pending.field_name, pending.observations
                     )
             candidate.status = (
                 ReconciliationStatus.REVIEW_REQUIRED
@@ -288,7 +320,7 @@ class ReconciliationService:
             )
             candidate.updated_at = now
             try:
-                validated_candidate = self._validate_resolution_candidate(candidate)
+                validated = self._validate_resolution_candidate(candidate)
             except Exception:
                 raise ReconciliationInfrastructureError(
                     code="RECONCILIATION_DECISION_INVALID",
@@ -297,10 +329,10 @@ class ReconciliationService:
             try:
                 return self._unit_of_work.commit_resolution(
                     onboarding_candidate=onboarding_candidate,
-                    reconciliation_candidate=validated_candidate,
+                    reconciliation_candidate=validated,
                     expected_reconciliation_version=record.version,
-                    expected_onboarding_fingerprint=expected_onboarding_fingerprint,
-                    expected_entity_fingerprint=expected_entity_fingerprint,
+                    expected_onboarding_fingerprint=onboarding_fingerprint,
+                    expected_entity_fingerprint=entity_fingerprint,
                 )
             except ReconciliationRepositoryConflictError:
                 raise ReconciliationRequestError(
@@ -310,7 +342,7 @@ class ReconciliationService:
             except ReconciliationUnitOfWorkError:
                 raise ReconciliationInfrastructureError(
                     code="RECONCILIATION_COMMIT_FAILED",
-                    message="The decision and canonical value were not committed.",
+                    message="The decisions and canonical value were not committed.",
                 ) from None
 
     @staticmethod

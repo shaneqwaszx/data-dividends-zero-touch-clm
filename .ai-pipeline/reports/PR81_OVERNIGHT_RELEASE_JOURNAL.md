@@ -1,0 +1,15 @@
+# PR81 overnight execution journal
+
+2026-10-10T17:44:23Z: program started. Expected Git/source identities and all previous preservation checkpoints verified. Main fetched unchanged; PR81 MERGEABLE/BLOCKED; auto-merge OFF. No active implementation writer besides root; no heavy suite active. Existing uncommitted candidate preserved. No commit/push/new CI yet.
+
+Diagnostic exact seeder PASS 7.406s, ten owner completions/HTTP200/declared lengths fully consumed, ASGI final-body return; original cause/outcome still unknown. No source edits. Fixed prospective three-run plans written before further acceptance.
+
+Seeder stability window: ordinal1 PASS8.375s; ordinal2 FAIL19.188s same body-read TimeoutError, ordinal3 NOT_DISPATCHED. No acceptance reset. Diagnostic2 reproduced timeout but final receipt collided with immutable original; log retained and tool bug corrected. Diagnostics3/4/5 PASS with distinct receive/transport instrumentation; unknown cause. Next bounded diagnostic collection: at most three normal-collection plugin executions, stop at first reproduced failure to inspect live transport; these never count as acceptance or repair cycles.
+
+Diagnostics6/7/8 fixed diagnostic window all PASS; not acceptance. Next discriminating window max3 error-only observations after normal collection, no per-request instrumentation before failure; stop at first failure for actual server/transport/retained-state capture. No source repairs attempted.
+
+Diagnostic9 FAIL19.5s: HTTP200 Content-Length65767/nonchunked/close, server connections/tasks0 totalrequests14; retained confirmation COMPLETED/MOCK_GOLDTIER_SUBMITTED. This reproduction excludes ongoing owner operation stall. Independent reviewer identified installed CPython selector _write_send popleft-before-send/BlockingIOError loss as unproved transport hypothesis. Next max3 fresh diagnostics observe only actual socket.send exceptions and timeout state, stop at first failure; no runtime edits or acceptance reset.
+
+Diagnostics12..14 all PASS, actual socket.send exceptions0; not acceptance. Selector buffer-loss remains unproved and does not yet fit closed-server evidence. Next bounded max3 error-only runs retain native protocol references and inspect closed response counters/client unread kernel bytes/task-specific TCP ports at timeout. No provider replay or changed request timeout. This is the last transport-state collection before independent diagnosis assessment.
+
+2026-10-10T18:03:40.960052+00:00: fresh independent FAIL received, source identity unchanged. Existing accepted Proactor-to-Selector correction inspected; speculative reversal rejected. Diagnostic coordinator15 executions (13PASS/2FAIL), predefined exact2 (1PASS/1FAIL; third undispatched), independent exact1PASS:18 total focused executions,15PASS/3FAIL. No complete-suite acceptance or publication performed. Main/remote unchanged, bothP2 unresolved, auto-mergeOFF. Owned Mongo remains exited. Hard stop after bounded informative diagnosis and independent rejection without proven correction; cycles0/publishedheads0, no product edit. All1011 starting preservation hashes still exact.

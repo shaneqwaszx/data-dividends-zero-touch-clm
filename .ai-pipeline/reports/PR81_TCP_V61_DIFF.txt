@@ -1,0 +1,1293 @@
+--- V6/CAPTURE_PROVENANCE_SCHEMA.json
++++ V6.1/CAPTURE_PROVENANCE_SCHEMA.json
+@@ -0,0 +1,166 @@
++{
++  "$schema": "https://json-schema.org/draft/2020-12/schema",
++  "title": "PR81 V6.1 numeric capture provenance",
++  "type": "object",
++  "additionalProperties": false,
++  "required": [
++    "run_id",
++    "owned_run_id",
++    "source_identity",
++    "profile_sha256",
++    "schema_sha256",
++    "deadline",
++    "finished_tick",
++    "capture_failed",
++    "cleanup_failed",
++    "absent",
++    "native_status",
++    "stats"
++  ],
++  "properties": {
++    "run_id": {
++      "type": "string",
++      "pattern": "^[0-9a-f-]{36}$"
++    },
++    "owned_run_id": {
++      "type": "string",
++      "pattern": "^[0-9a-f-]{36}$"
++    },
++    "source_identity": {
++      "const": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490"
++    },
++    "profile_sha256": {
++      "const": "ce6dbe33f22388f215ccf18a7509a08538a386a905d1dc357b9eabdd904fb96f"
++    },
++    "schema_sha256": {
++      "const": "79c27947d2e0188a8e6f0c2cdc90329844f7e2f189d6966b2424cdf13dcc8e01"
++    },
++    "deadline": {
++      "type": "integer",
++      "minimum": 1
++    },
++    "finished_tick": {
++      "type": "integer",
++      "minimum": 0
++    },
++    "capture_failed": {
++      "const": false
++    },
++    "cleanup_failed": {
++      "const": false
++    },
++    "absent": {
++      "const": true
++    },
++    "native_status": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "start",
++        "limits_query",
++        "enable",
++        "snapshot_query",
++        "disable",
++        "stop",
++        "absence_query"
++      ],
++      "properties": {
++        "start": {
++          "const": 0
++        },
++        "limits_query": {
++          "const": 0
++        },
++        "enable": {
++          "const": 0
++        },
++        "snapshot_query": {
++          "const": 0
++        },
++        "disable": {
++          "const": 0
++        },
++        "stop": {
++          "const": 0
++        },
++        "absence_query": {
++          "const": 4201
++        }
++      }
++    },
++    "stats": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "BufferSize",
++        "MinimumBuffers",
++        "MaximumBuffers",
++        "MaximumFileSize",
++        "NumberOfBuffers",
++        "LogFileMode",
++        "EnableFlags",
++        "EventsLost",
++        "LogBuffersLost",
++        "RealTimeBuffersLost",
++        "BuffersWritten"
++      ],
++      "properties": {
++        "BufferSize": {
++          "type": "integer",
++          "minimum": 0,
++          "maximum": 4294967295
++        },
++        "MinimumBuffers": {
++          "type": "integer",
++          "minimum": 0,
++          "maximum": 4294967295
++        },
++        "MaximumBuffers": {
++          "type": "integer",
++          "minimum": 0,
++          "maximum": 4294967295
++        },
++        "MaximumFileSize": {
++          "type": "integer",
++          "minimum": 0,
++          "maximum": 4294967295
++        },
++        "NumberOfBuffers": {
++          "type": "integer",
++          "minimum": 0,
++          "maximum": 4294967295
++        },
++        "LogFileMode": {
++          "type": "integer",
++          "minimum": 0,
++          "maximum": 4294967295
++        },
++        "EnableFlags": {
++          "type": "integer",
++          "minimum": 0,
++          "maximum": 4294967295
++        },
++        "EventsLost": {
++          "type": "integer",
++          "minimum": 0,
++          "maximum": 4294967295
++        },
++        "LogBuffersLost": {
++          "type": "integer",
++          "minimum": 0,
++          "maximum": 4294967295
++        },
++        "RealTimeBuffersLost": {
++          "type": "integer",
++          "minimum": 0,
++          "maximum": 4294967295
++        },
++        "BuffersWritten": {
++          "type": "integer",
++          "minimum": 0,
++          "maximum": 4294967295
++        }
++      }
++    }
++  }
++}
+--- V6/ControllerDiagnostics.ps1
++++ V6.1/ControllerDiagnostics.ps1
+@@ -1,6 +1,6 @@
+ function Invoke-CheckedWatchdog($d,[long]$deadline,[scriptblock]$Clock,[scriptblock]$Probe,[scriptblock]$Persist,[int]$Stage=7){
+  $d.Begin($Stage,2);$d.WatchdogEvaluationSite=$Stage
+- [PR81TcpV6.WatchdogSafety]::Reset($d)
++ [PR81TcpV61.WatchdogSafety]::Reset($d)
+  $d.WatchdogTick=& $Clock;$d.DeadlineRemaining=$deadline-$d.WatchdogTick
+  try{& $Probe|Out-Null}
+  catch{
+@@ -22,7 +22,7 @@
+ }
+ function Get-DiagnosticRecord($d){
+  $record=[ordered]@{}
+- foreach($field in [PR81TcpV6.Diagnostic].GetFields()){
++ foreach($field in [PR81TcpV61.Diagnostic].GetFields()){
+   $record[$field.Name]=$field.GetValue($d)
+  }
+  return $record
+@@ -53,17 +53,17 @@
+  $s=$q.Stats
+  $d.BufferSize=$s.BufferSize;$d.MinimumBuffers=$s.MinimumBuffers;$d.MaximumBuffers=$s.MaximumBuffers
+  $d.MaximumFileSize=$s.MaximumFileSize;$d.NumberOfBuffers=$s.NumberOfBuffers;$d.LogFileMode=$s.LogFileMode;$d.EnableFlags=$s.EnableFlags
+- $d.OwnershipMatch=[PR81TcpV6.Native]::Owned($s,$id)
++ $d.OwnershipMatch=[PR81TcpV61.Native]::Owned($s,$id)
+  $d.BufferSizeMatch=$s.BufferSize -eq 64;$d.MinimumBuffersMatch=$s.MinimumBuffers -eq 4
+  $d.MaximumBuffersMatch=$s.MaximumBuffers -eq 16;$d.MaximumFileSizeMatch=$s.MaximumFileSize -eq 8
+- $d.NumberOfBuffersMatch=$s.NumberOfBuffers -le 16;$d.LogFileModeMatch=$s.LogFileMode -eq [PR81TcpV6.Native]::ApprovedLogFileMode;$d.EnableFlagsMatch=$s.EnableFlags -eq 0
++ $d.NumberOfBuffersMatch=$s.NumberOfBuffers -le 16;$d.LogFileModeMatch=$s.LogFileMode -eq [PR81TcpV61.Native]::ApprovedLogFileMode;$d.EnableFlagsMatch=$s.EnableFlags -eq 0
+  $mask=[uint32]0;$bit=0
+  foreach($ok in @($d.OwnershipMatch,$d.BufferSizeMatch,$d.MinimumBuffersMatch,$d.MaximumBuffersMatch,$d.MaximumFileSizeMatch,$d.NumberOfBuffersMatch,$d.LogFileModeMatch,$d.EnableFlagsMatch)){
+   if(!$ok){$mask=$mask -bor (1 -shl $bit)};$bit++
+  }
+  $d.FailedComparisons=$mask
+  # Keep the authoritative V3 aggregate, including native-code success, unchanged.
+- $d.LimitsGuard=$q.Code -eq 0 -and [PR81TcpV6.Native]::Owned($s,$id) -and [PR81TcpV6.Native]::Bounds($s)
++ $d.LimitsGuard=$q.Code -eq 0 -and [PR81TcpV61.Native]::Owned($s,$id) -and [PR81TcpV61.Native]::Bounds($s)
+  $d.End(5);$d.Begin(6,1)
+  & $Persist
+  Require ($d.LimitsGuard) 'QUERIED_LIMIT_MISMATCH';$d.End(6)
+@@ -91,6 +91,6 @@
+ }
+ function Assert-CaptureExport($failed,$cleanupFailed,$stop,$after,$snapshot,[scriptblock]$DoneExists){
+  Require (!$failed -and !$cleanupFailed -and $null -ne $stop -and $stop.DisableAttempted -and $stop.DisableCode -eq 0) 'CAPTURE_ABORTED_NO_EXPORT'
+- Require ($after.Code -eq 4201 -and $stop.Code -eq 0 -and $null -ne $snapshot -and $snapshot.Code -eq 0 -and [PR81TcpV6.Native]::Complete($stop.Stats)) 'INCOMPLETE_OR_CLEANUP_FAILURE'
++ Require ($after.Code -eq 4201 -and $stop.Code -eq 0 -and $null -ne $snapshot -and $snapshot.Code -eq 0 -and [PR81TcpV61.Native]::Complete($stop.Stats)) 'INCOMPLETE_OR_CLEANUP_FAILURE'
+  Require (& $DoneExists) 'FIXTURE_NOT_DONE_BEFORE_DEADLINE'
+ }
+--- V6/ExportEnvelope.ps1
++++ V6.1/ExportEnvelope.ps1
+@@ -0,0 +1,75 @@
++# Sanitizer-owned production provenance/envelope boundary. No trace-control, raw content or exception rendering.
++function ExportRequire($condition,[string]$code){if(!$condition){throw $code}}
++function ExportHash([byte[]]$bytes){return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()}
++function New-CaptureProvenance([Guid]$id,$bundle,$stop,$nativeStatus,[long]$deadline,[long]$finished){
++ $stats=[ordered]@{}
++ foreach($name in @('BufferSize','MinimumBuffers','MaximumBuffers','MaximumFileSize','NumberOfBuffers','LogFileMode','EnableFlags','EventsLost','LogBuffersLost','RealTimeBuffersLost','BuffersWritten')){$stats[$name]=$stop.Stats.$name}
++ return [pscustomobject]@{run_id=$id.ToString();owned_run_id=$stop.Stats.Wnode.Guid.ToString();source_identity=$bundle.source_identity;profile_sha256=$bundle.profile_sha256;schema_sha256=$bundle.files.'../PR81_TCP_TRACE_EVENT_SCHEMA_V2.json';deadline=$deadline;finished_tick=$finished;capture_failed=$false;cleanup_failed=$false;absent=$true;native_status=$nativeStatus;stats=[pscustomobject]$stats}
++}
++function Read-ExportJson([string]$path,[int]$maxBytes=16384){
++ $item=Get-Item -LiteralPath $path -Force
++ ExportRequire ($item -is [IO.FileInfo] -and $item.Length -le $maxBytes) 'PROVENANCE_RECORD_SIZE'
++ $ancestor=$item
++ while($null -ne $ancestor){ExportRequire (($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'PROVENANCE_REPARSE';$ancestor=if($ancestor -is [IO.FileInfo]){$ancestor.Directory}else{$ancestor.Parent}}
++ return [IO.File]::ReadAllText($path)|ConvertFrom-Json
++}
++function Get-ExportInputs([string]$targetPath,[Guid]$id){
++ $helper=$PSScriptRoot;$root=[IO.Path]::GetFullPath((Join-Path $helper '../../..'))
++ $control=[IO.Path]::GetFullPath((Join-Path $root ('tmp/pr81-tcp-capture-control/'+$id.ToString())))
++ ExportRequire ([IO.Path]::GetFullPath($targetPath) -ceq (Join-Path $control 'fixture-done.json')) 'PROVENANCE_CONTROL_PATH'
++ $bundle=Read-ExportJson (Join-Path $helper 'bundle.json')
++ foreach($file in $bundle.files.PSObject.Properties){ExportRequire ((Get-FileHash -LiteralPath (Join-Path $helper $file.Name)).Hash.ToLower() -ceq $file.Value) 'EXPORT_BUNDLE_CHANGED'}
++ foreach($file in $bundle.source_hashes.PSObject.Properties){ExportRequire ((Get-FileHash -LiteralPath (Join-Path $root $file.Name)).Hash.ToLower() -ceq $file.Value) 'EXPORT_SOURCE_CHANGED'}
++ $target=Read-ExportJson $targetPath
++ $receiptPath=Join-Path $root ('tmp/pr81-tcp-native-'+$id.ToString()+'.json')
++ $receipt=Read-ExportJson $receiptPath 1048576
++ return [pscustomobject]@{Bundle=$bundle;ProfileBytes=[IO.File]::ReadAllBytes((Join-Path $helper '../PR81_TCP_TRACE_CAPTURE_PROFILE_V6.json'));SchemaBytes=[IO.File]::ReadAllBytes((Join-Path $helper '../PR81_TCP_TRACE_EVENT_SCHEMA_V2.json'));Target=$target;Armed=(Read-ExportJson (Join-Path $control 'armed.json'));Request=(Read-ExportJson (Join-Path $control 'fixture-request.json'));Active=(Read-ExportJson (Join-Path $control 'active.json'));Stopped=(Read-ExportJson (Join-Path $control 'stopped.json'));Capture=(Read-ExportJson (Join-Path $control 'capture-provenance.json'));Receipt=$receipt;ReceiptHash=(Get-FileHash -LiteralPath $receiptPath).Hash.ToLower()}
++}
++function Assert-ExportInputs($inputs,[Guid]$id){
++ ExportRequire ($id -ne [Guid]::Empty) 'PROVENANCE_RUN_REQUIRED'
++ $bundle=$inputs.Bundle
++ ExportRequire ($bundle.helper_version -ceq '6.1') 'UNSUPPORTED_EXPORT_MANIFEST'
++ # This is the only supported reviewed profile, and its actual bytes must independently reproduce it.
++ $profile=ExportHash $inputs.ProfileBytes
++ ExportRequire ($profile -ceq 'ce6dbe33f22388f215ccf18a7509a08538a386a905d1dc357b9eabdd904fb96f') 'UNSUPPORTED_PROFILE_BYTES'
++ ExportRequire ($bundle.profile_sha256 -ceq $profile -and $bundle.files.'../PR81_TCP_TRACE_CAPTURE_PROFILE_V6.json' -ceq $profile) 'MANIFEST_PROFILE_MISMATCH'
++ $schemaIdentity=ExportHash $inputs.SchemaBytes
++ ExportRequire ($schemaIdentity -ceq '79c27947d2e0188a8e6f0c2cdc90329844f7e2f189d6966b2424cdf13dcc8e01' -and $bundle.files.'../PR81_TCP_TRACE_EVENT_SCHEMA_V2.json' -ceq $schemaIdentity) 'MANIFEST_SCHEMA_MISMATCH'
++ ExportRequire ($bundle.source_identity -ceq 'ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490') 'MANIFEST_SOURCE_MISMATCH'
++ foreach($record in @($inputs.Armed,$inputs.Request,$inputs.Active,$inputs.Target,$inputs.Stopped,$inputs.Capture,$inputs.Receipt)){
++  ExportRequire ($null -ne $record -and $record.run_id -ceq $id.ToString() -and $record.profile_sha256 -ceq $profile) 'CAPTURE_PROFILE_BINDING'
++ }
++ foreach($record in @($inputs.Request,$inputs.Target,$inputs.Capture,$inputs.Receipt)){ExportRequire ($record.source_identity -ceq $bundle.source_identity) 'CAPTURE_SOURCE_BINDING'}
++ ExportRequire ($inputs.Armed.host_hash -ceq $bundle.host_hash -and $inputs.Request.host_hash -ceq $bundle.host_hash -and $inputs.Request.fixture_pid -eq $inputs.Target.fixture_pid) 'CAPTURE_HOST_PROCESS_BINDING'
++ ExportRequire ($inputs.Target.receipt_sha256 -ceq $inputs.ReceiptHash -and $inputs.ReceiptHash -cmatch '^[0-9a-f]{64}$') 'CAPTURE_RECEIPT_BINDING'
++ $capture=$inputs.Capture
++ ExportRequire (Test-Json -Json ($capture|ConvertTo-Json -Depth 8 -Compress) -SchemaFile (Join-Path $PSScriptRoot 'CAPTURE_PROVENANCE_SCHEMA.json') -ErrorAction Stop) 'CAPTURE_METADATA_SCHEMA'
++ ExportRequire ($capture.owned_run_id -ceq $id.ToString()) 'CAPTURE_OWNERSHIP'
++ ExportRequire ($capture.deadline -eq $inputs.Active.deadline -and $capture.deadline -eq $inputs.Stopped.deadline -and $capture.finished_tick -ge ($capture.deadline-45000) -and $capture.finished_tick -le $capture.deadline -and ($inputs.Stopped.finished_tick -is [long] -or $inputs.Stopped.finished_tick -is [int]) -and $inputs.Stopped.finished_tick -ge ($capture.deadline-45000) -and $inputs.Stopped.finished_tick -le $capture.finished_tick) 'CAPTURE_DEADLINE_BINDING'
++ ExportRequire ($inputs.Stopped.capture_failed -is [bool] -and !$inputs.Stopped.capture_failed -and $inputs.Stopped.cleanup_failed -is [bool] -and !$inputs.Stopped.cleanup_failed -and $inputs.Stopped.absent -is [bool] -and $inputs.Stopped.absent -and $inputs.Stopped.stop_code -eq 0) 'CAPTURE_INCOMPLETE'
++ foreach($name in @('start','limits_query','enable','snapshot_query','disable','stop','absence_query')){
++  $value=$inputs.Stopped.native_status.$name
++  ExportRequire (($value -is [int] -or $value -is [long] -or $value -is [uint32]) -and $value -eq $capture.native_status.$name) 'CAPTURE_NATIVE_STATUS_BINDING'
++ }
++ $stats=[PR81TcpV61.Stats]::new()
++ foreach($field in $capture.stats.PSObject.Properties){$stats.($field.Name)=$field.Value}
++ ExportRequire ([PR81TcpV61.Native]::Bounds($stats) -and [PR81TcpV61.Native]::Complete($stats)) 'CAPTURE_BOUNDS_OR_LOSS'
++ return [pscustomobject]@{Profile=$profile;Schema=$schemaIdentity}
++}
++function New-SanitizedEnvelope($rows,$inputs,[Guid]$id){
++ $identity=Assert-ExportInputs $inputs $id
++ $target=$inputs.Target
++ # Preserve the original target gate; fixture failure itself is forensic evidence, not a replay/export authorization.
++ ExportRequire ($target.correlation -cmatch ('^d1-native-'+[regex]::Escape($id.ToString())+'-r[0-9]{2}$') -and $target.server_port -in 1..65535 -and $target.client_port -in 1..65535 -and $target.fixture_pid -gt 0) 'TARGET_FORMAT'
++ $events=Select-Connection $rows $target
++ return [ordered]@{run_id=$id.ToString();source_identity=$target.source_identity;server_port=$target.server_port;client_port=$target.client_port;fixture_pid=$target.fixture_pid;correlation=$target.correlation;profile_sha256=$identity.Profile;schema_sha256=$identity.Schema;observations='Native events only; missing coverage is UNKNOWN, no wire FIN claim';events=@($events)}
++}
++function Write-SanitizedExport($rows,$inputs,[Guid]$id,[string]$outputPath){
++ $payload=New-SanitizedEnvelope $rows $inputs $id
++ $json=$payload|ConvertTo-Json -Depth 8
++ ExportRequire (Test-Json -Json $json -SchemaFile (Join-Path $PSScriptRoot 'SANITIZED_EXPORT_SCHEMA.json') -ErrorAction Stop) 'EXPORT_ENVELOPE_SCHEMA'
++ $bytes=[Text.UTF8Encoding]::new($false).GetBytes($json)
++ ExportRequire ($bytes.Length -le 1MB) 'EXPORT_SIZE'
++ $stream=[IO.FileStream]::new($outputPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
++ try{$stream.Write($bytes,0,$bytes.Length)}finally{$stream.Dispose()}
++}
+--- V6/Invoke-Pr81TcpCapture.ps1
++++ V6.1/Invoke-Pr81TcpCapture.ps1
+@@ -18,17 +18,19 @@
+ }
+ Add-Type -Path (Join-Path $PSScriptRoot 'NativeTcp.cs')
+ . (Join-Path $PSScriptRoot 'ControllerDiagnostics.ps1')
++. (Join-Path $PSScriptRoot 'ExportEnvelope.ps1')
+ if($Mode -eq 'Validate'){
+- Require ([PR81TcpV6.Native]::StatsSize() -eq 120 -and [PR81TcpV6.Native]::EnableSize() -eq 48) 'NATIVE_LAYOUT'
+- $s=[PR81TcpV6.Stats]::new();$id=[Guid]::NewGuid();$w=[PR81TcpV6.Wnode]::new();$w.Guid=$id;$s.Wnode=$w
+- Require ([PR81TcpV6.Native]::Owned($s,$id) -and ![PR81TcpV6.Native]::Owned($s,[Guid]::NewGuid())) 'OWNERSHIP_GUARD'
+- $s.BufferSize=64;$s.MinimumBuffers=4;$s.MaximumBuffers=16;$s.MaximumFileSize=8;$s.NumberOfBuffers=4;$s.LogFileMode=[PR81TcpV6.Native]::ApprovedLogFileMode
+- Require ([PR81TcpV6.Native]::Bounds($s)) 'BOUNDS_ACCEPT';$s.MaximumBuffers=32;Require (![PR81TcpV6.Native]::Bounds($s)) 'BOUNDS_REJECT';$s.MaximumBuffers=16
+- $s.EventsLost=1;Require (![PR81TcpV6.Native]::Complete($s)) 'LOSS_REJECT';$s.EventsLost=0;$s.BuffersWritten=127;Require (![PR81TcpV6.Native]::Complete($s)) 'OVERWRITE_REJECT'
++ Require ([PR81TcpV61.Native]::StatsSize() -eq 120 -and [PR81TcpV61.Native]::EnableSize() -eq 48) 'NATIVE_LAYOUT'
++ $s=[PR81TcpV61.Stats]::new();$id=[Guid]::NewGuid();$w=[PR81TcpV61.Wnode]::new();$w.Guid=$id;$s.Wnode=$w
++ Require ([PR81TcpV61.Native]::Owned($s,$id) -and ![PR81TcpV61.Native]::Owned($s,[Guid]::NewGuid())) 'OWNERSHIP_GUARD'
++ $s.BufferSize=64;$s.MinimumBuffers=4;$s.MaximumBuffers=16;$s.MaximumFileSize=8;$s.NumberOfBuffers=4;$s.LogFileMode=[PR81TcpV61.Native]::ApprovedLogFileMode
++ Require ([PR81TcpV61.Native]::Bounds($s)) 'BOUNDS_ACCEPT';$s.MaximumBuffers=32;Require (![PR81TcpV61.Native]::Bounds($s)) 'BOUNDS_REJECT';$s.MaximumBuffers=16
++ $s.EventsLost=1;Require (![PR81TcpV61.Native]::Complete($s)) 'LOSS_REJECT';$s.EventsLost=0;$s.BuffersWritten=127;Require (![PR81TcpV61.Native]::Complete($s)) 'OVERWRITE_REJECT'
+  & (Join-Path $PSScriptRoot 'Sanitize-TcpTrace.ps1') -Validate
+  & (Join-Path $PSScriptRoot 'Test-ControllerDiagnostics.ps1')
+  & (Join-Path $PSScriptRoot 'Test-WatchdogSafety.ps1')
+  & (Join-Path $PSScriptRoot 'Test-LoggingModeSafety.ps1')
++ & (Join-Path $PSScriptRoot 'Test-ExportEnvelope.ps1')
+  Write-Output 'Validation PASS: compile/layout/schema/source/ownership/bounds/loss; no native trace-control call';return
+ }
+ $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+@@ -49,10 +51,10 @@
+ if($Mode -eq 'Watchdog'){
+  NoReparse $raw
+  Put (Join-Path $raw 'watchdog-ready.json') @{run_id=$RunId.ToString();deadline=$Deadline}
+- while([PR81TcpV6.Native]::Clock() -lt $Deadline){[Threading.Thread]::Sleep(50)}
++ while([PR81TcpV61.Native]::Clock() -lt $Deadline){[Threading.Thread]::Sleep(50)}
+  $handle=[uint64]0;$marker=Join-Path $raw 'created.json'
+  if(Test-Path -LiteralPath $marker){$handle=[uint64](Get-Content -LiteralPath $marker -Raw|ConvertFrom-Json).handle}
+- $stop=[PR81TcpV6.Native]::Stop($RunId,$handle);$after=[PR81TcpV6.Native]::Query($RunId)
++ $stop=[PR81TcpV61.Native]::Stop($RunId,$handle);$after=[PR81TcpV61.Native]::Query($RunId)
+  Put (Join-Path $raw 'watchdog-ended.json') @{stop_code=$stop.Code;disable_attempted=$stop.DisableAttempted;disable_code=$(if($stop.DisableAttempted){$stop.DisableCode}else{$null});query_code=$after.Code;absent=($after.Code -eq 4201)}
+  return
+ }
+@@ -83,29 +85,29 @@
+ Put (Join-Path $raw 'ownership.json') @{run_id=$RunId.ToString();profile_sha256=$bundle.profile_sha256;host_hash=$hostHash}
+ Put (Join-Path $control 'armed.json') @{run_id=$RunId.ToString();host_hash=$hostHash;profile_sha256=$bundle.profile_sha256;expires_utc=[DateTime]::UtcNow.AddSeconds(300).ToString('o')}
+ Write-Output ("ARMED "+$RunId.ToString()+": send this RunId to Codex; capture has not started.")
+-$requestPath=Join-Path $control 'fixture-request.json';$until=[PR81TcpV6.Native]::Clock()+300000
+-while(!(Test-Path -LiteralPath $requestPath) -and [PR81TcpV6.Native]::Clock() -lt $until){[Threading.Thread]::Sleep(50)}
++$requestPath=Join-Path $control 'fixture-request.json';$until=[PR81TcpV61.Native]::Clock()+300000
++while(!(Test-Path -LiteralPath $requestPath) -and [PR81TcpV61.Native]::Clock() -lt $until){[Threading.Thread]::Sleep(50)}
+ Require (Test-Path -LiteralPath $requestPath) 'ARM_EXPIRED_NO_CAPTURE'
+ $request=Get-Content -LiteralPath $requestPath -Raw|ConvertFrom-Json
+ Require ($request.run_id -eq $RunId.ToString() -and $request.host_hash -eq $hostHash -and $request.source_identity -eq $bundle.source_identity) 'FIXTURE_REQUEST_BINDING'
+ $fixture=Get-Process -Id $request.fixture_pid
+ Require ($fixture.StartTime.ToUniversalTime().Ticks -eq $request.fixture_start_ticks -and (Get-FileHash -LiteralPath $fixture.Path).Hash.ToLower() -in $bundle.python_hashes) 'LOCAL_FIXTURE_PROCESS'
+ Require ($null -ne $fixture -and !$fixture.HasExited) 'FIXTURE_PROCESS_ENDED'
+-$existing=[PR81TcpV6.Native]::Query($RunId);Write-Output ('Existing-session query numeric code: '+$existing.Code);Require ($existing.Code -eq 4201) 'EXISTING_OR_UNQUERYABLE_SESSION'
+-$deadline=[PR81TcpV6.Native]::Clock()+45000
++$existing=[PR81TcpV61.Native]::Query($RunId);Write-Output ('Existing-session query numeric code: '+$existing.Code);Require ($existing.Code -eq 4201) 'EXISTING_OR_UNQUERYABLE_SESSION'
++$deadline=[PR81TcpV61.Native]::Clock()+45000
+ $watchArgs=@('-NoProfile','-File',('"'+$PSCommandPath+'"'),'-Mode','Watchdog','-RunId',$RunId.ToString(),'-Deadline',$deadline.ToString())
+ $watch=Start-Process -FilePath (Join-Path $PSHOME 'pwsh.exe') -ArgumentList $watchArgs -WindowStyle Hidden -PassThru
+-$d=[PR81TcpV6.Diagnostic]::new()
++$d=[PR81TcpV61.Diagnostic]::new()
+ try{
+- $d.Begin(23,2);$watchBinding=[PR81TcpV6.WatchdogSafety]::Bind($watch,$d)
++ $d.Begin(23,2);$watchBinding=[PR81TcpV61.WatchdogSafety]::Bind($watch,$d)
+  Require ($null -ne $watchBinding -and $d.WatchdogBindingEstablished -eq $true) 'WATCHDOG_ASSOCIATION_FAILED'
+  $d.End(23)
+- $ready=Join-Path $raw 'watchdog-ready.json';$readyUntil=[PR81TcpV6.Native]::Clock()+5000
+- while(!(Test-Path -LiteralPath $ready) -and [PR81TcpV6.Native]::Clock() -lt $readyUntil){
+-  Invoke-CheckedWatchdog $d $deadline { [PR81TcpV6.Native]::Clock() } { [PR81TcpV6.WatchdogSafety]::Observe($watch,$watchBinding,$d) } {} 24
++ $ready=Join-Path $raw 'watchdog-ready.json';$readyUntil=[PR81TcpV61.Native]::Clock()+5000
++ while(!(Test-Path -LiteralPath $ready) -and [PR81TcpV61.Native]::Clock() -lt $readyUntil){
++  Invoke-CheckedWatchdog $d $deadline { [PR81TcpV61.Native]::Clock() } { [PR81TcpV61.WatchdogSafety]::Observe($watch,$watchBinding,$d) } {} 24
+   [Threading.Thread]::Sleep(25)
+  }
+- Invoke-CheckedWatchdog $d $deadline { [PR81TcpV6.Native]::Clock() } { [PR81TcpV6.WatchdogSafety]::Observe($watch,$watchBinding,$d) } {} 24
++ Invoke-CheckedWatchdog $d $deadline { [PR81TcpV61.Native]::Clock() } { [PR81TcpV61.WatchdogSafety]::Observe($watch,$watchBinding,$d) } {} 24
+  Require (Test-Path -LiteralPath $ready) 'WATCHDOG_NOT_READY'
+  $wd=Get-Content -LiteralPath $ready -Raw|ConvertFrom-Json;Require ($wd.run_id -eq $RunId.ToString() -and $wd.deadline -eq $deadline) 'WATCHDOG_BINDING'
+ }catch{
+@@ -118,35 +120,37 @@
+  $d.Begin(1,1)
+  foreach($file in $bundle.source_hashes.PSObject.Properties){Require ((Get-FileHash -LiteralPath (Join-Path $root $file.Name)).Hash.ToLower() -eq $file.Value) 'SOURCE_CHANGED_BEFORE_START'}
+  $d.End(1);$d.Begin(2,1)
+- Require ([PR81TcpV6.Native]::Clock()+30000 -lt $deadline) 'INSUFFICIENT_CAPTURE_WINDOW'
++ Require ([PR81TcpV61.Native]::Clock()+30000 -lt $deadline) 'INSUFFICIENT_CAPTURE_WINDOW'
+  $d.End(2);$d.Begin(3,9)
+- $start=[PR81TcpV6.Native]::Start($RunId,(Join-Path $raw 'capture.etl'));$nativeStatus.start=$start.Code;Require ($start.Code -eq 0) 'NATIVE_START_FAILED';$owned=$true;$handle=$start.Handle
++ $start=[PR81TcpV61.Native]::Start($RunId,(Join-Path $raw 'capture.etl'));$nativeStatus.start=$start.Code;Require ($start.Code -eq 0) 'NATIVE_START_FAILED';$owned=$true;$handle=$start.Handle
+  $d.End(3);$d.Begin(4,9)
+  Put (Join-Path $raw 'created.json') @{run_id=$RunId.ToString();handle=$handle}
+  $d.End(4)
+- Invoke-ObservedPreEnable $d $RunId $watch $deadline $nativeStatus { [PR81TcpV6.Native]::Query($RunId) } { [PR81TcpV6.Native]::Clock() } { [PR81TcpV6.Native]::EnableOnly($handle,$RunId,$d) } { param($code) $nativeStatus.enable=$code } { $diagnosticName=switch($d.CurrentAttempt){6{'diagnostic-limits.json'}7{'diagnostic-watchdog.json'}16{'diagnostic-enabled.json'}};Save-ControlDiagnostic $d (Join-Path $control $diagnosticName) } { [PR81TcpV6.WatchdogSafety]::Observe($watch,$watchBinding,$d) }
++ Invoke-ObservedPreEnable $d $RunId $watch $deadline $nativeStatus { [PR81TcpV61.Native]::Query($RunId) } { [PR81TcpV61.Native]::Clock() } { [PR81TcpV61.Native]::EnableOnly($handle,$RunId,$d) } { param($code) $nativeStatus.enable=$code } { $diagnosticName=switch($d.CurrentAttempt){6{'diagnostic-limits.json'}7{'diagnostic-watchdog.json'}16{'diagnostic-enabled.json'}};Save-ControlDiagnostic $d (Join-Path $control $diagnosticName) } { [PR81TcpV61.WatchdogSafety]::Observe($watch,$watchBinding,$d) }
+  $d.Begin(17,9)
+  Put (Join-Path $control 'active.json') @{run_id=$RunId.ToString();deadline=$deadline;profile_sha256=$bundle.profile_sha256}
+  $d.End(17);$d.Begin(18,9)
+  $done=Join-Path $control 'fixture-done.json'
+- while(!(Test-Path -LiteralPath $done) -and [PR81TcpV6.Native]::Clock() -lt $deadline){
+-  Invoke-CheckedWatchdog $d $deadline { [PR81TcpV6.Native]::Clock() } { [PR81TcpV6.WatchdogSafety]::Observe($watch,$watchBinding,$d) } {} 25
++ while(!(Test-Path -LiteralPath $done) -and [PR81TcpV61.Native]::Clock() -lt $deadline){
++  Invoke-CheckedWatchdog $d $deadline { [PR81TcpV61.Native]::Clock() } { [PR81TcpV61.WatchdogSafety]::Observe($watch,$watchBinding,$d) } {} 25
+   [Threading.Thread]::Sleep(25)
+  }
+- Invoke-CheckedWatchdog $d $deadline { [PR81TcpV6.Native]::Clock() } { [PR81TcpV6.WatchdogSafety]::Observe($watch,$watchBinding,$d) } {} 25
++ Invoke-CheckedWatchdog $d $deadline { [PR81TcpV61.Native]::Clock() } { [PR81TcpV61.WatchdogSafety]::Observe($watch,$watchBinding,$d) } {} 25
+  $d.End(18);$d.Begin(19,9)
+- $snapshot=[PR81TcpV6.Native]::Query($RunId);$nativeStatus.snapshot_query=$snapshot.Code
++ $snapshot=[PR81TcpV61.Native]::Query($RunId);$nativeStatus.snapshot_query=$snapshot.Code
+  $d.End(19)
+ }catch{$failed=$true;Set-DiagnosticAbort $d $_;Save-ControlDiagnostic $d (Join-Path $control 'diagnostic-abort.json')}finally{
+- if($owned){try{$stop=Invoke-ObservedOwnedStop $d $RunId $handle { param($id,$h) [PR81TcpV6.Native]::Stop($id,$h) };$nativeStatus.stop=$stop.Code;if($stop.DisableAttempted){$nativeStatus.disable=$stop.DisableCode}}catch{$cleanupFailed=$true}}
++ if($owned){try{$stop=Invoke-ObservedOwnedStop $d $RunId $handle { param($id,$h) [PR81TcpV61.Native]::Stop($id,$h) };$nativeStatus.stop=$stop.Code;if($stop.DisableAttempted){$nativeStatus.disable=$stop.DisableCode}}catch{$cleanupFailed=$true}}
+ }
+-$after=$null;try{$after=Invoke-ObservedAbsence $d $RunId { param($id) [PR81TcpV6.Native]::Query($id) };$nativeStatus.absence_query=$after.Code}catch{$cleanupFailed=$true}
++$after=$null;try{$after=Invoke-ObservedAbsence $d $RunId { param($id) [PR81TcpV61.Native]::Query($id) };$nativeStatus.absence_query=$after.Code}catch{$cleanupFailed=$true}
+ $stopCode=if($null -eq $stop){-1}else{$stop.Code}
+ $absent=$null -ne $after -and $after.Code -eq 4201
+ $d.CaptureFailed=$failed;$d.CleanupFailed=$cleanupFailed;$d.Begin(22,9);$d.End(22);Save-ControlDiagnostic $d (Join-Path $control 'diagnostic-stopped.json')
+-Put (Join-Path $control 'stopped.json') @{run_id=$RunId.ToString();stop_code=$stopCode;absent=$absent;native_status=$nativeStatus;capture_failed=$failed;cleanup_failed=$cleanupFailed;profile_sha256=$bundle.profile_sha256;deadline=$deadline;finished_tick=[PR81TcpV6.Native]::Clock();diagnostic_write_failed=$d.DiagnosticWriteFailed;diagnostic_write_hresult=$d.DiagnosticWriteHResult}
+-if(!$absent){Write-Output 'CLEANUP UNVERIFIED: use the exact GUID-guarded emergency procedure in PR81_TCP_TRACE_MANUAL_PROCEDURE_V6.md.'}
++Put (Join-Path $control 'stopped.json') @{run_id=$RunId.ToString();stop_code=$stopCode;absent=$absent;native_status=$nativeStatus;capture_failed=$failed;cleanup_failed=$cleanupFailed;profile_sha256=$bundle.profile_sha256;deadline=$deadline;finished_tick=[PR81TcpV61.Native]::Clock();diagnostic_write_failed=$d.DiagnosticWriteFailed;diagnostic_write_hresult=$d.DiagnosticWriteHResult}
++if(!$absent){Write-Output 'CLEANUP UNVERIFIED: use the exact GUID-guarded emergency procedure in PR81_TCP_TRACE_MANUAL_PROCEDURE_V61.md.'}
+ Assert-CaptureExport $failed $cleanupFailed $stop $after $snapshot { Test-Path -LiteralPath $done }
++$provenance=New-CaptureProvenance $RunId $bundle $stop $nativeStatus $deadline ([PR81TcpV61.Native]::Clock())
++Put (Join-Path $control 'capture-provenance.json') $provenance
+ & (Join-Path $PSScriptRoot 'Sanitize-TcpTrace.ps1') -RawPath (Join-Path $raw 'capture.etl') -TargetPath $done -OutputPath (Join-Path $control 'sanitized.json') -RunId $RunId
+ Write-Output ('Raw records remain local/protected. Share only '+(Join-Path $control 'sanitized.json'))
+ 
+--- V6/NativeTcp.cs
++++ V6.1/NativeTcp.cs
+@@ -1,6 +1,6 @@
+ using System;
+ using System.Runtime.InteropServices;
+-namespace PR81TcpV6 {
++namespace PR81TcpV61 {
+  [StructLayout(LayoutKind.Sequential)] public struct Wnode {
+   public uint BufferSize,ProviderId; public ulong HistoricalContext,TimeStamp;
+   public Guid Guid; public uint ClientContext,Flags;
+--- V6/Run-FreshFixture.py
++++ V6.1/Run-FreshFixture.py
+@@ -66,7 +66,7 @@
+ creation=(times[0].dwHighDateTime<<32)|times[0].dwLowDateTime
+ def put(path,value):
+  with path.open("x",encoding="utf-8") as out:json.dump(value,out,indent=2)
+-put(control/"fixture-request.json",{"run_id":str(run),"host_hash":host_hash(),"source_identity":snapshot["source_identity"],"fixture_pid":os.getpid(),"fixture_start_ticks":creation+504911232000000000})
++put(control/"fixture-request.json",{"run_id":str(run),"profile_sha256":bundle["profile_sha256"],"host_hash":host_hash(),"source_identity":snapshot["source_identity"],"fixture_pid":os.getpid(),"fixture_start_ticks":creation+504911232000000000})
+ deadline=time.monotonic()+15
+ while not (control/"active.json").exists():
+  if time.monotonic()>deadline:raise SystemExit("No active capture: fixture NOT EXECUTED")
+@@ -104,14 +104,14 @@
+  accounting=len(traces)==10 and all(t["asgi_final_send_returned"] and t["asgi_body_bytes"]==int(t["asgi_framing"]["content-length"])==t["client_socket_received"]["body_bytes"] and t["asgi_body_sha256"]==t["client_socket_received"]["body_sha256"] for t in traces)
+ final_code=result if result else (0 if accounting else 1)
+ receipt=ROOT/f"tmp/pr81-tcp-native-{run}.json"
+-put(receipt,{"run_id":str(run),"source_identity":snapshot["source_identity"],"original_pytest_exit":result,"diagnostic_accounting":accounting,"exit_code":final_code,"traces":traces,"original_deadlines":[15,10],"original_read_amount":1048577,"no_replay":True,"limits":"Native ETW raw file is operator-only; this receipt has ASGI/client safe counts/fingerprints/options, no bodies."})
++put(receipt,{"run_id":str(run),"profile_sha256":bundle["profile_sha256"],"source_identity":snapshot["source_identity"],"original_pytest_exit":result,"diagnostic_accounting":accounting,"exit_code":final_code,"traces":traces,"original_deadlines":[15,10],"original_read_amount":1048577,"no_replay":True,"limits":"Native ETW raw file is operator-only; this receipt has ASGI/client safe counts/fingerprints/options, no bodies."})
+ candidates=[t for t in traces if t.get("native_socket") and (t.get("client_read_outcome")!="RETURN" or t["client_socket_received"]["body_bytes"]<t["asgi_body_bytes"])]
+ if not candidates:candidates=[t for t in traces if t.get("native_socket")]
+ if not candidates:
+- put(control/"fixture-done.json",{"run_id":str(run),"source_identity":snapshot["source_identity"],"exit_code":final_code,"no_target":True})
++ put(control/"fixture-done.json",{"run_id":str(run),"profile_sha256":bundle["profile_sha256"],"source_identity":snapshot["source_identity"],"exit_code":final_code,"no_target":True})
+ else:
+  target=candidates[0]
+- put(control/"fixture-done.json",{"run_id":str(run),"source_identity":snapshot["source_identity"],"fixture_pid":os.getpid(),"server_port":target["native_socket"]["server_port"],"client_port":target["native_socket"]["client_port"],"correlation":target["correlation"],"exit_code":final_code,"receipt_sha256":hashlib.sha256(receipt.read_bytes()).hexdigest()})
++ put(control/"fixture-done.json",{"run_id":str(run),"profile_sha256":bundle["profile_sha256"],"source_identity":snapshot["source_identity"],"fixture_pid":os.getpid(),"server_port":target["native_socket"]["server_port"],"client_port":target["native_socket"]["client_port"],"correlation":target["correlation"],"exit_code":final_code,"receipt_sha256":hashlib.sha256(receipt.read_bytes()).hexdigest()})
+ print(json.dumps({"run_id":str(run),"exit_code":final_code,"confirmations":len(traces),"source_preserved":True,"receipt":str(receipt)}))
+ raise SystemExit(final_code)
+ 
+--- V6/Sanitize-TcpTrace.ps1
++++ V6.1/Sanitize-TcpTrace.ps1
+@@ -2,6 +2,8 @@
+ Set-StrictMode -Version Latest
+ $ErrorActionPreference='Stop'
+ $schema=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../PR81_TCP_TRACE_EVENT_SCHEMA_V2.json') -Raw | ConvertFrom-Json
++if(-not ('PR81TcpV61.Native' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'NativeTcp.cs')}
++. (Join-Path $PSScriptRoot 'ExportEnvelope.ps1')
+ function Convert-Address($value) {
+  if($value -is [byte[]] -and $value.Length -eq 28 -and $value[0] -eq 23 -and $value[1] -eq 0){return $null}
+  if($value -isnot [byte[]] -or $value.Length -ne 16 -or $value[0] -ne 2 -or $value[1] -ne 0){throw 'ADDRESS_FORMAT'}
+@@ -132,6 +134,8 @@
+  $wrongClient=Row 1017 1 2 30102 30101 30103;$wrongClient.Utc='2026-01-01T00:00:02Z';Reject @($rows+$wrongClient);$ok++
+  Write-Output "Sanitizer checks=${ok}: complete matching lifetime only, unknown ID/version, string payload, temporal/same-tuple reuse, missing boundaries/send, process key, PID and address rejection; no ETL read";return
+ }
++$inputs=Get-ExportInputs $TargetPath $RunId
++$null=Assert-ExportInputs $inputs $RunId
+ if(!(Test-Path -LiteralPath $RawPath -PathType Leaf) -or (Get-Item -LiteralPath $RawPath).Length -gt 8MB){throw 'RAW_SIZE_OR_MISSING'}
+ $target=Get-Content -LiteralPath $TargetPath -Raw|ConvertFrom-Json
+ if($target.run_id -ne $RunId.ToString() -or $target.source_identity -ne 'ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490'){throw 'TARGET_BINDING'}
+@@ -144,10 +148,7 @@
+   $rows.Add([pscustomobject]@{Id=$_.Id;Version=$_.Version;Utc=$_.TimeCreated.ToUniversalTime().ToString('o');Values=@($_.Properties|ForEach-Object {$_.Value})})
+  }
+ }
+-$events=Select-Connection ($rows.ToArray()) $target
+-$payload=[ordered]@{run_id=$RunId.ToString();source_identity=$target.source_identity;server_port=$target.server_port;client_port=$target.client_port;fixture_pid=$target.fixture_pid;correlation=$target.correlation;profile_sha256=(Get-FileHash -LiteralPath (Join-Path $PSScriptRoot '../PR81_TCP_TRACE_CAPTURE_PROFILE_V2.json')).Hash.ToLower();schema_sha256=(Get-FileHash -LiteralPath (Join-Path $PSScriptRoot '../PR81_TCP_TRACE_EVENT_SCHEMA_V2.json')).Hash.ToLower();observations='Native events only; missing coverage is UNKNOWN, no wire FIN claim';events=$events}
+-$json=$payload|ConvertTo-Json -Depth 8
+-if([Text.Encoding]::UTF8.GetByteCount($json) -gt 1MB -or (Test-Path -LiteralPath $OutputPath)){throw 'EXPORT_SIZE_OR_REUSE'}
+-[IO.File]::WriteAllText($OutputPath,$json,[Text.UTF8Encoding]::new($false))
+-Write-Output 'Sanitized metadata exported; no raw event/header/address/pointer/message fields shared.'
+-
++# Re-read authoritative bytes and fixed capture records after event decoding, before any export write.
++$inputs=Get-ExportInputs $TargetPath $RunId
++Write-SanitizedExport ($rows.ToArray()) $inputs $RunId $OutputPath
++Write-Output 'Sanitized metadata exported; exact reviewed V6 profile binding; no raw event/header/address/pointer/message fields shared.'
+--- V6/SANITIZED_EXPORT_SCHEMA.json
++++ V6.1/SANITIZED_EXPORT_SCHEMA.json
+@@ -0,0 +1,374 @@
++{
++  "$schema": "https://json-schema.org/draft/2020-12/schema",
++  "title": "PR81 V6.1 unchanged sanitized envelope fields, exact V6 provenance",
++  "type": "object",
++  "additionalProperties": false,
++  "required": [
++    "run_id",
++    "source_identity",
++    "server_port",
++    "client_port",
++    "fixture_pid",
++    "correlation",
++    "profile_sha256",
++    "schema_sha256",
++    "observations",
++    "events"
++  ],
++  "properties": {
++    "run_id": {
++      "type": "string",
++      "pattern": "^[0-9a-f-]{36}$"
++    },
++    "source_identity": {
++      "const": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490"
++    },
++    "server_port": {
++      "type": "integer",
++      "minimum": 1,
++      "maximum": 65535
++    },
++    "client_port": {
++      "type": "integer",
++      "minimum": 1,
++      "maximum": 65535
++    },
++    "fixture_pid": {
++      "type": "integer",
++      "minimum": 1
++    },
++    "correlation": {
++      "type": "string",
++      "pattern": "^d1-native-[0-9a-f-]{36}-r[0-9]{2}$"
++    },
++    "profile_sha256": {
++      "const": "ce6dbe33f22388f215ccf18a7509a08538a386a905d1dc357b9eabdd904fb96f"
++    },
++    "schema_sha256": {
++      "const": "79c27947d2e0188a8e6f0c2cdc90329844f7e2f189d6966b2424cdf13dcc8e01"
++    },
++    "observations": {
++      "const": "Native events only; missing coverage is UNKNOWN, no wire FIN claim"
++    },
++    "events": {
++      "type": "array",
++      "minItems": 1,
++      "maxItems": 4096,
++      "items": {
++        "type": "object",
++        "additionalProperties": false,
++        "required": [
++          "event_id",
++          "version",
++          "utc",
++          "side",
++          "fields"
++        ],
++        "properties": {
++          "event_id": {
++            "enum": [
++              1002,
++              1017,
++              1033,
++              1038,
++              1043,
++              1051,
++              1071,
++              1073,
++              1074,
++              1077,
++              1176,
++              1180,
++              1184,
++              1300,
++              1330,
++              1332,
++              1351,
++              1449,
++              1479,
++              1637
++            ]
++          },
++          "version": {
++            "type": "integer",
++            "minimum": 0
++          },
++          "utc": {
++            "type": "string",
++            "format": "date-time"
++          },
++          "side": {
++            "enum": [
++              "server",
++              "client"
++            ]
++          },
++          "fields": {
++            "type": "object",
++            "additionalProperties": false,
++            "properties": {
++              "NewState": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "RexmitCount": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "Status": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "Compartment": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "Inspect": {
++                "type": "boolean"
++              },
++              "OldState": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SndNxt": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "Cwnd": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SSThresh": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "RttSample": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "NumBytes": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SeqNo": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SndUna": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "Round": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SRTT": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "RTO": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "DWnd": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "BaseRtt": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "DupAckCount": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "NumPkt": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "RequestFlags": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "RequestStatus": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "IsUrgentDelivery": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "FullySatisfiedORDelayedPush": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "RcvNxt": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "State": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SendTrackerEnabled": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "RcvBufSet": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SndWnd": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "BytesAcked": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "BytesSent": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SRtt": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "RttVar": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "RcvWnd": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "PacingRate": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "TcpState": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "CongestionState": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SndMax": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "RecoveryMax": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "MaxRcvBuf": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "Frto": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "TotalRT": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "MaxRT": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "IPTransportProtocol": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "Reason": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SndLimBytesSnd": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SndLimBytesRwin": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "SndLimBytesCwnd": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "CWnd": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "LossRecoveryEpisodes": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "RtoEpisodes": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              },
++              "PtoEpisodes": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 18446744073709551615
++              }
++            }
++          }
++        }
++      }
++    }
++  }
++}
+--- V6/Test-ControllerDiagnostics.ps1
++++ V6.1/Test-ControllerDiagnostics.ps1
+@@ -1,26 +1,26 @@
+ param([string]$OutputPath='')
+ Set-StrictMode -Version Latest
+ $ErrorActionPreference='Stop'
+-if(-not ('PR81TcpV6.Native' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'NativeTcp.cs')}
++if(-not ('PR81TcpV61.Native' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'NativeTcp.cs')}
+ . (Join-Path $PSScriptRoot 'ControllerDiagnostics.ps1')
+-Add-Type -TypeDefinition 'public sealed class PR81V6SyntheticThrowingWatch {public bool HasExited {get {throw new System.Runtime.InteropServices.COMException("",unchecked((int)0x80004005));}}}'
++Add-Type -TypeDefinition 'public sealed class PR81V61SyntheticThrowingWatch {public bool HasExited {get {throw new System.Runtime.InteropServices.COMException("",unchecked((int)0x80004005));}}}'
+ function Require($condition,[string]$code){if(!$condition){throw $code}}
+ function Check($condition,[string]$name){if(!$condition){$state.failures.Add($name)}}
+ $cases=[Collections.Generic.List[object]]::new()
+ foreach($caseId in 1..30){
+- $id=[Guid]::NewGuid();$d=[PR81TcpV6.Diagnostic]::new();$d.End(4)
+- $s=[PR81TcpV6.Stats]::new();$w=[PR81TcpV6.Wnode]::new();$w.Guid=$id;$s.Wnode=$w
+- $s.BufferSize=64;$s.MinimumBuffers=4;$s.MaximumBuffers=16;$s.MaximumFileSize=8;$s.NumberOfBuffers=4;$s.LogFileMode=[PR81TcpV6.Native]::ApprovedLogFileMode
++ $id=[Guid]::NewGuid();$d=[PR81TcpV61.Diagnostic]::new();$d.End(4)
++ $s=[PR81TcpV61.Stats]::new();$w=[PR81TcpV61.Wnode]::new();$w.Guid=$id;$s.Wnode=$w
++ $s.BufferSize=64;$s.MinimumBuffers=4;$s.MaximumBuffers=16;$s.MaximumFileSize=8;$s.NumberOfBuffers=4;$s.LogFileMode=[PR81TcpV61.Native]::ApprovedLogFileMode
+  $fields=@('BufferSize','MinimumBuffers','MaximumBuffers','MaximumFileSize','NumberOfBuffers','LogFileMode','EnableFlags')
+  $bad=@(128,8,32,16,17,2,1)
+  if($caseId -eq 1){$w.Guid=[Guid]::NewGuid();$s.Wnode=$w}
+  if($caseId -ge 2 -and $caseId -le 8){$s.($fields[$caseId-2])=$bad[$caseId-2]}
+- $q=[PR81TcpV6.Result]::new();$q.Code=0;$q.Stats=$s
++ $q=[PR81TcpV61.Result]::new();$q.Code=0;$q.Stats=$s
+  if($caseId -eq 19){$q.Code=87}
+  $watch=[pscustomobject]@{HasExited=($caseId -eq 9)}
+  if($caseId -eq 10){$watch=[pscustomobject]@{};$watch|Add-Member ScriptProperty HasExited {throw [Runtime.InteropServices.COMException]::new('',-2147467259)}}
+  if($caseId -eq 26){$watch=$null}
+- if($caseId -eq 30){$watch=[PR81V6SyntheticThrowingWatch]::new()}
++ if($caseId -eq 30){$watch=[PR81V61SyntheticThrowingWatch]::new()}
+  $inject=switch($caseId){11{8}12{9}13{10}14{11}15{12}16{13}default{0}}
+  $returnCode=if($caseId -eq 18){5}else{0}
+  $status=[ordered]@{limits_query=$null;enable=$null}
+@@ -40,7 +40,7 @@
+   Invoke-ObservedPreEnable $d $id $watch 45000 $status {
+    if($caseId -eq 20){throw [Runtime.InteropServices.COMException]::new('',-2147467259)};$q
+   } {1000} {
+-   [PR81TcpV6.Native]::TestEnable($d,$inject,[uint32]$returnCode)
++   [PR81TcpV61.Native]::TestEnable($d,$inject,[uint32]$returnCode)
+   } {
+    param($code)
+    if($caseId -eq 17){throw [Runtime.InteropServices.COMException]::new('',-2147467259)}
+@@ -50,10 +50,10 @@
+    if($null -ne $watch){
+     $property=$watch.PSObject.Properties['HasExited']
+     if($property -is [Management.Automation.PSScriptProperty]){$value=$property.GetterScript.InvokeReturnAsIs()}
+-    elseif($watch -is [PR81V6SyntheticThrowingWatch]){$value=$watch.get_HasExited()}
++    elseif($watch -is [PR81V61SyntheticThrowingWatch]){$value=$watch.get_HasExited()}
+     else{$value=$watch.HasExited}
+    }
+-   [PR81TcpV6.WatchdogSafety]::Value($d,$value,($null -ne $watch),($null -ne $watch),($null -ne $watch))
++   [PR81TcpV61.WatchdogSafety]::Value($d,$value,($null -ne $watch),($null -ne $watch),($null -ne $watch))
+   }
+  }catch{$state.failed=$true;Set-DiagnosticAbort $d $_;& $persist}
+  finally{
+@@ -62,7 +62,7 @@
+     param($ownedId,$ownedHandle)
+     $state.stop_count++;Check ($ownedId -eq $id -and $ownedHandle -eq 123) 'EXACT_STOP_BINDING'
+     if($caseId -eq 21){throw [Runtime.InteropServices.COMException]::new('',-2147467259)}
+-    $r=[PR81TcpV6.Result]::new();$r.Code=0;$r.DisableAttempted=$true;$r.DisableCode=0;$r.Stats=$s
++    $r=[PR81TcpV61.Result]::new();$r.Code=0;$r.DisableAttempted=$true;$r.DisableCode=0;$r.Stats=$s
+     if($caseId -eq 28){$r.DisableCode=1168}
+     $r
+    }
+@@ -73,10 +73,10 @@
+    param($ownedId)
+    $state.absence_count++;Check ($ownedId -eq $id) 'EXACT_QUERY_BINDING'
+    if($caseId -eq 22){throw [Runtime.InteropServices.COMException]::new('',-2147467259)}
+-   $r=[PR81TcpV6.Result]::new();$r.Code=4201;$r
++   $r=[PR81TcpV61.Result]::new();$r.Code=4201;$r
+   }
+  }catch{$state.cleanup_failed=$true}
+- $snapshot=[PR81TcpV6.Result]::new();$snapshot.Code=0
++ $snapshot=[PR81TcpV61.Result]::new();$snapshot.Code=0
+  $d.CaptureFailed=$state.failed;$d.CleanupFailed=$state.cleanup_failed
+  try{
+   Assert-CaptureExport $state.failed $state.cleanup_failed $stop $after $snapshot { $caseId -ne 29 }
+@@ -114,7 +114,7 @@
+ # Real bounded safe-file writer, not ETL: temporary file outside repository, no fixture/native control.
+ $testPath=Join-Path ([IO.Path]::GetTempPath()) ('pr81-v5-diag-test-'+[Guid]::NewGuid().ToString()+'.json')
+ try{
+- $d=[PR81TcpV6.Diagnostic]::new();Save-ControlDiagnostic $d $testPath
++ $d=[PR81TcpV61.Diagnostic]::new();Save-ControlDiagnostic $d $testPath
+  Check (!$d.DiagnosticWriteFailed -and (Test-Path -LiteralPath $testPath)) 'FILE_WRITE'
+  $original=[IO.File]::ReadAllText($testPath)
+  Save-ControlDiagnostic $d $testPath
+--- V6/Test-ExportEnvelope.ps1
++++ V6.1/Test-ExportEnvelope.ps1
+@@ -0,0 +1,135 @@
++param([string]$OutputPath='')
++Set-StrictMode -Version Latest
++$ErrorActionPreference='Stop'
++# Load the production selection and envelope functions, running the preserved 19 selection regressions first.
++. (Join-Path $PSScriptRoot 'Sanitize-TcpTrace.ps1') -Validate
++function Check($ok,[string]$code){if(!$ok){throw ('V61_ENVELOPE_TEST_'+$code)}}
++$testBundle=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'bundle.json') -Raw|ConvertFrom-Json
++$testId=[Guid]::NewGuid()
++$testSource=$testBundle.source_identity;$testProfile=$testBundle.profile_sha256
++$testReceipt=[pscustomobject]@{synthetic=$true;run_id=$testId.ToString();profile_sha256=$testProfile;source_identity=$testSource}
++$receiptText=$testReceipt|ConvertTo-Json -Compress
++$testReceiptHash=ExportHash ([Text.Encoding]::UTF8.GetBytes($receiptText))
++$target=[pscustomobject]@{run_id=$testId.ToString();profile_sha256=$testProfile;source_identity=$testSource;fixture_pid=30103;server_port=30101;client_port=30102;correlation=('d1-native-'+$testId.ToString()+'-r01');exit_code=0;receipt_sha256=$testReceiptHash;extra_http_body='SYNTHETIC_BODY_MUST_NOT_EXPORT'}
++$native=[ordered]@{start=0;limits_query=0;enable=0;snapshot_query=0;disable=0;stop=0;absence_query=4201}
++$stats=[PR81TcpV61.Stats]::new();$node=[PR81TcpV61.Wnode]::new();$node.Guid=$testId;$stats.Wnode=$node
++$stats.BufferSize=64;$stats.MinimumBuffers=4;$stats.MaximumBuffers=16;$stats.MaximumFileSize=8;$stats.NumberOfBuffers=4;$stats.LogFileMode=0x10400002;$stats.BuffersWritten=1
++$stop=[PR81TcpV61.Result]::new();$stop.Code=0;$stop.Stats=$stats
++$capture=New-CaptureProvenance $testId $testBundle $stop $native 45000 35000
++$baseline=[pscustomobject]@{
++ Bundle=$testBundle
++ ProfileBytes=[IO.File]::ReadAllBytes((Join-Path $PSScriptRoot '../PR81_TCP_TRACE_CAPTURE_PROFILE_V6.json'))
++ SchemaBytes=[IO.File]::ReadAllBytes((Join-Path $PSScriptRoot '../PR81_TCP_TRACE_EVENT_SCHEMA_V2.json'))
++ Target=$target
++ Armed=[pscustomobject]@{run_id=$testId.ToString();profile_sha256=$testProfile;host_hash=$testBundle.host_hash}
++ Request=[pscustomobject]@{run_id=$testId.ToString();profile_sha256=$testProfile;host_hash=$testBundle.host_hash;source_identity=$testSource;fixture_pid=30103}
++ Active=[pscustomobject]@{run_id=$testId.ToString();profile_sha256=$testProfile;deadline=45000}
++ Stopped=[pscustomobject]@{run_id=$testId.ToString();profile_sha256=$testProfile;deadline=45000;finished_tick=34000;capture_failed=$false;cleanup_failed=$false;absent=$true;stop_code=0;native_status=$native}
++ Capture=$capture
++ Receipt=$testReceipt
++ ReceiptHash=$testReceiptHash
++}
++$testRows=$rows
++$cases=[Collections.Generic.List[object]]::new()
++$work=[IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) ('pr81-v61-export-test-'+[Guid]::NewGuid().ToString())))
++$null=[IO.Directory]::CreateDirectory($work)
++$created=[Collections.Generic.List[string]]::new()
++function CloneInputs(){return ($baseline|ConvertTo-Json -Depth 20 -Compress)|ConvertFrom-Json}
++function Case([string]$name,[scriptblock]$change,[bool]$shouldPass=$false){
++ $inputs=CloneInputs
++ & $change $inputs
++ $path=[IO.Path]::GetFullPath((Join-Path $work ($name+'.json')))
++ Check ($path.StartsWith($work+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) 'EXACT_TEST_PATH'
++ $rejected=$false
++ try{Write-SanitizedExport $testRows $inputs $testId $path}catch{$rejected=$true}
++ if($shouldPass){
++  Check (!$rejected -and [IO.File]::Exists($path)) ('POSITIVE_'+$name);$created.Add($path)
++  $json=[IO.File]::ReadAllText($path);$output=$json|ConvertFrom-Json
++  Check (Test-Json -Json $json -SchemaFile (Join-Path $PSScriptRoot 'SANITIZED_EXPORT_SCHEMA.json')) 'ACTUAL_OUTPUT_SCHEMA'
++  Check ($output.profile_sha256 -ceq (ExportHash $baseline.ProfileBytes) -and $output.profile_sha256 -ceq $testProfile) 'RECOMPUTABLE_ACTUAL_ENVELOPE'
++  Check (@($output.PSObject.Properties).Count -eq 10 -and @($output.events).Count -eq 7) 'UNCHANGED_ENVELOPE_FIELDS'
++  Check ($json -notmatch 'SYNTHETIC_BODY_MUST_NOT_EXPORT|extra_http_body|"Tcb"|"LocalAddress"|"ProcessStartKey"|Authorization') 'NO_SENSITIVE_FIELDS'
++ }else{Check ($rejected -and ![IO.File]::Exists($path)) ('NEGATIVE_NO_EXPORT_'+$name)}
++ $cases.Add(@{name=$name;expected_accept=$shouldPass;pass=$true;export_created=$shouldPass})
++}
++try{
++ Case 'exact_v6_profile_actual_writer' {} $true
++ # Original failing HTTP can still supply complete diagnostic metadata; no new requirement for fixture PASS is invented.
++ Case 'failed_fixture_complete_capture' {param($i);$i.Target.exit_code=1} $true
++ foreach($record in @('Armed','Request','Active','Target','Stopped','Capture','Receipt')){
++  Case ('stale_v2_'+$record) {param($i);$i.$record.profile_sha256='74cea52445fe6f504e8859299f73a18f0976f00e53107daedaeabbe76f8760d1'}
++  Case ('missing_profile_'+$record) {param($i);$i.$record.PSObject.Properties.Remove('profile_sha256')}
++ }
++ Case 'modified_profile_bytes' {param($i);$i.ProfileBytes=[byte[]](@($i.ProfileBytes)+32)}
++ Case 'manifest_profile_mismatch' {param($i);$i.Bundle.profile_sha256='74cea52445fe6f504e8859299f73a18f0976f00e53107daedaeabbe76f8760d1'}
++ Case 'manifest_member_mismatch' {param($i);$i.Bundle.files.'../PR81_TCP_TRACE_CAPTURE_PROFILE_V6.json'=('f'*64)}
++ Case 'unsupported_profile_identity' {param($i);$i.Bundle.profile_sha256=('f'*64);$i.Target.profile_sha256=('f'*64)}
++ Case 'unsupported_profile_bytes' {param($i);$i.ProfileBytes=[Text.Encoding]::UTF8.GetBytes('{}')}
++ Case 'missing_profile_bytes' {param($i);$i.ProfileBytes=$null}
++ Case 'unsupported_manifest_version' {param($i);$i.Bundle.helper_version='6'}
++ Case 'missing_capture_metadata' {param($i);$i.Capture=$null}
++ Case 'incomplete_capture_metadata' {param($i);$i.Capture.PSObject.Properties.Remove('stats')}
++ Case 'failed_capture' {param($i);$i.Capture.capture_failed=$true}
++ Case 'failed_cleanup' {param($i);$i.Stopped.cleanup_failed=$true}
++ Case 'absence_not_proven' {param($i);$i.Stopped.absent=$false}
++ Case 'invalid_capture_flag_type' {param($i);$i.Capture.capture_failed='false'}
++ Case 'missing_enable_result' {param($i);$i.Capture.native_status.enable=$null}
++ Case 'conflicting_native_status' {param($i);$i.Stopped.native_status.disable=1168}
++ Case 'native_status_wrong_type' {param($i);$i.Stopped.native_status.stop='0'}
++ Case 'wrong_owned_run' {param($i);$i.Capture.owned_run_id=[Guid]::NewGuid().ToString()}
++ Case 'wrong_target_run' {param($i);$i.Target.run_id=[Guid]::NewGuid().ToString()}
++ Case 'wrong_source' {param($i);$i.Target.source_identity=('f'*64)}
++ Case 'wrong_request_pid' {param($i);$i.Request.fixture_pid=99999}
++ Case 'missing_receipt_metadata' {param($i);$i.Receipt=$null}
++ Case 'wrong_receipt_hash' {param($i);$i.ReceiptHash=('f'*64)}
++ Case 'schema_manifest_mismatch' {param($i);$i.Bundle.files.'../PR81_TCP_TRACE_EVENT_SCHEMA_V2.json'=('f'*64)}
++ Case 'modified_schema_bytes' {param($i);$i.SchemaBytes=[byte[]](@($i.SchemaBytes)+32)}
++ Case 'deadline_conflict' {param($i);$i.Active.deadline=46000}
++ Case 'finished_after_deadline' {param($i);$i.Capture.finished_tick=45001}
++ foreach($field in @('EventsLost','LogBuffersLost','RealTimeBuffersLost')){
++  Case ('loss_'+$field) {param($i);$i.Capture.stats.$field=1}
++ }
++ Case 'overwrite_possible' {param($i);$i.Capture.stats.BuffersWritten=127}
++ Case 'old_logging_mode' {param($i);$i.Capture.stats.LogFileMode=0x10000002}
++ Case 'unexpected_capture_field' {param($i);$i.Capture|Add-Member NoteProperty extra_http_body 'SYNTHETIC_BODY_MUST_NOT_EXPORT'}
++ # Complete real safe-record IO uses the production reader. No ETL, native trace or seeder is involved.
++ $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
++ $control=[IO.Path]::GetFullPath((Join-Path $root ('tmp/pr81-tcp-capture-control/'+$testId.ToString())))
++ $receiptPath=[IO.Path]::GetFullPath((Join-Path $root ('tmp/pr81-tcp-native-'+$testId.ToString()+'.json')))
++ Check (![IO.Directory]::Exists($control) -and ![IO.File]::Exists($receiptPath)) 'FRESH_SYNTHETIC_RECORDS'
++ $ioFiles=[Collections.Generic.List[string]]::new()
++ $null=[IO.Directory]::CreateDirectory($control)
++ try{
++  foreach($pair in @(@('armed.json','Armed'),@('fixture-request.json','Request'),@('active.json','Active'),@('fixture-done.json','Target'),@('stopped.json','Stopped'),@('capture-provenance.json','Capture'))){
++   $path=Join-Path $control $pair[0];[IO.File]::WriteAllText($path,($baseline.($pair[1])|ConvertTo-Json -Depth 12),[Text.UTF8Encoding]::new($false));$ioFiles.Add($path)
++  }
++  [IO.File]::WriteAllText($receiptPath,$receiptText,[Text.UTF8Encoding]::new($false));$ioFiles.Add($receiptPath)
++  $input=Get-ExportInputs (Join-Path $control 'fixture-done.json') $testId
++  $path=Join-Path $work 'real_safe_record_io.json';Write-SanitizedExport $testRows $input $testId $path;$created.Add($path)
++  Check (([IO.File]::ReadAllText($path)|ConvertFrom-Json).profile_sha256 -ceq $testProfile) 'ACTUAL_READER_WRITER_BINDING'
++  $cases.Add(@{name='real_safe_record_reader_and_actual_writer';pass=$true;expected_accept=$true;export_created=$true})
++  # Missing capture input must fail at the reader, before any raw event access/output.
++  $capturePath=Join-Path $control 'capture-provenance.json';[IO.File]::Delete($capturePath)
++  $rejected=$false;try{$null=Get-ExportInputs (Join-Path $control 'fixture-done.json') $testId}catch{$rejected=$true}
++  Check $rejected 'ACTUAL_READER_MISSING_RECORD'
++  $cases.Add(@{name='real_reader_incomplete_capture';pass=$true;expected_accept=$false;export_created=$false})
++ }finally{
++  foreach($path in $ioFiles){
++   $resolved=[IO.Path]::GetFullPath($path)
++   Check ($resolved.StartsWith($control+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or $resolved -ceq $receiptPath) 'OWNED_IO_CLEANUP'
++   if([IO.File]::Exists($resolved)){[IO.File]::Delete($resolved)}
++  }
++  [IO.Directory]::Delete($control,$false)
++ }
++ # CreateNew preserves any existing output; a successful rerun cannot overwrite evidence.
++ $existing=Join-Path $work 'existing_output.json';[IO.File]::WriteAllText($existing,'synthetic-preserved');$created.Add($existing)
++ $rejected=$false;try{Write-SanitizedExport $testRows $baseline $testId $existing}catch{$rejected=$true}
++ Check ($rejected -and [IO.File]::ReadAllText($existing) -ceq 'synthetic-preserved') 'NO_OUTPUT_REUSE'
++ $cases.Add(@{name='existing_output_preserved';pass=$true;expected_accept=$false;export_created=$false})
++}finally{
++ foreach($path in $created){Check ([IO.Path]::GetFullPath($path).StartsWith($work+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) 'OWNED_TEMP_CLEANUP';if([IO.File]::Exists($path)){[IO.File]::Delete($path)}}
++ [IO.Directory]::Delete($work,$false)
++}
++$result=@{helper_version='6.1';case_count=$cases.Count;positive_count=@($cases|Where-Object {$_.expected_accept}).Count;negative_count=@($cases|Where-Object {!$_.expected_accept}).Count;failed_cases=0;production_envelope_and_writer_exercised=$true;real_safe_record_reader_exercised=$true;raw_etl_accessed=$false;native_trace_control_invoked=$false;fixture_executed=$false;cases=$cases}
++if($OutputPath){[IO.File]::WriteAllText($OutputPath,($result|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))}
++Write-Output ('V6.1 actual export envelope PASS: '+$cases.Count+' cases; positives='+$result.positive_count+'; negatives='+$result.negative_count+'; actual writer/reader, no false output; no ETL/fixture')
+--- V6/Test-LoggingModeSafety.ps1
++++ V6.1/Test-LoggingModeSafety.ps1
+@@ -1,13 +1,13 @@
+ param([string]$OutputPath='')
+ Set-StrictMode -Version Latest
+ $ErrorActionPreference='Stop'
+-if(-not ('PR81TcpV6.Native' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'NativeTcp.cs')}
++if(-not ('PR81TcpV61.Native' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'NativeTcp.cs')}
+ . (Join-Path $PSScriptRoot 'ControllerDiagnostics.ps1')
+ function Require($condition,[string]$code){if(!$condition){throw $code}}
+ $rows=[Collections.Generic.List[object]]::new()
+ function Check($condition,[string]$code){if(!$condition){throw ('V6_MODE_TEST_'+$code)}}
+ function GoodStats([Guid]$id){
+- $s=[PR81TcpV6.Stats]::new();$w=[PR81TcpV6.Wnode]::new();$w.Guid=$id;$s.Wnode=$w
++ $s=[PR81TcpV61.Stats]::new();$w=[PR81TcpV61.Wnode]::new();$w.Guid=$id;$s.Wnode=$w
+  $s.BufferSize=64;$s.MinimumBuffers=4;$s.MaximumBuffers=16;$s.MaximumFileSize=8
+  $s.NumberOfBuffers=4;$s.LogFileMode=0x10400002;return $s
+ }
+@@ -32,27 +32,27 @@
+ }
+ foreach($case in $modes){
+  $id=[Guid]::NewGuid();$s=GoodStats $id;$s.LogFileMode=$case.value
+- Check ([PR81TcpV6.Native]::Bounds($s) -eq $case.pass) 'NATIVE_EXACT_EQUALITY'
+- $d=[PR81TcpV6.Diagnostic]::new();$q=[PR81TcpV6.Result]::new();$q.Code=0;$q.Stats=$s
++ Check ([PR81TcpV61.Native]::Bounds($s) -eq $case.pass) 'NATIVE_EXACT_EQUALITY'
++ $d=[PR81TcpV61.Diagnostic]::new();$q=[PR81TcpV61.Result]::new();$q.Code=0;$q.Stats=$s
+  $status=@{limits_query=$null;enable=$null};$state=@{enable=0;stop=0;absence=0;failed=$false}
+  $handle=[uint64]123
+  try{
+   Invoke-ObservedPreEnable $d $id $null 45000 $status {$q} {1000} {
+-   $state.enable++;[PR81TcpV6.Native]::TestEnable($d,0,0)
++   $state.enable++;[PR81TcpV61.Native]::TestEnable($d,0,0)
+   } {param($code);$status.enable=$code} {} {
+-   [PR81TcpV6.WatchdogSafety]::Value($d,$false,$true,$true,$true)
++   [PR81TcpV61.WatchdogSafety]::Value($d,$false,$true,$true,$true)
+   }
+  }catch{$state.failed=$true;Set-DiagnosticAbort $d $_}
+  finally{
+   $stop=Invoke-ObservedOwnedStop $d $id $handle {
+    param($ownedId,$ownedHandle)
+    Check ($ownedId -eq $id -and $ownedHandle -eq $handle) 'EXACT_STOP_BINDING'
+-   $state.stop++;$result=[PR81TcpV6.Result]::new();$result.Code=0;$result.DisableAttempted=$true;$result
++   $state.stop++;$result=[PR81TcpV61.Result]::new();$result.Code=0;$result.DisableAttempted=$true;$result
+   }
+  }
+  $after=Invoke-ObservedAbsence $d $id {
+   param($ownedId);Check ($ownedId -eq $id) 'EXACT_ABSENCE_BINDING'
+-  $state.absence++;$result=[PR81TcpV6.Result]::new();$result.Code=4201;$result
++  $state.absence++;$result=[PR81TcpV61.Result]::new();$result.Code=4201;$result
+  }
+  Check ($state.stop -eq 1 -and $state.absence -eq 1 -and $d.Absent) 'CLEANUP_ALWAYS'
+  Check ($state.failed -eq !$case.pass -and $state.enable -eq [int]$case.pass) 'PRE_ENABLE_GATE'
+@@ -65,28 +65,28 @@
+  @('MaximumFileSize',16),@('NumberOfBuffers',17),@('EnableFlags',1)
+ )){
+  $s=GoodStats ([Guid]::NewGuid());$s.($pair[0])=$pair[1]
+- Check (![PR81TcpV6.Native]::Bounds($s)) ('UNCHANGED_BOUND_'+$pair[0])
++ Check (![PR81TcpV61.Native]::Bounds($s)) ('UNCHANGED_BOUND_'+$pair[0])
+  $rows.Add(@{name=('bound_'+$pair[0]);pass=$true})
+ }
+ $id=[Guid]::NewGuid();$s=GoodStats $id
+-Check ([PR81TcpV6.Native]::Owned($s,$id)) 'EXACT_GUID'
+-Check (![PR81TcpV6.Native]::Owned($s,[Guid]::NewGuid())) 'FOREIGN_GUID'
++Check ([PR81TcpV61.Native]::Owned($s,$id)) 'EXACT_GUID'
++Check (![PR81TcpV61.Native]::Owned($s,[Guid]::NewGuid())) 'FOREIGN_GUID'
+ $empty=GoodStats ([Guid]::Empty)
+-Check (![PR81TcpV6.Native]::Owned($empty,[Guid]::Empty)) 'EMPTY_GUID'
++Check (![PR81TcpV61.Native]::Owned($empty,[Guid]::Empty)) 'EMPTY_GUID'
+ foreach($name in @('owned_guid','foreign_guid','empty_guid')){$rows.Add(@{name=$name;pass=$true})}
+ # Reflect the same private Props used by StartTrace, marshal and free WITHOUT any native control API.
+ $flags=[Reflection.BindingFlags]::NonPublic -bor [Reflection.BindingFlags]::Static
+-$method=[PR81TcpV6.Native].GetMethod('Props',$flags)
++$method=[PR81TcpV61.Native].GetMethod('Props',$flags)
+ $ptr=[IntPtr]::Zero
+ try{
+  $ptr=$method.Invoke($null,[object[]]@($id,'synthetic-not-opened.etl',$true))
+- $props=[Runtime.InteropServices.Marshal]::PtrToStructure($ptr,[type][PR81TcpV6.Stats])
+- Check ($props.LogFileMode -eq 0x10400002 -and [PR81TcpV6.Native]::ApprovedLogFileMode -eq 0x10400002) 'ACTUAL_START_PROPERTIES'
++ $props=[Runtime.InteropServices.Marshal]::PtrToStructure($ptr,[type][PR81TcpV61.Stats])
++ Check ($props.LogFileMode -eq 0x10400002 -and [PR81TcpV61.Native]::ApprovedLogFileMode -eq 0x10400002) 'ACTUAL_START_PROPERTIES'
+  Check ($props.BufferSize -eq 64 -and $props.MinimumBuffers -eq 4 -and $props.MaximumBuffers -eq 16 -and $props.MaximumFileSize -eq 8 -and $props.FlushTimer -eq 1 -and $props.Wnode.ClientContext -eq 1 -and $props.EnableFlags -eq 0 -and $props.Wnode.Guid -eq $id) 'START_CONSTRAINTS'
+ }finally{if($ptr -ne [IntPtr]::Zero){[Runtime.InteropServices.Marshal]::FreeHGlobal($ptr)}}
+ $rows.Add(@{name='actual_start_properties_without_native_call';pass=$true})
+ $p=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../PR81_TCP_TRACE_CAPTURE_PROFILE_V6.json') -Raw|ConvertFrom-Json
+-Check ($p.log_file_mode -eq [PR81TcpV6.Native]::ApprovedLogFileMode) 'PROFILE_MODE_BINDING'
++Check ($p.log_file_mode -eq [PR81TcpV61.Native]::ApprovedLogFileMode) 'PROFILE_MODE_BINDING'
+ Check ($p.capture_duration_seconds -eq 45 -and $p.arming_wait_seconds -eq 300 -and $p.maximum_file_size_mib -eq 8 -and $p.buffer_size_kib -eq 64 -and $p.minimum_buffers -eq 4 -and $p.maximum_buffers -eq 16) 'PROFILE_BOUNDS'
+ $rows.Add(@{name='profile_mode_and_constraints';pass=$true})
+ $result=@{helper_version=6;case_count=$rows.Count;failed_cases=0;native_trace_control_invoked=$false;fixture_executed=$false;cases=$rows}
+--- V6/Test-WatchdogSafety.ps1
++++ V6.1/Test-WatchdogSafety.ps1
+@@ -1,45 +1,45 @@
+ param([string]$OutputPath='')
+ Set-StrictMode -Version Latest
+ $ErrorActionPreference='Stop'
+-if(-not ('PR81TcpV6.Native' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'NativeTcp.cs')}
++if(-not ('PR81TcpV61.Native' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'NativeTcp.cs')}
+ . (Join-Path $PSScriptRoot 'ControllerDiagnostics.ps1')
+ function Require($condition,[string]$code){if(!$condition){throw $code}}
+-if(-not ('PR81V6AdverseGetter' -as [type])){Add-Type -TypeDefinition 'public sealed class PR81V6AdverseGetter {public bool HasExited {get {throw new System.Runtime.InteropServices.COMException("",unchecked((int)0x80004005));}}}'}
++if(-not ('PR81V61AdverseGetter' -as [type])){Add-Type -TypeDefinition 'public sealed class PR81V61AdverseGetter {public bool HasExited {get {throw new System.Runtime.InteropServices.COMException("",unchecked((int)0x80004005));}}}'}
+ function Check($ok,[string]$code){if(!$ok){throw ('V5_ADVERSE_'+$code)}}
+ $rows=[Collections.Generic.List[object]]::new()
+ foreach($site in @(24,7,25)){
+  foreach($conditionId in 1..13){
+-  $d=[PR81TcpV6.Diagnostic]::new();if($conditionId -eq 13){$null=[PR81TcpV6.WatchdogSafety]::Value($d,$false,$true,$true,$true)};$id=[Guid]::NewGuid();$handle=[uint64]123
++  $d=[PR81TcpV61.Diagnostic]::new();if($conditionId -eq 13){$null=[PR81TcpV61.WatchdogSafety]::Value($d,$false,$true,$true,$true)};$id=[Guid]::NewGuid();$handle=[uint64]123
+   $state=@{start_count=$(if($site -eq 24){0}else{1});enable_count=$(if($site -eq 25){1}else{0});stop_count=0;absence_count=0;failed=$false;export_eligible=$false}
+   $owned=$site -ne 24;$stop=$null;$after=$null;$unassociated=$null
+   $persist={Write-SafeDiagnostic $d {param($record);if($conditionId -eq 12){throw [Runtime.InteropServices.COMException]::new('',-2147024891)}}}
+   try{
+    Invoke-CheckedWatchdog $d 45000 {1000} {
+     switch($conditionId){
+-     1{[PR81TcpV6.WatchdogSafety]::Value($d,$false,$true,$true,$true)}
+-     2{[PR81TcpV6.WatchdogSafety]::Value($d,$true,$true,$true,$true)}
+-     3{[PR81TcpV6.WatchdogSafety]::Value($d,$null,$true,$true,$true)}
+-     4{[PR81TcpV6.WatchdogSafety]::Value($d,0,$true,$true,$true)}
+-     5{[PR81TcpV6.WatchdogSafety]::Value($d,'false',$true,$true,$true)}
++     1{[PR81TcpV61.WatchdogSafety]::Value($d,$false,$true,$true,$true)}
++     2{[PR81TcpV61.WatchdogSafety]::Value($d,$true,$true,$true,$true)}
++     3{[PR81TcpV61.WatchdogSafety]::Value($d,$null,$true,$true,$true)}
++     4{[PR81TcpV61.WatchdogSafety]::Value($d,0,$true,$true,$true)}
++     5{[PR81TcpV61.WatchdogSafety]::Value($d,'false',$true,$true,$true)}
+      6{
+       $scriptProperty=[pscustomobject]@{}
+       $scriptProperty|Add-Member ScriptProperty HasExited {throw [Runtime.InteropServices.COMException]::new('',-2147467259)}
+       $value=$scriptProperty.PSObject.Properties['HasExited'].GetterScript.InvokeReturnAsIs()
+-      [PR81TcpV6.WatchdogSafety]::Value($d,$value,$true,$true,$true)
++      [PR81TcpV61.WatchdogSafety]::Value($d,$value,$true,$true,$true)
+      }
+      7{
+-      $clr=[PR81V6AdverseGetter]::new()
++      $clr=[PR81V61AdverseGetter]::new()
+       $value=$clr.get_HasExited()
+-      [PR81TcpV6.WatchdogSafety]::Value($d,$value,$true,$true,$true)
++      [PR81TcpV61.WatchdogSafety]::Value($d,$value,$true,$true,$true)
+      }
+      8{
+       $unassociated=[Diagnostics.Process]::new()
+-      [PR81TcpV6.WatchdogSafety]::Observe($unassociated,$null,$d)
++      [PR81TcpV61.WatchdogSafety]::Observe($unassociated,$null,$d)
+      }
+-     9{[PR81TcpV6.WatchdogSafety]::Value($d,$false,$false,$false,$false)}
+-     10{[PR81TcpV6.WatchdogSafety]::Value($d,$false,$true,$false,$true)}
+-     11{[PR81TcpV6.WatchdogSafety]::Value($d,$false,$true,$true,$false)}
+-     12{[PR81TcpV6.WatchdogSafety]::Value($d,$null,$true,$true,$true)}
++     9{[PR81TcpV61.WatchdogSafety]::Value($d,$false,$false,$false,$false)}
++     10{[PR81TcpV61.WatchdogSafety]::Value($d,$false,$true,$false,$true)}
++     11{[PR81TcpV61.WatchdogSafety]::Value($d,$false,$true,$true,$false)}
++     12{[PR81TcpV61.WatchdogSafety]::Value($d,$null,$true,$true,$true)}
+     }
+    } $persist $site
+    if($site -eq 24){$state.start_count++;$owned=$true}
+@@ -52,14 +52,14 @@
+      param($boundId,$boundHandle)
+      Check ($boundId -eq $id -and $boundHandle -eq $handle) 'EXACT_STOP'
+      $state.stop_count++
+-     $s=[PR81TcpV6.Stats]::new();$s.BufferSize=64
+-     $r=[PR81TcpV6.Result]::new();$r.Code=0;$r.DisableAttempted=$true;$r.Stats=$s;$r
++     $s=[PR81TcpV61.Stats]::new();$s.BufferSize=64
++     $r=[PR81TcpV61.Result]::new();$r.Code=0;$r.DisableAttempted=$true;$r.Stats=$s;$r
+     }
+    }
+   }
+   if($owned){
+-   $after=Invoke-ObservedAbsence $d $id {param($boundId);Check ($boundId -eq $id) 'EXACT_ABSENCE';$state.absence_count++;$r=[PR81TcpV6.Result]::new();$r.Code=4201;$r}
+-   $snapshot=[PR81TcpV6.Result]::new()
++   $after=Invoke-ObservedAbsence $d $id {param($boundId);Check ($boundId -eq $id) 'EXACT_ABSENCE';$state.absence_count++;$r=[PR81TcpV61.Result]::new();$r.Code=4201;$r}
++   $snapshot=[PR81TcpV61.Result]::new()
+    try{Assert-CaptureExport $state.failed $false $stop $after $snapshot {$true};$state.export_eligible=$true}catch{}
+    Check ($state.stop_count -eq 1 -and $state.absence_count -eq 1) 'OWNED_CLEANUP'
+   }else{Check ($state.stop_count -eq 0) 'NO_UNCREATED_STOP'}
+@@ -81,12 +81,12 @@
+ # Actual process observation only: current test process and an unassociated object; neither is started.
+ $current=[Diagnostics.Process]::GetCurrentProcess();$samePidOtherObject=[Diagnostics.Process]::GetCurrentProcess();$empty=[Diagnostics.Process]::new()
+ try{
+- $d=[PR81TcpV6.Diagnostic]::new();$bound=[PR81TcpV6.WatchdogSafety]::Bind($current,$d)
++ $d=[PR81TcpV61.Diagnostic]::new();$bound=[PR81TcpV61.WatchdogSafety]::Bind($current,$d)
+  Check ($null -ne $bound -and $d.WatchdogBindingEstablished) 'BIND_ASSOCIATED'
+- Check ([PR81TcpV6.WatchdogSafety]::Observe($current,$bound,$d)) 'REAL_ASSOCIATED_HEALTHY'
+- Check (![PR81TcpV6.WatchdogSafety]::Observe($samePidOtherObject,$bound,$d) -and !$d.WatchdogIdentityMatch) 'WRONG_ASSOCIATED_OBJECT'
+- Check (![PR81TcpV6.WatchdogSafety]::Observe($null,$bound,$d) -and !$d.WatchdogObjectExists) 'ACTUAL_NULL'
+- Check ($null -eq [PR81TcpV6.WatchdogSafety]::Bind($empty,$d) -and $d.WatchdogHResult -eq -2146233079) 'BIND_UNASSOCIATED'
++ Check ([PR81TcpV61.WatchdogSafety]::Observe($current,$bound,$d)) 'REAL_ASSOCIATED_HEALTHY'
++ Check (![PR81TcpV61.WatchdogSafety]::Observe($samePidOtherObject,$bound,$d) -and !$d.WatchdogIdentityMatch) 'WRONG_ASSOCIATED_OBJECT'
++ Check (![PR81TcpV61.WatchdogSafety]::Observe($null,$bound,$d) -and !$d.WatchdogObjectExists) 'ACTUAL_NULL'
++ Check ($null -eq [PR81TcpV61.WatchdogSafety]::Bind($empty,$d) -and $d.WatchdogHResult -eq -2146233079) 'BIND_UNASSOCIATED'
+  $caught=$null
+  try{$null=$empty.get_HasExited()}catch{$caught=Get-NumericHResult $_}
+  Check ($caught -eq -2146233079) 'ACTUAL_GETTER_THROW'

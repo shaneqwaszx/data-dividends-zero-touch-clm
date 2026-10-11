@@ -1,0 +1,27 @@
+{
+  "outcome": "BLOCKED_REQUIRED_BROWSER_REGRESSION",
+  "independent_verdict": "FAIL",
+  "remaining_required_findings": [
+    "SDQ-01"
+  ],
+  "independently_closed_findings": [
+    "SDQ-02"
+  ],
+  "candidate": "24f30d1411e2ad018b56d410c2eecde7c1012903aeb6848891c8272842844acf",
+  "exact_reviewed_files_unchanged": 269,
+  "manifest_sha256": "ec79741c0487e8b9bfe30597f5382486ecca2b4129c26c54422ce86400aa89e1",
+  "independent_gate_sha256": "2c7764f80565a0c2b1f3e7508ce96fb5b8ee633568acb92f10bcdfce0edce83c",
+  "resource_cleanup": {
+    "owned_container_id": "147cdcaa63271cc3a100f9e46bed03abbbc2521c2dc78158825a4f8232e92698",
+    "removed_container": true,
+    "removed_exact_owned_volumes": [
+      "17890da34629956b5e6e1a6ae81bc3257b6b22ea57a9193203703e8e1b48aa94",
+      "e3f14dc1e3f5ed638ab57c9fb5b2887ea335783bd24e3304bfa9d13b7d33b22d"
+    ],
+    "container_and_volumes_absence_verified": true,
+    "unrelated_resources": "No removal issued for any other container or volume"
+  },
+  "worktree": "Retained, intentionally uncommitted",
+  "publication": "No commit/push/PR/merge",
+  "next_required_action": "Human extra-round decision for SDQ-01; no authority inferred from elapsed time"
+}

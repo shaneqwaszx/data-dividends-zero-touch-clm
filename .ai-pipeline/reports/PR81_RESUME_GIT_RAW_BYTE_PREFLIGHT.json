@@ -1,0 +1,224 @@
+{
+  "source36": "f6607f766b36ec1e2b6fc251b93b22c4940985fac394d28160b1878e802cfbae",
+  "command_configuration": "git -c core.autocrlf=false; no global configuration edit",
+  "object_writes": false,
+  "all36_preservation_matches": true,
+  "rows": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "raw_git_oid": "0b93c32b673d9387842f8df9ac966b21acfbc353",
+      "preserved_filter_oid": "0b93c32b673d9387842f8df9ac966b21acfbc353",
+      "default_filter_oid": "1f9d156e350204c20a03a0c54c6efaf2beabc712"
+    },
+    {
+      "path": "apps/backend/app/api_models.py",
+      "raw_git_oid": "374abbada90b72880f206ca43965b128c8a43635",
+      "preserved_filter_oid": "374abbada90b72880f206ca43965b128c8a43635",
+      "default_filter_oid": "0d26d4eca3ec2a61434cd9bfb6190779d6d58cc8"
+    },
+    {
+      "path": "apps/backend/app/main.py",
+      "raw_git_oid": "af5d9bf022d4fbf9c7a5fdf3f6482c4aa229bec2",
+      "preserved_filter_oid": "af5d9bf022d4fbf9c7a5fdf3f6482c4aa229bec2",
+      "default_filter_oid": "af5d9bf022d4fbf9c7a5fdf3f6482c4aa229bec2"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "raw_git_oid": "3422614d80841b69f4265473277d1d5345e086be",
+      "preserved_filter_oid": "3422614d80841b69f4265473277d1d5345e086be",
+      "default_filter_oid": "3422614d80841b69f4265473277d1d5345e086be"
+    },
+    {
+      "path": "apps/backend/tests/test_document_refresh_recovery.py",
+      "raw_git_oid": "b4b877a309812c2f18d1712e30958a98437c0a31",
+      "preserved_filter_oid": "b4b877a309812c2f18d1712e30958a98437c0a31",
+      "default_filter_oid": "b4b877a309812c2f18d1712e30958a98437c0a31"
+    },
+    {
+      "path": "apps/backend/tests/test_final_review_editing_real_mongo.py",
+      "raw_git_oid": "5f8b7b005733321759a18432689eeae956776d4d",
+      "preserved_filter_oid": "5f8b7b005733321759a18432689eeae956776d4d",
+      "default_filter_oid": "5f8b7b005733321759a18432689eeae956776d4d"
+    },
+    {
+      "path": "apps/backend/tests/test_http_seed_response_completion.py",
+      "raw_git_oid": "b0f4658d2a6f0d9eb81ced4e42f9e45f9db2e571",
+      "preserved_filter_oid": "b0f4658d2a6f0d9eb81ced4e42f9e45f9db2e571",
+      "default_filter_oid": "b0f4658d2a6f0d9eb81ced4e42f9e45f9db2e571"
+    },
+    {
+      "path": "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
+      "raw_git_oid": "51fbeb4918eab896a9b6231c750267f28484ef19",
+      "preserved_filter_oid": "51fbeb4918eab896a9b6231c750267f28484ef19",
+      "default_filter_oid": "8d52072f312a2b0c8c4e4aa3080796f563166d05"
+    },
+    {
+      "path": "apps/frontend/e2e/blocker-review-performance.e2e.ts",
+      "raw_git_oid": "69314d09b0ede8552a5e25fab4135f080e21f515",
+      "preserved_filter_oid": "69314d09b0ede8552a5e25fab4135f080e21f515",
+      "default_filter_oid": "69314d09b0ede8552a5e25fab4135f080e21f515"
+    },
+    {
+      "path": "apps/frontend/e2e/blocker-simulation.e2e.ts",
+      "raw_git_oid": "2f846b75991450348871da3231b74d795adbe5c2",
+      "preserved_filter_oid": "2f846b75991450348871da3231b74d795adbe5c2",
+      "default_filter_oid": "cbe37418ba525e4f1508dc115f2f78bb9a6a5f29"
+    },
+    {
+      "path": "apps/frontend/e2e/phase24c-policy.e2e.ts",
+      "raw_git_oid": "067ed75a30ffafe7886fb1b1a07e1c0217aed5e3",
+      "preserved_filter_oid": "067ed75a30ffafe7886fb1b1a07e1c0217aed5e3",
+      "default_filter_oid": "8a95a316f74b95283971d070c38b7541b1327def"
+    },
+    {
+      "path": "apps/frontend/e2e/s3-sandbox-submission.e2e.ts",
+      "raw_git_oid": "bdf91e8c03807c24773f10c959a3ced92def8ca1",
+      "preserved_filter_oid": "bdf91e8c03807c24773f10c959a3ced92def8ca1",
+      "default_filter_oid": "bdf91e8c03807c24773f10c959a3ced92def8ca1"
+    },
+    {
+      "path": "apps/frontend/e2e/sponsor-demo-journeys.e2e.ts",
+      "raw_git_oid": "8a8721c7cb4a808021e06993b2ff18c6f04860a3",
+      "preserved_filter_oid": "8a8721c7cb4a808021e06993b2ff18c6f04860a3",
+      "default_filter_oid": "8a8721c7cb4a808021e06993b2ff18c6f04860a3"
+    },
+    {
+      "path": "apps/frontend/e2e/stage-disclosures.ts",
+      "raw_git_oid": "ac970f592b5b66aaff15d7b94e4bd35fae7e66f1",
+      "preserved_filter_oid": "ac970f592b5b66aaff15d7b94e4bd35fae7e66f1",
+      "default_filter_oid": "ac970f592b5b66aaff15d7b94e4bd35fae7e66f1"
+    },
+    {
+      "path": "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+      "raw_git_oid": "5af15adb7ac02ceaa95f3a55266f6621deb74b70",
+      "preserved_filter_oid": "5af15adb7ac02ceaa95f3a55266f6621deb74b70",
+      "default_filter_oid": "5af15adb7ac02ceaa95f3a55266f6621deb74b70"
+    },
+    {
+      "path": "apps/frontend/evidence-tests/output-isolation.evidence.ts",
+      "raw_git_oid": "c5adde242c1b9e8c7e937958c72400d3ecdbc80a",
+      "preserved_filter_oid": "c5adde242c1b9e8c7e937958c72400d3ecdbc80a",
+      "default_filter_oid": "9a66348260834522bac6a3fa110a88e8cae12f55"
+    },
+    {
+      "path": "apps/frontend/playwright.config.ts",
+      "raw_git_oid": "7d43c11738e99a8ab31d52905a5d8955db583249",
+      "preserved_filter_oid": "7d43c11738e99a8ab31d52905a5d8955db583249",
+      "default_filter_oid": "ab3c893669fb01b720fb5682323e1619166e5c13"
+    },
+    {
+      "path": "apps/frontend/playwright.evidence.config.ts",
+      "raw_git_oid": "3d87a34df709cc062646c6e98515f00cd3f431b7",
+      "preserved_filter_oid": "3d87a34df709cc062646c6e98515f00cd3f431b7",
+      "default_filter_oid": "9e7d61f081b602116fcb0ecc84f23141038f2e8f"
+    },
+    {
+      "path": "apps/frontend/src/App.tsx",
+      "raw_git_oid": "f9dbf19f778ddb509daa39bb09e38e81747f1ec4",
+      "preserved_filter_oid": "f9dbf19f778ddb509daa39bb09e38e81747f1ec4",
+      "default_filter_oid": "181b984445da642921ba3884eda7d148c3185707"
+    },
+    {
+      "path": "apps/frontend/src/DemoPerformance.test.tsx",
+      "raw_git_oid": "7820ecb06157dcd43a934739456d03cec5ce63e7",
+      "preserved_filter_oid": "7820ecb06157dcd43a934739456d03cec5ce63e7",
+      "default_filter_oid": "7820ecb06157dcd43a934739456d03cec5ce63e7"
+    },
+    {
+      "path": "apps/frontend/src/ResumeDocumentRecovery.test.ts",
+      "raw_git_oid": "1b4979a4ccd57d170361d4dffa0e349da4b2aaf9",
+      "preserved_filter_oid": "1b4979a4ccd57d170361d4dffa0e349da4b2aaf9",
+      "default_filter_oid": "1b4979a4ccd57d170361d4dffa0e349da4b2aaf9"
+    },
+    {
+      "path": "apps/frontend/src/api.ts",
+      "raw_git_oid": "ff84be8b7c65cba469967be3e29f7038872cbd81",
+      "preserved_filter_oid": "ff84be8b7c65cba469967be3e29f7038872cbd81",
+      "default_filter_oid": "7c0de72e0d60f1fcd17064c66b1e7924a1763379"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseDetail.tsx",
+      "raw_git_oid": "819cf4997dee1b62a2c130ca35018ab17619e8a2",
+      "preserved_filter_oid": "819cf4997dee1b62a2c130ca35018ab17619e8a2",
+      "default_filter_oid": "819cf4997dee1b62a2c130ca35018ab17619e8a2"
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx",
+      "raw_git_oid": "f5617a3fddc50292c5ac079a25bc642dd0bbf9cf",
+      "preserved_filter_oid": "f5617a3fddc50292c5ac079a25bc642dd0bbf9cf",
+      "default_filter_oid": "f5617a3fddc50292c5ac079a25bc642dd0bbf9cf"
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.tsx",
+      "raw_git_oid": "5235bdb6a291829fea5610b75f5287030a8c9837",
+      "preserved_filter_oid": "5235bdb6a291829fea5610b75f5287030a8c9837",
+      "default_filter_oid": "5235bdb6a291829fea5610b75f5287030a8c9837"
+    },
+    {
+      "path": "apps/frontend/src/pages/OnboardingWorkspace.tsx",
+      "raw_git_oid": "e155438f0001608e13b1b56dd961363840a7a840",
+      "preserved_filter_oid": "e155438f0001608e13b1b56dd961363840a7a840",
+      "default_filter_oid": "e155438f0001608e13b1b56dd961363840a7a840"
+    },
+    {
+      "path": "apps/frontend/src/pages/S1PipelineWorkspace.test.tsx",
+      "raw_git_oid": "d7c5f11870f9d43f84a464b1441a4a16a96b5eca",
+      "preserved_filter_oid": "d7c5f11870f9d43f84a464b1441a4a16a96b5eca",
+      "default_filter_oid": "d7c5f11870f9d43f84a464b1441a4a16a96b5eca"
+    },
+    {
+      "path": "apps/frontend/src/types.ts",
+      "raw_git_oid": "8f93b2d01885911c0056f41b21c936bea9ec1942",
+      "preserved_filter_oid": "8f93b2d01885911c0056f41b21c936bea9ec1942",
+      "default_filter_oid": "30bc35d2df06b3117811a1747c3056b029d341c2"
+    },
+    {
+      "path": "docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md",
+      "raw_git_oid": "3605166070e92f83b944f0fd931a8477b2c9ba1f",
+      "preserved_filter_oid": "3605166070e92f83b944f0fd931a8477b2c9ba1f",
+      "default_filter_oid": "3605166070e92f83b944f0fd931a8477b2c9ba1f"
+    },
+    {
+      "path": "docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md",
+      "raw_git_oid": "e84f0ba354686685e0d75688b776f3076d047a19",
+      "preserved_filter_oid": "e84f0ba354686685e0d75688b776f3076d047a19",
+      "default_filter_oid": "e82cf19332f2694bc8deae874bfa732688d3b46f"
+    },
+    {
+      "path": "scripts/e2e_backend_server.py",
+      "raw_git_oid": "002d4b8948128359eb553b74a5f78a02d5ecfd1d",
+      "preserved_filter_oid": "002d4b8948128359eb553b74a5f78a02d5ecfd1d",
+      "default_filter_oid": "e95b98e4b01ef36d1ebdf1167f2f83859ff009e9"
+    },
+    {
+      "path": "scripts/run_e2e.py",
+      "raw_git_oid": "9963ba6d8a43d6ed2f7ac412d140e17786fb357c",
+      "preserved_filter_oid": "9963ba6d8a43d6ed2f7ac412d140e17786fb357c",
+      "default_filter_oid": "4d45cc8bde22687017d387cd113e40bec30d5611"
+    },
+    {
+      "path": "scripts/seed_phase13_demo.py",
+      "raw_git_oid": "b7915e6e25b9c6c457fc9fd9aff4018a6f5b11ac",
+      "preserved_filter_oid": "b7915e6e25b9c6c457fc9fd9aff4018a6f5b11ac",
+      "default_filter_oid": "b7915e6e25b9c6c457fc9fd9aff4018a6f5b11ac"
+    },
+    {
+      "path": "scripts/slice_c_recovery_fixture.py",
+      "raw_git_oid": "67d9876fb7bf5db942c5db91795ce8b4669b8f30",
+      "preserved_filter_oid": "67d9876fb7bf5db942c5db91795ce8b4669b8f30",
+      "default_filter_oid": "67d9876fb7bf5db942c5db91795ce8b4669b8f30"
+    },
+    {
+      "path": "tests/test_run_e2e.py",
+      "raw_git_oid": "fca15bf4d44c08b34906accfd357fa57de27739f",
+      "preserved_filter_oid": "fca15bf4d44c08b34906accfd357fa57de27739f",
+      "default_filter_oid": "ec922f9cafc35b2fa8185052adb429449aa99ffa"
+    },
+    {
+      "path": "tests/test_slice_c_e2e_fixture_routing.py",
+      "raw_git_oid": "734e46f9e18f74c785ae7e3e89af324e8d28cf4a",
+      "preserved_filter_oid": "734e46f9e18f74c785ae7e3e89af324e8d28cf4a",
+      "default_filter_oid": "734e46f9e18f74c785ae7e3e89af324e8d28cf4a"
+    }
+  ]
+}

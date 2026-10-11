@@ -1,0 +1,16 @@
+{
+  "scenario": "saved replacement refresh 503",
+  "classification": "AUTOMATED_OFFLINE_SIMULATION",
+  "actual_control": "Visible enabled focused Resume document evidence refresh BUTTON after reload",
+  "checkpoint": "RESUMING/DOCUMENT",
+  "final_stage": "READINESS",
+  "final_status": "WAITING_FOR_REVIEW",
+  "fresh_confirmation_required": true,
+  "response": 200,
+  "documents_before": 3,
+  "documents_retained": 4,
+  "duplicate_documents": 0,
+  "retained_search_unchanged": true,
+  "target_operations_unchanged": true,
+  "verdict": "PASS"
+}

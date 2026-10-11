@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
-import { expectDisclosureContrast, openStage } from "./stage-disclosures";
+import { expectDisclosureContrast, focusPipelineAction, openStage } from "./stage-disclosures";
 
 let violations: string[];
 test.beforeEach(async ({ page }) => {
@@ -89,7 +89,7 @@ test("Phase24 invalid registry identity corrects the same case and keeps final r
   const caseId = created.case.case_id;
   await page.goto(`/cases/${caseId}`);
   await expect(page.getByText("Registry verification could not verify this UEN.", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Edit UEN", exact: true }).click();
+  await focusPipelineAction(page, "ACRA_REGISTRY", page.getByLabel("Singapore UEN", { exact: true }));
   await page.getByLabel("Singapore UEN").fill("202400001A");
   const corrected = await choose(page, caseId, "Verify UEN and resume");
   expect(corrected.case.case_id).toBe(caseId);

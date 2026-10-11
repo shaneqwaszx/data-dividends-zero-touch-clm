@@ -1,0 +1,9 @@
+# PR81 V5 bounded watchdog correction
+Authority: d04e7d07-0eb4-4f4a-959d-149a5f5cf7f4 owner attachment; supersedes diagnostic-only restriction for demonstrated watchdog defect.
+CI_TOOLING; same feature worktree/branch/HEAD/base as preservation snapshot. Ordinary Windows token and PowerShell 7.6.5; Python3.12.10 task venv. No capture/fixture/database/browser/ports needed. Sandbox file-access approval is not token elevation.
+Decision: helper code-change, canonical controller/watchdog observer only. Native Process getter is invoked in typed managed code so exceptions are observed. Pin the exact returned process object/PID/start tick privately; require valid association and identity match and explicit Boolean false for HasExited.
+Update readiness, pre-enable and fixture-wait reads. Cleanup remains unconditional exact-owned Stop/absence regardless of liveness result. Keep provider/schema/security/options/bounds/deadlines/application behavior.
+Retain V3/V4 and historical reports unchanged. Copy V4 to V5, preserve 30-case assertions and add identity/null/invalid/getter/real unassociated-process/site coverage tests with no child process or ETW.
+Hygiene sub-scope separately justified: existing V4 runner has two canonical Ruff I001 errors. Format only V5 import blocks without changing logic/policy/source/fixtures; verify AST identity and full diff, run canonical Ruff. Sanitizer remains byte-identical.
+Validate focused tests/19 sanitizer checks/bindings/governance/secret/whitespace. Freeze candidate for fresh independent reviewer. At most one bounded gate remediation and re-review. Final reviewed SOP/bundle binding before any manual handoff.
+No maintained source edits, elevated capture, seeder/confirmation, raw ETL read, commit/push/PR update/merge. Product transport cause and historical V3 abort remain UNKNOWN.

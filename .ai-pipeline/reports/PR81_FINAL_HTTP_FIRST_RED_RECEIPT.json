@@ -1,0 +1,17 @@
+{
+  "exit_code": 1,
+  "passed": 6,
+  "failed": 4,
+  "expected_defect_failures": [
+    "missing_body",
+    "ambiguous_dummy_post"
+  ],
+  "unexpected_timeouts": [
+    "early_eof_missing506",
+    "size_limit_missing1"
+  ],
+  "cause_of_unexpected_timeouts": "UNKNOWN; send/close source path alone does not prove client EOF",
+  "seeder_unchanged": true,
+  "original_fixture_not_executed": true,
+  "no_retry": true
+}

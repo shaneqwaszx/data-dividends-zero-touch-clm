@@ -1,0 +1,187 @@
+E2E SHARD: 2/2; discovered=89; selected=44
+E2E TIMEOUT CONTRACT: selectors=44; lifecycle_seconds=60; suite_seconds=7980; overhead_per_lifecycle_seconds=120
+E2E isolated lifecycle 1/44: e2e/authenticated-zero-touch.e2e.ts:242
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:242:1 \u203a ordinary RM repairs same-case identity, resolves evidence, and reviews without target writes
+[1A[2K  1 passed (16.2s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=1/44; elapsed_seconds=20.297
+E2E isolated lifecycle 2/44: e2e/authenticated-zero-touch.e2e.ts:670
+utc":"2026-10-10T04:00:21.636Z","elapsed_ms":892,"label":"request","method":"POST","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/intake/documents"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:21.636Z","elapsed_ms":892,"label":"intake-delay-enter"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:21.702Z","elapsed_ms":958,"label":"after-retained-route"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:21.702Z","elapsed_ms":958,"label":"before-progress-visible"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:21.705Z","elapsed_ms":961,"label":"after-progress-visible"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:21.705Z","elapsed_ms":961,"label":"before-progress-aria"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:21.708Z","elapsed_ms":964,"label":"after-progress-aria"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:21.708Z","elapsed_ms":964,"label":"before-screenshot"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:21.741Z","elapsed_ms":997,"label":"after-screenshot"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:21.743Z","elapsed_ms":999,"label":"before-document-label"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:21.746Z","elapsed_ms":1002,"label":"after-document-label"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:21.746Z","elapsed_ms":1002,"label":"before-document-current"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:22.641Z","elapsed_ms":1897,"label":"request","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:22.642Z","elapsed_ms":1898,"label":"before-case-route-fetch"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:22.685Z","elapsed_ms":1941,"label":"after-case-route-fetch","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:22.686Z","elapsed_ms":1942,"label":"authoritative-case","version":1,"status":"PENDING_INPUTS","stage":"DOCUMENT","caseReadCount":0}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:22.686Z","elapsed_ms":1942,"label":"before-case-fulfill","version":2,"status":"RUNNING","stage":"DOCUMENT"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:22.688Z","elapsed_ms":1944,"label":"after-case-fulfill"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:22.688Z","elapsed_ms":1944,"label":"response","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.639Z","elapsed_ms":2895,"label":"after-document-current"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.639Z","elapsed_ms":2895,"label":"before-document-read-count"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.640Z","elapsed_ms":2896,"label":"after-document-read-count"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.640Z","elapsed_ms":2896,"label":"before-screenshot"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.675Z","elapsed_ms":2931,"label":"after-screenshot"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.676Z","elapsed_ms":2932,"label":"before-ownership-current"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.698Z","elapsed_ms":2954,"label":"request","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.699Z","elapsed_ms":2955,"label":"before-case-route-fetch"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.727Z","elapsed_ms":2983,"label":"after-case-route-fetch","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.728Z","elapsed_ms":2984,"label":"authoritative-case","version":1,"status":"PENDING_INPUTS","stage":"DOCUMENT","caseReadCount":1}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.728Z","elapsed_ms":2984,"label":"before-case-fulfill","version":3,"status":"RUNNING","stage":"OWNERSHIP"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.729Z","elapsed_ms":2985,"label":"after-case-fulfill"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.730Z","elapsed_ms":2986,"label":"response","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.794Z","elapsed_ms":3050,"label":"after-ownership-current"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.794Z","elapsed_ms":3050,"label":"before-ownership-read-count"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.795Z","elapsed_ms":3051,"label":"after-ownership-read-count"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.795Z","elapsed_ms":3051,"label":"before-confirm-helper"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:23.795Z","elapsed_ms":3051,"label":"before-full-case-click"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:24.744Z","elapsed_ms":4000,"label":"request","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:24.744Z","elapsed_ms":4000,"label":"before-case-route-fetch"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:24.769Z","elapsed_ms":4025,"label":"after-case-route-fetch","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:24.770Z","elapsed_ms":4026,"label":"authoritative-case","version":1,"status":"PENDING_INPUTS","stage":"DOCUMENT","caseReadCount":2}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:24.770Z","elapsed_ms":4026,"label":"before-case-fulfill","version":1,"status":"PENDING_INPUTS","stage":"DOCUMENT"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:24.772Z","elapsed_ms":4028,"label":"after-case-fulfill"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:24.772Z","elapsed_ms":4028,"label":"response","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:25.149Z","elapsed_ms":4405,"label":"intake-delay-exit"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:25.786Z","elapsed_ms":5042,"label":"request","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:25.786Z","elapsed_ms":5042,"label":"before-case-route-fetch"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:25.810Z","elapsed_ms":5066,"label":"after-case-route-fetch","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:25.811Z","elapsed_ms":5067,"label":"authoritative-case","version":1,"status":"PENDING_INPUTS","stage":"DOCUMENT","caseReadCount":2}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:25.811Z","elapsed_ms":5067,"label":"before-case-fulfill","version":1,"status":"PENDING_INPUTS","stage":"DOCUMENT"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:25.812Z","elapsed_ms":5068,"label":"after-case-fulfill"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:25.813Z","elapsed_ms":5069,"label":"response","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.054Z","elapsed_ms":5310,"label":"response","method":"POST","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/intake/documents","status":201}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.055Z","elapsed_ms":5311,"label":"request","method":"POST","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/intake/complete"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.160Z","elapsed_ms":5416,"label":"response","method":"POST","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/intake/complete","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.306Z","elapsed_ms":5562,"label":"after-full-case-click"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.306Z","elapsed_ms":5562,"label":"before-full-case-url"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.307Z","elapsed_ms":5563,"label":"after-full-case-url"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.308Z","elapsed_ms":5564,"label":"before-confirmation-enabled"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.359Z","elapsed_ms":5615,"label":"request","method":"GET","path":"/api/onboarding/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/documents"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.360Z","elapsed_ms":5616,"label":"request","method":"GET","path":"/api/onboarding/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/ownership"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.362Z","elapsed_ms":5618,"label":"request","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/intelligence"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.362Z","elapsed_ms":5618,"label":"request","method":"GET","path":"/api/onboarding/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/documents"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.363Z","elapsed_ms":5619,"label":"request","method":"GET","path":"/api/onboarding/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/ownership"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.364Z","elapsed_ms":5620,"label":"request","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/intelligence"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.365Z","elapsed_ms":5621,"label":"request-failed","method":"GET","path":"/api/onboarding/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/documents"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.365Z","elapsed_ms":5621,"label":"request-failed","method":"GET","path":"/api/onboarding/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/ownership"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.365Z","elapsed_ms":5621,"label":"request-failed","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/intelligence"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.388Z","elapsed_ms":5644,"label":"response","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/intelligence","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.389Z","elapsed_ms":5645,"label":"response","method":"GET","path":"/api/onboarding/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/documents","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.400Z","elapsed_ms":5656,"label":"response","method":"GET","path":"/api/onboarding/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/ownership","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.435Z","elapsed_ms":5691,"label":"after-confirmation-enabled"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.437Z","elapsed_ms":5693,"label":"before-confirmation-click"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.469Z","elapsed_ms":5725,"label":"request","method":"POST","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/target-confirmation"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.470Z","elapsed_ms":5726,"label":"after-confirmation-click"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.471Z","elapsed_ms":5727,"label":"before-confirmation-response"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.541Z","elapsed_ms":5797,"label":"response","method":"POST","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/target-confirmation","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.542Z","elapsed_ms":5798,"label":"after-confirmation-response"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.542Z","elapsed_ms":5798,"label":"after-confirm-helper"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.542Z","elapsed_ms":5798,"label":"before-open-submission-stage"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.549Z","elapsed_ms":5805,"label":"request","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/intelligence"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.590Z","elapsed_ms":5846,"label":"response","method":"GET","path":"/api/clm/zero-touch/cases/eaa5da2a-abcc-4e87-beec-a27564c8ac7f/intelligence","status":200}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.646Z","elapsed_ms":5902,"label":"after-open-submission-stage"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.646Z","elapsed_ms":5902,"label":"before-completed-visible"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.653Z","elapsed_ms":5909,"label":"after-completed-visible"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.653Z","elapsed_ms":5909,"label":"before-screenshot"}
+
+[1A[2KSDQ01_R3 {"utc":"2026-10-10T04:00:26.707Z","elapsed_ms":5963,"label":"after-screenshot"}
+
+[1A[2K  1 passed (7.5s)

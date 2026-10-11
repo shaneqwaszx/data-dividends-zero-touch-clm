@@ -1,0 +1,88 @@
+{
+  "recorded_utc": "2026-10-10T04:47:52.052463+00:00",
+  "outcome": "STOP_SDQ01_OPEN",
+  "root_cause_category": "F_UNRESOLVED",
+  "independent_verdict": "FAIL",
+  "required_findings": {
+    "P0": 0,
+    "P1": 1,
+    "P2": 0
+  },
+  "branch": "feat/blocker-resolution-idp-ux-optimization",
+  "base_sha": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "head_sha": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "latest_fetched_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "staged_paths": [],
+  "task_clean": false,
+  "repository_clean": false,
+  "commit_scope": "no-commit",
+  "non_commit_reason": "Explicit owner prohibition and unresolved causal acceptance",
+  "candidate_content_sha256": "1c880a5a596369b151664b85a5933e045254d3e5ac4000e28b7defeff97162f9",
+  "candidate_manifest_sha256": "c059f40589726d104622176640dbf2d469b6dfa10bc72ccc02b9cf15f90ff6c1",
+  "reviewed_files": 384,
+  "reviewed_hash_mismatches": [],
+  "source_identity": "5de89b19dda6964828d87ecf744d7b30df4ea3ee8c872a5a4dd2ffabb9df38df",
+  "source_corrections": 0,
+  "prior269_content_sha256": "24f30d1411e2ad018b56d410c2eecde7c1012903aeb6848891c8272842844acf",
+  "prior_independent_fail_sha256": "2c7764f80565a0c2b1f3e7508ce96fb5b8ee633568acb92f10bcdfce0edce83c",
+  "new_independent_gate_sha256": "f6771976be24586e1123cc2ce6e353a9b3dc9f99c059cb75198939c43c51a54a",
+  "handoff_sha256": "9cf16160f64b6c4d975ffe7f124e4a3117075ccc08c61bef96e69e446fdf6926",
+  "browser_inventory": {
+    "lifecycles_passed": 89,
+    "tests_passed": 112,
+    "skipped": 0,
+    "excluded": 0
+  },
+  "sponsor_journeys_passed": 8,
+  "resources": {
+    "recorded_utc": "2026-10-10T04:45:51.446699+00:00",
+    "container_id": "3147b9b2ddb91845c237d4c32a02a20492ad72c888dd2e837508f6b2decc89e5",
+    "owned_container_removed": true,
+    "owned_anonymous_volumes_removed": [
+      "c796364d10bffc5e18ff087debc686bfc2645b428c62c118a4460b5a187044a4",
+      "f1c27e4028b5d038829e7e4d2801f4ab7096049ea5d74cf5de2537fe71020275"
+    ],
+    "exclusive_ownership_rechecked": true,
+    "all_preexisting_unowned_containers_still_present": true,
+    "task_ports_clear": true,
+    "ports_checked": [
+      "18900..18981",
+      "19400..19481",
+      27419
+    ],
+    "scope": "Exactly this new task-owned container and its two anonymous volumes; no database cleanup on any other server."
+  },
+  "post_review_mongo_inspection": {
+    "checked_utc": "2026-10-10T04:45:27.780108+00:00",
+    "exact_container_id": "3147b9b2ddb91845c237d4c32a02a20492ad72c888dd2e837508f6b2decc89e5",
+    "exclusive_new_task_resource_verified": true,
+    "loopback_port": 27419,
+    "databases_after_full_suite": [
+      "admin",
+      "config",
+      "local"
+    ],
+    "retained_generated_databases": 0,
+    "protected_database_access": false,
+    "uri_read_printed_or_persisted": false,
+    "unowned_server_access": false
+  },
+  "final_security_check_exit_code": 0,
+  "final_security_check_output_sha256": "1f210c25ed0d9e15e8c5a55264d5a569275f9edbd04b268d5e02d801e6590f5f",
+  "final_markdown_whitespace_findings": 0,
+  "worktree_disposition": "Retained assigned worktree and all earlier worktrees",
+  "next_authorized_action": "Stop; owner must resolve unmet acceptance criterion before publication readiness. No fourth round or publication is authorized.",
+  "change_disclosure": {
+    "api_types": false,
+    "durable_schema": false,
+    "connector": false,
+    "application_configuration": false,
+    "business_rule": false,
+    "mapping": false,
+    "auth_security": false,
+    "architecture": false,
+    "provider_status": false,
+    "product_runtime_behavior": false,
+    "additive_diagnosis_evidence_review_records": true
+  }
+}

@@ -1,0 +1,33 @@
+E2E SHARD: 2/2; discovered=89; selected=44
+E2E TIMEOUT CONTRACT: selectors=44; lifecycle_seconds=60; suite_seconds=7980; overhead_per_lifecycle_seconds=120
+E2E isolated lifecycle 1/44: e2e/authenticated-zero-touch.e2e.ts:242
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:242:1 \u203a ordinary RM repairs same-case identity, resolves evidence, and reviews without target writes
+[1A[2K  1 passed (16.3s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.
+E2E LIFECYCLE TIMING: selection=1/44; elapsed_seconds=20.500
+E2E isolated lifecycle 2/44: e2e/authenticated-zero-touch.e2e.ts:670
+E2E FAILED [INDIVIDUAL_SELECTION_TIMEOUT]: Playwright test execution timed out
+[frontend sanitized output]
+
+  [32m[1mVITE[22m v7.1.11[39m  [2mready in [0m[1m241[22m[2m[0m ms[22m
+
+  [32m\u279c[39m  [1mLocal[22m:   [36m[REDACTED_URI][1m19401[22m/[39m
+[2m10:11:31 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/clm/zero-touch/cases/8d028bf9-8c76-4a85-81f8-91397c1fde80/intelligence[39m
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:599:25)
+    at Socket.emit (node:events:531:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+[playwright sanitized output]
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:670:1 \u203a onboarding progress is visible while backend-authored stages advance
+
+E2E LIFECYCLE TIMING: selection=2/44; elapsed_seconds=66.390
+E2E SUITE FAILED: isolated selection 2/44 failed.

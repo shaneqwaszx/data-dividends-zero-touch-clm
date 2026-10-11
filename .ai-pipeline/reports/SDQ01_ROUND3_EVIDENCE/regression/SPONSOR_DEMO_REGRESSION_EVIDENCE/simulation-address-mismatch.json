@@ -1,0 +1,29 @@
+{
+  "scenario": "address-mismatch",
+  "initial": [
+    "DOCUMENT_SOURCE_CONFLICT"
+  ],
+  "expected_navigation": "select[data-reconciliation-field]",
+  "actual_control": {
+    "tag": "SELECT",
+    "id": "",
+    "field": "registered_address",
+    "document": null,
+    "discrepancy": "b13a24b8-0fa0-4c96-8ed3-16ff66f65683"
+  },
+  "choices": 1,
+  "calls_before_confirmation": 0,
+  "calls": [
+    "POST /api/clm/zero-touch/cases/7c59709f-122b-4ff1-b31e-407b6671d597/review-decisions",
+    "GET /api/clm/zero-touch/cases/7c59709f-122b-4ff1-b31e-407b6671d597",
+    "GET /api/onboarding/cases/7c59709f-122b-4ff1-b31e-407b6671d597/documents",
+    "GET /api/onboarding/cases/7c59709f-122b-4ff1-b31e-407b6671d597/ownership",
+    "GET /api/clm/zero-touch/cases/7c59709f-122b-4ff1-b31e-407b6671d597/intelligence"
+  ],
+  "confirmation": "WAITING_FOR_REVIEW",
+  "final": [
+    "TARGET_CONFIRMATION_REQUIRED"
+  ],
+  "verdict": "PASS",
+  "reduced_motion": true
+}

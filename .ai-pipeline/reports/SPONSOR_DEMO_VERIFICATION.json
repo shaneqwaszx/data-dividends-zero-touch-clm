@@ -1,0 +1,1289 @@
+{
+  "outcome": "BLOCKED_REQUIRED_BROWSER_REGRESSION",
+  "confidence": "C for whole-task acceptance; direct demo evidence remains passing",
+  "current_source_identity": "5de89b19dda6964828d87ecf744d7b30df4ea3ee8c872a5a4dd2ffabb9df38df",
+  "lanes": {
+    "root-final": {
+      "state": "PASS",
+      "command": [
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "log": "tmp\\sponsor-demo-root-final.log",
+      "exit_code": 0,
+      "seconds": 484.36
+    },
+    "backend-final": {
+      "state": "PASS",
+      "command": [
+        "-B",
+        "-m",
+        "pytest",
+        "apps/backend/tests",
+        "-o",
+        "addopts=",
+        "-p",
+        "no:cacheprovider",
+        "-q"
+      ],
+      "log": "tmp\\sponsor-demo-backend-final.log",
+      "exit_code": 0,
+      "seconds": 999.828
+    },
+    "physical-final": {
+      "state": "PASS",
+      "command": [
+        "-B",
+        "scripts/run_physical_mongo_tests.py"
+      ],
+      "log": "tmp\\sponsor-demo-physical-final.log",
+      "exit_code": 0,
+      "seconds": 261.281
+    },
+    "e2e-final-shard1": {
+      "state": "PASS",
+      "command": [
+        "-B",
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--shard",
+        "1/2"
+      ],
+      "log": "tmp\\sponsor-demo-e2e-final-shard1.log",
+      "exit_code": 0,
+      "seconds": 561.219
+    },
+    "e2e-final-shard2": {
+      "state": "FAIL",
+      "command": [
+        "-B",
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--shard",
+        "2/2"
+      ],
+      "log": "tmp\\sponsor-demo-e2e-final-shard2.log",
+      "exit_code": 1,
+      "seconds": 88.078
+    }
+  },
+  "full_frontend": {
+    "files": 49,
+    "passed": 576,
+    "log": {
+      "path": "tmp/sponsor-demo-full-frontend.log",
+      "bytes": 151101,
+      "sha256": "3f369a7151c641a8b2f94abf3979d5ef19e161a5bb642adb17b7d2e0e12250e0"
+    }
+  },
+  "full_backend": {
+    "passed": 2630,
+    "skipped_physical": 143,
+    "warnings": 4,
+    "seconds": 996.98
+  },
+  "physical": {
+    "suites": 23,
+    "passed": 143,
+    "skipped": 0
+  },
+  "root": {
+    "passed": 373,
+    "seconds": 482.422,
+    "scope": "Full373 before SDQ-02; all48 affected lifecycle tests pass after it. The new test changes discovery count; no final full-root count is claimed."
+  },
+  "browser": {
+    "configured_lifecycles": 89,
+    "collected_tests": 112,
+    "passed_lifecycles": 88,
+    "passed_tests": 111,
+    "shard1_lifecycles": 45,
+    "unaffected_shard2_lifecycles": 43,
+    "excluded_required_selector": "e2e/authenticated-zero-touch.e2e.ts:670",
+    "full_suite_pass": false,
+    "explanation": "No test removed. Full shard2 failed on progress after its first passing lifecycle. Separate 43-lifecycle execution excludes that required selector and is explicitly partial.",
+    "scope": "88 passing lifecycles from pre-remediation broad coverage; all12 physical compositions including primary8 pass again after cleanup routing fix. Required progress remains untested/unaccepted; not a final exact-source full suite PASS."
+  },
+  "primary_journeys": {
+    "passed": 8,
+    "evidence": "SPONSOR_DEMO_BROWSER_EVIDENCE"
+  },
+  "final_static": {
+    "backend_ruff": {
+      "exit_code": 0,
+      "seconds": 0.109,
+      "log": "tmp/sponsor-demo-closeout-backend_ruff.log"
+    },
+    "backend_mypy": {
+      "exit_code": 0,
+      "seconds": 0.375,
+      "log": "tmp/sponsor-demo-closeout-backend_mypy.log"
+    },
+    "python_dependencies": {
+      "exit_code": 0,
+      "seconds": 0.656,
+      "log": "tmp/sponsor-demo-closeout-python_dependencies.log"
+    },
+    "frontend_typecheck": {
+      "exit_code": 0,
+      "seconds": 6.985,
+      "log": "tmp/sponsor-demo-closeout-frontend_typecheck.log"
+    },
+    "frontend_build": {
+      "exit_code": 0,
+      "seconds": 8.844,
+      "log": "tmp/sponsor-demo-closeout-frontend_build.log"
+    },
+    "frontend_dependencies": {
+      "exit_code": 0,
+      "seconds": 0.875,
+      "log": "tmp/sponsor-demo-closeout-frontend_dependencies.log"
+    },
+    "project_state": {
+      "exit_code": 0,
+      "seconds": 0.281,
+      "log": "tmp/sponsor-demo-closeout-project_state.log"
+    },
+    "architecture": {
+      "exit_code": 0,
+      "seconds": 0.453,
+      "log": "tmp/sponsor-demo-closeout-architecture.log"
+    },
+    "tooling_config": {
+      "exit_code": 0,
+      "seconds": 0.094,
+      "log": "tmp/sponsor-demo-closeout-tooling_config.log"
+    },
+    "policy_authority": {
+      "exit_code": 0,
+      "seconds": 0.093,
+      "log": "tmp/sponsor-demo-closeout-policy_authority.log"
+    },
+    "external_provider_readiness": {
+      "exit_code": 0,
+      "seconds": 0.094,
+      "log": "tmp/sponsor-demo-closeout-external_provider_readiness.log"
+    },
+    "secrets": {
+      "exit_code": 0,
+      "seconds": 2.922,
+      "log": "tmp/sponsor-demo-closeout-secrets.log"
+    }
+  },
+  "remaining_evidence": {
+    "pacific": {
+      "exit_code": 0,
+      "seconds": 15.281,
+      "command": [
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--sandbox-demo",
+        "sponsor-pacific",
+        "--grep",
+        "Sponsor happy path pacific"
+      ],
+      "log": "tmp\\sponsor-demo-remaining-pacific.log"
+    },
+    "meridian": {
+      "exit_code": 0,
+      "seconds": 15.891,
+      "command": [
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--sandbox-demo",
+        "sponsor-meridian",
+        "--grep",
+        "Sponsor happy path meridian"
+      ],
+      "log": "tmp\\sponsor-demo-remaining-meridian.log"
+    },
+    "merlion": {
+      "exit_code": 0,
+      "seconds": 18.172,
+      "command": [
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--sandbox-demo",
+        "sponsor-merlion",
+        "--grep",
+        "Sponsor blocker journey merlion"
+      ],
+      "log": "tmp\\sponsor-demo-remaining-merlion.log"
+    },
+    "multilevel": {
+      "exit_code": 0,
+      "seconds": 19.984,
+      "command": [
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--sandbox-demo",
+        "sponsor-multilevel",
+        "--grep",
+        "Sponsor blocker journey multilevel"
+      ],
+      "log": "tmp\\sponsor-demo-remaining-multilevel.log"
+    },
+    "interaction-30": {
+      "exit_code": 0,
+      "seconds": 45.219,
+      "command": [
+        "scripts/run_e2e.py",
+        "--backend-port",
+        "18900",
+        "--frontend-port",
+        "19400",
+        "--timeout-seconds",
+        "60",
+        "--grep",
+        "Blocker decision review performance sample"
+      ],
+      "log": "tmp\\sponsor-demo-remaining-interaction-30.log"
+    },
+    "api-performance": {
+      "exit_code": 0,
+      "seconds": 24.516,
+      "command": [
+        "scripts/benchmark_blocker_review.py",
+        "--batch",
+        "--samples",
+        "30",
+        "--output",
+        "tmp/sponsor-demo-api-performance.json"
+      ],
+      "log": "tmp\\sponsor-demo-remaining-api-performance.log"
+    },
+    "mongo-performance": {
+      "exit_code": 0,
+      "seconds": 4.578,
+      "command": [
+        "scripts/benchmark_blocker_review_mongo.py",
+        "--root",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+        "--batch",
+        "--output",
+        "tmp/sponsor-demo-mongo-performance.json"
+      ],
+      "log": "tmp\\sponsor-demo-remaining-mongo-performance.log"
+    }
+  },
+  "logs": [
+    {
+      "path": "tmp/sponsor-demo-root-final.log",
+      "bytes": 68281,
+      "sha256": "dbd34577099e0129d4acb6861a672b801a468df37d473f4f9d517605bc3f8ad4"
+    },
+    {
+      "path": "tmp/sponsor-demo-backend-final.log",
+      "bytes": 5642,
+      "sha256": "cc0037fbf0c54b34c9baad21fb7a1099d7cb6dae927ef5dd8bba6c7a054af026"
+    },
+    {
+      "path": "tmp/sponsor-demo-physical-final.log",
+      "bytes": 99,
+      "sha256": "95ad951ccbdf7c077d3f669e5e2130d831f47cc71111e518610e660668691399"
+    },
+    {
+      "path": "tmp/sponsor-demo-e2e-final-shard1.log",
+      "bytes": 28894,
+      "sha256": "4c14d7899ad25a564d1c42c10f66c030dee527c2d5a8611304a89b76505a2cf5"
+    },
+    {
+      "path": "tmp/sponsor-demo-e2e-final-shard2.log",
+      "bytes": 1657,
+      "sha256": "34c7ea10c1d6cca18a198b1180b681af853415b10bfc3f6c821e883d8e37a082"
+    },
+    {
+      "path": "tmp/sponsor-demo-unaffected-shard2.log",
+      "bytes": 21121,
+      "sha256": "5ab1a0b013f33c1c05038b5b99c63a276637da1b35679bf49b0875657490f32a"
+    },
+    {
+      "path": "tmp/sponsor-demo-progress-diagnostic.log",
+      "bytes": 518,
+      "sha256": "972935b447f92a2ac8df294752c6a6dac06e35ab40f29554e4d78c6b02ab4f1c"
+    },
+    {
+      "path": "tmp/sponsor-demo-progress-fixed.log",
+      "bytes": 393,
+      "sha256": "5395ab0eb378acbcd9d48a17ae158d77314e2844c405c03786e5847fafe6dbb1"
+    },
+    {
+      "path": "tmp/sponsor-demo-progress-controlled.log",
+      "bytes": 393,
+      "sha256": "5f57d445c76a7ceafc7a2b8713e135f6aeac89b6d989c058e33afb645d398e49"
+    }
+  ],
+  "blocker": {
+    "id": "SDQ-01",
+    "cause": "Unproven: existing synthetic progress browser test exceeds the unchanged 60-second lifecycle",
+    "unsuccessful_remediation_rounds": 2,
+    "current_test": "Exact accepted original restored",
+    "authority": "Supplied request Section15 limits two unsuccessful corrections per underlying finding",
+    "dependent_work": "Paused pending human approval for one extra round; elapsed time grants no permission"
+  },
+  "real_sandbox_uat": "NOT_VERIFIED",
+  "publication": "NOT_AUTHORIZED_AND_NOT_READY",
+  "cleanup_remediation": {
+    "finding": "SDQ-02",
+    "rounds": 1,
+    "result": "PASS",
+    "actual_modes": {
+      "aurora": {
+        "exit_code": 0,
+        "seconds": 15.343,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--sandbox-demo",
+          "sponsor-aurora",
+          "--grep",
+          "Sponsor happy path aurora"
+        ],
+        "log": "tmp/sponsor-cleanup-aurora.log",
+        "log_sha256": "e7a69e73598967c332ab6a0a056384cfb47a0cd9ebb29aede7c35a84edd905b8"
+      },
+      "pacific": {
+        "exit_code": 0,
+        "seconds": 15.125,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--sandbox-demo",
+          "sponsor-pacific",
+          "--grep",
+          "Sponsor happy path pacific"
+        ],
+        "log": "tmp/sponsor-cleanup-pacific.log",
+        "log_sha256": "859c2676c4955e7417250308bf09d030f5a91f5bf03d7f1c4557a833bf1a9fb1"
+      },
+      "straits": {
+        "exit_code": 0,
+        "seconds": 15.36,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--sandbox-demo",
+          "sponsor-straits",
+          "--grep",
+          "Sponsor happy path straits"
+        ],
+        "log": "tmp/sponsor-cleanup-straits.log",
+        "log_sha256": "c2a64edeff15cbfe9c209f4856c245db9ee916b7c132899de2050a1c2236fedb"
+      },
+      "meridian": {
+        "exit_code": 0,
+        "seconds": 15.265,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--sandbox-demo",
+          "sponsor-meridian",
+          "--grep",
+          "Sponsor happy path meridian"
+        ],
+        "log": "tmp/sponsor-cleanup-meridian.log",
+        "log_sha256": "0ab53ab3249a521c66031f582f285d2dbd79cfe57e5df93204279fd89dd7eaa6"
+      },
+      "garden": {
+        "exit_code": 0,
+        "seconds": 22.25,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--sandbox-demo",
+          "sponsor-garden",
+          "--grep",
+          "Sponsor blocker journey garden"
+        ],
+        "log": "tmp/sponsor-cleanup-garden.log",
+        "log_sha256": "45da812bfc5912f8ef470e3770c7d9c0a59f91588428c10b08c40159718a9f0c"
+      },
+      "merlion": {
+        "exit_code": 0,
+        "seconds": 18.0,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--sandbox-demo",
+          "sponsor-merlion",
+          "--grep",
+          "Sponsor blocker journey merlion"
+        ],
+        "log": "tmp/sponsor-cleanup-merlion.log",
+        "log_sha256": "45bb3badedb56efe4a457b9fb6efe5cfe3b5ce4de535818100fa44144543d9b5"
+      },
+      "multiple": {
+        "exit_code": 0,
+        "seconds": 19.391,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--sandbox-demo",
+          "sponsor-multiple",
+          "--grep",
+          "Sponsor blocker journey multiple"
+        ],
+        "log": "tmp/sponsor-cleanup-multiple.log",
+        "log_sha256": "d19063878919f9f7e7efa9cb7d3dfc99d4d8a679fbfbbedb09ea0d1094f5b96b"
+      },
+      "multilevel": {
+        "exit_code": 0,
+        "seconds": 20.047,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--sandbox-demo",
+          "sponsor-multilevel",
+          "--grep",
+          "Sponsor blocker journey multilevel"
+        ],
+        "log": "tmp/sponsor-cleanup-multilevel.log",
+        "log_sha256": "75529bd3ee8ce906958e2a4141e2771c12e223a53ef48c900a54f0284d1631c7"
+      },
+      "database-alpha": {
+        "exit_code": 0,
+        "seconds": 12.203,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--sandbox-demo",
+          "database-alpha",
+          "--grep",
+          "database classification Alpha actual scan"
+        ],
+        "log": "tmp/sponsor-cleanup-database-alpha.log",
+        "log_sha256": "29ca4c34c88c4df586d94c81ead2d0bc2c4b85e14bf4d27929d4864c26cd65bb"
+      },
+      "database-partnership": {
+        "exit_code": 0,
+        "seconds": 12.641,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--sandbox-demo",
+          "database-partnership",
+          "--grep",
+          "database classification Partnership actual scan"
+        ],
+        "log": "tmp/sponsor-cleanup-database-partnership.log",
+        "log_sha256": "9281a1ce4d5a4374bc10f68dcfcbb65ec7bd9721690c566db3852ed36b57d800"
+      },
+      "database-government": {
+        "exit_code": 0,
+        "seconds": 9.922,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--sandbox-demo",
+          "database-government",
+          "--grep",
+          "database classification Government actual scan"
+        ],
+        "log": "tmp/sponsor-cleanup-database-government.log",
+        "log_sha256": "cda0f4d47fd096faa39ba3d47aea4e00996da95991718ef6704c4d956c22cc4a"
+      },
+      "synthetic-seed": {
+        "exit_code": 0,
+        "seconds": 14.046,
+        "owned_port": 27419,
+        "new_retained_databases": [],
+        "removed_preexisting_databases": [],
+        "cleanup_preserved_server_database_set": true,
+        "command": [
+          "-B",
+          "scripts/run_e2e.py",
+          "--backend-port",
+          "18900",
+          "--frontend-port",
+          "19400",
+          "--timeout-seconds",
+          "60",
+          "--registry-demo",
+          "synthetic-seed",
+          "--grep",
+          "Synthetic company pack Orion"
+        ],
+        "log": "tmp/sponsor-cleanup-synthetic-seed.log",
+        "log_sha256": "a3ad577f278e77aa61a477e5a791edce9e841df86be55d628fadc1485daa4722"
+      }
+    },
+    "dispatch_probe_before": {
+      "no_network": true,
+      "no_processes": true,
+      "rows": [
+        {
+          "mode": "sponsor-aurora",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-aurora",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-aurora",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-pacific",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-pacific",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-pacific",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-straits",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-straits",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-straits",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-meridian",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-meridian",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-meridian",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-garden",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-garden",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-garden",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-merlion",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-merlion",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-merlion",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-multiple",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-multiple",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-multiple",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-multilevel",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-multilevel",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-multilevel",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "database-alpha",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-alpha",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-alpha",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "database-partnership",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-partnership",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-partnership",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "database-government",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-government",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-government",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27185,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "synthetic-seed",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "synthetic-seed",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "synthetic-seed",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        }
+      ],
+      "mismatches": 33
+    },
+    "dispatch_probe_after": {
+      "no_network": true,
+      "no_processes": true,
+      "rows": [
+        {
+          "mode": "sponsor-aurora",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-aurora",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-aurora",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-pacific",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-pacific",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-pacific",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-straits",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-straits",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-straits",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-meridian",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-meridian",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-meridian",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-garden",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-garden",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-garden",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-merlion",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-merlion",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-merlion",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-multiple",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-multiple",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-multiple",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "sponsor-multilevel",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-multilevel",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "sponsor-multilevel",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "database-alpha",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-alpha",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-alpha",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "database-partnership",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-partnership",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-partnership",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "database-government",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-government",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "database-government",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        },
+        {
+          "mode": "synthetic-seed",
+          "outcome": "startup_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "synthetic-seed",
+          "outcome": "assertion_failure",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 1
+        },
+        {
+          "mode": "synthetic-seed",
+          "outcome": "success",
+          "configured_port": 27419,
+          "dispatched_port": 27419,
+          "stopped_before_cleanup": true,
+          "run_status": 0
+        }
+      ],
+      "mismatches": 0
+    },
+    "focused_harness": {
+      "passed": 48,
+      "log": {
+        "path": "tmp/sponsor-cleanup-focused-harness.log",
+        "bytes": 7456,
+        "sha256": "52c9bc903c99c496321144f1853dd0415ff5a951b7b880962e98c1276f5fac90"
+      }
+    },
+    "scope": "Parent cleanup now always uses the same configured port as every physical fixture. Real checks leave the preexisting owned-server database set unchanged; no new retained database and no old database removed.",
+    "post_remediation_governance": {
+      "project_state": {
+        "exit_code": 0,
+        "log": "tmp/sponsor-cleanup-project_state.log",
+        "sha256": "802a21c6c3e8d997e291164394433116a2bbd751758a17d359314ad02ec90362"
+      },
+      "architecture": {
+        "exit_code": 0,
+        "log": "tmp/sponsor-cleanup-architecture.log",
+        "sha256": "1995542d06f58d4f6cb8133c206109972455ed2e01324defb26ca1d08077634a"
+      },
+      "tooling_config": {
+        "exit_code": 0,
+        "log": "tmp/sponsor-cleanup-tooling_config.log",
+        "sha256": "e04d4a0126da1a6e28380a8859ef86ace862a937bc14cbdb13c56ac4a37608c5"
+      },
+      "policy_authority": {
+        "exit_code": 0,
+        "log": "tmp/sponsor-cleanup-policy_authority.log",
+        "sha256": "0d8548dd7f1ba239e7e4f10720a01d6e3a34bffce99f7d990575b10ce3460496"
+      },
+      "external_provider_readiness": {
+        "exit_code": 0,
+        "log": "tmp/sponsor-cleanup-external_provider_readiness.log",
+        "sha256": "88c234f2de53c6109e14ab927e84853ee160a6501bf4c296457ad89d7f214fd4"
+      },
+      "secrets": {
+        "exit_code": 0,
+        "log": "tmp/sponsor-cleanup-secrets.log",
+        "sha256": "1f210c25ed0d9e15e8c5a55264d5a569275f9edbd04b268d5e02d801e6590f5f"
+      }
+    }
+  }
+}

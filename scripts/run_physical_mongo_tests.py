@@ -14,6 +14,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = ROOT / "apps" / "backend"
 PHYSICAL_SUITES = (
+    BACKEND_ROOT / "tests" / "test_final_review_editing_real_mongo.py",
+    BACKEND_ROOT / "tests" / "test_sponsor_demo_real_mongo.py",
+    BACKEND_ROOT / "tests" / "test_batch_review_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_synthetic_company_pack_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_zero_touch_database_real_mongo.py",
     BACKEND_ROOT / "tests" / "test_classification_conflict_real_mongo.py",

@@ -1,0 +1,106 @@
+{
+  "diff_check_exit": 0,
+  "explicit_changed_markdown_files": 33,
+  "markdown_trailing_whitespace": [],
+  "scripts": [
+    {
+      "path": "scripts/benchmark_blocker_review.py",
+      "baseline_findings": {
+        "I001": 1,
+        "RUF100": 3
+      },
+      "current_findings": {
+        "I001": 1,
+        "RUF100": 3
+      },
+      "introduced_counts": {}
+    },
+    {
+      "path": "scripts/benchmark_blocker_review_mongo.py",
+      "baseline_findings": {
+        "I001": 1
+      },
+      "current_findings": {
+        "I001": 1
+      },
+      "introduced_counts": {}
+    },
+    {
+      "path": "scripts/e2e_backend_server.py",
+      "baseline_findings": {
+        "I001": 4
+      },
+      "current_findings": {
+        "I001": 4
+      },
+      "introduced_counts": {}
+    },
+    {
+      "path": "scripts/generate_synthetic_company_pack.py",
+      "baseline_findings": {},
+      "current_findings": {},
+      "introduced_counts": {}
+    },
+    {
+      "path": "scripts/mongo_test_safety.py",
+      "baseline_findings": {},
+      "current_findings": {},
+      "introduced_counts": {}
+    },
+    {
+      "path": "scripts/run_e2e.py",
+      "baseline_findings": {},
+      "current_findings": {},
+      "introduced_counts": {}
+    },
+    {
+      "path": "scripts/run_physical_mongo_tests.py",
+      "baseline_findings": {},
+      "current_findings": {},
+      "introduced_counts": {}
+    },
+    {
+      "path": "scripts/seed_zero_touch_happy_path_companies.py",
+      "baseline_findings": {
+        "I001": 1
+      },
+      "current_findings": {
+        "I001": 1
+      },
+      "introduced_counts": {}
+    },
+    {
+      "path": "scripts/sponsor_demo_browser_fixture.py",
+      "baseline_findings": {},
+      "current_findings": {},
+      "introduced_counts": {}
+    },
+    {
+      "path": "scripts/synthetic_company_pack.py",
+      "baseline_findings": {},
+      "current_findings": {},
+      "introduced_counts": {}
+    },
+    {
+      "path": "scripts/zero_touch_classification_browser_fixture.py",
+      "baseline_findings": {
+        "I001": 1
+      },
+      "current_findings": {
+        "I001": 1
+      },
+      "introduced_counts": {}
+    },
+    {
+      "path": "scripts/zero_touch_happy_path_fixtures.py",
+      "baseline_findings": {
+        "I001": 1
+      },
+      "current_findings": {
+        "I001": 1
+      },
+      "introduced_counts": {}
+    }
+  ],
+  "old_independent_gate_preserved": true
+}

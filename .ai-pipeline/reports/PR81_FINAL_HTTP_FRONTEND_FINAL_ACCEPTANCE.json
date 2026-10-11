@@ -1,0 +1,64 @@
+{
+  "lane": "frontend",
+  "source27": "916d57b043be8a5d29e85992b9df9cb2dbdab855fa909e776208391ad934dcab",
+  "started_utc": "2026-10-11T09:25:02.349294+00:00",
+  "commands": [
+    {
+      "name": "integrity",
+      "command": [
+        "npm.cmd",
+        "ls",
+        "--all"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "exit_code": 0,
+      "seconds": 1.172,
+      "safe_summary": [],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "unit",
+      "command": [
+        "npm.cmd",
+        "test"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "exit_code": 0,
+      "seconds": 7.938,
+      "safe_summary": [
+        "Test Files  50 passed (50)",
+        "Tests  582 passed (582)"
+      ],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "typecheck",
+      "command": [
+        "npm.cmd",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "exit_code": 0,
+      "seconds": 5.828,
+      "safe_summary": [],
+      "failed_test_identifiers": []
+    },
+    {
+      "name": "build",
+      "command": [
+        "npm.cmd",
+        "run",
+        "build"
+      ],
+      "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\apps\\frontend",
+      "exit_code": 0,
+      "seconds": 7.219,
+      "safe_summary": [],
+      "failed_test_identifiers": []
+    }
+  ],
+  "retries": 0,
+  "success": true,
+  "finished_utc": "2026-10-11T09:25:24.528181+00:00"
+}

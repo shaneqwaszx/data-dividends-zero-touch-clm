@@ -23,10 +23,10 @@ export function isCurrentDocument(document: DocumentProcessingRecord): boolean {
   return document.superseded_by_document_id == null;
 }
 
-export function isDocumentReuploadRequired(document: DocumentProcessingRecord): boolean {
+export function isDocumentReuploadRequired(document: DocumentProcessingRecord, summary?: ZeroTouchCaseSummary): boolean {
   return isCurrentDocument(document)
     && document.state === "FAILED"
-    && document.error?.code === "DOCUMENT_REUPLOAD_REQUIRED";
+    && (summary ? summary.status === "PENDING_INPUTS" : document.error?.code === "DOCUMENT_REUPLOAD_REQUIRED");
 }
 
 export function exactSavedReviewRequest(field: DocumentField): DocumentReviewRequest | null {
@@ -119,6 +119,7 @@ function DocumentCard({
   historical,
   busy,
   mutationBlocked,
+  reviewInWorkspace = false,
   onReview,
   onReplace,
   onRetry,
@@ -128,6 +129,7 @@ function DocumentCard({
   historical: boolean;
   busy: boolean;
   mutationBlocked: boolean;
+  reviewInWorkspace?: boolean;
   onReview: (document: DocumentProcessingRecord, request: DocumentReviewRequest, repair: boolean) => void;
   onReplace: (document: DocumentProcessingRecord, file: File) => void;
   onRetry: (document: DocumentProcessingRecord, file: File) => void;
@@ -140,7 +142,11 @@ function DocumentCard({
   const correctionTrigger = useRef<HTMLButtonElement | null>(null);
   const pendingCount = document.fields.filter((field) => field.review_status === "PENDING").length;
   const finalCount = document.fields.length - pendingCount;
-  const controlsDisabled = busy || mutationBlocked || summary.evidence_decision_authorized !== true;
+  const controlsDisabled = busy || mutationBlocked || summary.evidence_decision_authorized !== true
+    || Boolean(summary.case.target_dispatch_confirmation || summary.case.goldtier_result || summary.clm?.submission
+      || (summary.target_submission && summary.target_submission.state !== "NOT_SUBMITTED"));
+  const replacementAuthorized = summary.document_replacement_authorized
+    ?? (summary.status === "WAITING_FOR_REVIEW" && summary.current_stage === "DOCUMENT");
 
   useEffect(() => {
     if (editingField) correctionInput.current?.focus();
@@ -185,7 +191,7 @@ function DocumentCard({
   }
 
   return (
-    <article className={`document-card${historical ? " document-card--history" : ""}`} aria-busy={busy}>
+    <article className={`document-card${historical ? " document-card--history" : ""}`} data-document-id={document.document_id} aria-busy={busy}>
       <header className="document-card__header">
         <div>
           <p className="card-kicker">{historical ? "Historical evidence" : "Current evidence"}</p>
@@ -213,7 +219,7 @@ function DocumentCard({
           const autoConfirmed = document.events.some((event) => event.code === "DOCUMENT_FIELD_AUTO_CONFIRMED" && event.field_key === field.field_key)
             && !document.events.some((event) => event.field_key === field.field_key && ["DOCUMENT_FIELD_ACCEPTED", "DOCUMENT_FIELD_REJECTED", "DOCUMENT_FIELD_CORRECTED"].includes(event.event_type));
           const isPending = field.review_status === "PENDING";
-          const canDecide = !document.semantic_completion && !historical && isCurrentDocument(document) && document.state === "REVIEW_REQUIRED" && isPending;
+          const canDecide = !reviewInWorkspace && !document.semantic_completion && !historical && isCurrentDocument(document) && document.state === "REVIEW_REQUIRED" && isPending;
           const savedRequest = exactSavedReviewRequest(field);
           const canRepair = !document.semantic_completion && !autoConfirmed && !historical && savedRequest !== null && canRetrySavedReviewCheckpoint(summary, document);
           return (
@@ -296,12 +302,12 @@ function DocumentCard({
 
       {!historical && isCurrentDocument(document) && (
         <div className="document-card__actions">
-          {isDocumentReuploadRequired(document) ? (
+          {isDocumentReuploadRequired(document, summary) ? (
             <label className={`btn btn-primary document-upload-control${controlsDisabled ? " is-disabled" : ""}`}>
               Retry affected document
               <input className="sr-only document-upload-input" type="file" accept={ACCEPTED_DOCUMENTS} disabled={controlsDisabled} onChange={(event) => handleFile(event, true)} />
             </label>
-          ) : document.state !== "FAILED" ? (
+          ) : replacementAuthorized && (document.state !== "FAILED" || (summary.status === "WAITING_FOR_REVIEW" && summary.current_stage === "DOCUMENT")) ? (
             <label className={`btn btn-ghost document-upload-control${controlsDisabled ? " is-disabled" : ""}`}>
               Replace current document
               <input className="sr-only document-upload-input" type="file" accept={ACCEPTED_DOCUMENTS} disabled={controlsDisabled} onChange={(event) => handleFile(event, false)} />
@@ -319,12 +325,14 @@ export default function DocumentEvidencePanel({
   busy,
   busyLabel,
   mutationBlocked,
+  reviewInWorkspace = false,
   loading = false,
   loadFailed = false,
   onReview,
   onReplace,
   onRetry,
   onContinue,
+  onRecoverRefresh,
   onRefresh,
 }: {
   summary: ZeroTouchCaseSummary;
@@ -332,12 +340,14 @@ export default function DocumentEvidencePanel({
   busy: boolean;
   busyLabel: string | null;
   mutationBlocked: boolean;
+  reviewInWorkspace?: boolean;
   onReview: (document: DocumentProcessingRecord, request: DocumentReviewRequest, repair: boolean) => void;
   onReplace: (document: DocumentProcessingRecord, file: File) => void;
   onRetry: (document: DocumentProcessingRecord, file: File) => void;
   loading?: boolean;
   loadFailed?: boolean;
   onContinue: () => void;
+  onRecoverRefresh?: () => void;
   onRefresh: () => void;
 }) {
   const current = documents.filter(isCurrentDocument);
@@ -349,11 +359,12 @@ export default function DocumentEvidencePanel({
       <div className="document-evidence-panel__title"><div><p className="card-kicker">Local/Mock evidence · not approval</p><h4 id="documents-heading">Document evidence and review</h4></div>{busyLabel && <span role="status">{busyLabel}</span>}</div>
       {summary.evidence_decision_authorized !== true && <p className="control-help">Evidence decisions are read-only for this viewer. The backend authorizes the case creator before applying any decision.</p>}
       {mutationBlocked && <div className="ds-banner ds-banner-warn"><strong>Evidence reload could not be confirmed.</strong><span>Last-confirmed information remains visible. Refresh before attempting another case mutation.</span><button type="button" className="btn btn-secondary" disabled={busy} onClick={onRefresh}>Refresh case evidence</button></div>}
+      {summary.document_refresh_recovery && <div id="case-document-refresh-recovery" className="ds-banner ds-banner-warn"><strong>Replacement saved; evidence refresh needs recovery.</strong><span>Your replacement and original history are retained. Resume the evidence refresh without uploading again. Target submission remains subject to fresh review.</span><button type="button" className="btn btn-primary" disabled={busy || loading || loadFailed || mutationBlocked || !summary.document_refresh_recovery.can_resume || !onRecoverRefresh} onClick={onRecoverRefresh}>Resume document evidence refresh</button></div>}
       {loadFailed && <p className="ds-banner ds-banner-warn" role="alert">Document information could not be loaded. {documents.length > 0 && "Last-confirmed document information remains visible."}</p>}
       {loading && !loadFailed && <p className="text-muted" role="status">Loading document information…</p>}
       {!loading && !loadFailed && current.length === 0 && <p className="text-muted">{history.length > 0 ? "No current document is retained; historical evidence is shown below." : "No document uploaded"}</p>}
-      {current.map((document) => <DocumentCard key={document.document_id} document={document} summary={summary} historical={false} busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} />)}
-      {canContinue && <div className="ds-banner"><strong>Recovered intake is ready to be re-evaluated.</strong><span>The replacement lineage is current and the case remains at the document intake checkpoint.</span><button type="button" className="btn btn-primary" disabled={busy || mutationBlocked || summary.evidence_decision_authorized !== true} onClick={onContinue}>Continue recovered intake</button></div>}
+      {current.map((document) => <DocumentCard key={document.document_id} document={document} summary={summary} historical={false} reviewInWorkspace={reviewInWorkspace} busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} />)}
+      {canContinue && <div id="case-document-intake-continue" className="ds-banner"><strong>Recovered intake is ready to be re-evaluated.</strong><span>The replacement lineage is current and the case remains at the document intake checkpoint.</span><button type="button" className="btn btn-primary" disabled={busy || mutationBlocked || summary.evidence_decision_authorized !== true} onClick={onContinue}>Continue recovered intake</button></div>}
       {history.length > 0 && <details className="evidence-history"><summary>Evidence history ({history.length})</summary>{history.map((document) => <DocumentCard key={document.document_id} document={document} summary={summary} historical busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} />)}</details>}
     </section>
   );

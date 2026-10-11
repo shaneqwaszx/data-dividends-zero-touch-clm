@@ -1,0 +1,12 @@
+{
+  "scope": "No browser/server/application fixture execution; real Playwright output safety regressions",
+  "old_configuration": "default shared test-results and preserveOutput never; fixed historical writers retained before patch",
+  "exit": 1,
+  "failed": 2,
+  "passed": 2,
+  "failures": [
+    "owned-root containment",
+    "manual artifact retention"
+  ],
+  "historical_failures_unchanged": true
+}

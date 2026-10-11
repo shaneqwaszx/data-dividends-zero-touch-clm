@@ -1,0 +1,137 @@
+{
+  "branch": "feat/blocker-resolution-idp-ux-optimization",
+  "base_head": "973ce93a21ef7ca1cda1a2458f316b8030b96b12",
+  "main_cached": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "source8_identity": "fcddc61073095c8fcc2b09051ae626581499b02fa608d22ca144fcc8fc0bcc38",
+  "reviewed_content_identity": "1c283ba7fdae0d4991dd35febd8a0464145fd875b1cf74d23a5921d0fee940ce",
+  "identity_method": "SHA256 canonical sorted entries with path/bytes/sha256/classification; this manifest and assigned gate excluded to avoid self-reference",
+  "entries": [
+    {
+      "path": ".ai-pipeline/001_planner/PR81_CI_FAILURE_REMEDIATION_PLAN.md",
+      "bytes": 4757,
+      "sha256": "2a3ce35e56fe76b84b646f464c3509fed8b35605b5c4e0c6312a0109aa2f3977",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/001_planner/PR81_FINAL_STABILIZATION_PLAN.md",
+      "bytes": 4835,
+      "sha256": "103b7b70a9823c7751a6712f3ed7efce3406089ea5fcad059c3b8bbb5379ba97",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/001_planner/PR81_TARGETED_RM_CONTINUATION_PLAN.md",
+      "bytes": 2236,
+      "sha256": "319bf1adc2ad9416a9de45bfcc5eb4cc3ea6a5c471f1640b98c836aa913071f3",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/reports/PR81_CI_FAILURE_REMEDIATION.md",
+      "bytes": 6220,
+      "sha256": "1c021b4da73db6e2e372a7a48c6ea1cea0c4a129c034c1677fc5f7604a3878f7",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/reports/PR81_CI_FAILURE_STOP_EVIDENCE.json",
+      "bytes": 5576,
+      "sha256": "a95d31d72f29073a88436fe999af06068c99448620563493a555bd2b3b4b7b38",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/reports/PR81_CI_FAILURE_STOP_REPORT.md",
+      "bytes": 5679,
+      "sha256": "6f6a990afe13c204245cf6b8a4de9b3d7f7c5cd76fbe600f87a722e1b7b2be94",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/reports/PR81_FINAL_STABILIZATION_STOP_EVIDENCE.json",
+      "bytes": 84002,
+      "sha256": "ef9883f118d405e993785603781e504c1ed5e25acc23621fc4601cba30e4e260",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/reports/PR81_FINAL_STABILIZATION_STOP_REPORT.md",
+      "bytes": 7428,
+      "sha256": "83d30e58711fd9fb6962922c2b75d99dfd2d4ba490c4f6c6f8d41caac960db70",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/reports/PR81_FINAL_WINDOWS_EVIDENCE.json",
+      "bytes": 327393,
+      "sha256": "1477a7cca5a5802142ac1981850a666491dab699c12cb87029b9134efd3ee374",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/reports/PR81_FINAL_WINDOWS_INVESTIGATION.md",
+      "bytes": 3435,
+      "sha256": "e49a70c3ed5fbe096b0e0d899cd42a0617fe394b5276560d5e64187f732c4d85",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/reports/PR81_TARGETED_RM_BROWSER_OUTPUT.json",
+      "bytes": 464460,
+      "sha256": "1305cfb468ad546b1da5bc0ffbb91c7a67702ff52f8d77880aa2e6b83692b1de",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/reports/PR81_TARGETED_RM_HANDOFF.md",
+      "bytes": 6158,
+      "sha256": "0423a5f547bca552434a5e254c9c520c8935626ffc1952bde0a4c67b95b752b7",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".ai-pipeline/reports/PR81_TARGETED_RM_VERIFICATION.json",
+      "bytes": 73732,
+      "sha256": "8f6c0427d5f5d20147b960b63816c783625aecb30c31bf72a0cc0d282df9ccf4",
+      "classification": "SUPPORTING"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "bytes": 6747,
+      "sha256": "dd6bdd8d17b6cff3120b55b275b6a2a660c5ba8c0e809cc8d67d4b3ee27bcce7",
+      "classification": "INTENDED"
+    },
+    {
+      "path": "apps/backend/app/main.py",
+      "bytes": 144232,
+      "sha256": "e65693649af12f5e9a284d4b18f61215d7096807d9e03c4356af44f87c36e904",
+      "classification": "INTENDED"
+    },
+    {
+      "path": "apps/backend/app/services/reconciliation.py",
+      "bytes": 31227,
+      "sha256": "7fd0f31ef27ee1869aa401918ea887a15c74b662cc48d77914f376293a5dda6e",
+      "classification": "INTENDED"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "bytes": 200469,
+      "sha256": "d54b8a2a5afd104875963a19d9ba51d934ba5f2ae211042dd5c63d13a2dd0de9",
+      "classification": "INTENDED"
+    },
+    {
+      "path": "apps/backend/tests/test_batch_review_decisions.py",
+      "bytes": 20925,
+      "sha256": "5f0464d5d716436f4b2e906dfcbdc8356203af15517b3a7d5cc8980e2a888a48",
+      "classification": "INTENDED"
+    },
+    {
+      "path": "apps/backend/tests/test_batch_review_real_mongo.py",
+      "bytes": 10515,
+      "sha256": "4a76e00debcfbd34f0bfda347fe78c354049e7b9b7c9cfa1cec825afe8f005fd",
+      "classification": "INTENDED"
+    },
+    {
+      "path": "apps/backend/tests/test_phase14_case_management_performance.py",
+      "bytes": 34249,
+      "sha256": "968a9d5b2ef690293ba2d7f96276867dc492dd36e986f3fc355ce7fc8954557d",
+      "classification": "INTENDED"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-b-registry-demo.e2e.ts",
+      "bytes": 13227,
+      "sha256": "78a1a0d7fc6303cac2f8b576c4e32b3f10cef4d5b69400aaec1aeb3861750d2f",
+      "classification": "INTENDED"
+    }
+  ],
+  "assigned_gate": ".ai-pipeline/reports/PR81_TARGETED_RM_INDEPENDENT_QUALITY_GATE.md"
+}

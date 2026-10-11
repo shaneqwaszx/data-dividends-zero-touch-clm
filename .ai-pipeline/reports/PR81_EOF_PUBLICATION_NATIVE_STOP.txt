@@ -1,0 +1,31 @@
+Native git diff --cached --check HEAD: exit2;28 diagnostics.
+Original unchanged raw log remains local at tmp/PR81_RESUME_STAGED_WHITESPACE_STOP.log.
+Diagnostic headers below; three single-space diff excerpts excluded from this summary.
+.ai-pipeline/reports/PR81_TCP_TRACE_MANUAL_PROCEDURE.md:99: new blank line at EOF.
+.ai-pipeline/reports/PR81_TCP_TRACE_MANUAL_PROCEDURE_V5.md:132: new blank line at EOF.
+.ai-pipeline/reports/PR81_TCP_TRACE_MANUAL_PROCEDURE_V6.md:140: new blank line at EOF.
+.ai-pipeline/reports/PR81_TCP_TRACE_MANUAL_PROCEDURE_V61.md:148: new blank line at EOF.
+.ai-pipeline/reports/PR81_TCP_TRACE_PREPARATION_HANDOFF.md:89: new blank line at EOF.
+.ai-pipeline/reports/PR81_TCP_V61_DIFF.txt:425: trailing whitespace.
+.ai-pipeline/reports/PR81_TCP_V61_DIFF.txt:464: trailing whitespace.
+.ai-pipeline/reports/PR81_TCP_V6_HELPER_DIFF.txt:196: trailing whitespace.
+.ai-pipeline/reports/pr81-tcp-capture-v2/Invoke-Pr81TcpCapture.ps1:124: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v2/Run-FreshFixture.py:103: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v2/Sanitize-TcpTrace.ps1:149: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v3/Invoke-Pr81TcpCapture.ps1:124: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v3/Run-FreshFixture.py:103: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v3/Sanitize-TcpTrace.ps1:153: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v4/Invoke-Pr81TcpCapture.ps1:133: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v4/Run-FreshFixture.py:103: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v4/Sanitize-TcpTrace.ps1:153: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v5/Invoke-Pr81TcpCapture.ps1:151: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v5/Run-FreshFixture.py:117: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v5/Sanitize-TcpTrace.ps1:153: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v6-1/Invoke-Pr81TcpCapture.ps1:156: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v6-1/Run-FreshFixture.py:117: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v6/Invoke-Pr81TcpCapture.ps1:152: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v6/Run-FreshFixture.py:117: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture-v6/Sanitize-TcpTrace.ps1:153: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture/Invoke-Pr81TcpCapture.ps1:123: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture/Run-FreshFixture.py:78: new blank line at EOF.
+.ai-pipeline/reports/pr81-tcp-capture/Sanitize-TcpTrace.ps1:126: new blank line at EOF.

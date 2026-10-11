@@ -1,0 +1,20 @@
+{
+  "id": "3147b9b2ddb91845c237d4c32a02a20492ad72c888dd2e837508f6b2decc89e5",
+  "name": "/clm-sdq01-r3-20261010",
+  "image": "sha256:a887b589a601923f6ae405f3f76c17984218971ced2ca59f05840b1f5a7c44c2",
+  "port": 27419,
+  "mounts": [
+    {
+      "Type": "volume",
+      "Name": "c796364d10bffc5e18ff087debc686bfc2645b428c62c118a4460b5a187044a4",
+      "Destination": "/data/configdb"
+    },
+    {
+      "Type": "volume",
+      "Name": "f1c27e4028b5d038829e7e4d2801f4ab7096049ea5d74cf5de2537fe71020275",
+      "Destination": "/data/db"
+    }
+  ],
+  "ownership": "New exclusively task-owned SDQ-01 round3 resource",
+  "database_policy": "New generated allowlisted disposable namespaces only; protected databases prohibited"
+}

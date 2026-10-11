@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
-import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
+import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 import { expectDisclosureContrast } from "./stage-disclosures";
 let violations: string[];
 let pageErrors: string[];
@@ -34,7 +34,7 @@ for (const width of [320,360,768,1280,1440,1920]) {
   test(`Phase24C policy approval and accessible layout ${width}`,async({page})=>{
     test.setTimeout(60000); await page.setViewportSize({width,height:1000});
     await login(page,"hr-admin"); await contained(page);
-    if (width===320 || width===1280) await page.screenshot({path:`${process.env.TEMP}/clm-phase24c-policy-${width}.png`});
+    if (width===320 || width===1280) await page.screenshot({path:retainedEvidencePath(`clm-phase24c-policy-${width}.png`)});
     const active=await page.getByRole("heading",{name:/Active policy/}).textContent();
     const card=page.locator(".policy-parameter").filter({has:page.getByRole("heading",{name:"IDP extraction evidence score threshold",exact:true})});
     await card.getByRole("button",{name:"Propose change",exact:true}).click();

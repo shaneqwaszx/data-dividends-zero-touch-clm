@@ -1,0 +1,151 @@
+{
+  "scope": "V4 diagnostic-only synthetic/tooling validation; no live ETW/fixture",
+  "native_capture_executed": false,
+  "fixture_executed": false,
+  "git": {
+    "branch": "feat/blocker-resolution-idp-ux-optimization",
+    "head": "dd8c36c8a911f4b5f3b80e7441d049f1aa976599",
+    "cached_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+    "merge_base": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+    "staged_paths": [],
+    "tracked_modified_paths": [
+      ".github/workflows/ci.yml",
+      "apps/backend/app/api_models.py",
+      "apps/backend/app/main.py",
+      "apps/backend/app/services/zero_touch_orchestration.py",
+      "apps/backend/tests/test_final_review_editing_real_mongo.py",
+      "apps/frontend/e2e/blocker-review-performance.e2e.ts",
+      "apps/frontend/e2e/blocker-simulation.e2e.ts",
+      "apps/frontend/src/App.tsx",
+      "apps/frontend/src/DemoPerformance.test.tsx",
+      "apps/frontend/src/api.ts",
+      "apps/frontend/src/pages/CaseDetail.tsx",
+      "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx",
+      "apps/frontend/src/pages/DocumentEvidencePanel.tsx",
+      "apps/frontend/src/pages/OnboardingWorkspace.tsx",
+      "apps/frontend/src/pages/S1PipelineWorkspace.test.tsx",
+      "apps/frontend/src/types.ts",
+      "docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md",
+      "docs/contracts/PERSISTENCE_RECOVERY_PROFILE.md",
+      "scripts/e2e_backend_server.py",
+      "scripts/run_e2e.py",
+      "scripts/slice_c_recovery_fixture.py",
+      "tests/test_run_e2e.py",
+      "tests/test_slice_c_e2e_fixture_routing.py"
+    ]
+  },
+  "checks": [
+    {
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v4\\Test-ControllerDiagnostics.ps1",
+        "-OutputPath",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\PR81_TCP_V4_SYNTHETIC_RESULTS.json"
+      ],
+      "exit_code": 1,
+      "output": "V4 synthetic diagnostics: 30 cases; failures=2; bounded numeric writer; no ETW/fixture\nException: C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v4\\Test-ControllerDiagnostics.ps1:118\nLine |\n 118 |  if($result.failed_cases -gt 0){throw 'V4_SYNTHETIC_CRITERIA_FAILED'}\n     |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n     | V4_SYNTHETIC_CRITERIA_FAILED\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "--no-cache",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v4\\Run-FreshFixture.py"
+      ],
+      "exit_code": 1,
+      "output": "I001 [*] Import block is un-sorted or un-formatted\n --> .ai-pipeline\\reports\\pr81-tcp-capture-v4\\Run-FreshFixture.py:2:1\n  |\n1 |   \"\"\"One fresh original fixture after an independently reviewed manual controller handshake.\"\"\"\n2 | / from pathlib import Path\n3 | | import ast,ctypes,ctypes.wintypes as w,hashlib,json,os,socket,struct,sys,time,uuid,winreg\n  | |_________________________________________________________________________________________^\n4 |   ROOT=Path(__file__).resolve().parents[3]\n5 |   sys.dont_write_bytecode=True\n  |\nhelp: Organize imports\n   |\n1  | \"\"\"One fresh original fixture after an independently reviewed manual controller handshake.\"\"\"\n2  + import ast\n3  + import ctypes\n4  + import ctypes.wintypes as w\n5  + import hashlib\n6  + import json\n7  + import os\n8  + import socket\n9  + import struct\n10 + import sys\n11 + import time\n12 + import uuid\n13 + import winreg\n14 | from pathlib import Path\n   - import ast,ctypes,ctypes.wintypes as w,hashlib,json,os,socket,struct,sys,time,uuid,winreg\n15 +\n16 | ROOT=Path(__file__).resolve().parents[3]\n   |\n\nI001 [*] Import block is un-sorted or un-formatted\n  --> .ai-pipeline\\reports\\pr81-tcp-capture-v4\\Run-FreshFixture.py:67:1\n   |\n65 |   sys.path[:0]=[str(ROOT/\"tmp\"),str(ROOT),str(ROOT/\"apps/backend\"),str(ROOT/\"apps/backend/tests\")]\n66 |   sys.argv=[sys.argv[0],\"d1-native-\"+str(run)]\n67 | / import pr81_http_delivery_observe as d\n68 | | import pytest\n   | |_____________^\n69 |   class Plugin(d.Plugin):\n70 |    def pytest_collection_finish(self,session):\n   |\nhelp: Organize imports\n   |\n68 | import pytest\n69 +\n70 +\n71 | class Plugin(d.Plugin):\n   |\n\nFound 2 errors.\n[*] 2 fixable with the `--fix` option.\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_project_state.py"
+      ],
+      "exit_code": 0,
+      "output": "PROJECT STATE CHECK: PASS\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_architecture.py"
+      ],
+      "exit_code": 0,
+      "output": "ARCHITECTURE CHECK: PASS\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "tests/test_check_secrets.py",
+        "-q"
+      ],
+      "exit_code": 0,
+      "output": "........                                                                 [100%]\n8 passed in 0.03s\n"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "warning: in the working copy of 'apps/backend/app/main.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/backend/app/services/zero_touch_orchestration.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/backend/tests/test_final_review_editing_real_mongo.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/e2e/blocker-review-performance.e2e.ts', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/DemoPerformance.test.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/CaseDetail.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/DocumentEvidencePanel.test.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/DocumentEvidencePanel.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/OnboardingWorkspace.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/S1PipelineWorkspace.test.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'scripts/slice_c_recovery_fixture.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'tests/test_slice_c_e2e_fixture_routing.py', LF will be replaced by CRLF the next time Git touches it\n"
+    },
+    {
+      "command": [
+        "canonical scan_file: tracked + explicit V4 only"
+      ],
+      "exit_code": 0,
+      "findings": []
+    }
+  ],
+  "final_checks": [
+    {
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v4\\Test-ControllerDiagnostics.ps1",
+        "-OutputPath",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\PR81_TCP_V4_SYNTHETIC_RESULTS.json"
+      ],
+      "exit_code": 1,
+      "output": "V4 synthetic diagnostics: 30 cases; failures=2; bounded numeric writer; no ETW/fixture\nException: C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v4\\Test-ControllerDiagnostics.ps1:119\nLine |\n 119 |  \u00e2\u20ac\u00a6 -gt 0 -or !$result.writer_pass){throw 'V4_SYNTHETIC_CRITERIA_FAILED'}\n     |                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n     | V4_SYNTHETIC_CRITERIA_FAILED\n"
+    },
+    {
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v4\\Invoke-Pr81TcpCapture.ps1",
+        "-Mode",
+        "Validate"
+      ],
+      "exit_code": 1,
+      "output": "Sanitizer checks=19: complete matching lifetime only, unknown ID/version, string payload, temporal/same-tuple reuse, missing boundaries/send, process key, PID and address rejection; no ETL read\nV4 synthetic diagnostics: 30 cases; failures=2; bounded numeric writer; no ETW/fixture\nException: C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v4\\Test-ControllerDiagnostics.ps1:119\nLine |\n 119 |  \u00e2\u20ac\u00a6 -gt 0 -or !$result.writer_pass){throw 'V4_SYNTHETIC_CRITERIA_FAILED'}\n     |                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n     | V4_SYNTHETIC_CRITERIA_FAILED\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "--no-cache",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v3\\Run-FreshFixture.py"
+      ],
+      "exit_code": 1,
+      "output": "I001 [*] Import block is un-sorted or un-formatted\n --> .ai-pipeline\\reports\\pr81-tcp-capture-v3\\Run-FreshFixture.py:2:1\n  |\n1 |   \"\"\"One fresh original fixture after an independently reviewed manual controller handshake.\"\"\"\n2 | / from pathlib import Path\n3 | | import ast,ctypes,ctypes.wintypes as w,hashlib,json,os,socket,struct,sys,time,uuid,winreg\n  | |_________________________________________________________________________________________^\n4 |   ROOT=Path(__file__).resolve().parents[3]\n5 |   sys.dont_write_bytecode=True\n  |\nhelp: Organize imports\n   |\n1  | \"\"\"One fresh original fixture after an independently reviewed manual controller handshake.\"\"\"\n2  + import ast\n3  + import ctypes\n4  + import ctypes.wintypes as w\n5  + import hashlib\n6  + import json\n7  + import os\n8  + import socket\n9  + import struct\n10 + import sys\n11 + import time\n12 + import uuid\n13 + import winreg\n14 | from pathlib import Path\n   - import ast,ctypes,ctypes.wintypes as w,hashlib,json,os,socket,struct,sys,time,uuid,winreg\n15 +\n16 | ROOT=Path(__file__).resolve().parents[3]\n   |\n\nI001 [*] Import block is un-sorted or un-formatted\n  --> .ai-pipeline\\reports\\pr81-tcp-capture-v3\\Run-FreshFixture.py:67:1\n   |\n65 |   sys.path[:0]=[str(ROOT/\"tmp\"),str(ROOT),str(ROOT/\"apps/backend\"),str(ROOT/\"apps/backend/tests\")]\n66 |   sys.argv=[sys.argv[0],\"d1-native-\"+str(run)]\n67 | / import pr81_http_delivery_observe as d\n68 | | import pytest\n   | |_____________^\n69 |   class Plugin(d.Plugin):\n70 |    def pytest_collection_finish(self,session):\n   |\nhelp: Organize imports\n   |\n68 | import pytest\n69 +\n70 +\n71 | class Plugin(d.Plugin):\n   |\n\nFound 2 errors.\n[*] 2 fixable with the `--fix` option.\n"
+    }
+  ]
+}

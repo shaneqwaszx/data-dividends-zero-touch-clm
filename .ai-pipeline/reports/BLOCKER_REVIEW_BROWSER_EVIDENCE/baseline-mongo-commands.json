@@ -1,0 +1,12 @@
+{
+  "mode": "baseline",
+  "samples": 1,
+  "workload": "four missing native-PDF fields rejected; confirmation plus supporting GET wave(s)",
+  "commands": {
+    "find": 497,
+    "update": 21
+  },
+  "target_calls": 0,
+  "final_status": "WAITING_FOR_REVIEW",
+  "cleanup_guard": "generated allowlisted disposable database"
+}

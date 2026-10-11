@@ -1,0 +1,24 @@
+{
+  "source27": "916d57b043be8a5d29e85992b9df9cb2dbdab855fa909e776208391ad934dcab",
+  "command": [
+    "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+    "-B",
+    "scripts/run_physical_mongo_tests.py"
+  ],
+  "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+  "exit_code": 0,
+  "seconds": 265.719,
+  "started_utc": "2026-10-11T09:20:13.745445+00:00",
+  "safe_summary": [
+    "PHYSICAL_MONGO_RESULT=PASSED; SUITES=23; COLLECTED=145; PASSED=145; FAILED=0; ERRORS=0; SKIPPED=0"
+  ],
+  "source_post_match": true,
+  "owned_container_id": "701abdade3ed2e4276d8092d8f1c142aa9d3fcba0f2a2610b3ea9157b87df4f2",
+  "owned_label": "pr81-remediation-20261010",
+  "loopback_port": 27419,
+  "readiness_ping": true,
+  "database_owner": "unchanged generate/require/cleanup_ephemeral_mongo_database guarded fixtures; fresh names only",
+  "retries": 0,
+  "protected_database_access": false,
+  "container_retained_running_for_later_canonical_browser_classification": true
+}

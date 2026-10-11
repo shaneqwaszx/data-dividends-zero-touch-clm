@@ -1,3 +1,4 @@
+import type { ReviewDecisionBatch } from "./types";
 import { nextPollingDelay } from "./automationPolling";
 import type {
   AuthSession,
@@ -434,6 +435,7 @@ export async function replaceZeroTouchDocument(
   documentId: string,
   eventCount: number,
   file: File,
+  context?: ZeroTouchCaseSummary,
 ): Promise<ZeroTouchCaseSummary> {
   const response = await fetch(
     `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/documents/${documentId}/replacement`,
@@ -443,6 +445,11 @@ export async function replaceZeroTouchDocument(
         "Content-Type": file.type || "application/pdf",
         "X-Document-Name": file.name,
         "X-Document-Event-Count": String(eventCount),
+        ...(context ? {
+          "X-Automation-Version": String(context.version),
+          "X-Clm-Version": String(context.clm.version),
+          "X-Case-Event-Count": String(context.case.events.length),
+        } : {}),
       },
       body: file,
     },
@@ -495,10 +502,18 @@ export async function dryRunGoldTierSandbox(
   return parseResponse<GoldTierSandboxDryRunResult>(response);
 }
 
-export async function resumeZeroTouchCase(caseId: string): Promise<ZeroTouchCaseSummary> {
+export async function resumeZeroTouchCase(caseId: string, recoveryContext?: ZeroTouchCaseSummary): Promise<ZeroTouchCaseSummary> {
+  if (recoveryContext && recoveryContext.case.case_id !== caseId) {
+    throw new Error("Reload the current case before recovery.");
+  }
   const response = await fetch(
     `${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/resume`,
-    { method: "POST" },
+    { method: "POST", ...(recoveryContext ? { headers: {
+      "X-Automation-Id": recoveryContext.automation_id,
+      "X-Automation-Version": String(recoveryContext.version),
+      "X-Clm-Version": String(recoveryContext.clm.version),
+      "X-Case-Event-Count": String(recoveryContext.case.events.length),
+    } } : {}) },
   );
   return parseResponse<ZeroTouchCaseSummary>(response);
 }
@@ -1112,4 +1127,11 @@ export async function fetchPolicyImpact(proposalId: string, signal?: AbortSignal
 }
 export async function fetchClassifierBenchmark(signal?: AbortSignal): Promise<ClassifierBenchmark> {
   return parseResponse<ClassifierBenchmark>(await fetch(`${API_BASE_URL}/api/policies/classifier-benchmark`, { signal }));
+}
+
+export async function confirmReviewDecisions(caseId: string, batch: ReviewDecisionBatch): Promise<ZeroTouchCaseSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/cases/${caseId}/review-decisions`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(batch),
+  });
+  return parseResponse<ZeroTouchCaseSummary>(response);
 }

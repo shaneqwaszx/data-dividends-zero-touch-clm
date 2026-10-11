@@ -1,0 +1,7 @@
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] e2e\authenticated-zero-touch.e2e.ts:670:1 \u203a onboarding progress is visible while backend-authored stages advance
+[1A[2K  1 passed (8.0s)
+
+E2E PASS: guarded authenticated local Mock browser suite completed.

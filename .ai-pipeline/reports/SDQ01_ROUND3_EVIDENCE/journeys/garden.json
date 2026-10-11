@@ -1,0 +1,401 @@
+{
+  "track": "A",
+  "document": "synthetic-sponsor-corporate-profile.pdf",
+  "document_sha256": "4d588ce15400d361eebb33d5f707e7d727720413feff38faff0907c7f06fda43",
+  "original_document_id": "666fdc7f-4005-47ae-a24d-e5c387da3a5b",
+  "initial_blockers": [
+    "DOCUMENT_SOURCE_CONFLICT",
+    "DOCUMENT_SOURCE_CONFLICT"
+  ],
+  "checkpoints": [
+    {
+      "stage": "DOCUMENT",
+      "blockers": [
+        "DOCUMENT_SOURCE_CONFLICT",
+        "DOCUMENT_SOURCE_CONFLICT"
+      ],
+      "version": 4
+    },
+    {
+      "stage": "DOCUMENT",
+      "blockers": [
+        "DOCUMENT_SOURCE_CONFLICT",
+        "DOCUMENT_SOURCE_CONFLICT"
+      ],
+      "version": 6
+    },
+    {
+      "stage": "READINESS",
+      "blockers": [
+        "GOLDTIER_CLASSIFICATION_REQUIRED"
+      ],
+      "version": 10
+    },
+    {
+      "stage": "READINESS",
+      "blockers": [
+        "TARGET_CONFIRMATION_REQUIRED"
+      ],
+      "version": 12
+    }
+  ],
+  "draft_mutations": 0,
+  "actions": [
+    "/api/clm/zero-touch/cases",
+    "/api/clm/zero-touch/cases/6d576aa0-ddfd-4ede-a61f-7d4a438a549a/intake/documents",
+    "/api/clm/zero-touch/cases/6d576aa0-ddfd-4ede-a61f-7d4a438a549a/intake/complete",
+    "/api/clm/zero-touch/cases/6d576aa0-ddfd-4ede-a61f-7d4a438a549a/review-decisions",
+    "/api/clm/zero-touch/cases/6d576aa0-ddfd-4ede-a61f-7d4a438a549a/review-decisions",
+    "/api/clm/zero-touch/cases/6d576aa0-ddfd-4ede-a61f-7d4a438a549a/target-classification",
+    "/api/clm/zero-touch/cases/6d576aa0-ddfd-4ede-a61f-7d4a438a549a/manual-ownership-evidence"
+  ],
+  "final_review_edit": "ownership",
+  "unauthorized_status": 403,
+  "unauthorized_classification_status": 403,
+  "frozen_replacement_status": 409,
+  "frozen_classification_status": 409,
+  "company": "GARDEN BUSINESS",
+  "uen": "11111999A",
+  "case_id": "6d576aa0-ddfd-4ede-a61f-7d4a438a549a",
+  "evidence": "AUTOMATED_OFFLINE_SIMULATION",
+  "real_sandbox_uat": "NOT_VERIFIED",
+  "registry": {
+    "status": "PARTIAL",
+    "binding": null
+  },
+  "initial_search": "NO_MATCH",
+  "final_review_version": 15,
+  "clm_version": 5,
+  "readiness": {
+    "policy_version": "PHASE_05_POC_V1",
+    "registry": {
+      "status": "READY",
+      "reference_id": "6d576aa0-ddfd-4ede-a61f-7d4a438a549a"
+    },
+    "document": {
+      "status": "READY",
+      "reference_id": "666fdc7f-4005-47ae-a24d-e5c387da3a5b"
+    },
+    "ownership": {
+      "status": "READY",
+      "reference_id": "249b76f9-a2a2-4953-aa6c-df927c67cd7c"
+    },
+    "goldtier": {
+      "status": "READY",
+      "reference_id": "55c4e192-46a5-4973-bd82-abb6a66034af"
+    },
+    "blockers": [],
+    "warnings": [
+      "IDP_PROFILE_PROVISIONAL",
+      "LIVE_HIERARCHY_UNAVAILABLE",
+      "RELATED_PARTY_MAPPING_PENDING",
+      "REAL_GOLDTIER_NOT_CONFIGURED",
+      "READY_FOR_APPROVAL_UNAVAILABLE"
+    ],
+    "evaluated_at": "2026-10-10T04:30:38.496474Z"
+  },
+  "target_before": {
+    "SEARCH": 1,
+    "SHELL": 0,
+    "POLICY": 0,
+    "AMEND": 0,
+    "READBACK": 0
+  },
+  "target_after": {
+    "SEARCH": 2,
+    "SHELL": 1,
+    "POLICY": 1,
+    "AMEND": 0,
+    "READBACK": 1
+  },
+  "stale_status": 409,
+  "document_states": [
+    {
+      "id": "666fdc7f-4005-47ae-a24d-e5c387da3a5b",
+      "state": "REVIEWED",
+      "current": true,
+      "completion_method": "HUMAN_REVIEWED"
+    }
+  ],
+  "final_status": "COMPLETED",
+  "submission_state": "SUBMISSION_CONFIRMED",
+  "exact_readback_id": "SYNTHETIC-GT-S3",
+  "reopen_mutations": 0,
+  "verdict": "PASS",
+  "document_evidence": [
+    {
+      "document_id": "666fdc7f-4005-47ae-a24d-e5c387da3a5b",
+      "state": "REVIEWED",
+      "supersedes": null,
+      "superseded_by": null,
+      "semantic_completion": "RECONCILIATION_RESOLVED",
+      "event_count": 9,
+      "fields": [
+        {
+          "field": "registration_number",
+          "decision": "ACCEPTED",
+          "comparison": "MATCH",
+          "method": "NATIVE_PDF_TEXT",
+          "quality": "HIGH",
+          "score": 0.97,
+          "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+          "formula": "LABEL_SCORE",
+          "page": 1,
+          "references": [
+            "PAGE_1_LINE_4"
+          ]
+        },
+        {
+          "field": "legal_name",
+          "decision": "ACCEPTED",
+          "comparison": "MISMATCH",
+          "method": "NATIVE_PDF_TEXT",
+          "quality": "HIGH",
+          "score": 0.97,
+          "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+          "formula": "LABEL_SCORE",
+          "page": 1,
+          "references": [
+            "PAGE_1_LINE_3"
+          ]
+        },
+        {
+          "field": "registered_address",
+          "decision": "ACCEPTED",
+          "comparison": "MISMATCH",
+          "method": "NATIVE_PDF_TEXT",
+          "quality": "HIGH",
+          "score": 0.97,
+          "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+          "formula": "LABEL_SCORE",
+          "page": 1,
+          "references": [
+            "PAGE_1_LINE_5"
+          ]
+        },
+        {
+          "field": "country_of_incorporation",
+          "decision": "ACCEPTED",
+          "comparison": "MATCH",
+          "method": "NATIVE_PDF_TEXT",
+          "quality": "HIGH",
+          "score": 0.97,
+          "score_kind": "DETERMINISTIC_EVIDENCE_SCORE",
+          "formula": "LABEL_SCORE",
+          "page": 1,
+          "references": [
+            "PAGE_1_LINE_6"
+          ]
+        }
+      ]
+    }
+  ],
+  "classification": {
+    "vocabulary_version": "GOLDTIER_OPENAPI_V1_0_0",
+    "editable": true,
+    "evidence_state": "UNSAFE",
+    "evidence_fingerprint": "12995d9d8067a267dc9bf08810b6e17d3bb91fd521bdd54e62ea670fb233fd91",
+    "current": true,
+    "review_required": false,
+    "evidence_values": {
+      "kyc_customer_type": [],
+      "client_segment": []
+    },
+    "state": "CURRENT",
+    "kyc_customer_type": {
+      "selection": {
+        "field_key": "kyc_customer_type",
+        "value": "Company - Private",
+        "source": "USER",
+        "document_evidence": null,
+        "evidence_fingerprint": "12995d9d8067a267dc9bf08810b6e17d3bb91fd521bdd54e62ea670fb233fd91",
+        "actor_id": "maya-lim",
+        "classified_at": "2026-10-10T04:30:34.117197Z",
+        "policy_version": 1,
+        "vocabulary_version": "GOLDTIER_OPENAPI_V1_0_0"
+      },
+      "allowed_values": [
+        "Association - Incorporated",
+        "Association - Unincorporated",
+        "Co-Operative",
+        "Company - Private",
+        "Company - Public",
+        "Government",
+        "Individual",
+        "Managed Fund",
+        "Partnership - Regulated",
+        "Partnership - Unregulated",
+        "Regulated Financial Institution",
+        "Regulated Fund Manager - ANZ Approved",
+        "Regulated Fund Manager - Non-ANZ Approved",
+        "Sole Trader",
+        "Trust - Regulated",
+        "Trust - Unregulated",
+        "Unregulated Fund Manager"
+      ],
+      "selected_value": "Company - Private",
+      "authority": "USER_AUTHORIZED_POC",
+      "required": true
+    },
+    "client_segment": {
+      "selection": {
+        "field_key": "client_segment",
+        "value": "Corporate",
+        "source": "USER",
+        "document_evidence": null,
+        "evidence_fingerprint": "12995d9d8067a267dc9bf08810b6e17d3bb91fd521bdd54e62ea670fb233fd91",
+        "actor_id": "maya-lim",
+        "classified_at": "2026-10-10T04:30:34.117197Z",
+        "policy_version": 1,
+        "vocabulary_version": "GOLDTIER_OPENAPI_V1_0_0"
+      },
+      "allowed_values": [
+        "Corporate",
+        "DI - Diversified Industrials",
+        "DI - Education and Defence",
+        "DI - Food, Beverage, and Agribusiness",
+        "DI - Government",
+        "DI - Telecom, Media, Entertainment, and Technology",
+        "DI - Transport and Logistics",
+        "FIG - Banks",
+        "FIG - Diversified Financials",
+        "FIG - Funds",
+        "FIG - Insurance",
+        "FIG - OSU",
+        "Global Subsidiary Group",
+        "Private Wealth",
+        "Property and Health",
+        "Resource, Energy, and Infrastructure",
+        "Retail",
+        "Commercial BB (Business Banking)",
+        "Commercial RBB (Regional Business Banking)",
+        "Commercial SBB (Small Business Banking)",
+        "Corporate Finance",
+        "Diversified & Specialist Industries",
+        "Personal"
+      ],
+      "selected_value": "Corporate",
+      "authority": "USER_AUTHORIZED_POC",
+      "required": true
+    }
+  },
+  "preview_ready": true,
+  "ownership_state": "ANALYZED",
+  "ownership_version": 9,
+  "ownership_source_classification": "SINGLE_SOURCE",
+  "ownership_provider": "MANUAL_DECLARATION_POC",
+  "ownership_source_environment": "LOCAL",
+  "ownership_review": {
+    "source_selection": "USER_SUPPLIED_DECLARATION",
+    "actor": "maya-lim",
+    "document_id": "666fdc7f-4005-47ae-a24d-e5c387da3a5b"
+  },
+  "ownership_results": [
+    {
+      "party_id": "111111111M",
+      "direct": "60.0",
+      "indirect": "0",
+      "effective": "60.0",
+      "classification": "PROVISIONAL_UBO_CANDIDATE"
+    },
+    {
+      "party_id": "S9988776F",
+      "direct": "40.0",
+      "indirect": "0",
+      "effective": "40.0",
+      "classification": "PROVISIONAL_UBO_CANDIDATE"
+    }
+  ],
+  "source_decisions": [
+    {
+      "field": "legal_name",
+      "status": "CANCELLED",
+      "decision": null
+    },
+    {
+      "field": "registered_address",
+      "status": "CANCELLED",
+      "decision": null
+    },
+    {
+      "field": "legal_name",
+      "status": "RESOLVED",
+      "decision": {
+        "action": "KEEP_REGISTRY_VALUE",
+        "selected_observation_id": "71399bfc-7472-4879-a483-02eeeb4d4966",
+        "selected_value": "GARDEN BUSINESS",
+        "decided_at": "2026-10-10T04:30:32.508922Z",
+        "reconciliation_version": 2
+      }
+    },
+    {
+      "field": "registered_address",
+      "status": "RESOLVED",
+      "decision": {
+        "action": "KEEP_REGISTRY_VALUE",
+        "selected_observation_id": "3bbebb80-b4fe-4c1a-b5d4-ef4809fa33f9",
+        "selected_value": "18 GARDEN WALK, #01-01, 018919, SG",
+        "decided_at": "2026-10-10T04:30:32.508922Z",
+        "reconciliation_version": 2
+      }
+    }
+  ],
+  "evaluation_counts": {
+    "ZERO_TOUCH_CASE_CREATED": 1,
+    "REGISTRY_AUTOMATED": 1,
+    "GOLDTIER_FIRST_NO_MATCH": 1,
+    "ONBOARDING_STARTED": 1,
+    "DOCUMENT_SOURCE_CONFLICT": 4,
+    "DOCUMENT_REVIEW_UPDATED": 1,
+    "RECONCILIATION_GROUP_CONFIRMED": 1,
+    "RECONCILIATION_RESOLVED": 1,
+    "ONBOARDING_INTELLIGENCE_V1": 1,
+    "OWNERSHIP_AUTOMATED": 2,
+    "GOLDTIER_CLASSIFICATION_REQUIRED": 1,
+    "TARGET_CLASSIFICATION_RECORDED": 1,
+    "TARGET_CONFIRMATION_REQUIRED": 2,
+    "MANUAL_OWNERSHIP_EVIDENCE_ACCEPTED": 1,
+    "TARGET_DISPATCH_CONFIRMED": 1,
+    "READINESS_CONFIRMED": 1,
+    "MOCK_SUBMISSION_STARTED": 1,
+    "GOLDTIER_SHELL_CHECKPOINTED": 1,
+    "GOLDTIER_POLICY_CHECKPOINTED": 2,
+    "MOCK_GOLDTIER_SUBMITTED": 1
+  },
+  "metrics": {
+    "automated_stages_completed": 6,
+    "human_interventions": 4,
+    "exceptions_raised": 7,
+    "exceptions_resolved": 4,
+    "final_outcome": "MOCK_GOLDTIER_SUBMITTED",
+    "total_duration_ms": 10723,
+    "stage_durations_ms": {
+      "DOCUMENT": 0,
+      "OWNERSHIP": 56,
+      "READINESS": 28,
+      "MOCK_GOLDTIER": 271
+    }
+  },
+  "target_operations": [
+    {
+      "operation": "SEARCH",
+      "status": "NO_MATCH"
+    },
+    {
+      "operation": "SHELL",
+      "status": "CREATED"
+    },
+    {
+      "operation": "POLICY",
+      "status": "CREATED"
+    },
+    {
+      "operation": "AMEND",
+      "status": "SKIPPED"
+    },
+    {
+      "operation": "READBACK",
+      "status": "SUCCESS"
+    }
+  ]
+}

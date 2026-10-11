@@ -1,0 +1,12 @@
+{
+  "scenario": "ownership-incomplete",
+  "initial": [
+    "OWNERSHIP_REQUIRED"
+  ],
+  "actual_control": "INPUT:",
+  "choices": 0,
+  "calls_before_confirmation": 0,
+  "confirmation": "Evidence must be supplied; blocker not waived",
+  "final": "WAITING_FOR_REVIEW",
+  "verdict": "PASS"
+}

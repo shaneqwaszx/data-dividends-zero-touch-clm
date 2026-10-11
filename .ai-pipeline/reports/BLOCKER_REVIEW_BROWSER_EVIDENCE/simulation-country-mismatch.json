@@ -1,0 +1,29 @@
+{
+  "scenario": "country-mismatch",
+  "initial": [
+    "DOCUMENT_SOURCE_CONFLICT"
+  ],
+  "expected_navigation": "select[data-reconciliation-field]",
+  "actual_control": {
+    "tag": "SELECT",
+    "id": "",
+    "field": "country_of_incorporation",
+    "document": null,
+    "discrepancy": "4eb39a3f-ef1e-49c7-8dd8-54a82d13bb62"
+  },
+  "choices": 1,
+  "calls_before_confirmation": 0,
+  "calls": [
+    "POST /api/clm/zero-touch/cases/8461906c-bb7c-4de5-8640-8a2bbab78a87/review-decisions",
+    "GET /api/clm/zero-touch/cases/8461906c-bb7c-4de5-8640-8a2bbab78a87",
+    "GET /api/onboarding/cases/8461906c-bb7c-4de5-8640-8a2bbab78a87/documents",
+    "GET /api/onboarding/cases/8461906c-bb7c-4de5-8640-8a2bbab78a87/ownership",
+    "GET /api/clm/zero-touch/cases/8461906c-bb7c-4de5-8640-8a2bbab78a87/intelligence"
+  ],
+  "confirmation": "WAITING_FOR_REVIEW",
+  "final": [
+    "TARGET_CONFIRMATION_REQUIRED"
+  ],
+  "verdict": "PASS",
+  "reduced_motion": true
+}

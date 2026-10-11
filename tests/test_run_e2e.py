@@ -358,10 +358,12 @@ console.log(JSON.stringify({
         for startup_failure in (True, False):
             with self.subTest(startup_failure=startup_failure):
                 _FakeOwnedProcess.instances.clear()
-                def cleanup(database):
+                def cleanup(database, port):
                     self.assertEqual(database, "clm_p16_" + "a" * 24)
+                    self.assertEqual(port, 27149)
                     self.assertTrue(all(p.stopped for p in _FakeOwnedProcess.instances))
                 with (
+                    patch.dict(RUN_E2E.os.environ, {"CLM_E2E_SYNTHETIC_MONGO_PORT": "27149"}),
                     patch.object(RUN_E2E.Path, "is_file", return_value=True),
                     patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
                     patch.object(RUN_E2E, "_find_node", return_value="node"),
@@ -375,8 +377,43 @@ console.log(JSON.stringify({
                     result = RUN_E2E.run(backend_port=8765, frontend_port=4173,
                         timeout_seconds=60, sandbox_demo="database-alpha", grep="Alpha")
                 self.assertEqual(result, 1)
-                cleaned.assert_called_once_with("clm_p16_" + "a" * 24)
+                cleaned.assert_called_once_with("clm_p16_" + "a" * 24, 27149)
                 self.assertEqual(_FakeOwnedProcess.instances[0].env["CLM_E2E_CLASSIFICATION_DATABASE"], "clm_p16_" + "a" * 24)
+
+    def test_every_physical_fixture_cleanup_uses_its_configured_port(self) -> None:
+        modes = [(None, mode) for mode in RUN_E2E.SANDBOX_DEMO_MODES
+                 if mode.startswith("sponsor-")]
+        modes += [(None, mode) for mode in (
+            "database-alpha", "database-partnership", "database-government",
+        )]
+        modes.append(("synthetic-seed", None))
+        for registry, sandbox in modes:
+            for outcome in ("startup_failure", "assertion_failure", "success"):
+                with self.subTest(registry=registry, sandbox=sandbox, outcome=outcome):
+                    _FakeOwnedProcess.instances.clear()
+                    with (
+                        patch.dict(RUN_E2E.os.environ, {"CLM_E2E_SYNTHETIC_MONGO_PORT": "27419"}),
+                        patch.object(RUN_E2E.Path, "is_file", return_value=True),
+                        patch.object(RUN_E2E, "OwnedProcess", _FakeOwnedProcess),
+                        patch.object(RUN_E2E, "_find_node", return_value="node"),
+                        patch.object(RUN_E2E, "_assert_ports_available"),
+                        patch.object(RUN_E2E, "_wait_for_http",
+                                     side_effect=TimeoutError("timeout")
+                                     if outcome == "startup_failure" else None),
+                        patch.object(RUN_E2E, "_wait_for_test",
+                                     return_value=int(outcome == "assertion_failure")),
+                        patch.object(RUN_E2E.secrets, "token_hex", return_value="a" * 24),
+                        patch.object(RUN_E2E, "_cleanup_classification_database") as cleaned,
+                        redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()),
+                    ):
+                        result = RUN_E2E.run(
+                            backend_port=8765, frontend_port=4173, timeout_seconds=60,
+                            registry_demo=registry, sandbox_demo=sandbox, grep="focused",
+                        )
+                    prefix = "uat" if sandbox and sandbox.startswith("sponsor-") else "p16"
+                    cleaned.assert_called_once_with(f"clm_{prefix}_" + "a" * 24, 27419)
+                    self.assertEqual(result, int(outcome != "success"))
+                    self.assertTrue(all(p.stopped for p in _FakeOwnedProcess.instances))
 
     def test_synthetic_seed_cleanup_uses_reserved_port_after_startup_failure(self) -> None:
         _FakeOwnedProcess.instances.clear()
@@ -923,26 +960,77 @@ console.log(JSON.stringify({
         ):
             RUN_E2E._wait_for_test(process, deadline=60.0)
 
+    def test_shard_arguments_and_empty_assignments_fail_closed(self) -> None:
+        self.assertEqual(RUN_E2E._parse_shard("2/3"), (2, 3))
+        for value in ("0/2", "3/2", "1/0", "1", "-1/2", "1/2/3"):
+            with self.subTest(value=value), self.assertRaises(RUN_E2E.argparse.ArgumentTypeError):
+                RUN_E2E._parse_shard(value)
+        for shard in ((0, 2), (3, 2), (1, 4)):
+            with self.subTest(shard=shard), self.assertRaises(ValueError):
+                RUN_E2E._shard_selectors(["a:1", "b:2", "c:3"], shard)
+        selectors = ["a:1", "b:2", "c:3"]
+        self.assertIs(RUN_E2E._shard_selectors(selectors, None), selectors)
+
+    def test_shard_preserves_fixture_dispatch_and_failure_stops_selected_calls(self) -> None:
+        def discover(*args: object, **kwargs: object) -> list[str]:
+            kwargs["garden_selectors"].add("garden:2")
+            return ["default:1", "garden:2", "default:3", "default:4"]
+        with (
+            patch.object(RUN_E2E, "_list_test_selectors", side_effect=discover),
+            patch.object(RUN_E2E, "run", return_value=1) as run,
+            redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()),
+        ):
+            result = RUN_E2E.run_isolated_suite(
+                backend_port=RUN_E2E.DEFAULT_BACKEND_PORT,
+                frontend_port=RUN_E2E.DEFAULT_FRONTEND_PORT,
+                timeout_seconds=60, headed=False, shard=(2, 2),
+            )
+        self.assertEqual(result, 1)
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.kwargs["selection"], "garden:2")
+        self.assertTrue(run.call_args.kwargs["garden_protocol"])
+        self.assertEqual(run.call_args.kwargs["timeout_seconds"], 60)
+
+    def test_focused_grep_cannot_silently_bypass_a_shard(self) -> None:
+        with (
+            self.assertRaises(SystemExit) as raised,
+            patch.object(RUN_E2E, "run") as run,
+            redirect_stderr(io.StringIO()),
+        ):
+            RUN_E2E.main(["--shard", "1/2", "--grep", "case"])
+        self.assertEqual(raised.exception.code, 2)
+        run.assert_not_called()
+
     def test_ci_outer_bound_covers_current_discovery_and_bounded_cleanup(self) -> None:
         lifecycle_seconds = 60
         installation_minutes = 14
         job_minutes = 234
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        e2e = workflow.split("  e2e:\n", 1)[1].split("  demo-lifecycle-windows:", 1)[0]
+        e2e = workflow.split("  e2e-shards:\n", 1)[1].split("  e2e:\n", 1)[0]
         self.assertIn(f"timeout-minutes: {job_minutes}", e2e)
         self.assertIn(f"python scripts/run_e2e.py --timeout-seconds {lifecycle_seconds}", e2e)
         selectors = RUN_E2E._list_test_selectors(RUN_E2E.DEFAULT_FRONTEND_PORT)
-        self.assertEqual(len(selectors), 73)
+        self.assertEqual(len(selectors), 91)
+        self.assertIn("shard: [1, 2]", e2e)
+        self.assertIn("fail-fast: false", e2e)
+        self.assertIn("--shard ${{ matrix.shard }}/2", e2e)
+        shards = [RUN_E2E._shard_selectors(selectors, (index, 2)) for index in (1, 2)]
+        self.assertEqual(sorted(shards[0] + shards[1]), sorted(selectors))
+        self.assertFalse(set(shards[0]) & set(shards[1]))
         self.assertEqual(RUN_E2E.DISCOVERY_TIMEOUT_SECONDS, 60)
         self.assertEqual(RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS, 120)
-        launcher_seconds = RUN_E2E.DISCOVERY_TIMEOUT_SECONDS + len(selectors) * (
+        launcher_seconds = RUN_E2E.DISCOVERY_TIMEOUT_SECONDS + max(map(len, shards)) * (
             lifecycle_seconds + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS
         )
-        self.assertEqual(launcher_seconds, 13200)
+        self.assertEqual(launcher_seconds, 8340)
         self.assertLessEqual(
             launcher_seconds + installation_minutes * 60,
             job_minutes * 60,
         )
+        aggregate = workflow.split("  e2e:\n", 1)[1].split("  demo-lifecycle-windows:", 1)[0]
+        self.assertIn("needs: e2e-shards", aggregate)
+        self.assertIn("if: ${{ always() }}", aggregate)
+        self.assertIn('test "${{ needs[\'e2e-shards\'].result }}" = "success"', aggregate)
 
         clock = [0.0]
         output = io.StringIO()
@@ -967,16 +1055,17 @@ console.log(JSON.stringify({
                 frontend_port=RUN_E2E.DEFAULT_FRONTEND_PORT,
                 timeout_seconds=lifecycle_seconds,
                 headed=False,
+                shard=(1, 2),
             )
 
         self.assertEqual(result, 0)
-        self.assertEqual([item.kwargs["selection"] for item in run.call_args_list], selectors)
+        self.assertEqual([item.kwargs["selection"] for item in run.call_args_list], shards[0])
         self.assertEqual(
             [item.kwargs["timeout_seconds"] for item in run.call_args_list],
-            [lifecycle_seconds] * len(selectors),
+            [lifecycle_seconds] * len(shards[0]),
         )
         self.assertEqual(clock[0], launcher_seconds)
-        self.assertIn("E2E SUITE PASS: 73 configured selectors", output.getvalue())
+        self.assertIn("E2E SUITE PASS: 46 configured selectors", output.getvalue())
 
     def test_sandbox_discovery_routes_each_mode_and_preserves_default(self) -> None:
         payload = {"suites": [{"specs": [

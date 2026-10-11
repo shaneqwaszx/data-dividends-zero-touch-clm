@@ -1,0 +1,24 @@
+{
+  "utc": "2026-10-11T10:41:05.922510+00:00",
+  "verdict": "PASS",
+  "measurements": {
+    "360": {
+      "path": "tmp/pr81-resume-full-suite-width360-measurement.json",
+      "sha256": "ca46198f916f1e09ccc415096e054cd858ec91471b6d7e892c6ba11b1dd30f7a",
+      "observations": 40,
+      "target_confirmation_requests": 0,
+      "method_sha256": "e8f6fda4ff88b36fd41ac25b2d60b6a9fa523b17688dded43959ffdbba4cc19b",
+      "source36": "f6607f766b36ec1e2b6fc251b93b22c4940985fac394d28160b1878e802cfbae",
+      "scope": "mandatory complete-suite lifecycle; not a repeated standalone stability window"
+    },
+    "1440": {
+      "path": "tmp/pr81-resume-full-suite-width1440-measurement.json",
+      "sha256": "6fe96de689c641d4ff449aa885aa6a69dd4f3e726dc432d10dabda910b56baba",
+      "observations": 40,
+      "target_confirmation_requests": 0,
+      "method_sha256": "e8f6fda4ff88b36fd41ac25b2d60b6a9fa523b17688dded43959ffdbba4cc19b",
+      "source36": "f6607f766b36ec1e2b6fc251b93b22c4940985fac394d28160b1878e802cfbae",
+      "scope": "mandatory complete-suite lifecycle; not a repeated standalone stability window"
+    }
+  }
+}

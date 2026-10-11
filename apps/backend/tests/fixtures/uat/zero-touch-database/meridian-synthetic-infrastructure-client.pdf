@@ -12,9 +12,9 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 424 >>
+<< /Length 515 >>
 stream
-BT /F1 12 Tf 72 720 Td (SYNTHETIC TEST DATA) Tj 0 -16 Td (CORPORATE PROFILE) Tj 0 -16 Td (Legal Name: MERIDIAN SYNTHETIC INFRASTRUCTURE PTE. LTD.) Tj 0 -16 Td (UEN: 202400017Q) Tj 0 -16 Td (Registered Address: 18 MERIDIAN DRIVE, #09-04, 049017, SG) Tj 0 -16 Td (Country: SG) Tj 0 -16 Td (LOCAL PROJECT SYNTHETIC MOCK - fictional identity only.) Tj 0 -16 Td (Ownership evidence comes from the synthetic registry graph.) Tj ET
+BT /F1 12 Tf 72 720 Td (SYNTHETIC TEST DATA) Tj 0 -16 Td (CORPORATE PROFILE) Tj 0 -16 Td (Legal Name: MERIDIAN SYNTHETIC INFRASTRUCTURE PTE. LTD.) Tj 0 -16 Td (UEN: 202400017Q) Tj 0 -16 Td (Registered Address: 18 MERIDIAN DRIVE, #09-04, 049017, SG) Tj 0 -16 Td (Country: SG) Tj 0 -16 Td (KYC Customer Type: Company - Private) Tj 0 -16 Td (Client Segment: Corporate) Tj 0 -16 Td (LOCAL PROJECT SYNTHETIC MOCK - fictional identity only.) Tj 0 -16 Td (Ownership evidence comes from the synthetic registry graph.) Tj ET
 endstream
 endobj
 xref
@@ -28,5 +28,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-786
+877
 %%EOF

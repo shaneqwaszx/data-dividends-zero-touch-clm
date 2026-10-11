@@ -362,6 +362,12 @@ function blockerExplanation(blockerCode: string): string {
 }
 
 export function SimulationBanner({ profile }: { profile: SimulationProfile | null }) {
+  if (import.meta.env.VITE_E2E_RECOVERY_DEMO === "document-refresh") {
+    return <div className="environment-banner" role="status">
+      Synthetic offline document refresh recovery fixture · Local document evidence and Mock target.
+      Zero external provider calls; no interoperability is demonstrated.
+    </div>;
+  }
   if (import.meta.env.VITE_E2E_RECOVERY_DEMO) {
     return (
       <div className="environment-banner" role="status">

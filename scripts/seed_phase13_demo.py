@@ -179,6 +179,8 @@ class HttpSeedApi:
         try:
             with self._opener.open(request, timeout=15) as response:
                 raw = response.read(1_048_577)
+                # Bounded HTTPResponse.read can return early EOF without raising.
+                incomplete_response = response.length not in (None, 0)
         except HTTPError as exc:
             raise RuntimeError(
                 f"The Phase 13 API rejected the request with HTTP {exc.code}."
@@ -189,6 +191,8 @@ class HttpSeedApi:
             raise RuntimeError(
                 "The Phase 13 API response exceeded the safe local limit."
             )
+        if incomplete_response:
+            raise RuntimeError("The Phase 13 API returned an incomplete response.")
         if not raw:
             return {}
         try:

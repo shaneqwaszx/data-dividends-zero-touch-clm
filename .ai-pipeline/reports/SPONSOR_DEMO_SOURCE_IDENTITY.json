@@ -1,0 +1,358 @@
+{
+  "source_content_sha256": "5de89b19dda6964828d87ecf744d7b30df4ea3ee8c872a5a4dd2ffabb9df38df",
+  "files": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "bytes": 6468,
+      "sha256": "ac4d966c03d93f6c156097c3127bcd0671234cbc449eaed1078c15f95735f21e"
+    },
+    {
+      "path": "apps/backend/app/api_models.py",
+      "bytes": 104283,
+      "sha256": "545989db4dcebf0094de5daacfa58edee4537e693c704356af7c6f5ede550a25"
+    },
+    {
+      "path": "apps/backend/app/connectors/local_pdf_idp.py",
+      "bytes": 11631,
+      "sha256": "380741a0e4136a6832f9c433de5d9eca6b8ce20313d4f08c55b848744a063432"
+    },
+    {
+      "path": "apps/backend/app/domain/review_decisions.py",
+      "bytes": 3423,
+      "sha256": "73aad2e41bd9766bfc3f694023b1373cd2807a346c88bbafc9415f7115ab0e12"
+    },
+    {
+      "path": "apps/backend/app/main.py",
+      "bytes": 143658,
+      "sha256": "690d4f41218447299855f0b83c4899c2a3c9484b15fd20f4a55b2a672a54e2ee"
+    },
+    {
+      "path": "apps/backend/app/services/authorization.py",
+      "bytes": 13549,
+      "sha256": "7c670151b797c51599e01d3459182b101daacd48269778390a03e93b6fe7d53a"
+    },
+    {
+      "path": "apps/backend/app/services/clm_orchestration.py",
+      "bytes": 81520,
+      "sha256": "649ff9bb5fa0a30a1fd4f4aedeb0d99f55b57f7c7cf5d99308d114ff4a78e509"
+    },
+    {
+      "path": "apps/backend/app/services/document_processing.py",
+      "bytes": 60105,
+      "sha256": "e79c39136f4470171f87edb1d193ec6dd9418b23439cc973b2e7935f5c80a5cf"
+    },
+    {
+      "path": "apps/backend/app/services/reconciliation.py",
+      "bytes": 30428,
+      "sha256": "e27326046447ba665b16d626eb520d252a904b559df02f4a75bdf0c5b665f62e"
+    },
+    {
+      "path": "apps/backend/app/services/zero_touch_orchestration.py",
+      "bytes": 200266,
+      "sha256": "a4f15b7dcef75da00d47f18691f21ed15dc2011f1f0ef6fef3a38c4c7c9fbfdf"
+    },
+    {
+      "path": "apps/backend/tests/test_batch_review_decisions.py",
+      "bytes": 16964,
+      "sha256": "aa752fa2982072bcab2f6229ffc98a6effa3b95ee37d92feaedfd1d2119ff7dc"
+    },
+    {
+      "path": "apps/backend/tests/test_batch_review_real_mongo.py",
+      "bytes": 9244,
+      "sha256": "c77b1ff8592657f7b4169a56e27cfa2de296fbe7a6ecd5ff18fe963e60ba73a0"
+    },
+    {
+      "path": "apps/backend/tests/test_final_review_editing.py",
+      "bytes": 6977,
+      "sha256": "ac824da6481a10bffe04aa010b4a7a3258b3facec59cec2adb05120f834e6cf2"
+    },
+    {
+      "path": "apps/backend/tests/test_final_review_editing_real_mongo.py",
+      "bytes": 6717,
+      "sha256": "642409ec6bfa06df2950b78f788595e1208887532383948b9f0efe2573eb19b3"
+    },
+    {
+      "path": "apps/backend/tests/test_idp_classification_line_endings.py",
+      "bytes": 5148,
+      "sha256": "50ce266ae8e7d7fe2a19ad40934fa0a9456b5bf46de78cb730afaa30fdf98b1d"
+    },
+    {
+      "path": "apps/backend/tests/test_phase13_auth_rbac.py",
+      "bytes": 46243,
+      "sha256": "591c62396c1d9dbc88db50974cad1e8be0901a83bda94ed3e7b3c575a15c1fde"
+    },
+    {
+      "path": "apps/backend/tests/test_sponsor_demo_fixtures.py",
+      "bytes": 7377,
+      "sha256": "a35fa919eb24dc6ddfc75629798009ce31315decfcdce8ff9a04352a75d9ce46"
+    },
+    {
+      "path": "apps/backend/tests/test_sponsor_demo_real_mongo.py",
+      "bytes": 4079,
+      "sha256": "8559da433e20c60a9c5868b8e0d0b4f2f1ae1b926ffe3e5266e4361731b2136a"
+    },
+    {
+      "path": "apps/backend/tests/test_synthetic_company_pack.py",
+      "bytes": 14864,
+      "sha256": "016edbfc8d5a3ae84215ebfcbcd8ebe5ef92ee843f8f876b5530acea750ad399"
+    },
+    {
+      "path": "apps/frontend/e2e/authenticated-zero-touch.e2e.ts",
+      "bytes": 85693,
+      "sha256": "552b5d8bcc78851608af892997254921fb2e8402bf3008973883c5840321074b"
+    },
+    {
+      "path": "apps/frontend/e2e/blocker-decisions.ts",
+      "bytes": 2933,
+      "sha256": "6dc3b5bd4ef9f319b835f9b7032bb78d82e9d182433e0957b497f6b788c4d252"
+    },
+    {
+      "path": "apps/frontend/e2e/blocker-review-performance.e2e.ts",
+      "bytes": 9846,
+      "sha256": "d46405a85a19d59a8b0942e85a292a9cb3f47875b1d28d87adc20daea730575a"
+    },
+    {
+      "path": "apps/frontend/e2e/blocker-simulation.e2e.ts",
+      "bytes": 32663,
+      "sha256": "9fc834b0446d8a1cdde088f34e17ec5c56c9a50357947a928d672a45f5ee754e"
+    },
+    {
+      "path": "apps/frontend/e2e/garden-happy-path.e2e.ts",
+      "bytes": 22024,
+      "sha256": "3ec96bbae47f71eb45717130e155350a8ad948e6798c4b234580ebe8c01fc3a6"
+    },
+    {
+      "path": "apps/frontend/e2e/phase24-identity.e2e.ts",
+      "bytes": 10899,
+      "sha256": "58ce99313ccf9dc90cf62154db6f0d8cbbb8f7664bfa2054a5762a81a4f10ca4"
+    },
+    {
+      "path": "apps/frontend/e2e/responsive-layout.e2e.ts",
+      "bytes": 23867,
+      "sha256": "8b6e5f26be333e94e37c90a5fac4ab86da09fd4945499e3fc455f64b4a6f4654"
+    },
+    {
+      "path": "apps/frontend/e2e/s2-ownership.e2e.ts",
+      "bytes": 11686,
+      "sha256": "9120e9fd5c01299e9305e243741961ba4d95af90925572350adf61120ce62b7a"
+    },
+    {
+      "path": "apps/frontend/e2e/s3-sandbox-submission.e2e.ts",
+      "bytes": 30216,
+      "sha256": "c6dad2cd98bb0112784ddf570f24865f12b747bcc1688138476888ff6f4db73f"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-b-registry-demo.e2e.ts",
+      "bytes": 12873,
+      "sha256": "dad6505598ba73ae522ac3899e98432dd52aaaff145b7edaac1fb1f7d171023a"
+    },
+    {
+      "path": "apps/frontend/e2e/slice-c-recovery.e2e.ts",
+      "bytes": 19115,
+      "sha256": "4ef255b6558839d293e80064c342dae9b84ea54413fdbda912453b16a3de1feb"
+    },
+    {
+      "path": "apps/frontend/e2e/sponsor-demo-journeys.e2e.ts",
+      "bytes": 32053,
+      "sha256": "54247188a391a5e030c7c77932572787bea8fdae0dc62f3cac6848ce8d5fdaa9"
+    },
+    {
+      "path": "apps/frontend/e2e/stage-disclosures.ts",
+      "bytes": 3923,
+      "sha256": "1a591a073e13e2a539ae96ed4b28baec85ca093b035a83deb406c1be7ced6463"
+    },
+    {
+      "path": "apps/frontend/e2e/synthetic-company-pack.e2e.ts",
+      "bytes": 7064,
+      "sha256": "fb41e4e9dff54df7752dad8ea25afecebe84f8bd829a7083e240bae0a2fd931b"
+    },
+    {
+      "path": "apps/frontend/e2e/zero-touch-exception.e2e.ts",
+      "bytes": 11421,
+      "sha256": "66466836e298af40394a71a3a9dc6e575c47d8c60d50f16a83548ce26d5a4696"
+    },
+    {
+      "path": "apps/frontend/src/EvidenceWorkbenchIsolation.test.tsx",
+      "bytes": 33591,
+      "sha256": "ac84c2663b760a03c1c0b9a0c20cff28369ca33f830297089cf606db7404117e"
+    },
+    {
+      "path": "apps/frontend/src/Phase15CNavigation.test.tsx",
+      "bytes": 86612,
+      "sha256": "8df3081c361df8f8b91e9e4080521c55d8e0a2937baf687dee0292b894482c5e"
+    },
+    {
+      "path": "apps/frontend/src/api.ts",
+      "bytes": 39100,
+      "sha256": "91b4a5ade426399a51299c46d322483bea2cb1e38648c2c449b4b127b281166d"
+    },
+    {
+      "path": "apps/frontend/src/pages/BlockerDecisionReview.test.tsx",
+      "bytes": 6363,
+      "sha256": "655ff6996b7a2a97933e32fbeb6d9c58f69a4c6f3e7ebb5d16309e79987a14b0"
+    },
+    {
+      "path": "apps/frontend/src/pages/BlockerDecisionReview.tsx",
+      "bytes": 9798,
+      "sha256": "1df296832ea8733729d38b5bf60c786d2ca045dd95419ba701ea0512fb9b9d60"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseDetail.tsx",
+      "bytes": 76814,
+      "sha256": "c661dd4e18d6fee1672110c12409a46216a7589d5ad4214ad30a8f86b95e74a6"
+    },
+    {
+      "path": "apps/frontend/src/pages/CaseStatePanels.tsx",
+      "bytes": 50227,
+      "sha256": "f5e6329e61d9f74efbe770797fee9eb3160fa81206723ecdf95ff665f35526fb"
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.test.tsx",
+      "bytes": 15048,
+      "sha256": "d1f4415112df7883476364c2a041bbea2cc9bfb2f73cabde61906b42615acdc2"
+    },
+    {
+      "path": "apps/frontend/src/pages/DocumentEvidencePanel.tsx",
+      "bytes": 23502,
+      "sha256": "6019716a85c67e400ae585875bcf905b7dc3ec408f61db1d755d9f5e310d578f"
+    },
+    {
+      "path": "apps/frontend/src/pages/HumanInterventionPanel.test.tsx",
+      "bytes": 3591,
+      "sha256": "b152085575f8130f62d499fe72c034e01d27b1ba589a74edc1db6b73ab841618"
+    },
+    {
+      "path": "apps/frontend/src/pages/HumanInterventionPanel.tsx",
+      "bytes": 10257,
+      "sha256": "3e65b1afabc480cd814a5850f3966247f3c551ffffce25ea02b92c3e325f9620"
+    },
+    {
+      "path": "apps/frontend/src/pages/IdentityCorrectionForm.test.tsx",
+      "bytes": 6979,
+      "sha256": "40a347aa3a3575a4d35d3e9b466ed15af8353bf4bb0b81e0660d99073e9fff87"
+    },
+    {
+      "path": "apps/frontend/src/pages/IdentityCorrectionForm.tsx",
+      "bytes": 6502,
+      "sha256": "79c62dd8979376c96364c63b66a275c2dcead034a325f561aa42cb119401084f"
+    },
+    {
+      "path": "apps/frontend/src/pages/ReviewAndSend.test.tsx",
+      "bytes": 20122,
+      "sha256": "0f48708aed415c1b108ba4a293bf4585dbea972269144f8d1630d083933b962a"
+    },
+    {
+      "path": "apps/frontend/src/pages/ReviewAndSend.tsx",
+      "bytes": 25613,
+      "sha256": "5070c34ceeeadb0f46b45b137f913764cfbd52216f4870b798bd94894a5eb604"
+    },
+    {
+      "path": "apps/frontend/src/pages/TargetClassificationPanel.test.tsx",
+      "bytes": 12708,
+      "sha256": "b6995e94f928532de0807ad0238be95d641202595bf32d5a08e01c615c667848"
+    },
+    {
+      "path": "apps/frontend/src/pages/TargetClassificationPanel.tsx",
+      "bytes": 8940,
+      "sha256": "0a8eccec3ba7e2e4ec4c9ad4824b9acbe90b4e14d8e02af114b5e7c5e8bee323"
+    },
+    {
+      "path": "apps/frontend/src/pages/TargetRecoveryPanel.tsx",
+      "bytes": 9340,
+      "sha256": "0170a047158c4e737057118ac077af80dee550bf336b2df11d445027574a7b64"
+    },
+    {
+      "path": "apps/frontend/src/types.ts",
+      "bytes": 55837,
+      "sha256": "76d2f60674ab1d9cf31191045baa5429dc8edf6f7de21926333fc1a27e5dfe09"
+    },
+    {
+      "path": "scripts/benchmark_blocker_review.py",
+      "bytes": 6383,
+      "sha256": "e201ad0ce2a65d132cccf0d75e2bb8c34a1623ac096f26c3909484de9d486f2a"
+    },
+    {
+      "path": "scripts/benchmark_blocker_review_mongo.py",
+      "bytes": 7018,
+      "sha256": "869bf66e071765d8ee8f80666e1f1119f9cd529a44f51b3efed0369e708400c4"
+    },
+    {
+      "path": "scripts/e2e_backend_server.py",
+      "bytes": 16308,
+      "sha256": "77d3c7cee551de441567374a0c30a258d9dce3faacd9b0cfbbd11b15bb4178a2"
+    },
+    {
+      "path": "scripts/generate_synthetic_company_pack.py",
+      "bytes": 2898,
+      "sha256": "8699a346b2b72c42532213259726ff8cc47c513bca33c51369a51594f9bee52a"
+    },
+    {
+      "path": "scripts/mongo_test_safety.py",
+      "bytes": 2220,
+      "sha256": "84feb16ae1df8716d8b89a84dcb927f02c78d053e3c013cdd109477389a48938"
+    },
+    {
+      "path": "scripts/run_e2e.py",
+      "bytes": 38257,
+      "sha256": "bc031eaa2679ff7661cff7a34668e73ab2b168f5801e76a645bfa1634d25a10f"
+    },
+    {
+      "path": "scripts/run_physical_mongo_tests.py",
+      "bytes": 8201,
+      "sha256": "c8c10820d0cf7f56fcc73011d64403a75911aa9bf35288e1b4fa7f35771b82b0"
+    },
+    {
+      "path": "scripts/seed_zero_touch_happy_path_companies.py",
+      "bytes": 5456,
+      "sha256": "6ef7f9173a5c44f7959c61252e1dd13eb4d17708aa454b8bafd26934f0aca42b"
+    },
+    {
+      "path": "scripts/sponsor_demo_browser_fixture.py",
+      "bytes": 5517,
+      "sha256": "09038b6d13205814f52cc82393e87632791cde8743330314a0c3832dc53c7bd5"
+    },
+    {
+      "path": "scripts/synthetic_company_pack.py",
+      "bytes": 4411,
+      "sha256": "cb3c209a67baeeb2aad43ebf62ba3c5aa24655bee488e08fd5b9ec31b90c84f8"
+    },
+    {
+      "path": "scripts/zero_touch_classification_browser_fixture.py",
+      "bytes": 5928,
+      "sha256": "6713503d038ca0d5d4c544c3375c39d15b48661a2725d8622907f17c4e76c9dc"
+    },
+    {
+      "path": "scripts/zero_touch_happy_path_fixtures.py",
+      "bytes": 11881,
+      "sha256": "0eac91ba1646ba44f725ad14c2cf3d2283bc9004cfd0a3da734444f5d967b9c9"
+    },
+    {
+      "path": "tests/test_check_tooling_config.py",
+      "bytes": 6067,
+      "sha256": "683073f4b301d168fb306dec9db72a69bc2db6b45c76e3b802320aedfb45a980"
+    },
+    {
+      "path": "tests/test_phase_07_delivery_assets.py",
+      "bytes": 7208,
+      "sha256": "7d165cfd764e9233eb8e25ce89403c1b3af6fe583848c65b8726663966ae2fb3"
+    },
+    {
+      "path": "tests/test_run_e2e.py",
+      "bytes": 50537,
+      "sha256": "c23b19468998c9afcabf251456546e27bba6f9c07d8ad90acc253c890dc02064"
+    }
+  ],
+  "compared_with_preliminary_source": "cbfcae62f0dbb95db8bdc3ce7e914f350141599c3086d6fc39b690e5a9832fb7",
+  "later_byte_deltas": [
+    "apps/frontend/e2e/sponsor-demo-journeys.e2e.ts",
+    "scripts/e2e_backend_server.py",
+    "scripts/generate_synthetic_company_pack.py",
+    "scripts/run_e2e.py",
+    "scripts/seed_zero_touch_happy_path_companies.py",
+    "scripts/sponsor_demo_browser_fixture.py",
+    "scripts/zero_touch_happy_path_fixtures.py",
+    "tests/test_run_e2e.py"
+  ],
+  "product_sources_unchanged_since_full_tests": true,
+  "evidence_boundary": "Product source bytes are unchanged since full tests. Later fixture/test hygiene ran before dependent lanes; accepted line endings were restored without semantic change. SDQ-02 subsequently changed only parent cleanup routing and its regression test, verified by 48 affected harness tests, 36 dispatch probes and 12 actual physical browser modes. Earlier full-root/browser logs are before this narrow remediation, not a claimed exact final full-suite PASS."
+}

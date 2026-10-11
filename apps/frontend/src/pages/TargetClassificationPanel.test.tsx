@@ -43,6 +43,7 @@ function render(
   classification = unresolved,
   onSubmit = vi.fn(async () => undefined),
   disabled = false,
+  reviewRequested = false,
 ) {
   container = document.createElement("div");
   document.body.append(container);
@@ -52,6 +53,7 @@ function render(
       classification={classification}
       disabled={disabled}
       onSubmit={onSubmit}
+      reviewRequested={reviewRequested}
     />,
   ));
   return { view: container, onSubmit };
@@ -159,6 +161,18 @@ const documentSelection = {
   classified_at: "2026-10-05T00:00:00Z", policy_version: 2, vocabulary_version: "GOLDTIER_OPENAPI_V1_0_0",
 };
 describe("automatic document selection", () => {
+  it("opens current automatic values only for an explicit final review edit", async () => {
+    const classification: GoldTierTargetClassification = { ...unresolved, evidence_fingerprint: "current-fixture-fingerprint",
+      kyc_customer_type: { ...unresolved.kyc_customer_type, selected_value: "Company - Private", selection: documentSelection },
+      client_segment: { ...unresolved.client_segment, selected_value: "Corporate", selection: { ...documentSelection, field_key: "client_segment", value: "Corporate" } },
+    };
+    const { view, onSubmit } = render(classification, vi.fn(async () => undefined), false, true);
+    expect([...view.querySelectorAll("select")].map(select => [select.value, select.disabled])).toEqual([
+      ["Company - Private", false], ["Corporate", false],
+    ]);
+    await act(async () => { view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(onSubmit).toHaveBeenCalledWith({ kyc_customer_type: "Company - Private", client_segment: "Corporate", expected_classification_evidence_fingerprint: "current-fixture-fingerprint" });
+  });
   it("shows source evidence and removes the save form when both fields are automatic", () => {
     const classification: GoldTierTargetClassification = { ...unresolved,
       kyc_customer_type: { ...unresolved.kyc_customer_type, selected_value: "Company - Private", authority: "PROJECT_DERIVED_POC", selection: documentSelection },

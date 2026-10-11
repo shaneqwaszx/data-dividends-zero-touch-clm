@@ -559,7 +559,10 @@ class _BlockingDemoControl(ZeroTouchDemoControl):
         assert self.release.wait(timeout=5)
 
 
-def test_demo_route_registration_is_inside_establishment_delete_boundary() -> None:
+@pytest.mark.parametrize("delay_response_until_deleted", [False, True])
+def test_demo_route_registration_is_inside_establishment_delete_boundary(
+    monkeypatch: pytest.MonkeyPatch, delay_response_until_deleted: bool
+) -> None:
     system = _establishment_system(demo_factory=_BlockingDemoControl)
     demo = system.demo
     application = create_app(
@@ -576,6 +579,18 @@ def test_demo_route_registration_is_inside_establishment_delete_boundary() -> No
     csrf = _login(client, "ethan-tan")
     actor = AuthenticatedActor(profile=SYNTHETIC_PROFILE_BY_ID["ethan-tan"])
     delete_started = Event()
+    delete_completed = Event()
+    chronology: list[str] = []
+    original_create = system.zero_touch.create_case
+
+    def create_then_delay_response(*args, **kwargs):  # type: ignore[no-untyped-def]
+        record = original_create(*args, **kwargs)
+        chronology.append("establishment_lock_released")
+        if delay_response_until_deleted:
+            assert delete_completed.wait(timeout=2), chronology
+        return record
+
+    monkeypatch.setattr(system.zero_touch, "create_case", create_then_delay_response)
 
     def create_demo():  # type: ignore[no-untyped-def]
         return client.post(
@@ -592,14 +607,19 @@ def test_demo_route_registration_is_inside_establishment_delete_boundary() -> No
         case_id = records[0].case_id
 
         def delete() -> None:
+            chronology.append("deletion_requested")
             delete_started.set()
             system.deletion.delete(actor, case_id)
+            chronology.append("deletion_completed")
+            delete_completed.set()
 
         deleted = executor.submit(delete)
         assert delete_started.wait(timeout=2)
         assert not deleted.done()
         demo.release.set()
-        assert created.result(timeout=2).status_code == 201
+        response = created.result(timeout=2)
+        chronology.append(f"response_{response.status_code}")
+        assert response.status_code == 201, chronology
         deleted.result(timeout=2)
 
     _assert_initial_aggregate_absent(system, case_id)

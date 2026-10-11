@@ -635,6 +635,7 @@ export interface OwnershipDocumentDiscrepancy {
 }
 
 export interface DocumentProcessingRecord {
+  review_source_fingerprint?: string | null;
   case_id: string;
   document_id: string;
   document_version?: 1 | null;
@@ -1432,6 +1433,8 @@ export interface ZeroTouchCaseSummary {
     customer_handling?: "EXISTING_REUSED" | "NEW_CREATED" | null;
   } | null;
   evidence_decision_authorized?: boolean;
+  document_replacement_authorized?: boolean;
+  document_refresh_recovery?: { can_resume: boolean } | null;
   ownership_edit_authorized?: boolean;
   case: OnboardingCase;
   clm: ClmCaseSummary;
@@ -1741,4 +1744,17 @@ export interface PolicyImpact {
 export interface PolicyRuntimeImpact {
   registry_freshness_seconds: number; not_found_ttl_seconds: number;
   document_auto_confirm: boolean[]; ownership_numeric_candidates: (boolean | null)[];
+}
+
+export interface ReviewDecisionBatch {
+  expected_automation_version: number;
+  expected_case_event_count: number;
+  documents?: {
+    document_id: string;
+    expected_event_count: number;
+    source_fingerprint: string;
+    decisions: { field_key: DocumentFieldKey; decision: ReviewDecision; corrected_value?: string; note?: string }[];
+  }[];
+  reconciliation?: { discrepancy_id: string; action: ReconciliationDecisionAction; evidence_fingerprint: string }[];
+  expected_reconciliation_version?: number;
 }

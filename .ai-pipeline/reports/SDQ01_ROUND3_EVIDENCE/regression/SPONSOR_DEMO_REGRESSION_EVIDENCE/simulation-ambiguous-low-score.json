@@ -1,0 +1,29 @@
+{
+  "scenario": "ambiguous-low-score",
+  "initial": [
+    "DOCUMENT_AMBIGUOUS_EXTRACTION"
+  ],
+  "expected_navigation": "select[data-review-field]",
+  "actual_control": {
+    "tag": "SELECT",
+    "id": "",
+    "field": "legal_name",
+    "document": "3395a06b-ee05-49f3-84bb-9ee4aac5f7b1",
+    "discrepancy": null
+  },
+  "choices": 1,
+  "calls_before_confirmation": 0,
+  "calls": [
+    "POST /api/clm/zero-touch/cases/a7910361-a761-41e5-a9f0-1a2a75ea2203/review-decisions",
+    "GET /api/clm/zero-touch/cases/a7910361-a761-41e5-a9f0-1a2a75ea2203",
+    "GET /api/onboarding/cases/a7910361-a761-41e5-a9f0-1a2a75ea2203/documents",
+    "GET /api/onboarding/cases/a7910361-a761-41e5-a9f0-1a2a75ea2203/ownership",
+    "GET /api/clm/zero-touch/cases/a7910361-a761-41e5-a9f0-1a2a75ea2203/intelligence"
+  ],
+  "confirmation": "WAITING_FOR_REVIEW",
+  "final": [
+    "DOCUMENT_REQUIRED_FIELD_MISSING"
+  ],
+  "verdict": "PASS",
+  "reduced_motion": true
+}

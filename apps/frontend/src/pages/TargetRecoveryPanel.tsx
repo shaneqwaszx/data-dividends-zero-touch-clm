@@ -46,7 +46,7 @@ export default function TargetRecoveryPanel({ summary, actor, busy, checking, re
     } : {}),
   });
 
-  return <section className="ds-banner ds-banner-warn target-recovery-panel" aria-labelledby="target-recovery-title" aria-busy={locked}>
+  return <section id="case-target-recovery" className="ds-banner ds-banner-warn target-recovery-panel" aria-labelledby="target-recovery-title" aria-busy={locked}>
     <h3 id="target-recovery-title" tabIndex={-1}>GoldTier submission needs verification</h3>
     <p>GoldTier did not return a definitive result for one submission step. The system stopped to prevent a duplicate submission. Your case data and completed work have been preserved.</p>
     <dl className="target-recovery-facts">

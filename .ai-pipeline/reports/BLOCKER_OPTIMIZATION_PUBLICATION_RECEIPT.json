@@ -1,0 +1,203 @@
+{
+  "sealed_utc": "2026-10-10T08:49:04.974232+00:00",
+  "status": "READY FOR OWNER PUBLICATION AUTHORIZATION",
+  "independent_verdict": "PASS",
+  "required_findings": 0,
+  "all_twelve_current_criteria_satisfied": true,
+  "branch": "feat/blocker-resolution-idp-ux-optimization",
+  "base_sha": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "head_sha": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "latest_fetched_main": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "merge_base": "e799d74063678bb0eccbea445d5ab3c8628dd2c0",
+  "main_drift_commits": 0,
+  "staged_paths": [],
+  "unmerged_paths": [],
+  "task_clean": false,
+  "repository_clean": false,
+  "commit_scope": "no-commit: direct owner prohibition; proposed later implementation388 + governance15",
+  "reviewed_content_sha256": "df9dd08ffc482b60aaa0951899fd20adf72cdc628e370c71ed222b1704cb499a",
+  "reviewed_files": 398,
+  "reviewed_files_unchanged": true,
+  "prior384_content_sha256": "1c880a5a596369b151664b85a5933e045254d3e5ac4000e28b7defeff97162f9",
+  "prior384_files_unchanged": true,
+  "source_identity_sha256": "5de89b19dda6964828d87ecf744d7b30df4ea3ee8c872a5a4dd2ffabb9df38df",
+  "source_entries_unchanged": 68,
+  "tracked_binary_diff_sha256": "6943b15ef09a4c6fa71ff782982b3afb6d9db736a5983b48f1712ee9276aec40",
+  "new_gate_sha256": "6546ab99f2e538d84389c79046942e232e2b9d3260a7830999353b6e32a2d193",
+  "review_manifest_sha256": "daa93b29b1eca445010cd74a87f26b73ba157e5240055f996f8a78652ddcb6b4",
+  "publication_handoff_sha256": "045e7c9668d42a798246314236c8f308ef9a1b1ca35823b31be8e30c80d0b3d3",
+  "publication_file_manifest_sha256": "1e71ef7385a2239e5c0029e3ce2996e55d4ea8dde0e86b67e7de581c05105cc6",
+  "publication_changed_file_entries_sha256": "e483f0e6ea5385341d348d11aceda1bbd53f9c737334dc567ca08a2a15894062",
+  "publication_hashed_entries": 401,
+  "publication_total_proposed_paths": 403,
+  "original_implementation_and_evidence_paths": 388,
+  "owner_governance_paths": 15,
+  "explicit_ignored_report_logs": 29,
+  "unexpected_paths": [],
+  "classification_counts_including_two_supporting_derivatives": {
+    "SUPPORTING": 382,
+    "INTENDED": 21
+  },
+  "browser_evidence": {
+    "lifecycles": 89,
+    "tests": 112,
+    "skipped": 0,
+    "excluded": 0,
+    "failed": 0
+  },
+  "offline_journeys": [
+    {
+      "code": "garden",
+      "track": "A",
+      "case_id": "6d576aa0-ddfd-4ede-a61f-7d4a438a549a",
+      "state": "COMPLETED",
+      "zero_replay": true,
+      "receipt_sha256": "05934b2eb7db7505e0fe8988ad7a237a51e25eedcae8107611923d4c7f6b9d87"
+    },
+    {
+      "code": "merlion",
+      "track": "A",
+      "case_id": "2b614b70-c63e-4281-8d43-7bfc7f4b4582",
+      "state": "COMPLETED",
+      "zero_replay": true,
+      "receipt_sha256": "e079ca1e5c44d08fdabcf05b180289cdab2a88b779f9d6e5f03594bee526bcdf"
+    },
+    {
+      "code": "multiple",
+      "track": "A",
+      "case_id": "17130f9a-a09c-43d1-bdb9-ee4a19c1a97d",
+      "state": "COMPLETED",
+      "zero_replay": true,
+      "receipt_sha256": "e895f2084af94ed4fec0178964899271aba82f5b1a65313c93ca816da82f4c73"
+    },
+    {
+      "code": "multilevel",
+      "track": "A",
+      "case_id": "281b5e36-e39a-4d70-84ff-c7df75d7c457",
+      "state": "COMPLETED",
+      "zero_replay": true,
+      "receipt_sha256": "bc1c5a982cca93c45412461b05b5eb2985d92883b6f2aeb54ba6e4465b9578d1"
+    },
+    {
+      "code": "aurora",
+      "track": "B",
+      "case_id": "5698ca0d-c881-4e63-b2fe-b63258f47e32",
+      "state": "COMPLETED",
+      "zero_replay": true,
+      "receipt_sha256": "66634682888b048eeef6d8e69603e79afb29bdc53364d8855d2ef8399dbe09ae"
+    },
+    {
+      "code": "pacific",
+      "track": "B",
+      "case_id": "d4f2cf5e-8f6b-407a-9088-58390f3cf794",
+      "state": "COMPLETED",
+      "zero_replay": true,
+      "receipt_sha256": "0141f2e8f1fc51aeb404eecd6a995da959aee2070fb4b3d9f57978257ebd3507"
+    },
+    {
+      "code": "straits",
+      "track": "B",
+      "case_id": "676a440a-a950-459e-aead-2dd7c0abb9ce",
+      "state": "COMPLETED",
+      "zero_replay": true,
+      "receipt_sha256": "badb0fa96b8ae870ef5844c2cfa5f26b451446215c6abcdf1fab1f4e4f1fdbb0"
+    },
+    {
+      "code": "meridian",
+      "track": "B",
+      "case_id": "dbd7b75b-1441-444c-b3bd-a09cbec7caf9",
+      "state": "COMPLETED",
+      "zero_replay": true,
+      "receipt_sha256": "5e8002768d90ad72bec2257e68de155f5d3ad79b3e00a2c7a7daf0dd3bd6ff79"
+    }
+  ],
+  "evidence_bindings_verified": 120,
+  "governance_checks": [
+    {
+      "name": "project_state",
+      "exit_code": 0,
+      "sha256": "802a21c6c3e8d997e291164394433116a2bbd751758a17d359314ad02ec90362"
+    },
+    {
+      "name": "architecture",
+      "exit_code": 0,
+      "sha256": "1995542d06f58d4f6cb8133c206109972455ed2e01324defb26ca1d08077634a"
+    },
+    {
+      "name": "tooling_config",
+      "exit_code": 0,
+      "sha256": "e04d4a0126da1a6e28380a8859ef86ace862a937bc14cbdb13c56ac4a37608c5"
+    },
+    {
+      "name": "policy_authority",
+      "exit_code": 0,
+      "sha256": "0d8548dd7f1ba239e7e4f10720a01d6e3a34bffce99f7d990575b10ce3460496"
+    },
+    {
+      "name": "external_provider_readiness",
+      "exit_code": 0,
+      "sha256": "88c234f2de53c6109e14ab927e84853ee160a6501bf4c296457ad89d7f214fd4"
+    },
+    {
+      "name": "secrets",
+      "exit_code": 0,
+      "sha256": "1f210c25ed0d9e15e8c5a55264d5a569275f9edbd04b268d5e02d801e6590f5f"
+    }
+  ],
+  "final_closure_checks": {
+    "tracked_diff_check_exit_code": 0,
+    "tracked_nonignored_secret_check_exit_code": 0,
+    "explicit_publication_secret_paths_checked_before_receipt": 402,
+    "explicit_publication_secret_findings": 0,
+    "markdown_files_explicitly_checked": 41,
+    "markdown_whitespace_findings": 0,
+    "conflict_marker_findings": 0
+  },
+  "historical_fail_hashes_unchanged": {
+    "review1": "e7d3df6429d1b43b33431b983d79689190bb444129a648345782dc6c116bdf5a",
+    "review2": "2c7764f80565a0c2b1f3e7508ce96fb5b8ee633568acb92f10bcdfce0edce83c",
+    "round3": "f6771976be24586e1123cc2ce6e353a9b3dc9f99c059cb75198939c43c51a54a"
+  },
+  "sdq01": {
+    "investigative_status": "UNRESOLVED_CATEGORY_F",
+    "release_status": "historical root cause unresolved - owner-accepted residual risk",
+    "first_internal_stall_and_root_cause_proven": false,
+    "fixed_or_causally_closed": false,
+    "scope": "Exact current reviewed candidate only; future reproduced timeout, full-suite failure or new correctness evidence reopens and requires separate owner authorization"
+  },
+  "sdq02": "INDEPENDENTLY_CLOSED_UNCHANGED",
+  "real_sandbox_uat": "NOT_VERIFIED",
+  "execution_classification": "AUTOMATED_OFFLINE_SIMULATION",
+  "confidence_grade": "B",
+  "source_change_disclosure": {
+    "api_types": "UNCHANGED_THIS_GOVERNANCE_CONTINUATION",
+    "durable_schema": "UNCHANGED_THIS_GOVERNANCE_CONTINUATION",
+    "connector": "UNCHANGED_THIS_GOVERNANCE_CONTINUATION",
+    "configuration": "UNCHANGED_THIS_GOVERNANCE_CONTINUATION",
+    "business_rule": "UNCHANGED_THIS_GOVERNANCE_CONTINUATION",
+    "mapping": "UNCHANGED_THIS_GOVERNANCE_CONTINUATION",
+    "auth_security": "UNCHANGED_THIS_GOVERNANCE_CONTINUATION",
+    "architecture": "UNCHANGED_THIS_GOVERNANCE_CONTINUATION",
+    "provider_status": "UNCHANGED_THIS_GOVERNANCE_CONTINUATION",
+    "runtime_behavior": "UNCHANGED_THIS_GOVERNANCE_CONTINUATION"
+  },
+  "original_checkout_preserved": {
+    "head": "5c54c9af896585764d1e4ed809056d1deb576629",
+    "branch": "codex/measured-master-evidence",
+    "status": [
+      "?? artifacts/",
+      "?? evaluation/",
+      "?? outputs/"
+    ]
+  },
+  "resources": {
+    "observed_independently_in_released_gate": "Exact prior round3 container and two volumes absent against available Docker daemon; task ports clear; no database or provider execution in this continuation",
+    "new_services_started_or_resources_removed_in_governance_run": false,
+    "owned_services_remaining": 0
+  },
+  "pre_pr_check": "NOT_RUN: intentionally uncommitted and no commit authority",
+  "candidate_github_ci": "NOT_RUN: no candidate commit/push/PR",
+  "publication_authorization": "NOT_GRANTED; no staging/commit/push/PR/merge performed",
+  "self_identity": "This receipt is explicitly excluded from circular self-hashes; its raw SHA256 is returned externally at delivery",
+  "next_action": "Explicit owner publication authorization of exact scope, followed by scoped commits/latest-main assessment/clean committed pre-PR gate and actual candidate push/PR CI; human merge"
+}

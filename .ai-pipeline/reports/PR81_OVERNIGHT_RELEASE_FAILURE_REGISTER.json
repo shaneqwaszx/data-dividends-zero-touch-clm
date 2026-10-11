@@ -1,0 +1,37 @@
+{
+  "source_identity": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+  "incidents": [
+    {
+      "id": "SEEDER_BODY_TIMEOUT",
+      "candidate": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+      "selector": "tests/test_phase13_demo_scripts.py::test_http_seeder_runs_twice_against_one_live_memory_backend",
+      "observed": "response object returned; socket body read timeout; first seed confirmation outcome unknown; second seed not reached",
+      "log": "tmp/pr81-closure-perf-backend-backend.log",
+      "classification": "unresolved transport/server/client/fixture/latency boundary",
+      "hypothesis": "No cause selected. Instrument response framing/body delivery and server completion separately.",
+      "next": "Genuinely new scoped failing wire/framing/receive-byte diagnostic or proved transport correction; never reset window on passes alone",
+      "disposition": "HARD_STOP: unresolved reproducible body-delivery failure after bounded informative diagnosis; failed prospective window; independent FAIL, no justified correction",
+      "diagnostic": "tmp/pr81-overnight-seeder-diagnostic.json",
+      "diagnostic_result": "PASS both original seed assertions; ten HTTP200 confirmations and exact declared-body receipt; no timeout reproduced",
+      "cause": "UNKNOWN client/wire delivery; diagnostic9 observed completed server operation excludes ongoing owner/lock stall only for that reproduction",
+      "reproduction": "tmp/pr81-overnight-seeder-exact-2.log",
+      "reproduced_outcome": "HTTP200 Content-Length65767/nonchunked/close; server connections0/tasks0/requests14; automation COMPLETED v14, confirmed, case events9; CLM MOCK_GOLDTIER_SUBMITTED v12; client timed out15s",
+      "read_only_proof": "tmp/pr81-overnight-seeder-diagnostic-9.json",
+      "independent_gate": ".ai-pipeline/reports/PR81_OVERNIGHT_INDEPENDENT_QUALITY_GATE.md",
+      "independent_verdict": "FAIL"
+    },
+    {
+      "id": "WIDTH360_HISTORICAL",
+      "candidate": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+      "classification": "historical timing uncertainty; separate from seeder",
+      "disposition": "PROVISIONAL assessment NOT_DISPATCHED; original exact49.7/49.1 PASS preserved; cause UNKNOWN; no optimization",
+      "independent_verdict": "Not accepted for release; distinct from seeder"
+    }
+  ],
+  "tooling_incident": {
+    "id": "DIAGNOSTIC2_RECEIPT_COLLISION",
+    "observed": "Diagnostic2 reproduced timeout but final RAM metadata receipt path reused immutable first diagnostic; assertion blocked overwrite",
+    "disposition": "Corrected tooling names for diagnostic3+, original log preserved; missing metadata never reported as observed; no product source change"
+  },
+  "final_review_identity": "a6504b70353a79025e860d7f0370ca06a7ec4242b6454ead3b57b75444ef0f4b"
+}

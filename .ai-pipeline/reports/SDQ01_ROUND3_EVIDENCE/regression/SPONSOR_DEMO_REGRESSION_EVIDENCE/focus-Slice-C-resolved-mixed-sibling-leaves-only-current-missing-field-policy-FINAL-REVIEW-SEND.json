@@ -1,0 +1,18 @@
+{
+  "scenario": "Slice C resolved mixed sibling leaves only current missing-field policy",
+  "node": "FINAL_REVIEW_SEND",
+  "actual_control": {
+    "tag": "BUTTON",
+    "id": "",
+    "type": "button",
+    "label": null,
+    "field": null
+  },
+  "visible": true,
+  "enabled": true,
+  "focused": true,
+  "in_viewport": true,
+  "unobscured": true,
+  "calls_before_confirmation": 0,
+  "verdict": "PASS"
+}

@@ -1,0 +1,163 @@
+{
+  "utc": "2026-10-11T03:59:58.899374+00:00",
+  "all_pass": true,
+  "commands": [
+    {
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v6-1\\Test-ControllerDiagnostics.ps1",
+        "-OutputPath",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\PR81_TCP_V61_CONTROLLER_RESULTS.json"
+      ],
+      "exit_code": 0,
+      "stdout": "V6 synthetic diagnostics: 30 cases; failures=0; bounded numeric writer; no ETW/fixture\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v6-1\\Test-WatchdogSafety.ps1",
+        "-OutputPath",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\PR81_TCP_V61_WATCHDOG_RESULTS.json"
+      ],
+      "exit_code": 0,
+      "stdout": "V6 watchdog safety PASS: 39 site/adverse cases + 6 actual process checks; no process started/ETW/fixture\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v6-1\\Test-LoggingModeSafety.ps1",
+        "-OutputPath",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\PR81_TCP_V61_MODE_RESULTS.json"
+      ],
+      "exit_code": 0,
+      "stdout": "V6 mode safety PASS: 50 cases; exact mode, all extra bits, unchanged bounds/ownership and actual Start properties; no ETW/fixture\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v6-1\\Test-ExportEnvelope.ps1",
+        "-OutputPath",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\PR81_TCP_V61_ENVELOPE_RESULTS.json"
+      ],
+      "exit_code": 0,
+      "stdout": "Sanitizer checks=19: complete matching lifetime only, unknown ID/version, string payload, temporal/same-tuple reuse, missing boundaries/send, process key, PID and address rejection; no ETL read\nV6.1 actual export envelope PASS: 51 cases; positives=3; negatives=48; actual writer/reader, no false output; no ETL/fixture\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v6-1\\Invoke-Pr81TcpCapture.ps1",
+        "-Mode",
+        "Validate"
+      ],
+      "exit_code": 0,
+      "stdout": "Sanitizer checks=19: complete matching lifetime only, unknown ID/version, string payload, temporal/same-tuple reuse, missing boundaries/send, process key, PID and address rejection; no ETL read\nV6 synthetic diagnostics: 30 cases; failures=0; bounded numeric writer; no ETW/fixture\nV6 watchdog safety PASS: 39 site/adverse cases + 6 actual process checks; no process started/ETW/fixture\nV6 mode safety PASS: 50 cases; exact mode, all extra bits, unchanged bounds/ownership and actual Start properties; no ETW/fixture\nSanitizer checks=19: complete matching lifetime only, unknown ID/version, string payload, temporal/same-tuple reuse, missing boundaries/send, process key, PID and address rejection; no ETL read\nV6.1 actual export envelope PASS: 51 cases; positives=3; negatives=48; actual writer/reader, no false output; no ETL/fixture\nValidation PASS: compile/layout/schema/source/ownership/bounds/loss; no native trace-control call\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v6-1\\Run-FreshFixture.py",
+        "--validate"
+      ],
+      "exit_code": 0,
+      "stdout": "Runner validation PASS; no fixture/trace executed\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "--no-cache",
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\.ai-pipeline\\reports\\pr81-tcp-capture-v6-1\\Run-FreshFixture.py"
+      ],
+      "exit_code": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_project_state.py"
+      ],
+      "exit_code": 0,
+      "stdout": "PROJECT STATE CHECK: PASS\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "scripts/check_architecture.py"
+      ],
+      "exit_code": 0,
+      "stdout": "ARCHITECTURE CHECK: PASS\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "tests/test_check_secrets.py",
+        "-q"
+      ],
+      "exit_code": 0,
+      "stdout": "........                                                                 [100%]\n8 passed in 0.03s\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "warning: in the working copy of 'apps/backend/app/main.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/backend/app/services/zero_touch_orchestration.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/backend/tests/test_final_review_editing_real_mongo.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/e2e/blocker-review-performance.e2e.ts', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/DemoPerformance.test.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/CaseDetail.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/DocumentEvidencePanel.test.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/DocumentEvidencePanel.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/OnboardingWorkspace.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'apps/frontend/src/pages/S1PipelineWorkspace.test.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/contracts/MULTI_DOCUMENT_INTAKE_PROFILE.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'scripts/slice_c_recovery_fixture.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'tests/test_slice_c_e2e_fixture_routing.py', LF will be replaced by CRLF the next time Git touches it\n"
+    }
+  ],
+  "bundle_sha256": "53b6657eae510f4a022ea6d164bc1344b66f2f72563eb762709a792fed69422f",
+  "source_identity": "ba47966ed4cd5a4a9c084cc9450bc5250b46b61d85c8a3cc1185448ffa691490",
+  "preserved_count": 1204,
+  "historical1175_preserved": true,
+  "selection_and_lifetime_body_unchanged": true,
+  "native_watchdog_cleanup_bodies_unchanged": true,
+  "runner_ast_only_safe_profile_fields": true,
+  "envelope_cases": 51,
+  "positive_cases": 3,
+  "negative_cases": 48,
+  "controller_cases": 30,
+  "watchdog_cases": 39,
+  "actual_process_checks": 6,
+  "mode_cases": 50,
+  "selection_cases": 19,
+  "scanner_tests": 8,
+  "scoped_scan_pass": true,
+  "whitespace_pass": true,
+  "raw_etl_accessed": false,
+  "native_trace_control_invoked": false,
+  "fixture_executed": false,
+  "initial_test_failure": "New envelope test initially expected eleven top-level fields; actual retained V6 envelope has ten. Test corrected to ten; production output unchanged."
+}

@@ -5,6 +5,12 @@ It is not a sponsor contract, phase report, or substitute for current source and
 
 ## Verification metadata
 
+Current assignment baseline verified on2026-10-10: merged PR80
+`e799d74063678bb0eccbea445d5ab3c8628dd2c0`, post-merge push37954652603
+SUCCESS (seven jobs). Grouped review is an uncommitted candidate with acceptance
+owned by its current implementation/simulation/performance/IDP/independent reports.
+Historical verification metadata follows.
+
 PR #77 was human squash-merged on 2026-10-08 at inspected main
 `8fb5a43c26efd5ef9f513b37fd9478e555cb4eb4`. Closeout state is
 **merged-and-verified**. Post-merge main push CI
@@ -874,3 +880,28 @@ seed namespace while configured-provider and original provenance remain distinct
 Historical reports apply only to their original bytes and requirements. Corrected
 verification belongs to SYNTHETIC_COMPANY_PACK_CORRECTION reports.
 See [the operator guide](demo/SYNTHETIC_COMPANY_PACK.md).
+
+## Blocker-resolution candidate - 2026-10-10
+
+Verified assignment baseline: merged PR80 e799d74063678bb0eccbea445d5ab3c8628dd2c0;
+post-merge push37954652603 succeeded. The isolated, uncommitted blocker-resolution
+candidate repairs PDFium CRLF classification, regenerates the four synthetic company
+PDFs with explicit Company - Private / Corporate, adds local drafts and grouped review,
+and focuses actual current controls. Provider matrix, schema10, provisional Decimal UBO,
+final Review & Send and sponsor questions are unchanged. Drafts are tab-local; grouped
+section retention is resumable and is not an atomic transaction. Fresh implementation,
+simulation, performance, IDP and independent gate reports own candidate evidence. No
+commit/push/PR/merge or real provider write is authorized by this assignment.
+
+## Sponsor demo expansion - unmerged candidate, 2026-10-10
+
+The owner addendum adds current creator Final Review edits through existing authorities,
+fresh readiness/confirmation, and four separate native sponsor PDFs: Aurora202400019S,
+Pacific202400015O, Straits202400016P and Meridian202400017Q. Legacy Orion and eight default
+seeds remain. Four recoverable blocker cases and four automatic LOCAL-seed happy cases
+are exercised through actual browser HTTP and disposable physical Mongo with strict
+offline provider transports. The configured modes remain Marketplace Mock/Mongo/auto
+and XPI Sandbox; no external provider write occurs. Real Sandbox UAT is NOT_VERIFIED.
+No schema, mapper, Decimal policy, provider capability or sponsor-controlled rule changes.
+Expanded source/evidence acceptance requires SPONSOR_DEMO_FINAL_QUALITY_GATE.md; the prior
+blocker gate certifies only its historical frozen package.

@@ -17,11 +17,13 @@ export default function IdentityCorrectionForm({
   onSubmit,
   registryRecovery = false,
   documentCandidates = [],
+  error = null,
 }: {
   onboardingCase: OnboardingCase;
   disabled: boolean;
   onSubmit: (values: IdentityCorrectionValues) => void;
   registryRecovery?: boolean;
+  error?: string | null;
   documentCandidates?: Array<{ uen: string; documentId: string; eventCount: number }>;
 }) {
   const initial = onboardingCase.initial_identity;
@@ -33,6 +35,7 @@ export default function IdentityCorrectionForm({
   const registrationNumberValue = registrationNumber.trim().toUpperCase();
   const complete = legalNameValue.length > 0 && registrationNumberValue.length > 0;
   const [editing, setEditing] = useState(!registryRecovery || !initial?.legal_name);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   function choose(uen: string, choice: "ENTERED" | "DOCUMENT", documentId?: string, eventCount?: number): void {
     if (disabled || !legalNameValue) return;
@@ -43,6 +46,11 @@ export default function IdentityCorrectionForm({
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (disabled || !complete) return;
+    if (!/^(?:[0-9]{8}[A-Z]|[0-9]{9}[A-Z]|[TSR][0-9]{2}[A-Z]{2}[0-9]{4}[A-Z])$/.test(registrationNumberValue)) {
+      setValidationError("Enter a Singapore UEN in the supported format before verification.");
+      return;
+    }
+    setValidationError(null);
     onSubmit({
       legal_name: legalNameValue,
       registration_number: registrationNumberValue,
@@ -77,6 +85,7 @@ export default function IdentityCorrectionForm({
         correction and decides the resulting workflow state.
       </>}</p>
       <form onSubmit={submit}>
+        {(validationError || error) && <p role="alert" className="ds-banner ds-banner-warn">{validationError || error}</p>}
         <div className="identity-correction__fields">
           <div>
             <label htmlFor="identity-legal-name">Legal company name</label>

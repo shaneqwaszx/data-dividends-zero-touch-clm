@@ -1,0 +1,674 @@
+{
+  "ProviderName": "Microsoft-Windows-TCPIP",
+  "ProviderGuid": "2f07e2ee-15db-40f1-90ef-9d7ba282188a",
+  "OsVersion": "10.0.26200.0",
+  "Events": [
+    {
+      "Id": 1002,
+      "Version": 0,
+      "Task": "TcpRequestConnect",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ConnectPath",
+          "Value": 17179869184
+        },
+        {
+          "Name": "ut:Endpoint",
+          "Value": 1024
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n  <data name=\"NewState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RexmitCount\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1038,
+      "Version": 0,
+      "Task": "TcpCloseTcbRequest",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ClosePath",
+          "Value": 68719476736
+        },
+        {
+          "Name": "ut:Endpoint",
+          "Value": 1024
+        },
+        {
+          "Name": "ut:TcpipTcb",
+          "Value": 4
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n  <data name=\"Status\" inType=\"win:UInt32\" outType=\"win:NTStatus\"/>\r\n  <data name=\"ProcessId\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Compartment\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1038,
+      "Version": 1,
+      "Task": "TcpCloseTcbRequest",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ClosePath",
+          "Value": 68719476736
+        },
+        {
+          "Name": "ut:Endpoint",
+          "Value": 1024
+        },
+        {
+          "Name": "ut:TcpipTcb",
+          "Value": 4
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n  <data name=\"Status\" inType=\"win:UInt32\" outType=\"win:NTStatus\"/>\r\n  <data name=\"ProcessId\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Compartment\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"ProcessStartKey\" inType=\"win:UInt64\" outType=\"xs:unsignedLong\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1043,
+      "Version": 0,
+      "Task": "TcpDisconnectTcbComplete",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ClosePath",
+          "Value": 68719476736
+        },
+        {
+          "Name": "ut:Endpoint",
+          "Value": 1024
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        },
+        {
+          "Name": "ut:TcpipTcb",
+          "Value": 4
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n  <data name=\"Status\" inType=\"win:UInt32\" outType=\"win:NTStatus\"/>\r\n  <data name=\"ProcessId\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Compartment\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1043,
+      "Version": 1,
+      "Task": "TcpDisconnectTcbComplete",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ClosePath",
+          "Value": 68719476736
+        },
+        {
+          "Name": "ut:Endpoint",
+          "Value": 1024
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        },
+        {
+          "Name": "ut:TcpipTcb",
+          "Value": 4
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n  <data name=\"Status\" inType=\"win:UInt32\" outType=\"win:NTStatus\"/>\r\n  <data name=\"ProcessId\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Compartment\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"ProcessStartKey\" inType=\"win:UInt64\" outType=\"xs:unsignedLong\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1043,
+      "Version": 2,
+      "Task": "TcpDisconnectTcbComplete",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ClosePath",
+          "Value": 68719476736
+        },
+        {
+          "Name": "ut:Endpoint",
+          "Value": 1024
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        },
+        {
+          "Name": "ut:TcpipTcb",
+          "Value": 4
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n  <data name=\"Status\" inType=\"win:UInt32\" outType=\"win:NTStatus\"/>\r\n  <data name=\"ProcessId\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Compartment\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"ProcessStartKey\" inType=\"win:UInt64\" outType=\"xs:unsignedLong\"/>\r\n  <data name=\"Inspect\" inType=\"win:Boolean\" outType=\"xs:boolean\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1051,
+      "Version": 0,
+      "Task": "TcpTcbStateChange",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:Endpoint",
+          "Value": 1024
+        },
+        {
+          "Name": "ut:TcpipTcb",
+          "Value": 4
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"OldState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"NewState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndNxt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1071,
+      "Version": 0,
+      "Task": "TcpDataTransferCumAck",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Cwnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SSThresh\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RttSample\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"NumBytes\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndUna\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Round\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRTT\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RTO\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"DWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"BaseRtt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"DupAckCount\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1073,
+      "Version": 0,
+      "Task": "TcpDataTransferSend",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Cwnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SSThresh\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RttSample\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"NumBytes\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndUna\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Round\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRTT\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RTO\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"DWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"BaseRtt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"DupAckCount\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1074,
+      "Version": 0,
+      "Task": "TcpDataTransferReceive",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ReceivePath",
+          "Value": 8589934592
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"NumBytes\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1074,
+      "Version": 1,
+      "Task": "TcpDataTransferReceive",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ReceivePath",
+          "Value": 8589934592
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"NumBytes\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"NumPkt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1077,
+      "Version": 0,
+      "Task": "TcpDataTransferRetransmitRound",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Cwnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SSThresh\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RttSample\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"NumBytes\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndUna\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Round\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRTT\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RTO\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"DWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"BaseRtt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"DupAckCount\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1176,
+      "Version": 0,
+      "Task": "TcpDeliveryFin",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ReceivePath",
+          "Value": 8589934592
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Delivery\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Request\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"NumBytes\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"RequestFlags\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Length\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"RequestStatus\" inType=\"win:UInt32\" outType=\"win:NTStatus\"/>\r\n  <data name=\"IsUrgentDelivery\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"FullySatisfiedORDelayedPush\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RcvNxt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1180,
+      "Version": 0,
+      "Task": "TcpTcbInjectFinComplete",
+      "Level": 5,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ReceivePath",
+          "Value": 8589934592
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Delivery\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Request\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"NumBytes\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"RequestFlags\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Length\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"RequestStatus\" inType=\"win:UInt32\" outType=\"win:NTStatus\"/>\r\n  <data name=\"IsUrgentDelivery\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"FullySatisfiedORDelayedPush\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RcvNxt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1184,
+      "Version": 0,
+      "Task": "TcpConnectionTerminatedRcvdRst",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ConnectPath",
+          "Value": 17179869184
+        },
+        {
+          "Name": "ut:ReceivePath",
+          "Value": 8589934592
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n  <data name=\"NewState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RexmitCount\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1300,
+      "Version": 0,
+      "Task": "TcpConnectionRundown",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ConnectPath",
+          "Value": 17179869184
+        },
+        {
+          "Name": "ut:Endpoint",
+          "Value": 1024
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        },
+        {
+          "Name": "ut:TcpipTcb",
+          "Value": 4
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n  <data name=\"State\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Pid\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1300,
+      "Version": 1,
+      "Task": "TcpConnectionRundown",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ConnectPath",
+          "Value": 17179869184
+        },
+        {
+          "Name": "ut:Endpoint",
+          "Value": 1024
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        },
+        {
+          "Name": "ut:TcpipTcb",
+          "Value": 4
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n  <data name=\"State\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Pid\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"ProcessStartKey\" inType=\"win:UInt64\" outType=\"xs:unsignedLong\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1300,
+      "Version": 2,
+      "Task": "TcpConnectionRundown",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ConnectPath",
+          "Value": 17179869184
+        },
+        {
+          "Name": "ut:Endpoint",
+          "Value": 1024
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        },
+        {
+          "Name": "ut:TcpipTcb",
+          "Value": 4
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n  <data name=\"State\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Pid\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"ProcessStartKey\" inType=\"win:UInt64\" outType=\"xs:unsignedLong\"/>\r\n  <data name=\"SendTrackerEnabled\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1300,
+      "Version": 3,
+      "Task": "TcpConnectionRundown",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ConnectPath",
+          "Value": 17179869184
+        },
+        {
+          "Name": "ut:Endpoint",
+          "Value": 1024
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        },
+        {
+          "Name": "ut:TcpipTcb",
+          "Value": 4
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n  <data name=\"State\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Pid\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"ProcessStartKey\" inType=\"win:UInt64\" outType=\"xs:unsignedLong\"/>\r\n  <data name=\"SendTrackerEnabled\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RcvBufSet\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1330,
+      "Version": 0,
+      "Task": "TcpDataTransferCumAck",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Cwnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"BytesAcked\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1332,
+      "Version": 0,
+      "Task": "TcpDataTransferSend",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Cwnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"BytesSent\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRtt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RttVar\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RTO\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1332,
+      "Version": 1,
+      "Task": "TcpDataTransferSend",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Cwnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"BytesSent\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRtt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RttVar\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RTO\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RcvWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1332,
+      "Version": 2,
+      "Task": "TcpDataTransferSend",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Cwnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"BytesSent\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRtt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RttVar\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RTO\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RcvWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"PacingRate\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1332,
+      "Version": 3,
+      "Task": "TcpDataTransferSend",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Cwnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"BytesSent\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRtt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RttVar\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RTO\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RcvWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"PacingRate\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"TcpState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"CongestionState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndUna\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndMax\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RecoveryMax\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1332,
+      "Version": 4,
+      "Task": "TcpDataTransferSend",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Cwnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"BytesSent\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRtt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RttVar\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RTO\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RcvWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"PacingRate\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"TcpState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"CongestionState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndUna\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndMax\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RecoveryMax\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RcvBufSet\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"MaxRcvBuf\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1332,
+      "Version": 5,
+      "Task": "TcpDataTransferSend",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"Cwnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"BytesSent\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SeqNo\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRtt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RttVar\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RTO\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RcvWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"PacingRate\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"TcpState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"CongestionState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndUna\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndMax\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RecoveryMax\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RcvBufSet\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"MaxRcvBuf\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalAddressLength\"/>\r\n  <data name=\"RemoteAddressLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteAddress\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteAddressLength\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1351,
+      "Version": 0,
+      "Task": "TcpDataTransferRetransmitRound",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"SndUna\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RexmitCount\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRTT\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RTO\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1351,
+      "Version": 1,
+      "Task": "TcpDataTransferRetransmitRound",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"SndUna\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RexmitCount\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRTT\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RTO\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndMax\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RecoveryMax\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"TcpState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"CongestionState\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"Frto\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"TotalRT\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"MaxRT\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1449,
+      "Version": 0,
+      "Task": "TcpLoopbackFastPathSuccess",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:ConnectPath",
+          "Value": 17179869184
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1479,
+      "Version": 0,
+      "Task": "TcpRstSend",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:Global",
+          "Value": 549755813888
+        },
+        {
+          "Name": "ut:TcpipDiagnosis",
+          "Value": 128
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"IPTransportProtocol\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"AddressFamily\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalSockAddrLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LocalSockAddr\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"LocalSockAddrLength\"/>\r\n  <data name=\"RemoteSockAddrLength\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RemoteSockAddr\" inType=\"win:Binary\" outType=\"win:SocketAddress\" length=\"RemoteSockAddrLength\"/>\r\n  <data name=\"Reason\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    },
+    {
+      "Id": 1637,
+      "Version": 0,
+      "Task": "TcpSendAcked",
+      "Level": 4,
+      "Keywords": [
+        {
+          "Name": null,
+          "Value": -9223372036854775808
+        },
+        {
+          "Name": "ut:TxIoInfo",
+          "Value": 70368744177664
+        },
+        {
+          "Name": "ut:SendPath",
+          "Value": 4294967296
+        }
+      ],
+      "Template": "<template xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">\r\n  <data name=\"Tcb\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"NumBytes\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SndNxt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"ActivityID\" inType=\"win:Pointer\" outType=\"win:HexInt64\"/>\r\n  <data name=\"SndLimBytesSnd\" inType=\"win:UInt64\" outType=\"xs:unsignedLong\"/>\r\n  <data name=\"SndLimBytesRwin\" inType=\"win:UInt64\" outType=\"xs:unsignedLong\"/>\r\n  <data name=\"SndLimBytesCwnd\" inType=\"win:UInt64\" outType=\"xs:unsignedLong\"/>\r\n  <data name=\"CWnd\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"SRtt\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"LossRecoveryEpisodes\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"RtoEpisodes\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n  <data name=\"PtoEpisodes\" inType=\"win:UInt32\" outType=\"xs:unsignedInt\"/>\r\n</template>\r\n"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "mode": "width360",
+  "ordinal": 2,
+  "command": [
+    "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm\\tmp\\pr81-final-windows-checkout\\.venv\\Scripts\\python.exe",
+    "-B",
+    "scripts/run_e2e.py",
+    "--backend-port",
+    "18900",
+    "--frontend-port",
+    "19400",
+    "--timeout-seconds",
+    "60",
+    "--grep",
+    "Performance browser cache measurement width360"
+  ],
+  "cwd": "C:\\Users\\shane\\.codex-clean2\\worktrees\\blocker-resolution-idp-ux\\data-dividends-zero-touch-clm",
+  "exit_code": 0,
+  "seconds": 53.031,
+  "started_utc": "2026-10-11T09:44:20.351321+00:00",
+  "source27": "916d57b043be8a5d29e85992b9df9cb2dbdab855fa909e776208391ad934dcab",
+  "source_post_match": true,
+  "safe_summary": [],
+  "selectors": [],
+  "lifecycles": 0,
+  "tests_passed": 1,
+  "skipped": 0,
+  "retries": 0,
+  "measurement_validated": true,
+  "measurement_path": "tmp\\pr81-final-http-width360-2-measurement.json",
+  "measurement_sha256": "28efe783b20cbafbc674135b3a3b4880a55930c0df9334cb0bb7d183d7c4ec85",
+  "sample_counts": {
+    "cold_client_cache": 20,
+    "warm_navigation": 20
+  },
+  "method_sha256": "e8f6fda4ff88b36fd41ac25b2d60b6a9fa523b17688dded43959ffdbba4cc19b",
+  "finished_utc": "2026-10-11T09:45:13.392523+00:00"
+}

@@ -19,10 +19,22 @@ tested identity-only package. Regenerate with scripts/generate_zero_touch_happy_
 ## Native-text company pack extension
 
 Orion202400014N, Pacific202400015O, Straits202400016P and Meridian202400017Q use the same
-LOCAL_SYNTHETIC_UAT_V1 database-first owner. Their four identity-only native-text PDFs
+LOCAL_SYNTHETIC_UAT_V1 database-first owner. Their four native-text PDFs with explicit Company - Private / Corporate labels
 are indexed in the parent README with exact SHA256 values. See
 [the corrected operator guide](../../../../../../docs/demo/SYNTHETIC_COMPANY_PACK.md).
 Existing Beta's current effective percentages are30/25/17/14/8.5/5.5 (P1/P2 candidates);
 Gamma's are30/25/20/10/10/5 (P1/P2 candidates). Current fixture source/tests supersede
 the historical simplified values in the table above. Seed all eight with the existing
 seed_zero_touch_happy_path_companies.py manager; configure api_marketplace_mock/mongo/auto.
+
+## Separate sponsor demo native documents
+
+Aurora202400019S, Pacific202400015O, Straits202400016P and Meridian202400017Q have separate
+*-sponsor-demo-registry-annex.pdf files. Each includes native identity/classification
+labels and an informational LOCAL registry annex matching its seed graph. The annex is
+neither official ACRA evidence nor an independent client declaration. Regenerate these
+four only with generate_synthetic_company_pack.py --sponsor-demo. Explicit seed/check
+--sponsor-demo selects these four; the ordinary eight-fixture default is unchanged.
+Aurora's fictional natural owners are65/35. Existing Pacific/Straits/Meridian graphs,
+Orion files and the negative018R neighbor fixture remain. Exact bytes and journey evidence
+are indexed in DEMO_FIXTURE_AND_DOCUMENT_MANIFEST.md under .ai-pipeline/reports.
