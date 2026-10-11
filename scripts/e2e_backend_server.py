@@ -232,7 +232,7 @@ def main() -> int:
             from app.composition import build_acra_connector
 
             from scripts.slice_b_registry_fixture import (
-                GardenPartnershipProtocolTransport,
+                GardenCorrectionProtocolTransport,
             )
 
             settings = settings.model_copy(update={
@@ -240,7 +240,7 @@ def main() -> int:
                 "acra_api_marketplace_mock_client_id": SecretStr("synthetic-offline-client"),
                 "acra_api_marketplace_mock_secret_key": SecretStr("synthetic-offline-key"),
             })
-            garden_transport = GardenPartnershipProtocolTransport()
+            garden_transport = GardenCorrectionProtocolTransport()
             fixture_connector = build_acra_connector(
                 settings, transport=garden_transport,
                 marketplace_token_transport=garden_transport,

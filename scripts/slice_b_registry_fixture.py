@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from app.connectors.acra import (
     AcraCompanyPayload,
@@ -12,6 +12,7 @@ from app.connectors.acra import (
     AcraOwnershipPartiesPayload,
     AcraRelationshipsPayload,
 )
+from app.connectors.acra_api_marketplace_mock import ACRA_API_MARKETPLACE_MOCK_BASE_URL
 from app.connectors.acra_sandbox import AcraHttpResponse
 from app.connectors.mock_acra import MockAcraConnector
 
@@ -80,6 +81,26 @@ class GardenPartnershipProtocolTransport(OfflineGardenProtocolTransport):
         return AcraHttpResponse(
             response.status_code, payload, "application/json", len(json.dumps(payload))
         )
+
+
+class GardenCorrectionProtocolTransport(GardenPartnershipProtocolTransport):
+    """One fictional wrong-UEN absence plus the existing truthful PARTIAL Garden input."""
+
+    def get(
+        self, url: str, *, headers: Mapping[str, str], timeout_seconds: float,
+    ) -> AcraHttpResponse:
+        parsed = urlsplit(url)
+        base = urlsplit(ACRA_API_MARKETPLACE_MOCK_BASE_URL)
+        if parse_qs(parsed.query) == {"uen": ["11111998B"]}:
+            if (
+                parsed.scheme != base.scheme or parsed.netloc != base.netloc
+                or parsed.path != f"{base.path}/entityQuery/entityBasicInformation"
+                or parsed.fragment or headers.get("token") != self._token
+            ):
+                raise ValueError("Wrong-UEN protocol lookup is outside the allowlist")
+            self.calls.append("NOT_FOUND")
+            return AcraHttpResponse(200, {"entities": []}, "application/json", 16)
+        return super().get(url, headers=headers, timeout_seconds=timeout_seconds)
 
 
 class CountingSyntheticRegistry:

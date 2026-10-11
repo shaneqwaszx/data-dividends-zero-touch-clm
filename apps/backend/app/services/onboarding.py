@@ -948,7 +948,10 @@ class OnboardingService:
             )
             validated = OnboardingCase.model_validate(completed.model_dump())
             self._repository.save(validated)
-            if evidence.disposition in {"NO_MATCH", "EXACT_MATCH"}:
+            # A verified registry correction remains usable independently of Search
+            # review/failure, as in initial acquisition. Rebind the retained bundle
+            # through normal canonical validation; never refetch or upgrade PARTIAL.
+            if evidence.disposition in {"NO_MATCH", "EXACT_MATCH"} or verified is not None:
                 retained = (
                     (validated.registry_acquisition, validated.registry_evidence_binding)
                     if validated.registry_acquisition is not None
