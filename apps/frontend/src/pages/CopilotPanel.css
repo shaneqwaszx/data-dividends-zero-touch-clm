@@ -186,20 +186,24 @@
 
 .copilot-suggestions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
-  padding: 8px 14px;
-  border-top: 1px solid var(--color-divider, #d7d3d3);
+  padding: 8px 14px 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .copilot-chip {
-  padding: 5px 10px;
-  border: 1px solid var(--color-accent-300, #facb8d);
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border: 1px solid var(--color-divider, #d7d3d3);
   border-radius: 999px;
-  background: transparent;
-  color: var(--color-accent-700, #7d5411);
+  background: #fff;
+  color: var(--color-text-muted, #5f5a52);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -211,6 +215,11 @@
 .copilot-input {
   /* The app's global "form { align-self: center }" would shrink this form. */
   align-self: stretch;
+  position: relative;
+  display: flex;
+  padding: 8px 14px 4px;
+}" would shrink this form. */
+  align-self: stretch;
   display: flex;
   align-items: flex-end;
   gap: 8px;
@@ -221,12 +230,12 @@
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
-  min-height: 40px;
+  min-height: 44px;
   max-height: 132px;
   box-sizing: border-box;
-  padding: 9px 11px;
+  padding: 11px 48px 11px 13px;
   border: 1px solid var(--color-divider, #d7d3d3);
-  border-radius: 8px;
+  border-radius: 12px;
   background: #fff;
   color: inherit;
   font: inherit;
@@ -251,7 +260,8 @@
 }
 
 .copilot-chip:hover:not(:disabled) {
-  background: var(--color-accent-100, #fff3e4);
+  border-color: var(--color-accent-300, #facb8d);
+  color: var(--color-accent-700, #7d5411);
 }
 
 .copilot-panel .btn:hover:not(:disabled) {
@@ -287,4 +297,46 @@
 .copilot-compact-close {
   flex: 0 0 auto;
   margin-top: -4px;
+}
+
+.copilot-suggestions::-webkit-scrollbar {
+  display: none;
+}
+
+/* Round send button inside the bottom-right corner of the text box. */
+.copilot-send {
+  position: absolute;
+  right: 22px;
+  bottom: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-accent-600, #a06f24);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.copilot-send svg {
+  width: 16px;
+  height: 16px;
+}
+
+.copilot-send:hover:not(:disabled) {
+  background: var(--color-accent-700, #7d5411);
+}
+
+.copilot-send:disabled {
+  background: var(--color-divider, #d7d3d3);
+  cursor: default;
+}
+
+.copilot-send:focus-visible {
+  outline: 2px solid var(--color-accent-300, #facb8d);
+  outline-offset: 2px;
 }

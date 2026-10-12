@@ -195,10 +195,10 @@ export default function CopilotPanel({ caseId, onboardingWithoutCase = false, on
         type="button"
         className="copilot-launcher"
         onClick={() => setOpen(true)}
-        aria-label={thread.badge ? `Ask Copilot (${thread.badge} to look at)` : "Ask Copilot"}
+        aria-label={thread.badge ? `Ask AI Assistant (${thread.badge} to look at)` : "Ask AI Assistant"}
       >
         <CopilotIcon />
-        <span className="copilot-launcher-label">Ask Copilot</span>
+        <span className="copilot-launcher-label">Ask AI Assistant</span>
         {thread.badge ? <span className="copilot-badge">{thread.badge}</span> : null}
       </button>
     );
@@ -207,7 +207,7 @@ export default function CopilotPanel({ caseId, onboardingWithoutCase = false, on
   if (!activeCaseId) {
     // Nothing to explain yet: a small card instead of the full chat window.
     return (
-      <aside className="copilot-panel copilot-panel-compact" aria-label="Onboarding Copilot">
+      <aside className="copilot-panel copilot-panel-compact" aria-label="AI Assistant">
         <div className="copilot-compact-body">
           <p>
             {onboardingWithoutCase ? (
@@ -232,10 +232,10 @@ export default function CopilotPanel({ caseId, onboardingWithoutCase = false, on
   const subtitle = `${thread.company ?? "This case"} · read-only`;
 
   return (
-    <aside className="copilot-panel" aria-label="Onboarding Copilot">
+    <aside className="copilot-panel" aria-label="AI Assistant">
       <header className="copilot-header">
         <div>
-          <strong>Onboarding Copilot</strong>
+          <strong>AI Assistant</strong>
           <span className="copilot-subtitle">{subtitle}</span>
         </div>
         <div className="copilot-header-actions">
@@ -269,7 +269,7 @@ export default function CopilotPanel({ caseId, onboardingWithoutCase = false, on
 
       {thread.suggestions.length > 0 && (
         <div className="copilot-suggestions">
-          {thread.suggestions.map((question) => (
+          {thread.suggestions.slice(0, 3).map((question) => (
             <button key={question} type="button" className="copilot-chip" disabled={busy} onClick={() => ask(question)}>
               {question}
             </button>
@@ -284,12 +284,20 @@ export default function CopilotPanel({ caseId, onboardingWithoutCase = false, on
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onInputKey}
-          placeholder="Ask about this case… (Enter to send, Shift+Enter for a new line)"
+          placeholder="Ask about this case…"
           maxLength={600}
           aria-label="Ask the copilot about this case"
         />
-        <button type="submit" className="btn btn-primary" disabled={busy || !draft.trim()}>
-          Ask
+        <button
+          type="submit"
+          className="copilot-send"
+          disabled={busy || !draft.trim()}
+          aria-label="Send"
+          title="Send (Enter)"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </button>
       </form>
       <p className="copilot-disclaimer">AI answers can be wrong. The case page is the source of truth.</p>
