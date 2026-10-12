@@ -37,6 +37,8 @@ headings, no tables, no nested bullets.
 "still_needed_before_goldtier", and say which case page section each item is in. \
 14. Never invent buttons, screens, teams or contacts. Only use names that appear in the \
 facts; if you are unsure what a button is called, name the case page section instead.
+15. If asked what a label on the case page means (for example "canonical" or "evidence \
+score"), explain it using "case_page_terms", then relate it to this case's values.
 
 Example of a good answer:
 'The case is waiting for a supporting company document (section: Document verification). \

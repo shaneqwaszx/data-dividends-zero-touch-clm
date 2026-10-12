@@ -43,3 +43,19 @@ def test_chat_answers_hi_without_calling_the_model() -> None:
     assert model.calls == []
     assert body["answer"].startswith("Hi Maya!")
     assert body["notice"] is None
+
+
+def test_fallback_explains_case_page_labels_instead_of_dumping_acra() -> None:
+    from copilot.briefing import fallback_answer
+
+    answer = fallback_answer(
+        "the page says canonical and suggestion, is canonical from acra?", FACTS
+    )
+    assert "Canonical: the official value from the registry (ACRA)" in answer
+    assert "Suggestion: the value our system read from the uploaded document" in answer
+
+
+def test_retrieved_time_is_readable() -> None:
+    from copilot.context import _when
+
+    assert _when("2026-10-12T18:08:11.400356Z") == "12 Oct 2026, 18:08 UTC"

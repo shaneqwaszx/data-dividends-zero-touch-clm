@@ -6,7 +6,7 @@ when the model is switched off, not installed, or too slow.
 
 from typing import Any
 
-from .guide import sentence_case
+from .guide import SCREEN_TERMS, sentence_case
 
 
 def _difference_lines(blocker: dict[str, Any]) -> list[str]:
@@ -183,10 +183,25 @@ def _readiness_answer(facts: dict[str, Any]) -> str:
     return "Not yet.\n" + _still_needed_answer(facts)
 
 
+def _terms_answer(text: str) -> str | None:
+    """Explain case page labels the question mentions, e.g. "canonical"."""
+
+    found = [term for term in SCREEN_TERMS if term in text]
+    if not found:
+        return None
+    # "record correction" also contains no other term; avoid repeating overlapping words.
+    found = [t for t in found if not any(t != o and t in o for o in found)]
+    lines = [f"- {sentence_case(term)}: {SCREEN_TERMS[term]}." for term in found]
+    return "On the case page:\n" + "\n".join(lines)
+
+
 def fallback_answer(question: str, facts: dict[str, Any]) -> str:
     """Answer from the facts by topic. Clearly limited, never invented."""
 
     text = question.lower()
+    terms = _terms_answer(text)
+    if terms is not None:
+        return terms
     if any(
         phrase in text
         for phrase in (

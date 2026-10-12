@@ -14,6 +14,7 @@ from .guide import (
     OWNER,
     READINESS_NEEDS,
     RULE_PLAIN,
+    SCREEN_TERMS,
     STEP_STATUS,
     field_label,
 )
@@ -55,8 +56,23 @@ def _source_label(source: Any) -> str | None:
         return None
     environment = data.get("environment")
     label = f"{system} ({environment})" if environment else str(system)
-    retrieved = data.get("retrieved_at")
+    retrieved = _when(data.get("retrieved_at"))
     return f"{label}, retrieved {retrieved}" if retrieved else label
+
+
+def _when(value: Any) -> str | None:
+    """'2026-10-12T18:08:11.4Z' -> '12 Oct 2026, 18:08 UTC' (left as is if unreadable)."""
+
+    if not value:
+        return None
+    from datetime import datetime
+
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(value)
+    zone = "UTC" if moment.utcoffset() is not None and not moment.utcoffset() else ""
+    return f"{moment.day} {moment:%b %Y, %H:%M} {zone}".strip()
 
 
 def _company(summary: dict[str, Any]) -> dict[str, Any]:
@@ -277,6 +293,7 @@ def build_case_facts(snapshot: CaseSnapshot) -> dict[str, Any]:
         "blockers": _blockers(summary),
         "still_needed_before_goldtier": _still_needed(summary),
         "case_page_sections": list(CASE_PAGE_SECTIONS),
+        "case_page_terms": dict(SCREEN_TERMS),
         "system_problem": (
             {"code": failure.get("code"), "message": _text(failure.get("message"))}
             if failure
