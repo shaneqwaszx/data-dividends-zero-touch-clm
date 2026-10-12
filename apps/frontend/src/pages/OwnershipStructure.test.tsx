@@ -33,7 +33,7 @@ describe("Ownership hierarchy and authoritative candidate summary", () => {
       act(() => button("Avery Tan").click());
       const detail = host.querySelector('[aria-label="Selected holder"]')!;
       expect(detail.querySelector("h5")!.textContent).toBe("Avery Tan");
-      expect(detail.textContent).toContain(`${candidate.aggregated_ownership_percent}%`);
+      expect(detail.textContent).toContain("60%");
       expect(detail.textContent).toContain("PROVISIONAL_UBO_CANDIDATE");
       expect(candidate.threshold_result).toBe("MET");
       expect(errors.mock.calls.filter(args => args.some(value => String(value).includes("same key")))).toEqual([]);
@@ -80,20 +80,31 @@ describe("Ownership hierarchy and authoritative candidate summary", () => {
     act(() => root.render(<OwnershipPathExplorer record={replacement} />));
     expect(host.querySelector('[aria-label="Selected holder"] h5')!.textContent).toBe("Avery Tan");
   });
-  it("shows three levels, repeated holders, precise path values, zero and unknown distinctly", () => {
+  it("shows three levels, repeated holders, rounded path values, zero and unknown distinctly", () => {
     const view = render(); const hierarchy = view.querySelector('[aria-label="Ownership hierarchy"]')!;
     expect(hierarchy.querySelectorAll('[role="row"]')).toHaveLength(6);
-    expect(hierarchy.textContent).toContain("0.000000000000000001%");
+    expect(hierarchy.textContent).toContain("<0.01%");
     expect(hierarchy.textContent).toContain("25%"); expect(hierarchy.textContent).toContain("0%");
     expect(hierarchy.textContent).toContain("Not retained"); expect(hierarchy.textContent).toContain("Not supplied");
     expect(hierarchy.textContent).toContain("LOCAL_SYNTHETIC_SUPPLEMENT · LOCAL");
     const summary = view.querySelector(".ubo-summary")!;
     expect(summary.querySelectorAll("li")).toHaveLength(1);
-    expect(summary.textContent).toContain("25.000000000000000001% effective");
+    expect(summary.textContent).toContain("25% effective");
     expect(summary.textContent).not.toContain("Synthetic below-threshold person");
     expect(summary.querySelector("li > strong")!.textContent).toBe("Synthetic qualifying person");
   });
-  it("allows native keyboard controls, collapse/expand, chips and distinct path inspection", () => {
+  it("keeps a below-threshold person excluded even when its rounded label equals the threshold", () => {
+    const record = ownershipStructureFixture();
+    record.candidates[1].aggregated_ownership_percent = "24.999999999999999999";
+    record.candidates[1].direct_ownership_percent = "24.999999999999999999";
+    const original = structuredClone(record); const view = render(record);
+    act(() => button("Synthetic below-threshold person").click());
+    expect(view.querySelector('[aria-label="Selected holder"]')!.textContent).toContain("25%");
+    expect(view.querySelector('[aria-label="Selected holder"]')!.textContent).toContain("NOT_MET");
+    expect(view.querySelector(".ubo-summary")!.textContent).not.toContain("Synthetic below-threshold person");
+    expect(view.querySelector(".ubo-summary li")).not.toBeNull(); expect(record).toEqual(original);
+  });
+  it("allows native keyboard controls, collapse/expand, holder selection and distinct path inspection", () => {
     render(); const collapse = button("Collapse holders of Synthetic holding");
     collapse.focus(); expect(document.activeElement).toBe(collapse); act(() => collapse.click());
     expect(button("Expand holders of Synthetic holding").getAttribute("aria-expanded")).toBe("false");

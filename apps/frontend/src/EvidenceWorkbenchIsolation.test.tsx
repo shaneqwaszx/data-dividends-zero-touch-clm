@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { caseQueryKeys } from "./caseQueries";
 import CaseDetail from "./pages/CaseDetail";
 import { createSessionQueryClient } from "./queryClient";
+import attentionProjections from "./test-fixtures/attention-projections.json";
 import type {
   AuthenticatedProfile,
   DocumentProcessingRecord,
@@ -181,7 +182,7 @@ function retainedPath(id: string, percent: string): OwnershipPath {
 function ownershipFixture(caseId: string, analysisId: string, pathPrefix = "a"): OwnershipAnalysisRecord {
   const first = retainedPath(`${pathPrefix}-path-1`, "25.000000000000000001");
   const second = retainedPath(`${pathPrefix}-path-2`, "12.500000000000000009");
-  return {
+  const value: OwnershipAnalysisRecord = {
     case_id: caseId,
     analysis_id: analysisId,
     correlation_id: `${analysisId}-correlation`,
@@ -234,6 +235,8 @@ function ownershipFixture(caseId: string, analysisId: string, pathPrefix = "a"):
     analyzed_at: NOW,
     updated_at: NOW,
   };
+  value.parties = value.candidates.map(item => item.party);
+  return value;
 }
 
 function createTestClient(): QueryClient {
@@ -716,5 +719,224 @@ describe("Evidence workbench integration isolation", () => {
     expect(sections[6].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
     expect(sections[6].textContent).toContain("Not yet available");
     expect(sections[6].querySelector(".review-and-send")).toBeNull();
+  });
+});
+
+
+describe("Case attention corrective navigation", () => {
+  function attentionButton(prefix: string) {
+    const control = [...container!.querySelectorAll<HTMLButtonElement>(".case-attention button")].find(item => item.textContent?.startsWith(prefix));
+    expect(control).toBeTruthy(); return control!;
+  }
+  function projectionOnlySummary() {
+    const value = summaryFixture(CASE_A);
+    value.current_stage = "REGISTRY";
+    value.active_exceptions = [];
+    value.interventions = attentionProjections.identityOnly.interventions as ZeroTouchCaseSummary["interventions"];
+    value.case.initial_identity = null;
+    value.case.requested_uen = "202400001A";
+    return value;
+  }
+  it("opens the registry stage and focuses authorized UEN for a projection-only identity action without a request", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), projectionOnlySummary());
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    const stage = [...container!.querySelectorAll<HTMLButtonElement>(".stage-disclosure h2 button")].find(item => item.textContent?.startsWith("Registry verification"))!;
+    act(() => stage.click()); expect(stage.getAttribute("aria-expanded")).toBe("false");
+    const action = attentionButton("Action: Correct identity"); action.focus(); expect(document.activeElement).toBe(action);
+    act(() => action.click());
+    await vi.waitFor(() => expect(document.activeElement?.id).toBe("identity-registration-number"));
+    expect(stage.getAttribute("aria-expanded")).toBe("true"); expect(fetch).not.toHaveBeenCalled();
+    expect((document.activeElement as HTMLInputElement).value).toBe("202400001A");
+  });
+  it("retains registry verification when the identity projection has no eligible Search checkpoint or identity error", () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), projectionOnlySummary());
+    renderCase(client, actorA, CASE_A);
+    expect(button("Verify UEN and resume")).toBeTruthy();
+    expect(container!.textContent).not.toContain("Save details and recheck Search");
+  });
+  it("retains Search recheck for the actual initial-identity error with a projection-only blocker", () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const value = projectionOnlySummary();
+    value.case.error = { code: "INITIAL_IDENTITY_INCOMPLETE", message: "Identity required" };
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+    renderCase(client, actorA, CASE_A);
+    expect(button("Save details and recheck Search")).toBeTruthy();
+    expect(container!.textContent).not.toContain("Verify UEN and resume");
+  });
+  it.each(["REGISTRY_IDENTIFIER_NOT_ELIGIBLE", "ACRA_ENTITY_NOT_FOUND", "REGISTRY_RECHECK_INCOMPLETE", "INITIAL_IDENTITY_NOT_ELIGIBLE"])(
+    "preserves registry correction beside a missing-identity projection for %s", code => {
+      const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+      const value = projectionOnlySummary();
+      value.case.error = { code, message: "Registry correction required" };
+      value.active_exceptions = [{ ...summaryFixture(CASE_A).active_exceptions[0], stage: "REGISTRY",
+        exception_type: "REGISTRY_IDENTIFIER_NOT_ELIGIBLE", blocker_code: code, blocker_codes: [code] }];
+      client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+      const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+      expect(button("Verify UEN and resume")).toBeTruthy();
+      expect(container!.textContent).not.toContain("Save details and recheck Search");
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["COMPLETED", "FAILED", "REVIEW_REQUIRED"] as const)("retains projection-only Search recheck with its eligible %s checkpoint", status => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const value = projectionOnlySummary();
+    value.clm.target_search_checkpoint = { status } as NonNullable<ZeroTouchCaseSummary["clm"]["target_search_checkpoint"]>;
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+    renderCase(client, actorA, CASE_A);
+    expect(button("Save details and recheck Search")).toBeTruthy();
+  });
+  it("gives truthful feedback when a projection-only identity control is disabled", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const value = projectionOnlySummary(); value.evidence_decision_authorized = false;
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    act(() => attentionButton("Action: Correct identity").click());
+    await vi.waitFor(() => expect(container!.textContent).toContain("No corrective input is currently authorized here"));
+    expect(document.activeElement?.id).not.toBe("identity-registration-number"); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("replaces projection-only attention after refresh and ignores a late old-case summary", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A"); seedCase(client, actorA, CASE_B, "analysis-b", "B");
+    const value = projectionOnlySummary(); client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+    let release!: (value: Response) => void;
+    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise<Response>(resolve => { release = resolve; }));
+    renderCase(client, actorA, CASE_A); expect(container!.querySelector(".case-attention")!.textContent).toContain("Correct identity");
+    const oldRequest = client.refetchQueries({ queryKey: caseQueryKeys.detail(actorA.user_id, CASE_A), exact: true });
+    await act(async () => { client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), { ...value, version: 2, interventions: [] }); });
+    await vi.waitFor(() => expect(container!.querySelector(".case-attention")!.textContent).not.toContain("Correct identity"));
+    renderCase(client, actorA, CASE_B);
+    await act(async () => { release(response(value)); await oldRequest; });
+    expect(container!.querySelector(".case-attention")!.textContent).not.toContain("Correct identity");
+    expect(container!.querySelector(".case-attention")!.textContent).toContain("DOCUMENT SOURCE CONFLICT");
+  });
+  it("navigates a projection-only blocker with no authorized action to its retained reason", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const value = projectionOnlySummary();
+    value.interventions = [{ ...value.interventions![0],
+      blocker_code: "MOCK_RISK_REVIEW_REQUIRED", owning_stage: "READINESS", title: "Retained risk review",
+      evidence_actions: [], no_action_reason: "No authorized POC risk decision is available." }];
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    act(() => attentionButton("Blocker: Retained risk review").click());
+    await vi.waitFor(() => expect(document.activeElement?.id).toBe(`case-intervention-${value.interventions![0].intervention_id}`));
+    expect(container!.textContent).toContain("No corrective input is currently authorized here"); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("opens a collapsed document stage and focuses the specific pending decision without mutating", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const summary = summaryFixture(CASE_A);
+    summary.active_exceptions[0].evidence = [{ reference_id: `${CASE_A}-document`, field_key: "legal_name", registry_value: null, document_value: null, confidence: null, comparison: null }];
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    const stage = [...container!.querySelectorAll<HTMLButtonElement>(".stage-disclosure h2 button")].find(item => item.textContent?.startsWith("Document verification"))!;
+    act(() => stage.click()); expect(stage.getAttribute("aria-expanded")).toBe("false");
+    const control = attentionButton("Blocker:"); control.focus(); expect(document.activeElement).toBe(control);
+    act(() => control.click());
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-review-field")).toBe("legal_name"));
+    expect(stage.getAttribute("aria-expanded")).toBe("true");
+    expect((document.activeElement as HTMLSelectElement).value).toBe(""); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("switches to the specific reconciliation decision without choosing a source", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const summary = summaryFixture(CASE_A); const doc = documentFixture(CASE_A);
+    summary.active_exceptions = ["first", "second"].map(id => ({ ...summary.active_exceptions[0], exception_id: id, blocker_code: `DOCUMENT_SOURCE_CONFLICT_${id}` }));
+    summary.reconciliation = { reconciliation_id: "current", version: 1, status: "REVIEW_REQUIRED", source_document_ids: [doc.document_id], source_document_event_counts: [doc.events.length], fields: [], updated_at: NOW,
+      discrepancies: ["first", "second"].map(id => ({ discrepancy_id: id, field_name: "legal_name", status: "OPEN", allowed_actions: ["KEEP_REGISTRY_VALUE"], evidence_fingerprint: "a".repeat(64), observations: [] })) } as unknown as NonNullable<ZeroTouchCaseSummary["reconciliation"]>;
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    expect(container!.querySelector("select[data-discrepancy-id]")).toBeNull();
+    act(() => attentionButton("Blocker: DOCUMENT SOURCE CONFLICT second").click());
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-discrepancy-id")).toBe("second"));
+    expect((document.activeElement as HTMLSelectElement).value).toBe(""); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("opens the document-specific replacement upload", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const summary = summaryFixture(CASE_A); summary.status = "PENDING_INPUTS";
+    summary.active_exceptions[0].blocker_code = "DOCUMENT_REUPLOAD_REQUIRED";
+    summary.active_exceptions[0].evidence = [{ reference_id: `${CASE_A}-document`, field_key: "legal_name", registry_value: null, document_value: null, confidence: null, comparison: null }];
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), [{ ...documentFixture(CASE_A), state: "FAILED", error: { code: "DOCUMENT_REUPLOAD_REQUIRED", message: "Replacement required" } }]);
+    renderCase(client, actorA, CASE_A); act(() => attentionButton("Blocker:").click());
+    await vi.waitFor(() => expect((document.activeElement as HTMLInputElement).type).toBe("file"));
+    expect(document.activeElement?.closest(".document-card")?.getAttribute("data-document-id")).toBe(`${CASE_A}-document`);
+  });
+  it("uses replacement rather than a retained discrepancy with no authorized source choices", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const summary = summaryFixture(CASE_A); summary.document_replacement_authorized = true;
+    summary.active_exceptions[0].evidence = [{ reference_id: `${CASE_A}-document`, field_key: "legal_name", registry_value: null, document_value: null, confidence: null, comparison: null }];
+    summary.reconciliation = { reconciliation_id: "retained", version: 1, status: "REVIEW_REQUIRED", source_document_ids: [`${CASE_A}-document`], source_document_event_counts: [0], fields: [], updated_at: NOW,
+      discrepancies: [{ discrepancy_id: summary.active_exceptions[0].exception_id, field_name: "legal_name", status: "OPEN", allowed_actions: [], evidence_fingerprint: "a".repeat(64), observations: [] }] } as unknown as NonNullable<ZeroTouchCaseSummary["reconciliation"]>;
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    const doc = documentFixture(CASE_A); doc.state = "REVIEWED"; doc.fields[0].review_status = "REJECTED";
+    client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), [doc]); renderCase(client, actorA, CASE_A);
+    act(() => attentionButton("Blocker:").click());
+    await vi.waitFor(() => expect((document.activeElement as HTMLInputElement).type).toBe("file"));
+    expect(document.activeElement?.closest(".document-card")?.getAttribute("data-document-id")).toBe(`${CASE_A}-document`);
+  });
+  it("routes retained existing-customer attention to the confirmation rationale", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const summary = summaryFixture(CASE_A); summary.current_stage = "GOLDTIER_SEARCH";
+    summary.active_exceptions[0].stage = "GOLDTIER_SEARCH"; summary.active_exceptions[0].blocker_code = "GOLDTIER_EXISTING_CUSTOMER";
+    summary.interventions = [{ intervention_id: summary.active_exceptions[0].exception_id, owning_stage: "GOLDTIER_SEARCH", owning_stage_label: "Customer search", title: "Confirm existing customer", blocker_code: "GOLDTIER_EXISTING_CUSTOMER", explanation: "Review the retained customer", required_evidence_or_input: [], authorized_actions: [], no_action_reason: null, expected_next_step: "Confirm customer", candidate_summaries: [], existing_customer_confirmation_action: "CONFIRM_EXISTING_GOLDTIER_CUSTOMER" }];
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    act(() => attentionButton("Blocker:").click());
+    await vi.waitFor(() => expect(document.activeElement?.id).toBe("existing-customer-confirmation-rationale")); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("routes ownership attention to retained authorized evidence controls", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const summary = summaryFixture(CASE_A); summary.current_stage = "OWNERSHIP";
+    summary.active_exceptions[0].stage = "OWNERSHIP"; summary.active_exceptions[0].blocker_code = "OWNERSHIP_REVIEW_REQUIRED";
+    summary.ownership_edit_authorized = true;
+    summary.ownership_recovery = { analysis_id: "analysis-a", version: 3, state: "ANALYZED", manual_evidence_action: null, review_receipt: null };
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), [{ ...documentFixture(CASE_A), state: "REVIEWED" }]);
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A); act(() => attentionButton("Blocker:").click());
+    await vi.waitFor(() => expect(document.activeElement?.closest("#case-manual-ownership-evidence")).not.toBeNull()); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("focuses the retained mock risk reason without inventing a corrective action", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const summary = summaryFixture(CASE_A); summary.current_stage = "READINESS";
+    summary.active_exceptions[0].stage = "READINESS"; summary.active_exceptions[0].blocker_code = "MOCK_RISK_REVIEW_REQUIRED";
+    summary.interventions = [{ intervention_id: summary.active_exceptions[0].exception_id, owning_stage: "READINESS", owning_stage_label: "Readiness", title: "Review mock risk", blocker_code: "MOCK_RISK_REVIEW_REQUIRED", explanation: "A retained risk decision requires review", required_evidence_or_input: [], authorized_actions: [], no_action_reason: "No authorized POC risk decision is available.", expected_next_step: "Review risk", candidate_summaries: [] }];
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A); act(() => attentionButton("Blocker:").click());
+    await vi.waitFor(() => expect(document.activeElement?.id).toBe(`case-intervention-${summary.active_exceptions[0].exception_id}`)); expect(container!.textContent).toContain("No corrective input is currently authorized here"); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("replaces resolved attention on refresh and case switching; final confirmation is an action", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A"); seedCase(client, actorA, CASE_B, "analysis-b", "B");
+    renderCase(client, actorA, CASE_A);
+    expect(container!.querySelector(".case-attention")!.textContent).toContain("1 active blocker");
+    const resolved = summaryFixture(CASE_A); resolved.version = 2;
+    resolved.active_exceptions = [{ ...resolved.active_exceptions[0], exception_type: "TARGET_CONFIRMATION_REQUIRED", blocker_code: "TARGET_CONFIRMATION_REQUIRED", stage: "READINESS" }];
+    await act(async () => { client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), resolved); await new Promise(resolve => setTimeout(resolve, 0)); });
+    const panel = container!.querySelector(".case-attention")!;
+    expect(panel.textContent).toContain("0 active blockers"); expect(panel.textContent).toContain("No immediate blockers"); expect(panel.textContent).toContain("Action: Review and send"); expect(panel.textContent).not.toContain("DOCUMENT SOURCE CONFLICT");
+    renderCase(client, actorA, CASE_B);
+    expect(container!.querySelector(".case-attention")!.textContent).not.toContain("Review and send");
+    expect(container!.querySelector(".case-attention")!.textContent).toContain("DOCUMENT SOURCE CONFLICT");
+  });
+  it("reports unavailable authorized controls and exposes technical diagnostics truthfully", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const summary = summaryFixture(CASE_A); summary.evidence_decision_authorized = false;
+    summary.technical_failure = { code: "SAFE_TECHNICAL_FAILURE", message: "Safe retained diagnostic." };
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    act(() => attentionButton("Blocker:").click());
+    await vi.waitFor(() => expect(container!.textContent).toContain("No corrective input is currently authorized here"));
+    act(() => attentionButton("Technical failure:").click());
+    await vi.waitFor(() => expect(container!.querySelector("#case-evidence-recovery")?.closest("[hidden]")).toBeNull());
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each(["case", "version"] as const)("cancels delayed attention focus when %s changes", async change => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A"); seedCase(client, actorA, CASE_B, "analysis-b", "B");
+    client.removeQueries({ queryKey: caseQueryKeys.documents(actorA.user_id, CASE_A), exact: true });
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    vi.spyOn(globalThis, "fetch").mockReturnValue(pending); renderCase(client, actorA, CASE_A);
+    act(() => attentionButton("Blocker:").click());
+    if (change === "case") renderCase(client, actorA, CASE_B);
+    else await act(async () => { client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), { ...summaryFixture(CASE_A), version: 2 }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    await act(async () => { release(response([documentFixture(CASE_A)])); });
+    expect(document.activeElement?.getAttribute("data-review-field")).toBeNull();
   });
 });

@@ -118,7 +118,7 @@ function InterventionCard({
   const [rationale, setRationale] = useState("");
   const evidenceRecords = [{ intervention, exception }, ...relatedEvidence];
   return (
-    <article className="card intervention-card" aria-labelledby={`intervention-${intervention.intervention_id}`}>
+    <article id={`case-intervention-${intervention.intervention_id}`} className="card intervention-card" aria-labelledby={`intervention-${intervention.intervention_id}`}>
       <div className="intervention-card__heading">
         <div>
           <p className="card-kicker">{intervention.owning_stage_label}</p>

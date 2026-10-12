@@ -1,3 +1,4 @@
+import { formatOwnershipPercent } from "../ownershipDisplay";
 import { useMemo, useState, type FormEvent } from "react";
 
 import type { DocumentOwnershipObservation, DocumentProcessingRecord, OwnershipAnalysisRecord, OwnershipDocumentBinding, OwnershipParty } from "../types";
@@ -219,7 +220,7 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
       <p className="control-help">Current observation bindings: {bindings.length ? bindings.map((binding) => `${binding.document_id} · review revision ${binding.event_count}`).join("; ") : "No proposed ownership observations"}. Each proposal keeps its immutable document version and page reference.</p>
       {sourceSelection === "DOCUMENT_OBSERVATIONS" && <fieldset><legend>Select proposed observations for this decision</legend>{observations.map((observation) => <label className="s2-observation-choice" key={observation.observation_id}>
         <input type="checkbox" checked={selectedObservationIds.includes(observation.observation_id)} disabled={disabled} onChange={(event) => selectObservation(observation.observation_id, event.target.checked)} />
-        {observation.owner_name} → {observation.owned_entity_name ?? observation.owned_entity_registration_identifier ?? "Owned entity unknown"} · {observation.explicit_percentage !== null ? `${observation.explicit_percentage}% explicit` : "Percentage not supplied"} · {observation.share_count ?? "No"} share units · denominator {observation.explicit_total_shares ?? "not supplied"} · page {observation.page_number} · {observation.source_reference} · {observation.extraction_quality ?? "UNKNOWN"} · PROPOSED
+        {observation.owner_name} → {observation.owned_entity_name ?? observation.owned_entity_registration_identifier ?? "Owned entity unknown"} · {observation.explicit_percentage !== null ? `${formatOwnershipPercent(observation.explicit_percentage)} explicit` : "Percentage not supplied"} · {observation.share_count ?? "No"} share units · denominator {observation.explicit_total_shares ?? "not supplied"} · page {observation.page_number} · {observation.source_reference} · {observation.extraction_quality ?? "UNKNOWN"} · PROPOSED
       </label>)}<p className="control-help">Missing types, ambiguous values and absent percentages need a reviewed manual declaration. The server checks selected observations against the declared graph.</p></fieldset>}
       <label className="manual-ownership__rationale">Reviewer note (optional)<textarea className="input" name="rationale" value={rationale} minLength={10} maxLength={240} disabled={disabled} onChange={(event) => setRationale(event.target.value)} /></label>
       <fieldset className="manual-ownership__owners"><legend>Declared ownership relationships</legend>

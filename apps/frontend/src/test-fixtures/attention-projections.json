@@ -1,0 +1,229 @@
+{
+  "identityOnly": {
+    "interventions": [
+      {
+        "intervention_id": "51ebfda4-6fc1-5b15-9971-4a5b004c3853",
+        "owning_stage": "REGISTRY",
+        "owning_stage_label": "ACRA registry",
+        "title": "Initial identity incomplete",
+        "blocker_code": "INITIAL_IDENTITY_INCOMPLETE",
+        "explanation": "The retained case is missing an initial legal name, registration ID, or country value required for target identity Search.",
+        "required_evidence_or_input": [
+          "The missing legal name, registration ID, or country field."
+        ],
+        "authorized_actions": [],
+        "no_action_reason": null,
+        "expected_next_step": "Correct the identity and run the authorized read-only Search recheck on this retained case before any target mutation.",
+        "candidate_summaries": [],
+        "identity_correction_action": "IDENTITY_SEARCH_RECHECK",
+        "existing_customer_confirmation_action": null,
+        "decisions": [],
+        "blocker_class": "RECOVERABLE_INPUT",
+        "evidence_actions": [
+          {
+            "target": "IDENTITY",
+            "label": "Correct identity"
+          }
+        ],
+        "dependent_stages": [],
+        "backend_mutation_owner": "ZERO_TOUCH_ORCHESTRATION",
+        "resolution_condition": "Supply complete canonical identity and a safe Search result.",
+        "resume_target": "GOLDTIER_SEARCH"
+      }
+    ],
+    "active_exceptions": []
+  },
+  "identityAndDocument": {
+    "interventions": [
+      {
+        "intervention_id": "51ebfda4-6fc1-5b15-9971-4a5b004c3853",
+        "owning_stage": "REGISTRY",
+        "owning_stage_label": "ACRA registry",
+        "title": "Initial identity incomplete",
+        "blocker_code": "INITIAL_IDENTITY_INCOMPLETE",
+        "explanation": "The retained case is missing an initial legal name, registration ID, or country value required for target identity Search.",
+        "required_evidence_or_input": [
+          "The missing legal name, registration ID, or country field."
+        ],
+        "authorized_actions": [],
+        "no_action_reason": null,
+        "expected_next_step": "Correct the identity and run the authorized read-only Search recheck on this retained case before any target mutation.",
+        "candidate_summaries": [],
+        "identity_correction_action": "IDENTITY_SEARCH_RECHECK",
+        "existing_customer_confirmation_action": null,
+        "decisions": [],
+        "blocker_class": "RECOVERABLE_INPUT",
+        "evidence_actions": [
+          {
+            "target": "IDENTITY",
+            "label": "Correct identity"
+          }
+        ],
+        "dependent_stages": [],
+        "backend_mutation_owner": "ZERO_TOUCH_ORCHESTRATION",
+        "resolution_condition": "Supply complete canonical identity and a safe Search result.",
+        "resume_target": "GOLDTIER_SEARCH"
+      },
+      {
+        "intervention_id": "7efca068-f509-4234-8ba4-19c5b40b46b9",
+        "owning_stage": "DOCUMENT",
+        "owning_stage_label": "Documents / reconciliation",
+        "title": "Document or reconciliation review required",
+        "blocker_code": "DOCUMENT_LOW_CONFIDENCE",
+        "explanation": "Extraction evidence score is below the case-bound threshold.",
+        "required_evidence_or_input": [
+          "Current document evidence or a supported reconciliation decision."
+        ],
+        "authorized_actions": [],
+        "no_action_reason": null,
+        "expected_next_step": "Use only a backend-authorized action below. The owning service will re-evaluate retained evidence after it accepts the decision.",
+        "candidate_summaries": [],
+        "identity_correction_action": null,
+        "existing_customer_confirmation_action": null,
+        "decisions": [
+          {
+            "decision_id": "e238b2a9-eca9-5089-bf5b-3c638d0bf3f9",
+            "case_id": "e0a086df-b3b5-4bc0-a72e-f0c5c2db98e5",
+            "exception_id": "7efca068-f509-4234-8ba4-19c5b40b46b9",
+            "evidence_version": "document:42af81cb-b3a4-4f6a-83c7-5cb8b8eb731a:7",
+            "automation_version": 2,
+            "recorded_at": "2026-10-12T08:37:54.133677Z",
+            "metadata": {
+              "blocker_code": "DOCUMENT_LOW_CONFIDENCE",
+              "exception_type": "DOCUMENT_LOW_CONFIDENCE",
+              "classification": "USER_ACTION_REQUIRED",
+              "policy_version": "BLOCKER_DECISION_POC_V1",
+              "rule_version": "BPD-DOCUMENT-REVIEW-1",
+              "owner": "DOCUMENT_REVIEW_OWNER",
+              "minimum_inputs": [
+                "CURRENT_DOCUMENT_EVIDENCE",
+                "CURRENT_DOCUMENT_REVIEW"
+              ],
+              "permitted_actions": [
+                "COMPLETE_DOCUMENT_REVIEW",
+                "UPLOAD_REPLACEMENT_DOCUMENT"
+              ],
+              "currently_available_actions": [
+                "COMPLETE_DOCUMENT_REVIEW"
+              ],
+              "resume_stage": "DOCUMENT",
+              "resume_transition": "REPLACE_EVIDENCE_AND_RECHECK",
+              "resume_ready": false,
+              "invalidated_dependencies": [
+                "DOCUMENT_RECONCILIATION",
+                "OWNERSHIP_ANALYSIS",
+                "ADVISORY_INTELLIGENCE",
+                "READINESS_SNAPSHOT",
+                "TARGET_CONFIRMATION",
+                "TARGET_PLAN",
+                "TARGET_MUTATIONS"
+              ],
+              "explanation": "Current document evidence requires review or replacement before reuse.",
+              "unknowns": []
+            },
+            "actor_id": null,
+            "reviewer_id": null
+          }
+        ],
+        "blocker_class": "HUMAN_DECISION",
+        "evidence_actions": [
+          {
+            "target": "DOCUMENTS",
+            "label": "Review document evidence"
+          }
+        ],
+        "dependent_stages": [
+          "DOCUMENT_RECONCILIATION",
+          "OWNERSHIP_ANALYSIS",
+          "ADVISORY_INTELLIGENCE",
+          "READINESS_SNAPSHOT",
+          "TARGET_CONFIRMATION",
+          "TARGET_PLAN",
+          "TARGET_MUTATIONS"
+        ],
+        "backend_mutation_owner": "DOCUMENT_REVIEW_OWNER",
+        "resolution_condition": "Use only a backend-authorized action below. The owning service will re-evaluate retained evidence after it accepts the decision.",
+        "resume_target": "DOCUMENT"
+      }
+    ],
+    "active_exceptions": [
+      {
+        "exception_id": "7efca068-f509-4234-8ba4-19c5b40b46b9",
+        "case_id": "e0a086df-b3b5-4bc0-a72e-f0c5c2db98e5",
+        "exception_type": "DOCUMENT_LOW_CONFIDENCE",
+        "stage": "DOCUMENT",
+        "status": "OPEN",
+        "blocker_code": "DOCUMENT_LOW_CONFIDENCE",
+        "blocker_codes": [
+          "DOCUMENT_LOW_CONFIDENCE"
+        ],
+        "explanation": "Extraction evidence score is below the case-bound threshold.",
+        "evidence_version": "document:42af81cb-b3a4-4f6a-83c7-5cb8b8eb731a:7",
+        "automation_version": 2,
+        "evidence": [
+          {
+            "reference_id": "42af81cb-b3a4-4f6a-83c7-5cb8b8eb731a",
+            "field_key": "registered_address",
+            "registry_value": "18 INNOVATION WAY, #04-01, 018956, SG",
+            "document_value": "18 Innovation Way, #04-01, 018956, SG",
+            "confidence": 0.54,
+            "comparison": "MATCH",
+            "source": null,
+            "observed_value": null,
+            "observed_at": null,
+            "evidence_reference": null
+          }
+        ],
+        "available_actions": [],
+        "decisions": [
+          {
+            "decision_id": "e238b2a9-eca9-5089-bf5b-3c638d0bf3f9",
+            "case_id": "e0a086df-b3b5-4bc0-a72e-f0c5c2db98e5",
+            "exception_id": "7efca068-f509-4234-8ba4-19c5b40b46b9",
+            "evidence_version": "document:42af81cb-b3a4-4f6a-83c7-5cb8b8eb731a:7",
+            "automation_version": 2,
+            "recorded_at": "2026-10-12T08:37:54.133677Z",
+            "metadata": {
+              "blocker_code": "DOCUMENT_LOW_CONFIDENCE",
+              "exception_type": "DOCUMENT_LOW_CONFIDENCE",
+              "classification": "USER_ACTION_REQUIRED",
+              "policy_version": "BLOCKER_DECISION_POC_V1",
+              "rule_version": "BPD-DOCUMENT-REVIEW-1",
+              "owner": "DOCUMENT_REVIEW_OWNER",
+              "minimum_inputs": [
+                "CURRENT_DOCUMENT_EVIDENCE",
+                "CURRENT_DOCUMENT_REVIEW"
+              ],
+              "permitted_actions": [
+                "COMPLETE_DOCUMENT_REVIEW",
+                "UPLOAD_REPLACEMENT_DOCUMENT"
+              ],
+              "currently_available_actions": [
+                "COMPLETE_DOCUMENT_REVIEW"
+              ],
+              "resume_stage": "DOCUMENT",
+              "resume_transition": "REPLACE_EVIDENCE_AND_RECHECK",
+              "resume_ready": false,
+              "invalidated_dependencies": [
+                "DOCUMENT_RECONCILIATION",
+                "OWNERSHIP_ANALYSIS",
+                "ADVISORY_INTELLIGENCE",
+                "READINESS_SNAPSHOT",
+                "TARGET_CONFIRMATION",
+                "TARGET_PLAN",
+                "TARGET_MUTATIONS"
+              ],
+              "explanation": "Current document evidence requires review or replacement before reuse.",
+              "unknowns": []
+            },
+            "actor_id": null,
+            "reviewer_id": null
+          }
+        ],
+        "created_at": "2026-10-12T08:37:54.133677Z",
+        "resolved_at": null,
+        "resolution": null
+      }
+    ]
+  }
+}

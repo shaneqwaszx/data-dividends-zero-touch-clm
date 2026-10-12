@@ -1,3 +1,4 @@
+import { formatOwnershipPercent, formatOwnershipCalculation } from "../ownershipDisplay";
 import { useEffect, useMemo, useState } from "react";
 import type { OwnershipAnalysisRecord, OwnershipRelationship } from "../types";
 
@@ -45,15 +46,15 @@ function retainedPath(record: OwnershipAnalysisRecord, row: Row) {
 
 function pathPercent(record: OwnershipAnalysisRecord, row: Row) { return retainedPath(record, row)?.effective_ownership_percent ?? null; }
 
-export default function OwnershipStructure({ record, selectedPartyId, selectionRequest, onSelectPerson }: {
-  record: OwnershipAnalysisRecord; selectedPartyId: string | null; selectionRequest: number; onSelectPerson: (partyId: string) => void;
+export default function OwnershipStructure({ record, selectedPartyId, onSelectPerson }: {
+  record: OwnershipAnalysisRecord; selectedPartyId: string | null; onSelectPerson: (partyId: string) => void;
 }) {
   const { rows, limited } = useMemo(() => retainedRows(record), [record]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   useEffect(() => { setCollapsed(new Set()); }, [record.analysis_id]);
   useEffect(() => { setSelectedKey(current => rows.some(row => row.key === current && row.partyId === selectedPartyId)
-    ? current : rows.find(row => row.partyId === selectedPartyId)?.key ?? rows[0]?.key ?? null); }, [record.analysis_id, selectedPartyId, selectionRequest]);
+    ? current : rows.find(row => row.partyId === selectedPartyId)?.key ?? rows[0]?.key ?? null); }, [record.analysis_id, selectedPartyId]);
   useEffect(() => {
     const currentKeys = new Set(rows.map(row => row.key));
     setCollapsed(current => new Set([...current].filter(key => currentKeys.has(key))));
@@ -69,7 +70,7 @@ export default function OwnershipStructure({ record, selectedPartyId, selectionR
     || row.path.every((_, index) => !collapsed.has(occurrenceKey(record.root_party_id, row.path.slice(0, index)))));
   return <section className="ownership-structure" aria-label="Hierarchical ownership structure">
     <h4>Ownership structure</h4>
-    <p className="control-help">Follow each owned entity to its holders. Direct percentages belong to the immediate owned entity. Effective percentages are retained backend path results; intermediate interests are not inferred.</p>
+    <p className="control-help">Follow each owned entity to its holders. Direct percentages belong to the immediate owned entity. Displayed percentages are rounded to at most two decimals. Threshold comparisons and classifications use full backend precision. Effective percentages are retained backend path results; intermediate interests are not inferred.</p>
     <dl className="ownership-structure__legend"><div><dt>Direct interest</dt><dd>Holding in the immediate owned entity.</dd></div><div><dt>Indirect interest</dt><dd>Holding through intermediate entities.</dd></div><div><dt>Effective interest</dt><dd>Backend-calculated path value; candidate aggregate combines retained paths.</dd></div><div><dt>Ownership evidence source</dt><dd>Original provider and environment on each relationship.</dd></div><div><dt>Provisional UBO candidate</dt><dd>Natural person classified as qualifying by the backend.</dd></div><div><dt>Review/incomplete status</dt><dd>Unresolved evidence is not a final determination.</dd></div></dl>
     {record.state !== "ANALYZED" && <p className="ds-banner ds-banner-warn">Partial or disputed ownership evidence — review required.</p>}
     <div className="ownership-structure__layout">
@@ -91,8 +92,8 @@ export default function OwnershipStructure({ record, selectedPartyId, selectionR
             </div>
             <span role="cell" data-label="Type">{party?.party_type === "NATURAL_PERSON" ? "Individual" : party?.party_type === "LEGAL_ENTITY" ? "Company" : "Unknown"}</span>
             <span role="cell" data-label="Country">{party?.country ?? "Not supplied"}</span>
-            <span role="cell" data-label="Direct holding">{row.path.length ? `${row.path[row.path.length - 1].ownership_percent}%` : "—"}</span>
-            <span role="cell" data-label="Effective on path">{pathPercent(record, row) !== null ? `${pathPercent(record, row)}%` : "Not retained"}</span>
+            <span role="cell" data-label="Direct holding">{row.path.length ? formatOwnershipPercent(row.path[row.path.length - 1].ownership_percent) : "—"}</span>
+            <span role="cell" data-label="Effective on path">{pathPercent(record, row) !== null ? formatOwnershipPercent(pathPercent(record, row)) : "Not retained"}</span>
             <span role="cell" data-label="Evidence source">{row.path.length ? `${row.path[row.path.length - 1].provenance.provider} · ${row.path[row.path.length - 1].provenance.environment}` : `${record.provider_name ?? "Not supplied"} · ${record.provider_environment ?? "Not supplied"}`}</span>
           </div>;
         })}
@@ -102,14 +103,14 @@ export default function OwnershipStructure({ record, selectedPartyId, selectionR
         <p className="card-kicker">Selected holder</p><h5>{holder?.display_name ?? selected?.partyId ?? "No holder selected"}</h5>
         {selected && <>
           <p>{holder?.party_type.replaceAll("_", " ") ?? "Unknown type"} · {holder?.country ?? "Country not supplied"}</p>
-          <dl><div><dt>Direct holding in immediate entity</dt><dd>{selected.path.length ? `${selected.path[selected.path.length - 1].ownership_percent}%` : "Not retained"}</dd></div>
-            <div><dt>Effective on selected path</dt><dd>{pathPercent(record, selected) !== null ? `${pathPercent(record, selected)}%` : "Not calculated by retained analysis"}</dd></div>
-            {candidate && <><div><dt>Aggregate effective in root (all retained paths)</dt><dd>{candidate.aggregated_ownership_percent}%</dd></div><div><dt>Threshold comparison</dt><dd>{candidate.threshold_comparator} {candidate.threshold_percent} → {candidate.threshold_result}</dd></div><div><dt>Classification</dt><dd>{candidate.classification}</dd></div></>}
+          <dl><div><dt>Direct holding in immediate entity</dt><dd>{selected.path.length ? formatOwnershipPercent(selected.path[selected.path.length - 1].ownership_percent) : "Not retained"}</dd></div>
+            <div><dt>Effective on selected path</dt><dd>{pathPercent(record, selected) !== null ? formatOwnershipPercent(pathPercent(record, selected)) : "Not calculated by retained analysis"}</dd></div>
+            {candidate && <><div><dt>Aggregate effective in root (all retained paths)</dt><dd>{formatOwnershipPercent(candidate.aggregated_ownership_percent)}</dd></div><div><dt>Threshold comparison</dt><dd>{candidate.threshold_comparator} {formatOwnershipPercent(candidate.threshold_percent)} → {candidate.threshold_result}</dd></div><div><dt>Classification</dt><dd>{candidate.classification}</dd></div></>}
           </dl>
           <h6>Path from client to holder</h6>
-          {selected.unlinked ? <p>No retained root path is available.</p> : <ol className="ownership-structure__path"><li>{partyName(record.root_party_id ?? selected.partyId)} · client</li>{selected.path.map(edge => <li key={edge.relationship_id}>{partyName(edge.child_party_id)} holds {edge.ownership_percent}% of {partyName(edge.parent_party_id)}</li>)}</ol>}
+          {selected.unlinked ? <p>No retained root path is available.</p> : <ol className="ownership-structure__path"><li>{partyName(record.root_party_id ?? selected.partyId)} · client</li>{selected.path.map(edge => <li key={edge.relationship_id}>{partyName(edge.child_party_id)} holds {formatOwnershipPercent(edge.ownership_percent)} of {partyName(edge.parent_party_id)}</li>)}</ol>}
           {selected.path.length > 0 && <p className="control-help">Source: {selected.path[selected.path.length - 1].provenance.provider} · {selected.path[selected.path.length - 1].provenance.environment}</p>}
-          {retainedPath(record, selected) && <p>Calculation: {retainedPath(record, selected)!.calculation}</p>}
+          {retainedPath(record, selected) && <p>Calculation: {formatOwnershipCalculation(retainedPath(record, selected)!.calculation)}</p>}
           {candidate && candidate.paths.length > 1 && <p>{candidate.paths.length} retained paths reach this person. The highlighted occurrence shows one path; the aggregate covers all retained paths. Inspect other paths in technical calculations.</p>}
           {selected.cycle && <p>Cycle detected; this path is non-definitive.</p>}
         </>}
