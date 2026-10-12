@@ -37,10 +37,13 @@ the pipeline sidebar stays 12px inside the viewport and can scroll vertically wh
 its content exceeds the available height. The existing stacked layout remains at
 900px and below. All twelve backend pipeline stages remain present.
 
-CaseAttentionSummary derives its current entries directly from the loaded summary's
-OPEN active exceptions, matching intervention projections, technical failure and pending
-document intake. Final confirmation is an action, excluded from blocker counts;
+CaseAttentionSummary derives its current entries from the loaded summary's OPEN active
+exceptions and unmatched intervention projections, technical failure and pending document
+intake. Explicit exception/intervention IDs link one logical blocker; equal codes do not
+merge independent records. Final confirmation is an action, excluded from blocker counts;
 backend-labelled warnings are also excluded. No immediate blockers is explicit.
+Projection-only initial identity uses the same corrective form and existing Search
+recheck path as the corresponding exception. See the [PR84 correction](PR84_REVIEW_REMEDIATION.md).
 
 CaseDetail routes attention through its existing evidence/action/disclosure helpers.
 Document attention selects the specific current source or document decision, or the

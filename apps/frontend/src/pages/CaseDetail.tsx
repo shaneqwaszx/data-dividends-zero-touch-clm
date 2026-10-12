@@ -871,6 +871,7 @@ export default function CaseDetail({
       setPendingAttention({ ...captureCaseAction(), version: summary.version, destination }); return;
     }
     if (destination.kind === "final") { focusActionControl("case-review-and-send", ".btn-primary:not([disabled])"); return; }
+    if (destination.kind === "intervention") { focusActionControl(`case-intervention-${destination.interventionId}`); return; }
     if (destination.kind === "technical") {
       if (document.getElementById("case-target-recovery")) { focusActionControl("case-target-recovery"); return; }
       const diagnostic = document.getElementById("case-search-diagnostic") ? "case-search-diagnostic"
@@ -1036,7 +1037,7 @@ export default function CaseDetail({
   const ownershipRecovery = summary.ownership_recovery;
   const identityIncomplete = summary.active_exceptions.some(
     (exception) => exception.blocker_code === "INITIAL_IDENTITY_INCOMPLETE",
-  );
+  ) || summary.interventions?.some(item => item.blocker_code === "INITIAL_IDENTITY_INCOMPLETE") === true;
   const identityEditable = summary.evidence_decision_authorized === true
     && summary.status !== "COMPLETED"
     && !summary.case.goldtier_result

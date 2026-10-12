@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { caseQueryKeys } from "./caseQueries";
 import CaseDetail from "./pages/CaseDetail";
 import { createSessionQueryClient } from "./queryClient";
+import attentionProjections from "./test-fixtures/attention-projections.json";
 import type {
   AuthenticatedProfile,
   DocumentProcessingRecord,
@@ -727,6 +728,69 @@ describe("Case attention corrective navigation", () => {
     const control = [...container!.querySelectorAll<HTMLButtonElement>(".case-attention button")].find(item => item.textContent?.startsWith(prefix));
     expect(control).toBeTruthy(); return control!;
   }
+  function projectionOnlySummary() {
+    const value = summaryFixture(CASE_A);
+    value.current_stage = "REGISTRY";
+    value.active_exceptions = [];
+    value.interventions = attentionProjections.identityOnly.interventions as ZeroTouchCaseSummary["interventions"];
+    value.case.initial_identity = null;
+    value.case.requested_uen = "202400001A";
+    return value;
+  }
+  it("opens the registry stage and focuses authorized UEN for a projection-only identity action without a request", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), projectionOnlySummary());
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    const stage = [...container!.querySelectorAll<HTMLButtonElement>(".stage-disclosure h2 button")].find(item => item.textContent?.startsWith("Registry verification"))!;
+    act(() => stage.click()); expect(stage.getAttribute("aria-expanded")).toBe("false");
+    const action = attentionButton("Action: Correct identity"); action.focus(); expect(document.activeElement).toBe(action);
+    act(() => action.click());
+    await vi.waitFor(() => expect(document.activeElement?.id).toBe("identity-registration-number"));
+    expect(stage.getAttribute("aria-expanded")).toBe("true"); expect(fetch).not.toHaveBeenCalled();
+    expect((document.activeElement as HTMLInputElement).value).toBe("202400001A");
+  });
+  it("retains the backend-declared initial identity Search recheck control for a projection-only blocker", () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), projectionOnlySummary());
+    renderCase(client, actorA, CASE_A);
+    expect(button("Save details and recheck Search")).toBeTruthy();
+    expect(container!.textContent).not.toContain("Verify UEN and resume");
+  });
+  it("gives truthful feedback when a projection-only identity control is disabled", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const value = projectionOnlySummary(); value.evidence_decision_authorized = false;
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    act(() => attentionButton("Action: Correct identity").click());
+    await vi.waitFor(() => expect(container!.textContent).toContain("No corrective input is currently authorized here"));
+    expect(document.activeElement?.id).not.toBe("identity-registration-number"); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("replaces projection-only attention after refresh and ignores a late old-case summary", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A"); seedCase(client, actorA, CASE_B, "analysis-b", "B");
+    const value = projectionOnlySummary(); client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+    let release!: (value: Response) => void;
+    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise<Response>(resolve => { release = resolve; }));
+    renderCase(client, actorA, CASE_A); expect(container!.querySelector(".case-attention")!.textContent).toContain("Correct identity");
+    const oldRequest = client.refetchQueries({ queryKey: caseQueryKeys.detail(actorA.user_id, CASE_A), exact: true });
+    await act(async () => { client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), { ...value, version: 2, interventions: [] }); });
+    await vi.waitFor(() => expect(container!.querySelector(".case-attention")!.textContent).not.toContain("Correct identity"));
+    renderCase(client, actorA, CASE_B);
+    await act(async () => { release(response(value)); await oldRequest; });
+    expect(container!.querySelector(".case-attention")!.textContent).not.toContain("Correct identity");
+    expect(container!.querySelector(".case-attention")!.textContent).toContain("DOCUMENT SOURCE CONFLICT");
+  });
+  it("navigates a projection-only blocker with no authorized action to its retained reason", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const value = projectionOnlySummary();
+    value.interventions = [{ ...value.interventions![0],
+      blocker_code: "MOCK_RISK_REVIEW_REQUIRED", owning_stage: "READINESS", title: "Retained risk review",
+      evidence_actions: [], no_action_reason: "No authorized POC risk decision is available." }];
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    act(() => attentionButton("Blocker: Retained risk review").click());
+    await vi.waitFor(() => expect(document.activeElement?.id).toBe(`case-intervention-${value.interventions![0].intervention_id}`));
+    expect(container!.textContent).toContain("No corrective input is currently authorized here"); expect(fetch).not.toHaveBeenCalled();
+  });
   it("opens a collapsed document stage and focuses the specific pending decision without mutating", async () => {
     const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
     const summary = summaryFixture(CASE_A);
