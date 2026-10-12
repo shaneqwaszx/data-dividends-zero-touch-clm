@@ -1127,7 +1127,52 @@ describe("Phase 15C case-bound action lifetime", () => {
     });
   });
 
-  it("submits one targeted retry and authoritatively refreshes all case evidence", async () => {
+  it.each([true, false])("requires an explicit intended count for initial intake; authorized=%s", async (authorized) => {
+    const initial = { ...caseDetailFixture(CASE_A, "CASE A"), status: "PENDING_INPUTS" as const,
+      evidence_decision_authorized: authorized,
+      timing: { ...caseDetailFixture(CASE_A, "CASE A").timing, automation_elapsed_ms: null } };
+    const completed = { ...initial, version: initial.version + 1, status: "WAITING_FOR_REVIEW" as const,
+      current_stage: "READINESS" as const, timing: { ...initial.timing, automation_elapsed_ms: 0 } };
+    let published: ZeroTouchCaseSummary = initial;
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (init?.method === "POST" && url.endsWith("/intake/complete")) {
+        expect(JSON.parse(String(init.body))).toEqual({ expected_document_count: 2 });
+        published = completed;
+        return json(completed);
+      }
+      if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) return json(published);
+      if (url.endsWith("/documents")) return json([documentFixture(CASE_A)]);
+      return unavailable();
+    });
+    const queryClient = testClient();
+    queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A), initial);
+    queryClient.setQueryData(caseQueryKeys.documents(relationshipActor.user_id, CASE_A), [documentFixture(CASE_A)]);
+    queryClient.setQueryData(caseQueryKeys.ownership(relationshipActor.user_id, CASE_A), null);
+    queryClient.setQueryData(caseQueryKeys.intelligence(relationshipActor.user_id, CASE_A), null);
+    await act(async () => root?.render(<QueryClientProvider client={queryClient}>
+      <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+    </QueryClientProvider>));
+    const count = container?.querySelector<HTMLInputElement>('input[name="expectedDocumentCount"]');
+    expect(count).toBeTruthy();
+    expect(count!.value).toBe("");
+    expect(count!.disabled).toBe(!authorized);
+    const form = count!.closest("form")!;
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(submit.textContent).toBe("Complete document intake");
+    expect(submit.disabled).toBe(!authorized);
+    expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    if (authorized) {
+      await act(async () => { count!.value = "2"; form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+      await vi.waitFor(() => expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
+      expect(request.mock.calls.some(([input]) => String(input).endsWith("/resume"))).toBe(false);
+      await vi.waitFor(() => expect(container?.querySelector('input[name="expectedDocumentCount"]')).toBeNull());
+    }
+  });
+
+  it.each(["accepted", "continuation-failed"] as const)(
+    "submits one targeted retry and authoritatively refreshes all case evidence after %s",
+    async (outcome) => {
     const failed = {
       ...documentFixture(CASE_A),
       state: "FAILED" as const,
@@ -1139,17 +1184,29 @@ describe("Phase 15C case-bound action lifetime", () => {
       supersedes_document_id: failed.document_id,
     };
     const historical = { ...failed, superseded_by_document_id: recovered.document_id };
-    const refreshedSummary = { ...caseDetailFixture(CASE_A, "CASE A"), status: "PENDING_INPUTS" as const };
+    const refreshedSummary = outcome === "accepted"
+      ? { ...caseDetailFixture(CASE_A, "CASE A"), status: "PENDING_INPUTS" as const }
+      : { ...caseDetailFixture(CASE_A, "CASE A"), status: "TECHNICAL_FAILURE" as const,
+          current_stage: "OWNERSHIP" as const,
+          technical_failure: { code: "OWNERSHIP_PERSISTENCE_UNAVAILABLE",
+            message: "Ownership evidence is unavailable." } };
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
-      if (init?.method === "POST" && url.endsWith(`/intake/documents/${failed.document_id}/retry`)) return json(recovered);
+      if (init?.method === "POST" && url.endsWith(`/intake/documents/${failed.document_id}/retry`)) {
+        return outcome === "accepted" ? json(recovered) : json({ detail: {
+          code: "OWNERSHIP_PERSISTENCE_UNAVAILABLE", message: "Ownership evidence is unavailable.",
+          case_id: CASE_A, automation_id: refreshedSummary.automation_id,
+        } }, 503);
+      }
       if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) return json(refreshedSummary);
       if (url.endsWith(`/api/onboarding/cases/${CASE_A}/documents`)) return json([historical, recovered]);
       if (url.endsWith(`/api/onboarding/cases/${CASE_A}/ownership`)) return unavailable();
       return unavailable();
     });
     const queryClient = testClient();
-    queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A), refreshedSummary);
+    queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A), {
+      ...caseDetailFixture(CASE_A, "CASE A"), status: "PENDING_INPUTS" as const,
+    });
     queryClient.setQueryData(caseQueryKeys.documents(relationshipActor.user_id, CASE_A), [failed]);
     queryClient.setQueryData(caseQueryKeys.ownership(relationshipActor.user_id, CASE_A), null);
     queryClient.setQueryData(caseQueryKeys.intelligence(relationshipActor.user_id, CASE_A), null);
@@ -1169,6 +1226,13 @@ describe("Phase 15C case-bound action lifetime", () => {
     expect(posts).toHaveLength(1);
     expect(String(posts[0][0])).toContain(`/intake/documents/${failed.document_id}/retry`);
     expect(request.mock.calls.filter(([, init]) => !init?.method || init.method === "GET")).toHaveLength(4);
+    if (outcome === "continuation-failed") {
+      expect(container?.textContent).toContain("The outcome could not be confirmed. Current case evidence was reloaded");
+      expect(queryClient.getQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A)))
+        .toEqual(refreshedSummary);
+      expect(container?.querySelector(".document-card .document-upload-input")).toBeNull();
+      expect(request.mock.calls.filter(([url]) => String(url).endsWith("/resume"))).toHaveLength(0);
+    }
   });
 
   it("locks mutations after review success plus refresh failure and exposes only read-only refresh recovery", async () => {

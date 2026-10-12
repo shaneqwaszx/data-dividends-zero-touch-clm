@@ -1,3 +1,4 @@
+import UboSummary from "./UboSummary";
 import { useEffect, useRef } from "react";
 
 import type { TargetSearchObservation } from "../api";
@@ -328,6 +329,7 @@ export default function ReviewAndSend({
         <div><span>Classification</span><strong>{clm.submission_plan.environment === "SANDBOX" ? "Sandbox Partial" : "Mock"}</strong></div>
       </div>
 
+      <UboSummary record={ownership} />
       <div className="review-and-send__grid">
         <section>
           <div className="review-and-send__section-heading">

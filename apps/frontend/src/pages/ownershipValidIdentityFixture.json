@@ -1,0 +1,217 @@
+{
+  "case_id": "4c609720-c2ac-483e-af90-aae847268ead",
+  "evidence": [],
+  "document_observations": [],
+  "document_bindings": [],
+  "document_discrepancies": [],
+  "source_classification": "SINGLE_SOURCE",
+  "prior_analyses": [],
+  "supplemental_parties": [],
+  "supplemental_relationships": [],
+  "supplemental_evidence": [],
+  "tagging": {
+    "method": "DETERMINISTIC_RULES",
+    "runtime_status": "ML_RUNTIME_NOT_AVAILABLE",
+    "tags": []
+  },
+  "legal_form": null,
+  "version": 5,
+  "analysis_id": "30104510-77b2-47ea-92c2-6de5ee410249",
+  "correlation_id": "c3fb569a-8e8f-4014-a191-e1e4a25775e4",
+  "root_party_id": "ROOT_ENTITY",
+  "provider_name": "MOCK_OWNERSHIP",
+  "provider_environment": "MOCK",
+  "state": "ANALYZED",
+  "parties": [
+    {
+      "party_id": "ROOT_ENTITY",
+      "display_name": "MERLION CIRCULAR LABS PTE. LTD.",
+      "party_type": "LEGAL_ENTITY",
+      "registration_number": "202400001A",
+      "country": "SG"
+    },
+    {
+      "party_id": "PERSON_A",
+      "display_name": "Avery Tan",
+      "party_type": "NATURAL_PERSON",
+      "registration_number": null,
+      "country": null
+    },
+    {
+      "party_id": "PERSON_B",
+      "display_name": "Blair Lim",
+      "party_type": "NATURAL_PERSON",
+      "registration_number": null,
+      "country": null
+    }
+  ],
+  "relationships": [
+    {
+      "relationship_id": "root",
+      "parent_party_id": "ROOT_ENTITY",
+      "child_party_id": "PERSON_A",
+      "ownership_percent": "60",
+      "relationship_type": "OWNERSHIP",
+      "basis": "SHARE_OWNERSHIP",
+      "provenance": {
+        "provider": "MOCK_OWNERSHIP",
+        "environment": "MOCK",
+        "sourced_at": "2026-08-11T00:00:00Z"
+      }
+    },
+    {
+      "relationship_id": "REL_DIRECT_B",
+      "parent_party_id": "ROOT_ENTITY",
+      "child_party_id": "PERSON_B",
+      "ownership_percent": "40",
+      "relationship_type": "OWNERSHIP",
+      "basis": "SHARE_OWNERSHIP",
+      "provenance": {
+        "provider": "MOCK_OWNERSHIP",
+        "environment": "MOCK",
+        "sourced_at": "2026-08-11T00:00:00Z"
+      }
+    }
+  ],
+  "candidates": [
+    {
+      "party": {
+        "party_id": "PERSON_A",
+        "display_name": "Avery Tan",
+        "party_type": "NATURAL_PERSON",
+        "registration_number": null,
+        "country": null
+      },
+      "direct_ownership_percent": "60.0",
+      "indirect_ownership_percent": "0",
+      "aggregated_ownership_percent": "60.0",
+      "threshold_percent": "25.000000",
+      "threshold_comparator": "GREATER_THAN_OR_EQUAL_TO",
+      "threshold_result": "MET",
+      "classification": "PROVISIONAL_UBO_CANDIDATE",
+      "paths": [
+        {
+          "path_id": "path-v1-1b04b4b55f60021f580ff4f4347892f541eface20e5c1a3d600dc0c4d3256440",
+          "edges": [
+            {
+              "relationship_id": "root",
+              "parent_party_id": "ROOT_ENTITY",
+              "parent_display_name": "MERLION CIRCULAR LABS PTE. LTD.",
+              "child_party_id": "PERSON_A",
+              "child_display_name": "Avery Tan",
+              "ownership_percent": "60"
+            }
+          ],
+          "effective_ownership_percent": "60.0",
+          "is_direct": true,
+          "calculation": "60% = 60%"
+        }
+      ]
+    },
+    {
+      "party": {
+        "party_id": "PERSON_B",
+        "display_name": "Blair Lim",
+        "party_type": "NATURAL_PERSON",
+        "registration_number": null,
+        "country": null
+      },
+      "direct_ownership_percent": "40.0",
+      "indirect_ownership_percent": "0",
+      "aggregated_ownership_percent": "40.0",
+      "threshold_percent": "25.000000",
+      "threshold_comparator": "GREATER_THAN_OR_EQUAL_TO",
+      "threshold_result": "MET",
+      "classification": "PROVISIONAL_UBO_CANDIDATE",
+      "paths": [
+        {
+          "path_id": "path-v1-657f1ffdbad07140776ad70d6259e14f13acc997df3bb8249e7cb6145a4fd24f",
+          "edges": [
+            {
+              "relationship_id": "REL_DIRECT_B",
+              "parent_party_id": "ROOT_ENTITY",
+              "parent_display_name": "MERLION CIRCULAR LABS PTE. LTD.",
+              "child_party_id": "PERSON_B",
+              "child_display_name": "Blair Lim",
+              "ownership_percent": "40"
+            }
+          ],
+          "effective_ownership_percent": "40.0",
+          "is_direct": true,
+          "calculation": "40% = 40%"
+        }
+      ]
+    }
+  ],
+  "issues": [],
+  "threshold_percent": "25.000000",
+  "threshold_comparator": "GREATER_THAN_OR_EQUAL_TO",
+  "events": [
+    {
+      "sequence": 1,
+      "event_type": "OWNERSHIP_LOAD_STARTED",
+      "state": "LOADING",
+      "outcome": "SUCCEEDED",
+      "timestamp": "2026-10-11T18:04:54.957677Z",
+      "case_id": "4c609720-c2ac-483e-af90-aae847268ead",
+      "analysis_id": "30104510-77b2-47ea-92c2-6de5ee410249",
+      "correlation_id": "c3fb569a-8e8f-4014-a191-e1e4a25775e4",
+      "code": null,
+      "message": "Ownership source loading started.",
+      "party_count": null,
+      "relationship_count": null,
+      "candidate_count": null
+    },
+    {
+      "sequence": 2,
+      "event_type": "OWNERSHIP_LOADED",
+      "state": "LOADED",
+      "outcome": "SUCCEEDED",
+      "timestamp": "2026-10-11T18:04:54.958758Z",
+      "case_id": "4c609720-c2ac-483e-af90-aae847268ead",
+      "analysis_id": "30104510-77b2-47ea-92c2-6de5ee410249",
+      "correlation_id": "c3fb569a-8e8f-4014-a191-e1e4a25775e4",
+      "code": null,
+      "message": "Ownership source data loaded and validated.",
+      "party_count": 3,
+      "relationship_count": 2,
+      "candidate_count": null
+    },
+    {
+      "sequence": 3,
+      "event_type": "OWNERSHIP_ANALYSIS_STARTED",
+      "state": "ANALYZING",
+      "outcome": "SUCCEEDED",
+      "timestamp": "2026-10-11T18:04:54.959313Z",
+      "case_id": "4c609720-c2ac-483e-af90-aae847268ead",
+      "analysis_id": "30104510-77b2-47ea-92c2-6de5ee410249",
+      "correlation_id": "c3fb569a-8e8f-4014-a191-e1e4a25775e4",
+      "code": null,
+      "message": "Deterministic ownership analysis started.",
+      "party_count": null,
+      "relationship_count": null,
+      "candidate_count": null
+    },
+    {
+      "sequence": 4,
+      "event_type": "OWNERSHIP_ANALYSIS_COMPLETED",
+      "state": "ANALYZED",
+      "outcome": "SUCCEEDED",
+      "timestamp": "2026-10-11T18:04:54.959868Z",
+      "case_id": "4c609720-c2ac-483e-af90-aae847268ead",
+      "analysis_id": "30104510-77b2-47ea-92c2-6de5ee410249",
+      "correlation_id": "c3fb569a-8e8f-4014-a191-e1e4a25775e4",
+      "code": null,
+      "message": "Deterministic ownership analysis completed.",
+      "party_count": null,
+      "relationship_count": null,
+      "candidate_count": 2
+    }
+  ],
+  "error": null,
+  "manual_review_receipt": null,
+  "created_at": "2026-10-11T18:04:54.957677Z",
+  "loaded_at": "2026-10-11T18:04:54.958758Z",
+  "analyzed_at": "2026-10-11T18:04:54.959868Z",
+  "updated_at": "2026-10-11T18:04:54.959868Z"
+}

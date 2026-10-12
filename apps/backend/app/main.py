@@ -1744,6 +1744,8 @@ def create_app(
             raise _document_http_error(exc) from None
         except ZeroTouchRequestError as exc:
             raise _zero_touch_http_error(exc) from None
+        except ZeroTouchInfrastructureError as exc:
+            raise _zero_touch_infrastructure_http_error(exc) from None
         except DocumentProcessingInfrastructureError as exc:
             detail = DocumentFailureDetail(
                 code=exc.code,

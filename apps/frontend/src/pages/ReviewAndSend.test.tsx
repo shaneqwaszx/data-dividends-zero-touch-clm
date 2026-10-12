@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { confirmZeroTouchTargetDispatch } from "../api";
 import { caseQueryKeys, caseSummaryMutationEffect, targetConfirmationMutationEffect } from "../caseQueries";
-import type { AuthenticatedProfile, BlockerDecisionRecord, ZeroTouchCaseSummary } from "../types";
+import type { AuthenticatedProfile, BlockerDecisionRecord, ZeroTouchCaseSummary, OwnershipAnalysisRecord } from "../types";
+import { ownershipStructureFixture } from "./ownershipStructureFixture";
 import ReviewAndSend from "./ReviewAndSend";
 
 function summaryFixture(environment: "MOCK" | "SANDBOX" = "SANDBOX"): ZeroTouchCaseSummary {
@@ -79,12 +80,12 @@ const actor: AuthenticatedProfile = {
   capabilities: ["CASE_ACCESS"],
 };
 
-function render(summary = summaryFixture(), profile = actor): string {
+function render(summary = summaryFixture(), profile = actor, ownership: OwnershipAnalysisRecord | null = null): string {
   return renderToStaticMarkup(
     <ReviewAndSend
       summary={summary}
       documents={[]}
-      ownership={null}
+      ownership={ownership}
       actor={profile}
       busy={false}
       onConfirm={() => undefined}
@@ -99,6 +100,16 @@ function render(summary = summaryFixture(), profile = actor): string {
 }
 
 describe("ReviewAndSend", () => {
+  it("lists only backend-qualified natural persons with exact effective, direct, indirect and source evidence", () => {
+    const markup = render(summaryFixture(), actor, ownershipStructureFixture());
+    expect(markup).toContain("Identified UBO candidates");
+    expect(markup).toContain("Synthetic qualifying person");
+    expect(markup).toContain("25.000000000000000001% effective");
+    expect(markup).toContain("GREATER_THAN_OR_EQUAL_TO 25% → MET");
+    expect(markup).toContain("indirect: 25%");
+    expect(markup).toContain("OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT");
+    expect(markup).not.toContain("Synthetic below-threshold person");
+  });
   it("renders the current mapping, truthful sandbox boundary, and print control", () => {
     const markup = render();
     expect(markup).toContain("Review and send");

@@ -185,7 +185,7 @@ for (const choice of ["DOCUMENT", "OTHER"] as const) {
     await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
     const ownershipStructure = page.locator(".s2-ownership-structure");
     await expect(ownershipStructure).not.toHaveAttribute("open", "");
-    await ownershipStructure.getByText("View ownership structure and calculations", { exact: true }).click();
+    const calculations = ownershipStructure.getByText("Technical calculations and retained paths", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
     const evidence = page.getByLabel("Original ownership evidence", { exact: true });
     await expect(evidence).toBeVisible();
     await expect(evidence).toContainText("202400009I");

@@ -1652,7 +1652,7 @@ def test_legacy_document_profile_still_requires_registered_address() -> None:
         document.model_copy(update={"profile": DocumentProfile.PROVISIONAL_CORPORATE})
     )
 
-    paused = zero.start(case_id=created.case_id)
+    paused = zero.start(case_id=created.case_id, expected_document_count=1)
 
     reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
     assert paused.status == "WAITING_FOR_REVIEW"
@@ -1925,6 +1925,7 @@ def test_duplicate_and_concurrent_start_do_not_repeat_completed_work() -> None:
         barrier.wait()
         return zero.start(
             case_id=case.case_id,
+            expected_document_count=1,
             ownership_provider=demo.ownership_provider_for(case.case_id),
         ).status.value
 
@@ -2960,7 +2961,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_EARLIER_DOCUMENT() -> None:
         display_name="later-clean.pdf",
     )
 
-    paused = zero.start(case_id=created.case_id)
+    paused = zero.start(case_id=created.case_id, expected_document_count=2)
 
     assert paused.status == "WAITING_FOR_REVIEW"
     assert paused.current_stage == "DOCUMENT"
@@ -2985,7 +2986,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_LATER_DOCUMENT() -> None:
         display_name="later-conflict.pdf",
     )
 
-    paused = zero.start(case_id=created.case_id)
+    paused = zero.start(case_id=created.case_id, expected_document_count=2)
 
     assert paused.status == "WAITING_FOR_REVIEW"
     assert paused.active_exceptions[0].evidence[0].reference_id == conflict.document_id
@@ -3008,7 +3009,7 @@ def test_P11_ONE_CURRENT_FIELD_DISCREPANCY_RETAINS_BOTH_CONFLICT_DOCUMENTS() -> 
         display_name="second-conflict.pdf",
     )
 
-    paused = zero.start(case_id=created.case_id)
+    paused = zero.start(case_id=created.case_id, expected_document_count=2)
 
     reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
     assert len(paused.active_exceptions) == 1
@@ -3048,7 +3049,7 @@ def test_P06_QG_013_EQUAL_TIMESTAMPS_PRESERVE_INSERTION_ORDER_100_RUNS() -> None
             second.document_id,
         ]
 
-        paused = zero.start(case_id=created.case_id)
+        paused = zero.start(case_id=created.case_id, expected_document_count=2)
 
         reconciliation = zero._reconciliation.get(case_id=created.case_id)  # noqa: SLF001
         assert len(paused.active_exceptions) == 1
@@ -3083,7 +3084,7 @@ def test_P06_QG_005_REVIEWED_CONFLICT_RESOLVED_BY_KEEP_REGISTRY() -> None:
     mismatch = next(field for field in reviewed.fields if field.comparison_status == "MISMATCH")
     original = mismatch.original_extracted_value
     reviewed_value = mismatch.reviewed_value
-    paused = zero.start(case_id=created.case_id)
+    paused = zero.start(case_id=created.case_id, expected_document_count=1)
     exception = paused.active_exceptions[0]
 
     completed = zero.resolve_exception(
@@ -3119,7 +3120,7 @@ def test_P06_QG_005_REVIEWED_LOW_CONFIDENCE_REMAINS_BLOCKED() -> None:
         display_name="reviewed-low-confidence.pdf",
     )
 
-    paused = zero.start(case_id=created.case_id)
+    paused = zero.start(case_id=created.case_id, expected_document_count=1)
 
     assert paused.status == "WAITING_FOR_REVIEW"
     assert paused.active_exceptions[0].exception_type == "DOCUMENT_LOW_CONFIDENCE"

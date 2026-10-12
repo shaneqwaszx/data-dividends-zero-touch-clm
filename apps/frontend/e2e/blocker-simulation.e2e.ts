@@ -102,15 +102,26 @@ test("Blocker simulation missing upload focuses actual file then permits one con
   await upload.setInputFiles({ name: "synthetic-required.txt", mimeType: "text/plain", buffer: Buffer.from(Object.entries(identity).map(([key, value]) => `${key}: ${value}`).join("\n")) });
   expect((await applied).status()).toBe(201);
   await openStage(page, "Document verification");
-  const continued = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/resume"));
-  await page.getByRole("button", { name: "Continue evidence review", exact: true }).click();
+  const initial = await (await page.request.get(`/api/clm/zero-touch/cases/${cid}`)).json();
+  expect(initial.status).toBe("PENDING_INPUTS"); expect(initial.current_stage).toBe("DOCUMENT");
+  expect(initial.timing.automation_elapsed_ms).toBeNull();
+  expect(initial.timeline.some((event: { event_type: string }) => event.event_type === "ONBOARDING_STARTED")).toBe(false);
+  await expect(page.getByRole("button", { name: "Continue evidence review", exact: true })).toHaveCount(0);
+  const count = page.getByLabel("Intended document count", { exact: true });
+  await expect(count).toHaveValue(""); await count.fill("1");
+  const continued = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/intake/complete"));
+  await page.getByRole("button", { name: "Complete document intake", exact: true }).click();
   const result = await continued; expect(result.status()).toBe(200);
+  expect(result.request().postDataJSON()).toEqual({ expected_document_count: 1 });
   const final = await result.json(); expect(final.case.goldtier_result).toBeNull();
+  expect(final.status).toBe("WAITING_FOR_REVIEW"); expect(final.current_stage).toBe("READINESS");
+  expect(final.timeline.filter((event: { event_type: string }) => event.event_type === "ONBOARDING_STARTED")).toHaveLength(1);
+  expect(final.case.target_dispatch_confirmation).toBeNull();
   await mkdir(evidence(), { recursive: true });
   await writeFile(path.join(evidence(), "simulation-missing-upload.json"), JSON.stringify({ scenario: "missing-upload",
     initial: "PENDING_INPUTS / DOCUMENT_IDP", expected_navigation: "#case-document-upload input[type=file]",
-    actual_control: "INPUT:file (focused, upload label fully in viewport)", choices: 0, calls_before_confirmation: 0,
-    confirmation: "One upload POST then explicit Resume POST", final: final.active_exceptions.map((item: any) => item.blocker_code), verdict: "PASS" }, null, 2) + "\n");
+    actual_control: "INPUT:file (focused, upload label fully in viewport), visible intended-count form", choices: 1, calls_before_confirmation: 0,
+    confirmation: "One upload POST remains pending; explicit authored count1 completion POST starts once", final: final.active_exceptions.map((item: any) => item.blocker_code), verdict: "PASS" }, null, 2) + "\n");
   expect(violations).toEqual([]);
 });
 
@@ -257,20 +268,49 @@ test("Blocker simulation actual native PDF intake failure targets retry and one 
   await expect(page.getByLabel("Retry affected document", { exact: true })).toBeEnabled();
   const retained = await (await page.request.get(`/api/clm/zero-touch/cases/${cid}`)).json();
   expect(retained.status).toBe("PENDING_INPUTS"); expect(retained.case.goldtier_result).toBeNull();
+  const retryHistoryBefore = await (await page.request.get(`/api/onboarding/cases/${cid}/documents`)).json();
+  const failedCurrent = retryHistoryBefore.filter((item: any) => item.superseded_by_document_id === null);
+  expect(failedCurrent).toHaveLength(1); expect(failedCurrent[0].state).toBe("FAILED");
   const goodRetry = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/retry"));
   const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../backend/tests/fixtures/uat/clean-company-profile.pdf");
   await page.getByLabel("Retry affected document", { exact: true }).setInputFiles(fixture);
   expect((await goodRetry).status()).toBe(201);
-  const continuation = page.getByRole("button", { name: "Continue evidence review", exact: true });
-  await expect(continuation).toHaveCount(1); await expect(continuation).toBeEnabled();
-  await focusPipelineAction(page, "DOCUMENT_IDP", continuation);
-  const continued = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/resume"));
-  await continuation.click(); const response = await continued; expect(response.status()).toBe(200);
-  const final = await response.json(); expect(final.case.goldtier_result).toBeNull();
+  await expect(page.locator(".case-action-progress")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue evidence review", exact: true })).toHaveCount(0);
+  const initial = await (await page.request.get(`/api/clm/zero-touch/cases/${cid}`)).json();
+  expect(initial.status).toBe("PENDING_INPUTS"); expect(initial.current_stage).toBe("DOCUMENT");
+  expect(initial.version).toBe(retained.version); expect(initial.timing.automation_elapsed_ms).toBeNull();
+  expect(initial.timeline.some((event: { event_type: string }) => event.event_type === "ONBOARDING_STARTED")).toBe(false);
+  expect(initial.case.target_dispatch_confirmation).toBeNull(); expect(initial.case.goldtier_result).toBeNull();
+  const retryHistoryAfter = await (await page.request.get(`/api/onboarding/cases/${cid}/documents`)).json();
+  expect(retryHistoryAfter).toHaveLength(retryHistoryBefore.length + 1);
+  const retriedCurrent = retryHistoryAfter.filter((item: any) => item.superseded_by_document_id === null);
+  expect(retriedCurrent).toHaveLength(1); expect(retriedCurrent[0].state).toBe("REVIEWED");
+  expect(retriedCurrent[0].supersedes_document_id).toBe(failedCurrent[0].document_id);
+  expect(retryHistoryAfter.find((item: any) => item.document_id === failedCurrent[0].document_id).superseded_by_document_id).toBe(retriedCurrent[0].document_id);
+  for (const before of retryHistoryBefore) {
+    const afterRetry = retryHistoryAfter.find((item: any) => item.document_id === before.document_id);
+    expect(afterRetry.state).toBe(before.state); expect(afterRetry.fields).toEqual(before.fields);
+    expect(afterRetry.events.slice(0, before.events.length)).toEqual(before.events);
+  }
+  // The authored scenario intends one document. A successful initial retry is
+  // evidence recovery; the visible count-bound action legitimately starts intake.
+  const count = page.getByLabel("Intended document count", { exact: true });
+  await expect(count).toHaveValue(""); await count.fill("1");
+  const completion = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/intake/complete"));
+  await page.getByRole("button", { name: "Complete document intake", exact: true }).click();
+  const completed = await completion;
+  expect(completed.status()).toBe(200); expect(completed.request().postDataJSON()).toEqual({ expected_document_count: 1 });
+  await expect(page.locator(".case-action-progress")).toHaveCount(0);
+  const final = await (await page.request.get(`/api/clm/zero-touch/cases/${cid}`)).json();
+  expect(final.status).toBe("WAITING_FOR_REVIEW"); expect(final.current_stage).toBe("READINESS");
+  expect(final.timeline.filter((event: { event_type: string }) => event.event_type === "ONBOARDING_STARTED")).toHaveLength(1);
+  await expect(count).toHaveCount(0);
+  expect(final.case.target_dispatch_confirmation).toBeNull(); expect(final.case.goldtier_result).toBeNull();
   await mkdir(evidence(), { recursive: true });
   await writeFile(path.join(evidence(), "simulation-native-failed-retry.json"), JSON.stringify({ scenario: "failed document retry", initial: "Actual native extraction text bound / PENDING_INPUTS",
-    actual_control: "Retry affected document INPUT:file; then Continue evidence review BUTTON", choices: 0, calls_before_confirmation: 0,
-    confirmation: "Initial intake 503, failed retry 503, valid native retry 201, one Resume 200", final: final.active_exceptions.map((item: any) => item.blocker_code), verdict: "PASS", external_calls: 0 }, null, 2)+"\n");
+    actual_control: "Retry affected document INPUT:file; visible count-bound intake completion", choices: 1, calls_before_confirmation: 0,
+    confirmation: "Initial intake 503, failed retry 503, valid native retry 201 remains pending; explicit intended count1 starts once with no Resume", final: final.active_exceptions.map((item: any) => item.blocker_code), verdict: "PASS", external_calls: 0 }, null, 2)+"\n");
   // Continue the same real case through a saved replacement / failed dependent
   // refresh. No browser response interception or direct recovery POST.
   await openStage(page, "Document verification");

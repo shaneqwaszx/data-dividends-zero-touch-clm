@@ -140,7 +140,7 @@ describe("Session 2 collapsed exact ownership presentation", () => {
   it("collapses by default, exposes a keyboard-native summary and resets on analysis changes", () => {
     const view = render(<OwnershipPathExplorer record={analysis()} />);
     const details = view.querySelector<HTMLDetailsElement>(".s2-ownership-structure")!; expect(details.open).toBe(false);
-    const toggle = details.querySelector<HTMLElement>("summary")!; expect(toggle.textContent).toBe("View ownership structure and calculations"); toggle.focus(); expect(window.document.activeElement).toBe(toggle);
+    const toggle = details.querySelector<HTMLElement>("summary")!; expect(toggle.textContent).toBe("Technical calculations and retained paths"); toggle.focus(); expect(window.document.activeElement).toBe(toggle);
     details.open = true; act(() => root!.render(<OwnershipPathExplorer record={{ ...analysis(), analysis_id: "analysis-2" }} />)); expect(view.querySelector<HTMLDetailsElement>(".s2-ownership-structure")!.open).toBe(false);
   });
   it("shows exact backend paths, party type/country, separate mixed sources and retained receipts", () => {

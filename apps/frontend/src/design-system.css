@@ -534,3 +534,47 @@ button.tag {
   .intake-progress { display: block; margin: 8px 0 0; }
   .dashboard-trend { grid-template-columns: repeat(30, minmax(0, 1fr)); gap: 1px; }
 }
+
+/* Retained ownership structure: presentation only, no browser percentage arithmetic. */
+.ownership-structure { margin-block: 24px; }
+.ownership-structure__layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); gap: 20px; align-items: start; }
+.ownership-structure__rows { overflow-x: auto; border: 1px solid var(--color-divider); border-radius: 5px; background: #fff; }
+.ownership-structure__row { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(80px, .7fr) minmax(65px, .5fr) minmax(90px, .7fr) minmax(110px, 1fr) minmax(130px, 1fr); min-width: 760px; align-items: center; border-bottom: 1px solid var(--color-divider); font-size: 12px; }
+.ownership-structure__row > * { padding: 10px 8px; overflow-wrap: anywhere; }
+.ownership-structure__head { color: var(--color-neutral-700); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+.ownership-structure__holder { border-left: 2px solid transparent; }
+.ownership-structure__holder button { border: 0; background: transparent; color: inherit; font: inherit; text-align: left; padding: 4px 0; cursor: pointer; }
+.ownership-structure__holder button:focus-visible { outline: 2px solid var(--color-accent-700); outline-offset: 3px; }
+.ownership-structure__holder .tag, .ownership-structure__holder small { display: block; width: fit-content; margin-top: 5px; }
+.ownership-structure__row.is-ubo { background: var(--color-accent-100); }
+.ownership-structure__row.is-selected .ownership-structure__holder { border-left-color: var(--color-accent-700); }
+.ownership-structure__row.is-selected button { font-weight: 600; }
+.ownership-structure__detail { border: 1px solid var(--color-divider); border-radius: 5px; padding: 16px; background: var(--color-neutral-100); overflow-wrap: anywhere; }
+.ownership-structure__detail dl > div { padding-block: 8px; border-bottom: 1px solid var(--color-divider); }
+.ownership-structure__detail dt { font-size: 11px; color: var(--color-neutral-700); }
+.ownership-structure__detail dd { margin: 4px 0 0; font-size: 13px; }
+.ownership-structure__path { padding-left: 18px; font-size: 12px; }
+.ownership-structure__path li { padding-block: 6px; }
+.ubo-summary { border: 1px solid var(--color-accent-300); background: var(--color-accent-100); padding: 16px; margin-block: 16px; border-radius: 5px; }
+.ubo-summary ul { padding-left: 18px; }
+.ubo-summary li { margin-block: 12px; }
+.ubo-summary li p { font-size: 12px; margin-block: 4px; }
+@media (max-width: 1500px) { .ownership-structure__layout { grid-template-columns: minmax(0, 1fr); } }
+
+.ownership-structure__legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; font-size: 11px; }
+.ownership-structure__legend dt { font-weight: 600; }
+.ownership-structure__legend dd { margin: 4px 0; }
+.ownership-structure__toggle { margin-right: 6px; min-width: 24px; min-height: 24px; }
+
+.ds-root .ownership-structure__legend > div { display: block; padding: 8px 0; }
+.ds-root .ownership-structure__legend dt { font-size: 11px; }
+.ds-root .ownership-structure__legend dd { font-size: 11px; font-weight: 400; text-align: left; overflow-wrap: anywhere; }
+.ds-root .ownership-structure__holder button { display: inline-block; width: auto; border-radius: 2px; margin-block: 0; }
+.ds-root .ownership-structure__holder .ownership-structure__toggle { width: 24px; }
+.ubo-summary { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .ownership-structure__head { position: absolute; min-width: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .ownership-structure__row:not(.ownership-structure__head) { grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; padding-block: 8px; }
+  .ownership-structure__holder, .ownership-structure__row > span:last-child { grid-column: 1 / -1; }
+  .ownership-structure__row > span[data-label]::before { content: attr(data-label); display: block; font-size: 10px; color: var(--color-neutral-700); margin-bottom: 3px; }
+}

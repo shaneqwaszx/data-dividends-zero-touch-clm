@@ -1,7 +1,7 @@
 import BlockerDecisionReview, { type ReviewDraftHandle } from "./BlockerDecisionReview";
 import type { ReviewDecisionBatch } from "../types";
 import { confirmReviewDecisions } from "../api";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -12,6 +12,7 @@ import {
   type TargetRecoveryInput,
   type TargetSearchObservation,
   confirmZeroTouchTargetDispatch,
+  completeZeroTouchIntake,
   correctRegistryIdentity,
   deleteZeroTouchCase,
   fetchDocuments,
@@ -714,6 +715,17 @@ export default function CaseDetail({
     );
   }
 
+  function handleCompleteInitialIntake(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const expectedCount = Number(new FormData(event.currentTarget).get("expectedDocumentCount"));
+    if (!Number.isInteger(expectedCount) || expectedCount < 1 || expectedCount > 20) return;
+    void settleEvidenceMutation(
+      () => completeZeroTouchIntake(caseId, expectedCount, false),
+      "Completing document intake…",
+      "Document intake could not complete. Check the intended count and uploaded documents.",
+    );
+  }
+
   function handleRecoverDocumentRefresh() {
     if (!summary?.document_refresh_recovery?.can_resume) return;
     void settleEvidenceMutation(
@@ -1141,9 +1153,22 @@ export default function CaseDetail({
           {summary.status === "PENDING_INPUTS" && documents.some(isCurrentDocument)
             && !documents.some(doc => isCurrentDocument(doc) && doc.state === "FAILED")
             && !canContinueRecoveredIntake(summary, documents)
+            && summary.timing.automation_elapsed_ms !== null
             && <button id="case-document-intake-start" type="button" className="btn btn-primary"
               disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
               onClick={handleContinueRecoveredIntake}>Continue evidence review</button>}
+          {summary.status === "PENDING_INPUTS" && summary.timing.automation_elapsed_ms === null
+            && documents.some(isCurrentDocument)
+            && !documents.some(doc => isCurrentDocument(doc) && doc.state === "FAILED")
+            && <form key={`${evidenceIdentity}:initial-intake`} id="case-document-intake-start" onSubmit={handleCompleteInitialIntake}>
+              <p>Upload the full document set, then enter its intended count to complete intake.</p>
+              <label>Intended document count
+                <input name="expectedDocumentCount" type="number" min="1" max="20" step="1" required
+                  disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true} />
+              </label>
+              <button type="submit" className="btn btn-primary"
+                disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}>Complete document intake</button>
+            </form>}
           {summary.status === "WAITING_FOR_REVIEW" && summary.current_stage === "DOCUMENT"
             && ["MATCHED", "RESOLVED"].includes(summary.reconciliation?.status ?? "")
             && summary.active_exceptions.some(item => item.stage === "DOCUMENT")

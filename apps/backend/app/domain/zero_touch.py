@@ -489,7 +489,7 @@ def validate_automation_transition(
         else (AutomationStage.REGISTRY, AutomationStage.GOLDTIER_SEARCH)
     )
     document_reupload_recovery = (
-        previous.status == AutomationStatus.WAITING_FOR_REVIEW
+        previous.status in {AutomationStatus.WAITING_FOR_REVIEW, AutomationStatus.RESUMING}
         and previous.current_stage == AutomationStage.DOCUMENT
         and candidate.status == AutomationStatus.PENDING_INPUTS
         and candidate.current_stage == AutomationStage.DOCUMENT
