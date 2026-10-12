@@ -1,3 +1,4 @@
+import CaseAttentionSummary, { type AttentionDestination } from "./CaseAttentionSummary";
 import BlockerDecisionReview, { type ReviewDraftHandle } from "./BlockerDecisionReview";
 import type { ReviewDecisionBatch } from "../types";
 import { confirmReviewDecisions } from "../api";
@@ -158,6 +159,11 @@ export default function CaseDetail({
   const ownershipQuery = useQuery(ownershipQueryOptions(actor.user_id, caseId));
   const intelligenceQuery = useQuery(intelligenceQueryOptions(actor.user_id, caseId));
   const summary = detailQuery.data ?? null;
+  const focusVersion = useRef(summary?.version);
+  focusVersion.current = summary?.version;
+  const [pendingAttention, setPendingAttention] = useState<(CaseActionIdentity & {
+    version: number; destination: AttentionDestination;
+  }) | null>(null);
   const documents = documentQuery.data ?? [];
   const ownership = ownershipQuery.data ?? null;
   const intelligence = intelligenceQuery.data ?? null;
@@ -765,6 +771,8 @@ export default function CaseDetail({
 
   function focusActionControl(targetId: string, selector?: string): void {
     const action = captureCaseAction();
+    const version = summary?.version;
+    const currentFocus = () => isCurrentCaseAction(action) && focusVersion.current === version;
     const section = document.getElementById(targetId);
     if (!section) {
       setEvidenceFocusNotice({ identity: evidenceIdentity, message: "The required action is not available for the current case evidence." });
@@ -777,7 +785,7 @@ export default function CaseDetail({
       edit?.click();
     }
     requestAnimationFrame(() => {
-      if (!isCurrentCaseAction(action)) return;
+      if (!currentFocus()) return;
       const current = document.getElementById(targetId);
       if (!current) return;
       // Entry navigation may run before the disclosure's effect has subscribed.
@@ -788,12 +796,14 @@ export default function CaseDetail({
         .find(element => !element.matches(":disabled"));
       if (!target) {
         setEvidenceFocusNotice({ identity: evidenceIdentity, message: "No corrective input is currently authorized here. Review the retained reason and required evidence." });
+        current.tabIndex = -1;
         current.focus({ preventScroll: true });
+        current.scrollIntoView?.({ block: "center", behavior: "auto" });
         return;
       }
       revealStage(target);
       requestAnimationFrame(() => {
-        if (!isCurrentCaseAction(action) || !target.isConnected || target.matches(":disabled")) return;
+        if (!currentFocus() || !target.isConnected || target.matches(":disabled")) return;
         if (target.closest("[hidden]")) {
           setEvidenceFocusNotice({ identity: evidenceIdentity, message: "The corrective input could not be opened for the current case evidence." });
           return;
@@ -840,6 +850,75 @@ export default function CaseDetail({
     section.focus({ preventScroll: true });
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     section.scrollIntoView?.({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
+  }
+
+  useEffect(() => {
+    if (!pendingAttention) return;
+    if (!isCurrentCaseAction(pendingAttention) || summary?.version !== pendingAttention.version) {
+      setPendingAttention(null); return;
+    }
+    if (documentQuery.isPending || ownershipQuery.isPending) return;
+    setPendingAttention(null);
+    requestAnimationFrame(() => {
+      if (isCurrentCaseAction(pendingAttention) && focusVersion.current === pendingAttention.version) {
+        focusAttention(pendingAttention.destination);
+      }
+    });
+  }, [pendingAttention, evidenceIdentity, summary?.version, documentQuery.isPending, ownershipQuery.isPending]);
+
+  function focusAttention(destination: AttentionDestination): void {
+    if (summary && (documentQuery.isPending || ownershipQuery.isPending)) {
+      setPendingAttention({ ...captureCaseAction(), version: summary.version, destination }); return;
+    }
+    if (destination.kind === "final") { focusActionControl("case-review-and-send", ".btn-primary:not([disabled])"); return; }
+    if (destination.kind === "technical") {
+      if (document.getElementById("case-target-recovery")) { focusActionControl("case-target-recovery"); return; }
+      const diagnostic = document.getElementById("case-search-diagnostic") ? "case-search-diagnostic"
+        : document.getElementById("case-target-blocker") ? "case-target-blocker" : EVIDENCE_TARGET_IDS.recovery;
+      focusActionControl(diagnostic); return;
+    }
+    if (destination.kind === "evidence") {
+      const targets = { DOCUMENTS: "documents", CLASSIFICATION: "classification", IDENTITY: "identity" } as const;
+      if (destination.target in targets) { focusEvidence(targets[destination.target as keyof typeof targets]); return; }
+      if (destination.target === "REVIEW_SEND") { focusActionControl("case-review-and-send", ".btn-primary:not([disabled])"); return; }
+      focusActionControl(destination.target === "OWNERSHIP_UPLOAD" ? "case-ownership-evidence-upload" : MANUAL_OWNERSHIP_TARGET_ID,
+        destination.target === "OWNERSHIP_UPLOAD" ? "input[type=file]:not([disabled])" : undefined); return;
+    }
+    const exception = destination.exception;
+    if (exception.stage === "DOCUMENT") {
+      if (identityConflict && exception.evidence.some(item => item.field_key === "registration_identifier" || item.field_key === "registration_number")) { focusEvidence("identity"); return; }
+      // Change the visible decision group only. No draft choice or business mutation.
+      const discrepancy = summary?.reconciliation?.discrepancies.find(item => item.discrepancy_id === exception.exception_id);
+      const field = exception.evidence.find(item => item.reference_id && item.field_key);
+      const documentId = exception.evidence.find(item => documents.some(doc => doc.document_id === item.reference_id && !doc.superseded_by_document_id))?.reference_id
+        ?? discrepancy?.observations.find(item => item.document_id && documents.some(doc => doc.document_id === item.document_id && !doc.superseded_by_document_id))?.document_id;
+      const escaped = (value: string) => value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      if (discrepancy?.allowed_actions.length) {
+        batchReviewRef.current?.openDecision({ discrepancyId: discrepancy.discrepancy_id });
+        focusActionControl("case-blocker-review", `select[data-discrepancy-id="${escaped(discrepancy.discrepancy_id)}"]:not([disabled])`); return;
+      }
+      if (field && batchReviewRef.current?.openDecision({ documentId: field.reference_id!, fieldKey: field.field_key! })) {
+        focusActionControl("case-blocker-review", `select[data-document-id="${escaped(field.reference_id!)}"][data-review-field="${escaped(field.field_key!)}"]:not([disabled])`); return;
+      }
+      if (documentId) {
+        focusActionControl(EVIDENCE_TARGET_IDS.documents, `.document-card[data-document-id="${escaped(documentId)}"] input[type=file]:not([disabled])`); return;
+      }
+      focusEvidence("documents"); return;
+    }
+    if (exception.stage === "REGISTRY") { focusEvidence("identity"); return; }
+    if (exception.stage === "OWNERSHIP") {
+      if (document.getElementById(MANUAL_OWNERSHIP_TARGET_ID)) { focusEvidence("ownership"); return; }
+      focusActionControl(`case-intervention-${exception.exception_id}`); return;
+    }
+    if (exception.blocker_code === "GOLDTIER_CLASSIFICATION_REQUIRED") { focusEvidence("classification"); return; }
+    if (exception.stage === "GOLDTIER_SEARCH") {
+      if (document.getElementById("existing-customer-confirmation-form")) { focusActionControl("existing-customer-confirmation-form", "input:not([disabled])"); return; }
+      focusActionControl("case-search-diagnostic"); return;
+    }
+    if (exception.stage === "READINESS" && summary?.case.policy_rebind?.configuration_status === "REQUIRES_REBIND") { focusEvidence("policy"); return; }
+    if (document.getElementById(`case-intervention-${exception.exception_id}`)) { focusActionControl(`case-intervention-${exception.exception_id}`); return; }
+    focusEvidence("recovery");
+    setEvidenceFocusNotice({ identity: evidenceIdentity, message: "No corrective input is currently authorized here. Review the retained reason and required evidence." });
   }
 
   function editFromFinalReview(target: EvidenceFocusTarget): void {
@@ -1048,10 +1127,11 @@ export default function CaseDetail({
     <div className="ds-root detail-layout">
       <div className="side-panel case-pipeline-panel">
         <button type="button" className="btn btn-ghost" onClick={onBack} style={{ paddingLeft: 0 }}>← Back to Cases</button>
+        <CaseAttentionSummary summary={summary} onNavigate={focusAttention} />
+        {evidenceFocusNotice?.identity === evidenceIdentity && <p className="ds-banner ds-banner-warn" role="status">{evidenceFocusNotice.message}</p>}
         <h4 style={{ marginTop: 16 }}>Pipeline</h4>
         <PipelineRail summary={summary} onStageActivate={focusProcessingNode} />
         {(targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" || summary.current_stage !== "MOCK_GOLDTIER" || summary.technical_failure?.code !== "CLM_TARGET_OUTCOME_UNCERTAIN") && !preflightUnavailable && summary.status === "TECHNICAL_FAILURE" && summary.technical_failure && <div className="ds-banner ds-banner-warn case-technical-failure" style={{ marginBottom: 16 }}><h3 style={{ marginTop: 0 }}>Automation stopped safely</h3><strong>{summary.technical_failure.code}</strong><p style={{ marginBottom: 0 }}>{summary.technical_failure.message}</p></div>}
-        {evidenceFocusNotice?.identity === evidenceIdentity && <p className="ds-banner ds-banner-warn" role="status">{evidenceFocusNotice.message}</p>}
         <hr className="hr" />
         <div className="text-muted" style={{ fontSize: 11.5 }}>
           Loop —

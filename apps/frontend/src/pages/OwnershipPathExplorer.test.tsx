@@ -33,7 +33,7 @@ function render(value: OwnershipAnalysisRecord | null) { container = document.cr
 function click(label: string) { const button = [...container!.querySelectorAll("button")].find((item) => item.textContent === label)!; expect(button).toBeTruthy(); act(() => button.dispatchEvent(new MouseEvent("click", { bubbles: true }))); }
 
 describe("OwnershipPathExplorer", () => {
-  it("renders recovered owner identifiers, exact percentages and LOCAL source alongside UBO results", () => {
+  it("renders recovered owner identifiers, rounded percentages and LOCAL source alongside UBO results", () => {
     const owner = { party_id: "candidate-1", display_name: "Candidate One", party_type: "NATURAL_PERSON" as const, registration_number: "safe-identifier", country: "SG" };
     const recovered: OwnershipAnalysisRecord = { ...record(), state: "ANALYZED", provider_name: "MANUAL_DECLARATION_POC", parties: [owner],
       relationships: [{ relationship_id: "manual-1", parent_party_id: "root", child_party_id: "candidate-1", ownership_percent: "60.000000000000000001", relationship_type: "OWNERSHIP", basis: "SHARE_OWNERSHIP", provenance: { provider: "MANUAL_DECLARATION_POC", environment: "LOCAL", sourced_at: "2026-10-01T00:00:00Z" } }], issues: [] };
@@ -41,27 +41,53 @@ describe("OwnershipPathExplorer", () => {
     const table = view.querySelector<HTMLTableElement>("table[aria-label='Retained ownership details']");
     expect(table).not.toBeNull();
     expect(table?.textContent).toContain("safe-identifier");
-    expect(table?.textContent).toContain("60.000000000000000001%");
+    expect(table?.textContent).toContain("60%");
     expect(table?.textContent).toContain("LOCAL");
     expect(view.textContent).toContain("Client-supplied ownership evidence");
     expect(view.textContent).toContain("not ACRA-derived");
     expect(view.textContent).toContain("Threshold comparison");
   });
 
-  it("preserves exact Decimal, calculation, comparator, result, classification and issue strings", () => {
-    const view = render(record()); const text = view.textContent ?? "";
-    expect(text).toContain("25.000000000000000001"); expect(text).toContain("12.340000000000000009"); expect(text).toContain("37.340000000000000010");
-    expect(text).toContain("GREATER_THAN_OR_EQUAL_TO 25.000000000000000000 → MET"); expect(text).toContain("REVIEW_REQUIRED");
+  it("rounds Decimal labels while preserving raw records, comparator, result, classification and issues", () => {
+    const original = record(); const snapshot = structuredClone(original); const view = render(original); const text = view.textContent ?? "";
+    expect(text).toContain("25%"); expect(text).toContain("12.34%"); expect(text).toContain("37.34%"); expect(original).toEqual(snapshot);
+    expect(text).toContain("GREATER_THAN_OR_EQUAL_TO 25% → MET"); expect(text).toContain("REVIEW_REQUIRED");
     expect(text).toContain("exact(1) = 0.00000000000000000001"); expect(text).toContain("CYCLE_DETECTED: Exact retained cycle message."); expect(text).toContain("Non-definitive partial ownership view");
   });
 
   it("uses keyboard-native pressed candidate and path buttons for multiple retained paths", () => {
-    const view = render(record());
+    const retained = record(); retained.parties = retained.candidates.map(item => item.party); const view = render(retained);
+    expect(view.querySelector('[aria-label="Ownership candidates"]')).toBeNull();
     const candidate = [...view.querySelectorAll("button")].find((item) => item.textContent === "Candidate One")!;
     expect(candidate.getAttribute("aria-pressed")).toBe("true");
     const second = [...view.querySelectorAll("button")].find((item) => item.textContent === "Inspect path-2")!;
     second.focus(); expect(document.activeElement).toBe(second); act(() => second.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))); act(() => second.click());
     expect(second.getAttribute("aria-pressed")).toBe("true"); expect(view.textContent).toContain("Selected retained path: path-2");
+  });
+
+  it("displays the actual tiny scientific API value without changing retained precision or classification", () => {
+    // Two legal 0.000001% edges serialize their calculated effective interest as 1.00E-14.
+    const original = record();
+    const candidate = original.candidates[0];
+    Object.assign(candidate, { direct_ownership_percent: "0", indirect_ownership_percent: "1.00E-14",
+      aggregated_ownership_percent: "1.00E-14", threshold_percent: "25", threshold_result: "NOT_MET",
+      classification: "BELOW_PROVISIONAL_THRESHOLD", paths: [{ path_id: "tiny-api-path", is_direct: false,
+        effective_ownership_percent: "1.00E-14", calculation: "0.000001% x 0.000001% = 0.00000000000001%",
+        edges: [{ relationship_id: "root-holding", parent_party_id: "root", parent_display_name: "Root",
+          child_party_id: "holding", child_display_name: "Holding", ownership_percent: "0.000001" },
+        { relationship_id: "holding-a", parent_party_id: "holding", parent_display_name: "Holding",
+          child_party_id: "candidate-1", child_display_name: "Candidate One", ownership_percent: "0.000001" }] }] });
+    original.threshold_percent = "25";
+    const snapshot = structuredClone(original);
+    const view = render(original);
+    const detail = view.querySelector('[aria-label="Ownership candidate Candidate One"]')!;
+    expect([...detail.querySelectorAll("dd")].slice(0, 3).map(item => item.textContent))
+      .toEqual(["0%", "<0.01%", "<0.01%"]);
+    expect(detail.textContent).toContain("NOT_MET");
+    expect(detail.textContent).toContain("BELOW_PROVISIONAL_THRESHOLD");
+    expect(detail.textContent).toContain("<0.01% x <0.01% = <0.01%");
+    expect(detail.textContent).toContain("Effective ownership: <0.01%");
+    expect(original).toEqual(snapshot);
   });
 
   it("bounds a long visual with prefix, suffix, and an explicit hidden-edge boundary", () => {

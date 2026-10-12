@@ -2,6 +2,7 @@ import { forwardRef, useImperativeHandle, useState } from "react";
 import type { DocumentProcessingRecord, ReviewDecisionBatch, ReconciliationDecisionAction, ReviewDecision, ZeroTouchCaseSummary } from "../types";
 
 export interface ReviewDraftHandle {
+  openDecision: (destination: { discrepancyId?: string; documentId?: string; fieldKey?: string }) => boolean;
   selectSourceDecision: (id: string, action: ReconciliationDecisionAction) => boolean;
 }
 interface Draft { decision: string; correction: string; note: string }
@@ -39,6 +40,15 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
     setSaved(false);
   }
   useImperativeHandle(ref, () => ({
+    openDecision(destination) {
+      if (destination.discrepancyId && sources.some(item => item.discrepancy_id === destination.discrepancyId)) {
+        setFamily("source"); return true;
+      }
+      if (fields.some(item => item.doc.document_id === destination.documentId && item.field.field_key === destination.fieldKey)) {
+        setFamily("document"); return true;
+      }
+      return false;
+    },
     selectSourceDecision(id, action) {
       if (disabled || !sources.some(item => item.discrepancy_id === id && item.allowed_actions.includes(action))) return false;
       setFamily("source");

@@ -78,6 +78,9 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
     await openStage(page, "Registry verification");
     await expect(page.getByRole("button", { name: "Correct identity and recheck", exact: true }))
       .toHaveCount(0);
+    const attention = page.getByRole("region", { name: "Attention required", exact: true });
+    await attention.getByRole("button", { name: /^Blocker:/ }).first().click();
+    await expect(page.getByLabel("Existing customer confirmation rationale")).toBeFocused();
     await page.getByLabel("Existing customer confirmation rationale").fill(
       "Compared synthetic retained candidate with independent registry and corrected document.",
     );

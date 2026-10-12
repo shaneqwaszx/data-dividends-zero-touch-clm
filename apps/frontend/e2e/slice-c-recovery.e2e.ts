@@ -200,6 +200,9 @@ test("Slice C failed Search exposes bounded read-only recheck", { tag: "@slice-c
   await classify(page, caseId);
   await expect.poll(async () => (await summary(page, caseId)).status).toBe("TECHNICAL_FAILURE");
   const blocked = await summary(page, caseId);
+  await page.getByRole("region", { name: "Attention required", exact: true }).getByRole("button", { name: /^Technical failure:/ }).click();
+  await expect(page.locator("#case-search-diagnostic")).toBeFocused();
+  expect((await metadata(page)).operations).toEqual(["SEARCH"]);
   expect(blocked.clm.target_search_checkpoint.disposition).toBe("FAILED");
   expect((await metadata(page)).operations).toEqual(["SEARCH"]);
   await openStage(page, "Registry verification");

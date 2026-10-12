@@ -355,6 +355,13 @@ button.tag {
 .detail-layout > .ds-page { width: 0; min-width: 0; box-sizing: border-box; }
 .ds-two-col > * { min-width: 0; }
 .case-pipeline-panel { width: 260px; padding: 22px 20px; }
+.case-attention { margin: 16px 0; padding-bottom: 12px; border-bottom: 1px solid var(--color-divider); }
+.case-attention p { font-size: 12px; }
+.case-attention ul { list-style: none; margin: 0; padding: 0; }
+.case-attention .btn { display: block; width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; padding: 8px 0; }
+@media (min-width: 901px) {
+  .case-pipeline-panel { position: sticky; top: 12px; align-self: flex-start; max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: auto; scrollbar-gutter: stable; }
+}
 .ds-stage-marker { display: flex; flex-direction: column; align-items: center; }
 .ds-stage-copy { padding-bottom: 14px; font-size: 12.5px; }
 .ds-stage-copy .text-muted { font-size: 11px; }

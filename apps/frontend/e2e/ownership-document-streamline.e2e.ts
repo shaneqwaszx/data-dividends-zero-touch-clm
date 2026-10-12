@@ -1,3 +1,4 @@
+import { formatOwnershipPercent } from "../src/ownershipDisplay";
 import { expect, test } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -103,6 +104,9 @@ test("Ownership hotfix valid root identity selects retained holder with keyboard
   const documents = await (await page.request.get(`/api/onboarding/cases/${cid}/documents`)).json();
   const document = documents.find((item: { state: string; superseded_by_document_id: string | null }) => !item.superseded_by_document_id && item.state === "REVIEWED");
   expect(document).toBeTruthy();
+  await page.goto(`/cases/${cid}`);
+  await page.getByRole("region", { name: "Attention required", exact: true }).getByRole("button", { name: /^Blocker:/ }).first().click();
+  await expect(page.locator("#case-manual-ownership-evidence input:focus, #case-manual-ownership-evidence select:focus")).toHaveCount(1);
   const parties = structuredClone(validIdentityFixture.parties);
   const rootParty = parties.find(party => party.party_id === validIdentityFixture.root_party_id)!;
   rootParty.registration_number = "202400006F";
@@ -133,7 +137,7 @@ test("Ownership hotfix valid root identity selects retained holder with keyboard
     const person = page.locator('[aria-label="Ownership hierarchy"]').getByRole("button", { name: "Avery Tan", exact: true });
     await person.focus(); await person.press("Enter");
     await expect(page.getByRole("complementary", { name: "Selected holder" }).locator("h5")).toHaveText("Avery Tan");
-    await expect(page.getByRole("complementary", { name: "Selected holder" })).toContainText(`${candidate.aggregated_ownership_percent}%`);
+    await expect(page.getByRole("complementary", { name: "Selected holder" })).toContainText(formatOwnershipPercent(candidate.aggregated_ownership_percent));
     expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
     await page.locator(".ownership-structure").screenshot({ path: path.join(evidence, `valid-root-${width}.png`) });
   }
@@ -183,6 +187,8 @@ for (const replace of [false, true]) {
       for (let index = 0; index < 4; index++) await fields.nth(index).selectOption("REJECTED");
       const rejected = await confirmBatch(page); expect(rejected.current_stage).toBe("DOCUMENT");
       expect(rejected.case.goldtier_result).toBeNull();
+      await page.getByRole("region", { name: "Attention required", exact: true }).getByRole("button", { name: /^Blocker:/ }).first().click();
+      await expect(page.getByLabel("Replace current document", { exact: true })).toBeFocused();
       const replacement = page.waitForResponse(r => r.url().includes("/replace") && r.request().method() === "POST");
       await page.getByLabel("Replace current document", { exact: true }).setInputFiles({ name: "synthetic-replacement.txt", mimeType: "text/plain", buffer: Buffer.from(clean) });
       expect((await replacement).status()).toBe(200);

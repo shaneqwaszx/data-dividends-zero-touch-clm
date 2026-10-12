@@ -100,11 +100,11 @@ function render(summary = summaryFixture(), profile = actor, ownership: Ownershi
 }
 
 describe("ReviewAndSend", () => {
-  it("lists only backend-qualified natural persons with exact effective, direct, indirect and source evidence", () => {
+  it("lists only backend-qualified natural persons with rounded effective, direct, indirect and source evidence", () => {
     const markup = render(summaryFixture(), actor, ownershipStructureFixture());
     expect(markup).toContain("Identified UBO candidates");
     expect(markup).toContain("Synthetic qualifying person");
-    expect(markup).toContain("25.000000000000000001% effective");
+    expect(markup).toContain("25% effective");
     expect(markup).toContain("GREATER_THAN_OR_EQUAL_TO 25% → MET");
     expect(markup).toContain("indirect: 25%");
     expect(markup).toContain("OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT");
