@@ -944,3 +944,18 @@ the existing manual-evidence API with a valid root relationship and LOCAL declar
 provenance. Acceptance remains conditional on a fresh independent combined PASS; all
 historical FAIL reports remain immutable. Normal scoped commit/push/PR is now expressly
 authorized after local publication gates and latest-main integration, with human merge.
+
+## PR83 initial-intake P1 remediation candidate - 2026-10-12
+
+Post-publication review4243047623 identifies initial grouped decisions bypassing explicit
+count-bound intake completion. The owner-authorized remaining remediation distinguishes
+unstarted PENDING_INPUTS from existing started-workflow recovery. Initial decisions,
+replacement and failed-upload retry retain evidence without starting automation; missing
+count on initial resume is rejected through the existing incomplete-intake409. Correct
+explicit completion and genuine recovery still continue through existing orchestration.
+The case-page initial action accepts a user-entered intended count instead of count-free
+resume, using existing backend timing for presentation. No persisted/API schema, provider,
+mapping, ownership policy, authorization owner or target-ledger change is introduced.
+Accepted replacement/retry503, failed siblings, original A01-A07/B01-B12 and root-ID
+selection remain regression requirements. Historical PASS does not accept changed bytes;
+publication depends on the separately assigned fresh PR83 P1 independent gate and checks.

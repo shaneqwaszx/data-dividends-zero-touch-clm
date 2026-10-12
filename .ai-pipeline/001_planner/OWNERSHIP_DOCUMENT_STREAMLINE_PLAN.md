@@ -195,3 +195,62 @@ hygiene precede the new freeze. Final affected checks and both canonical shards 
 exact PASS before latest-main integration or publication. First scanned-OCR shard failure
 was separately resolved by exposing already-installed Tesseract in child-only PATH;
 the unchanged scanned browser and six real OCR cases passed without any source/host change.
+
+## PR83 post-publication P1 remediation - 2026-10-12
+
+Owner brief506865eb authorizes one evidence-justified remediation of review comment
+4243047623, consuming the remaining overnight source cycle. Published/task HEAD169a5db
+and freshly fetched main/basea6c80d2 match the clean branch and PR83. Historical reports
+and evidence remain immutable. One implementation/Git writer; fresh independent reviewer
+writes only the separately assigned P1 report. If that gate fails, stop without another
+source remediation; if exact PASS and mandatory gates pass, normal commit/push updates
+PR83, followed by the authorized inline reply/resolution and new-finding check. No merge,
+main/protection/billing/provider changes or extra phase is authorized.
+
+Actual API reproduction: partial initial intake plus current grouped decisions advances
+without count-bound completion. Initial replacement and successful failed-upload retry
+reproduce the same bypass. The first probe had a harness-only absent DTO-field error;
+the corrected probe reads started_at from its existing service owner and produces three
+real status failures against unchanged product bytes. Original diagnostics are retained.
+
+Change Necessity: retain explicit initial completion; documentation alone cannot prevent
+the reproduced owner mutation. Decision code-change in existing orchestration only.
+Canonical owner and common generator: document actions permit unstarted PENDING_INPUTS
+to continue without initial completion. Existing started_at is null before explicit
+count-validated start and retained across recognized replacement/reupload recovery;
+existing start/recovery events prove that interpretation. No new completion flag/schema.
+Highest-risk counterexample: valid PENDING_INPUTS after a previously started interrupted
+document workflow must still continue when sufficiently repaired. Initial interrupted
+uploads must instead remain intake until explicit count-bound completion.
+
+Patch/ripple: shared owner guard; test canonical API/service consumers, legitimate recovery,
+persisted restart and actual browser action. Single-root/multiple manifestation scope;
+guard producer eligibility, never browser heuristics. Existing start/count/failure and
+target-ledger safeguards remain. Large owning service receives only a local fix without
+new responsibility; reuse one small predicate in existing document/start entry points.
+ArchitectureReviewRequired no: no new owner, module/dependency, schema or provider.
+TDD Route strict, explicit owner failing-first authority; current published source is RED.
+
+Plan:
+1. Preserve clean publication identity and exact review thread; inspect current owners.
+2. Permanent adverse API tests: partial confirmation/replacement/retry and count-free resume;
+   wrong count rejects, correct complete advances once; single-document compatibility.
+3. Small owner correction, keeping document receipts/lineage and true recovery semantics.
+4. Correct only prior fixture setup that modeled uncompleted intake as legitimate recovery;
+   preserve assertions and establish completion/recovery through existing owners. Add
+   initial restart/currentness/authorization and real browser remaining-intake coverage.
+5. Required BACKEND_DOMAIN/BACKEND_API, affected FRONTEND_UI and supporting CI_TOOLING
+   verification: focused then fresh full backend, frontend/types/build, contracts,
+   configured lint/types, security/governance, guarded physical Mongo and canonical E2E.
+6. Freeze full PR candidate plus remediation delta; fresh independent A01-A07/B01-B12
+   and P1 acceptance/finding review. FAIL stops; exact PASS continues automatically.
+7. Fresh main assessment, specific staging/content proof, normal commit, clean committed
+   pre-PR/checklist, normal push to existing PR83, exact remote identity, authorized inline
+   reply and resolution, fresh findings/actual CI evidence. Billing refusal NOT EXECUTED.
+
+Current resources: PowerShell/Python/npm/GitHub CLI and guarded browser execution available;
+task PYTHONPATH required because reused editable environment points at primary checkout.
+No .env read. Existing Tesseract only child PATH; new allowlisted disposable Mongo service
+and databases required for physical evidence. Coordinator ports8798/4198; reviewer distinct.
+Never overlap resource-heavy suites, database or browser lifecycles. Delta checkpoints in
+tmp/pr83-p1-evidence; prior overnight handoff remains unchanged historical publication evidence.

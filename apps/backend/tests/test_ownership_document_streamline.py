@@ -27,6 +27,13 @@ def pending_review():
         content=PDF,
         idp_provider=FieldOverrideIdp({DocumentFieldKey.LEGAL_NAME: "OTHER NAME"}),
     )
+    # This fixture represents started document recovery, never incomplete initial intake.
+    completed = zero.start(case_id=cid, expected_document_count=1)
+    assert completed.started_at is not None and completed.status == "WAITING_FOR_REVIEW"
+    recovered = zero._return_to_document_intake(completed)
+    assert recovered.status == "PENDING_INPUTS" and recovered.started_at == completed.started_at
+    assert recovered.events[-1].event_type == "DOCUMENT_REUPLOAD_REQUIRED"
+    doc = documents.get_document(case_id=cid, document_id=doc.document_id)
     current = client.get(f"/api/clm/zero-touch/cases/{cid}").json()
     batch = {
         "expected_automation_version": current["version"],

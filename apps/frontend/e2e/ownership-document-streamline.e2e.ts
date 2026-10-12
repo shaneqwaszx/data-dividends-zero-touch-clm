@@ -10,6 +10,69 @@ const validIdentityFixture = JSON.parse(await readFile(new URL("../src/pages/own
 
 const clean = "Legal Name: MERLION CIRCULAR LABS PTE. LTD.\nUEN: 202400001A\nRegistered Address: 18 INNOVATION WAY, #04-01, 018956, SG\nCountry: SG";
 
+test("PR83 initial multi-file intake remains pending until explicit count completion", async ({ page }) => {
+  const violations: string[] = [];
+  const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!, backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
+  await page.route("**/*", route => handleBrowserRoute(route, policy, violations));
+  await page.goto("/");
+  const login = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await page.getByLabel("User ID").fill("maya-lim");
+  await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  const headers = { "X-CSRF-Token": (await (await login).json()).csrf_token };
+  const created = await page.request.post("/api/clm/zero-touch/cases", { headers, data: { uen: "202400001A" } });
+  expect(created.status()).toBe(201);
+  const cid = (await created.json()).case.case_id;
+  const uploaded = await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/documents`, {
+    headers: { ...headers, "Content-Type": "text/plain", "X-Document-Name": "initial-partial.txt" },
+    data: Buffer.from(clean.replace("MERLION CIRCULAR LABS PTE. LTD.", "OTHER SYNTHETIC NAME")),
+  });
+  expect(uploaded.status()).toBe(201);
+  await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
+  const mutations: string[] = [];
+  page.on("request", request => { if (request.method() === "POST") mutations.push(new URL(request.url()).pathname); });
+  const reviewed = await reviewPendingFields(page, { legal_name: "MERLION CIRCULAR LABS PTE. LTD." });
+  expect(reviewed.status).toBe("PENDING_INPUTS"); expect(reviewed.current_stage).toBe("DOCUMENT");
+  expect(reviewed.timing.automation_elapsed_ms).toBeNull();
+  expect(reviewed.timeline.some((event: { event_type: string }) => event.event_type === "ONBOARDING_STARTED")).toBe(false);
+  const count = page.getByLabel("Intended document count", { exact: true });
+  await expect(count).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Continue recovered intake", exact: true })).toHaveCount(0);
+  expect(mutations).toHaveLength(1);
+  await count.fill("2");
+  const incomplete = page.waitForResponse(response => response.url().endsWith("/intake/complete") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Complete document intake", exact: true }).click();
+  expect((await incomplete).status()).toBe(409);
+  await expect(page.locator(".case-action-progress")).toHaveCount(0);
+  const stillPending = await (await page.request.get(`/api/clm/zero-touch/cases/${cid}`)).json();
+  expect(stillPending.status).toBe("PENDING_INPUTS"); expect(stillPending.version).toBe(reviewed.version);
+  await page.reload(); await openStage(page, "Document verification");
+  await expect(count).toHaveValue("");
+  const received = page.waitForResponse(response => response.url().endsWith("/intake/documents") && response.request().method() === "POST");
+  await page.locator("#case-document-upload input").setInputFiles({ name: "second-intended.txt", mimeType: "text/plain", buffer: Buffer.from(clean) });
+  expect((await received).status()).toBe(201);
+  await expect(page.locator(".case-action-progress")).toHaveCount(0);
+  await expect(count).toHaveValue("");
+  const evidence = retainedEvidencePath("pr83-initial-intake"); await mkdir(evidence, { recursive: true });
+  await page.setViewportSize({ width: 360, height: 1000 });
+  expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+  await page.locator("#case-document-intake-start").screenshot({ path: path.join(evidence, "explicit-count-mobile.png") });
+  await count.fill("2");
+  const completion = page.waitForResponse(response => response.url().endsWith("/intake/complete") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Complete document intake", exact: true }).click();
+  const response = await completion;
+  expect(response.status()).toBe(200); expect(response.request().postDataJSON()).toEqual({ expected_document_count: 2 });
+  const final = await response.json();
+  expect(final.status).toBe("WAITING_FOR_REVIEW"); expect(final.current_stage).toBe("READINESS");
+  expect(final.case.target_dispatch_confirmation).toBeNull(); expect(final.case.goldtier_result).toBeNull();
+  expect(final.timeline.filter((event: { event_type: string }) => event.event_type === "ONBOARDING_STARTED")).toHaveLength(1);
+  await expect(count).toHaveCount(0);
+  expect(mutations).toHaveLength(4);
+  expect(mutations.some(route => route.endsWith("/resume") || route.endsWith("/target-confirmation"))).toBe(false);
+  expect(violations).toEqual([]);
+  await writeFile(path.join(evidence, "receipt.json"), JSON.stringify({ before: reviewed.status, expectedCount: 2, wrongCountRejected: true, status: final.status, stage: final.current_stage, mutations, targetConfirmed: false }, null, 2));
+});
+
 test("Ownership hotfix valid root identity selects retained holder with keyboard and mobile reload", async ({ page }) => {
   const violations: string[] = [];
   const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!, backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
@@ -104,6 +167,11 @@ for (const replace of [false, true]) {
       data: Buffer.from(replace ? "SYNTHETIC DOCUMENT MISSING REQUIRED FIELDS\n".repeat(3) : clean.replace("MERLION CIRCULAR LABS PTE. LTD.", "OTHER SYNTHETIC NAME")),
     });
     expect(uploaded.status()).toBe(201);
+    const completed = await page.request.post(`/api/clm/zero-touch/cases/${cid}/intake/complete`, {
+      headers, data: { expected_document_count: 1 },
+    });
+    expect(completed.status()).toBe(200);
+    expect((await completed.json()).current_stage).toBe("DOCUMENT");
     await page.goto(`/cases/${cid}`);
     await openStage(page, "Document verification");
     const evidence = retainedEvidencePath("ownership-hotfix"); await mkdir(evidence, { recursive: true });

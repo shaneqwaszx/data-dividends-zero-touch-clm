@@ -31,7 +31,7 @@ def test_matching_document_auto_confirms_even_after_readiness_created_reconcilia
         content=PDF,
     )
     zero._reconciliation.reconcile_current(case_id=created.case_id)  # noqa: SLF001
-    result = zero.start(case_id=created.case_id)
+    result = zero.start(case_id=created.case_id, expected_document_count=1)
     retained = documents.get_document(case_id=created.case_id, document_id=document.document_id)
     assert retained is not None
     assert retained.completion_method == DocumentCompletionMethod.AUTO_CONFIRMED
@@ -136,7 +136,7 @@ def test_frozen_threshold_is_inclusive(confidence: float, automatic: bool) -> No
         content=PDF,
         provider=ExactConfidenceProvider(),
     )
-    result = zero.start(case_id=created.case_id)
+    result = zero.start(case_id=created.case_id, expected_document_count=1)
     retained = documents.get_document(case_id=created.case_id, document_id=document.document_id)
     assert (retained.completion_method == DocumentCompletionMethod.AUTO_CONFIRMED) == automatic
     assert result.metrics.human_interventions == 0
@@ -176,7 +176,7 @@ def test_partial_machine_confirmation_does_not_clear_missing_or_low_confidence(s
             else MockIdpProvider(scenario)
         ),
     )
-    result = zero.start(case_id=created.case_id)
+    result = zero.start(case_id=created.case_id, expected_document_count=1)
     retained = documents.get_document(case_id=created.case_id, document_id=document.document_id)
     assert retained.state == "REVIEW_REQUIRED"
     assert sum(field.review_status == "PENDING" for field in retained.fields) == 1
@@ -208,7 +208,7 @@ def test_changed_canonical_value_and_operator_rejection_do_not_auto_clear() -> N
         corrected_value=None,
         note="Current operator rejection retained.",
     )
-    zero.start(case_id=created.case_id)
+    zero.start(case_id=created.case_id, expected_document_count=1)
     retained = documents.get_document(case_id=created.case_id, document_id=document.document_id)
     assert retained.fields[1].review_status == "REJECTED"
     assert retained.state == "REVIEW_REQUIRED"

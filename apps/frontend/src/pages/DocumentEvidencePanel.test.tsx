@@ -26,6 +26,7 @@ function summary(status: ZeroTouchCaseSummary["status"] = "WAITING_FOR_REVIEW"):
     evidence_decision_authorized: true,
     current_stage: "DOCUMENT",
     timeline: [],
+    timing: { automation_elapsed_ms: 10 },
   } as unknown as ZeroTouchCaseSummary;
 }
 
@@ -264,6 +265,9 @@ describe("DocumentEvidencePanel", () => {
       timeline: [{ event_type: "DOCUMENT_REUPLOAD_REQUIRED" }],
     } as ZeroTouchCaseSummary;
     expect(canContinueRecoveredIntake(pending, [failed, recovered])).toBe(true);
+    expect(canContinueRecoveredIntake({
+      ...pending, timing: { ...pending.timing, automation_elapsed_ms: null },
+    }, [failed, recovered])).toBe(false);
     expect(canContinueRecoveredIntake(pending, [failed, { ...recovered, supersedes_document_id: "unrelated" }])).toBe(false);
     expect(canContinueRecoveredIntake({ ...pending, timeline: [{ event_type: "OTHER" }] } as ZeroTouchCaseSummary, [failed, recovered])).toBe(false);
     expect(canContinueRecoveredIntake(pending, [failed, { ...recovered, state: "FAILED" }])).toBe(false);

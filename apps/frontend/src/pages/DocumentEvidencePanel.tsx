@@ -64,6 +64,7 @@ export function canContinueRecoveredIntake(
   documents: DocumentProcessingRecord[],
 ): boolean {
   if (summary.status !== "PENDING_INPUTS" || summary.current_stage !== "DOCUMENT") return false;
+  if (summary.timing.automation_elapsed_ms === null) return false;
   if (documents.some((document) => isCurrentDocument(document) && document.state === "FAILED")) return false;
   const latestEvent = summary.timeline.at(-1);
   if (latestEvent?.event_type !== "DOCUMENT_REUPLOAD_REQUIRED") return false;

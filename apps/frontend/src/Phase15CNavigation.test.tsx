@@ -1127,6 +1127,49 @@ describe("Phase 15C case-bound action lifetime", () => {
     });
   });
 
+  it.each([true, false])("requires an explicit intended count for initial intake; authorized=%s", async (authorized) => {
+    const initial = { ...caseDetailFixture(CASE_A, "CASE A"), status: "PENDING_INPUTS" as const,
+      evidence_decision_authorized: authorized,
+      timing: { ...caseDetailFixture(CASE_A, "CASE A").timing, automation_elapsed_ms: null } };
+    const completed = { ...initial, version: initial.version + 1, status: "WAITING_FOR_REVIEW" as const,
+      current_stage: "READINESS" as const, timing: { ...initial.timing, automation_elapsed_ms: 0 } };
+    let published: ZeroTouchCaseSummary = initial;
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (init?.method === "POST" && url.endsWith("/intake/complete")) {
+        expect(JSON.parse(String(init.body))).toEqual({ expected_document_count: 2 });
+        published = completed;
+        return json(completed);
+      }
+      if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) return json(published);
+      if (url.endsWith("/documents")) return json([documentFixture(CASE_A)]);
+      return unavailable();
+    });
+    const queryClient = testClient();
+    queryClient.setQueryData(caseQueryKeys.detail(relationshipActor.user_id, CASE_A), initial);
+    queryClient.setQueryData(caseQueryKeys.documents(relationshipActor.user_id, CASE_A), [documentFixture(CASE_A)]);
+    queryClient.setQueryData(caseQueryKeys.ownership(relationshipActor.user_id, CASE_A), null);
+    queryClient.setQueryData(caseQueryKeys.intelligence(relationshipActor.user_id, CASE_A), null);
+    await act(async () => root?.render(<QueryClientProvider client={queryClient}>
+      <CaseDetail caseId={CASE_A} actor={relationshipActor} onBack={() => undefined} onViewOnboarded={() => undefined} onViewAudit={() => undefined} />
+    </QueryClientProvider>));
+    const count = container?.querySelector<HTMLInputElement>('input[name="expectedDocumentCount"]');
+    expect(count).toBeTruthy();
+    expect(count!.value).toBe("");
+    expect(count!.disabled).toBe(!authorized);
+    const form = count!.closest("form")!;
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(submit.textContent).toBe("Complete document intake");
+    expect(submit.disabled).toBe(!authorized);
+    expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    if (authorized) {
+      await act(async () => { count!.value = "2"; form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+      await vi.waitFor(() => expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
+      expect(request.mock.calls.some(([input]) => String(input).endsWith("/resume"))).toBe(false);
+      await vi.waitFor(() => expect(container?.querySelector('input[name="expectedDocumentCount"]')).toBeNull());
+    }
+  });
+
   it.each(["accepted", "continuation-failed"] as const)(
     "submits one targeted retry and authoritatively refreshes all case evidence after %s",
     async (outcome) => {

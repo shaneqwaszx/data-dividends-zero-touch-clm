@@ -685,12 +685,21 @@ class ZeroTouchOrchestrator:
                 content=content,
                 provider=idp_provider,
             )
-            if not self._has_required_document_reuploads(case_id):
+            if self._initial_intake_pending(automation):
+                self._documents.auto_confirm_document(
+                    case_id=case_id, document_id=replacement.document_id, allow_partial=True,
+                )
+            elif not self._has_required_document_reuploads(case_id):
                 self.start(case_id=case_id)
             return (
                 self._documents.get_document(case_id=case_id, document_id=replacement.document_id)
                 or replacement
             )
+
+    @staticmethod
+    def _initial_intake_pending(record: ZeroTouchAutomationRecord) -> bool:
+        """Unstarted intake is distinct from a retained started-workflow recovery."""
+        return record.status == AutomationStatus.PENDING_INPUTS and record.started_at is None
 
     def _has_required_document_reuploads(self, case_id: UUID) -> bool:
         documents = self._current_documents(case_id)
@@ -891,6 +900,11 @@ class ZeroTouchOrchestrator:
                     code="ZERO_TOUCH_INTAKE_INCOMPLETE",
                     message="A failed document must be replaced before intake can complete.",
                 )
+            if self._initial_intake_pending(record) and expected_document_count is None:
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_INTAKE_INCOMPLETE",
+                    message="Complete the intended document intake before starting onboarding.",
+                )
             if retained_evidence_intake:
                 return record
             if ownership_provider is not None:
@@ -1023,7 +1037,7 @@ class ZeroTouchOrchestrator:
                              "reload current evidence."),
                 )
             try:
-                self._documents.replace_document(
+                replacement = self._documents.replace_document(
                     case_id=case_id,
                     document_id=document_id,
                     expected_event_count=expected_document_event_count,
@@ -1042,6 +1056,11 @@ class ZeroTouchOrchestrator:
                     code=exc.code,
                     message=exc.public_message,
                 ) from None
+            if self._initial_intake_pending(record):
+                self._documents.auto_confirm_document(
+                    case_id=case_id, document_id=replacement.document_id, allow_partial=True,
+                )
+                return record
             candidate = record.model_copy(deep=True)
             for exception in candidate.active_exceptions:
                 if (
@@ -1164,7 +1183,10 @@ class ZeroTouchOrchestrator:
                         message=exc.public_message,
                     ) from None
                 if record.status == AutomationStatus.PENDING_INPUTS:
-                    if self._has_required_document_reuploads(case_id):
+                    if (
+                        self._initial_intake_pending(record)
+                        or self._has_required_document_reuploads(case_id)
+                    ):
                         return record
                     return self.start(case_id=case_id)
                 return self._refresh_document_checkpoint_locked(

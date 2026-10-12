@@ -47,14 +47,24 @@ field observations, state, and supersession links. Raw bytes and extracted bodie
 transient and never stored in repositories, API responses, events, or logs.
 
 The intake-only API accepts one file per request. Initial multi-file intake completion
-is explicit and bound to `expected_document_count`. A complete current grouped document
-review confirmation also authorizes the existing pipeline to continue automatically.
+is explicit and bound to `expected_document_count`. Current document decisions may be
+retained during partial initial intake, but cannot complete it or trigger later stages.
+A complete current grouped document review confirmation authorizes automatic continuation
+only after intake was legitimately started or at a recognized started-workflow recovery.
 Explicit active-slot replacement, and the final successful targeted retry after all
 failed siblings are replaced, similarly continue through existing orchestration to the
 next genuine blocker or final review. An ordinary additional-document upload remains
 intake-only. A failed upload does not complete
 intake; successful files remain attached and the same case may be retried. The existing
 single-document auto-start route remains for compatibility.
+
+Initial replacement and failed-upload retry retain current evidence and supersession
+history while initial intake remains pending. Existing `started_at` distinguishes this
+from retained started-workflow recovery; a reupload event alone is not completion proof.
+Count-free initial resume returns the existing incomplete-intake409. The case-page
+completion action requests an explicit intended document count from the user, never
+defaults it from received files, and calls the existing count-bound completion route.
+No schema or persisted completion flag is introduced; genuine recovery still uses resume.
 
 Incomplete required document decisions fail before any group receipt is written.
 Confirmation does not waive rejected, low-confidence, missing or conflicting evidence;
