@@ -202,6 +202,7 @@
   color: var(--color-text-muted, #5f5a52);
   font: inherit;
   font-size: 12px;
+  font-weight: 500;
   line-height: 1.5;
   white-space: nowrap;
   cursor: pointer;
@@ -218,12 +219,6 @@
   position: relative;
   display: flex;
   padding: 8px 14px 4px;
-}" would shrink this form. */
-  align-self: stretch;
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 10px 14px 4px;
 }
 
 .copilot-input textarea {
@@ -260,6 +255,7 @@
 }
 
 .copilot-chip:hover:not(:disabled) {
+  background: var(--color-accent-50, #fff8ee);
   border-color: var(--color-accent-300, #facb8d);
   color: var(--color-accent-700, #7d5411);
 }
@@ -339,4 +335,12 @@
 .copilot-send:focus-visible {
   outline: 2px solid var(--color-accent-300, #facb8d);
   outline-offset: 2px;
+}
+
+/* Quiet focus state for the question box (instead of the app's thick green ring). */
+.copilot-input textarea:focus,
+.copilot-input textarea:focus-visible {
+  border-color: var(--color-accent-300, #facb8d);
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(160 111 36 / 12%);
 }
