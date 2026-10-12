@@ -749,12 +749,43 @@ describe("Case attention corrective navigation", () => {
     expect(stage.getAttribute("aria-expanded")).toBe("true"); expect(fetch).not.toHaveBeenCalled();
     expect((document.activeElement as HTMLInputElement).value).toBe("202400001A");
   });
-  it("retains the backend-declared initial identity Search recheck control for a projection-only blocker", () => {
+  it("retains registry verification when the identity projection has no eligible Search checkpoint or identity error", () => {
     const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), projectionOnlySummary());
     renderCase(client, actorA, CASE_A);
+    expect(button("Verify UEN and resume")).toBeTruthy();
+    expect(container!.textContent).not.toContain("Save details and recheck Search");
+  });
+  it("retains Search recheck for the actual initial-identity error with a projection-only blocker", () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const value = projectionOnlySummary();
+    value.case.error = { code: "INITIAL_IDENTITY_INCOMPLETE", message: "Identity required" };
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+    renderCase(client, actorA, CASE_A);
     expect(button("Save details and recheck Search")).toBeTruthy();
     expect(container!.textContent).not.toContain("Verify UEN and resume");
+  });
+  it.each(["REGISTRY_IDENTIFIER_NOT_ELIGIBLE", "ACRA_ENTITY_NOT_FOUND", "REGISTRY_RECHECK_INCOMPLETE", "INITIAL_IDENTITY_NOT_ELIGIBLE"])(
+    "preserves registry correction beside a missing-identity projection for %s", code => {
+      const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+      const value = projectionOnlySummary();
+      value.case.error = { code, message: "Registry correction required" };
+      value.active_exceptions = [{ ...summaryFixture(CASE_A).active_exceptions[0], stage: "REGISTRY",
+        exception_type: "REGISTRY_IDENTIFIER_NOT_ELIGIBLE", blocker_code: code, blocker_codes: [code] }];
+      client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+      const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+      expect(button("Verify UEN and resume")).toBeTruthy();
+      expect(container!.textContent).not.toContain("Save details and recheck Search");
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["COMPLETED", "FAILED", "REVIEW_REQUIRED"] as const)("retains projection-only Search recheck with its eligible %s checkpoint", status => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
+    const value = projectionOnlySummary();
+    value.clm.target_search_checkpoint = { status } as NonNullable<ZeroTouchCaseSummary["clm"]["target_search_checkpoint"]>;
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
+    renderCase(client, actorA, CASE_A);
+    expect(button("Save details and recheck Search")).toBeTruthy();
   });
   it("gives truthful feedback when a projection-only identity control is disabled", async () => {
     const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");

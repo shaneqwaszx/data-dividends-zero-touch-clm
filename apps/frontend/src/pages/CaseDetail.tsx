@@ -1035,9 +1035,15 @@ export default function CaseDetail({
   const entity = summary.case.entity;
   const acquisition = summary.case.registry_acquisition;
   const ownershipRecovery = summary.ownership_recovery;
-  const identityIncomplete = summary.active_exceptions.some(
-    (exception) => exception.blocker_code === "INITIAL_IDENTITY_INCOMPLETE",
-  ) || summary.interventions?.some(item => item.blocker_code === "INITIAL_IDENTITY_INCOMPLETE") === true;
+  const registryCorrectionRequired = summary.active_exceptions.some(item => item.status === "OPEN"
+    && item.stage === "REGISTRY" && item.blocker_code !== "INITIAL_IDENTITY_INCOMPLETE");
+  const initialIdentityException = summary.active_exceptions.some(item => item.blocker_code === "INITIAL_IDENTITY_INCOMPLETE");
+  const identityIncomplete = initialIdentityException
+    || summary.interventions?.some(item => item.blocker_code === "INITIAL_IDENTITY_INCOMPLETE") === true;
+  // An additional identity projection describes missing input, not Search-recheck eligibility.
+  const identitySearchRecheck = !registryCorrectionRequired && (initialIdentityException || (identityIncomplete
+    && (summary.case.error?.code === "INITIAL_IDENTITY_INCOMPLETE"
+      || ["COMPLETED", "FAILED", "REVIEW_REQUIRED"].includes(summary.clm.target_search_checkpoint?.status ?? ""))));
   const identityEditable = summary.evidence_decision_authorized === true
     && summary.status !== "COMPLETED"
     && !summary.case.goldtier_result
@@ -1170,7 +1176,7 @@ export default function CaseDetail({
           >
             <IdentityCorrectionForm
               onboardingCase={summary.case}
-              registryRecovery={!identityIncomplete}
+              registryRecovery={!identitySearchRecheck}
               documentCandidates={documentUenCandidates}
               error={reviewEdit.current?.target === "identity" && isCurrentCaseAction(reviewEdit.current) ? error : null}
               disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
@@ -1184,7 +1190,7 @@ export default function CaseDetail({
                   expected_clm_version: summary.clm.version,
                   expected_case_event_count: summary.case.events.length,
                   };
-                  return identityIncomplete
+                  return identitySearchRecheck
                     ? recheckZeroTouchIdentitySearch(caseId, identityInput)
                     : correctRegistryIdentity(caseId, {
                         ...identityInput, choice: values.choice ?? "OTHER",
@@ -1193,7 +1199,7 @@ export default function CaseDetail({
                       });
                 },
                 "Verifying company identity and resuming…",
-                identityIncomplete ? "identity-recheck" : "registry-identity",
+                identitySearchRecheck ? "identity-recheck" : "registry-identity",
               )}
             />
           </div>

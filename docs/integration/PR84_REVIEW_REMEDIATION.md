@@ -19,8 +19,9 @@ cycles are authorized. No cycle begins from stale feedback or unchanged content.
   CaseAttentionSummary previously ignored unmatched projections. Code change is
   necessary in that presentation owner; backend projection/authority is preserved.
 - CaseDetail's existing initial-identity control also depended solely on exceptions.
-  It now recognizes the same backend-declared blocker in projections, keeping the
-  existing initial-identity Search recheck control available. No operation is added.
+  It now recognizes the backend-declared blocker in projections to expose the existing
+  form. Mutation-mode selection remains separate and follows the retained registry
+  exception or existing initial-identity error/Search checkpoint. No operation is added.
 
 ## Correction and adverse evidence
 
@@ -79,3 +80,48 @@ Only frontend presentation/control selection/navigation changes. API/shared type
 schema, connectors, configuration/dependencies, business rules, mappings, auth/security,
 architecture, provider classifications and backend runtime are unchanged. Original
 Decimal display and ownership selection remain accepted regression requirements.
+
+## Additional cycle 1: mixed registry / identity correction
+
+Fresh automated review of published `0d92519514b248eec8d48202213b6a301e80643b`
+completed at 09:12 UTC and raised P1 comment `4246362528`. The initial projection-only
+fix incorrectly used projection presence to choose the form's mutation mode. A missing
+identity projection can coexist with a registry exception; the backend Search-recheck
+guard accepts only an eligible retained checkpoint or actual INITIAL_IDENTITY_INCOMPLETE
+case error. Registry repair instead uses the existing `verify_registry=True` owner.
+
+Actual authenticated reproduction uses UEN `99999999Z`: the unchanged Mock backend
+reports ACRA_ENTITY_NOT_FOUND, one registry exception and two intervention IDs. A direct
+Search-recheck proposal is rejected with 409 / ZERO_TOUCH_IDENTITY_RECHECK_NOT_ALLOWED.
+Five focused assertions then fail on published source, and the browser fails because
+Verify UEN and resume is absent. The earlier review's REGISTRY_IDENTIFIER_NOT_ELIGIBLE
+example describes the same guard; this browser uses its observed actual error.
+
+The correction separates form visibility from route selection. OPEN non-initial registry
+exceptions retain registry verification. Projection-only identity uses Search recheck
+only with the existing initial-identity error or COMPLETED/FAILED/REVIEW_REQUIRED Search
+checkpoint. The original initial-identity exception retains its existing route. Backend
+authorization still decides every request; no frontend permission or new operation is
+introduced. The chosen route retains its existing matching cache/invalidation effect.
+
+Permanent checks preserve all earlier attention/focus tests, add four registry codes,
+actual missing-identity error and three eligible checkpoint statuses. The no-checkpoint/error
+component fixture correctly retains registry verification. The two backend-derived browser
+projection edges instead retain their real completed Search checkpoint, explicitly asserted
+before the GET overlay, and preserve Search recheck. These checks distinguish missing input
+from route eligibility without weakening focus, count, refresh, disabled-control or mutation
+assertions. The broader run exposed this fixture assumption before final acceptance.
+
+The new unmodified-response browser checks mixed blockers at 360px, keyboard disclosure
+and UEN focus without any navigation request, then deliberately submits one existing
+registry correction. It verifies 200, same case, corrected UEN/name, one retained correction,
+disappearance of both issues, absent dispatch/result/submission and non-Search target rows
+NOT_ATTEMPTED. Target-operation rows include unattempted placeholders; they are not calls.
+Initial browser setup used an incorrect error expectation, then a missing-button wait
+timed out; an explicit count assertion captured the causal failure at unchanged timeouts.
+An initial draft coupled form visibility to route eligibility and failed disabled-control
+feedback; it was corrected by separating the predicates. Final focused 57 tests and actual
+mixed recovery browser pass. Fresh full/broad evidence and exact freeze are recorded by
+the new [mixed-identity independent gate](../../.ai-pipeline/reports/PR84_MIXED_IDENTITY_QUALITY_GATE.md),
+which supersedes the earlier gate for changed content. Two further new verified in-scope
+review cycles remain authorized; no cycle runs on stale findings or unchanged source.

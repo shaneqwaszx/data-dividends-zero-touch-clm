@@ -42,8 +42,10 @@ exceptions and unmatched intervention projections, technical failure and pending
 intake. Explicit exception/intervention IDs link one logical blocker; equal codes do not
 merge independent records. Final confirmation is an action, excluded from blocker counts;
 backend-labelled warnings are also excluded. No immediate blockers is explicit.
-Projection-only initial identity uses the same corrective form and existing Search
-recheck path as the corresponding exception. See the [PR84 correction](PR84_REVIEW_REMEDIATION.md).
+Projection-only initial identity exposes the existing corrective form. An OPEN registry
+blocker preserves registry verification; an initial-identity error or retained eligible
+Search checkpoint selects the existing Search recheck. Projection presence alone does
+not select a mutation route. See the [PR84 correction](PR84_REVIEW_REMEDIATION.md).
 
 CaseDetail routes attention through its existing evidence/action/disclosure helpers.
 Document attention selects the specific current source or document decision, or the
