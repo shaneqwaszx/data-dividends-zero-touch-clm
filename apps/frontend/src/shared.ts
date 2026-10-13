@@ -1,4 +1,4 @@
-import type { ZeroTouchCaseSummary } from "./types";
+import type { RegistryAcquisition, RegistryEvidenceBinding, ZeroTouchCaseSummary } from "./types";
 
 export function formatTimestamp(value: string): string {
   return new Intl.DateTimeFormat("en-SG", {
@@ -20,6 +20,19 @@ export function formatRegistryTimestamp(value: string | null | undefined): strin
   if (!value) return "Not recorded";
   if (!registryTimestampIsUsable(value)) return "Unavailable (invalid timestamp)";
   return `${formatTimestamp(value)} SGT (UTC+08:00)`;
+}
+
+/** One presentation rule for retained registry reuse; does not assess current freshness. */
+export function registryReuseDescription(
+  acquisition: RegistryAcquisition | null | undefined,
+  binding: RegistryEvidenceBinding,
+): string {
+  const timestampsRecorded = [binding.bound_to_case_at, binding.expires_at, acquisition?.retrieved_at,
+    ...(acquisition?.operation_results.filter(result => result.provenance).map(result => result.provenance!.retrieved_at) ?? [])]
+    .every(registryTimestampIsUsable);
+  return timestampsRecorded
+    ? "Reused fresh registry evidence — no ACRA request required."
+    : "Retained registry reuse; valid-at-use timestamps unavailable.";
 }
 
 /** A calendar date, independent of the browser's timezone and UTC date rollover. */

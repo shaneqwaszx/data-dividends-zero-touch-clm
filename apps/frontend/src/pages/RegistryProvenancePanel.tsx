@@ -1,4 +1,4 @@
-import { formatRegistryTimestamp, registryTimestampIsUsable } from "../shared";
+import { formatRegistryTimestamp, registryReuseDescription } from "../shared";
 import type { RegistryAcquisition, RegistryEvidenceBinding, SimulationProfile } from "../types";
 
 export default function RegistryProvenancePanel({
@@ -17,9 +17,6 @@ export default function RegistryProvenancePanel({
   const partnershipUnsupported = ownership?.status === "UNSUPPORTED"
     && entityType === "PARTNERSHIP"
     && ["API_MARKETPLACE_MOCK", "API_MARKETPLACE_PROTOCOL_TEST"].includes(providerMode ?? "");
-  const bindingTimesRecorded = binding && [binding.bound_to_case_at, binding.expires_at, acquisition?.retrieved_at,
-    ...(acquisition?.operation_results.filter(result => result.provenance).map(result => result.provenance!.retrieved_at) ?? [])]
-    .every(registryTimestampIsUsable);
   return (
     <section className="evidence-section-block" aria-labelledby="registry-provenance-heading">
       <p className="card-kicker">Case-bound registry evidence</p>
@@ -65,7 +62,7 @@ export default function RegistryProvenancePanel({
             Local Synthetic Seed · LOCAL PROJECT SYNTHETIC MOCK · LOCAL_SYNTHETIC_UAT_V1.
             Original local seed evidence; configured provider is unchanged.
           </p>}
-          <div className="kv-row"><span className="kv-label">Case use</span><span className="kv-value">{binding.disposition === "CACHE_HIT" ? bindingTimesRecorded ? "Reused fresh registry evidence — no ACRA request required." : "Retained registry reuse; valid-at-use timestamps unavailable." : "Original provider fetch"}</span></div>
+          <div className="kv-row"><span className="kv-label">Case use</span><span className="kv-value">{binding.disposition === "CACHE_HIT" ? registryReuseDescription(acquisition, binding) : "Original provider fetch"}</span></div>
           <div className="kv-row"><span className="kv-label">Disposition</span><span className="kv-value">{binding.disposition}</span></div>
           <div className="kv-row"><span className="kv-label">Bound to this case at</span><span className="kv-value">{formatRegistryTimestamp(binding.bound_to_case_at)}</span></div>
           <div className="kv-row"><span className="kv-label">Valid-at-use expiry</span><span className="kv-value">{formatRegistryTimestamp(binding.expires_at)}</span></div>
