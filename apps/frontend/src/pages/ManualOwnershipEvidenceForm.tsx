@@ -1,3 +1,4 @@
+import { singaporeCalendarDate } from "../shared";
 import { formatOwnershipPercent } from "../ownershipDisplay";
 import { useMemo, useState, type FormEvent } from "react";
 
@@ -113,7 +114,15 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
   const selectedDocument = reviewedDocuments.find((document) => document.document_id === documentId) ?? reviewedDocuments[0];
   const [sourceSelection, setSourceSelection] = useState<SourceSelection>("USER_SUPPLIED_DECLARATION");
   const [selectedObservationIds, setSelectedObservationIds] = useState<string[]>([]);
-  const [asOfDate, setAsOfDate] = useState("");
+  const [asOfDates, setAsOfDates] = useState<Record<SourceSelection, string>>(() => ({
+    USER_SUPPLIED_DECLARATION: ownership?.manual_review_receipt?.as_of_date ?? singaporeCalendarDate(),
+    CURRENT_EVIDENCE: "", DOCUMENT_OBSERVATIONS: "",
+  }));
+  const selectedObservations = observations.filter(item => selectedObservationIds.includes(item.observation_id));
+  const documentDates = new Set(selectedObservations.map(item => item.as_of_date));
+  const sourceDate = sourceSelection === "CURRENT_EVIDENCE" ? ownership?.manual_review_receipt?.as_of_date ?? null
+    : sourceSelection === "DOCUMENT_OBSERVATIONS" && documentDates.size === 1 ? [...documentDates][0] ?? null : null;
+  const asOfDate = sourceDate ?? asOfDates[sourceSelection];
   const [rationale, setRationale] = useState("");
   const [rootPartyId, setRootPartyId] = useState(ownership?.root_party_id ?? `ROOT_${canonicalRootUen}`);
   const [rootDisplayName, setRootDisplayName] = useState(initialRoot?.display_name ?? initialRootLegalName);
@@ -213,10 +222,11 @@ export default function ManualOwnershipEvidenceForm({ canonicalRootUen, initialR
         </select></label>
         <label>Evidence document<select className="input" aria-label="Evidence document" value={selectedDocument?.document_id ?? ""} disabled={disabled} onChange={(event) => setDocumentId(event.target.value)}>{reviewedDocuments.map((document) => <option key={document.document_id} value={document.document_id}>{document.display_name} · review revision {document.events.length}</option>)}</select></label>
         <label>Canonical root UEN<input className="input" value={canonicalRootUen} readOnly aria-readonly="true" /></label>
-        <label>As-of date<input className="input" name="as_of_date" type="date" value={asOfDate} disabled={disabled} onChange={(event) => setAsOfDate(event.target.value)} /></label>
+        <label>As-of date<input className="input" name="as_of_date" type="date" value={asOfDate} readOnly={sourceDate !== null} disabled={disabled} onChange={(event) => setAsOfDates(current => ({ ...current, [sourceSelection]: event.target.value }))} /></label>
         <label>Root legal-entity ID<input className="input" name="root_party_id" value={rootPartyId} maxLength={64} disabled={graphDisabled} onChange={(event) => changeRootId(event.target.value)} /></label>
         <label>Root legal-entity name<input className="input" name="root_display_name" value={rootDisplayName} maxLength={160} disabled={graphDisabled} onChange={(event) => setRootDisplayName(event.target.value)} /></label>
       </div>
+      <p className="control-help">Declaration dates use the Singapore calendar (SGT). A new manual declaration defaults to today; retained and selected source dates stay historical. {sourceDate !== null ? "The displayed date is retained from the selected evidence." : sourceSelection !== "USER_SUPPLIED_DECLARATION" ? "A single source date is not recorded; supply an explicit date for this review decision. Original source dates remain unchanged." : ""}</p>
       <p className="control-help">Current observation bindings: {bindings.length ? bindings.map((binding) => `${binding.document_id} · review revision ${binding.event_count}`).join("; ") : "No proposed ownership observations"}. Each proposal keeps its immutable document version and page reference.</p>
       {sourceSelection === "DOCUMENT_OBSERVATIONS" && <fieldset><legend>Select proposed observations for this decision</legend>{observations.map((observation) => <label className="s2-observation-choice" key={observation.observation_id}>
         <input type="checkbox" checked={selectedObservationIds.includes(observation.observation_id)} disabled={disabled} onChange={(event) => selectObservation(observation.observation_id, event.target.checked)} />

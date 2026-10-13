@@ -939,4 +939,34 @@ describe("Case attention corrective navigation", () => {
     await act(async () => { release(response([documentFixture(CASE_A)])); });
     expect(document.activeElement?.getAttribute("data-review-field")).toBeNull();
   });
+  it.each(["case", "actor", "version", "document revision", "replacement"] as const)(
+    "retires bulk decision drafts at the real CaseDetail %s boundary", async change => {
+      const client = createTestClient();
+      seedCase(client, actorA, CASE_A, "analysis-a", "A");
+      seedCase(client, actorA, CASE_B, "analysis-b", "B");
+      seedCase(client, actorB, CASE_A, "analysis-c", "C");
+      const fetch = vi.spyOn(globalThis, "fetch");
+      renderCase(client, actorA, CASE_A);
+      click("Reject all undecided suggestions");
+      const selected = container!.querySelector<HTMLSelectElement>("select[data-review-field]")!;
+      expect(selected.value).toBe("REJECTED");
+      if (change === "case") renderCase(client, actorA, CASE_B);
+      else if (change === "actor") renderCase(client, actorB, CASE_A);
+      else await act(async () => {
+        if (change === "version") client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), { ...summaryFixture(CASE_A), version: 2 });
+        else {
+          const doc = documentFixture(CASE_A);
+          client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), change === "replacement"
+            ? [{ ...doc, superseded_by_document_id: "replacement-document", events: [...doc.events, {}] },
+               { ...doc, document_id: "replacement-document", replaces_document_id: doc.document_id, review_source_fingerprint: "b".repeat(64) }]
+            : [{ ...doc, events: [...doc.events, {}] }]);
+        }
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(selected.isConnected).toBe(false);
+      expect(Array.from(container!.querySelectorAll<HTMLSelectElement>("select[data-review-field]")).every(control => control.value === "")).toBe(true);
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
 });

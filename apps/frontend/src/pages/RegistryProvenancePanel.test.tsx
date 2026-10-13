@@ -147,3 +147,33 @@ it("shows the retained configurable duration without imposing the old fixed 90-d
   expect(view.textContent).toContain("MOCK_ACRA_APPROVED_POLICY version 2");
   expect(view.textContent).not.toContain("90 elapsed 24-hour periods");
 });
+
+
+it("renders Singapore rollover timestamps with separately inspectable original UTC", () => {
+  const source = { ...acquisition, retrieved_at: "2026-10-13T16:00:00Z" };
+  const view = render(binding, source);
+  expect(view.querySelector(".kv-value")?.textContent).toBe("COMPLETE");
+  const row = Array.from(view.querySelectorAll(".kv-row")).find(item => item.textContent?.includes("Acquisition retrieved at"))!;
+  expect(row.textContent).toContain("14 Oct 2026");
+  expect(row.textContent).toContain("SGT");
+  expect(row.textContent).not.toContain(source.retrieved_at);
+  const detail = Array.from(view.querySelectorAll("details")).find(item => item.querySelector("summary")?.textContent?.includes("original ISO UTC"))!;
+  expect(detail).toBeTruthy();
+  expect(detail.textContent).toContain(source.retrieved_at);
+  expect(detail.textContent).toContain(binding.bound_to_case_at);
+  expect(detail.textContent).toContain(binding.expires_at);
+});
+
+it.each([null, undefined, "", "malformed", "2026-02-30T00:00:00Z"])("does not present missing/invalid registry time %s as usable", value => {
+  const view = render({ ...binding, bound_to_case_at: value as string }, { ...acquisition, retrieved_at: value as string });
+  const row = Array.from(view.querySelectorAll(".kv-row")).find(item => item.textContent?.includes("Acquisition retrieved at"))!;
+  expect(row.textContent).toMatch(/Not recorded|Unavailable/);
+  expect(view.textContent).not.toContain("Reused fresh registry evidence");
+  expect(view.textContent).toContain("not a current validity assessment");
+});
+
+it("does not infer freshness from valid binding dates when retrieval provenance is invalid", () => {
+  const view = render(binding, { ...acquisition, retrieved_at: "malformed" });
+  expect(view.textContent).not.toContain("Reused fresh registry evidence");
+  expect(view.textContent).toContain("valid-at-use timestamps unavailable");
+});

@@ -72,3 +72,66 @@ it("source decisions display compared values and expose only backend-permitted a
   expect(container.querySelector("select[data-reconciliation-field]")).toBeNull();
   expect(container.querySelector("select[data-review-field]")).not.toBeNull();
 });
+
+
+it("bulk fills only undecided eligible document drafts, preserves corrections and notes, and confirms once", () => {
+  const fetch = vi.spyOn(globalThis, "fetch"); const confirm = mount();
+  const controls = Array.from(container.querySelectorAll<HTMLSelectElement>("select[data-review-field]"));
+  choose(controls[0], "CORRECTED");
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  act(() => { const correction = container.querySelector<HTMLInputElement>("input")!; setter.call(correction, "CORRECTED SYNTHETIC"); correction.dispatchEvent(new Event("input", { bubbles: true })); });
+  const accept = button("Accept all eligible undecided suggestions"); expect(accept).toBeTruthy();
+  act(() => { accept.click(); accept.click(); });
+  expect(controls.map(item => item.value)).toEqual(["CORRECTED", "ACCEPTED", "ACCEPTED", "ACCEPTED"]);
+  act(() => button("Reject all undecided suggestions").click());
+  expect(controls.map(item => item.value)).toEqual(["CORRECTED", "ACCEPTED", "ACCEPTED", "ACCEPTED"]);
+  expect(confirm).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+  act(() => button("Confirm decisions & continue onboarding").click());
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(confirm.mock.calls[0][0].documents[0].decisions[0]).toMatchObject({ decision: "CORRECTED", corrected_value: "CORRECTED SYNTHETIC" });
+  expect(container.querySelectorAll(".blocker-review__cards > fieldset")).toHaveLength(4);
+});
+
+it("bulk skips missing suggestions and reviewed fields without expanding low-score acceptance semantics", () => {
+  const confirm = mount();
+  const partial = [{ ...documents[0], fields: documents[0].fields.map((field, index) => ({ ...field, original_extracted_value: index === 1 ? null : field.original_extracted_value, review_status: index === 3 ? "ACCEPTED" : field.review_status })) }] as DocumentProcessingRecord[];
+  act(() => root!.render(<BlockerDecisionReview key="partial" summary={summary} documents={partial} busy={false} onConfirm={confirm} />));
+  const accept = button("Accept all eligible undecided suggestions"); expect(accept).toBeTruthy();
+  act(() => accept.click());
+  expect(Array.from(container.querySelectorAll<HTMLSelectElement>("select[data-review-field]")).map(item => item.value)).toEqual(["ACCEPTED", "", "ACCEPTED"]);
+  expect(container.textContent).toContain("2 filled · 1 skipped · 1 remaining");
+  expect(button("Confirm decisions & continue onboarding").disabled).toBe(true);
+  act(() => button("Reject all undecided suggestions").click());
+  expect(confirm).not.toHaveBeenCalled();
+  act(() => button("Confirm decisions & continue onboarding").click());
+  expect(confirm.mock.calls[0][0].documents[0].decisions.map((item: { decision: string }) => item.decision)).toEqual(["ACCEPTED", "REJECTED", "ACCEPTED"]);
+  expect(confirm.mock.calls[0][0].documents[0].expected_event_count).toBe(1);
+});
+
+it.each(["busy", "unauthorized"])("bulk cannot fill or confirm in %s state", state => {
+  const confirm = mount();
+  act(() => root!.render(<BlockerDecisionReview summary={{ ...summary, evidence_decision_authorized: state !== "unauthorized" }} documents={documents} busy={state === "busy"} onConfirm={confirm} />));
+  for (const label of ["Accept all eligible undecided suggestions", "Reject all undecided suggestions"]) {
+    expect(button(label).disabled).toBe(true); act(() => button(label).click());
+  }
+  expect(container.textContent).toContain("0 selected / 4 required"); expect(confirm).not.toHaveBeenCalled();
+});
+
+it("bulk preserves a note on an undecided field and source-family switching keeps drafts local", () => {
+  const confirm = mount();
+  const mixed = { ...summary, active_exceptions: [{ exception_id: "source-one" }], reconciliation: { version: 3, source_document_ids: ["synthetic-doc"], source_document_event_counts: [1], discrepancies: [{ discrepancy_id: "source-one", field_name: "registration_identifier", status: "OPEN", allowed_actions: ["KEEP_REGISTRY_VALUE"], evidence_fingerprint: "a".repeat(64), observations: [] }] } } as unknown as ZeroTouchCaseSummary;
+  act(() => root!.render(<BlockerDecisionReview key="mixed" summary={mixed} documents={documents} busy={false} onConfirm={confirm} />));
+  const group = container.querySelector<HTMLSelectElement>('select[aria-label="Decision group"]')!;
+  choose(group, "source"); expect(button("Accept all eligible undecided suggestions")).toBeUndefined();
+  choose(group, "document");
+  const note = container.querySelector<HTMLInputElement>("input")!;
+  act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(note, "Retained optional synthetic note"); note.dispatchEvent(new Event("input", { bubbles: true })); });
+  act(() => button("Accept all eligible undecided suggestions").click());
+  choose(group, "source"); expect(button("Reject all undecided suggestions")).toBeUndefined();
+  expect(container.querySelector<HTMLSelectElement>("select[data-discrepancy-id]")!.value).toBe("");
+  choose(group, "document"); expect(container.querySelector<HTMLInputElement>("input")!.value).toBe("Retained optional synthetic note");
+  expect(confirm).not.toHaveBeenCalled();
+  act(() => button("Confirm decisions & continue onboarding").click());
+  expect(confirm.mock.calls[0][0].documents[0].decisions[0].note).toBe("Retained optional synthetic note");
+  expect(confirm.mock.calls[0][0].reconciliation).toBeUndefined();
+});

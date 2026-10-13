@@ -6,6 +6,10 @@ export interface ReviewDraftHandle {
   selectSourceDecision: (id: string, action: ReconciliationDecisionAction) => boolean;
 }
 interface Draft { decision: string; correction: string; note: string }
+interface ReviewDraftState {
+  choices: Record<string, Draft>;
+  bulkResult: { filled: number; skipped: number; remaining: number } | null;
+}
 
 const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
   summary: ZeroTouchCaseSummary;
@@ -27,7 +31,8 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
   const fields = reviewable.flatMap(doc => doc.fields.filter(field => field.review_status === "PENDING")
     .map(field => ({ doc, field, id: `${doc.document_id}:${field.field_key}` })));
   const [family, setFamily] = useState<"document" | "source">(fields.length ? "document" : "source");
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [draftState, setDraftState] = useState<ReviewDraftState>({ choices: {}, bulkResult: null });
+  const drafts = draftState.choices;
   const [saved, setSaved] = useState(false);
   const disabled = busy || summary.evidence_decision_authorized !== true;
   const items = family === "document" ? fields.map(item => item.id) : sources.map(item => item.discrepancy_id);
@@ -36,7 +41,29 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
   const complete = selected === items.length && items.length > 0 && !invalid;
 
   function change(id: string, update: Partial<Draft>) {
-    setDrafts(current => ({ ...current, [id]: { ...(current[id] ?? { decision: "", correction: "", note: "" }), ...update } }));
+    setDraftState(current => ({ choices: { ...current.choices,
+      [id]: { ...(current.choices[id] ?? { decision: "", correction: "", note: "" }), ...update } }, bulkResult: null }));
+    setSaved(false);
+  }
+  function fillUndecided(decision: "ACCEPTED" | "REJECTED") {
+    if (disabled || family !== "document") return;
+    setDraftState(current => {
+      const choices = { ...current.choices };
+      let filled = 0;
+      let skipped = 0;
+      for (const { id, field } of fields) {
+        const draft = choices[id];
+        if (draft?.decision || draft?.correction.trim()
+          || (decision === "ACCEPTED" && field.original_extracted_value == null)) {
+          skipped += 1;
+        } else {
+          choices[id] = { decision, correction: "", note: draft?.note ?? "" };
+          filled += 1;
+        }
+      }
+      return { choices, bulkResult: { filled, skipped,
+        remaining: fields.filter(({ id }) => !choices[id]?.decision).length } };
+    });
     setSaved(false);
   }
   useImperativeHandle(ref, () => ({
@@ -81,11 +108,20 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
     <h3 id="blocker-review-heading">Review blocker decisions</h3>
     <p>Select all choices, review them, then confirm. Selecting a choice does not process the case.</p>
     {fields.length > 0 && sources.length > 0 && <label>Decision group
-      <select aria-label="Decision group" value={family} disabled={disabled} onChange={event => { setFamily(event.target.value as typeof family); setSaved(false); }}>
+      <select aria-label="Decision group" value={family} disabled={disabled} onChange={event => { setFamily(event.target.value as typeof family); setSaved(false); setDraftState(current => ({ ...current, bulkResult: null })); }}>
         <option value="source">Compare registry and document values</option>
         <option value="document">Review extracted document fields</option>
       </select>
     </label>}
+    {family === "document" && <div className="blocker-review__bulk">
+      <p>Fill undecided eligible document drafts only. Existing choices, corrections and notes are kept; Confirm is still required.</p>
+      <div className="document-card__actions">
+        <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => fillUndecided("ACCEPTED")}>Accept all eligible undecided suggestions</button>
+        <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => fillUndecided("REJECTED")}>Reject all undecided suggestions</button>
+      </div>
+      {draftState.bulkResult && <p role="status">{draftState.bulkResult.filled} filled · {draftState.bulkResult.skipped} skipped · {draftState.bulkResult.remaining} remaining</p>}
+    </div>}
+    <div className="confirm-grid blocker-review__cards">
     {family === "document" ? fields.map(({ doc, field, id }) => <fieldset key={id} className="comparison-card">
       <legend>{field.field_key.replaceAll("_", " ")} · {doc.display_name}</legend>
       <div className="comparison-sources"><div>Document suggestion<strong>{field.original_extracted_value ?? "Missing"}</strong></div><div>Registry value<strong>{field.canonical_value ?? "Missing"}</strong></div></div>
@@ -93,7 +129,7 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
         <select data-review-field={field.field_key} data-document-id={doc.document_id} disabled={disabled}
           value={drafts[id]?.decision ?? ""} onChange={event => change(id, { decision: event.target.value })}>
           <option value="">Select a draft decision</option>
-          {field.original_extracted_value !== null && <option value="ACCEPTED">Accept document suggestion</option>}
+          {field.original_extracted_value != null && <option value="ACCEPTED">Accept document suggestion</option>}
           <option value="REJECTED">Reject document suggestion</option><option value="CORRECTED">Record correction</option>
         </select>
       </label>
@@ -120,6 +156,7 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
       </label>
       {drafts[item.discrepancy_id]?.decision && <p className="control-help">Draft: {drafts[item.discrepancy_id].decision.replaceAll("_", " ").toLowerCase()}</p>}
     </fieldset>)}
+    </div>
     <footer className="blocker-review__footer">
       <p role="status">{selected} selected / {items.length} required · {items.length - selected} remaining · {saved ? "Draft saved in this tab" : "Draft not saved"}</p>
       <p>Your selections are a draft. The onboarding system has not processed them yet. Drafts stay in this tab while this case is open and are cleared when you leave the case, refresh, change session or receive changed evidence.</p>
@@ -127,7 +164,7 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
       {!complete && <p id="batch-confirm-disabled">{invalid ? "Enter each correction before confirming." : "Select all required decisions before confirming."}</p>}
       <div className="document-card__actions">
         <button type="button" className="btn btn-secondary" disabled={disabled || selected === 0} onClick={() => setSaved(true)}>Save draft in this tab</button>
-        <button type="button" className="btn btn-ghost" disabled={disabled || selected === 0} onClick={() => { setDrafts({}); setSaved(false); }}>Clear draft</button>
+        <button type="button" className="btn btn-ghost" disabled={disabled || selected === 0} onClick={() => { setDraftState({ choices: {}, bulkResult: null }); setSaved(false); }}>Clear draft</button>
         <button type="button" className="btn btn-primary blocker-review-confirm" disabled={disabled || !complete} aria-describedby={!complete ? "batch-confirm-disabled" : undefined} onClick={confirm}>Confirm decisions & continue onboarding</button>
       </div>
     </footer>

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated, Final, Literal, Never, Protocol
 from unicodedata import category
@@ -291,7 +291,10 @@ class ManualOwnershipEvidenceProvider:
 
     def _validate_current_bindings(self, now: datetime) -> None:
         declaration = self._declaration
-        if declaration.as_of_date > now.date():
+        # The date-only declaration follows the owner's Singapore calendar convention.
+        # Evidence review instants below remain timezone-aware UTC comparisons.
+        singapore_today = now.astimezone(timezone(timedelta(hours=8))).date()
+        if declaration.as_of_date > singapore_today:
             _reject("MANUAL_OWNERSHIP_FUTURE_DATE", "The declaration date cannot be in the future.")
 
         case = self._cases.get_case(declaration.case_id)

@@ -8,6 +8,29 @@ export function formatTimestamp(value: string): string {
   }).format(new Date(value));
 }
 
+/** Registry wire times are UTC; validity is independent of presentation text. */
+export function registryTimestampIsUsable(value: string | null | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/.test(value)) return false;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 19) === value.slice(0, 19);
+}
+
+/** Invalid or missing provenance is never a freshness claim. */
+export function formatRegistryTimestamp(value: string | null | undefined): string {
+  if (!value) return "Not recorded";
+  if (!registryTimestampIsUsable(value)) return "Unavailable (invalid timestamp)";
+  return `${formatTimestamp(value)} SGT (UTC+08:00)`;
+}
+
+/** A calendar date, independent of the browser's timezone and UTC date rollover. */
+export function singaporeCalendarDate(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-SG", {
+    timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(now);
+  const part = (kind: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === kind)!.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 export function formatDateNoSeconds(value: string): string {
   return new Intl.DateTimeFormat("en-SG", {
     dateStyle: "medium",

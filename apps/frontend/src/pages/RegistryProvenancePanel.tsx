@@ -1,3 +1,4 @@
+import { formatRegistryTimestamp, registryTimestampIsUsable } from "../shared";
 import type { RegistryAcquisition, RegistryEvidenceBinding, SimulationProfile } from "../types";
 
 export default function RegistryProvenancePanel({
@@ -16,6 +17,9 @@ export default function RegistryProvenancePanel({
   const partnershipUnsupported = ownership?.status === "UNSUPPORTED"
     && entityType === "PARTNERSHIP"
     && ["API_MARKETPLACE_MOCK", "API_MARKETPLACE_PROTOCOL_TEST"].includes(providerMode ?? "");
+  const bindingTimesRecorded = binding && [binding.bound_to_case_at, binding.expires_at, acquisition?.retrieved_at,
+    ...(acquisition?.operation_results.filter(result => result.provenance).map(result => result.provenance!.retrieved_at) ?? [])]
+    .every(registryTimestampIsUsable);
   return (
     <section className="evidence-section-block" aria-labelledby="registry-provenance-heading">
       <p className="card-kicker">Case-bound registry evidence</p>
@@ -39,13 +43,13 @@ export default function RegistryProvenancePanel({
             evidence is required.
           </p>}
           <div className="kv-row"><span className="kv-label">Acquisition status</span><span className="kv-value">{acquisition.status}</span></div>
-          <div className="kv-row"><span className="kv-label">Acquisition retrieved at</span><span className="kv-value">{acquisition.retrieved_at}</span></div>
+          <div className="kv-row"><span className="kv-label">Acquisition retrieved at</span><span className="kv-value">{formatRegistryTimestamp(acquisition.retrieved_at)}</span></div>
           <ul aria-label="Original registry operations">
             {acquisition.operation_results.map((result) => (
               <li key={result.operation}>
                 <strong>{result.operation}</strong>: {result.status}
                 {result.provenance && (
-                  <> · {result.provenance.provider} · {result.provenance.environment} · retrieved {result.provenance.retrieved_at} · reference {result.provenance.evidence_reference}</>
+                  <> · {result.provenance.provider} · {result.provenance.environment} · retrieved {formatRegistryTimestamp(result.provenance.retrieved_at)} · reference {result.provenance.evidence_reference}</>
                 )}
               </li>
             ))}
@@ -61,10 +65,10 @@ export default function RegistryProvenancePanel({
             Local Synthetic Seed · LOCAL PROJECT SYNTHETIC MOCK · LOCAL_SYNTHETIC_UAT_V1.
             Original local seed evidence; configured provider is unchanged.
           </p>}
-          <div className="kv-row"><span className="kv-label">Case use</span><span className="kv-value">{binding.disposition === "CACHE_HIT" ? "Reused fresh registry evidence — no ACRA request required." : "Original provider fetch"}</span></div>
+          <div className="kv-row"><span className="kv-label">Case use</span><span className="kv-value">{binding.disposition === "CACHE_HIT" ? bindingTimesRecorded ? "Reused fresh registry evidence — no ACRA request required." : "Retained registry reuse; valid-at-use timestamps unavailable." : "Original provider fetch"}</span></div>
           <div className="kv-row"><span className="kv-label">Disposition</span><span className="kv-value">{binding.disposition}</span></div>
-          <div className="kv-row"><span className="kv-label">Bound to this case at</span><span className="kv-value">{binding.bound_to_case_at}</span></div>
-          <div className="kv-row"><span className="kv-label">Valid-at-use expiry</span><span className="kv-value">{binding.expires_at}</span></div>
+          <div className="kv-row"><span className="kv-label">Bound to this case at</span><span className="kv-value">{formatRegistryTimestamp(binding.bound_to_case_at)}</span></div>
+          <div className="kv-row"><span className="kv-label">Valid-at-use expiry</span><span className="kv-value">{formatRegistryTimestamp(binding.expires_at)}</span></div>
           <div className="kv-row"><span className="kv-label">Policy</span><span className="kv-value">{binding.freshness_policy_id} version {binding.freshness_policy_version}</span></div>
           <div className="kv-row"><span className="kv-label">Retained duration</span><span className="kv-value">{binding.freshness_duration_seconds} seconds</span></div>
           <div className="kv-row"><span className="kv-label">Freshness comparator</span><span className="kv-value">{binding.freshness_comparator}</span></div>
@@ -76,6 +80,21 @@ export default function RegistryProvenancePanel({
           <span>Acquisition disposition, case-use time, retained freshness policy, and validity-at-use are unknown. This does not indicate a cache miss, disabled cache, provider fetch, freshness, or current validity.</span>
         </div>
       )}
+      {(acquisition || binding) && <details className="evidence-details">
+        <summary>Technical timestamps (original ISO UTC)</summary>
+        <dl>
+          {acquisition && <>
+            <div><dt>Acquisition retrieved at — original ISO UTC</dt><dd>{acquisition.retrieved_at || "Not recorded"}</dd></div>
+            {acquisition.operation_results.filter(result => result.provenance).map(result => <div key={result.operation}>
+              <dt>{result.operation} retrieved at — original ISO UTC</dt><dd>{result.provenance!.retrieved_at || "Not recorded"}</dd>
+            </div>)}
+          </>}
+          {binding && <>
+            <div><dt>Bound to this case at — original ISO UTC</dt><dd>{binding.bound_to_case_at || "Not recorded"}</dd></div>
+            <div><dt>Valid-at-use expiry — original ISO UTC</dt><dd>{binding.expires_at || "Not recorded"}</dd></div>
+          </>}
+        </dl>
+      </details>}
     </section>
   );
 }

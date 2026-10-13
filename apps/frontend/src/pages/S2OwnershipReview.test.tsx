@@ -46,9 +46,9 @@ function panel(value: DocumentProcessingRecord, authorized: boolean | undefined)
 }
 
 describe("Session 2 source-bound ownership decisions", () => {
-  it("leaves invented shares, percentages, types, countries and dates out of blank declarations", () => {
+  it("leaves invented shares, percentages, types and countries out of blank declarations", () => {
     form(vi.fn(), null);
-    for (const name of ["ownership_percent_0", "ownership_percent_1", "party_type_0", "country_0", "as_of_date"]) expect(container.querySelector<HTMLInputElement>(`[name="${name}"]`)!.value).toBe("");
+    for (const name of ["ownership_percent_0", "ownership_percent_1", "party_type_0", "country_0"]) expect(container.querySelector<HTMLInputElement>(`[name="${name}"]`)!.value).toBe("");
     expect(container.querySelector('input[type="file"]')).toBeNull();
   });
   it("prefills explicit multi-level direct relationships and retains current party order for keep-current", () => {
