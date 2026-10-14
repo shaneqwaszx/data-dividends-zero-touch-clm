@@ -179,3 +179,80 @@ def test_physical_partial_preview_refresh_restarts_from_document_without_stale_c
             == 409
         )
         assert restarted.calls == []
+
+
+def test_physical_am18_retained_409_checkpoint_survives_restart_and_stale_writer(database):
+    from test_am18_ownership_checkpoint import current_payload
+
+    config = configured(database)
+    target = RecordingMockGoldTier()
+    with (
+        patch("app.composition.MockGoldTierConnector", lambda **_: target),
+        TestClient(create_app(config)) as client,
+    ):
+        cid, _, _ = prepare_final(client)
+        endpoint = f"/api/clm/zero-touch/cases/{cid}/manual-ownership-evidence"
+        complete = client.post(endpoint, json=current_payload(client, cid))
+        assert complete.status_code == 200, complete.text
+        before = complete.json()
+        obsolete = before["active_exceptions"][0]["exception_id"]
+        incomplete = current_payload(client, cid, complete=False, percent="60")
+        retained_error = client.post(endpoint, json=incomplete)
+        assert retained_error.status_code == 409
+        assert retained_error.json()["detail"]["code"] == (
+            "ZERO_TOUCH_MANUAL_OWNERSHIP_REVIEW_REQUIRED"
+        )
+        blocked = client.get(f"/api/clm/zero-touch/cases/{cid}").json()
+        graph = client.get(f"/api/onboarding/cases/{cid}/ownership").json()
+        assert graph["state"] == "REVIEW_REQUIRED"
+        assert {issue["code"] for issue in graph["issues"]} == {"INCOMPLETE_LEGAL_ENTITY"}
+        assert graph["manual_review_receipt"]["rationale"] is None
+        assert blocked["current_stage"] == "OWNERSHIP"
+        assert blocked["version"] > before["version"]
+        assert blocked["clm"]["version"] > before["clm"]["version"]
+        assert [e["blocker_code"] for e in blocked["active_exceptions"]] == ["OWNERSHIP_INCOMPLETE"]
+        assert obsolete in {e["exception_id"] for e in blocked["historical_exceptions"]}
+        assert "OWNERSHIP_REVIEW_REQUIRED" in blocked["clm"]["readiness"]["blockers"]
+        assert target.calls == ["search"]
+    restarted_target = RecordingMockGoldTier()
+    with (
+        patch("app.composition.MockGoldTierConnector", lambda **_: restarted_target),
+        TestClient(create_app(config)) as restarted,
+    ):
+        restored = restarted.get(f"/api/clm/zero-touch/cases/{cid}").json()
+        restored_graph = restarted.get(f"/api/onboarding/cases/{cid}/ownership").json()
+        assert restored_graph == graph
+        for key in [
+            "version", "current_stage", "completed_stages", "active_exceptions",
+            "historical_exceptions", "ownership_recovery",
+        ]:
+            assert restored[key] == blocked[key]
+        assert restored["clm"]["readiness"]["blockers"] == blocked["clm"]["readiness"]["blockers"]
+        assert restored["case"]["target_dispatch_confirmation"] is None
+        assert restored["clm"]["submission"] is None
+        assert restarted_target.calls == []
+        stale = restarted.post(endpoint, json=incomplete)
+        assert stale.status_code == 409
+        assert stale.json()["detail"]["code"] == "ZERO_TOUCH_MANUAL_OWNERSHIP_STALE"
+        assert restarted.get(f"/api/onboarding/cases/{cid}/ownership").json() == graph
+        corrected = restarted.post(endpoint, json=current_payload(restarted, cid, percent="60"))
+        assert corrected.status_code == 200, corrected.text
+        recovered = corrected.json()
+        assert recovered["current_stage"] == "READINESS"
+        assert recovered["clm"]["readiness"]["blockers"] == []
+        assert [e["blocker_code"] for e in recovered["active_exceptions"]] == [
+            "TARGET_CONFIRMATION_REQUIRED"
+        ]
+        assert recovered["active_exceptions"][0]["exception_id"] != obsolete
+        assert restarted_target.calls == []
+    final_target = RecordingMockGoldTier()
+    with (
+        patch("app.composition.MockGoldTierConnector", lambda **_: final_target),
+        TestClient(create_app(config)) as final,
+    ):
+        final_summary = final.get(f"/api/clm/zero-touch/cases/{cid}").json()
+        assert final_summary["version"] == recovered["version"]
+        assert final_summary["active_exceptions"] == recovered["active_exceptions"]
+        assert final_summary["clm"]["readiness"]["blockers"] == []
+        assert final_summary["case"]["target_dispatch_confirmation"] is None
+        assert final_target.calls == []

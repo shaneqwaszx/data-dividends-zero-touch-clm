@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
-import { openStage } from "./stage-disclosures";
+import { focusPipelineAction, openStage } from "./stage-disclosures";
 
 const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../backend/tests/fixtures/uat/garden-business-clean-onboarding-profile.pdf");
 let violations: string[];
@@ -60,6 +60,10 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   while (await form.getByLabel("Owner name", { exact: true }).count() > 2) {
     await form.getByRole("button", { name: /^Remove owner/ }).last().click();
   }
+  const singaporeToday = await page.evaluate(() => new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date()));
+  await expect(form.getByLabel("As-of date")).toHaveValue(singaporeToday);
   await form.getByLabel("As-of date").fill("2026-10-04");
   await expect(form.getByLabel("Reviewer note (optional)")).toHaveValue("");
   for (const [index, percentage] of ["60", "40"].entries()) {
@@ -92,6 +96,9 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   expect(revised.prior_analyses.some((prior: any) => prior.analysis_id === first.analysis_id && prior.manual_review_receipt.rationale === first.manual_review_receipt.rationale)).toBe(true);
   expect((await summary(page, caseId)).target_operations.filter((operation: any) => operation.operation !== "SEARCH").every((operation: any) => operation.status === "NOT_ATTEMPTED")).toBe(true);
   await openStage(page, "Ownership & UBO");
+  // Wait for the newly retained analysis to reach the rendered owner before
+  // exercising native details keyed by that analysis; a POST response alone is earlier.
+  await expect(page.locator(".s2-ownership-summary")).toContainText("1 retained natural-person candidate");
   const disclosure = page.locator(".s2-ownership-structure");
   await expect(disclosure).not.toHaveAttribute("open", "");
   const toggle = disclosure.locator(":scope > summary"); await toggle.focus(); await expect(toggle).toBeFocused(); await toggle.press("Enter"); await expect(disclosure).toHaveAttribute("open", "");
@@ -101,6 +108,63 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
     expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
     await expect(toggle).toBeVisible();
   }
+  // AM-18: retain a real incomplete legal-owner declaration with safe 409,
+  // then use current backend versions for deliberate recovery. No target write.
+  const beforeIncomplete = await summary(page, caseId);
+  const oldConfirmationId = beforeIncomplete.active_exceptions.find((item: any) => item.blocker_code === "TARGET_CONFIRMATION_REQUIRED").exception_id;
+  await focusPipelineAction(page, "OWNERSHIP_UBO", page.locator('#case-manual-ownership-evidence :is(input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]))').first());
+  await form.getByRole("button", { name: /^Remove owner/ }).last().click();
+  await form.getByLabel("Reviewer note (optional)").fill("");
+  const rejected = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/manual-ownership-evidence"));
+  await form.getByRole("button", { name: "Submit manual ownership evidence", exact: true }).click();
+  const retainedError = await rejected;
+  expect(retainedError.status()).toBe(409);
+  expect((await retainedError.json()).detail.code).toBe("ZERO_TOUCH_MANUAL_OWNERSHIP_REVIEW_REQUIRED");
+  const attention = page.getByRole("region", { name: "Attention required", exact: true });
+  await expect(attention).toContainText("1 active blocker");
+  await expect(attention).not.toContainText("No immediate blockers");
+  await expect(attention.getByRole("button", { name: "Action: Review and send", exact: true })).toHaveCount(0);
+  const progress = page.getByRole("heading", { name: "Onboarding progress", exact: true }).locator('..').locator('..').locator('..');
+  await expect(progress).toContainText("Active issues: 1");
+  await expect(progress).toContainText("Add structured ownership details");
+  await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true })).toHaveCount(0);
+  const blocked = await summary(page, caseId);
+  const incomplete = await ownership(page, caseId);
+  expect(blocked.current_stage).toBe("OWNERSHIP");
+  expect(incomplete.state).toBe("REVIEW_REQUIRED");
+  expect(incomplete.issues.some((issue: any) => issue.code === "INCOMPLETE_LEGAL_ENTITY")).toBe(true);
+  expect(incomplete.relationships).toHaveLength(1);
+  await expect(form.getByLabel("Owner name", { exact: true })).toHaveCount(1);
+  expect(incomplete.manual_review_receipt.rationale).toBeNull();
+  expect(blocked.clm.readiness.blockers).toContain("OWNERSHIP_REVIEW_REQUIRED");
+  expect(blocked.active_exceptions.map((item: any) => item.blocker_code)).toEqual(["OWNERSHIP_INCOMPLETE"]);
+  expect(blocked.historical_exceptions.some((item: any) => item.exception_id === oldConfirmationId)).toBe(true);
+  expect(blocked.target_operations.filter((item: any) => item.operation !== "SEARCH").every((item: any) => item.status === "NOT_ATTEMPTED")).toBe(true);
+  for (const width of [1440, 1280, 900, 360]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await attention.getByRole("button", { name: "Action: Add structured ownership details", exact: true }).click();
+    await expect(page.locator('#case-manual-ownership-evidence :is(input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]))').first()).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  await page.reload();
+  await expect(attention).toContainText("1 active blocker");
+  expect((await summary(page, caseId)).version).toBe(blocked.version);
+  expect((await ownership(page, caseId)).analysis_id).toBe(incomplete.analysis_id);
+  await focusPipelineAction(page, "OWNERSHIP_UBO", page.locator('#case-manual-ownership-evidence :is(input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]))').first());
+  await expect(form.getByLabel("As-of date")).toHaveValue("2026-10-04");
+  await form.getByRole("button", { name: "Add owner", exact: true }).click();
+  await form.getByLabel("Owner name", { exact: true }).nth(1).fill("Synthetic corrected ultimate owner");
+  await form.getByLabel("Owner type", { exact: true }).nth(1).selectOption("NATURAL_PERSON");
+  await form.getByLabel("Owned legal entity", { exact: true }).nth(1).selectOption(holdingId);
+  await form.getByLabel("Economic interest %", { exact: true }).nth(1).fill("100");
+  await submitDecision(page);
+  const recovered = await summary(page, caseId);
+  expect(recovered.clm.readiness.blockers).toEqual([]);
+  expect(recovered.current_stage).toBe("READINESS");
+  expect(recovered.active_exceptions[0].exception_id).not.toBe(oldConfirmationId);
+  expect(recovered.target_classification).toEqual(beforeIncomplete.target_classification);
+  expect((await ownership(page, caseId)).state).toBe("ANALYZED");
+  await expect(attention).toContainText("No immediate blockers");
   await openStage(page, "Final review & send");
   const confirmation = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/target-confirmation"));
   await page.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true }).click(); expect((await confirmation).status()).toBe(200);
