@@ -79,8 +79,39 @@ async function prepareReview(page: Page, existing = false): Promise<string> {
     await expect(page.getByRole("button", { name: "Correct identity and recheck", exact: true }))
       .toHaveCount(0);
     const attention = page.getByRole("region", { name: "Attention required", exact: true });
-    await attention.getByRole("button", { name: /^Blocker:/ }).first().click();
-    await expect(page.getByLabel("Existing customer confirmation rationale")).toBeFocused();
+    const search = page.getByRole("region", { name: "Existing-customer search", exact: true });
+    const registry = page.locator(".stage-disclosure").filter({ has: page.getByRole("heading", { name: "Registry verification", exact: true }) });
+    const rationale = search.getByLabel("Existing customer confirmation rationale");
+    await expect(search).toContainText("SYNTHETIC-GT-S3");
+    await expect(registry.getByLabel("Existing customer confirmation rationale")).toHaveCount(0);
+    await expect(search.getByRole("button", { name: "Confirm existing GoldTier customer", exact: true })).toBeDisabled();
+    const beforeNavigation = await readSummary(page, caseId);
+    const navigationRequests: string[] = [];
+    const navigationListener = (request: import("@playwright/test").Request) => {
+      if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) navigationRequests.push(new URL(request.url()).pathname);
+    };
+    page.on("request", navigationListener);
+    for (const width of [1440, 1280, 900, 360]) {
+      await page.setViewportSize({ width, height: 900 });
+      await attention.getByRole("button", { name: /^Blocker:/ }).first().focus();
+      await page.keyboard.press("Enter");
+      await expect(rationale).toBeFocused();
+      await focusPipelineAction(page, "GOLDTIER_SEARCH", rationale);
+      const banner = page.locator(".nav-meta .environment-banner");
+      await expect(banner.locator(".environment-banner__label")).toBeVisible();
+      expect(await banner.ariaSnapshot()).toContain("GoldTier Sandbox");
+      expect(await banner.ariaSnapshot()).toContain("External access is backend-managed");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    }
+    await page.reload();
+    await expect(rationale).toBeVisible();
+    await expect(rationale).toHaveValue("");
+    const afterNavigation = await readSummary(page, caseId);
+    expect(afterNavigation.version).toBe(beforeNavigation.version);
+    expect(afterNavigation.clm.target_search_checkpoint).toEqual(beforeNavigation.clm.target_search_checkpoint);
+    expect(afterNavigation.target_operations).toEqual(beforeNavigation.target_operations);
+    page.off("request", navigationListener);
+    expect(navigationRequests).toEqual([]);
     await page.getByLabel("Existing customer confirmation rationale").fill(
       "Compared synthetic retained candidate with independent registry and corrected document.",
     );
@@ -148,6 +179,12 @@ test("post-closeout existing-customer confirmation preserves independent review 
   const retained = await readSummary(page, caseId);
   expect(retained.clm.target_search_checkpoint?.disposition).toBe("CONFIRMED_EXISTING");
   expect(retained.case.goldtier_result?.party_id).toBe("SYNTHETIC-GT-S3");
+  await page.reload();
+  const search = page.getByRole("region", { name: "Existing-customer search", exact: true });
+  await expect(search).toContainText("Retained Search status: COMPLETED.");
+  await expect(search.getByRole("button", { name: "Confirm existing GoldTier customer", exact: true })).toHaveCount(0);
+  await expect(page.locator("#case-identity-correction")).toHaveCount(0);
+  expect((await counts(page)).calls).toEqual(result.calls);
 });
 
 async function submitAndInspect(page: Page, mode: "success" | "uncertain-policy" | "failed-policy") {

@@ -204,6 +204,32 @@ test("Slice C failed Search exposes bounded read-only recheck", { tag: "@slice-c
   await expect(page.locator("#case-search-diagnostic")).toBeFocused();
   expect((await metadata(page)).operations).toEqual(["SEARCH"]);
   expect(blocked.clm.target_search_checkpoint.disposition).toBe("FAILED");
+  const search = page.getByRole("region", { name: "Existing-customer search", exact: true });
+  const registry = page.locator(".stage-disclosure").filter({ has: page.getByRole("heading", { name: "Registry verification", exact: true }) });
+  await expect(search.locator("#case-search-diagnostic")).toHaveCount(1);
+  await expect(registry.locator("#case-search-diagnostic")).toHaveCount(0);
+  await expect(search).toContainText("does not prove that the customer is absent");
+  const navigationRequests: string[] = [];
+  const navigationListener = (request: import("@playwright/test").Request) => {
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) navigationRequests.push(new URL(request.url()).pathname);
+  };
+  page.on("request", navigationListener);
+  for (const width of [1440, 1280, 900, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    await focusPipelineAction(page, "GOLDTIER_SEARCH", page.getByLabel("Singapore UEN", { exact: true }));
+    await expect(page.locator("#case-identity-correction")).toHaveCount(1);
+    await expect(registry.locator("#case-identity-correction")).toHaveCount(1);
+    await expect(search.locator("#case-identity-correction")).toHaveCount(0);
+    await page.mouse.move(0, 0);
+    const banner = page.locator(".nav-meta .environment-banner");
+    await expect(banner.locator(".environment-banner__label")).toBeVisible();
+    const accessibleDisclosure = await banner.ariaSnapshot();
+    expect(accessibleDisclosure).toContain("zero external provider calls");
+    expect(accessibleDisclosure).toContain("no interoperability is demonstrated");
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  page.off("request", navigationListener);
+  expect(navigationRequests).toEqual([]);
   expect((await metadata(page)).operations).toEqual(["SEARCH"]);
   await openStage(page, "Registry verification");
   expect(blocked.case.registry_acquisition.status).toBe("COMPLETE");
