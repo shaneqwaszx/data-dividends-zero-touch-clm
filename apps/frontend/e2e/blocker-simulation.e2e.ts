@@ -206,7 +206,8 @@ test("Blocker simulation draft isolation and same-team/cross-team authorization"
   const draft = page.locator("select[data-review-field]").first();
   const mutations: string[] = [];
   const listener = (request: import("@playwright/test").Request) => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(new URL(request.url()).pathname); };
-  page.on("request", listener); await draft.selectOption("REJECTED");
+  page.on("request", listener); await page.getByRole("button", { name: "Reject all undecided suggestions", exact: true }).click();
+  await expect(draft).toHaveValue("REJECTED");
   await page.getByRole("button", { name: "Save draft in this tab", exact: true }).click();
   await expect(page.getByText("Draft saved in this tab", { exact: false })).toBeVisible();
   expect(mutations).toEqual([]); page.off("request", listener);
@@ -224,7 +225,7 @@ test("Blocker simulation draft isolation and same-team/cross-team authorization"
   expect((await page.request.post(`/api/clm/zero-touch/cases/${cid}/review-decisions`, { headers: crossHeaders, data: batch })).status()).toBe(404);
   await mkdir(evidence(), { recursive: true });
   await writeFile(path.join(evidence(), "simulation-authorization-isolation.json"), JSON.stringify({ scenario: "unauthorized/cross-team", initial: current.status,
-    actual_control: "Creator draft select; same-team controls disabled; cross-team controls absent", choices: 1, calls_before_confirmation: 0,
+    actual_control: "Creator bulk drafts; same-team controls disabled; cross-team controls absent", choices: docs.flatMap((doc: any) => doc.fields).length, calls_before_confirmation: 0,
     confirmation: "Same-team noncreator 403; cross-team 404", final: "No accepted review or target write", verdict: "PASS", draft_leak: false }, null, 2)+"\n");
   expect(violations).toEqual([]);
 });

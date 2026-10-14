@@ -605,3 +605,21 @@ def test_provider_does_not_mutate_registry_evidence_or_case_state() -> None:
         relationship.provenance.provider != "ACRA_REGISTRY_ACQUISITION"
         for relationship in result.relationships
     )
+
+
+@pytest.mark.parametrize(
+    ("hour", "minute", "declaration_day", "accepted"),
+    [(15, 59, 30, False), (16, 0, 30, True), (23, 59, 30, True),
+     (16, 0, 29, True), (16, 0, 1, False)],
+)
+def test_declaration_future_guard_uses_singapore_calendar(hour, minute, declaration_day, accepted):
+    now = datetime(2026, 9, 29, hour, minute, tzinfo=UTC)
+    declared = date(2026, 10 if declaration_day == 1 else 9, declaration_day)
+    declaration = make_declaration(as_of_date=declared)
+    if accepted:
+        provider, _, _ = make_provider(declaration=declaration, clock=lambda: now)
+        assert provider.review_receipt.as_of_date == declared
+    else:
+        with pytest.raises(ManualOwnershipEvidenceError) as raised:
+            make_provider(declaration=declaration, clock=lambda: now)
+        assert raised.value.code == "MANUAL_OWNERSHIP_FUTURE_DATE"

@@ -231,3 +231,56 @@ describe("manual ownership endpoint and cache effect", () => {
     expect(remove.mock.calls.every(([filters]) => JSON.stringify(filters?.queryKey).includes("case-user"))).toBe(true);
   });
 });
+
+
+it("defaults only a new declaration to the Singapore calendar day across UTC midnight", () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2026-10-13T16:00:00Z"));
+    const { view, onSubmit } = render();
+    expect(view.querySelector<HTMLInputElement>('[name="as_of_date"]')!.value).toBe("2026-10-14");
+    act(() => enter(view.querySelector('[name="as_of_date"]')!, "2026-10-04"));
+    vi.setSystemTime(new Date("2026-10-14T16:00:00Z"));
+    act(() => root?.render(<ManualOwnershipEvidenceForm canonicalRootUen="202400001A" initialRootLegalName="Garden synthetic company" documents={[reviewedDocument]} disabled={false} onSubmit={onSubmit} />));
+    expect(view.querySelector<HTMLInputElement>('[name="as_of_date"]')!.value).toBe("2026-10-04");
+    expect(onSubmit).not.toHaveBeenCalled();
+  } finally { vi.useRealTimers(); }
+});
+
+it("keeps historical receipt and document dates separate from a manual draft", () => {
+  const retained = { root_party_id: "ROOT", parties: [], relationships: [], manual_review_receipt: { as_of_date: "2026-09-29" } } as unknown as import("../types").OwnershipAnalysisRecord;
+  const doc = { ...reviewedDocument, ownership_observations: [{ observation_id: "observation", document_id: reviewedDocument.document_id, owner_name: "Synthetic owner", owner_type: "NATURAL_PERSON", explicit_percentage: "100", owned_entity_registration_identifier: "202400001A", as_of_date: "2026-09-20" }] } as DocumentProcessingRecord;
+  const { view, onSubmit } = render();
+  act(() => root?.render(<ManualOwnershipEvidenceForm key="historical" canonicalRootUen="202400001A" initialRootLegalName="Garden synthetic company" documents={[doc]} ownership={retained} disabled={false} onSubmit={onSubmit} />));
+  const date = view.querySelector<HTMLInputElement>('[name="as_of_date"]')!;
+  expect(date.value).toBe("2026-09-29");
+  act(() => enter(date, "2026-09-28"));
+  const source = view.querySelector<HTMLSelectElement>('[name="source_selection"]')!;
+  act(() => { source.value = "CURRENT_EVIDENCE"; source.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(date.value).toBe("2026-09-29");
+  expect(date.readOnly).toBe(true);
+  act(() => { source.value = "DOCUMENT_OBSERVATIONS"; source.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(date.value).toBe("");
+  act(() => view.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  expect(date.value).toBe("2026-09-20"); expect(date.readOnly).toBe(true);
+  act(() => { source.value = "USER_SUPPLIED_DECLARATION"; source.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(date.value).toBe("2026-09-28"); expect(date.readOnly).toBe(false);
+  expect(doc.ownership_observations![0].as_of_date).toBe("2026-09-20");
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
+it("still rejects a nonempty short reviewer note", () => {
+  const { view, onSubmit } = render();
+  act(() => {
+    enter(view.querySelector('[name="as_of_date"]')!, "2026-10-04");
+    enter(view.querySelector('[name="ownership_percent_0"]')!, "60");
+    enter(view.querySelector('[name="ownership_percent_1"]')!, "40");
+    enter(view.querySelector('[name="display_name_0"]')!, "Owner A");
+    enter(view.querySelector('[name="display_name_1"]')!, "Owner B");
+    for (const select of view.querySelectorAll<HTMLSelectElement>('select[name^="party_type_"]')) { select.value = "NATURAL_PERSON"; select.dispatchEvent(new Event("change", { bubbles: true })); }
+    enter(view.querySelector('[name="rationale"]')!, "short");
+  });
+  act(() => view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  expect(onSubmit).not.toHaveBeenCalled();
+  expect(view.textContent).toContain("at least 10 characters");
+});

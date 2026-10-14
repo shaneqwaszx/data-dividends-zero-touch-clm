@@ -404,6 +404,15 @@ def test_real_mongo_failed_replacement_restart_requires_retry_without_replay(
         original = _upload_text(first, case_id, CONFLICT_PROFILE, name="Original.txt")
         paused = _complete_intake(first, case_id, expected_count=1)
         assert paused["status"] == "WAITING_FOR_REVIEW"
+        started_store = _open_store(settings, initialize=False)
+        try:
+            started_snapshot = started_store.get(case_id)
+            assert started_snapshot is not None and started_snapshot.automation is not None
+            started_at = started_snapshot.automation.started_at
+            assert started_at is not None
+            assert started_snapshot.target_executions == ()
+        finally:
+            started_store.close()
         stale_exception = paused["active_exceptions"][0]
         current_document = first.get(
             f"/api/onboarding/cases/{case_id}/documents/{original['document_id']}"
@@ -511,11 +520,58 @@ def test_real_mongo_failed_replacement_restart_requires_retry_without_replay(
             failed_document_id
         )
         assert after_retry_by_id[retried_document_id]["superseded_by_document_id"] is None
-        assert counters == {"registry": 4, "idp": 3, "ownership": 0, "goldtier": 1}
-        pending = _complete_intake(second, case_id, expected_count=1)
+        assert retried_document["case_id"] == str(case_id)
+        assert retried_document["state"] == "REVIEWED"
+        assert len(after_retry_by_id) == 3
+        assert after_retry_by_id[original["document_id"]]["superseded_by_document_id"] == (
+            failed_document_id
+        )
+        assert after_retry_by_id[failed_document_id]["state"] == "FAILED"
+        assert all(item["case_id"] == str(case_id) for item in after_retry)
+        # PR83 continues a started recovery once; this is not initial intake completion.
+        assert counters == {"registry": 4, "idp": 3, "ownership": 1, "goldtier": 1}
+        pending = second.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        assert pending["status"] == "WAITING_FOR_REVIEW"
+        assert pending["current_stage"] == "READINESS"
+        assert [item["exception_type"] for item in pending["active_exceptions"]] == [
+            "TARGET_CONFIRMATION_REQUIRED"
+        ]
+        resumed = second.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
+        assert resumed.status_code == 200
+        assert resumed.json()["version"] == pending["version"]
+        assert counters == {"registry": 4, "idp": 3, "ownership": 1, "goldtier": 1}
+        recovered_store = _open_store(settings, initialize=False)
+        try:
+            recovered_snapshot = recovered_store.get(case_id)
+            assert recovered_snapshot is not None and recovered_snapshot.automation is not None
+            assert recovered_snapshot.automation.started_at == started_at
+            assert recovered_snapshot.target_executions == ()
+            assert recovered_snapshot.onboarding.target_dispatch_confirmation is None
+        finally:
+            recovered_store.close()
         completed = _confirm_target_dispatch(second, case_id, pending)
         assert completed["status"] == "COMPLETED"
+        assert completed["case"]["case_id"] == str(case_id)
+        assert counters == {"registry": 4, "idp": 3, "ownership": 1, "goldtier": 6}
+        repeated_retry = second.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents/{failed_document_id}/retry",
+            headers={"Content-Type": "text/plain", "X-Document-Name": "Repeat.txt"},
+            content=TEXT_PROFILE.encode(),
+        )
+        assert repeated_retry.status_code == 409
+        assert repeated_retry.json()["detail"]["code"] == "ZERO_TOUCH_INTAKE_NOT_OPEN"
+        assert second.get(f"/api/onboarding/cases/{case_id}/documents").json() == after_retry
 
+    with TestClient(create_app(settings)) as third:
+        restored = third.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        resumed = third.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
+        assert resumed.status_code == 200
+        assert restored["status"] == resumed.json()["status"] == "COMPLETED"
+        assert restored["version"] == resumed.json()["version"] == completed["version"]
+        assert restored["case"]["target_dispatch_confirmation"] == (
+            completed["case"]["target_dispatch_confirmation"]
+        )
+        assert third.get(f"/api/onboarding/cases/{case_id}/documents").json() == after_retry
     assert counters == {"registry": 4, "idp": 3, "ownership": 1, "goldtier": 6}
 
 
@@ -937,22 +993,79 @@ def test_real_mongo_interrupted_document_recovers_to_bounded_same_case_retry(
         assert retried.status_code == 201, retried.text
         assert retried.json()["case_id"] == str(case_id)
         after_retry = second.get(f"/api/onboarding/cases/{case_id}/documents")
-
-    assert counters == {
-        "registry": before_restart["registry"],
-        "idp": before_restart["idp"] + 1,
-        "ownership": before_restart["ownership"],
-        "goldtier": before_restart["goldtier"],
-    }
-    records = after_retry.json()
-    old_interrupted = next(item for item in records if item["document_id"] == str(interrupted_id))
-    assert old_interrupted["superseded_by_document_id"] == retried.json()["document_id"]
-    assert (
-        next(item for item in records if item["document_id"] == str(completed_id))[
-            "superseded_by_document_id"
+        assert after_retry.status_code == 200
+        records = after_retry.json()
+        assert len(records) == 3
+        assert all(item["case_id"] == str(case_id) for item in records)
+        old_interrupted = next(
+            item for item in records if item["document_id"] == str(interrupted_id)
+        )
+        assert old_interrupted["state"] == "FAILED"
+        assert old_interrupted["superseded_by_document_id"] == retried.json()["document_id"]
+        assert old_interrupted["superseded_at"] is not None
+        current = next(
+            item for item in records if item["document_id"] == retried.json()["document_id"]
+        )
+        assert current["state"] == "REVIEWED"
+        assert current["supersedes_document_id"] == str(interrupted_id)
+        assert current["superseded_by_document_id"] is None
+        sibling = next(item for item in records if item["document_id"] == str(completed_id))
+        assert sibling["superseded_by_document_id"] is None
+        assert len(sibling["events"]) == completed_event_count
+        assert sibling["events"] == preserved["events"]
+        continued_counts = {
+            "registry": before_restart["registry"],
+            "idp": before_restart["idp"] + 1,
+            "ownership": before_restart["ownership"] + 1,
+            "goldtier": before_restart["goldtier"],
+        }
+        assert counters == continued_counts
+        pending = second.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        assert pending["status"] == "WAITING_FOR_REVIEW"
+        assert pending["current_stage"] == "READINESS"
+        assert [item["exception_type"] for item in pending["active_exceptions"]] == [
+            "TARGET_CONFIRMATION_REQUIRED"
         ]
-        is None
-    )
+        recovered_store = _open_store(settings, initialize=False)
+        try:
+            recovered_snapshot = recovered_store.get(case_id)
+            assert recovered_snapshot is not None and recovered_snapshot.automation is not None
+            assert recovered_snapshot.automation.started_at == now
+            assert recovered_snapshot.target_executions == ()
+            assert recovered_snapshot.onboarding.target_dispatch_confirmation is None
+        finally:
+            recovered_store.close()
+        for _ in range(2):
+            observed = second.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+            assert observed["version"] == pending["version"]
+            assert observed["status"] == "WAITING_FOR_REVIEW"
+            assert observed["current_stage"] == "READINESS"
+        resumed = second.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
+        assert resumed.status_code == 200
+        assert resumed.json()["version"] == pending["version"]
+        invalid_retry = second.post(
+            f"/api/clm/zero-touch/cases/{case_id}/intake/documents/{interrupted_id}/retry",
+            headers={"Content-Type": "text/plain", "X-Document-Name": "Repeat.txt"},
+            content=TEXT_PROFILE.encode(),
+        )
+        assert invalid_retry.status_code == 409
+        assert invalid_retry.json()["detail"]["code"] == "ZERO_TOUCH_INTAKE_NOT_OPEN"
+        assert counters == continued_counts
+        sent = _confirm_target_dispatch(second, case_id, pending)
+        assert sent["status"] == "COMPLETED"
+        assert sent["case"]["case_id"] == str(case_id)
+        assert counters == {**continued_counts, "goldtier": before_restart["goldtier"] + 5}
+    with TestClient(create_app(settings)) as third:
+        restored = third.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+        resumed = third.post(f"/api/clm/zero-touch/cases/{case_id}/resume")
+        assert resumed.status_code == 200
+        assert restored["status"] == resumed.json()["status"] == "COMPLETED"
+        assert restored["version"] == resumed.json()["version"] == sent["version"]
+        assert restored["case"]["target_dispatch_confirmation"] == (
+            sent["case"]["target_dispatch_confirmation"]
+        )
+        assert third.get(f"/api/onboarding/cases/{case_id}/documents").json() == records
+    assert counters == {**continued_counts, "goldtier": before_restart["goldtier"] + 5}
 
 
 def test_real_mongo_technical_failure_restart_preserves_safe_terminal_state(

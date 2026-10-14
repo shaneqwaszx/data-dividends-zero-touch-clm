@@ -12,6 +12,7 @@ import {
   RegistryStatePanel,
   registryPresentation,
 } from "./CaseStatePanels";
+import RegistryProvenancePanel from "./RegistryProvenancePanel";
 
 function processingNode(
   nodeId: string,
@@ -484,6 +485,11 @@ it("projects retained CACHE_HIT as no request without inventing a connection res
     freshness_policy_version: 1, freshness_duration_seconds: 7776000,
     freshness_comparator: "EVALUATION_NOW_LT_EXPIRES_AT",
   };
+  summary.case.registry_acquisition = {
+    requested_identifier: "202400001A", status: "COMPLETE", officers: [],
+    ownership_parties: [], relationships: [], operation_results: [], issues: [],
+    retrieved_at: "2026-10-02T00:00:00Z",
+  };
   const presentation = registryPresentation(summary, "LOCAL_MOCK");
   expect(presentation.heading).toBe("Registry evidence reused");
   expect(presentation.connection).toBe("No ACRA request required");
@@ -584,3 +590,40 @@ it("keeps an unclassified registry-owned technical code technical", () => {
   expect(presentation.code).toBe("ZERO_TOUCH_UNEXPECTED_FAILURE");
   expect(presentation.action).toBe("Operator review required");
 });
+
+
+it.each(["acquisition-missing", "acquisition-invalid", "binding-missing", "expiry-invalid", "operation-invalid"])(
+  "never claims fresh registry reuse anywhere in the combined view with %s timestamps",
+  (failure) => {
+    const summary = summaryWithPipeline([]);
+    summary.current_stage = "REGISTRY";
+    summary.case.registry_acquisition = {
+      requested_identifier: "202400001A", status: "COMPLETE", officers: [],
+      ownership_parties: [], relationships: [], issues: [],
+      retrieved_at: "2026-10-02T00:00:00Z",
+      operation_results: [{ operation: "ENTITY_PROFILE", status: "COMPLETE", record_count: 1, error: null,
+        provenance: { provider: "ACRA", environment: "MOCK", operation: "ENTITY_PROFILE",
+          retrieved_at: "2026-10-02T00:00:00Z", evidence_reference: "safe:registry" } }],
+    };
+    summary.case.registry_evidence_binding = {
+      disposition: "CACHE_HIT", bound_to_case_at: "2026-10-02T00:00:00Z",
+      expires_at: "2026-12-01T00:00:00Z", freshness_policy_id: "MOCK_ACRA_FIXED_90D",
+      freshness_policy_version: 1, freshness_duration_seconds: 7776000,
+      freshness_comparator: "EVALUATION_NOW_LT_EXPIRES_AT",
+    };
+    if (failure === "acquisition-missing") summary.case.registry_acquisition = null;
+    if (failure === "acquisition-invalid") summary.case.registry_acquisition!.retrieved_at = "2026-02-30T00:00:00Z";
+    if (failure === "binding-missing") summary.case.registry_evidence_binding.bound_to_case_at = "";
+    if (failure === "expiry-invalid") summary.case.registry_evidence_binding.expires_at = "broken";
+    if (failure === "operation-invalid") summary.case.registry_acquisition!.operation_results[0].provenance!.retrieved_at = "broken";
+    const markup = renderToStaticMarkup(<>
+      <RegistryStatePanel summary={summary} />
+      <RegistryProvenancePanel acquisition={summary.case.registry_acquisition} binding={summary.case.registry_evidence_binding} />
+    </>);
+    expect(markup).toContain("Registry evidence reused");
+    expect(markup).toContain("CACHE_HIT");
+    expect(markup).not.toContain("Reused fresh registry evidence");
+    expect(markup.match(/Retained registry reuse; valid-at-use timestamps unavailable\./g)).toHaveLength(2);
+    expect(registryPresentation(summary).attention).toBe(false);
+  },
+);

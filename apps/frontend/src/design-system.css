@@ -585,3 +585,10 @@ button.tag {
   .ownership-structure__holder, .ownership-structure__row > span:last-child { grid-column: 1 / -1; }
   .ownership-structure__row > span[data-label]::before { content: attr(data-label); display: block; font-size: 10px; color: var(--color-neutral-700); margin-bottom: 3px; }
 }
+
+
+/* Scoped review cards retain fieldset semantics and the existing responsive grid. */
+.blocker-review__cards { align-items: start; }
+.blocker-review__cards > fieldset { min-inline-size: 0; margin: 0; overflow-wrap: anywhere; }
+.blocker-review__cards legend { max-width: 100%; overflow-wrap: anywhere; }
+.blocker-review__bulk { margin-block: var(--space-3); }

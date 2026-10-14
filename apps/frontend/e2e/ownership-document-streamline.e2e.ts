@@ -249,16 +249,32 @@ test("Ownership hotfix Garden hierarchy and matching final candidates", { tag: "
   expect(result.state).toBe("ANALYZED");
   const qualifying = result.candidates.filter((c: any) => c.party.party_type === "NATURAL_PERSON" && c.threshold_result === "MET" && c.classification === "PROVISIONAL_UBO_CANDIDATE");
   expect(qualifying).toHaveLength(2);
+  // Display expectations are independent of the production formatter. Threshold
+  // results and the retained receipt continue to use the exact backend values.
+  const displayPercent = new Intl.NumberFormat("en-US", { useGrouping: false, maximumFractionDigits: 2 });
+  const effectiveDisplay = (candidate: any) => `${displayPercent.format(Number(candidate.aggregated_ownership_percent))}% effective`;
+  await expect(page.locator('[aria-label="Ownership candidates"]')).toHaveCount(0);
+  const hierarchy = page.getByRole("table", { name: "Ownership hierarchy", exact: true });
+  await expect(hierarchy).toBeVisible();
   for (const candidate of qualifying) {
     await expect(page.locator(".ubo-summary").first()).toContainText(candidate.party.display_name);
-    await expect(page.locator(".ubo-summary").first()).toContainText(`${candidate.aggregated_ownership_percent}% effective`);
-    await page.locator('[aria-label="Ownership candidates"]').getByRole("button", { name: candidate.party.display_name, exact: true }).click();
-    await expect(page.getByRole("complementary", { name: "Selected holder" })).toContainText(candidate.party.display_name);
+    await expect(page.locator(".ubo-summary").first()).toContainText(effectiveDisplay(candidate));
+    const person = hierarchy.getByRole("button", { name: candidate.party.display_name, exact: true });
+    await expect(person).toHaveCount(1);
+    await person.click();
+    await expect(person).toHaveAttribute("aria-pressed", "true");
+    const selected = page.getByRole("complementary", { name: "Selected holder", exact: true });
+    await expect(selected.getByRole("heading", { name: candidate.party.display_name, exact: true })).toBeVisible();
+    await expect(selected).toContainText(candidate.classification);
+    await expect(selected).toContainText(candidate.threshold_result);
   }
   const collapse = page.locator(".ownership-structure__toggle").first();
   await collapse.focus(); await collapse.press("Enter"); await expect(collapse).toHaveAttribute("aria-expanded", "false");
   await collapse.press("Enter"); await expect(collapse).toHaveAttribute("aria-expanded", "true");
-  await page.locator('[aria-label="Ownership candidates"]').getByRole("button", { name: qualifying[0].party.display_name, exact: true }).click();
+  const firstCandidate = hierarchy.getByRole("button", { name: qualifying[0].party.display_name, exact: true });
+  await expect(firstCandidate).toHaveCount(1);
+  await firstCandidate.click();
+  await expect(firstCandidate).toHaveAttribute("aria-pressed", "true");
   for (const width of [1280, 360]) {
     await page.setViewportSize({ width, height: 1100 });
     expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
@@ -270,7 +286,11 @@ test("Ownership hotfix Garden hierarchy and matching final candidates", { tag: "
   await expect(page.locator(".ownership-structure")).toContainText("LOCAL_SYNTHETIC_SUPPLEMENT");
   await openStage(page, "Final review & send");
   const finalSummary = page.locator(".review-and-send .ubo-summary");
-  for (const candidate of qualifying) await expect(finalSummary).toContainText(`${candidate.aggregated_ownership_percent}% effective`);
+  for (const candidate of qualifying) {
+    await expect(finalSummary).toContainText(candidate.party.display_name);
+    await expect(finalSummary).toContainText(effectiveDisplay(candidate));
+    await expect(finalSummary).toContainText(candidate.classification);
+  }
   await finalSummary.screenshot({ path: path.join(evidence, "garden-final-review.png") });
   await writeFile(path.join(evidence, "receipt.json"), JSON.stringify({ analysis_id: result.analysis_id, source: result.source_classification, provider: result.provider_name, provider_environment: result.provider_environment, candidates: qualifying.map((c: any) => ({ name: c.party.display_name, effective: c.aggregated_ownership_percent, direct: c.direct_ownership_percent, indirect: c.indirect_ownership_percent, threshold: c.threshold_percent, result: c.threshold_result })), targetConfirmed: false }, null, 2));
   expect(violations).toEqual([]);

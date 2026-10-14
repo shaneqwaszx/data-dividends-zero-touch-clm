@@ -122,7 +122,8 @@ test("S2 document proposals require deliberate creator source selection and reta
   await form.getByLabel("Ownership source decision").selectOption("DOCUMENT_OBSERVATIONS");
   const choices = form.locator('input[type="checkbox"]'); await expect(choices).toHaveCount(2);
   await choices.nth(0).check(); await choices.nth(1).check();
-  await form.getByLabel("As-of date").fill("2026-10-04");
+  await expect(form.getByLabel("As-of date")).toHaveValue("2026-10-04");
+  await expect(form.getByLabel("As-of date")).toHaveAttribute("readonly", "");
   await form.getByLabel("Reviewer note (optional)").fill("Selected both explicit synthetic document ownership percentages after comparing current source evidence.");
   await submitDecision(page);
   const revised = await ownership(page, caseId); expect(revised.manual_review_receipt.source_selection).toBe("DOCUMENT_OBSERVATIONS");

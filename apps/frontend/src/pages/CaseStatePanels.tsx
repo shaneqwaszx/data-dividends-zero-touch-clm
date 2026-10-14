@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type CSSProperties } from "react";
 
-import { formatDuration, formatTimestamp } from "../shared";
+import { formatDuration, formatTimestamp, registryReuseDescription } from "../shared";
 import type {
   ReconciliationDecisionAction,
   ReconciliationDiscrepancy,
@@ -664,7 +664,7 @@ export function registryPresentation(
     && summary.case.registry_evidence_binding?.disposition === "CACHE_HIT") {
     return {
       heading: "Registry evidence reused",
-      description: "Reused fresh registry evidence — no ACRA request required.",
+      description: registryReuseDescription(acquisition, summary.case.registry_evidence_binding),
       tag: "CACHE_HIT",
       provider,
       connection: "No ACRA request required",
