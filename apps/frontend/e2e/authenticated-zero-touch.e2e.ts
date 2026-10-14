@@ -345,6 +345,28 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await identityStage.click();
   const identityCorrection = page.locator("#identity-registration-number");
   await expect(identityCorrection).toBeFocused();
+  const searchWorkspace = page.getByRole("region", { name: "Existing-customer search", exact: true });
+  const registryWorkspace = page.locator(".stage-disclosure").filter({ has: page.getByRole("heading", { name: "Registry verification", exact: true }) });
+  await expect(searchWorkspace).toContainText("No Search result is retained for this case.");
+  await expect(page.locator("#case-identity-correction")).toHaveCount(1);
+  await expect(registryWorkspace.locator("#case-identity-correction")).toHaveCount(1);
+  await expect(searchWorkspace.locator("#case-identity-correction")).toHaveCount(0);
+  const navigationStart = mutationRequests.length;
+  for (const width of [1440, 1280, 900, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    const searchLink = searchWorkspace.getByRole("button", { name: "Review identity for Search recheck", exact: true });
+    await expect(searchLink).toBeEnabled();
+    await searchLink.focus();
+    await page.keyboard.press("Enter");
+    await expect(identityCorrection).toBeFocused();
+    await expect(identityCorrection).toBeVisible();
+    const banner = page.locator(".nav-meta .environment-banner");
+    await expect(banner.locator(".environment-banner__label")).toBeVisible();
+    expect(await banner.ariaSnapshot()).toContain("External access is backend-managed");
+    await expectDocumentContained(page);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  expect(mutationRequests.slice(navigationStart)).toEqual([]);
   await expect(page.getByRole("heading", { name: "Complete company details" })).toBeVisible();
 
   const actionableStage = identityStage;

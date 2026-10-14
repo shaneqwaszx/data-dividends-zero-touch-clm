@@ -125,6 +125,10 @@ it("labels isolated document refresh as Local/Mock evidence", () => {
     const html = renderToStaticMarkup(<SimulationBanner profile={null} />);
     expect(html).toContain("Local document evidence and Mock target");
     expect(html).toContain("Zero external provider calls");
+    expect(html).toContain('<span class="environment-banner__label">');
+    expect(html).toContain('role="status"');
+    expect(html).toContain("no interoperability is demonstrated");
+    expect(html).not.toContain('aria-hidden="true"');
     expect(html).not.toContain("XPI");
   } finally { vi.unstubAllEnvs(); }
 });
@@ -135,5 +139,9 @@ it("labels the isolated Slice C inert XPI seam as synthetic offline evidence", (
     const html = renderToStaticMarkup(<SimulationBanner profile={null} />);
     expect(html).toContain("Slice C synthetic offline recovery fixture");
     expect(html).toContain("zero external provider calls");
+    expect(html).toContain('<span class="environment-banner__label">');
+    expect(html).toContain('role="status"');
+    expect(html).toContain("no interoperability is demonstrated");
+    expect(html).not.toContain('aria-hidden="true"');
   } finally { vi.unstubAllEnvs(); }
 });

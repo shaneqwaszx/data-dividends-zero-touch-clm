@@ -243,6 +243,16 @@ test("Blocker simulation actual native PDF intake failure targets retry and one 
   expect(created.status()).toBe(201); const cid = (await created.json()).case.case_id;
   await page.goto(`/cases/${cid}`); await openStage(page, "Document verification");
   await expect(page.getByText(/Synthetic offline document refresh recovery fixture/)).toBeVisible();
+  for (const width of [1440, 1280, 900, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    const banner = page.locator(".nav-meta .environment-banner");
+    await expect(banner.locator(".environment-banner__label")).toBeVisible();
+    const accessibleDisclosure = await banner.ariaSnapshot();
+    expect(accessibleDisclosure).toContain("Local document evidence and Mock target");
+    expect(accessibleDisclosure).toContain("Zero external provider calls");
+    expect(accessibleDisclosure).toContain("no interoperability is demonstrated");
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
   // Six valid pages fit the media bounds but exceed the unchanged native text
   // limit during extraction. No provider stub or timeout/configuration change.
   const stream = "BT /F1 6 Tf 72 720 Td " + Array.from({ length: 100 }, () => `(SYNTHETIC ${"A".repeat(140)})`).join(" Tj 0 -6 Td ") + " Tj ET";

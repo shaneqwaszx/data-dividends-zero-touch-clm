@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
+import { focusPipelineAction } from "./stage-disclosures";
 
 test("S1 wrong UEN retains uploaded document and resumes the real onboarding journey", async ({ page }) => {
   const violations: string[] = [];
@@ -39,7 +40,51 @@ test("S1 wrong UEN retains uploaded document and resumes the real onboarding jou
   expect(documents).toHaveLength(1);
   const documentId = documents[0].document_id;
   await page.getByRole("button", { name: "Open full case", exact: true }).click();
-  await page.getByRole("button", { name: "Edit UEN", exact: true }).click();
+  const registry = page.locator(".stage-disclosure").filter({ has: page.getByRole("heading", { name: "Registry verification", exact: true }) });
+  const search = page.getByRole("region", { name: "Existing-customer search", exact: true });
+  await expect(page.locator("#case-identity-correction")).toHaveCount(1);
+  await expect(registry.locator("#case-identity-correction")).toHaveCount(1);
+  await expect(search.locator("#case-identity-correction")).toHaveCount(0);
+  await expect(registry.locator("#case-evidence-registry")).toHaveCount(1);
+  // Same-team visibility does not grant creator evidence authority. Returning in
+  // a new creator session recovers current evidence without an old draft.
+  await page.locator(".operator-account__button").click();
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page.getByLabel("User ID").fill("ethan-tan");
+  await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("navigation", { name: "Main workspace" })).toBeVisible();
+  await page.goto("/cases/" + caseId);
+  await expect(search).toBeVisible();
+  await expect(page.locator("#case-identity-correction")).toHaveCount(0);
+  const deniedSummary = await (await page.request.get("/api/clm/zero-touch/cases/" + caseId)).json();
+  expect(deniedSummary.evidence_decision_authorized).toBe(false);
+  const deniedMutations: string[] = [];
+  const deniedListener = (request: import("@playwright/test").Request) => {
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) deniedMutations.push(new URL(request.url()).pathname);
+  };
+  page.on("request", deniedListener);
+  const deniedSearchNode = page.locator('.ds-stage[data-node-id="GOLDTIER_SEARCH"]');
+  await deniedSearchNode.locator("summary").click();
+  await deniedSearchNode.getByRole("button", { name: "Open case stage details", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Verify UEN and resume", exact: true })).toHaveCount(0);
+  await expect(page.locator("#case-identity-correction")).toHaveCount(0);
+  page.off("request", deniedListener);
+  expect(deniedMutations).toEqual([]);
+  await page.locator(".operator-account__button").click();
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page.getByLabel("User ID").fill("maya-lim");
+  await page.getByLabel("Password").fill(process.env.CLM_E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("navigation", { name: "Main workspace" })).toBeVisible();
+  await page.goto("/cases/" + caseId);
+  await expect(registry.locator("#case-identity-correction")).toHaveCount(1);
+  for (const width of [1280, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    await focusPipelineAction(page, "GOLDTIER_SEARCH", page.getByLabel("Singapore UEN", { exact: true }));
+    await expect(registry.getByRole("button", { name: "Registry verification", exact: true })).toHaveAttribute("aria-expanded", "true");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
   await page.getByLabel("Singapore UEN").fill("202400001A");
   const correctedResponse = page.waitForResponse((response) => response.request().method() === "POST"
     && response.url().endsWith(`/cases/${caseId}/registry-identity`));
