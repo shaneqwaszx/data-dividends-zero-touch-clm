@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { focusPipelineAction, openStage } from "./stage-disclosures";
+import { assertRegistryBindingTimestamps } from "./registry-binding-timestamps";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -143,8 +144,6 @@ test("Slice B Merlion fresh cache makes zero new ACRA calls", { tag: "@slice-b-s
   await expect(bindingView.getByRole("note")).toHaveCount(0);
   const visibleBindingFields = [
     "disposition",
-    "bound_to_case_at",
-    "expires_at",
     "freshness_policy_id",
     "freshness_policy_version",
     "freshness_duration_seconds",
@@ -153,6 +152,7 @@ test("Slice B Merlion fresh cache makes zero new ACRA calls", { tag: "@slice-b-s
   for (const field of visibleBindingFields) {
     await expect(bindingView).toContainText(String(hit.case.registry_evidence_binding[field]));
   }
+  await assertRegistryBindingTimestamps(page, hit.case.registry_evidence_binding);
   await complete(page, caseId);
   expect(await counts(page)).toEqual(before);
 });

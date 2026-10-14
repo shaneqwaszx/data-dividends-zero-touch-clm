@@ -191,7 +191,20 @@ for (const choice of ["DOCUMENT", "OTHER"] as const) {
     await expect(evidence).toContainText("202400009I");
     await expect(evidence).not.toContainText("202400001A");
     await expect(evidence.locator("tbody tr")).toHaveCount(ownership.evidence.length);
-    const candidates = page.getByLabel("Ownership candidates", { exact: true }).getByRole("button");
-    await expect(candidates).toHaveText(ownership.candidates.map((item: any) => item.party.display_name));
+    await expect(page.getByLabel("Ownership candidates", { exact: true })).toHaveCount(0);
+    const hierarchy = page.getByRole("table", { name: "Ownership hierarchy", exact: true });
+    await expect(hierarchy).toBeVisible();
+    expect(ownership.candidates.length).toBeGreaterThan(0);
+    for (const candidate of ownership.candidates) {
+      const person = hierarchy.getByRole("button", { name: candidate.party.display_name, exact: true });
+      await expect(person).toHaveCount(1);
+      await expect(person).toBeVisible();
+      await person.click();
+      await expect(person).toHaveAttribute("aria-pressed", "true");
+      const selected = page.getByRole("complementary", { name: "Selected holder", exact: true });
+      await expect(selected.getByRole("heading", { name: candidate.party.display_name, exact: true })).toBeVisible();
+      await expect(selected).toContainText(candidate.classification);
+      await expect(selected).toContainText(candidate.threshold_result);
+    }
   });
 }

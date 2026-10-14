@@ -4,8 +4,9 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openStage } from "./stage-disclosures";
+import { assertRegistryBindingTimestamps } from "./registry-binding-timestamps";
 import { reviewPendingFields } from "./blocker-decisions";
-import type { PolicyCatalogue, RegistryEvidenceBinding } from "../src/types";
+import type { OwnershipAnalysisRecord, PolicyCatalogue, RegistryEvidenceBinding } from "../src/types";
 import {
   createBrowserNetworkPolicy,
   retainedEvidencePath,
@@ -1034,8 +1035,10 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await page.goto(`/cases/${caseId}`);
   const ownershipResponse = await ownershipResponsePromise;
   expect(ownershipResponse.status()).toBe(200);
-  expect((await ownershipResponse.json() as { candidates: unknown[] }).candidates.length)
-    .toBeGreaterThan(0);
+  const ownershipRecord = await ownershipResponse.json() as OwnershipAnalysisRecord;
+  expect(ownershipRecord.candidates.length).toBeGreaterThan(0);
+  const expectedCandidate = ownershipRecord.candidates[0];
+  expect(expectedCandidate.paths.length).toBeGreaterThan(0);
   await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 30_000 });
   const operationalTiming = page.getByRole("region", { name: "Operational timing" });
@@ -1067,8 +1070,6 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(bindingView.getByRole("note")).toHaveCount(0);
   const visibleBindingFields = [
     "disposition",
-    "bound_to_case_at",
-    "expires_at",
     "freshness_policy_id",
     "freshness_policy_version",
     "freshness_duration_seconds",
@@ -1077,6 +1078,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   for (const field of visibleBindingFields) {
     await expect(bindingView).toContainText(String(binding![field]));
   }
+  await assertRegistryBindingTimestamps(page, binding!);
   await expect(bindingView).toContainText(
     "This is not a current validity assessment or an ACRA validity guarantee.",
   );
@@ -1094,13 +1096,22 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   const ownershipStructure = page.locator(".s2-ownership-structure");
   await expect(ownershipStructure).not.toHaveAttribute("open", "");
   const calculations = ownershipStructure.getByText("Technical calculations and retained paths", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
-  const candidate = page.locator('[aria-label="Ownership candidates"] button').first();
+  await expect(page.locator('[aria-label="Ownership candidates"]')).toHaveCount(0);
+  const hierarchy = page.getByRole("table", { name: "Ownership hierarchy", exact: true });
+  const candidate = hierarchy.getByRole("button", { name: expectedCandidate.party.display_name, exact: true });
+  await expect(candidate).toHaveCount(1);
   await expect(candidate).toBeVisible();
   await candidate.click();
-  const retainedPath = page.getByRole("button", { name: /^Inspect / }).first();
+  await expect(candidate).toHaveAttribute("aria-pressed", "true");
+  const selectedHolder = page.getByRole("complementary", { name: "Selected holder", exact: true });
+  await expect(selectedHolder.getByRole("heading", { name: expectedCandidate.party.display_name, exact: true })).toBeVisible();
+  await expect(selectedHolder).toContainText(expectedCandidate.classification);
+  await expect(selectedHolder).toContainText(expectedCandidate.threshold_result);
+  const retainedPath = page.getByRole("button", { name: `Inspect ${expectedCandidate.paths[0].path_id}`, exact: true });
   await expect(retainedPath).toBeVisible();
   await retainedPath.click();
   await expect(retainedPath).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel(`Selected retained path ${expectedCandidate.paths[0].path_id}`, { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Focus registry evidence" }).click();
   await expect(page.locator("#case-evidence-registry")).toBeFocused();
   await page.waitForTimeout(250);

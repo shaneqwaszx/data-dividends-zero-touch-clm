@@ -53,9 +53,7 @@ async function create(page: Page, fresh = false) {
   await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true })).toBeEnabled();
   return caseId;
 }
-for (const reuse of [false, true]) {
-  test(`AM18 ${reuse ? "existing-customer reuse" : "new customer"} classification then balanced correction retains reachable final review`,
-    reuse ? { tag: "@slice-f-target-reuse" } : {}, async ({ page }) => {
+async function balancedCorrection(page: Page, reuse: boolean) {
     const start = Date.now();
     const violations: string[] = [];
     const policy = createBrowserNetworkPolicy({ frontendOrigin: process.env.PLAYWRIGHT_BASE_URL!, backendOrigin: process.env.CLM_E2E_BACKEND_ORIGIN!, allowDirectBackend: false });
@@ -117,11 +115,15 @@ for (const reuse of [false, true]) {
     expect(reloaded.case.goldtier_result).toBeNull();
     expect(targetPosts).toEqual([]); expect(violations).toEqual([]);
     await writeFile(path.join(evidence, "after.json"), JSON.stringify({ ...checkpoint(after, revised), elapsedMs: Date.now() - start, targetPosts, primaryCase: "NOT_SUBMITTED", externalCalls: 0 }, null, 2));
-  });
 }
 
+test("AM18 new customer classification then balanced correction retains reachable final review", async ({ page }) => {
+  await balancedCorrection(page, false);
+});
 
-
+test("AM18 existing-customer reuse classification then balanced correction retains reachable final review", { tag: "@slice-f-target-reuse" }, async ({ page }) => {
+  await balancedCorrection(page, true);
+});
 
 test("AM14 Singapore midnight new declaration default is accepted by real backend and historical review dates survive", async ({ page }) => {
   const violations: string[] = [];

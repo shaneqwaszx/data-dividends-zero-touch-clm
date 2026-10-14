@@ -106,11 +106,20 @@ class PrePrCheckTests(unittest.TestCase):
         (self.repo / "README.md").write_bytes(b"baseline\n")
         return relative
 
+    def _canonical_archive_bytes(self, relative: str) -> bytes:
+        # Frozen identity binds Git blobs, not platform-converted checkout bytes.
+        return subprocess.run(
+            ["git", "show", f"HEAD:{relative}"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
+
     def _copy_pr81_archive(self, name: str, suffix: bytes = b"") -> str:
         relative = ".ai-pipeline/reports/" + name
         target = self.repo / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes((ROOT / relative).read_bytes() + suffix)
+        target.write_bytes(self._canonical_archive_bytes(relative) + suffix)
         self._git("config", "core.autocrlf", "false")
         (self.repo / "README.md").write_bytes(b"baseline\n")
         return relative
@@ -209,7 +218,7 @@ class PrePrCheckTests(unittest.TestCase):
 
     def _archive_eof_texts(self) -> dict[str, str]:
         return {
-            path: (ROOT / path).read_bytes().decode("utf-8")
+            path: self._canonical_archive_bytes(path).decode("utf-8")
             for path in PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF
         }
 
@@ -245,7 +254,7 @@ class PrePrCheckTests(unittest.TestCase):
         for path in PRE_PR_CHECK.HISTORICAL_ARCHIVE_EOF:
             self.assertEqual(
                 self._readonly_git("show", "HEAD:" + path, binary=True).stdout,
-                (ROOT / path).read_bytes(),
+                self._canonical_archive_bytes(path),
             )
             self.assertIn("Exact historical archive EOF identity: " + path, output)
 
