@@ -103,6 +103,7 @@ const EVIDENCE_TARGET_IDS: Record<EvidenceFocusTarget, string> = {
   policy: "case-policy-rebind",
   recovery: "case-evidence-recovery",
 };
+const SEARCH_TARGET_ID = "case-existing-customer-search";
 const MANUAL_OWNERSHIP_TARGET_ID = "case-manual-ownership-evidence";
 
 interface CaseActionIdentity {
@@ -866,6 +867,23 @@ export default function CaseDetail({
     });
   }, [pendingAttention, evidenceIdentity, summary?.version, documentQuery.isPending, ownershipQuery.isPending]);
 
+  function focusSearch(interventionId?: string, fromPipeline = false): void {
+    if (document.getElementById("existing-customer-confirmation-form")) {
+      focusActionControl("existing-customer-confirmation-form", "input:not([disabled])"); return;
+    }
+    const intervention = summary?.interventions?.find(item => item.owning_stage === "GOLDTIER_SEARCH"
+      && (!interventionId || item.intervention_id === interventionId));
+    if (intervention?.evidence_actions?.some(action => action.target === "IDENTITY")
+      || identitySearchRecheck) { focusEvidence("identity"); return; }
+    if (intervention && document.getElementById(`case-intervention-${intervention.intervention_id}`)) {
+      focusActionControl(`case-intervention-${intervention.intervention_id}`); return;
+    }
+    if (fromPipeline && document.getElementById(EVIDENCE_TARGET_IDS.identity)) {
+      focusEvidence("identity"); return;
+    }
+    focusActionControl(document.getElementById("case-search-diagnostic") ? "case-search-diagnostic" : SEARCH_TARGET_ID);
+  }
+
   function focusAttention(destination: AttentionDestination): void {
     if (summary && (documentQuery.isPending || ownershipQuery.isPending)) {
       setPendingAttention({ ...captureCaseAction(), version: summary.version, destination }); return;
@@ -913,8 +931,7 @@ export default function CaseDetail({
     }
     if (exception.blocker_code === "GOLDTIER_CLASSIFICATION_REQUIRED") { focusEvidence("classification"); return; }
     if (exception.stage === "GOLDTIER_SEARCH") {
-      if (document.getElementById("existing-customer-confirmation-form")) { focusActionControl("existing-customer-confirmation-form", "input:not([disabled])"); return; }
-      focusActionControl("case-search-diagnostic"); return;
+      focusSearch(exception.exception_id); return;
     }
     if (exception.stage === "READINESS" && summary?.case.policy_rebind?.configuration_status === "REQUIRES_REBIND") { focusEvidence("policy"); return; }
     if (document.getElementById(`case-intervention-${exception.exception_id}`)) { focusActionControl(`case-intervention-${exception.exception_id}`); return; }
@@ -962,14 +979,14 @@ export default function CaseDetail({
       if (summary?.active_exceptions.some(item => item.blocker_code === "GOLDTIER_CLASSIFICATION_REQUIRED")) { focusEvidence("classification"); return; }
       if (document.querySelector("#case-review-and-send .btn-primary:not([disabled])")) { focusActionControl("case-review-and-send", ".btn-primary:not([disabled])"); return; }
     }
-    if (node.node_id === "INITIAL_IDENTITY" || node.node_id.startsWith("ACRA_")) { focusEvidence("identity"); return; }
+    if (node.node_id === "INITIAL_IDENTITY") { focusEvidence("identity"); return; }
+    if (node.node_id.startsWith("ACRA_")) { focusEvidence(identityInSearch ? "registry" : "identity"); return; }
     if (["DOCUMENT_IDP", "RECONCILIATION"].includes(node.node_id)) { focusEvidence(node.node_id === "RECONCILIATION" ? "reconciliation" : "documents"); return; }
     if (node.node_id === "OWNERSHIP_UBO") { focusEvidence("ownership"); return; }
     if (node.node_id === "FINAL_REVIEW_SEND") { focusActionControl("case-review-and-send", ".btn-primary:not([disabled])"); return; }
     if (node.node_id.startsWith("TARGET_CLASSIFICATION")) { focusEvidence(processingNodeFocusTarget(node) === EVIDENCE_TARGET_IDS.policy ? "policy" : "classification"); return; }
     if (node.node_id.startsWith("GOLDTIER_SEARCH")) {
-      if (document.getElementById("existing-customer-confirmation-rationale")) { focusActionControl("existing-customer-confirmation-form", "input:not([disabled])"); return; }
-      if (document.getElementById(EVIDENCE_TARGET_IDS.identity)) { focusEvidence("identity"); return; }
+      focusSearch(undefined, true); return;
     }
     if (node.node_id.startsWith("GOLDTIER_") && document.getElementById("case-target-recovery")) { focusActionControl("case-target-recovery"); return; }
     const targetId = processingNodeFocusTarget(node);
@@ -1130,6 +1147,53 @@ export default function CaseDetail({
   });
   const identityConflict = identityEditable && documentUenCandidates.length > 0;
 
+  // The backend projection owns placement; endpoint eligibility stays with the
+  // existing predicate above. A genuine Registry correction keeps the one editor.
+  const identityInSearch = !registryCorrectionRequired && !identityConflict
+    && !summary.interventions?.some(item => item.owning_stage === "REGISTRY"
+      && item.evidence_actions?.some(action => action.target === "IDENTITY"))
+    && (summary.interventions?.some(item => item.owning_stage === "GOLDTIER_SEARCH"
+      && item.evidence_actions?.some(action => action.target === "IDENTITY"))
+      || summary.active_exceptions.some(item => item.status === "OPEN"
+        && item.stage === "GOLDTIER_SEARCH" && item.blocker_code === "INITIAL_IDENTITY_INCOMPLETE"));
+  const identityEditor = (identityIncomplete || identityEditable) && (
+    <div
+      key={`${evidenceIdentity}:identity:${summary.version}`}
+      id={EVIDENCE_TARGET_IDS.identity}
+      className="evidence-focus-target"
+      tabIndex={-1}
+    >
+      <IdentityCorrectionForm
+        onboardingCase={summary.case}
+        registryRecovery={!identitySearchRecheck}
+        documentCandidates={documentUenCandidates}
+        error={reviewEdit.current?.target === "identity" && isCurrentCaseAction(reviewEdit.current) ? error : null}
+        disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
+        onSubmit={(values) => void runMutation(
+          () => {
+            const identityInput = {
+            legal_name: values.legal_name,
+            registration_number: values.registration_number,
+            country_of_incorporation: values.country_of_incorporation,
+            expected_automation_version: summary.version,
+            expected_clm_version: summary.clm.version,
+            expected_case_event_count: summary.case.events.length,
+            };
+            return identitySearchRecheck
+              ? recheckZeroTouchIdentitySearch(caseId, identityInput)
+              : correctRegistryIdentity(caseId, {
+                  ...identityInput, choice: values.choice ?? "OTHER",
+                  document_id: values.document_id,
+                  expected_document_event_count: values.expected_document_event_count,
+                });
+          },
+          "Verifying company identity and resuming…",
+          identitySearchRecheck ? "identity-recheck" : "registry-identity",
+        )}
+      />
+    </div>
+  );
+
   return (
     <div className="ds-root detail-layout">
       <div className="side-panel case-pipeline-panel">
@@ -1165,48 +1229,11 @@ export default function CaseDetail({
           </div>
         )}
 
-        <StageDisclosure title="Registry verification" active={identityConflict || stageIsActive(["REGISTRY", "GOLDTIER_SEARCH"])}>
-          {renderInterventions(["REGISTRY", "GOLDTIER_SEARCH"])}
-        {(identityIncomplete || identityEditable) && (
-          <div
-            key={`${evidenceIdentity}:identity:${summary.version}`}
-            id={EVIDENCE_TARGET_IDS.identity}
-            className="evidence-focus-target"
-            tabIndex={-1}
-          >
-            <IdentityCorrectionForm
-              onboardingCase={summary.case}
-              registryRecovery={!identitySearchRecheck}
-              documentCandidates={documentUenCandidates}
-              error={reviewEdit.current?.target === "identity" && isCurrentCaseAction(reviewEdit.current) ? error : null}
-              disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
-              onSubmit={(values) => void runMutation(
-                () => {
-                  const identityInput = {
-                  legal_name: values.legal_name,
-                  registration_number: values.registration_number,
-                  country_of_incorporation: values.country_of_incorporation,
-                  expected_automation_version: summary.version,
-                  expected_clm_version: summary.clm.version,
-                  expected_case_event_count: summary.case.events.length,
-                  };
-                  return identitySearchRecheck
-                    ? recheckZeroTouchIdentitySearch(caseId, identityInput)
-                    : correctRegistryIdentity(caseId, {
-                        ...identityInput, choice: values.choice ?? "OTHER",
-                        document_id: values.document_id,
-                        expected_document_event_count: values.expected_document_event_count,
-                      });
-                },
-                "Verifying company identity and resuming…",
-                identitySearchRecheck ? "identity-recheck" : "registry-identity",
-              )}
-            />
-          </div>
-        )}
+        <StageDisclosure title="Registry verification" active={identityConflict || stageIsActive(["REGISTRY"])}>
+          {renderInterventions(["REGISTRY"])}
+          {!identityInSearch && identityEditor}
 
         <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} />
-        <ProcessingBlockerPanels summary={summary} stage="REGISTRY" />
         <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>
           <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} />
         </div>
@@ -1225,6 +1252,21 @@ export default function CaseDetail({
         )}
 
         </StageDisclosure>
+        <section id={SEARCH_TARGET_ID} className="card evidence-focus-target" tabIndex={-1}
+          aria-labelledby="case-existing-customer-search-heading">
+          <h2 id="case-existing-customer-search-heading">Existing-customer search</h2>
+          <p className="control-help">{summary.clm.target_search_checkpoint
+            ? `Retained Search status: ${summary.clm.target_search_checkpoint.status.replaceAll("_", " ")}.`
+            : "No Search result is retained for this case."}</p>
+          {renderInterventions(["GOLDTIER_SEARCH"])}
+          {identityInSearch && identityEditor}
+          {!identityInSearch && identityEditor
+            && (identitySearchRecheck || summary.clm.target_search_checkpoint?.status === "FAILED") && <button type="button"
+            className="btn btn-secondary" disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
+            onClick={() => focusEvidence("identity")}>{identitySearchRecheck
+              ? "Review identity for Search recheck" : "Review Registry identity for Search"}</button>}
+          <ProcessingBlockerPanels summary={summary} stage="REGISTRY" />
+        </section>
         <StageDisclosure title="Document verification" active={!identityConflict && stageIsActive(["DOCUMENT"])}>
           {renderInterventions(["DOCUMENT"])}
           {summary.status === "PENDING_INPUTS" && !documents.some(doc => isDocumentReuploadRequired(doc, summary)) && <label id="case-document-upload" className="btn btn-secondary document-upload-control">
