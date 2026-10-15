@@ -3,9 +3,9 @@
 import json
 from pathlib import Path
 
-from copilot.clm_client import CaseSnapshot
-from copilot.context import build_case_facts
-from copilot.guardrails import compact_facts, guard_answer
+from ai_assistant.clm_client import CaseSnapshot
+from ai_assistant.context import build_case_facts
+from ai_assistant.guardrails import compact_facts, guard_answer
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

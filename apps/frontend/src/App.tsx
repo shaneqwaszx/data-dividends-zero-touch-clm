@@ -39,8 +39,8 @@ import {
 } from "./caseQueries";
 import AuditTrail from "./pages/AuditTrail";
 import CaseDetail from "./pages/CaseDetail";
-import CopilotPanel from "./pages/CopilotPanel";
-import { copilotContextFor } from "./pages/copilotContext";
+import AiAssistantPanel from "./pages/AiAssistantPanel";
+import { aiAssistantContextFor } from "./pages/aiAssistantContext";
 import CaseQueue, { DEFAULT_CASE_QUEUE_PRESENTATION } from "./pages/CaseQueue";
 import type { CaseQueuePresentationState } from "./pages/CaseQueue";
 import ClientDetail from "./pages/ClientDetail";
@@ -2257,7 +2257,7 @@ export default function App({
   }
 
   const retainedIntakeCaseId = retainedCreatedSummary?.case.case_id ?? null;
-  const copilotContext = copilotContextFor(location.pathname, retainedIntakeCaseId);
+  const aiAssistantContext = aiAssistantContextFor(location.pathname, retainedIntakeCaseId);
   const liveOnboarding = (
     <>
       <HomeOnboarding
@@ -2384,10 +2384,10 @@ export default function App({
           acraDiagnostics={<AcraDiagnostics key={actor.user_id} actor={actor} />}
         />
       </div>
-      <CopilotPanel
+      <AiAssistantPanel
         key={actor.user_id}
-        caseId={copilotContext.caseId}
-        onboardingWithoutCase={copilotContext.onboardingWithoutCase}
+        caseId={aiAssistantContext.caseId}
+        onboardingWithoutCase={aiAssistantContext.onboardingWithoutCase}
         onOpenCases={() => navigate(paths.cases)}
       />
     </main>

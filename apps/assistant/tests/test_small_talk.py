@@ -2,8 +2,8 @@
 
 import pytest
 
-from copilot.small_talk import small_talk_reply
-from tests.test_copilot import CASE_ID, FakeBackend, FakeModel, _client
+from ai_assistant.small_talk import small_talk_reply
+from tests.test_ai_assistant import CASE_ID, FakeBackend, FakeModel, _client
 
 FACTS = {
     "viewer": {"name": "Maya Lim"},
@@ -13,7 +13,9 @@ FACTS = {
 }
 
 
-@pytest.mark.parametrize("message", ["hi", "Hi!", "hello there", "hey copilot", "Good morning :)"])
+@pytest.mark.parametrize(
+    "message", ["hi", "Hi!", "hello there", "hey assistant", "Good morning :)"]
+)
 def test_greetings_get_a_friendly_case_status(message: str) -> None:
     reply = small_talk_reply(message, FACTS)
     assert reply is not None
@@ -46,7 +48,7 @@ def test_chat_answers_hi_without_calling_the_model() -> None:
 
 
 def test_fallback_explains_case_page_labels_instead_of_dumping_acra() -> None:
-    from copilot.briefing import fallback_answer
+    from ai_assistant.briefing import fallback_answer
 
     answer = fallback_answer(
         "the page says canonical and suggestion, is canonical from acra?", FACTS
@@ -56,6 +58,22 @@ def test_fallback_explains_case_page_labels_instead_of_dumping_acra() -> None:
 
 
 def test_retrieved_time_is_readable() -> None:
-    from copilot.context import _when
+    from ai_assistant.context import readable_time
 
-    assert _when("2026-10-12T18:08:11.400356Z") == "12 Oct 2026, 18:08 UTC"
+    assert readable_time("2026-10-12T18:08:11.400356Z") == "12 Oct 2026, 18:08 UTC"
+
+
+@pytest.mark.parametrize(
+    ("message", "start"),
+    [
+        ("okay thanks", "You're welcome"),
+        ("ok thank you!", "You're welcome"),
+        ("got it, cheers", "You're welcome"),
+        ("thanks bye", "Bye for now"),
+        ("hi there okay", "Hi "),
+        ("ok cool", "Okay."),
+    ],
+)
+def test_mixed_small_talk_answers_what_was_meant(message: str, start: str) -> None:
+    reply = small_talk_reply(message, FACTS)
+    assert reply and reply.startswith(start)

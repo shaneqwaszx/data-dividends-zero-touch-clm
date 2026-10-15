@@ -97,3 +97,40 @@ def guard_answer(answer: str, facts: dict[str, Any]) -> str:
     # Drop a heading left with nothing under it (e.g. "Next steps:" at the end).
     text = re.sub(r"(?:\n|^)\s*\**[A-Za-z ]{2,30}:\**\s*$", "", text).strip()
     return text
+
+
+_SAFE_END = re.compile(r"(?:\n|[.!?](?=\s))")
+
+
+class StreamingGuard:
+    """Checks a streamed answer one finished sentence (or line) at a time.
+
+    Only text up to the last finished sentence is checked and shown, so a sentence that the
+    guardrails would drop is never displayed, not even briefly. Each update is the whole
+    checked answer so far (not just the new part), because removing a sentence can renumber
+    the list below it.
+    """
+
+    def __init__(self, facts: dict[str, Any]) -> None:
+        self._facts = facts
+        self._raw = ""
+        self._shown = ""
+
+    def feed(self, text: str) -> str | None:
+        """Add new model text; return the checked answer so far if it changed."""
+
+        self._raw += text
+        ends = [match.end() for match in _SAFE_END.finditer(self._raw)]
+        if not ends:
+            return None
+        checked = guard_answer(self._raw[: ends[-1]], self._facts)
+        if checked == self._shown:
+            return None
+        self._shown = checked
+        return checked
+
+    def finish(self) -> str:
+        """The final checked answer, including a last sentence without a full stop."""
+
+        self._shown = guard_answer(self._raw, self._facts)
+        return self._shown

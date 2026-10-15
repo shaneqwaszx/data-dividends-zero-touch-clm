@@ -1,6 +1,7 @@
-"""Copilot behaviour against a fake CLM backend and a fake model (no network)."""
+"""AI Assistant behaviour against a fake CLM backend and a fake model (no network)."""
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -8,9 +9,9 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from copilot.config import CopilotSettings
-from copilot.llm import LlmUnavailableError, OpenAICompatibleChatModel
-from copilot.main import create_app
+from ai_assistant.config import AiAssistantSettings
+from ai_assistant.llm import LlmUnavailableError, ModelAnswer, OpenAICompatibleChatModel, Piece
+from ai_assistant.main import create_app
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SUMMARY = json.loads((FIXTURES / "garden_address_conflict_summary.json").read_text())
@@ -53,22 +54,39 @@ class FakeBackend:
 
 class FakeModel:
     name = "fake-model"
+    ANSWER = "The registered address on the document differs from ACRA (from ACRA)."
 
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(
+        self, *, fail: bool = False, answer: str | None = None, cut_short: bool = False
+    ) -> None:
         self.fail = fail
+        self.answer = answer or self.ANSWER
+        self.cut_short = cut_short
         self.calls: list[list[dict[str, str]]] = []
+        self.warmed: list[list[dict[str, str]]] = []
 
-    def complete(self, messages: list[dict[str, str]]) -> str:
+    def complete(self, messages: list[dict[str, str]]) -> ModelAnswer:
         self.calls.append(messages)
         if self.fail:
             raise LlmUnavailableError("down")
-        return "The registered address on the document differs from ACRA (from ACRA)."
+        return ModelAnswer(self.answer, cut_short=self.cut_short)
+
+    def stream(self, messages: list[dict[str, str]]) -> Iterator[Piece]:
+        self.calls.append(messages)
+        if self.fail:
+            raise LlmUnavailableError("down")
+        for word in self.answer.split(" "):
+            yield Piece(word + " ")
+        yield Piece(cut_short=self.cut_short)
+
+    def warm(self, messages: list[dict[str, str]]) -> None:
+        self.warmed.append(messages)
 
 
 def _client(
     backend: FakeBackend, model: FakeModel | None, *, cookie: str | None = "valid-session"
 ) -> TestClient:
-    settings = CopilotSettings(_env_file=None, llm_enabled=False)  # type: ignore[call-arg]
+    settings = AiAssistantSettings(_env_file=None, llm_enabled=False)  # type: ignore[call-arg]
     app = create_app(settings, clm_transport=httpx.MockTransport(backend.handler), chat_model=model)
     client = TestClient(app, headers={"Origin": ORIGIN})
     if cookie:
@@ -92,7 +110,7 @@ def test_brief_names_the_blocker_the_difference_and_the_allowed_action() -> None
     assert "Explain the registered address difference" in body["suggested_questions"]
 
 
-def test_copilot_only_reads_and_forwards_the_users_own_session() -> None:
+def test_ai_assistant_only_reads_and_forwards_the_users_own_session() -> None:
     backend = FakeBackend()
     client = _client(backend, FakeModel())
     client.get(f"/assistant/cases/{CASE_ID}/brief")
@@ -190,13 +208,15 @@ def test_openai_compatible_client_sends_a_standard_chat_request() -> None:
         credential="test_ollama_key",
         timeout_seconds=5,
         temperature=0.2,
+        max_answer_tokens=300,
         transport=httpx.MockTransport(handler),
     )
 
-    assert model.complete([{"role": "user", "content": "hi"}]) == "Hello"
+    assert model.complete([{"role": "user", "content": "hi"}]) == ModelAnswer("Hello")
     assert seen["url"] == "http://127.0.0.1:11434/v1/chat/completions"
     assert seen["body"]["model"] == "ministral-3:8b"
     assert seen["body"]["stream"] is False
+    assert seen["body"]["max_tokens"] == 300
 
 
 @pytest.mark.parametrize(
@@ -220,10 +240,10 @@ def test_openai_compatible_client_reports_bad_replies_as_unavailable(
 
 
 def test_waiting_case_lists_what_is_still_needed_and_where() -> None:
-    from copilot.briefing import fallback_answer, opening_message
-    from copilot.clm_client import CaseSnapshot
-    from copilot.context import build_case_facts
-    from copilot.prompts import build_messages
+    from ai_assistant.briefing import fallback_answer, opening_message
+    from ai_assistant.clm_client import CaseSnapshot
+    from ai_assistant.context import build_case_facts
+    from ai_assistant.prompts import build_messages
 
     waiting = json.loads((FIXTURES / "garden_waiting_for_documents_summary.json").read_text())
     facts = build_case_facts(CaseSnapshot(waiting, [], ME))

@@ -5,6 +5,8 @@ apps/backend/app/services/blocker_decision_policy.py). They add no business rule
 backend's own explanation, owner and authorized actions stay the authority.
 """
 
+from .instructions import case_page_terms
+
 AUTOMATION_STATUS = {
     "PENDING_INPUTS": "waiting for required inputs",
     "RUNNING": "running automatically",
@@ -164,34 +166,30 @@ FIELD_LABEL = {
 
 
 # Labels shown on the case page's document check, explained in plain words.
-SCREEN_TERMS = {
-    "canonical": "the official value from the registry (ACRA) that the document is checked against",
-    "suggestion": (
-        "the value our system read from the uploaded document; it is only a suggestion until "
-        "it matches ACRA or a reviewer decides"
+# The case page's "Review blocker decisions" panel. Its two decision groups answer different
+# questions, so the AI Assistant must not merge them. Labels are exactly as the page shows them
+# (apps/frontend/src/pages/BlockerDecisionReview.tsx); meanings follow how the backend uses each
+# review decision (services/document_processing.py, services/reconciliation.py).
+REVIEW_PANEL = "Review blocker decisions"
+DOCUMENT_REVIEW_GROUP = "Review extracted document fields"
+SOURCE_DECISION_GROUP = "Compare registry and document values"
+DOCUMENT_REVIEW_CHOICES = {
+    "Accept document suggestion": (
+        "confirms the system read this value correctly from the document; the value is then "
+        "still compared with ACRA"
     ),
-    "source agreement": (
-        "whether the document's value matches the registry value (match or mismatch)"
+    "Reject document suggestion": (
+        "says the value read from the document should not be used, so the case has no document "
+        "value for this field"
     ),
-    "verification state": (
-        "where the review of this value stands, for example pending (waiting for a person), "
-        "auto confirmed or human accepted"
+    "Record correction": (
+        "lets the reviewer type the value the document really shows; it replaces what the "
+        "system read and is compared with ACRA again"
     ),
-    "evidence score": (
-        "a rule-based score from 0 to 1 for how reliably the value was found: 0.97 for the "
-        "standard label, 0.90 for other wording, lower for unclear scans; it is not a probability"
-    ),
-    "extraction quality": "how cleanly the value was read, for example high, or lower when unclear",
-    "extraction method": (
-        "how the text was read: native PDF text means straight from the file, OCR means read "
-        "from a scanned image"
-    ),
-    "provenance": "where the value came from: which reader read it, and from which page",
-    "score formula": "which rule produced the evidence score",
-    "accept": "Accept confirms the value read from the document",
-    "reject": "Reject refuses the value read from the document",
-    "record correction": "Record correction lets the reviewer enter the right value themselves",
 }
+
+# Meanings of case page labels live in instructions/case_page_terms.md.
+SCREEN_TERMS = case_page_terms()
 
 
 def sentence_case(text: str) -> str:

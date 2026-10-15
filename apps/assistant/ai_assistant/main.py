@@ -1,26 +1,35 @@
-"""Onboarding Copilot API (Phase 1: read-only).
+"""AI Assistant API (Phase 1: read-only).
 
     Browser chat panel -> this service (/assistant/...) -> existing CLM APIs (GET only)
                                                        -> chat model (OpenAI-compatible)
 
 Every request re-reads the case, so answers reflect the case as it is now. The RM's own
 session is forwarded to the CLM backend, which stays the authority for access.
+
+Opening the panel (/brief) also pre-warms the model in the background, and the chat panel
+uses /chat/stream so the answer appears while it is written (see README "Speed").
 """
 
+import hashlib
+import json
+import threading
+import time
+from collections.abc import Iterator
 from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .briefing import fallback_answer, opening_message, suggested_questions
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
-from .config import CopilotSettings
+from .config import AiAssistantSettings
 from .context import build_case_facts
-from .guardrails import guard_answer
+from .guardrails import StreamingGuard, guard_answer
 from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel
-from .prompts import build_messages
+from .prompts import build_messages, prefix_messages
 from .small_talk import small_talk_reply
 
 
@@ -62,15 +71,16 @@ class HealthResponse(BaseModel):
 
 
 FALLBACK_NOTICE = "The AI model is not available, so this answer comes straight from the case data."
+CUT_SHORT_NOTICE = "This answer was cut short. Ask me to continue for the rest."
 
 
 def create_app(
-    settings: CopilotSettings | None = None,
+    settings: AiAssistantSettings | None = None,
     *,
     clm_transport: httpx.BaseTransport | None = None,
     chat_model: ChatModel | None = None,
 ) -> FastAPI:
-    config = settings or CopilotSettings()
+    config = settings or AiAssistantSettings()
     backend = ClmBackendClient(
         config.clm_backend_url,
         timeout_seconds=config.backend_timeout_seconds,
@@ -84,9 +94,10 @@ def create_app(
             credential=config.llm_api_key.get_secret_value(),
             timeout_seconds=config.llm_timeout_seconds,
             temperature=config.llm_temperature,
+            max_answer_tokens=config.llm_max_answer_tokens,
         )
 
-    app = FastAPI(title="Onboarding Copilot", version="0.1.0")
+    app = FastAPI(title="AI Assistant", version="0.1.0")
 
     allowed_origins = {origin.rstrip("/") for origin in config.allowed_origins}
 
@@ -128,14 +139,15 @@ def create_app(
     ) -> ChatResponse:
         if model is not None:
             try:
-                answer = guard_answer(model.complete(messages), facts)
+                reply = model.complete(messages)
+                answer = guard_answer(reply.text, facts)
                 if not answer:
                     raise LlmUnavailableError("nothing left after guardrails")
                 return ChatResponse(
                     answer=answer,
                     answered_by="model",
                     model=model.name,
-                    notice=None,
+                    notice=CUT_SHORT_NOTICE if reply.cut_short else None,
                     suggested_questions=suggestions,
                 )
             except LlmUnavailableError:
@@ -148,6 +160,90 @@ def create_app(
             suggested_questions=suggestions,
         )
 
+    warmed: dict[str, float] = {}
+    warm_lock = threading.Lock()
+
+    def warm_up(facts: dict[str, object]) -> None:
+        """Have the model read the rules and this case's facts before the first question.
+
+        Runs after the brief has been sent, so the RM never waits for it. Skipped when the
+        same facts were read recently (the model server still has them cached).
+        """
+
+        if model is None or not config.llm_warm_up:
+            return
+        messages = prefix_messages(facts)
+        key = hashlib.sha256(json.dumps(messages).encode()).hexdigest()
+        now = time.monotonic()
+        with warm_lock:
+            last = warmed.get(key)
+            if last is not None and now - last < config.llm_warm_up_interval_seconds:
+                return
+            warmed[key] = now
+            for old in [k for k, t in warmed.items() if now - t > 3600]:
+                del warmed[old]
+        model.warm(messages)
+
+    def stream_answer(
+        messages: list[dict[str, str]],
+        fallback: str,
+        suggestions: list[str],
+        facts: dict[str, object],
+    ) -> Iterator[str]:
+        """The answer as newline-delimited JSON: "text" updates while the model writes,
+        then one "done" with the final answer (the same fields as the /chat reply)."""
+
+        def line(event: dict[str, object]) -> str:
+            return json.dumps(event, ensure_ascii=False) + "\n"
+
+        def done(response: ChatResponse) -> str:
+            return line({"type": "done", **response.model_dump()})
+
+        if model is not None:
+            guard = StreamingGuard(facts)
+            cut_short = False
+            try:
+                for piece in model.stream(messages):
+                    cut_short = cut_short or piece.cut_short
+                    shown = guard.feed(piece.text) if piece.text else None
+                    if shown is not None:
+                        yield line({"type": "text", "text": shown})
+                answer = guard.finish()
+                if answer:
+                    yield done(
+                        ChatResponse(
+                            answer=answer,
+                            answered_by="model",
+                            model=model.name,
+                            notice=CUT_SHORT_NOTICE if cut_short else None,
+                            suggested_questions=suggestions,
+                        )
+                    )
+                    return
+            except LlmUnavailableError:
+                partial = guard.finish()
+                if partial:
+                    # Keep what the RM has already read, and say it stopped early.
+                    yield done(
+                        ChatResponse(
+                            answer=partial,
+                            answered_by="model",
+                            model=model.name,
+                            notice=CUT_SHORT_NOTICE,
+                            suggested_questions=suggestions,
+                        )
+                    )
+                    return
+        yield done(
+            ChatResponse(
+                answer=fallback,
+                answered_by="case_data",
+                model=None,
+                notice=FALLBACK_NOTICE,
+                suggested_questions=suggestions,
+            )
+        )
+
     @app.get("/assistant/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return HealthResponse(
@@ -157,8 +253,9 @@ def create_app(
         )
 
     @app.get("/assistant/cases/{case_id}/brief", response_model=BriefResponse)
-    def brief(snapshot: Snapshot) -> BriefResponse:
+    def brief(snapshot: Snapshot, background: BackgroundTasks) -> BriefResponse:
         facts = build_case_facts(snapshot)
+        background.add_task(warm_up, facts)
         return BriefResponse(
             company=facts["company"].get("legal_name") or facts["company"].get("uen"),
             message=opening_message(facts),
@@ -187,6 +284,38 @@ def create_app(
             fallback_answer(question, facts),
             suggested_questions(facts),
             facts,
+        )
+
+    @app.post("/assistant/cases/{case_id}/chat/stream")
+    def chat_stream(body: ChatRequest, snapshot: Snapshot) -> StreamingResponse:
+        """Like /chat, but the answer appears while the model is still writing it."""
+
+        facts = build_case_facts(snapshot)
+        question = body.message.strip()[: config.max_question_chars]
+        suggestions = suggested_questions(facts)
+        quick = small_talk_reply(question, facts)
+        if quick is not None:
+            reply = ChatResponse(
+                answer=quick,
+                answered_by="case_data",
+                model=None,
+                notice=None,
+                suggested_questions=suggestions,
+            )
+            events: Iterator[str] = iter(
+                [json.dumps({"type": "done", **reply.model_dump()}, ensure_ascii=False) + "\n"]
+            )
+        else:
+            events = stream_answer(
+                build_messages(facts, history_of(body), question),
+                fallback_answer(question, facts),
+                suggestions,
+                facts,
+            )
+        return StreamingResponse(
+            events,
+            media_type="application/x-ndjson",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
 
     return app

@@ -97,6 +97,19 @@ def opening_message(facts: dict[str, Any]) -> str:
             lines.append(f"{number}. {_blocker_line(blocker)}")
             lines.extend(_difference_lines(blocker))
             lines.extend(_next_step_lines(blocker))
+        review = facts.get("document_field_review")
+        if review:
+            choices = []
+            for row in review["fields"]:
+                for choice in row["choices"]:
+                    if choice not in choices:
+                        choices.append(choice)
+            fields = ", ".join(sorted({row["field"] for row in review["fields"]}))
+            labels = ", ".join(f'"{choice}"' for choice in choices)
+            lines.append(
+                f"   You can also check what was read from the document ({fields}) under "
+                f'"Review extracted document fields": {labels}.'
+            )
         lines.append("")
         lines.append(
             "I can explain any of these in more detail."

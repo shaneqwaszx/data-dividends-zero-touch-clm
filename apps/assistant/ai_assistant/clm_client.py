@@ -1,6 +1,6 @@
 """Read-only client for the existing CLM backend APIs.
 
-The copilot never holds its own credentials. It forwards the RM's session cookie, so the
+The AI assistant never holds its own credentials. It forwards the RM's session cookie, so the
 backend keeps deciding what this person may see (RBAC, team scope, safe 404s). Only GET
 requests are made: Phase 1 never changes a case.
 """
@@ -26,7 +26,7 @@ class ClmBackendError(Exception):
 
 @dataclass(frozen=True)
 class CaseSnapshot:
-    """Everything the copilot read for one question, fetched together."""
+    """Everything the AI assistant read for one question, fetched together."""
 
     summary: dict[str, Any]
     documents: list[dict[str, Any]]

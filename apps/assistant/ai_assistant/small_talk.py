@@ -39,7 +39,7 @@ ABOUT = {
     "what can i ask",
     "what can i ask you",
 }
-FILLER = {"copilot", "there", "again", "so", "much", "a lot", "lot", "please"}
+FILLER = {"ai assistant", "assistant", "there", "again", "so", "much", "a lot", "lot", "please"}
 
 ASK_EXAMPLES = 'For example: "Why is this case blocked?" or "What should I do next?"'
 
@@ -86,7 +86,7 @@ def small_talk_reply(message: str, facts: dict[str, Any]) -> str | None:
 
     if text in ABOUT:
         return (
-            "I'm the Onboarding Copilot. I explain where this case stands, why it is blocked "
+            "I'm the AI Assistant. I explain where this case stands, why it is blocked "
             f"and what to do next, using the case data. {ASK_EXAMPLES}"
         )
     for group in (GREETINGS, THANKS, ACKS, BYES):
@@ -99,7 +99,34 @@ def small_talk_reply(message: str, facts: dict[str, Any]) -> str | None:
                 return "You're welcome. Ask me if anything else on this case is unclear."
             if group is ACKS:
                 return f"Okay. {ASK_EXAMPLES}"
-            return "Bye for now. I'll be here when you open the Copilot again."
+            return "Bye for now. I'll be here when you open the AI Assistant again."
     if _strip(text, GREETINGS | THANKS | ACKS | BYES) == "":
-        return f"{hello} {ASK_EXAMPLES}"
+        # Mixed small talk ("okay thanks", "thanks bye"): answer what it ends the
+        # conversation with, not a fresh greeting.
+        groups = _groups(text)
+        if BYES in groups:
+            return "Bye for now. I'll be here when you open the AI Assistant again."
+        if THANKS in groups:
+            return "You're welcome. Ask me if anything else on this case is unclear."
+        if GREETINGS in groups:
+            return f"{hello} {ASK_EXAMPLES}"
+        return f"Okay. {ASK_EXAMPLES}"
     return None
+
+
+def _groups(text: str) -> list[set[str]]:
+    """Which small-talk groups appear in a message made only of small talk."""
+
+    found: list[set[str]] = []
+    phrases = sorted(GREETINGS | THANKS | ACKS | BYES | FILLER, key=len, reverse=True)
+    while text:
+        for phrase in phrases:
+            if text == phrase or text.startswith(phrase + " "):
+                for group in (GREETINGS, THANKS, ACKS, BYES):
+                    if phrase in group and group not in found:
+                        found.append(group)
+                text = text[len(phrase) :].strip()
+                break
+        else:
+            break
+    return found
