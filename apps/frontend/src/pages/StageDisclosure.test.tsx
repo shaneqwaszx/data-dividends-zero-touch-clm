@@ -29,3 +29,202 @@ describe("stage disclosure", () => {
     host.remove();
   });
 });
+
+
+function visible(element: Element): boolean {
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    if (node instanceof HTMLElement && (node.hidden || getComputedStyle(node).display === "none")) return false;
+    if (node instanceof HTMLDetailsElement && !node.open
+      && !node.querySelector(":scope > summary")?.contains(element)) return false;
+  }
+  return true;
+}
+
+async function fixture() {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const render = async (scopeKey = "actor-a:session-a:case-a", active = false, final = false, revision = "one") => {
+    await act(async () => root.render(<StageDisclosure title="Submission readiness" active={active} final={final}
+      scopeKey={scopeKey} main={<><p id="main-status">Blocked {revision}</p><button id="required">Required correction</button></>}
+      moreDetails={<label>Optional draft<input id="draft" defaultValue="retained" /></label>}
+      technicalDetails={<button id="diagnostic">Safe diagnostic</button>} />));
+  };
+  await render();
+  const details = () => [...host.querySelectorAll("details")];
+  const toggle = async (index: number, open: boolean) => { await act(async () => {
+    const target = details()[index]; target.open = open; target.dispatchEvent(new Event("toggle"));
+  }); };
+  const dispose = async () => { await act(async () => root.unmount()); host.remove(); };
+  return { host, render, details, toggle, dispose };
+}
+
+describe("persistent stage Main", () => {
+  it("keeps Main visible in all four independent support combinations with stage-qualified native names", async () => {
+    const f = await fixture();
+    try {
+      expect(f.host.querySelector("h2 button")).toBeNull();
+      expect(f.details().map(d => d.open)).toEqual([false, false]);
+      expect(f.details().map(d => d.querySelector("summary")?.textContent)).toEqual([
+        "More details — Submission readiness", "Technical details — Submission readiness",
+      ]);
+      for (const [more, technical] of [[false, false], [true, false], [true, true], [false, true]]) {
+        await f.toggle(0, more); await f.toggle(1, technical);
+        expect(visible(f.host.querySelector("#required")!)).toBe(true);
+        expect(visible(f.host.querySelector("#draft")!)).toBe(more);
+        expect(visible(f.host.querySelector("#diagnostic")!)).toBe(technical);
+      }
+    } finally { await f.dispose(); }
+  });
+
+  it("preserves mounted drafts and support state through toggles, active changes and same-scope evidence refresh", async () => {
+    const f = await fixture();
+    try {
+      await f.toggle(0, true);
+      const draft = f.host.querySelector<HTMLInputElement>("#draft")!; draft.value = "unsaved local draft";
+      await f.toggle(0, false); await f.toggle(0, true);
+      await f.render(undefined, true, false, "two");
+      expect(f.details().map(d => d.open)).toEqual([true, false]);
+      expect(f.host.querySelector("#draft")).toBe(draft);
+      expect(draft.value).toBe("unsaved local draft");
+      expect(visible(f.host.querySelector("#main-status")!)).toBe(true);
+    } finally { await f.dispose(); }
+  });
+
+  it("closes support and returns focused optional content to the visible heading for actor, session and case changes", async () => {
+    const f = await fixture();
+    try {
+      for (const scope of ["actor-b:session-a:case-a", "actor-b:session-b:case-a", "actor-b:session-b:case-b", "actor-b:session-b:case-b:analysis-b"]) {
+        await f.toggle(0, true); await f.toggle(1, true);
+        f.host.querySelector<HTMLInputElement>("#draft")!.value = "other scope draft";
+        f.host.querySelector<HTMLElement>("#diagnostic")!.focus();
+        await f.render(scope);
+        expect(f.host.querySelector<HTMLInputElement>("#draft")!.value).toBe("retained");
+        expect(f.details().map(d => d.open)).toEqual([false, false]);
+        expect(document.activeElement).toBe(f.host.querySelector("h2"));
+        expect(visible(document.activeElement!)).toBe(true);
+      }
+    } finally { await f.dispose(); }
+  });
+
+  it("returns focus on support collapse and reveals only the explicit diagnostic destination", async () => {
+    const f = await fixture();
+    try {
+      await f.toggle(1, true); f.host.querySelector<HTMLElement>("#diagnostic")!.focus();
+      await f.toggle(1, false);
+      expect(document.activeElement).toBe(f.details()[1].querySelector("summary"));
+      await act(async () => revealStage(f.host.querySelector("#draft")!));
+      expect(f.details().map(d => d.open)).toEqual([true, false]);
+    } finally { await f.dispose(); }
+  });
+
+  it("opens Final support temporarily for print and restores the exact pre-print combination", async () => {
+    const f = await fixture();
+    try {
+      await f.render(undefined, false, true); await f.toggle(1, true);
+      await act(async () => window.dispatchEvent(new Event("beforeprint")));
+      expect(f.details().map(d => d.open)).toEqual([true, true]);
+      await act(async () => window.dispatchEvent(new Event("afterprint")));
+      expect(f.details().map(d => d.open)).toEqual([false, true]);
+      expect(visible(f.host.querySelector("#required")!)).toBe(true);
+    } finally { await f.dispose(); }
+  });
+});
+
+
+describe("legacy and empty support compatibility", () => {
+  it("keeps legacy Final print opening and native reveal behavior without forcing optional placeholders", async () => {
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<StageDisclosure title="Final review & send" final><p>Retained legacy final</p></StageDisclosure>));
+      expect(host.querySelector("button")!.getAttribute("aria-expanded")).toBe("false");
+      await act(async () => window.dispatchEvent(new Event("beforeprint")));
+      expect(host.querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
+      await act(async () => window.dispatchEvent(new Event("afterprint")));
+      expect(host.querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
+      await act(async () => root.render(<StageDisclosure title="Registry verification" scopeKey="safe-scope" active main={<button>Required correction</button>} />));
+      expect(host.querySelectorAll("details")).toHaveLength(0);
+      expect(visible(host.querySelector("button")!)).toBe(true);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+});
+
+
+describe("scope and external focus boundaries", () => {
+  it.each(["more", "technical"] as const)("preserves newer external focus after focused %s content is removed before an identity change", async (removed) => {
+    const host = document.createElement("div"), outside = document.createElement("button");
+    outside.textContent = "Other workspace action"; document.body.append(host, outside);
+    const root = createRoot(host);
+    const render = async (scopeKey: string, present: boolean) => {
+      await act(async () => root.render(<StageDisclosure title="Removal boundary" scopeKey={scopeKey}
+        main={<button>Required Main action</button>}
+        moreDetails={removed === "more" && !present ? undefined : <input id="removal-more" />}
+        technicalDetails={removed === "technical" && !present ? undefined : <input id="removal-technical" />} />));
+    };
+    try {
+      let scope = "actor-a:session-a:case-a";
+      for (const nextScope of ["actor-b:session-a:case-a", "actor-b:session-b:case-a", "actor-b:session-b:case-b"]) {
+        await render(scope, true);
+        const control = host.querySelector<HTMLInputElement>(`#removal-${removed}`)!;
+        const details = control.closest("details")!;
+        await act(async () => { details.open = true; });
+        control.focus(); expect(document.activeElement).toBe(control);
+        await render(scope, false);
+        expect(control.isConnected).toBe(false);
+        expect(document.activeElement).toBe(document.body);
+        outside.focus(); expect(document.activeElement).toBe(outside);
+        await render(nextScope, false);
+        expect(document.activeElement).toBe(outside);
+        expect(visible(host.querySelector("button")!)).toBe(true);
+        expect([...host.querySelectorAll("details")].every(element => !element.open)).toBe(true);
+        scope = nextScope;
+      }
+    } finally { await act(async () => root.unmount()); host.remove(); outside.remove(); }
+  });
+
+  it.each(["more", "technical"] as const)("retires removed %s focus on same-scope refresh even when focus remains on body", async (removed) => {
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    const render = async (scopeKey: string, present: boolean) => {
+      await act(async () => root.render(<StageDisclosure title="Removed focus" scopeKey={scopeKey} main={<p>Current Main</p>}
+        moreDetails={removed === "more" && present ? <input /> : undefined}
+        technicalDetails={removed === "technical" && present ? <input /> : undefined} />));
+    };
+    try {
+      await render("actor-a:session-a:case-a", true);
+      await act(async () => { host.querySelector("details")!.open = true; });
+      host.querySelector("input")!.focus(); expect(document.activeElement).toBe(host.querySelector("input"));
+      await render("actor-a:session-a:case-a", false);
+      expect(document.activeElement).toBe(document.body);
+      await render("actor-b:session-b:case-b", false);
+      expect(document.activeElement).toBe(document.body);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it("does not steal focus from another workspace during scope reset or same-scope refresh", async () => {
+    const f = await fixture();
+    const outside = document.createElement("button"); outside.textContent = "Other workspace action"; document.body.append(outside);
+    try {
+      await f.toggle(0, true); await f.toggle(1, true);
+      outside.focus();
+      await f.render("actor-b:session-b:case-b:analysis-b");
+      expect(f.details().map(d => d.open)).toEqual([false, false]);
+      expect(document.activeElement).toBe(outside);
+      await f.render("actor-b:session-b:case-b:analysis-b", true, false, "current");
+      expect(document.activeElement).toBe(outside);
+      expect(f.host.querySelector("#main-status")!.textContent).toBe("Blocked current");
+      expect(f.details().map(d => d.open)).toEqual([false, false]);
+    } finally { await f.dispose(); outside.remove(); }
+  });
+
+  it("does not restore an old scope's disclosure state after printing crosses an identity change", async () => {
+    const f = await fixture();
+    try {
+      await f.render(undefined, false, true); await f.toggle(0, true);
+      await act(async () => window.dispatchEvent(new Event("beforeprint")));
+      expect(f.details().map(d => d.open)).toEqual([true, true]);
+      await f.render("actor-b:session-b:case-b:analysis-b", false, true);
+      await act(async () => window.dispatchEvent(new Event("afterprint")));
+      expect(f.details().map(d => d.open)).toEqual([false, false]);
+      expect(visible(f.host.querySelector("#required")!)).toBe(true);
+    } finally { await f.dispose(); }
+  });
+});
