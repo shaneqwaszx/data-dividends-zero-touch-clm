@@ -707,3 +707,69 @@ test("disclosure foundation browser fixture preserves Main, independent native c
     await page.evaluate(() => (window as DisclosureBrowser).__disclosureFoundation.dispose());
   }
 });
+
+test("Search and Registry disclosure keeps Main visible with independent native support and zero writes", async ({ page }) => {
+  await login(page);
+  const caseId = await openNewCase(page, lowConfidenceFixture);
+  await waitForCaseStatus(page, caseId, ["WAITING_FOR_REVIEW"]);
+  await page.goto(`/cases/${caseId}`);
+  const mutations: string[] = [];
+  page.on("request", request => {
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(request.method());
+  });
+  for (const width of [1440, 1280, 900, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const name of ["Registry verification", "Existing-customer search"]) {
+      const section = page.getByRole("region", { name, exact: true });
+      const more = section.locator(":scope > details").filter({ has: page.getByText(`More details — ${name}`, { exact: true }) });
+      const technical = section.locator(":scope > details").filter({ has: page.getByText(`Technical details — ${name}`, { exact: true }) });
+      await expect(section.getByRole("heading", { name, exact: true })).toBeVisible();
+      await expect(section.locator(":scope > div").first()).toBeVisible();
+      await expect(more).not.toHaveAttribute("open", "");
+      await expect(technical).not.toHaveAttribute("open", "");
+      await expect(more.locator(":scope > div")).toBeHidden();
+      await expect(technical.locator(":scope > div")).toBeHidden();
+      const summary = more.locator(":scope > summary");
+      await summary.focus(); await expect(summary).toBeFocused();
+      expect(await summary.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe("none");
+      await page.keyboard.press("Enter");
+      await expect(more.locator(":scope > div")).toBeVisible();
+      await expect(technical.locator(":scope > div")).toBeHidden();
+      await page.keyboard.press("Space");
+      await expect(more.locator(":scope > div")).toBeHidden();
+      await page.keyboard.press("Tab");
+      await expect(technical.locator(":scope > summary")).toBeFocused();
+      await page.keyboard.press("Space");
+      await expect(technical.locator(":scope > div")).toBeVisible();
+      await expect(more.locator(":scope > div")).toBeHidden();
+      await expect(section.locator(":scope > div").first()).toBeVisible();
+      await expectDocumentContained(page);
+      await page.keyboard.press("Enter");
+      await expect(technical.locator(":scope > div")).toBeHidden();
+    }
+  }
+  // Bounded legacy/empty GET projection exercises the real no-action focus fallback.
+  // Auth, HTTP and navigation remain real; no backend state is changed by this fixture.
+  await page.route(`**/api/clm/zero-touch/cases/${caseId}`, async route => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const response = await route.fetch(); const body = await response.json();
+    const original = body.active_exceptions[0];
+    body.current_stage = "GOLDTIER_SEARCH"; body.evidence_decision_authorized = false;
+    body.case.error = null; body.interventions = []; body.processing_pipeline = [];
+    body.clm.target_search_checkpoint = null;
+    body.active_exceptions = [{ ...original, stage: "GOLDTIER_SEARCH", blocker_code: "GT_SEARCH_REVIEW_REQUIRED",
+      blocker_codes: ["GT_SEARCH_REVIEW_REQUIRED"],
+      explanation: "Retained Search evidence needs review; no corrective input is authorized.", available_actions: [] }];
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(`/cases/${caseId}`);
+  const fallback = page.locator("#case-existing-customer-search");
+  const action = page.getByRole("button", { name: "Blocker: GT SEARCH REVIEW REQUIRED", exact: true });
+  await action.focus(); await action.press("Enter");
+  await expect(fallback).toBeFocused();
+  await expect(fallback).toHaveAccessibleName("Existing-customer search");
+  await expect(page.getByText("No corrective input is currently authorized here. Review the retained reason and required evidence.", { exact: true })).toBeVisible();
+  const search = page.getByRole("region", { name: "Existing-customer search", exact: true });
+  await expect(search).toBeVisible(); await expect(search.locator(":scope > details[open]")).toHaveCount(0);
+  expect(mutations).toEqual([]);
+});

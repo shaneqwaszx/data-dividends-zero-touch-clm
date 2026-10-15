@@ -1010,7 +1010,7 @@ console.log(JSON.stringify({
         self.assertIn(f"timeout-minutes: {job_minutes}", e2e)
         self.assertIn(f"python scripts/run_e2e.py --timeout-seconds {lifecycle_seconds}", e2e)
         selectors = RUN_E2E._list_test_selectors(RUN_E2E.DEFAULT_FRONTEND_PORT)
-        self.assertEqual(len(selectors), 104)
+        self.assertEqual(len(selectors), 107)
         self.assertIn("shard: [1, 2]", e2e)
         self.assertIn("fail-fast: false", e2e)
         self.assertIn("--shard ${{ matrix.shard }}/2", e2e)
@@ -1022,7 +1022,7 @@ console.log(JSON.stringify({
         launcher_seconds = RUN_E2E.DISCOVERY_TIMEOUT_SECONDS + max(map(len, shards)) * (
             lifecycle_seconds + RUN_E2E.LIFECYCLE_OVERHEAD_SECONDS
         )
-        self.assertEqual(launcher_seconds, 9420)
+        self.assertEqual(launcher_seconds, 9780)
         self.assertLessEqual(
             launcher_seconds + installation_minutes * 60,
             job_minutes * 60,
@@ -1065,7 +1065,7 @@ console.log(JSON.stringify({
             [lifecycle_seconds] * len(shards[0]),
         )
         self.assertEqual(clock[0], launcher_seconds)
-        self.assertIn("E2E SUITE PASS: 52 configured selectors", output.getvalue())
+        self.assertIn("E2E SUITE PASS: 54 configured selectors", output.getvalue())
 
     def test_sandbox_discovery_routes_each_mode_and_preserves_default(self) -> None:
         payload = {"suites": [{"specs": [

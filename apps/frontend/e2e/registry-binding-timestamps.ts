@@ -1,10 +1,14 @@
 import { expect, type Page } from "@playwright/test";
 import type { RegistryEvidenceBinding } from "../src/types";
+import { openStageSupport } from "./stage-disclosures";
 
 export async function assertRegistryBindingTimestamps(page: Page, binding: RegistryEvidenceBinding) {
-  const display = page.getByLabel("Case evidence binding", { exact: true });
-  const audit = page.locator('[aria-labelledby="registry-provenance-heading"] details.evidence-details');
-  await audit.locator("summary").click();
+  await openStageSupport(page, "Registry verification", "More");
+  await openStageSupport(page, "Registry verification", "Technical");
+  const display = page.getByLabel("Registry case-use times", { exact: true });
+  const audit = page.locator('[aria-labelledby="registry-provenance-technical-heading"]');
+  await expect(display).toBeVisible();
+  await expect(audit).toBeVisible();
   for (const [field, label] of [
     ["bound_to_case_at", "Bound to this case at"],
     ["expires_at", "Valid-at-use expiry"],

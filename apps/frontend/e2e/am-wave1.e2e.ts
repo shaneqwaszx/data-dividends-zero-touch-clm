@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
-import { openStage } from "./stage-disclosures";
+import { openStage, openStageSupport } from "./stage-disclosures";
 
 test.use({ timezoneId: "America/Los_Angeles" });
 
@@ -179,10 +179,15 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   await page.getByRole("button", { name: "Open full case", exact: true }).click();
   const before = await read(page, caseId);
   await openStage(page, "Registry verification");
-  const provenance = page.locator('[aria-labelledby="registry-provenance-heading"]');
+  await openStageSupport(page, "Registry verification", "More");
+  const provenance = page.locator('[aria-labelledby="registry-provenance-more-heading"]');
+  await expect(provenance).toBeVisible();
   await expect(provenance).toContainText("SGT (UTC+08:00)");
-  const audit = provenance.locator("details"); await audit.locator("summary").click();
-  await expect(audit).toContainText(before.case.registry_acquisition.retrieved_at);
+  await openStageSupport(page, "Registry verification", "Technical");
+  const audit = page.locator('[aria-labelledby="registry-provenance-technical-heading"]');
+  const original = audit.getByText("Acquisition retrieved at — original ISO UTC", { exact: true }).locator("..").locator("dd");
+  await expect(original).toBeVisible();
+  await expect(original).toHaveText(before.case.registry_acquisition.retrieved_at);
   await openStage(page, "Document verification");
   const review = page.locator("#case-blocker-review");
   const controls = review.locator("select[data-review-field]"); await expect(controls).toHaveCount(3);
