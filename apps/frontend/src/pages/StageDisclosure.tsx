@@ -57,6 +57,7 @@ export default function StageDisclosure(props: Parameters<typeof LegacyStageDisc
 
 function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails, scopeKey, final = false, summary }: PersistentStageProps) {
   const id = useId();
+  const section = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const more = useRef<HTMLDetailsElement>(null);
   const technical = useRef<HTMLDetailsElement>(null);
@@ -65,13 +66,17 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
   const printedState = useRef<boolean[] | null>(null);
 
   useLayoutEffect(() => {
-    if (previousScope.current === scopeKey) return;
-    previousScope.current = scopeKey;
-    if (sectionHasFocus.current) heading.current?.focus();
-    for (const element of [more.current, technical.current]) if (element) element.open = false;
-    sectionHasFocus.current = false;
-    printedState.current = null;
-  }, [scopeKey]);
+    if (previousScope.current !== scopeKey) {
+      previousScope.current = scopeKey;
+      const active = document.activeElement;
+      // A keyed scope remount can remove the active control before this effect.
+      if (section.current?.contains(active) || (sectionHasFocus.current && active === document.body)) heading.current?.focus();
+      for (const element of [more.current, technical.current]) if (element) element.open = false;
+      printedState.current = null;
+    }
+    // Same-scope removal may not emit blur: retire history against the current DOM.
+    sectionHasFocus.current = section.current?.contains(document.activeElement) ?? false;
+  });
 
   useEffect(() => {
     const beforePrint = () => {
@@ -97,7 +102,7 @@ function PersistentStageDisclosure({ title, main, moreDetails, technicalDetails,
   const restoreFocus = (element: HTMLDetailsElement) => {
     if (!element.open && element.contains(document.activeElement)) element.querySelector("summary")?.focus();
   };
-  return <section className={`stage-disclosure${final ? " stage-disclosure--final" : ""}`} aria-labelledby={`${id}-title`}
+  return <section ref={section} className={`stage-disclosure${final ? " stage-disclosure--final" : ""}`} aria-labelledby={`${id}-title`}
     onFocusCapture={() => { sectionHasFocus.current = true; }}
     onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) sectionHasFocus.current = false; }}>
     <h2 ref={heading} id={`${id}-title`} tabIndex={-1}>{title}</h2>

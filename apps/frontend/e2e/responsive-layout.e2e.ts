@@ -537,7 +537,7 @@ test("responsive HR administration contains proposal-only policy controls", asyn
 
 
 type DisclosureBrowser = Window & { __disclosureFoundation: {
-  render: (scope: string, active?: boolean, revision?: string) => void;
+  render: (scope: string, active?: boolean, revision?: string, omitted?: "more" | "technical") => void;
   revealDiagnostic: () => void;
   dispose: () => void;
   actions: number;
@@ -564,21 +564,23 @@ test("disclosure foundation browser fixture preserves Main, independent native c
     document.body.append(unrelatedHost); const unrelatedRoot = createRoot(unrelatedHost);
     unrelatedRoot.render(React.createElement(Stage, {
       title: "Unrelated workspace", scopeKey: "unrelated-scope",
-      main: React.createElement("p", { id: "fixture-unrelated-main" }, "Unrelated workspace must not print"),
+      main: React.createElement(React.Fragment, null,
+        React.createElement("p", { id: "fixture-unrelated-main" }, "Unrelated workspace must not print"),
+        React.createElement("button", { id: "fixture-external-action", type: "button" }, "Other workspace action")),
       moreDetails: React.createElement("p", { id: "fixture-unrelated-support" }, "Unrelated support must not print"),
     }));
     const fixture = {
       actions: 0,
-      render(scopeKey: string, active = false, revision = "one") {
+      render(scopeKey: string, active = false, revision = "one", omitted?: "more" | "technical") {
         root.render(React.createElement(Stage, {
           title: "Foundation readiness", scopeKey, active, final: true,
           main: React.createElement("section", { className: "review-and-send" },
-            React.createElement("p", { id: "fixture-main" }, "Blocked " + revision),
+            React.createElement("p", { id: "fixture-main", tabIndex: -1 }, "Blocked " + revision),
             React.createElement("button", { id: "fixture-required", type: "button", className: "review-and-send__edit", onClick: () => { fixture.actions += 1; } }, "Required fixture correction")),
-          moreDetails: React.createElement("label", null, "Optional fixture draft",
+          moreDetails: omitted === "more" ? undefined : React.createElement("label", null, "Optional fixture draft",
             React.createElement("input", { id: "fixture-draft", defaultValue: "retained scope draft" }),
             React.createElement("span", { id: "fixture-hidden-detail", hidden: true }, "Hidden detail must remain excluded")),
-          technicalDetails: React.createElement("button", { id: "fixture-diagnostic", type: "button" }, "Safe fixture diagnostic"),
+          technicalDetails: omitted === "technical" ? undefined : React.createElement("button", { id: "fixture-diagnostic", type: "button" }, "Safe fixture diagnostic"),
         }));
       },
       revealDiagnostic() { revealStage(host.querySelector("#fixture-diagnostic")!); },
@@ -635,6 +637,33 @@ test("disclosure foundation browser fixture preserves Main, independent native c
       await expect(fixture.getByRole("heading", { name: "Foundation readiness", exact: true })).toBeFocused();
       await moreToggle.click(); await expect(draft).toHaveValue("retained scope draft"); await moreToggle.click();
     }
+    // Removal must retire historical focus ownership before a later actor/session/case reset.
+    const externalAction = page.locator("#fixture-external-action");
+    for (const omitted of ["more", "technical"] as const) {
+      let scope = "actor-a:session-a:case-a";
+      for (const [index, nextScope] of ["actor-b:session-a:case-a", "actor-b:session-b:case-a", "actor-b:session-b:case-b"].entries()) {
+        await page.evaluate(scopeKey => (window as DisclosureBrowser).__disclosureFoundation.render(scopeKey), scope);
+        await expect(moreToggle).toBeVisible(); await expect(technicalToggle).toBeVisible();
+        const control = omitted === "more" ? draft : fixture.locator("#fixture-diagnostic");
+        await (omitted === "more" ? moreToggle : technicalToggle).click();
+        await control.focus(); await expect(control).toBeFocused();
+        await page.evaluate(({ scopeKey, removed }) => (window as DisclosureBrowser).__disclosureFoundation.render(scopeKey, false, "removed", removed), { scopeKey: scope, removed: omitted });
+        await expect(control).toHaveCount(0);
+        expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+        if (index % 2 === 0) await externalAction.click();
+        else {
+          await fixture.locator("details summary").last().focus();
+          await page.keyboard.press("Tab");
+        }
+        await expect(externalAction).toBeFocused();
+        await page.evaluate(({ scopeKey, removed }) => (window as DisclosureBrowser).__disclosureFoundation.render(scopeKey, false, "changed", removed), { scopeKey: nextScope, removed: omitted });
+        await expect(fixture.locator("#fixture-main")).toHaveText("Blocked changed");
+        await expect(externalAction).toBeFocused();
+        scope = nextScope;
+      }
+    }
+    await page.evaluate(() => (window as DisclosureBrowser).__disclosureFoundation.render("actor-b:session-b:case-b:analysis-b"));
+    await expect(moreToggle).toBeVisible(); await expect(technicalToggle).toBeVisible();
     await page.evaluate(() => (window as DisclosureBrowser).__disclosureFoundation.revealDiagnostic());
     await expect(technical).toHaveAttribute("open", ""); await expect(more).not.toHaveAttribute("open", "");
     // Real print media must include Final support, preserve exclusions and restore every prior combination.
@@ -642,6 +671,7 @@ test("disclosure foundation browser fixture preserves Main, independent native c
     for (const [moreOpen, technicalOpen] of [[false, false], [true, false], [true, true], [false, true]]) {
       await more.evaluate((element, open) => { (element as HTMLDetailsElement).open = open; }, moreOpen);
       await technical.evaluate((element, open) => { (element as HTMLDetailsElement).open = open; }, technicalOpen);
+      await fixture.locator("#fixture-main").focus();
       await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")));
       await expect(more).toHaveAttribute("open", ""); await expect(technical).toHaveAttribute("open", "");
       try {
@@ -651,6 +681,7 @@ test("disclosure foundation browser fixture preserves Main, independent native c
           await expect(content).not.toHaveCSS("display", "none");
           await expect(content).toBeVisible();
         }
+        await expect(fixture.locator("#fixture-main")).toBeFocused();
         await expect(fixture.locator(".review-and-send")).toHaveCSS("position", "static");
         await expect(fixture.locator(".review-and-send")).toHaveCSS("padding-top", "0px");
         await expect(fixture.locator("#fixture-required")).toHaveCSS("display", "none");
@@ -668,6 +699,7 @@ test("disclosure foundation browser fixture preserves Main, independent native c
       expect(await more.evaluate(element => (element as HTMLDetailsElement).open)).toBe(moreOpen);
       expect(await technical.evaluate(element => (element as HTMLDetailsElement).open)).toBe(technicalOpen);
       await expect(fixture.locator("#fixture-required")).toBeVisible();
+      await expect(fixture.locator("#fixture-main")).toBeFocused();
     }
     expect(await page.evaluate(() => (window as DisclosureBrowser).__disclosureFoundation.actions)).toBe(0);
     expect(mutations).toEqual([]);

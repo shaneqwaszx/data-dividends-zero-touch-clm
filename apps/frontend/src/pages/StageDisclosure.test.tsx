@@ -150,6 +150,55 @@ describe("legacy and empty support compatibility", () => {
 
 
 describe("scope and external focus boundaries", () => {
+  it.each(["more", "technical"] as const)("preserves newer external focus after focused %s content is removed before an identity change", async (removed) => {
+    const host = document.createElement("div"), outside = document.createElement("button");
+    outside.textContent = "Other workspace action"; document.body.append(host, outside);
+    const root = createRoot(host);
+    const render = async (scopeKey: string, present: boolean) => {
+      await act(async () => root.render(<StageDisclosure title="Removal boundary" scopeKey={scopeKey}
+        main={<button>Required Main action</button>}
+        moreDetails={removed === "more" && !present ? undefined : <input id="removal-more" />}
+        technicalDetails={removed === "technical" && !present ? undefined : <input id="removal-technical" />} />));
+    };
+    try {
+      let scope = "actor-a:session-a:case-a";
+      for (const nextScope of ["actor-b:session-a:case-a", "actor-b:session-b:case-a", "actor-b:session-b:case-b"]) {
+        await render(scope, true);
+        const control = host.querySelector<HTMLInputElement>(`#removal-${removed}`)!;
+        const details = control.closest("details")!;
+        await act(async () => { details.open = true; });
+        control.focus(); expect(document.activeElement).toBe(control);
+        await render(scope, false);
+        expect(control.isConnected).toBe(false);
+        expect(document.activeElement).toBe(document.body);
+        outside.focus(); expect(document.activeElement).toBe(outside);
+        await render(nextScope, false);
+        expect(document.activeElement).toBe(outside);
+        expect(visible(host.querySelector("button")!)).toBe(true);
+        expect([...host.querySelectorAll("details")].every(element => !element.open)).toBe(true);
+        scope = nextScope;
+      }
+    } finally { await act(async () => root.unmount()); host.remove(); outside.remove(); }
+  });
+
+  it.each(["more", "technical"] as const)("retires removed %s focus on same-scope refresh even when focus remains on body", async (removed) => {
+    const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+    const render = async (scopeKey: string, present: boolean) => {
+      await act(async () => root.render(<StageDisclosure title="Removed focus" scopeKey={scopeKey} main={<p>Current Main</p>}
+        moreDetails={removed === "more" && present ? <input /> : undefined}
+        technicalDetails={removed === "technical" && present ? <input /> : undefined} />));
+    };
+    try {
+      await render("actor-a:session-a:case-a", true);
+      await act(async () => { host.querySelector("details")!.open = true; });
+      host.querySelector("input")!.focus(); expect(document.activeElement).toBe(host.querySelector("input"));
+      await render("actor-a:session-a:case-a", false);
+      expect(document.activeElement).toBe(document.body);
+      await render("actor-b:session-b:case-b", false);
+      expect(document.activeElement).toBe(document.body);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
   it("does not steal focus from another workspace during scope reset or same-scope refresh", async () => {
     const f = await fixture();
     const outside = document.createElement("button"); outside.textContent = "Other workspace action"; document.body.append(outside);
