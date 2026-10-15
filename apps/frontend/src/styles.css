@@ -3587,7 +3587,9 @@ dd {
   }
   body * { visibility: hidden; }
   .review-and-send,
-  .review-and-send * { visibility: visible; }
+  .review-and-send *,
+  .stage-disclosure--final > details,
+  .stage-disclosure--final > details * { visibility: visible; }
   .review-and-send {
     position: static;
     width: 100%;

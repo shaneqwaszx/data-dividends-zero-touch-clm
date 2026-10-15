@@ -560,20 +560,29 @@ test("disclosure foundation browser fixture preserves Main, independent native c
     ]);
     const host = document.createElement("div"); host.id = "disclosure-foundation-browser"; host.className = "card";
     document.body.append(host); const root = createRoot(host);
+    const unrelatedHost = document.createElement("div"); unrelatedHost.id = "disclosure-unrelated-workspace";
+    document.body.append(unrelatedHost); const unrelatedRoot = createRoot(unrelatedHost);
+    unrelatedRoot.render(React.createElement(Stage, {
+      title: "Unrelated workspace", scopeKey: "unrelated-scope",
+      main: React.createElement("p", { id: "fixture-unrelated-main" }, "Unrelated workspace must not print"),
+      moreDetails: React.createElement("p", { id: "fixture-unrelated-support" }, "Unrelated support must not print"),
+    }));
     const fixture = {
       actions: 0,
       render(scopeKey: string, active = false, revision = "one") {
         root.render(React.createElement(Stage, {
           title: "Foundation readiness", scopeKey, active, final: true,
-          main: React.createElement("div", null,
+          main: React.createElement("section", { className: "review-and-send" },
             React.createElement("p", { id: "fixture-main" }, "Blocked " + revision),
-            React.createElement("button", { id: "fixture-required", type: "button", onClick: () => { fixture.actions += 1; } }, "Required fixture correction")),
-          moreDetails: React.createElement("label", null, "Optional fixture draft", React.createElement("input", { id: "fixture-draft", defaultValue: "retained scope draft" })),
+            React.createElement("button", { id: "fixture-required", type: "button", className: "review-and-send__edit", onClick: () => { fixture.actions += 1; } }, "Required fixture correction")),
+          moreDetails: React.createElement("label", null, "Optional fixture draft",
+            React.createElement("input", { id: "fixture-draft", defaultValue: "retained scope draft" }),
+            React.createElement("span", { id: "fixture-hidden-detail", hidden: true }, "Hidden detail must remain excluded")),
           technicalDetails: React.createElement("button", { id: "fixture-diagnostic", type: "button" }, "Safe fixture diagnostic"),
         }));
       },
       revealDiagnostic() { revealStage(host.querySelector("#fixture-diagnostic")!); },
-      dispose() { root.unmount(); host.remove(); },
+      dispose() { root.unmount(); host.remove(); unrelatedRoot.unmount(); unrelatedHost.remove(); },
     };
     (window as DisclosureBrowser).__disclosureFoundation = fixture;
     fixture.render("actor-a:session-a:case-a", true);
@@ -628,10 +637,38 @@ test("disclosure foundation browser fixture preserves Main, independent native c
     }
     await page.evaluate(() => (window as DisclosureBrowser).__disclosureFoundation.revealDiagnostic());
     await expect(technical).toHaveAttribute("open", ""); await expect(more).not.toHaveAttribute("open", "");
-    await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")));
-    await expect(more).toHaveAttribute("open", ""); await expect(technical).toHaveAttribute("open", "");
-    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
-    await expect(more).not.toHaveAttribute("open", ""); await expect(technical).toHaveAttribute("open", "");
+    // Real print media must include Final support, preserve exclusions and restore every prior combination.
+    await page.locator("#disclosure-unrelated-workspace details").evaluate(element => { (element as HTMLDetailsElement).open = true; });
+    for (const [moreOpen, technicalOpen] of [[false, false], [true, false], [true, true], [false, true]]) {
+      await more.evaluate((element, open) => { (element as HTMLDetailsElement).open = open; }, moreOpen);
+      await technical.evaluate((element, open) => { (element as HTMLDetailsElement).open = open; }, technicalOpen);
+      await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")));
+      await expect(more).toHaveAttribute("open", ""); await expect(technical).toHaveAttribute("open", "");
+      try {
+        await page.emulateMedia({ media: "print" });
+        for (const content of [fixture.locator("#fixture-main"), more, draft, technical, fixture.locator("#fixture-diagnostic")]) {
+          await expect(content).toHaveCSS("visibility", "visible");
+          await expect(content).not.toHaveCSS("display", "none");
+          await expect(content).toBeVisible();
+        }
+        await expect(fixture.locator(".review-and-send")).toHaveCSS("position", "static");
+        await expect(fixture.locator(".review-and-send")).toHaveCSS("padding-top", "0px");
+        await expect(fixture.locator("#fixture-required")).toHaveCSS("display", "none");
+        await expect(fixture.locator("#fixture-required")).toBeHidden();
+        await expect(fixture.locator("#fixture-hidden-detail")).toHaveCSS("display", "none");
+        await expect(fixture.locator("#fixture-hidden-detail")).toBeHidden();
+        for (const unrelated of [page.locator("#root"), page.locator("#fixture-unrelated-main"), page.locator("#fixture-unrelated-support")]) {
+          await expect(unrelated).toHaveCSS("visibility", "hidden");
+          await expect(unrelated).toBeHidden();
+        }
+      } finally {
+        await page.emulateMedia({ media: "screen" });
+        await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+      }
+      expect(await more.evaluate(element => (element as HTMLDetailsElement).open)).toBe(moreOpen);
+      expect(await technical.evaluate(element => (element as HTMLDetailsElement).open)).toBe(technicalOpen);
+      await expect(fixture.locator("#fixture-required")).toBeVisible();
+    }
     expect(await page.evaluate(() => (window as DisclosureBrowser).__disclosureFoundation.actions)).toBe(0);
     expect(mutations).toEqual([]);
   } finally {
