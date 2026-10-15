@@ -1526,7 +1526,13 @@ class ZeroTouchOrchestrator:
                         and item.evidence_version.startswith("target-confirmation:")
                     )
                 ):
-                    item.status = BusinessExceptionStatus.RESOLVED
+                    item.status = (
+                        BusinessExceptionStatus.CANCELLED
+                        if replacement.state != OwnershipAnalysisState.ANALYZED
+                        and item.exception_type
+                        == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
+                        else BusinessExceptionStatus.RESOLVED
+                    )
                     item.resolved_at = resolved_at
             candidate.completed_stages = tuple(
                 stage

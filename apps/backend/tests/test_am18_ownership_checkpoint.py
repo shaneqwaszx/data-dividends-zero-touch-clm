@@ -172,6 +172,15 @@ def test_retained_review_required_graph_reconciles_current_checkpoint_before_409
     assert old_confirmation["exception_id"] in {
         e["exception_id"] for e in current["historical_exceptions"]
     }
+    cancelled = next(
+        e
+        for e in current["historical_exceptions"]
+        if e["exception_id"] == old_confirmation["exception_id"]
+    )
+    assert cancelled["status"] == "CANCELLED"
+    assert cancelled["evidence_version"] == old_confirmation["evidence_version"]
+    assert current["metrics"]["exceptions_resolved"] == before["metrics"]["exceptions_resolved"]
+    assert current["active_exceptions"][0]["status"] == "OPEN"
     assert len(current["interventions"]) == 1
     intervention = current["interventions"][0]
     assert intervention["owning_stage"] == "OWNERSHIP"
@@ -452,4 +461,84 @@ def test_clm_refresh_failure_retains_evidence_and_returns_typed_safe_error(confl
     assert recovered.json()["active_exceptions"][0]["blocker_code"] == (
         "TARGET_CONFIRMATION_REQUIRED"
     )
+    assert target.calls == ["search"]
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_confirmation_history_cancellation_is_limited_to_retained_incomplete_409(complete):
+    client, zero, documents, target, case_id = prepare_case()
+    endpoint = f"/api/clm/zero-touch/cases/{case_id}/manual-ownership-evidence"
+    before = client.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+    old = next(
+        e
+        for e in before["active_exceptions"]
+        if e["blocker_code"] == "TARGET_CONFIRMATION_REQUIRED"
+    )
+    response = client.post(
+        endpoint, json=current_payload(client, case_id, complete=complete, percent="60")
+    )
+    assert response.status_code == (200 if complete else 409)
+    after = client.get(f"/api/clm/zero-touch/cases/{case_id}").json()
+    historical = next(
+        e for e in after["historical_exceptions"] if e["exception_id"] == old["exception_id"]
+    )
+    # Successful complete200 retains its published semantics; only retained409 cancels.
+    assert historical["status"] == ("RESOLVED" if complete else "CANCELLED")
+    assert historical["evidence_version"] == old["evidence_version"]
+    assert historical["created_at"] == old["created_at"]
+    assert after["metrics"]["exceptions_resolved"] == before["metrics"]["exceptions_resolved"]
+    assert after["case"]["target_dispatch_confirmation"] is None
+    assert after["clm"]["submission"] is None
+    assert not any(e.code == "TARGET_DISPATCH_CONFIRMED" for e in zero.get(case_id=case_id).events)
+    assert all(
+        op["status"] == "NOT_ATTEMPTED"
+        for op in after["target_operations"]
+        if op["operation"] != "SEARCH"
+    )
+    assert target.calls == ["search"]
+    if complete:
+        assert after["current_stage"] == "READINESS"
+        assert after["active_exceptions"][0]["blocker_code"] == "TARGET_CONFIRMATION_REQUIRED"
+        return
+    current_owner = after["active_exceptions"][0]
+    assert current_owner["blocker_code"] == "OWNERSHIP_INCOMPLETE"
+    assert current_owner["status"] == "OPEN"
+    assert after["current_stage"] == "OWNERSHIP"
+    assert "OWNERSHIP_REVIEW_REQUIRED" in after["clm"]["readiness"]["blockers"]
+    stale_confirmation = client.post(
+        f"/api/clm/zero-touch/cases/{case_id}/target-confirmation",
+        json={
+            "expected_automation_version": before["version"],
+            "expected_clm_version": before["clm"]["version"],
+            "expected_case_event_count": len(before["case"]["events"]),
+        },
+    )
+    assert stale_confirmation.status_code == 409
+    corrected = client.post(endpoint, json=current_payload(client, case_id, percent="60"))
+    assert corrected.status_code == 200
+    recovered = corrected.json()
+    resolved_owner = next(
+        e
+        for e in recovered["historical_exceptions"]
+        if e["exception_id"] == current_owner["exception_id"]
+    )
+    assert resolved_owner["status"] == "RESOLVED"
+    assert (
+        recovered["metrics"]["exceptions_resolved"] == after["metrics"]["exceptions_resolved"] + 1
+    )
+    assert (
+        next(
+            e
+            for e in recovered["historical_exceptions"]
+            if e["exception_id"] == old["exception_id"]
+        )["status"]
+        == "CANCELLED"
+    )
+    assert recovered["current_stage"] == "READINESS"
+    assert recovered["clm"]["readiness"]["blockers"] == []
+    fresh = recovered["active_exceptions"][0]
+    assert fresh["blocker_code"] == "TARGET_CONFIRMATION_REQUIRED" and fresh["status"] == "OPEN"
+    assert fresh["exception_id"] != old["exception_id"]
+    assert recovered["case"]["target_dispatch_confirmation"] is None
+    assert recovered["clm"]["submission"] is None
     assert target.calls == ["search"]

@@ -212,6 +212,12 @@ def test_physical_am18_retained_409_checkpoint_survives_restart_and_stale_writer
         assert blocked["clm"]["version"] > before["clm"]["version"]
         assert [e["blocker_code"] for e in blocked["active_exceptions"]] == ["OWNERSHIP_INCOMPLETE"]
         assert obsolete in {e["exception_id"] for e in blocked["historical_exceptions"]}
+        cancelled = next(
+            e for e in blocked["historical_exceptions"] if e["exception_id"] == obsolete
+        )
+        assert cancelled["status"] == "CANCELLED"
+        assert blocked["metrics"]["exceptions_resolved"] == before["metrics"]["exceptions_resolved"]
+        assert blocked["active_exceptions"][0]["status"] == "OPEN"
         assert "OWNERSHIP_REVIEW_REQUIRED" in blocked["clm"]["readiness"]["blockers"]
         assert target.calls == ["search"]
     restarted_target = RecordingMockGoldTier()
@@ -244,6 +250,18 @@ def test_physical_am18_retained_409_checkpoint_survives_restart_and_stale_writer
             "TARGET_CONFIRMATION_REQUIRED"
         ]
         assert recovered["active_exceptions"][0]["exception_id"] != obsolete
+        assert recovered["metrics"]["exceptions_resolved"] == (
+            blocked["metrics"]["exceptions_resolved"] + 1
+        )
+        retained_cancel = next(
+            e for e in recovered["historical_exceptions"] if e["exception_id"] == obsolete
+        )
+        resolved_owner = next(
+            e for e in recovered["historical_exceptions"]
+            if e["exception_id"] == blocked["active_exceptions"][0]["exception_id"]
+        )
+        assert retained_cancel["status"] == "CANCELLED"
+        assert resolved_owner["status"] == "RESOLVED"
         assert restarted_target.calls == []
     final_target = RecordingMockGoldTier()
     with (

@@ -565,3 +565,226 @@ read-only authority. The safer existing-tree/index comparison above completed al
 identity requirements without that command, index mutation or an approval bypass.
 The reviewer appended only this report; all five accepted raw source/test hashes and
 the effective independent R1 PASS remain unchanged.
+
+
+# Exceptional AM-18 R2 Independent Quality Gate — 15 October 2026
+
+## Executive result: FAIL
+
+**FAIL — mandatory canonical browser verification failed; release BLOCKED.**
+Reviewer: /root/am18_r2_fresh_gate, a new implementation-independent run.
+Checkpoint: 2026-10-15 09:30 SGT. This appended section preserves the exact published
+initial/R1 report. R1 PASS is historical evidence for its own content; it does not accept
+R2 or cancel the subsequent confirmed PR87 history finding. No source fix, runtime
+rerun, publication or B implementation follows from this verdict.
+
+## Authority and complete reviewed identity
+
+The owner authorizes one exceptional additional cycle only: on retained incomplete409,
+cancel the invalidated TARGET_CONFIRMATION_REQUIRED while preserving identity/evidence,
+counters, graph/receipt/current blocker/Send prohibition and existing security/currentness/
+CAS/no-replay boundaries. Successful complete200 history must remain unchanged and
+disclosed. Full applicable verification and fresh independent exact PASS precede same-PR
+publication. No further cycle is authorized if this attempt fails. Original clock,
+B's separate budget and the narrow AM-18 Ruff exception remain unchanged.
+
+- Worktree: C:/Users/shane/.codex-clean2/worktrees/am18-checkpoint-20261015-0235/data-dividends-zero-touch-clm.
+- Branch: fix/am18-ownership-checkpoint-20261015.
+- HEAD/published PR87:209251c08407591bb089baab6c761f54cc69e28b.
+- Base/locally inspected origin/main:7a2804c32e17a19ab886253c6025a60c52b5167d.
+- Frozen aggregate:9347044f79d39af323ddca65f459f64c894ce5956833a3000eae3896d5c3f95f.
+- Manifest:tmp/extended-am-release/am18-r2-frozen-candidate.json.
+- Published report prefix raw SHA256:3435f534d438d2002cf97e32cde33ac3a13d01469b5ffd1edf50c5412b58b11c.
+
+| Complete reviewed implementation/test path | Raw SHA256 |
+|---|---|
+| apps/backend/app/main.py |10939017f35cfe090de7d29a614b4590c54b3a5f2a744144f2f961cfd7bd8f5b|
+| apps/backend/app/services/zero_touch_orchestration.py |7bd4ba4d30b2883331c9542639d6298d3f935e15759d0e1c67bce8e742937c6f|
+| apps/backend/tests/test_am18_ownership_checkpoint.py |b567666e6c59cc5543247502b05bf24a7dffdb07ec17759540fa4002bc62a17c|
+| apps/backend/tests/test_final_review_editing_real_mongo.py |8811f77f52df15a5b163906579752951e6b60e2fdde760502eed4f3154694311|
+| apps/frontend/e2e/s2-ownership.e2e.ts |22af06fc8a6892a01a46feb6ff1177b00c643effcb8952df7c56e359228c85a2|
+
+The reviewer independently recomputed all raw hashes and the compact sorted-key records
+aggregate, inspected complete A versus main and the four-path R2 delta versus published
+HEAD, and checked whitespace. All five bytes remained unchanged through cleanup.
+main.py is unchanged from R1. This report is excluded from its own manifest. The published
+prefix is preserved byte-for-byte from AM18_PUBLISHED_PR87_QG_PREFIX.md; no files are staged.
+
+## Static contract, history, architecture and security assessment
+
+Independently parsed complete published/R2 orchestration modules are executable-AST
+identical after replacing only the new exact conditional status expression with its
+prior RESOLVED value. The condition is non-ANALYZED replacement AND
+TARGET_CONFIRMATION_REQUIRED: that branch selects CANCELLED, all others RESOLVED.
+Metrics arithmetic is unchanged. Existing enum/history/codec/schema10 supports CANCELLED;
+no schema, migration, dependency or owner is added.
+
+Direct regressions assert exact old confirmation ID CANCELLED, preserved evidence and
+creation bindings, current ownership OPEN, cancellation counter unchanged, stale
+confirmation rejected, and fresh complete correction resolving genuine ownership once,
+counter+1, cancelled history retained and a distinct fresh OPEN confirmation.
+The complete200 parameter explicitly preserves inherited RESOLVED history and unchanged
+counter. This successful-path semantic limitation is disclosed, not repaired or generally
+certified as truthful resolution. Previously hypothesized confirmation-counter inflation
+was not proved; do not claim it.
+
+Full A remains in the existing manual-ownership owner plus the existing thin safe
+infrastructure-error adapter. Original creator/team/version checks, locked reauthorization,
+expected-version persistence and target freeze remain. CLM prerequisite translation uses
+existing typed409/503 errors and stops before automation save without blind retry.
+This is sequential single-instance recovery, not cross-section atomicity or exactly-once
+delivery. Existing document/ownership/readiness/ledger owners retain authority.
+R2 does not change document replacement or classification lifecycle.
+
+Manual changed-path inspection found no new secret/raw payload/provider transport,
+permission grant, source precedence, Decimal calculation or mapping. Current decisions/
+contracts/questions remain controlling. Mock/Local/offline Sandbox-shaped evidence is
+not Live or interoperability. Fresh direct scanners and independent runtime did not
+execute, so static findings do not constitute complete runtime/security acceptance.
+
+## AM18-R2-QG-01 — blocking verification failure
+
+Canonical command from frozen worktree:
+python -u -B scripts/run_e2e.py --timeout-seconds 60 --shard 1/2 --backend-port 18001 --frontend-port 18401
+
+The command receipt records the full pinned interpreter, exact arguments/current-worktree
+PYTHONPATH and in-process source binding. Log:tmp/extended-am-release/am18-r2-canonical-shard1.log.
+Raw log SHA256:91d32e3e840566ae10d7fc56ca8cea1592750e1dfb50308f27111e726289b49f.
+Exit1,361.234s. Discovery104 selectors; shard1 selected52.
+First30 lifecycles completed with44 passed test records. Lifecycle31,
+e2e/s2-ownership.e2e.ts:55, failed with one failed record:
+
+- Assertion at line104:await expect(toggle).toBeFocused().
+- Locator:.s2-ownership-structure then :scope > summary.
+- Summary:Technical calculations and retained paths.
+- Expected focused; received inactive; timeout15000ms.
+- Repeated locator resolution still reported inactive.
+- Lifecycle elapsed23.156s; suite stopped immediately.
+
+The reviewer independently inspected the complete failure window and matched its log hash.
+The exact focus assertion statement is unchanged in published HEAD and origin/main.
+That establishes unchanged assertion text, not inherited runtime failure, flakiness,
+timing causality or proof that R2 caused it. No causal mechanism is established.
+Existing OwnershipPathExplorer renders the summary inside details keyed by analysis
+identity; that static fact is not a proved remount explanation.
+
+Failure occurs before the new retained409/CANCELLED browser assertions. Those assertions,
+later four-width recovery and final Mock Send were not reached in this lifecycle.
+Remaining21 shard1 selectors, all shard2 and six later direct scanners are NOT_EXECUTED.
+The required canonical pair is FAILED/INCOMPLETE, not PASS. R1 evidence cannot replace
+this fresh result. No retry, assertion/deadline weakening or remediation occurred.
+
+## Completed and incomplete evidence
+
+All logs are under tmp/extended-am-release. Reviewer independently read result scope and
+validated all14 completed command-log hashes against am18-r2-broad-command-receipt.json.
+These are coordinator fresh R2 executions independently validated as attributed evidence,
+not reviewer-run suites.
+
+| Lane | Actual R2 outcome |
+|---|---|
+| Published-source failing-first |Expected RED:2 failed/13 passed; direct RESOLVED versus CANCELLED failures|
+| Final focused backend |15 passed/1 visible TestClient warning,13.01s|
+| Full backend |2713 passed/152 guarded physical skips/4 visible warnings,995.98s|
+| Guarded physical |24 suites;152 collected/152 passed;0 failed/errors/skips; database absence recorded|
+| Focused frontend |4 files/59 passed|
+| Full frontend |54 files/706 passed|
+| Typecheck/build |PASS; existing bundle-size warning retained|
+| Strict mypy |127 source files PASS|
+| Backendcwd Ruff check . |PASS, including all changed Python|
+| Task-owned ignored replay-helper Ruff |PASS|
+| Standalone contracts |44 passed|
+| Delivery assets |4 passed|
+| Windows lifecycle |31 passed|
+| Governance/security/checker unit union |196 passed; not actual clean committed pre-PR|
+| Canonical shard1 |FAILED at31/52;30 complete lifecycles/44 passed records,1 failed|
+| Remaining shard1/all shard2 |NOT_EXECUTED after failure|
+| Six direct governance/security scanners |NOT_EXECUTED after failure|
+| Reviewer published replay/focused/API adversarial/browser/physical |NOT_EXECUTED; prepared in memory only; never started after stop|
+| R2 integration/index/pre-PR/publication/hosted execution |NOT_EXECUTED; exact PASS prerequisite unmet|
+
+Reviewer did execute lightweight source/AST/whitespace/identity and independent Ruff
+comparisons below. Missing/failed lanes are not promoted by them. Original root RED
+preceded remediation; planned independent final-formatted-tests replay did not execute.
+Full backend warnings are TestClient deprecation and deliberate malformed-provider
+serializer warnings. No warning, assertion, inventory or deadline was suppressed.
+A coordinator tool-path preflight correction preceded broad test startup; it does not
+convert the actual canonical assertion failure into a setup failure.
+
+## Independently reverified AM-18-only Ruff exception
+
+**FAILED — 15 VERIFIED UNCHANGED BASELINE DIAGNOSTICS; OWNER-ACCEPTED EXCEPTION**
+
+Reviewer independently created a fresh clean exact-main Git archive in OS-temp and ran
+identical canonical arguments on baseline and R2 using Python3.12.10/Ruff0.16.2:
+python -B -m ruff check apps/backend scripts tests
+
+Both exit1; complete canonical outputs identical; all15 relative file/rule/row/column/
+message tuples match with zero introduced/worsened. Configuration bytes match; backend
+config SHA256:054e2bb3ba666f369d81bf09f1dfaea1c1edcc2adac9e2684c1ebd78b3016f27.
+Temp archive cleaned. Independently executed backendcwd Ruff check . PASS.
+Preserved baseline/candidate outputs equal independent canonical output; candidate log
+raw SHA256:34cb6f22ef5023377627446ca225c97b13d66b0fe57e5d96a3b51f94bd04649c.
+
+| File | Rule | Row:column | Exact message |
+|---|---|---|---|
+| scripts/benchmark_blocker_review.py |RUF100|14:18|Unused `noqa` directive (non-enabled: `E402`)|
+| scripts/benchmark_blocker_review.py |RUF100|15:54|Unused `noqa` directive (non-enabled: `E402`)|
+| scripts/benchmark_blocker_review.py |RUF100|16:62|Unused `noqa` directive (non-enabled: `E402`)|
+| scripts/generate_zero_touch_happy_path_documents.py |RUF100|12:55|Unused `noqa` directive (non-enabled: `E402`)|
+| scripts/performance_concurrency.py |RUF059|45:54|Unpacked variable `bundle` is never used|
+| scripts/performance_load.py |FURB157|302:29|Verbose expression in `Decimal` constructor|
+| scripts/performance_load.py |FURB157|303:29|Verbose expression in `Decimal` constructor|
+| scripts/performance_load.py |FURB157|306:83|Verbose expression in `Decimal` constructor|
+| scripts/performance_optimization.py |BLE001|132:16|Do not catch blind exception: `Exception`|
+| scripts/performance_optimization.py |RUF059|308:48|Unpacked variable `bundle` is never used|
+| scripts/performance_optimization.py |I001|417:9|Import block is un-sorted or un-formatted|
+| scripts/performance_optimization.py |FURB157|446:65|Verbose expression in `Decimal` constructor|
+| scripts/sponsor_demo_browser_fixture.py |I001|3:1|Import block is un-sorted or un-formatted|
+| scripts/sponsor_demo_browser_fixture.py |I001|101:21|Import block is un-sorted or un-formatted|
+| scripts/zero_touch_classification_browser_fixture.py |I001|3:1|Import block is un-sorted or un-formatted|
+
+All15 exact diagnostic tuples above were reproduced independently; the machine-readable
+am18-r2-ruff-equivalence.json and complete canonical outputs preserve the same evidence.
+Only this proven debt is owner-accepted for AM-18. Root Ruff remains FAILED. Exception
+does not excuse E2E failure, unfinished security/browser evidence or hosted CI and does
+not transfer to B/future work. No lint configuration/suppression/unrelated script changed.
+
+## Cleanup, readiness and owner decision
+
+Root receipt:am18-r2-failed-attempt-cleanup.json. Root verified only admin/config/local
+remained, then stopped/removed exact owned CID
+e6caddf7bfb71e699dc7d655a41f8ff28fac8345172defb9f2911124ce1d5d8c
+after label/name checks. No protected database was a test/cleanup target.
+After cleanup, reviewer independently queried exact-CID Docker inventory and observed
+absence, bound all213 explicit owned ports successfully, and verified
+.runtime/demo-processes.json absent. Reviewer heavy runtime/clients/processes never
+started. Five raw hashes and published report prefix remained unchanged before append.
+Worktree/evidence retained; unrelated resources not targeted.
+
+Required resolution:**owner decision on failed mandatory verification**. No focus-failure
+source diagnosis/fix is certified. Exceptional A2/2 budget exhausted; exact PASS not
+achieved. No further cycle/rerun, same-PR push, review-thread resolution, approval or merge.
+The PR87 P2 must not be declared remotely closed on this unpublished candidate.
+B remains held at separate0/1. Source cutoff10:35:26SGT/ceiling12:35:26SGT are unchanged.
+
+Root's read-only remote recheck records main7a2804c/tree67a00479283c31b658482890b4ca2ae544630ffd,
+PR85/86 human merged, PR87 OPEN at209251c with original thread unresolved and no new
+push/review. Existing push38657168247 and PR38657186774 each have nine zero-runner/
+zero-step billing-refused jobs:NOT_EXECUTED, never PASS. See
+am18-r2-blocked-remote-identity.json and am18-r2-existing-hosted-ci-recheck.json.
+These are root's remote observations; this reviewer does not claim a new GitHub query.
+
+R2 history correction is implemented with supporting coordinator evidence, but
+**NOT INDEPENDENTLY ACCEPTED FOR RELEASE**. Original AM-18 attribution stays UNCONFIRMED.
+No Live/interoperability/approval claim or sponsor-question closure follows.
+GT-S03/S04/S05/S06/S11/S12 and broader current sponsor gates remain open.
+
+At close:HEAD209251c, four R2 source/test changes plus this report uncommitted, index
+empty. Reviewer changed only this assigned report, preserving published prefix/five
+frozen source bytes; no implementation, Git mutation, runtime rerun or publication.
+Relative to published HEAD, R2 changes retained409 confirmation history status/tests
+only; complete200/metrics arithmetic unchanged. Full A versus main changes safe API
+error projection and durable checkpoint/resulting attention behavior. API/type shapes,
+schema, connector/configuration, business-rule/Decimal/mapping, permission authority,
+architecture ownership/provider classification and frontend production source unchanged.

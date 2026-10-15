@@ -95,13 +95,19 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   expect(revised.candidates[0].aggregated_ownership_percent).toMatch(/^100(?:\.0+)?$/);
   expect(revised.prior_analyses.some((prior: any) => prior.analysis_id === first.analysis_id && prior.manual_review_receipt.rationale === first.manual_review_receipt.rationale)).toBe(true);
   expect((await summary(page, caseId)).target_operations.filter((operation: any) => operation.operation !== "SEARCH").every((operation: any) => operation.status === "NOT_ATTEMPTED")).toBe(true);
-  await openStage(page, "Ownership & UBO");
-  // Wait for the newly retained analysis to reach the rendered owner before
-  // exercising native details keyed by that analysis; a POST response alone is earlier.
+  // Both current analysis rendering and the legitimate post-edit focus handoff
+  // must complete before starting a separate ownership inspection action.
   await expect(page.locator(".s2-ownership-summary")).toContainText("1 retained natural-person candidate");
+  await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true })).toBeFocused();
+  await openStage(page, "Ownership & UBO");
   const disclosure = page.locator(".s2-ownership-structure");
   await expect(disclosure).not.toHaveAttribute("open", "");
-  const toggle = disclosure.locator(":scope > summary"); await toggle.focus(); await expect(toggle).toBeFocused(); await toggle.press("Enter"); await expect(disclosure).toHaveAttribute("open", "");
+  const toggle = disclosure.locator(":scope > summary");
+  await toggle.focus();
+  await expect(toggle).toBeFocused();
+  await toggle.press("Enter");
+  await expect(toggle).toBeFocused();
+  await expect(disclosure).toHaveAttribute("open", "");
   await expect(disclosure.getByText(revised.candidates[0].paths[0].calculation, { exact: true }).first()).toBeVisible();
   for (const width of [320, 720, 1280]) {
     await page.setViewportSize({ width, height: 1000 });
@@ -139,6 +145,9 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   expect(blocked.clm.readiness.blockers).toContain("OWNERSHIP_REVIEW_REQUIRED");
   expect(blocked.active_exceptions.map((item: any) => item.blocker_code)).toEqual(["OWNERSHIP_INCOMPLETE"]);
   expect(blocked.historical_exceptions.some((item: any) => item.exception_id === oldConfirmationId)).toBe(true);
+  expect(blocked.historical_exceptions.find((item: any) => item.exception_id === oldConfirmationId).status).toBe("CANCELLED");
+  expect(blocked.metrics.exceptions_resolved).toBe(beforeIncomplete.metrics.exceptions_resolved);
+  expect(blocked.active_exceptions[0].status).toBe("OPEN");
   expect(blocked.target_operations.filter((item: any) => item.operation !== "SEARCH").every((item: any) => item.status === "NOT_ATTEMPTED")).toBe(true);
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 1000 });
@@ -162,6 +171,9 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   expect(recovered.clm.readiness.blockers).toEqual([]);
   expect(recovered.current_stage).toBe("READINESS");
   expect(recovered.active_exceptions[0].exception_id).not.toBe(oldConfirmationId);
+  expect(recovered.historical_exceptions.find((item: any) => item.exception_id === oldConfirmationId).status).toBe("CANCELLED");
+  expect(recovered.historical_exceptions.find((item: any) => item.exception_id === blocked.active_exceptions[0].exception_id).status).toBe("RESOLVED");
+  expect(recovered.metrics.exceptions_resolved).toBe(blocked.metrics.exceptions_resolved + 1);
   expect(recovered.target_classification).toEqual(beforeIncomplete.target_classification);
   expect((await ownership(page, caseId)).state).toBe("ANALYZED");
   await expect(attention).toContainText("No immediate blockers");
@@ -203,3 +215,102 @@ test("S2 document proposals require deliberate creator source selection and reta
   await expect(page.getByText("Verification state", { exact: true }).first()).toBeVisible();
   expect((await summary(page, caseId)).status).not.toBe("COMPLETED");
 });
+
+
+// Gate browser animation frames only inside this test, preserving callback order,
+// cancellation and native frame timestamps. No source-string matching or sleeps.
+async function gateOwnershipReturnFrames(page: Page) {
+  await page.evaluate(() => {
+    const request = window.requestAnimationFrame.bind(window);
+    const cancel = window.cancelAnimationFrame.bind(window);
+    let next = -1;
+    const callbacks = new Map<number, FrameRequestCallback>();
+    window.requestAnimationFrame = (callback) => { const id = next--; callbacks.set(id, callback); return id; };
+    window.cancelAnimationFrame = (id) => { if (!callbacks.delete(id)) cancel(id); };
+    const advance = () => new Promise<void>((resolve) => request((timestamp) => {
+      const current = [...callbacks];
+      for (const [id, callback] of current) {
+        if (!callbacks.delete(id)) continue;
+        callback(timestamp);
+      }
+      resolve();
+    }));
+    (window as unknown as { s2FocusFrames: { pending: () => number; advance: () => Promise<void>; flush: () => Promise<void>; restore: () => void } }).s2FocusFrames = {
+      pending: () => callbacks.size,
+      advance,
+      flush: async () => {
+        for (let frame = 0; frame < 4 && callbacks.size; frame++) await advance();
+        if (callbacks.size) throw new Error("Ownership focus exceeded its bounded frame chain");
+      },
+      restore: () => { callbacks.clear(); window.requestAnimationFrame = request; window.cancelAnimationFrame = cancel; },
+    };
+  });
+}
+
+for (const timing of ["queued return", "nested handoff"] as const) {
+for (const interaction of ["keyboard", "pointer", "none"] as const) {
+  test(`R3 ownership intent preserves ${interaction} focus against ${timing}`, { tag: "@garden-protocol" }, async ({ page }) => {
+    const caseId = await createGarden(page);
+    const form = page.locator(".manual-ownership");
+    while (await form.getByLabel("Owner name", { exact: true }).count() > 2) {
+      await form.getByRole("button", { name: /^Remove owner/ }).last().click();
+    }
+    for (const [index, percentage] of ["60", "40"].entries()) {
+      await form.getByLabel("Owner name", { exact: true }).nth(index).fill(`Synthetic focus owner ${index + 1}`);
+      await form.getByLabel("Owner type", { exact: true }).nth(index).selectOption("NATURAL_PERSON");
+      await form.getByLabel("Registration number (optional)", { exact: true }).nth(index).fill("");
+      await form.getByLabel("Economic interest %", { exact: true }).nth(index).fill(percentage);
+    }
+    await submitDecision(page);
+    const first = await ownership(page, caseId);
+    await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Edit ownership", exact: true }).click();
+    await expect(form.locator("input:not([disabled]):not([readonly]), select:not([disabled]), button:not([disabled])").first()).toBeFocused();
+    const oldSummary = await page.locator(".s2-ownership-structure > summary").elementHandle();
+    expect(oldSummary).not.toBeNull();
+    await gateOwnershipReturnFrames(page);
+    try {
+      await submitDecision(page);
+      const revised = await ownership(page, caseId);
+      expect(revised.state).toBe("ANALYZED");
+      expect(revised.analysis_id).not.toBe(first.analysis_id);
+      await expect.poll(() => oldSummary!.evaluate((element) => element.isConnected)).toBe(false);
+      await expect.poll(() => page.evaluate(() => (window as unknown as { s2FocusFrames: { pending: () => number } }).s2FocusFrames.pending())).toBeGreaterThan(0);
+      if (timing === "nested handoff") {
+        await page.evaluate(async () => {
+          const gate = (window as unknown as { s2FocusFrames: { advance: () => Promise<void> } }).s2FocusFrames;
+          await gate.advance();
+          await gate.advance();
+        });
+        await expect.poll(() => page.evaluate(() => (window as unknown as { s2FocusFrames: { pending: () => number } }).s2FocusFrames.pending())).toBeGreaterThan(0);
+      }
+      const disclosure = page.locator(".s2-ownership-structure");
+      const toggle = disclosure.locator(":scope > summary");
+      await expect(toggle).toBeVisible();
+      await expect(disclosure).not.toHaveAttribute("open", "");
+      if (interaction === "keyboard") {
+        await toggle.focus();
+        await expect(toggle).toBeFocused();
+        await toggle.press("Enter");
+      } else if (interaction === "pointer") {
+        await toggle.click();
+      }
+      if (interaction !== "none") {
+        await expect(toggle).toBeFocused();
+        await expect(disclosure).toHaveAttribute("open", "");
+      }
+      await page.evaluate(() => (window as unknown as { s2FocusFrames: { flush: () => Promise<void> } }).s2FocusFrames.flush());
+      if (interaction === "none") {
+        await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true })).toBeFocused();
+      } else {
+        await expect(toggle).toBeFocused();
+        await expect(disclosure).toHaveAttribute("open", "");
+        await expect(disclosure.getByRole("table").first()).toBeVisible();
+      }
+      expect((await summary(page, caseId)).target_operations.filter((item: any) => item.operation !== "SEARCH").every((item: any) => item.status === "NOT_ATTEMPTED")).toBe(true);
+    } finally {
+      await page.evaluate(() => (window as unknown as { s2FocusFrames: { restore: () => void } }).s2FocusFrames.restore());
+    }
+  });
+}
+}
