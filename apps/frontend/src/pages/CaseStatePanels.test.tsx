@@ -627,3 +627,15 @@ it.each(["acquisition-missing", "acquisition-invalid", "binding-missing", "expir
     expect(registryPresentation(summary).attention).toBe(false);
   },
 );
+
+it("compact Registry preserves truthful retained absence when the legacy state panel is omitted", () => {
+  const summary = summaryWithPipeline([]);
+  expect(renderToStaticMarkup(<RegistryStatePanel summary={summary} />)).toBe("");
+  const compact = renderToStaticMarkup(<RegistryStatePanel summary={summary} compact />);
+  expect(compact).toContain("Registry acquisition is not retained. Completion and provider activity cannot be inferred.");
+  expect(compact).toContain("Retained registry state");
+  expect(compact).not.toContain("In progress");
+  expect(compact).not.toContain("Successful / data retrieved");
+  expect(compact).not.toContain("progress-list");
+  expect(compact).toContain("SG");
+});

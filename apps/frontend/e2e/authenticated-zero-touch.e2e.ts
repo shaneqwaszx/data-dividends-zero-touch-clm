@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { openStage } from "./stage-disclosures";
+import { openStage, openStageSupport } from "./stage-disclosures";
 import { assertRegistryBindingTimestamps } from "./registry-binding-timestamps";
 import { reviewPendingFields } from "./blocker-decisions";
 import type { OwnershipAnalysisRecord, PolicyCatalogue, RegistryEvidenceBinding } from "../src/types";
@@ -1086,6 +1086,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect(binding).not.toBeNull();
   expect(binding?.disposition).toBe("PROVIDER_FETCH");
   expect(binding?.freshness_comparator).toBe("EVALUATION_NOW_LT_EXPIRES_AT");
+  await openStageSupport(page, "Registry verification", "Technical");
   const bindingView = page.getByLabel("Case evidence binding", { exact: true });
   await expect(bindingView).toBeVisible();
   expect(binding?.synthetic_seed_namespace).toBeNull();

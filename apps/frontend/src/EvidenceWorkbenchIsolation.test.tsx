@@ -704,21 +704,21 @@ describe("Evidence workbench integration isolation", () => {
     ]);
   });
 
-  it("renders seven disclosures in order with Review & Send last and compact before readiness", () => {
+  it("renders migrated Search after Registry with legacy disclosures in order and Review & Send last", () => {
     const client = createTestClient();
     seedCase(client, actorA, CASE_A, "analysis-a", "a");
     renderCase(client, actorA, CASE_A);
     const sections = Array.from(container!.querySelectorAll(".stage-disclosure"));
-    expect(sections.map((section) => section.querySelector("h2 button span")?.textContent)).toEqual([
-      "Registry verification", "Document verification", "Ownership & UBO",
+    expect(sections.map((section) => section.querySelector(":scope > h2 button span")?.textContent ?? section.querySelector(":scope > h2")?.textContent)).toEqual([
+      "Registry verification", "Existing-customer search", "Document verification", "Ownership & UBO",
       "Submission readiness", "GoldTier submission package",
       "Historical / resolved issues", "Final review & send",
     ]);
-    expect(sections[1].querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
-    expect(sections[5].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(sections[2].querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
     expect(sections[6].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
-    expect(sections[6].textContent).toContain("Not yet available");
-    expect(sections[6].querySelector(".review-and-send")).toBeNull();
+    expect(sections[7].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(sections[7].textContent).toContain("Not yet available");
+    expect(sections[7].querySelector(".review-and-send")).toBeNull();
   });
 });
 
@@ -741,12 +741,16 @@ describe("Case attention corrective navigation", () => {
     const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "A");
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), projectionOnlySummary());
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
-    const stage = [...container!.querySelectorAll<HTMLButtonElement>(".stage-disclosure h2 button")].find(item => item.textContent?.startsWith("Registry verification"))!;
-    act(() => stage.click()); expect(stage.getAttribute("aria-expanded")).toBe("false");
+    const stage = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === "Registry verification")!;
+    expect(stage.querySelector(":scope > h2 button")).toBeNull();
+    expect([...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
     const action = attentionButton("Action: Correct identity"); action.focus(); expect(document.activeElement).toBe(action);
     act(() => action.click());
     await vi.waitFor(() => expect(document.activeElement?.id).toBe("identity-registration-number"));
-    expect(stage.getAttribute("aria-expanded")).toBe("true"); expect(fetch).not.toHaveBeenCalled();
+    expect(stage.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.closest("details:not([open]), [hidden]")).toBeNull();
+    expect([...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
     expect((document.activeElement as HTMLInputElement).value).toBe("202400001A");
   });
   it("retains registry verification when the identity projection has no eligible Search checkpoint or identity error", () => {

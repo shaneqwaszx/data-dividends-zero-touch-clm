@@ -82,7 +82,9 @@ test("S1 wrong UEN retains uploaded document and resumes the real onboarding jou
   for (const width of [1280, 360]) {
     await page.setViewportSize({ width, height: 900 });
     await focusPipelineAction(page, "GOLDTIER_SEARCH", page.getByLabel("Singapore UEN", { exact: true }));
-    await expect(registry.getByRole("button", { name: "Registry verification", exact: true })).toHaveAttribute("aria-expanded", "true");
+    await expect(registry.getByRole("heading", { name: "Registry verification", exact: true })).toBeVisible();
+    await expect(registry.locator("#case-identity-correction")).toBeVisible();
+    await expect(registry.locator(":scope > details[open]")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   }
   await page.getByLabel("Singapore UEN").fill("202400001A");

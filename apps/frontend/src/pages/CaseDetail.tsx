@@ -155,6 +155,8 @@ export default function CaseDetail({
     nodeId: string; automationVersion: number;
   }) | null>(null);
   const evidenceIdentity = `${actor.user_id}:${caseId}`;
+  // AuthProvider remounts this subtree for each authenticated session generation.
+  const disclosureIdentity = `${evidenceIdentity}:${actor.role}:${actor.team_id}`;
   const detailQuery = useQuery(caseDetailQueryOptions(actor.user_id, caseId));
   const documentQuery = useQuery(documentQueryOptions(actor.user_id, caseId));
   const ownershipQuery = useQuery(ownershipQueryOptions(actor.user_id, caseId));
@@ -1263,35 +1265,33 @@ export default function CaseDetail({
           </div>
         )}
 
-        <StageDisclosure title="Registry verification" active={identityConflict || stageIsActive(["REGISTRY"])}>
-          {renderInterventions(["REGISTRY"])}
-          {!identityInSearch && identityEditor}
-
-        <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} />
-        <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>
-          <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} />
-        </div>
+        <StageDisclosure title="Registry verification" scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
+          main={<>
+            {renderInterventions(["REGISTRY"])}
+            {!identityInSearch && identityEditor}
+            <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} compact />
+            <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>
+              <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="main" />
+            </div>
+            <p>{entity?.legal_name ?? "Legal name not retained"} · {entity?.registration_number ?? summary.case.requested_uen} · {entity?.entity_status ?? "Registry status not retained"}</p>
+          </>}
+          moreDetails={<>
         <div className="ds-two-col case-corporate-evidence"><div><h4>Corporate particulars</h4><div>
           <div className="kv-row"><span className="kv-label">Company name</span><span className="kv-value">{entity?.legal_name ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration ID</span><span className="kv-value">{entity?.registration_number ?? summary.case.requested_uen}</span></div><div className="kv-row"><span className="kv-label">Entity type</span><span className="kv-value">{entity?.party_type ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registry status</span><span className="kv-value">{entity?.entity_status ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration date</span><span className="kv-value">{entity?.registration_date ?? "—"}</span></div>
         </div></div><div><h4>Registry officers and roles</h4>{acquisition && acquisition.officers.length > 0 ? <div className="table-card"><table className="table"><tbody>{acquisition.officers.map((officer) => <tr key={officer.officer_id}><td>{officer.name}</td><td>{officer.role}</td></tr>)}</tbody></table></div> : <p className="text-muted" style={{ fontSize: 12 }}>Not available.</p>}</div></div>
-
-        {acquisition && (
-          <details className="evidence-details registry-evidence-details">
-            <summary>Registry operation results, issues, and safe provenance</summary>
-            {acquisition.operation_results.map((operation) => (
-              <p key={operation.operation}><strong>{operation.operation.replaceAll("_", " ")}</strong> · {operation.status} · {operation.record_count} record(s) · {operation.provenance ? `${operation.provenance.provider} ${operation.provenance.environment} · ${operation.provenance.evidence_reference}` : "provenance —"}{operation.error ? ` · ${operation.error.code}: ${operation.error.message}` : ""}</p>
-            ))}
-            {acquisition.issues.map((issue) => <p key={issue.code}><strong>{issue.code}</strong> · {issue.message}</p>)}
-          </details>
-        )}
-
-        </StageDisclosure>
-        <section id={SEARCH_TARGET_ID} className="card evidence-focus-target" tabIndex={-1}
-          aria-labelledby="case-existing-customer-search-heading">
-          <h2 id="case-existing-customer-search-heading">Existing-customer search</h2>
-          <p className="control-help">{summary.clm.target_search_checkpoint
-            ? `Retained Search status: ${summary.clm.target_search_checkpoint.status.replaceAll("_", " ")}.`
-            : "No Search result is retained for this case."}</p>
+            <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="more" />
+          </>}
+          technicalDetails={<RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="technical" />}
+        />
+        <div id={SEARCH_TARGET_ID} role="group" aria-label="Existing-customer search" className="evidence-focus-target" tabIndex={-1}>
+        <StageDisclosure title="Existing-customer search" scopeKey={`${disclosureIdentity}:${summary.clm.target_search_checkpoint?.request_id ?? "no-request"}`}
+          main={<>
+            <p className="control-help">{summary.clm.target_search_checkpoint
+              ? `Retained Search status: ${summary.clm.target_search_checkpoint.status.replaceAll("_", " ")}.`
+              : "No Search result is retained for this case."}</p>
+            {summary.clm.target_search_checkpoint && <p>Search provider: GoldTier · {summary.clm.target_search_checkpoint.provider_mode} · {summary.clm.target_search_checkpoint.provider_classification}</p>}
+            {summary.clm.target_search_checkpoint && <p>Retained Search outcome: {summary.clm.target_search_checkpoint.disposition ?? "Not recorded"}.</p>}
+            <ProcessingBlockerPanels summary={summary} stage="REGISTRY" searchPart="main" />
           {renderInterventions(["GOLDTIER_SEARCH"])}
           {identityInSearch && identityEditor}
           {!identityInSearch && identityEditor
@@ -1299,8 +1299,26 @@ export default function CaseDetail({
             className="btn btn-secondary" disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
             onClick={() => focusEvidence("identity")}>{identitySearchRecheck
               ? "Review identity for Search recheck" : "Review Registry identity for Search"}</button>}
-          <ProcessingBlockerPanels summary={summary} stage="REGISTRY" />
-        </section>
+
+          </>}
+          moreDetails={<>{summary.clm.target_search_checkpoint ? <dl aria-label="Retained Search evidence">
+            <div><dt>Retained disposition</dt><dd>{summary.clm.target_search_checkpoint.disposition}</dd></div>
+            <div><dt>Provider outcome</dt><dd>{summary.clm.target_search_checkpoint.provider_outcome}</dd></div>
+            <div><dt>Candidate count</dt><dd>{summary.clm.target_search_checkpoint.candidate_count ?? "Not recorded"}</dd></div>
+            <div><dt>Match explanation</dt><dd>{summary.clm.target_search_checkpoint.message}</dd></div>
+            {summary.clm.target_search_checkpoint.resolution_outcome && <div><dt>Retained choice</dt><dd>{summary.clm.target_search_checkpoint.resolution_outcome}</dd></div>}
+          </dl> : <p>No supporting Search result is retained.</p>}<ProcessingBlockerPanels summary={summary} stage="REGISTRY" searchPart="more" /></>}
+          technicalDetails={<>
+            <ProcessingBlockerPanels summary={summary} stage="REGISTRY" searchPart="technical" />
+            {summary.clm.target_search_checkpoint && <dl aria-label="Search checkpoint diagnostics">
+              <div><dt>Retained request</dt><dd>{summary.clm.target_search_checkpoint.request_id}</dd></div>
+              <div><dt>Safe code</dt><dd>{summary.clm.target_search_checkpoint.code ?? "None recorded"}</dd></div>
+              <div><dt>Status code</dt><dd>{summary.clm.target_search_checkpoint.status_code ?? "Not recorded"}</dd></div>
+              <div><dt>Searched at — original ISO UTC</dt><dd>{summary.clm.target_search_checkpoint.searched_at ?? "Not recorded"}</dd></div>
+            </dl>}
+          </>}
+        />
+        </div>
         <StageDisclosure title="Document verification" active={!identityConflict && stageIsActive(["DOCUMENT"])}>
           {renderInterventions(["DOCUMENT"])}
           {summary.status === "PENDING_INPUTS" && !documents.some(doc => isDocumentReuploadRequired(doc, summary)) && <label id="case-document-upload" className="btn btn-secondary document-upload-control">
