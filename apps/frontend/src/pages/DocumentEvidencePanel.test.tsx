@@ -81,6 +81,7 @@ function renderPanel(
   onReview = vi.fn(),
   suppliedSummary = summary(),
   uploads: { onReplace?: (document: DocumentProcessingRecord, file: File) => void; onRetry?: (document: DocumentProcessingRecord, file: File) => void; onRecoverRefresh?: () => void } = {},
+  readState: { presentation?: "more" | "technical"; loading?: boolean; loadFailed?: boolean; mutationBlocked?: boolean } = {},
 ) {
   container = document.createElement("div");
   document.body.append(container);
@@ -98,6 +99,7 @@ function renderPanel(
       onContinue={() => undefined}
       onRecoverRefresh={uploads.onRecoverRefresh}
       onRefresh={() => undefined}
+      {...readState}
     />,
   ));
   return { container, onReview };
@@ -390,4 +392,61 @@ it("shows ambiguous current candidates needed for correction directly in Main", 
   expect(container!.textContent).toContain("SYNTHETIC CANDIDATE A");
   expect(container!.textContent).toContain("SYNTHETIC CANDIDATE B");
   expect(container!.querySelector("details")).toBeNull();
+});
+
+
+describe.each(["more", "technical"] as const)("%s document support read states", presentation => {
+  const emptyText = presentation === "more" ? "No current document is retained." : "No document processing evidence is retained.";
+  function visibleNotice(role: "status" | "alert") {
+    const notice = container!.querySelector<HTMLElement>(`[role=${role}]`);
+    expect(notice).not.toBeNull();
+    expect(notice!.closest("[hidden], [aria-hidden=true]")).toBeNull();
+    expect(getComputedStyle(notice!).display).not.toBe("none");
+    return notice!.textContent;
+  }
+  it("explains initial loading without asserting absence or inventing evidence", () => {
+    renderPanel([], vi.fn(), summary(), {}, { presentation, loading: true });
+    expect(visibleNotice("status")).toContain("Loading document information");
+    expect(container!.textContent).not.toContain(emptyText);
+    expect(container!.querySelector("article")).toBeNull();
+  });
+  it("explains a failed empty read and unconfirmed document availability", () => {
+    renderPanel([], vi.fn(), summary(), {}, { presentation, loadFailed: true });
+    expect(visibleNotice("alert")).toContain("Document information could not be loaded.");
+    expect(visibleNotice("alert")).toContain("Document availability cannot currently be confirmed.");
+    expect(container!.textContent).not.toContain(emptyText);
+    expect(container!.querySelector("article")).toBeNull();
+  });
+  it("qualifies retained current and historical evidence after failed refresh", () => {
+    const history = documentFixture({ document_id: HISTORY_ID, display_name: "superseded.pdf", superseded_by_document_id: CURRENT_ID });
+    renderPanel([documentFixture(), history], vi.fn(), summary(), {}, { presentation, loadFailed: true });
+    expect(visibleNotice("alert")).toContain("Last-confirmed document information remains visible and may be stale.");
+    expect(container!.textContent).toContain("company-profile.pdf");
+    expect(container!.textContent).toContain("superseded.pdf");
+    expect(container!.textContent).toContain("Historical evidence");
+    expect(container!.querySelector("button, input, select, textarea")).toBeNull();
+  });
+  it("keeps a completed successful empty result truthful", () => {
+    renderPanel([], vi.fn(), summary(), {}, { presentation });
+    expect(container!.textContent).toContain(emptyText);
+    expect(container!.querySelector("[role=status], [role=alert]")).toBeNull();
+  });
+  it("preserves successful retained support and provenance without failure wording", () => {
+    renderPanel([documentFixture()], vi.fn(), summary(), {}, { presentation });
+    expect(container!.textContent).toContain("company-profile.pdf");
+    expect(container!.textContent).toContain(presentation === "technical" ? "LOCAL_PDF_TEXT" : "SYNTHETIC PTE. LTD.");
+    expect(container!.textContent).not.toContain(emptyText);
+    expect(container!.querySelector("[role=status], [role=alert], button, input, select, textarea")).toBeNull();
+  });
+  it("keeps mutation-blocked retained evidence explicitly unconfirmed and read-only", () => {
+    renderPanel([documentFixture()], vi.fn(), { ...summary(), evidence_decision_authorized: false }, {}, { presentation, mutationBlocked: true });
+    expect(visibleNotice("alert")).toContain("Evidence reload could not be confirmed.");
+    expect(visibleNotice("alert")).toContain("Last-confirmed document information remains visible and may be stale.");
+    expect(container!.querySelector("button, input, select, textarea")).toBeNull();
+  });
+  it("does not assert empty evidence while a blocked reload is unconfirmed", () => {
+    renderPanel([], vi.fn(), summary(), {}, { presentation, mutationBlocked: true });
+    expect(visibleNotice("alert")).toContain("Document availability cannot currently be confirmed.");
+    expect(container!.textContent).not.toContain(emptyText);
+  });
 });

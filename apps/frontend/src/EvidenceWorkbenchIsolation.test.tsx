@@ -1013,4 +1013,44 @@ describe("Document persistent disclosure migration", () => {
     expect(stage.querySelector<HTMLSelectElement>("select[data-review-field]")!.value).toBe("REJECTED");
     expect(support[0].open).toBe(false); expect(fetch).not.toHaveBeenCalled();
   });
+  it.each(["loading", "failed-empty", "failed-retained"] as const)(
+    "projects %s document query state into visible optional sections without mutations", async state => {
+      const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "a");
+      const key = caseQueryKeys.documents(actorA.user_id, CASE_A);
+      if (state !== "failed-retained") client.removeQueries({ queryKey: key, exact: true });
+      let release!: (value: Response) => void;
+      const pending = new Promise<Response>(resolve => { release = resolve; });
+      const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => state === "loading"
+        ? pending : Promise.resolve(new Response("", { status: 503 })));
+      renderCase(client, actorA, CASE_A);
+      if (state === "failed-retained") await act(async () => { await client.invalidateQueries({ queryKey: key, exact: true }); });
+      if (state !== "loading") await vi.waitFor(() => expect(client.getQueryState(key)?.status).toBe("error"));
+      else expect(client.getQueryState(key)?.status).toBe("pending");
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+      const stage = documentStage(); expect(stage).toBeTruthy();
+      const support = [...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")];
+      expect(support).toHaveLength(2);
+      const callsBeforeExpansion = fetch.mock.calls.length;
+      for (const section of support) {
+        act(() => { section.open = true; });
+        expect(section.open).toBe(true);
+        const panel = section.querySelector<HTMLElement>(".document-support-panel")!;
+        expect(panel.closest("details")?.open).toBe(true);
+        const notice = panel.querySelector<HTMLElement>(state === "loading" ? "[role=status]" : "[role=alert]");
+        expect(notice).not.toBeNull();
+        expect(notice!.closest("[hidden], [aria-hidden=true]")).toBeNull();
+        expect(notice!.textContent).toContain(state === "loading" ? "Loading document information" : "Document information could not be loaded.");
+        expect(panel.textContent).not.toContain("No current document is retained.");
+        expect(panel.textContent).not.toContain("No document processing evidence is retained.");
+        if (state === "failed-retained") expect(notice!.textContent).toContain("Last-confirmed document information remains visible and may be stale.");
+        else expect(panel.querySelector("article")).toBeNull();
+        expect(panel.querySelector("button, input, select, textarea")).toBeNull();
+        act(() => { section.open = false; });
+      }
+      expect(fetch.mock.calls).toHaveLength(callsBeforeExpansion);
+      expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+      if (state === "loading") await act(async () => { release(response([])); });
+    },
+  );
+
 });

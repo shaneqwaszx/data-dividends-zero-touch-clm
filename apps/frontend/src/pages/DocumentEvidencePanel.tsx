@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import type {
   DocumentFieldKey,
@@ -333,11 +333,16 @@ function DocumentCard({
   );
 }
 
-function DocumentTechnicalEvidence({ documents }: { documents: DocumentProcessingRecord[] }) {
+function DocumentTechnicalEvidence({ documents, readNotice, readConfirmed }: {
+  documents: DocumentProcessingRecord[];
+  readNotice: ReactNode;
+  readConfirmed: boolean;
+}) {
   return <section className="evidence-section-block document-support-panel" aria-label="Document processing provenance">
     <h3>Document processing provenance</h3>
     <p>Retained Local/Mock evidence does not establish approval or LLM extraction. Evidence scores are not probabilities.</p>
-    {documents.length === 0 && <p>No document processing evidence is retained.</p>}
+    {readNotice}
+    {readConfirmed && documents.length === 0 && <p>No document processing evidence is retained.</p>}
     {documents.map(document => <article key={document.document_id}>
       <h4>{document.display_name} · {isCurrentDocument(document) ? "Current evidence" : "Historical evidence — read-only"}</h4>
       <dl className="document-field__evidence">
@@ -413,10 +418,22 @@ export default function DocumentEvidencePanel({
   const history = documents.filter((document) => !isCurrentDocument(document));
   const canContinue = canContinueRecoveredIntake(summary, documents);
 
-  if (presentation === "technical") return <DocumentTechnicalEvidence documents={documents} />;
+  const readConfirmed = !loading && !loadFailed && !mutationBlocked;
+  const supportingReadNotice = loadFailed || mutationBlocked
+    ? <p className="ds-banner ds-banner-warn" role="alert">
+        {loadFailed ? "Document information could not be loaded." : "Evidence reload could not be confirmed."}{" "}
+        {documents.length > 0
+          ? "Last-confirmed document information remains visible and may be stale."
+          : "Document availability cannot currently be confirmed."}
+      </p>
+    : loading ? <p className="text-muted" role="status">Loading document information…{documents.length > 0 && " Last-confirmed document information remains visible and may be stale."}</p>
+    : null;
+
+  if (presentation === "technical") return <DocumentTechnicalEvidence documents={documents} readNotice={supportingReadNotice} readConfirmed={readConfirmed} />;
   if (presentation === "more") return <section className="evidence-section-block document-support-panel" aria-label="Supporting document evidence">
     <h3>Supporting document evidence</h3>
-    {current.length === 0 && <p>No current document is retained.</p>}
+    {supportingReadNotice}
+    {readConfirmed && current.length === 0 && <p>No current document is retained.</p>}
     {current.map(document => <DocumentCard key={document.document_id} document={document} summary={summary} historical={false} presentation="more" busy={busy} mutationBlocked={mutationBlocked} onReview={onReview} onReplace={onReplace} onRetry={onRetry} />)}
     {history.length > 0 && <section className="evidence-history"><h4>Evidence history ({history.length})</h4>
       <p>Superseded evidence is read-only and cannot supply current review decisions.</p>
