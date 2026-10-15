@@ -1504,13 +1504,15 @@ class ZeroTouchOrchestrator:
                     code=exc.code,
                     message=exc.public_message,
                 ) from None
-            if replacement.state != OwnershipAnalysisState.ANALYZED:
-                raise ZeroTouchRequestError(
-                    code="ZERO_TOUCH_MANUAL_OWNERSHIP_REVIEW_REQUIRED",
-                    message="The replacement ownership evidence still requires review.",
-                )
-
-            self._clm.refresh_pre_submission_evidence(case_id=case_id)
+            try:
+                self._clm.refresh_pre_submission_evidence(case_id=case_id)
+            except ClmRequestError as exc:
+                raise ZeroTouchRequestError(code=exc.code, message=exc.public_message) from None
+            except ClmInfrastructureError as exc:
+                raise ZeroTouchInfrastructureError(
+                    case_id=case_id, automation_id=record.automation_id,
+                    code=exc.code, message=exc.public_message,
+                ) from None
             candidate = record.model_copy(deep=True)
             resolved_at = self._clock()
             for item in candidate.active_exceptions:
@@ -1518,13 +1520,19 @@ class ZeroTouchOrchestrator:
                     item.stage == AutomationStage.OWNERSHIP
                     or (
                         item.exception_type == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
-                        # A successful creator-owned graph replacement invalidates
+                        # A retained creator-owned graph replacement invalidates
                         # every earlier local review, including one bound before a
                         # subsequent classification revision. Recompute before send.
                         and item.evidence_version.startswith("target-confirmation:")
                     )
                 ):
-                    item.status = BusinessExceptionStatus.RESOLVED
+                    item.status = (
+                        BusinessExceptionStatus.CANCELLED
+                        if replacement.state != OwnershipAnalysisState.ANALYZED
+                        and item.exception_type
+                        == BusinessExceptionType.TARGET_CONFIRMATION_REQUIRED
+                        else BusinessExceptionStatus.RESOLVED
+                    )
                     item.resolved_at = resolved_at
             candidate.completed_stages = tuple(
                 stage
@@ -1538,6 +1546,16 @@ class ZeroTouchOrchestrator:
             )
             candidate.metrics.human_interventions += 1
             candidate.metrics.exceptions_resolved += len(ownership_blockers)
+            if replacement.state != OwnershipAnalysisState.ANALYZED:
+                # The graph and receipt are retained even for a safe 409. Bind the
+                # current ownership hold before returning that failed-closed result.
+                candidate = self._raise_ownership_exception(candidate, replacement, persist=False)
+                candidate.metrics.automated_stages_completed = len(candidate.completed_stages)
+                self._save(record, candidate)
+                raise ZeroTouchRequestError(
+                    code="ZERO_TOUCH_MANUAL_OWNERSHIP_REVIEW_REQUIRED",
+                    message="The replacement ownership evidence still requires review.",
+                )
             remaining_blockers = candidate.active_exceptions
             if remaining_blockers:
                 candidate.status = AutomationStatus.WAITING_FOR_REVIEW

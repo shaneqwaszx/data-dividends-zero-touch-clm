@@ -203,7 +203,28 @@ export default function CaseDetail({
   const mutationPending = useRef<CaseActionIdentity | null>(null);
   const reviewEdit = useRef<(CaseActionIdentity & { target: EvidenceFocusTarget }) | null>(null);
   const [classificationReviewRequest, setClassificationReviewRequest] = useState<CaseActionIdentity | null>(null);
-  const [pendingReviewReturn, setPendingReviewReturn] = useState<(CaseActionIdentity & { version: number }) | null>(null);
+  const focusIntent = useRef(0);
+  const focusFrames = useRef(new Set<number>());
+  const [pendingReviewReturn, setPendingReviewReturn] = useState<(CaseActionIdentity & { version: number; focusIntent: number }) | null>(null);
+
+  function cancelPendingFocus(): void {
+    focusIntent.current += 1;
+    focusFrames.current.forEach((frame) => cancelAnimationFrame(frame));
+    focusFrames.current.clear();
+  }
+
+  function scheduleFocusFrame(callback: FrameRequestCallback): void {
+    const frame = requestAnimationFrame((timestamp) => {
+      focusFrames.current.delete(frame);
+      callback(timestamp);
+    });
+    focusFrames.current.add(frame);
+  }
+
+  function recordOwnershipInteraction(event: { target: EventTarget | null }): void {
+    const stage = document.getElementById(EVIDENCE_TARGET_IDS.ownership)?.closest(".stage-disclosure");
+    if (event.target instanceof Node && stage?.contains(event.target)) cancelPendingFocus();
+  }
   const lastNavigationFocus = useRef<string | null>(null);
   const activeIdentity = useRef({ caseId, actorUserId: actor.user_id });
   activeIdentity.current = { caseId, actorUserId: actor.user_id };
@@ -298,6 +319,7 @@ export default function CaseDetail({
     mounted.current = true;
     return () => {
       mounted.current = false;
+      cancelPendingFocus();
       generation.current += 1;
       targetStatusController.current?.abort();
       submissionObservationController.current?.abort();
@@ -319,6 +341,7 @@ export default function CaseDetail({
     mutationPending.current = null;
     return () => {
       generation.current = current + 1;
+      cancelPendingFocus();
       targetStatusController.current?.abort();
       submissionObservationController.current?.abort();
     };
@@ -482,6 +505,7 @@ export default function CaseDetail({
   ) {
     let action = captureCaseAction();
     const returnToReview = reviewEdit.current !== null && isCurrentCaseAction(reviewEdit.current);
+    const returnFocusIntent = focusIntent.current;
     if (mutationPending.current || mutationBlocked || confirmationUnknown) return;
     mutationPending.current = action;
     setIsBusy(true);
@@ -509,7 +533,7 @@ export default function CaseDetail({
       if (returnToReview && isCurrentCaseAction(action)) {
         reviewEdit.current = null;
         setClassificationReviewRequest(null);
-        setPendingReviewReturn({ ...action, version: updated.version });
+        setPendingReviewReturn({ ...action, version: updated.version, focusIntent: returnFocusIntent });
       }
     } catch (mutationError) {
       if (!isCurrentCaseAction(action)) return;
@@ -620,6 +644,7 @@ export default function CaseDetail({
   ): Promise<void> {
     const action = captureCaseAction();
     const returnToReview = reviewEdit.current !== null && isCurrentCaseAction(reviewEdit.current);
+    const returnFocusIntent = focusIntent.current;
     if (mutationPending.current || mutationBlocked) return;
     mutationPending.current = action;
     setIsBusy(true);
@@ -644,7 +669,7 @@ export default function CaseDetail({
         if (mutationError === null && returnToReview) {
           reviewEdit.current = null;
           setClassificationReviewRequest(null);
-          setPendingReviewReturn({ ...action, version: latest.version });
+          setPendingReviewReturn({ ...action, version: latest.version, focusIntent: returnFocusIntent });
         }
         if (mutationError !== null) {
           setError(
@@ -771,9 +796,12 @@ export default function CaseDetail({
   }
 
   function focusActionControl(targetId: string, selector?: string): void {
+    cancelPendingFocus();
+    const intent = focusIntent.current;
     const action = captureCaseAction();
     const version = summary?.version;
-    const currentFocus = () => isCurrentCaseAction(action) && focusVersion.current === version;
+    const currentFocus = () => isCurrentCaseAction(action) && focusVersion.current === version
+      && focusIntent.current === intent;
     const section = document.getElementById(targetId);
     if (!section) {
       setEvidenceFocusNotice({ identity: evidenceIdentity, message: "The required action is not available for the current case evidence." });
@@ -785,7 +813,7 @@ export default function CaseDetail({
         .find(button => ["Edit UEN", "Enter another UEN"].includes(button.textContent ?? ""));
       edit?.click();
     }
-    requestAnimationFrame(() => {
+    scheduleFocusFrame(() => {
       if (!currentFocus()) return;
       const current = document.getElementById(targetId);
       if (!current) return;
@@ -803,7 +831,7 @@ export default function CaseDetail({
         return;
       }
       revealStage(target);
-      requestAnimationFrame(() => {
+      scheduleFocusFrame(() => {
         if (!currentFocus() || !target.isConnected || target.matches(":disabled")) return;
         if (target.closest("[hidden]")) {
           setEvidenceFocusNotice({ identity: evidenceIdentity, message: "The corrective input could not be opened for the current case evidence." });
@@ -818,6 +846,8 @@ export default function CaseDetail({
   }
 
   function focusEvidence(target: EvidenceFocusTarget): void {
+    // Explicit evidence navigation also supersedes an older automatic return.
+    cancelPendingFocus();
     if (target === "identity") { focusActionControl(EVIDENCE_TARGET_IDS.identity, "#identity-registration-number:not([disabled])"); return; }
     if (target === "classification") {
       const onlySegmentMissing = summary?.target_classification?.kyc_customer_type.selected_value
@@ -947,13 +977,15 @@ export default function CaseDetail({
 
   useEffect(() => {
     if (!pendingReviewReturn) return;
-    if (!isCurrentCaseAction(pendingReviewReturn)) { setPendingReviewReturn(null); return; }
+    if (!isCurrentCaseAction(pendingReviewReturn) || focusIntent.current !== pendingReviewReturn.focusIntent) {
+      setPendingReviewReturn(null); return;
+    }
     if (isBusy || documentQuery.isPending || ownershipQuery.isPending || !summary
       || summary.version < pendingReviewReturn.version) return;
     setPendingReviewReturn(null);
     const latest = summary;
-    requestAnimationFrame(() => {
-      if (!isCurrentCaseAction(pendingReviewReturn)) return;
+    scheduleFocusFrame(() => {
+      if (!isCurrentCaseAction(pendingReviewReturn) || focusIntent.current !== pendingReviewReturn.focusIntent) return;
       if (latest.active_exceptions.some(item => item.exception_type === "TARGET_CONFIRMATION_REQUIRED")) {
         focusActionControl("case-review-and-send", ".btn-primary:not([disabled])");
       } else {
@@ -1195,7 +1227,9 @@ export default function CaseDetail({
   );
 
   return (
-    <div className="ds-root detail-layout">
+    <div className="ds-root detail-layout" onKeyDownCapture={recordOwnershipInteraction}
+      onPointerDownCapture={recordOwnershipInteraction} onMouseDownCapture={recordOwnershipInteraction}
+      onClickCapture={recordOwnershipInteraction}>
       <div className="side-panel case-pipeline-panel">
         <button type="button" className="btn btn-ghost" onClick={onBack} style={{ paddingLeft: 0 }}>← Back to Cases</button>
         <CaseAttentionSummary summary={summary} onNavigate={focusAttention} />
