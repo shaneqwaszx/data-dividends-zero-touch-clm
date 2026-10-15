@@ -441,6 +441,35 @@ test("responsive review case exposes only supported authoritative review control
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 360, height: 900 });
   await login(page);
+  // Existing no-text UAT asset: retain the real local extraction failure and retry owner.
+  const noTextId = await openNewCase(page, path.resolve(currentDirectory, "../../backend/tests/fixtures/uat/no-text.pdf"));
+  await expect.poll(async () => {
+    const result = await page.request.get(`/api/onboarding/cases/${noTextId}/documents`);
+    const state = result.ok() ? (await result.json())[0]?.state : null;
+    return ["FAILED", "REVIEW_REQUIRED"].includes(state);
+  }).toBe(true);
+  const noTextResponse = await page.request.get(`/api/onboarding/cases/${noTextId}/documents`);
+  expect(noTextResponse.status()).toBe(200);
+  const noTextDocument = (await noTextResponse.json())[0];
+  if (noTextDocument.state === "REVIEW_REQUIRED") await waitForCaseStatus(page, noTextId, ["WAITING_FOR_REVIEW"]);
+  await page.goto(`/cases/${noTextId}`);
+  const unavailable = page.getByRole("region", { name: "Document verification", exact: true });
+  await expect(unavailable.locator(":scope > details[open]")).toHaveCount(0);
+  if (noTextDocument.state === "FAILED") {
+    expect(noTextDocument.error.code).toBe("OCR_RUNTIME_UNAVAILABLE");
+    await expect(unavailable.locator(".document-card")).toContainText("OCR_RUNTIME_UNAVAILABLE");
+    await expect(unavailable.getByLabel("Retry affected document", { exact: true })).toBeEnabled();
+    await expect(unavailable.locator("#case-blocker-review")).toHaveCount(0);
+  } else {
+    expect(noTextDocument.state).toBe("REVIEW_REQUIRED");
+    expect(noTextDocument.fields).toHaveLength(4);
+    expect(noTextDocument.fields.every((field: any) => field.original_extracted_value === null && field.confidence === 0
+      && field.extraction_quality === "UNAVAILABLE" && field.provenance.source_reference === "DOCUMENT_TEXT_UNAVAILABLE")).toBe(true);
+    await expect(unavailable.locator(".document-card")).toContainText("Missing extracted evidence");
+    await expect(unavailable.locator(".document-card")).toContainText("Extraction quality: UNAVAILABLE");
+    await expect(unavailable.getByLabel("Replace current document", { exact: true })).toBeEnabled();
+    expect(await unavailable.locator('select[data-review-field] option[value="ACCEPTED"]').count()).toBe(0);
+  }
   const reviewCaseId = await openNewCase(page, lowConfidenceFixture);
   await waitForCaseStatus(page, reviewCaseId, ["WAITING_FOR_REVIEW"]);
   const reviewSummaryResponse = await page.request.get(`/api/clm/zero-touch/cases/${reviewCaseId}`);
@@ -719,12 +748,25 @@ test("Search and Registry disclosure keeps Main visible with independent native 
   });
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const name of ["Registry verification", "Existing-customer search"]) {
+    for (const name of ["Registry verification", "Existing-customer search", "Document verification"]) {
       const section = page.getByRole("region", { name, exact: true });
       const more = section.locator(":scope > details").filter({ has: page.getByText(`More details — ${name}`, { exact: true }) });
       const technical = section.locator(":scope > details").filter({ has: page.getByText(`Technical details — ${name}`, { exact: true }) });
       await expect(section.getByRole("heading", { name, exact: true })).toBeVisible();
       await expect(section.locator(":scope > div").first()).toBeVisible();
+      if (name === "Document verification") {
+        await expect(section.locator("#case-blocker-review")).toBeVisible();
+        await expect(section.getByRole("button", { name: "Accept all eligible undecided suggestions", exact: true })).toBeVisible();
+        await expect(section.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true })).toBeVisible();
+        await expect(section.locator("#case-evidence-documents input[type=file]")).toBeEnabled();
+        await expect(section.locator("#case-evidence-reconciliation")).toBeVisible();
+        const choice = section.locator("select[data-review-field]").first();
+        await expect(choice).toBeVisible();
+        if (width === 1440) await choice.selectOption("REJECTED");
+        await expect(choice).toHaveValue("REJECTED");
+        await expect(section.getByText("Supporting document evidence", { exact: true })).toBeHidden();
+        await expect(section.getByRole("heading", { name: "Document processing provenance", exact: true })).toBeHidden();
+      }
       await expect(more).not.toHaveAttribute("open", "");
       await expect(technical).not.toHaveAttribute("open", "");
       await expect(more.locator(":scope > div")).toBeHidden();
@@ -744,6 +786,13 @@ test("Search and Registry disclosure keeps Main visible with independent native 
       await expect(more.locator(":scope > div")).toBeHidden();
       await expect(section.locator(":scope > div").first()).toBeVisible();
       await expectDocumentContained(page);
+      if (name === "Document verification") {
+        await expect(technical).toContainText("LOCAL_PDF_TEXT");
+        await expect(technical.locator("details")).toHaveCount(0);
+        await expect(technical.locator("button, input, select, textarea")).toHaveCount(0);
+        await expect(more.locator("button, input, select, textarea")).toHaveCount(0);
+        await expect(section.locator("select[data-review-field]").first()).toHaveValue("REJECTED");
+      }
       await page.keyboard.press("Enter");
       await expect(technical.locator(":scope > div")).toBeHidden();
     }

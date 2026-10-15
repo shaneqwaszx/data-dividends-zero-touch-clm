@@ -332,3 +332,62 @@ describe("DocumentEvidencePanel", () => {
     }
   });
 });
+
+
+it("partitions essential actions, read-only history and safe extraction without changing legacy defaults", () => {
+  const current = documentFixture();
+  const historical = documentFixture({ document_id: HISTORY_ID, display_name: "superseded.pdf", superseded_by_document_id: CURRENT_ID });
+  renderPanel([current, historical]);
+  const props = { summary: summary(), documents: [current, historical], busy: false, busyLabel: null, mutationBlocked: false,
+    reviewInWorkspace: true, onReview: vi.fn(), onReplace: vi.fn(), onRetry: vi.fn(), onContinue: vi.fn(), onRefresh: vi.fn() };
+  const expectNamedFields = () => expect([...container!.querySelectorAll<HTMLElement>(".document-field[aria-labelledby]")].every(field =>
+    field.querySelector("[id]")?.id === field.getAttribute("aria-labelledby"))).toBe(true);
+  expectNamedFields();
+  act(() => root!.render(<DocumentEvidencePanel {...props} presentation="main" />));
+  expectNamedFields();
+  expect(container!.textContent).toContain("company-profile.pdf");
+  expect(container!.textContent).toContain("1 field remains for review");
+  expect(container!.textContent).not.toContain("superseded.pdf");
+  expect(container!.textContent).not.toContain("Score formula");
+  expect(container!.querySelector("input[type=file]")).not.toBeNull();
+  act(() => root!.render(<DocumentEvidencePanel {...props} presentation="more" />));
+  expect(container!.textContent).toContain("superseded.pdf");
+  expect(container!.textContent).toContain("Historical evidence");
+  expectNamedFields();
+  expect(container!.querySelector("button, input, select, textarea")).toBeNull();
+  act(() => root!.render(<DocumentEvidencePanel {...props} presentation="technical" />));
+  expect(container!.textContent).toContain("LOCAL_PDF_TEXT");
+  expect(container!.textContent).toContain("Score formula");
+  expect(container!.textContent).toContain("Document version");
+  expect(container!.querySelector("details")).toBeNull();
+  expect(container!.querySelector("button, input, select, textarea")).toBeNull();
+});
+
+
+it("keeps missing and low-score evidence distinct in essential presentation", () => {
+  const current = documentFixture({ fields: [
+    { ...documentFixture().fields[0], original_extracted_value: null, comparison_status: "MISSING_FROM_DOCUMENT", extraction_quality: "UNAVAILABLE" },
+    { ...documentFixture().fields[0], field_key: "registered_address", confidence: 0.54, extraction_quality: "LOW", comparison_status: "MISMATCH" },
+  ] });
+  renderPanel([current]);
+  act(() => root!.render(<DocumentEvidencePanel presentation="main" reviewInWorkspace summary={summary()} documents={[current]} busy={false} busyLabel={null} mutationBlocked={false} onReview={vi.fn()} onReplace={vi.fn()} onRetry={vi.fn()} onContinue={vi.fn()} onRefresh={vi.fn()} />));
+  expect(container!.textContent).toContain("Missing extracted evidence");
+  expect(container!.textContent).toContain("Low evidence score");
+  expect(container!.textContent).toContain("Extraction quality: UNAVAILABLE");
+  expect(container!.textContent).toContain("MISSING FROM DOCUMENT");
+  expect(container!.textContent).toContain("MISMATCH");
+  expect(container!.querySelector("details")).toBeNull();
+});
+
+
+it("shows ambiguous current candidates needed for correction directly in Main", () => {
+  const current = documentFixture({ fields: [{ ...documentFixture().fields[0], extraction_quality: "AMBIGUOUS", candidates: [
+    { value: "SYNTHETIC CANDIDATE A", page_number: 1, source_reference: "synthetic:page:1" },
+    { value: "SYNTHETIC CANDIDATE B", page_number: 2, source_reference: "synthetic:page:2" },
+  ] }] });
+  renderPanel([current]);
+  act(() => root!.render(<DocumentEvidencePanel presentation="main" reviewInWorkspace summary={summary()} documents={[current]} busy={false} busyLabel={null} mutationBlocked={false} onReview={vi.fn()} onReplace={vi.fn()} onRetry={vi.fn()} onContinue={vi.fn()} onRefresh={vi.fn()} />));
+  expect(container!.textContent).toContain("SYNTHETIC CANDIDATE A");
+  expect(container!.textContent).toContain("SYNTHETIC CANDIDATE B");
+  expect(container!.querySelector("details")).toBeNull();
+});

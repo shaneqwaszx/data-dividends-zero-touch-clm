@@ -934,16 +934,32 @@ export function RegistryStatePanel({
 
 export function ConfirmDetailsPanel({
   summary,
+  presentation = "full",
   isBusy = false,
   onResolve,
 }: {
   summary: ZeroTouchCaseSummary;
   isBusy?: boolean;
+  presentation?: "full" | "main" | "technical";
   onResolve?: (discrepancy: ReconciliationDiscrepancy, action: ReconciliationDecisionAction) => void;
 }) {
   const reconciliation = summary.reconciliation;
-  if (!reconciliation || summary.current_stage !== "DOCUMENT") return null;
+  if (!reconciliation || (presentation !== "technical" && summary.current_stage !== "DOCUMENT")) return null;
   const discrepancies = new Map(reconciliation.discrepancies.map((item) => [item.discrepancy_id, item]));
+  if (presentation === "technical") return <section aria-label="Reconciliation provenance">
+    <h3>Reconciliation provenance</h3>
+    <dl className="document-field__evidence">
+      <div><dt>Reconciliation status / version</dt><dd>{reconciliation.status} / {reconciliation.version}</dd></div>
+      <div><dt>Reconciliation reference</dt><dd>{reconciliation.reconciliation_id}</dd></div>
+      <div><dt>Updated at — original ISO UTC</dt><dd>{reconciliation.updated_at}</dd></div>
+      <div><dt>Source document bindings</dt><dd>{reconciliation.source_document_ids.map((id, index) => `${id} · event count ${reconciliation.source_document_event_counts[index] ?? "Not recorded"}`).join("; ") || "None recorded"}</dd></div>
+    </dl>
+    {reconciliation.fields.map(field => <section key={field.field_name}>
+      <h4>{field.field_name.replaceAll("_", " ")} · {field.outcome}</h4>
+      {field.observations.map(observation => <p key={observation.observation_id}>{observation.source_kind} · {observation.source_system ?? "—"} {observation.environment ?? "—"} · {observation.evidence_reference ?? "safe reference unavailable"}</p>)}
+      <p>Decision: {field.discrepancy_id ? discrepancies.get(field.discrepancy_id)?.decision?.action ?? discrepancies.get(field.discrepancy_id)?.status ?? "Not required" : "Not required"}</p>
+    </section>)}
+  </section>;
   return (
     <section className="state-composition confirm-details" aria-labelledby="confirm-details-heading">
       <div className="state-composition__header">
@@ -976,7 +992,7 @@ export function ConfirmDetailsPanel({
                 <div><span>Registry observation</span><strong>{registry.length ? registry.map(observationText).join(" · ") : "Not observed"}</strong></div>
                 <div><span>Document observation</span><strong>{documents.length ? documents.map(observationText).join(" · ") : "Not observed"}</strong></div>
               </div>
-              <details>
+              {presentation === "full" && <details>
                 <summary>Provenance and decision state</summary>
                 {field.observations.map((observation) => (
                   <p key={observation.observation_id}>
@@ -984,7 +1000,7 @@ export function ConfirmDetailsPanel({
                   </p>
                 ))}
                 <p>Decision: {discrepancy?.decision?.action.replaceAll("_", " ") ?? discrepancy?.status ?? "Not required"}</p>
-              </details>
+              </details>}
               {discrepancy?.status === "OPEN" && discrepancy.allowed_actions.length > 0 && onResolve && (
                 <div className="comparison-actions">
                   {discrepancy.allowed_actions.map((action) => (

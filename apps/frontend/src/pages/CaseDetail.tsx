@@ -1319,7 +1319,9 @@ export default function CaseDetail({
           </>}
         />
         </div>
-        <StageDisclosure title="Document verification" active={!identityConflict && stageIsActive(["DOCUMENT"])}>
+        <StageDisclosure title="Document verification" scopeKey={disclosureIdentity}
+          main={<>
+          <p className="control-help">Document readiness: {summary.clm?.readiness.document.status ?? "Not available"}. Current case checkpoint: {summary.status.replaceAll("_", " ")} / {summary.current_stage}.</p>
           {renderInterventions(["DOCUMENT"])}
           {summary.status === "PENDING_INPUTS" && !documents.some(doc => isDocumentReuploadRequired(doc, summary)) && <label id="case-document-upload" className="btn btn-secondary document-upload-control">
             Upload required document
@@ -1370,16 +1372,22 @@ export default function CaseDetail({
         />
         {summary.reconciliation && summary.current_stage === "DOCUMENT" && (
           <div key={`${evidenceIdentity}:reconciliation`} id={EVIDENCE_TARGET_IDS.reconciliation} className="evidence-focus-target" tabIndex={-1}>
-            <ConfirmDetailsPanel summary={summary} isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true} />
+            <ConfirmDetailsPanel presentation="main" summary={summary} isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true} />
           </div>
         )}
         <div key={`${evidenceIdentity}:documents`} id={EVIDENCE_TARGET_IDS.documents} className="evidence-focus-target" tabIndex={-1}>
           {error && reviewEdit.current?.target === "documents" && isCurrentCaseAction(reviewEdit.current)
             && <p role="alert" className="ds-banner ds-banner-warn">{error}</p>}
-          <DocumentEvidencePanel reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRecoverRefresh={handleRecoverDocumentRefresh} onRefresh={() => void handleReadOnlyRefresh()} />
+          <DocumentEvidencePanel presentation="main" reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRecoverRefresh={handleRecoverDocumentRefresh} onRefresh={() => void handleReadOnlyRefresh()} />
         </div>
 
-        </StageDisclosure>
+          </>}
+          moreDetails={<DocumentEvidencePanel presentation="more" summary={summary} documents={documents} busy={isBusy} busyLabel={null} mutationBlocked={mutationBlocked} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />}
+          technicalDetails={<>
+            <DocumentEvidencePanel presentation="technical" summary={summary} documents={documents} busy={isBusy} busyLabel={null} mutationBlocked={mutationBlocked} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />
+            <ConfirmDetailsPanel presentation="technical" summary={summary} />
+          </>}
+        />
         <StageDisclosure title="Ownership & UBO" active={stageIsActive(["OWNERSHIP"])}>
           {renderInterventions(["OWNERSHIP"])}
         {ownershipRecovery && summary.ownership_edit_authorized === true

@@ -121,18 +121,26 @@ test("Phase24 invalid registry identity corrects the same case and keeps final r
   await expect.poll(() => page.evaluate(() =>
     document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
   )).toBe(true);
-  const documents = page.locator(".stage-disclosure > h2 > button").filter({ hasText: "Document verification" });
-  await page.mouse.move(0, 0);
-  await expectDisclosureContrast(documents);
-  await documents.hover();
-  await expectDisclosureContrast(documents);
-  await page.mouse.move(0, 0);
-  await documents.focus();
-  await expectDisclosureContrast(documents);
-  await page.keyboard.press("Enter");
-  await expect(documents).toHaveAttribute("aria-expanded", "false");
-  await page.keyboard.press("Space");
-  await expect(documents).toHaveAttribute("aria-expanded", "true");
+  const documents = page.getByRole("region", { name: "Document verification", exact: true });
+  await expect(documents.locator(":scope > div").first()).toBeVisible();
+  for (const kind of ["More", "Technical"]) {
+    const control = documents.getByText(`${kind} details — Document verification`, { exact: true });
+    const support = control.locator("..");
+    await expect(support).not.toHaveAttribute("open", "");
+    await page.mouse.move(0, 0);
+    await expectDisclosureContrast(control);
+    await control.hover();
+    await expectDisclosureContrast(control);
+    await page.mouse.move(0, 0);
+    await control.focus();
+    await expectDisclosureContrast(control);
+    await page.keyboard.press("Enter");
+    await expect(support).toHaveAttribute("open", "");
+    await expect(documents.locator(":scope > div").first()).toBeVisible();
+    await page.keyboard.press("Space");
+    await expect(support).not.toHaveAttribute("open", "");
+    await expect(documents.locator(":scope > details[open]")).toHaveCount(0);
+  }
 });
 
 test("Phase24 entered UEN choice resolves current identity conflict without silent source selection", async ({ page }) => {
