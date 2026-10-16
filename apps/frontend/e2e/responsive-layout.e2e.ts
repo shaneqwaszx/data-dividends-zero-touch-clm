@@ -752,7 +752,7 @@ test("Search and Registry disclosure keeps Main visible with independent native 
   });
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const name of ["Registry verification", "Existing-customer search", "Document verification", "Ownership & UBO", "Submission readiness"]) {
+    for (const name of ["Registry verification", "Existing-customer search", "Document verification", "Ownership & UBO", "Submission readiness", "GoldTier submission package"]) {
       const section = page.getByRole("region", { name, exact: true });
       const more = section.locator(":scope > details").filter({ has: page.getByText(`More details — ${name}`, { exact: true }) });
       const technical = section.locator(":scope > details").filter({ has: page.getByText(`Technical details — ${name}`, { exact: true }) });
@@ -812,7 +812,7 @@ test("Search and Registry disclosure keeps Main visible with independent native 
         await expect(more.locator("button, input, select, textarea")).toHaveCount(0);
         await expect(section.locator("select[data-review-field]").first()).toHaveValue("REJECTED");
       }
-      if (["Ownership & UBO", "Submission readiness"].includes(name)) {
+      if (["Ownership & UBO", "Submission readiness", "GoldTier submission package"].includes(name)) {
         await expect(technical.locator("details, button, input, select, textarea")).toHaveCount(0);
         await expect(more.locator("details, button, input, select, textarea")).toHaveCount(0);
         const ids = await section.locator("[id]").evaluateAll(elements => elements.map(element => element.id));

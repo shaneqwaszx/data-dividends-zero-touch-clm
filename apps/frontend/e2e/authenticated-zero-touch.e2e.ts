@@ -604,7 +604,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await expect(review).toHaveCSS("border-top-width", "0px");
   await expect(review.locator(".review-and-send__print")).toHaveCSS("display", "none");
   await expect(review.locator(".review-and-send__actions")).toHaveCSS("display", "none");
-  await expect(review.locator(".review-and-send__technical-content")).toBeVisible();
+  await expect(page.locator(".stage-disclosure--final .review-and-send__technical-content")).toBeVisible();
   const hasA4PageRule = await page.evaluate(() => {
     const containsA4Page = (rules: CSSRuleList): boolean => Array.from(rules).some((rule) => {
       const cssText = rule.cssText.toLowerCase();
@@ -1063,6 +1063,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect(expectedCandidate.paths.length).toBeGreaterThan(0);
   await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 30_000 });
+  await openStageSupport(page, "GoldTier submission package", "More");
   const operationalTiming = page.getByRole("region", { name: "Operational timing" });
   await expect(operationalTiming).toBeVisible();
   await expect(operationalTiming.getByText(/^Timing observed at /)).toHaveCount(1);
@@ -1108,7 +1109,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(page.getByText("Case evidence binding not recorded.")).toHaveCount(0);
   await openStage(page, "Ownership & UBO");
   await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
-  await page.getByText("Backend execution details", { exact: true }).click();
+  await openStageSupport(page, "GoldTier submission package", "Technical");
   await expect(page.getByRole("heading", { name: "Why this case is in its current state" })).toBeVisible();
 
   const interactionRequestBaseline = caseRequests.length;
@@ -1304,7 +1305,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({ timeout: 30_000 });
   const focusRequestBaseline = reviewRequests.length + resumeRequests.length;
   await openStage(page, "GoldTier submission package");
-  await page.getByText("Backend execution details", { exact: true }).click();
+  await openStageSupport(page, "GoldTier submission package", "Technical");
   await page.getByRole("button", { name: "Focus documents evidence" }).click();
   await expect(page.locator("#case-blocker-review select[data-review-field], #case-blocker-review select[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
   expect(reviewRequests.length + resumeRequests.length).toBe(focusRequestBaseline);
@@ -1410,7 +1411,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(page.locator(".document-card--history")).toBeVisible();
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
   await openStage(page, "GoldTier submission package");
-  await page.getByText("Backend execution details", { exact: true }).click();
+  await openStageSupport(page, "GoldTier submission package", "Technical");
   await expect(page.getByText(/Ready-for-Approval: NOT AVAILABLE/i)).toBeVisible();
   expect(resumeRequests).toHaveLength(0);
 });
@@ -1538,7 +1539,7 @@ test("Cases filters exact open business-exception types without hiding other att
   await openLink.click();
   await expect(page).toHaveURL(`/cases/${ownershipCycleCaseId}`);
   await openStage(page, "GoldTier submission package");
-  await page.getByText("Backend execution details", { exact: true }).click();
+  await openStageSupport(page, "GoldTier submission package", "Technical");
   await expect(
     page.getByRole("heading", { name: "Why this case is in its current state" }),
   ).toBeVisible();

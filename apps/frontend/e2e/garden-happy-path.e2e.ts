@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { openStage } from "./stage-disclosures";
+import { openStage, openStageSupport } from "./stage-disclosures";
 import { reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
@@ -269,7 +269,7 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
   await page.evaluate(() => { document.documentElement.style.zoom = ""; });
   const focusBaseline = requests.length;
   await openStage(page, "GoldTier submission package");
-  await page.getByText("Backend execution details", { exact: true }).click();
+  await openStageSupport(page, "GoldTier submission package", "Technical");
   await page.getByRole("button", { name: "Focus registry evidence" }).click();
   await expect(page.locator("#case-evidence-registry")).toBeFocused();
   await expect(page.getByRole("heading", { name: "Registry data incomplete" })).toHaveCount(0);

@@ -113,7 +113,7 @@ test("Phase24 invalid registry identity corrects the same case and keeps final r
     expect(next.active_exceptions.some((item: any) => item.blocker_code === "ACRA_ENTITY_NOT_FOUND")).toBe(false);
     previous = next;
   }
-  await expect(page.locator(".stage-disclosure > h2 > button").last()).toHaveText("Final review & send+");
+  await expect(page.locator(".stage-disclosure--final > h2")).toHaveText("Final review & send");
   await expect(page.locator(".stage-disclosure--final")).toContainText("Not yet available");
   await expect(page.getByText(/Not yet available —/)).toBeVisible();
   await expect(page.locator(".review-and-send")).toHaveCount(0);

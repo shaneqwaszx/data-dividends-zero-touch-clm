@@ -717,7 +717,7 @@ describe("Evidence workbench integration isolation", () => {
     expect(sections[2].querySelector(":scope > h2 button")).toBeNull();
     expect([...sections[2].querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
     expect(sections[6].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
-    expect(sections[7].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(sections[7].querySelector(":scope > h2 button")).toBeNull();
     expect(sections[7].textContent).toContain("Not yet available");
     expect(sections[7].querySelector(".review-and-send")).toBeNull();
   });
@@ -1413,6 +1413,8 @@ describe("Ownership and Readiness persistent disclosure", () => {
     renderCase(client, actorA, CASE_A);
     if (state === "failed-empty") await vi.waitFor(() => expect(client.getQueryState(caseQueryKeys.detail(actorA.user_id, CASE_A))?.status).toBe("error"));
     expect(container!.querySelector('[aria-label="Backend-projected readiness"]')).toBeNull();
+    expect(container!.querySelector(".review-and-send, .stage-disclosure--final")).toBeNull();
+    expect(container!.textContent).not.toContain("Backend submission state:");
     expect(container!.textContent).not.toContain("No readiness evidence");
     expect(container!.textContent).not.toContain("Current accepted POC");
     expect(container!.querySelector("form")).toBeNull();
@@ -1488,6 +1490,168 @@ describe("Ownership and Readiness persistent disclosure", () => {
     expect(main.querySelector('[aria-label="Current trusted classification values"]')?.textContent).toContain("Company - Private; Partnership - Unregulated");
     expect(main.querySelector('select[aria-label="KYC customer type"]')).not.toBeNull();
     expect(container!.querySelectorAll('[aria-label="Current trusted classification values"]')).toHaveLength(1);
+  });
+
+});
+
+
+describe("GoldTier and Final Review persistent disclosure", () => {
+  function partitions(title: string) {
+    const region = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")]
+      .find(item => item.querySelector(":scope > h2")?.textContent === title)!;
+    expect(region).toBeTruthy();
+    expect(region.querySelector(":scope > h2 button")).toBeNull();
+    const support = [...region.querySelectorAll<HTMLDetailsElement>(":scope > details")];
+    expect(support.map(item => item.querySelector("summary")?.textContent)).toEqual([
+      `More details — ${title}`, `Technical details — ${title}`,
+    ]);
+    return { region, main: region.querySelector<HTMLElement>(":scope > div")!, support };
+  }
+  function targetSummary(state: NonNullable<ZeroTouchCaseSummary["target_submission"]>["state"] = "NOT_SUBMITTED") {
+    const summary = summaryFixture(CASE_A);
+    summary.current_stage = "READINESS";
+    summary.active_exceptions = [{ ...summary.active_exceptions[0], exception_type: "TARGET_CONFIRMATION_REQUIRED", blocker_code: "TARGET_CONFIRMATION_REQUIRED", stage: "MOCK_GOLDTIER" }];
+    summary.clm.readiness.blockers = [];
+    summary.clm.version = 4;
+    summary.clm.submission_plan.request_preview = {
+      environment: "MOCK", dispatch_ready: true, policy_version: 2,
+      operations: [{ operation: "SHELL", validation: "VALID", missing_fields: [], fields: [
+        { target_field: "legal_name", value: "Synthetic review identity", provenance: "REGISTRY", authority: "CANONICAL_EVIDENCE", required: true, missing: false, validation: "VALID" },
+      ] }],
+    };
+    summary.case.identity_corrections = [];
+    summary.target_submission = { state, submission_id: "00000000-0000-4000-8000-00000000f001", status_check_available: state === "SUBMISSION_OUTCOME_UNCERTAIN", recovery_available: true, recovery_operation: "SHELL", attempted_operations: ["SEARCH", "SHELL"], definitively_completed_operations: ["SEARCH"], lifecycle_resolved_operations: ["SEARCH"], ledger_state: "OUTCOME_UNCERTAIN" } as NonNullable<ZeroTouchCaseSummary["target_submission"]>;
+    return summary;
+  }
+  function setup(summary = targetSummary(), profile = actorA) {
+    const client = createTestClient(); seedCase(client, profile, CASE_A, "analysis-a", "a");
+    client.setQueryData(caseQueryKeys.detail(profile.user_id, CASE_A), summary);
+    renderCase(client, profile, CASE_A); return client;
+  }
+  it.each(["NOT_SUBMITTED", "SENDING", "SUBMISSION_CONFIRMED", "SUBMISSION_FAILED", "SUBMISSION_OUTCOME_UNCERTAIN", "FINALIZATION_PENDING"] as const)(
+    "keeps %s target/review state and one authorized action owner visible with support closed", state => {
+      const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => response({ submission_id: "00000000-0000-4000-8000-00000000f001", result: "CHECK_FAILED", message: "Synthetic read-only observation unavailable", checked_at: NOW })); const client = setup(targetSummary(state));
+      const target = partitions("GoldTier submission package"); const review = partitions("Final review & send");
+      for (const { region, main, support } of [target, review]) {
+        expect(main.hidden).toBe(false); expect(support.every(item => !item.open)).toBe(true);
+        for (const panel of support) expect(panel.querySelector("button, input, select, textarea, details")).toBeNull();
+        const ids = [...region.querySelectorAll("[id]")].map(item => item.id); expect(new Set(ids).size).toBe(ids.length);
+      }
+      expect(target.main.textContent).toContain(state);
+      expect(target.main.textContent).toContain("MOCK");
+      expect(review.main.textContent).toContain("What will be sent");
+      expect(review.main.textContent).toContain("Synthetic review identity");
+      expect(review.main.textContent).toContain("Important notes before sending");
+      expect(review.main.textContent).toContain("not transmitted to GoldTier");
+      expect(container!.querySelectorAll("#case-review-and-send")).toHaveLength(1);
+      const sends = [...review.region.querySelectorAll("button")].filter(item => item.textContent?.startsWith("Confirm and send"));
+      expect(sends).toHaveLength(state === "NOT_SUBMITTED" ? 1 : 0);
+      if (state === "SUBMISSION_OUTCOME_UNCERTAIN") {
+        expect(target.main.querySelector("#case-target-recovery")).not.toBeNull();
+        expect(target.main.textContent).toContain("Director verification required");
+        expect(target.main.textContent).toContain("Repeating an unconfirmed write could create a duplicate");
+      }
+      expect(fetch.mock.calls.every(([url]) => String(url).endsWith("/target-status-check"))).toBe(true);
+      fetch.mockClear();
+      act(() => { for (const panel of [...target.support, ...review.support]) { panel.open = true; panel.open = false; } });
+      expect(fetch).not.toHaveBeenCalled(); client.clear();
+    },
+  );
+  it("retains Director recovery attestation in Main and ledger diagnostics in Technical", () => {
+    const client = setup(targetSummary("SUBMISSION_OUTCOME_UNCERTAIN"), { ...actorA, capabilities: [...actorA.capabilities, "TARGET_RECOVERY"] });
+    const { main, support } = partitions("GoldTier submission package");
+    expect(main.textContent).toContain("I verified this exact candidate");
+    expect(main.querySelector('input[type="checkbox"]')).not.toBeNull();
+    expect(main.querySelector("#case-target-recovery details")).toBeNull();
+    expect(support[1].textContent).toContain("Ledger state");
+    expect(support[1].textContent).toContain("OUTCOME_UNCERTAIN"); client.clear();
+  });
+  it.each([[false, false], [true, false], [false, true], [true, true]])("prints one complete appendix and restores support %s/%s with zero writes", (moreOpen, technicalOpen) => {
+    const fetch = vi.spyOn(globalThis, "fetch"); const print = vi.spyOn(window, "print").mockImplementation(() => undefined);
+    const client = setup(); const { main, support, region } = partitions("Final review & send");
+    act(() => { support[0].open = moreOpen; support[1].open = technicalOpen; });
+    act(() => { window.dispatchEvent(new Event("beforeprint")); });
+    expect(support.every(item => item.open)).toBe(true);
+    expect(main.textContent).toContain("What will be sent");
+    expect(region.textContent!.match(/Vocabulary version:/g)).toHaveLength(1);
+    expect(region.querySelectorAll(".review-and-send__technical-content")).toHaveLength(1);
+    act(() => { window.dispatchEvent(new Event("beforeprint")); window.dispatchEvent(new Event("afterprint")); });
+    expect(support.map(item => item.open)).toEqual([moreOpen, technicalOpen]);
+    expect(button("Confirm and send to Mock GoldTier").disabled).toBe(false);
+    click("Print / save PDF"); expect(print).toHaveBeenCalledTimes(1); expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each(["pending-retained", "failed-retained", "recovery"] as const)("qualifies %s target and final projections using the current query owner", async state => {
+    const summary = targetSummary(); const client = setup(summary); const key = caseQueryKeys.detail(actorA.user_id, CASE_A);
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => state === "pending-retained" ? pending : Promise.resolve(new Response("", { status: 503 })));
+    let refresh: Promise<void> | undefined;
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); if (state !== "pending-retained") await refresh; });
+    if (state === "recovery") { fetch.mockImplementation(async () => response(summary)); await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }); }); }
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    for (const name of ["GoldTier submission package", "Final review & send"]) {
+      const { main, support } = partitions(name);
+      for (const panel of [main, ...support]) {
+        if (state === "recovery") expect(panel.textContent).not.toContain("Last-confirmed");
+        else expect(panel.textContent).toContain("Last-confirmed");
+      }
+    }
+    if (state === "pending-retained") await act(async () => { release(response(summary)); await refresh; });
+    client.clear();
+  });
+  it("keeps preflight failure and safe continuation actions and focus anchors in Main", () => {
+    const summary = targetSummary();
+    summary.case.initial_identity = { legal_name: "Synthetic preflight identity", registration_number: "202400001A", country_of_incorporation: "SG" };
+    summary.clm.target_search_checkpoint = { status: "FAILED", disposition: "FAILED" } as NonNullable<ZeroTouchCaseSummary["clm"]["target_search_checkpoint"]>;
+    summary.clm.submission_plan.request_preview!.dispatch_ready = false;
+    const client = setup(summary); let target = partitions("GoldTier submission package");
+    expect(target.main.textContent).toContain("GoldTier availability check needed");
+    expect(target.main.textContent).toContain("No target write was attempted");
+    expect(target.main.querySelector("#target-preflight-title")).not.toBeNull();
+    expect(button("Check GoldTier availability").closest("details")).toBeNull();
+    const continued = targetSummary("FINALIZATION_PENDING"); continued.status = "RECOVERY_PENDING";
+    act(() => { client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), continued); }); renderCase(client, actorA, CASE_A);
+    target = partitions("GoldTier submission package");
+    expect(target.main.querySelector("#target-continuation-title")).not.toBeNull();
+    expect(target.main.querySelector("#case-evidence-recovery")).not.toBeNull();
+    expect(button("Complete safe recovery").closest("details")).toBeNull();
+    expect(target.main.textContent).toContain("Previously completed or verified steps will not be sent again"); client.clear();
+  });
+  it("ignores an older failed target read after a newer confirmed current read", async () => {
+    const client = setup(); const key = caseQueryKeys.detail(actorA.user_id, CASE_A);
+    let release!: (value: Response) => void; const old = new Promise<Response>(resolve => { release = resolve; });
+    const next = targetSummary("SUBMISSION_CONFIRMED"); next.version = 2;
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValueOnce(old).mockImplementation(async () => response(next));
+    let refresh: Promise<void> | undefined;
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    const signal = (fetch.mock.calls[0][1] as RequestInit).signal;
+    await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }, { cancelRefetch: true, throwOnError: true }); });
+    await act(async () => { release(new Response("", { status: 503 })); await refresh; await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(signal?.aborted).toBe(true); expect(client.getQueryState(key)?.status).toBe("success");
+    for (const name of ["GoldTier submission package", "Final review & send"]) {
+      const { main, support } = partitions(name);
+      for (const panel of [main, ...support]) { expect(panel.textContent).not.toContain("information could not be loaded"); expect(panel.textContent).not.toContain("Last-confirmed"); }
+    }
+    expect(partitions("GoldTier submission package").main.textContent).toContain("SUBMISSION_CONFIRMED");
+    expect([...container!.querySelectorAll("button")].some(item => item.textContent?.startsWith("Confirm and send"))).toBe(false);
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
+  it("retires support and late target evidence across case, actor and authenticated session replacement", async () => {
+    const client = setup(); const key = caseQueryKeys.detail(actorA.user_id, CASE_A);
+    const oldReview = partitions("Final review & send"); act(() => { oldReview.support[0].open = true; oldReview.support[1].open = true; });
+    let release!: (value: Response) => void; const old = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(old); let refresh: Promise<void> | undefined;
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    const signal = (fetch.mock.calls[0][1] as RequestInit).signal;
+    act(() => { root!.unmount(); root = null; clearSessionQueries(client); });
+    seedCase(client, actorB, CASE_B, "new-session-analysis", "NEXT");
+    const current = targetSummary(); current.case.case_id = CASE_B;
+    client.setQueryData(caseQueryKeys.detail(actorB.user_id, CASE_B), current); renderCase(client, actorB, CASE_B);
+    const late = targetSummary("SUBMISSION_CONFIRMED"); late.case.requested_uen = "LATE_OLD";
+    await act(async () => { release(response(late)); await refresh; await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(signal?.aborted).toBe(true); expect(client.getQueryData(key)).toBeUndefined();
+    expect(container!.textContent).not.toContain("LATE_OLD");
+    for (const name of ["GoldTier submission package", "Final review & send"]) expect(partitions(name).support.every(item => !item.open)).toBe(true);
+    expect(partitions("GoldTier submission package").main.textContent).toContain("NOT_SUBMITTED"); client.clear();
   });
 
 });

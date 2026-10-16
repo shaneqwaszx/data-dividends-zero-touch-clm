@@ -284,11 +284,12 @@ async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
   await expect(panel.getByRole("button", { name: /Resolve/ })).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "Check GoldTier status", exact: true })).toBeEnabled();
   await expect(page.locator(".case-technical-failure")).toHaveCount(0);
-  await expect(panel.locator("details")).not.toHaveAttribute("open", "");
-  await panel.getByText("Technical details", { exact: true }).focus();
+  const targetTechnical = page.getByText("Technical details — GoldTier submission package", { exact: true }).locator("..");
+  await expect(targetTechnical).not.toHaveAttribute("open", "");
+  await targetTechnical.locator(":scope > summary").focus();
   await page.keyboard.press("Enter");
-  await expect(panel.locator("details")).toHaveAttribute("open", "");
-  await expect(panel.getByText("CLM_TARGET_OUTCOME_UNCERTAIN", { exact: true })).toBeVisible();
+  await expect(targetTechnical).toHaveAttribute("open", "");
+  await expect(targetTechnical.getByText("CLM_TARGET_OUTCOME_UNCERTAIN", { exact: true })).toBeVisible();
   for (const width of [320, 720, 1280]) {
     await page.setViewportSize({ width, height: 1000 });
     expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
