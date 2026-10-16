@@ -742,13 +742,17 @@ test("Search and Registry disclosure keeps Main visible with independent native 
   const caseId = await openNewCase(page, lowConfidenceFixture);
   await waitForCaseStatus(page, caseId, ["WAITING_FOR_REVIEW"]);
   await page.goto(`/cases/${caseId}`);
+  const retainedOwnershipResponse = await page.request.get(`/api/onboarding/cases/${caseId}/ownership`);
+  expect([200, 404]).toContain(retainedOwnershipResponse.status());
+  // Match fetchOwnership: an authorized absent ownership record projects null.
+  const retainedOwnership = retainedOwnershipResponse.status() === 404 ? null : await retainedOwnershipResponse.json();
   const mutations: string[] = [];
   page.on("request", request => {
     if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(request.method());
   });
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const name of ["Registry verification", "Existing-customer search", "Document verification"]) {
+    for (const name of ["Registry verification", "Existing-customer search", "Document verification", "Ownership & UBO", "Submission readiness"]) {
       const section = page.getByRole("region", { name, exact: true });
       const more = section.locator(":scope > details").filter({ has: page.getByText(`More details — ${name}`, { exact: true }) });
       const technical = section.locator(":scope > details").filter({ has: page.getByText(`Technical details — ${name}`, { exact: true }) });
@@ -766,6 +770,21 @@ test("Search and Registry disclosure keeps Main visible with independent native 
         await expect(choice).toHaveValue("REJECTED");
         await expect(section.getByText("Supporting document evidence", { exact: true })).toBeHidden();
         await expect(section.getByRole("heading", { name: "Document processing provenance", exact: true })).toBeHidden();
+      }
+      if (name === "Ownership & UBO") {
+        if (retainedOwnership) {
+          await expect(section.getByRole("heading", { name: "Ownership path explorer", exact: true })).toBeVisible();
+          await expect(section.getByLabel("Hierarchical ownership structure", { exact: true })).toBeVisible();
+        } else {
+          // Document review stops this fixture before ownership acquisition.
+          await expect(section.locator(":scope > div").first()).toContainText("No ownership analysis is retained in the confirmed response.");
+          await expect(section.getByLabel("Hierarchical ownership structure", { exact: true })).toHaveCount(0);
+        }
+        await expect(section.getByText("Technical calculations and retained paths", { exact: true })).toHaveCount(0);
+      }
+      if (name === "Submission readiness") {
+        await expect(section.getByLabel("Backend-projected readiness", { exact: true })).toBeVisible();
+        await expect(section.getByText("System-set Singapore values", { exact: true })).toBeVisible();
       }
       await expect(more).not.toHaveAttribute("open", "");
       await expect(technical).not.toHaveAttribute("open", "");
@@ -792,6 +811,12 @@ test("Search and Registry disclosure keeps Main visible with independent native 
         await expect(technical.locator("button, input, select, textarea")).toHaveCount(0);
         await expect(more.locator("button, input, select, textarea")).toHaveCount(0);
         await expect(section.locator("select[data-review-field]").first()).toHaveValue("REJECTED");
+      }
+      if (["Ownership & UBO", "Submission readiness"].includes(name)) {
+        await expect(technical.locator("details, button, input, select, textarea")).toHaveCount(0);
+        await expect(more.locator("details, button, input, select, textarea")).toHaveCount(0);
+        const ids = await section.locator("[id]").evaluateAll(elements => elements.map(element => element.id));
+        expect(new Set(ids).size).toBe(ids.length);
       }
       await page.keyboard.press("Enter");
       await expect(technical.locator(":scope > div")).toBeHidden();

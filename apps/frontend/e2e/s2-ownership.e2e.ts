@@ -100,7 +100,7 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   await expect(page.locator(".s2-ownership-summary")).toContainText("1 retained natural-person candidate");
   await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true })).toBeFocused();
   await openStage(page, "Ownership & UBO");
-  const disclosure = page.locator(".s2-ownership-structure");
+  const disclosure = page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > details").filter({ has: page.getByText("Technical details — Ownership & UBO", { exact: true }) });
   await expect(disclosure).not.toHaveAttribute("open", "");
   const toggle = disclosure.locator(":scope > summary");
   await toggle.focus();
@@ -109,7 +109,7 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   await expect(toggle).toBeFocused();
   await expect(disclosure).toHaveAttribute("open", "");
   await expect(disclosure.getByText(revised.candidates[0].paths[0].calculation, { exact: true }).first()).toBeVisible();
-  for (const width of [320, 720, 1280]) {
+  for (const width of [320, 360, 720, 900, 1280, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
     await expect(toggle).toBeVisible();
@@ -268,15 +268,15 @@ for (const interaction of ["keyboard", "pointer", "none"] as const) {
     await expect(page.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Edit ownership", exact: true }).click();
     await expect(form.locator("input:not([disabled]):not([readonly]), select:not([disabled]), button:not([disabled])").first()).toBeFocused();
-    const oldSummary = await page.locator(".s2-ownership-structure > summary").elementHandle();
-    expect(oldSummary).not.toBeNull();
+    const oldAnalysis = await page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > details").filter({ has: page.getByText("Technical details — Ownership & UBO", { exact: true }) }).locator(".ownership-support-panel").elementHandle();
+    expect(oldAnalysis).not.toBeNull();
     await gateOwnershipReturnFrames(page);
     try {
       await submitDecision(page);
       const revised = await ownership(page, caseId);
       expect(revised.state).toBe("ANALYZED");
       expect(revised.analysis_id).not.toBe(first.analysis_id);
-      await expect.poll(() => oldSummary!.evaluate((element) => element.isConnected)).toBe(false);
+      await expect.poll(() => oldAnalysis!.evaluate((element) => element.isConnected)).toBe(false);
       await expect.poll(() => page.evaluate(() => (window as unknown as { s2FocusFrames: { pending: () => number } }).s2FocusFrames.pending())).toBeGreaterThan(0);
       if (timing === "nested handoff") {
         await page.evaluate(async () => {
@@ -286,7 +286,7 @@ for (const interaction of ["keyboard", "pointer", "none"] as const) {
         });
         await expect.poll(() => page.evaluate(() => (window as unknown as { s2FocusFrames: { pending: () => number } }).s2FocusFrames.pending())).toBeGreaterThan(0);
       }
-      const disclosure = page.locator(".s2-ownership-structure");
+      const disclosure = page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > details").filter({ has: page.getByText("Technical details — Ownership & UBO", { exact: true }) });
       const toggle = disclosure.locator(":scope > summary");
       await expect(toggle).toBeVisible();
       await expect(disclosure).not.toHaveAttribute("open", "");

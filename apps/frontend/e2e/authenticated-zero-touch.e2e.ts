@@ -1116,9 +1116,9 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
     local: { ...localStorage },
     session: { ...sessionStorage },
   }));
-  const ownershipStructure = page.locator(".s2-ownership-structure");
+  const ownershipStructure = page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > details").filter({ has: page.getByText("Technical details — Ownership & UBO", { exact: true }) });
   await expect(ownershipStructure).not.toHaveAttribute("open", "");
-  const calculations = ownershipStructure.getByText("Technical calculations and retained paths", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
+  const calculations = ownershipStructure.getByText("Technical details — Ownership & UBO", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
   await expect(page.locator('[aria-label="Ownership candidates"]')).toHaveCount(0);
   const hierarchy = page.getByRole("table", { name: "Ownership hierarchy", exact: true });
   const candidate = hierarchy.getByRole("button", { name: expectedCandidate.party.display_name, exact: true });
