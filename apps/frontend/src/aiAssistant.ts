@@ -27,6 +27,8 @@ export interface AiAssistantAnswer {
   model: string | null;
   notice: string | null;
   suggested_questions: string[];
+  /** Model answers only: why sentences were left out (reason codes) and disclosures added. */
+  checks?: { removed: string[]; disclosures: string[] } | null;
 }
 
 export class AiAssistantError extends Error {

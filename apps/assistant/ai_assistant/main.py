@@ -27,7 +27,7 @@ from .briefing import fallback_answer, opening_message, suggested_questions
 from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, ClmBackendError
 from .config import AiAssistantSettings
 from .context import build_case_facts
-from .guardrails import StreamingGuard, guard_answer
+from .guardrails import StreamingGuard, Validation, validate_answer
 from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel
 from .prompts import build_messages, prefix_messages
 from .small_talk import small_talk_reply
@@ -56,12 +56,21 @@ class BriefResponse(BaseModel):
     steps_total: int
 
 
+class AnswerChecks(BaseModel):
+    """What grounding and policy validation did to a model answer (reason codes only)."""
+
+    removed: list[str]
+    disclosures: list[str]
+
+
 class ChatResponse(BaseModel):
     answer: str
     answered_by: Literal["model", "case_data"]
     model: str | None
     notice: str | None
     suggested_questions: list[str]
+    # Set for model answers: why sentences were left out, and the disclosures added.
+    checks: AnswerChecks | None = None
 
 
 class HealthResponse(BaseModel):
@@ -72,6 +81,22 @@ class HealthResponse(BaseModel):
 
 FALLBACK_NOTICE = "The AI model is not available, so this answer comes straight from the case data."
 CUT_SHORT_NOTICE = "This answer was cut short. Ask me to continue for the rest."
+
+
+def _model_reply(
+    validation: Validation, *, model_name: str, cut_short: bool, suggestions: list[str]
+) -> "ChatResponse":
+    notices = [n for n in (validation.notice(), CUT_SHORT_NOTICE if cut_short else None) if n]
+    return ChatResponse(
+        answer=validation.text,
+        answered_by="model",
+        model=model_name,
+        notice=" ".join(notices) or None,
+        suggested_questions=suggestions,
+        checks=AnswerChecks(
+            removed=list(validation.removed), disclosures=list(validation.disclosures)
+        ),
+    )
 
 
 def create_app(
@@ -140,15 +165,14 @@ def create_app(
         if model is not None:
             try:
                 reply = model.complete(messages)
-                answer = guard_answer(reply.text, facts)
-                if not answer:
-                    raise LlmUnavailableError("nothing left after guardrails")
-                return ChatResponse(
-                    answer=answer,
-                    answered_by="model",
-                    model=model.name,
-                    notice=CUT_SHORT_NOTICE if reply.cut_short else None,
-                    suggested_questions=suggestions,
+                validation = validate_answer(reply.text, facts)
+                if not validation.text:
+                    raise LlmUnavailableError("nothing left after validation")
+                return _model_reply(
+                    validation,
+                    model_name=model.name,
+                    cut_short=reply.cut_short,
+                    suggestions=suggestions,
                 )
             except LlmUnavailableError:
                 pass
@@ -208,29 +232,24 @@ def create_app(
                     shown = guard.feed(piece.text) if piece.text else None
                     if shown is not None:
                         yield line({"type": "text", "text": shown})
-                answer = guard.finish()
-                if answer:
+                validation = guard.finish()
+                if validation.text:
                     yield done(
-                        ChatResponse(
-                            answer=answer,
-                            answered_by="model",
-                            model=model.name,
-                            notice=CUT_SHORT_NOTICE if cut_short else None,
-                            suggested_questions=suggestions,
+                        _model_reply(
+                            validation,
+                            model_name=model.name,
+                            cut_short=cut_short,
+                            suggestions=suggestions,
                         )
                     )
                     return
             except LlmUnavailableError:
                 partial = guard.finish()
-                if partial:
+                if partial.text:
                     # Keep what the RM has already read, and say it stopped early.
                     yield done(
-                        ChatResponse(
-                            answer=partial,
-                            answered_by="model",
-                            model=model.name,
-                            notice=CUT_SHORT_NOTICE,
-                            suggested_questions=suggestions,
+                        _model_reply(
+                            partial, model_name=model.name, cut_short=True, suggestions=suggestions
                         )
                     )
                     return

@@ -116,7 +116,7 @@ def test_streaming_guard_waits_for_the_end_of_a_sentence() -> None:
     guard = StreamingGuard(FACTS)
     assert guard.feed("Keep the regis") is None
     assert guard.feed("try value. Then") == "Keep the registry value."
-    assert guard.finish() == "Keep the registry value. Then"
+    assert guard.finish().text == "Keep the registry value. Then"
 
 
 def test_openai_compatible_client_reads_a_streamed_reply() -> None:

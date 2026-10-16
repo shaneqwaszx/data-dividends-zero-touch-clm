@@ -67,6 +67,25 @@ case being onboarded on **New onboarding** (once it has been created). Its butto
 page for easy access; elsewhere it asks the RM to open or start a case. It keeps a separate
 conversation per case and requests nothing until it is opened.
 
+## Grounding and policy validation
+
+Every model answer is checked by code (`ai_assistant/guardrails.py`) before the RM sees it,
+one sentence at a time (also while streaming). A sentence that fails is left out, and the
+answer's notice says how many were left out; the reply's `checks` lists the reasons.
+
+| Check | Left out when | Reason code |
+|---|---|---|
+| Factual claims | a UEN, postal code, unit number, score or long number is not in the case facts | `unsupported_value` |
+| | "N of M steps" does not match the case | `wrong_step_count` |
+| | a quoted button or label, or a contact, is not in the facts | `invented_label`, `invented_contact` |
+| Action permissions | it tells the RM to take an action this case does not offer them (keep/use a value, accept/reject a document suggestion, record a correction, request information, approve, submit to GoldTier). Saying an action is not available is fine | `action_not_allowed` |
+| Disclosures | it calls a mock/sandbox system live or production | `live_claim` |
+| | it presents a document value that differs from ACRA as confirmed | `document_value_as_fact` |
+
+When an answer uses registry data from a registry that is not live, a notice says so
+(for example "Registry data in this case comes from ACRA (MOCK) …"). If nothing is left
+after the checks, the answer comes from the case data instead.
+
 ## Speed
 
 A small model on a laptop is slow, so the AI Assistant keeps the model's work small:
