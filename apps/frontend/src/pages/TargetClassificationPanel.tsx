@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import type { GoldTierTargetClassification } from "../types";
+import type { GoldTierTargetClassification, GoldTierTargetClassificationField } from "../types";
 
 interface TargetClassificationInput {
   kyc_customer_type: string;
@@ -17,11 +17,13 @@ export default function TargetClassificationPanel({
   disabled,
   onSubmit,
   reviewRequested = false,
+  presentation = "full",
 }: {
   classification: GoldTierTargetClassification;
   disabled: boolean;
   onSubmit: (input: TargetClassificationInput) => Promise<void>;
   reviewRequested?: boolean;
+  presentation?: "full" | "main";
 }) {
   const [kycCustomerType, setKycCustomerType] = useState(
     classification.kyc_customer_type.selected_value ?? "",
@@ -73,25 +75,14 @@ export default function TargetClassificationPanel({
       </p>
       {reviewRequested && <p className="control-help">Review the current values explicitly. The backend checks the selected vocabulary and current document evidence again before preparing a new submission.</p>}
 
-      {classification.evidence_values && (
-        <div aria-label="Current trusted classification values">
-          <p>Current trusted KYC customer types: {classification.evidence_values.kyc_customer_type?.join("; ") || "None"}</p>
-          <p>Current trusted client segments: {classification.evidence_values.client_segment?.join("; ") || "None"}</p>
-        </div>
-      )}
+      <ClassificationEvidenceValues classification={classification} />
       <div aria-label="Classification source">
         {[classification.kyc_customer_type, classification.client_segment].map((field, index) => (
           <div key={index}>
             <p><strong>{index === 0 ? "KYC customer type" : "Client segment"}:</strong> {field.selected_value ?? "Unresolved"}
               {field.selection?.source === "DOCUMENT" ? " · Automatically classified from document" : field.selection?.source === "USER" ? " · Selected by user" : field.selected_value ? " · Retained selection; source not recorded" : " · User selection required"}</p>
-            {field.selection && <details><summary>Selection evidence and technical authority</summary>
-              <p>Policy version {field.selection.policy_version} · Vocabulary {field.selection.vocabulary_version} · {authorityLabel(field.authority)}</p>
-              <p>Classified at {field.selection.classified_at}</p>
-              {field.selection.document_evidence && <p>Document {field.selection.document_evidence.document_id} · version {field.selection.document_evidence.document_version}
-                {" · event "}{field.selection.document_evidence.document_event_count}{" · page "}{field.selection.document_evidence.page_number}
-                {" · "}{field.selection.document_evidence.source_reference}{" · "}{field.selection.document_evidence.extraction_method}
-                {" · "}{field.selection.document_evidence.extraction_quality}{" · score "}{field.selection.document_evidence.evidence_score}
-                {" · extracted value: "}{field.selection.document_evidence.extracted_exact_value}</p>}
+            {presentation === "full" && field.selection && <details><summary>Selection evidence and technical authority</summary>
+              <ClassificationSelectionAuthority field={field} />
             </details>}
           </div>
         ))}
@@ -167,4 +158,50 @@ export default function TargetClassificationPanel({
       )}
     </section>
   );
+}
+
+/** Read-only classification context; editable state stays in the Main panel. */
+export function TargetClassificationDetails({ classification, presentation }: {
+  classification: GoldTierTargetClassification; presentation: "more" | "technical";
+}) {
+  return <section className="classification-support-panel">
+    <h4>{presentation === "more" ? "Supporting classification evidence" : "Classification authority metadata"}</h4>
+    {presentation === "more" ? <>
+      <p>Trusted document classification and retained user choices remain distinct. GoldTier KYC and four-eye approval remain separate.</p>
+      {[classification.kyc_customer_type, classification.client_segment].map((field, index) => <p key={index}>{index === 0 ? "KYC customer type" : "Client segment"}: {field.selected_value ?? "Unresolved"} · {field.selection?.source ?? "Source not recorded"}</p>)}
+    </> : <>
+      <p>Evidence fingerprint: {classification.evidence_fingerprint ?? "Not recorded"}</p>
+      <p>Vocabulary: {classification.vocabulary_version} · Currentness: {classification.current == null ? "Not recorded" : String(classification.current)} · Evidence state: {classification.evidence_state ?? "Not recorded"}</p>
+      {[classification.kyc_customer_type, classification.client_segment].map((field, index) => <section key={index}>
+        <h5>{index === 0 ? "KYC customer type" : "Client segment"}</h5>
+        <p>Source {field.selection?.source ?? "Not recorded"} · Authority {authorityLabel(field.authority)}</p>
+        <ClassificationSelectionAuthority field={field} />
+      </section>)}
+    </>}
+  </section>;
+}
+
+function ClassificationEvidenceValues({ classification }: { classification: GoldTierTargetClassification }) {
+  return <>
+      {classification.evidence_values && (
+        <div aria-label="Current trusted classification values">
+          <p>Current trusted KYC customer types: {classification.evidence_values.kyc_customer_type?.join("; ") || "None"}</p>
+          <p>Current trusted client segments: {classification.evidence_values.client_segment?.join("; ") || "None"}</p>
+        </div>
+      )}
+
+  </>;
+}
+
+function ClassificationSelectionAuthority({ field }: { field: GoldTierTargetClassificationField }) {
+  if (!field.selection) return null;
+  return <>
+              <p>Policy version {field.selection.policy_version} · Vocabulary {field.selection.vocabulary_version} · {authorityLabel(field.authority)}</p>
+              <p>Classified at {field.selection.classified_at}</p>
+              {field.selection.document_evidence && <p>Document {field.selection.document_evidence.document_id} · version {field.selection.document_evidence.document_version}
+                {" · event "}{field.selection.document_evidence.document_event_count}{" · page "}{field.selection.document_evidence.page_number}
+                {" · "}{field.selection.document_evidence.source_reference}{" · "}{field.selection.document_evidence.extraction_method}
+                {" · "}{field.selection.document_evidence.extraction_quality}{" · score "}{field.selection.document_evidence.evidence_score}
+                {" · extracted value: "}{field.selection.document_evidence.extracted_exact_value}</p>}
+  </>;
 }

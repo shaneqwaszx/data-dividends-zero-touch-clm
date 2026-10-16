@@ -191,9 +191,9 @@ for (const choice of ["DOCUMENT", "OTHER"] as const) {
     expect(corrected.case.identity_corrections.at(-1).previous_identity.registration_number).toBe("202400001A");
     await openStage(page, "Ownership & UBO");
     await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
-    const ownershipStructure = page.locator(".s2-ownership-structure");
+    const ownershipStructure = page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > details").filter({ has: page.getByText("Technical details — Ownership & UBO", { exact: true }) });
     await expect(ownershipStructure).not.toHaveAttribute("open", "");
-    const calculations = ownershipStructure.getByText("Technical calculations and retained paths", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
+    const calculations = ownershipStructure.getByText("Technical details — Ownership & UBO", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
     const evidence = page.getByLabel("Original ownership evidence", { exact: true });
     await expect(evidence).toBeVisible();
     await expect(evidence).toContainText("202400009I");

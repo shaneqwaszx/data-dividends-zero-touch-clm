@@ -1229,3 +1229,265 @@ describe("Automation polling document read authority", () => {
   });
 
 });
+
+
+describe("Ownership and Readiness persistent disclosure", () => {
+  function stage(title: string): HTMLElement {
+    const found = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")]
+      .find(item => item.querySelector(":scope > h2")?.textContent === title);
+    expect(found).toBeTruthy(); return found!;
+  }
+  function partitions(title: string) {
+    const region = stage(title);
+    expect(region.querySelector(":scope > h2 button")).toBeNull();
+    const support = [...region.querySelectorAll<HTMLDetailsElement>(":scope > details")];
+    expect(support.map(item => item.querySelector("summary")?.textContent)).toEqual([
+      `More details — ${title}`, `Technical details — ${title}`,
+    ]);
+    return { region, main: region.querySelector<HTMLElement>(":scope > div")!, support };
+  }
+  function editableSummary() {
+    const summary = summaryFixture(CASE_A);
+    summary.ownership_edit_authorized = true;
+    summary.ownership_recovery = { analysis_id: "analysis-a", version: 3, state: "ANALYZED", manual_evidence_action: null, review_receipt: null };
+    summary.clm.version = 7;
+    summary.target_classification = {
+      vocabulary_version: "synthetic-v1", evidence_fingerprint: "fingerprint-a", current: true, editable: true,
+      kyc_customer_type: { allowed_values: ["Company - Private", "Government"], selected_value: null, authority: null, required: true },
+      client_segment: { allowed_values: ["Corporate"], selected_value: null, authority: null, required: true },
+    };
+    summary.case.policy_rebind = {
+      revision: 1, configuration_status: "REQUIRES_REBIND", accepted_poc_fields: [], editable_fields: ["kycCustomerType", "clientSegment"],
+      upstream_fields: ["registrationNumber"], unavailable_fields: [], last_rebound_by: null, last_rebound_at: null,
+      last_rationale: null, last_changed_fields: [],
+    };
+    return summary;
+  }
+  function setup() {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "a");
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), editableSummary());
+    client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), [{ ...documentFixture(CASE_A), state: "REVIEWED" }]);
+    return client;
+  }
+  function input(element: HTMLTextAreaElement, value: string) {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(element, value);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  it("keeps the graph, candidate/path inspection and single authorized correction in Main", () => {
+    const client = setup(); const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    const { main, support, region } = partitions("Ownership & UBO");
+    expect(support.every(item => !item.open)).toBe(true);
+    expect(main.querySelector(".manual-ownership form")).not.toBeNull();
+    expect(main.querySelector('[aria-label="Hierarchical ownership structure"]')).not.toBeNull();
+    expect(main.querySelector('[aria-label="Selected retained path a-path-1"]')).not.toBeNull();
+    expect(main.querySelector('button[aria-pressed]')).not.toBeNull();
+    expect(region.querySelectorAll(".manual-ownership form")).toHaveLength(1);
+    for (const panel of support) expect(panel.querySelector("button, input, select, textarea, details")).toBeNull();
+    act(() => { support[0].open = true; }); expect(support[1].open).toBe(false);
+    act(() => { support[1].open = true; support[0].open = false; });
+    expect(main.textContent).toContain("37.5%"); expect(main.textContent).toContain("GREATER_THAN_OR_EQUAL_TO");
+    expect(main.textContent).toContain("LOCAL");
+    expect(support[1].textContent).toContain("37.500000000000000010");
+    const ids = [...region.querySelectorAll("[id]")].map(item => item.id);
+    expect(new Set(ids).size).toBe(ids.length); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("keeps readiness blockers, rebind and vocabulary-bound classification forms in Main", () => {
+    const client = setup(); const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    const { main, support, region } = partitions("Submission readiness");
+    expect(support.every(item => !item.open)).toBe(true);
+    expect(main.textContent).toContain("Retained document conflict requires review.");
+    expect(main.textContent).toContain("Registry: READY");
+    expect(main.querySelector("#policy-rebind-rationale")).not.toBeNull();
+    expect(main.querySelectorAll("select")).toHaveLength(2);
+    expect([...main.querySelectorAll<HTMLSelectElement>("select")].map(select => [...select.options].map(option => option.value)))
+      .toEqual([["", "Company - Private", "Government"], ["", "Corporate"]]);
+    expect(main.querySelectorAll("details")).toHaveLength(0);
+    for (const panel of support) expect(panel.querySelector("button, input, select, textarea, details")).toBeNull();
+    expect(support[1].textContent).toContain("fingerprint-a"); expect(support[1].textContent).toContain("synthetic-v1");
+    const ids = [...region.querySelectorAll("[id]")].map(item => item.id);
+    expect(new Set(ids).size).toBe(ids.length); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("preserves all three drafts and path selection through support toggles and harmless refresh", async () => {
+    const client = setup(); const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    const owner = partitions("Ownership & UBO"); const readiness = partitions("Submission readiness");
+    const note = owner.main.querySelector<HTMLTextAreaElement>('[name="rationale"]')!;
+    const rationale = readiness.main.querySelector<HTMLTextAreaElement>("#policy-rebind-rationale")!;
+    const select = readiness.main.querySelector<HTMLSelectElement>('select[aria-label="KYC customer type"]')!;
+    act(() => { input(note, "Unsaved ownership note"); input(rationale, "Unsaved rebind rationale");
+      select.value = "Government"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    click("Inspect a-path-2");
+    act(() => { for (const section of [...owner.support, ...readiness.support]) { section.open = true; section.open = false; } });
+    await act(async () => { client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), { ...editableSummary(), updated_at: "2026-10-16T03:00:00Z" }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(note.isConnected).toBe(true); expect(note.value).toBe("Unsaved ownership note");
+    expect(rationale.isConnected).toBe(true); expect(rationale.value).toBe("Unsaved rebind rationale");
+    expect(select.isConnected).toBe(true); expect(select.value).toBe("Government");
+    expect(owner.main.querySelector('[aria-label="Selected retained path a-path-2"]')).not.toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each(["fingerprint", "policy revision", "actor", "case"] as const)("retires incompatible readiness drafts at %s", async change => {
+    const client = setup(); seedCase(client, actorB, CASE_A, "analysis-b", "b"); seedCase(client, actorA, CASE_B, "analysis-b", "b");
+    client.setQueryData(caseQueryKeys.detail(actorB.user_id, CASE_A), editableSummary());
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_B), { ...editableSummary(), case: { ...editableSummary().case, case_id: CASE_B } });
+    renderCase(client, actorA, CASE_A); const { main } = partitions("Submission readiness");
+    const rationale = main.querySelector<HTMLTextAreaElement>("#policy-rebind-rationale")!;
+    const select = main.querySelector<HTMLSelectElement>('select[aria-label="KYC customer type"]')!;
+    act(() => { input(rationale, "Old case policy rationale"); select.value = "Government"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    if (change === "actor") renderCase(client, actorB, CASE_A);
+    else if (change === "case") renderCase(client, actorA, CASE_B);
+    else await act(async () => { const next = editableSummary();
+      if (change === "fingerprint") next.target_classification = { ...next.target_classification!, evidence_fingerprint: "fingerprint-new" };
+      else next.case.policy_rebind = { ...next.case.policy_rebind!, revision: 2 };
+      client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), next); await new Promise(resolve => setTimeout(resolve, 0)); });
+    const next = partitions("Submission readiness").main;
+    if (change !== "fingerprint") expect(next.querySelector<HTMLTextAreaElement>("#policy-rebind-rationale")!.value).toBe("");
+    if (change !== "policy revision") expect(next.querySelector<HTMLSelectElement>('select[aria-label="KYC customer type"]')!.value).toBe("");
+  });
+  it.each(["loading", "failed-empty", "confirmed-empty", "failed-retained", "pending-retained", "recovery"] as const)(
+    "truthfully projects %s ownership reads in every partition", async state => {
+      const client = setup(); const key = caseQueryKeys.ownership(actorA.user_id, CASE_A);
+      if (["loading", "failed-empty"].includes(state)) client.removeQueries({ queryKey: key, exact: true });
+      if (state === "confirmed-empty") client.setQueryData(key, null);
+      let release!: (value: Response) => void;
+      const pending = new Promise<Response>(resolve => { release = resolve; });
+      const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => ["loading", "pending-retained"].includes(state)
+        ? pending : Promise.resolve(new Response("", { status: 503 })));
+      renderCase(client, actorA, CASE_A);
+      let refresh: Promise<void> | undefined;
+      if (["failed-retained", "pending-retained", "recovery"].includes(state)) await act(async () => {
+        refresh = client.invalidateQueries({ queryKey: key, exact: true });
+        if (state !== "pending-retained") await refresh;
+      });
+      if (state === "recovery") {
+        fetch.mockImplementation(async () => response(ownershipFixture(CASE_A, "analysis-a", "a")));
+        await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }); });
+      } else if (state.startsWith("failed")) await vi.waitFor(() => expect(client.getQueryState(key)?.status).toBe("error"));
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+      const { main, support } = partitions("Ownership & UBO");
+      const calls = fetch.mock.calls.length;
+      for (const panel of [main, ...support]) {
+        if (panel instanceof HTMLDetailsElement) act(() => { panel.open = true; });
+        if (state === "confirmed-empty") expect(panel.textContent).toContain("No ownership analysis is retained in the confirmed response.");
+        else if (state === "recovery") expect(panel.textContent).not.toContain("could not be loaded");
+        else {
+          const notice = panel.querySelector(state.startsWith("failed") ? "[role=alert]" : "[role=status]");
+          expect(notice).not.toBeNull();
+          expect(notice!.textContent).toContain(state.startsWith("failed") ? "Ownership information could not be loaded." : "Loading ownership information");
+          if (state.endsWith("retained")) expect(notice!.textContent).toContain("Last-confirmed ownership information");
+          expect(panel.textContent).not.toContain("No ownership analysis is retained");
+        }
+      }
+      expect(fetch.mock.calls).toHaveLength(calls);
+      if (["loading", "pending-retained"].includes(state)) await act(async () => { release(response(null)); await refresh; });
+      client.clear();
+    },
+  );
+  it.each(["failed-retained", "pending-retained", "recovery"] as const)("qualifies %s readiness instead of claiming current success", async state => {
+    const client = setup(); const key = caseQueryKeys.detail(actorA.user_id, CASE_A);
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => state === "pending-retained" ? pending : Promise.resolve(new Response("", { status: 503 })));
+    renderCase(client, actorA, CASE_A); let refresh: Promise<void> | undefined;
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); if (state !== "pending-retained") await refresh; });
+    if (state === "recovery") { fetch.mockImplementation(async () => response(editableSummary())); await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }); }); }
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    const { main, support } = partitions("Submission readiness");
+    for (const panel of [main, ...support]) {
+      if (panel instanceof HTMLDetailsElement) act(() => { panel.open = true; });
+      if (state === "recovery") expect(panel.textContent).not.toContain("could not be loaded");
+      else {
+        const notice = panel.querySelector(state === "failed-retained" ? "[role=alert]" : "[role=status]");
+        expect(notice).not.toBeNull(); expect(notice!.textContent).toContain("Last-confirmed readiness information");
+        expect(panel.textContent).not.toContain("No readiness evidence");
+        for (const control of main.querySelectorAll<HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement>("form button, form select, form textarea")) expect(control.disabled).toBe(true);
+      }
+    }
+    if (state === "pending-retained") await act(async () => { release(response(editableSummary())); await refresh; });
+    client.clear();
+  });
+  it.each(["loading", "failed-empty"] as const)("keeps %s initial case/readiness unavailable without inferred success", async state => {
+    const client = createTestClient();
+    client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), []);
+    client.setQueryData(caseQueryKeys.ownership(actorA.user_id, CASE_A), null);
+    client.setQueryData(caseQueryKeys.intelligence(actorA.user_id, CASE_A), null);
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => state === "loading" ? pending : Promise.resolve(new Response("", { status: 503 })));
+    renderCase(client, actorA, CASE_A);
+    if (state === "failed-empty") await vi.waitFor(() => expect(client.getQueryState(caseQueryKeys.detail(actorA.user_id, CASE_A))?.status).toBe("error"));
+    expect(container!.querySelector('[aria-label="Backend-projected readiness"]')).toBeNull();
+    expect(container!.textContent).not.toContain("No readiness evidence");
+    expect(container!.textContent).not.toContain("Current accepted POC");
+    expect(container!.querySelector("form")).toBeNull();
+    if (state === "loading") {
+      expect(container!.textContent).toContain("Loading case");
+      await act(async () => { release(response(summaryFixture(CASE_A))); });
+    }
+    client.clear();
+  });
+  it("shows confirmed missing readiness inputs and the backend blockers without manufacturing a result", () => {
+    const client = setup(); const summary = summaryFixture(CASE_A);
+    summary.target_classification = { ...editableSummary().target_classification!, evidence_state: "NO_EVIDENCE", current: false };
+    summary.case.policy_rebind = undefined;
+    summary.clm.readiness.registry.status = "MISSING";
+    summary.clm.readiness.ownership.status = "BLOCKED";
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    const { main, support } = partitions("Submission readiness");
+    expect(main.textContent).toContain("Registry: MISSING"); expect(main.textContent).toContain("Ownership: BLOCKED");
+    expect(main.textContent).toContain("Retained document conflict requires review.");
+    expect(main.querySelector("#case-policy-rebind")).toBeNull();
+    expect(main.querySelector<HTMLSelectElement>('select[aria-label="KYC customer type"]')!.value).toBe("");
+    expect(main.querySelector<HTMLSelectElement>('select[aria-label="Client segment"]')!.value).toBe("");
+    for (const panel of support) { act(() => { panel.open = true; }); expect(panel.textContent).not.toContain("No readiness evidence"); expect(panel.textContent).not.toContain("Current accepted POC"); }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each(["ownership", "readiness"] as const)("ignores an older failed %s read after a newer success", async resource => {
+    const client = setup(); const key = resource === "ownership" ? caseQueryKeys.ownership(actorA.user_id, CASE_A) : caseQueryKeys.detail(actorA.user_id, CASE_A);
+    let release!: (value: Response) => void; const old = new Promise<Response>(resolve => { release = resolve; });
+    const next = resource === "ownership" ? ownershipFixture(CASE_A, "newer-success", "fresh") : { ...editableSummary(), version: 2 };
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValueOnce(old).mockImplementation(async () => response(next));
+    renderCase(client, actorA, CASE_A); let refresh: Promise<void> | undefined;
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    const signal = (fetch.mock.calls[0][1] as RequestInit).signal;
+    await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }, { cancelRefetch: true, throwOnError: true }); });
+    await act(async () => { release(new Response("", { status: 503 })); await refresh; await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(signal?.aborted).toBe(true); expect(client.getQueryState(key)?.status).toBe("success");
+    const { main, support } = partitions(resource === "ownership" ? "Ownership & UBO" : "Submission readiness");
+    for (const panel of [main, ...support]) {
+      if (panel instanceof HTMLDetailsElement) act(() => { panel.open = true; });
+      expect(panel.textContent).not.toContain("information could not be loaded");
+      expect(panel.textContent).not.toContain("Last-confirmed");
+    }
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
+  it.each(["ownership", "readiness"] as const)("rejects late %s evidence across case, actor and session replacement", async resource => {
+    const client = setup(); const key = resource === "ownership" ? caseQueryKeys.ownership(actorA.user_id, CASE_A) : caseQueryKeys.detail(actorA.user_id, CASE_A);
+    let release!: (value: Response) => void; const old = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(old);
+    renderCase(client, actorA, CASE_A); let refresh: Promise<void> | undefined;
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    const signal = (fetch.mock.calls[0][1] as RequestInit).signal;
+    act(() => { root!.unmount(); root = null; clearSessionQueries(client); });
+    seedCase(client, actorB, CASE_B, "new-session-analysis", "NEXT"); renderCase(client, actorB, CASE_B);
+    const late = resource === "ownership" ? ownershipFixture(CASE_A, "late-old-analysis", "LATE_OLD") : { ...editableSummary(), case: { ...editableSummary().case, requested_uen: "LATE_OLD" } };
+    await act(async () => { release(response(late)); await refresh; await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(signal?.aborted).toBe(true); expect(client.getQueryData(key)).toBeUndefined();
+    expect(container!.textContent).not.toContain("LATE_OLD");
+    for (const name of ["Ownership & UBO", "Submission readiness"]) {
+      const { main, support } = partitions(name);
+      for (const panel of [main, ...support]) { if (panel instanceof HTMLDetailsElement) act(() => { panel.open = true; }); expect(panel.textContent).not.toContain("LATE_OLD"); }
+    }
+    client.clear();
+  });
+
+  it("keeps exact current conflicting classification values beside the authorized Main choices", () => {
+    const client = setup(); const summary = editableSummary();
+    summary.target_classification = { ...summary.target_classification, evidence_state: "CONFLICT", current: false,
+      evidence_values: { kyc_customer_type: ["Company - Private", "Partnership - Unregulated"], client_segment: ["Corporate"] } };
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    renderCase(client, actorA, CASE_A); const { main, support } = partitions("Submission readiness");
+    expect(support.every(item => !item.open)).toBe(true);
+    expect(main.querySelector('[aria-label="Current trusted classification values"]')?.textContent).toContain("Company - Private; Partnership - Unregulated");
+    expect(main.querySelector('select[aria-label="KYC customer type"]')).not.toBeNull();
+    expect(container!.querySelectorAll('[aria-label="Current trusted classification values"]')).toHaveLength(1);
+  });
+
+});

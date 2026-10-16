@@ -5,7 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { OwnershipAnalysisRecord, OwnershipPath } from "../types";
-import OwnershipPathExplorer from "./OwnershipPathExplorer";
+import OwnershipPathExplorer, { OwnershipSupportingDetails } from "./OwnershipPathExplorer";
+import StageDisclosure from "./StageDisclosure";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -125,5 +126,64 @@ describe("OwnershipPathExplorer", () => {
 
   it("handles unavailable analysis without controls or side effects", () => {
     const view = render(null); expect(view.textContent).toContain("Ownership analysis is not available"); expect(view.querySelector("button")).toBeNull();
+  });
+
+  it("does not enumerate hidden technical paths at the supported total/depth limits", () => {
+    const retained = record();
+    retained.candidates = Array.from({ length: 5 }, (_, candidateIndex) => ({
+      ...retained.candidates[0],
+      party: { ...retained.candidates[0].party, party_id: `candidate-${candidateIndex}` },
+      paths: Array.from({ length: 1000 }, (_, index) => {
+        const item = path(candidateIndex * 1000 + index + 1, 64);
+        Object.defineProperty(item, "edges", { get() { throw new Error("Closed Technical details enumerated retained path edges"); } });
+        return item;
+      }),
+    }));
+    container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+    act(() => root?.render(<details><summary>Technical details</summary><OwnershipSupportingDetails record={retained} presentation="technical" /></details>));
+    expect(container.querySelectorAll("*").length).toBeLessThan(100);
+    expect(container.textContent).not.toContain("exact(5000)");
+    expect(container.querySelector("details")?.open).toBe(false);
+  });
+
+  it("mounts exact technical paths only while native support is open and replaces analysis safely", () => {
+    container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+    const show = (value: OwnershipAnalysisRecord) => act(() => root?.render(<details><summary>Technical details</summary><OwnershipSupportingDetails key={value.analysis_id} record={value} presentation="technical" /></details>));
+    const first = record([path(1, 64), path(2, 64)]);
+    show(first);
+    expect(container.textContent).not.toContain("exact(2)");
+    const details = container.querySelector("details")!;
+    act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+    expect(container.textContent).toContain(first.candidates[0].paths[1].calculation);
+    expect(container.textContent).toContain("rel-2-63: 63.000000000000000001");
+    expect(container.textContent).toContain(first.candidates[0].paths[1].effective_ownership_percent);
+    show(record([path(7)], "new-analysis"));
+    expect(container.textContent).toContain("exact(7)");
+    expect(container.textContent).not.toContain("exact(2)");
+    act(() => { details.open = false; details.dispatchEvent(new Event("toggle")); });
+    expect(container.textContent).not.toContain("exact(7)");
+    expect(container.querySelector("button, input, select, textarea")).toBeNull();
+  });
+
+  it("does not enumerate a replacement analysis while native scope reset closes Technical", () => {
+    container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+    const hiddenReads: string[] = [];
+    const tracked = (id: number) => {
+      const value = record([path(id)], `analysis-${id}`);
+      const item = value.candidates[0].paths[0]; const edges = item.edges;
+      Object.defineProperty(item, "edges", { get() { if (!container?.querySelector("details")?.open) hiddenReads.push(item.path_id); return edges; } });
+      return value;
+    };
+    const show = (scope: string, value: OwnershipAnalysisRecord) => act(() => root?.render(<StageDisclosure title="Ownership & UBO" scopeKey={scope} main={<p>Main</p>} technicalDetails={<OwnershipSupportingDetails key={value.analysis_id} record={value} presentation="technical" />} />));
+    show("scope-a", tracked(1));
+    const details = container.querySelector("details")!;
+    act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+    expect(container.textContent).toContain("exact(1)");
+    show("scope-b", tracked(2));
+    expect(details.open).toBe(false);
+    expect(hiddenReads).toEqual([]);
+    expect(container.textContent).not.toContain("exact(2)");
+    act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+    expect(container.textContent).toContain("exact(2)");
   });
 });

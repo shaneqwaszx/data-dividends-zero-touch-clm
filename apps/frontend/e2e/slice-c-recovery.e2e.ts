@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
-import { focusPipelineAction, openStage } from "./stage-disclosures";
+import { focusPipelineAction, openStage, openStageSupport } from "./stage-disclosures";
 import { reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -152,7 +152,7 @@ test("Slice C stale policy rebind preserves selection and resumes", { tag: "@sli
     && result.url().endsWith("/policy-rebind"));
   await page.getByRole("button", { name: "Update system-set Singapore values", exact: true }).click();
   expect((await response).status()).toBe(200);
-  await page.locator("#case-policy-rebind").getByText("Technical authority and policy history", { exact: true }).click();
+  await openStageSupport(page, "Submission readiness", "Technical");
   await expect(page.getByLabel("Latest policy rebind receipt", { exact: true })).toBeVisible();
   const rebound = await summary(page, caseId);
   expect(rebound.case.policy_snapshot_revision).toBe(2);
