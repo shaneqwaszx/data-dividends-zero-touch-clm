@@ -1,5 +1,5 @@
 import { formatOwnershipPercent, formatOwnershipCalculation } from "../ownershipDisplay";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { OwnershipAnalysisRecord, OwnershipPath, RegistryAcquisition } from "../types";
 
@@ -167,6 +167,19 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
 export function OwnershipSupportingDetails({ record, presentation, primaryBlockerVisible = false }: {
   record: OwnershipAnalysisRecord | null; presentation: "full" | "more" | "technical"; primaryBlockerVisible?: boolean;
 }) {
+  const panel = useRef<HTMLElement>(null);
+  const [technicalOpen, setTechnicalOpen] = useState(false);
+  const hasRecord = record !== null;
+  useEffect(() => {
+    // Observe after the parent layout effect has settled native scope-reset closure.
+    if (presentation !== "technical" || !hasRecord) return;
+    const disclosure = panel.current?.closest("details");
+    // Native StageDisclosure remains the open-state owner; no path selection is copied.
+    const update = () => setTechnicalOpen(disclosure?.open ?? true);
+    update();
+    disclosure?.addEventListener("toggle", update);
+    return () => disclosure?.removeEventListener("toggle", update);
+  }, [presentation, hasRecord]);
   if (!record) return null;
   const Disclosure = presentation === "full" ? "details" : "section";
   const Label = presentation === "full" ? "summary" : "h5";
@@ -176,7 +189,7 @@ export function OwnershipSupportingDetails({ record, presentation, primaryBlocke
     "MAXIMUM_DEPTH_EXCEEDED",
     "PATH_LIMIT_EXCEEDED",
   ].includes(issue.code)) ?? [];
-  return <section className="ownership-support-panel">
+  return <section ref={panel} className="ownership-support-panel">
     {presentation !== "more" && <>
       {presentation === "technical" && <>
       <h4>Retained calculation and source metadata</h4>
@@ -188,7 +201,7 @@ export function OwnershipSupportingDetails({ record, presentation, primaryBlocke
         <tbody>{record.candidates.map(item => <tr key={item.party.party_id}>
           <td>{item.party.display_name} · {item.classification}</td><td>{item.direct_ownership_percent}</td><td>{item.indirect_ownership_percent}</td><td>{item.aggregated_ownership_percent}</td>
           <td>{item.threshold_comparator} {item.threshold_percent} · {item.threshold_result}</td>
-          <td>{item.paths.map(path => <p key={path.path_id}>{path.path_id} · {path.effective_ownership_percent} · <span>{path.calculation}</span>{path.edges.map(edge => <span key={edge.relationship_id}> · {edge.relationship_id}: {edge.ownership_percent}</span>)}</p>)}</td>
+          <td>{technicalOpen ? item.paths.map(path => <p key={path.path_id}>{path.path_id} · {path.effective_ownership_percent} · <span>{path.calculation}</span>{path.edges.map(edge => <span key={edge.relationship_id}> · {edge.relationship_id}: {edge.ownership_percent}</span>)}</p>) : <span>{item.paths.length} retained paths; open Technical details to inspect exact path values.</span>}</td>
         </tr>)}</tbody>
       </table></div>
       </>}

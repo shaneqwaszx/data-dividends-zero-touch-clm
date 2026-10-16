@@ -102,6 +102,7 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
   await openStage(page, "Ownership & UBO");
   const disclosure = page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > details").filter({ has: page.getByText("Technical details — Ownership & UBO", { exact: true }) });
   await expect(disclosure).not.toHaveAttribute("open", "");
+  await expect(disclosure.getByText(revised.candidates[0].paths[0].calculation, { exact: true })).toHaveCount(0);
   const toggle = disclosure.locator(":scope > summary");
   await toggle.focus();
   await expect(toggle).toBeFocused();
@@ -114,6 +115,11 @@ test("S2 creator edits calculable multi-level ownership before send and inspects
     expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
     await expect(toggle).toBeVisible();
   }
+  await toggle.press("Enter");
+  await expect(disclosure).not.toHaveAttribute("open", "");
+  await expect(disclosure.getByText(revised.candidates[0].paths[0].calculation, { exact: true })).toHaveCount(0);
+  await toggle.press("Space");
+  await expect(disclosure.getByText(revised.candidates[0].paths[0].calculation, { exact: true }).first()).toBeVisible();
   // AM-18: retain a real incomplete legal-owner declaration with safe 409,
   // then use current backend versions for deliberate recovery. No target write.
   const beforeIncomplete = await summary(page, caseId);
