@@ -1,5 +1,6 @@
 import UboSummary from "./UboSummary";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+import StageDisclosure from "./StageDisclosure";
 
 import type { TargetSearchObservation } from "../api";
 
@@ -115,6 +116,8 @@ export default function ReviewAndSend({
   statusCheckResult,
   statusCheckError,
   onCheckStatus,
+  disclosureScopeKey,
+  readNotice,
 }: {
   summary: ZeroTouchCaseSummary;
   documents: DocumentProcessingRecord[];
@@ -133,12 +136,15 @@ export default function ReviewAndSend({
   statusCheckResult?: TargetSearchObservation | null;
   statusCheckError?: string | null;
   onCheckStatus?: () => void;
+  /** Opt in to persistent disclosure; direct consumers retain the legacy layout. */
+  disclosureScopeKey?: string;
+  readNotice?: ReactNode;
 }) {
   const technicalDetailsRef = useRef<HTMLDetailsElement>(null);
   const technicalDetailsWasOpen = useRef(false);
   useEffect(() => {
     const beforePrint = () => {
-      if (!technicalDetailsRef.current) return;
+      if (disclosureScopeKey !== undefined || !technicalDetailsRef.current) return;
       technicalDetailsWasOpen.current = technicalDetailsRef.current.open;
       technicalDetailsRef.current.open = true;
     };
@@ -153,7 +159,7 @@ export default function ReviewAndSend({
       window.removeEventListener("beforeprint", beforePrint);
       window.removeEventListener("afterprint", afterPrint);
     };
-  }, []);
+  }, [disclosureScopeKey]);
   const { case: onboardingCase, clm } = summary;
   const preview = clm.submission_plan.request_preview;
   const checkpoint = clm.target_search_checkpoint;
@@ -264,7 +270,44 @@ export default function ReviewAndSend({
   });
   const importantNotes = [...notesByTitle.values()];
 
-  return (
+  const moreDetails = (
+        <section>
+          <h3>Corrections</h3>
+          {(onboardingCase.identity_corrections?.length ?? 0) === 0
+            ? <p>No retained identity corrections.</p>
+            : <ul>{onboardingCase.identity_corrections?.map((correction) => <li key={correction.correction_id}>{correction.corrected_identity.legal_name} - user-supplied same-case correction - not provider verified - {new Date(correction.corrected_at).toLocaleString()}</li>)}</ul>}
+        </section>
+  );
+  const technicalDetails = (
+        <div className="review-and-send__technical-content">
+          <p><strong>Retained codes:</strong> {technicalCodes.length > 0 ? technicalCodes.join(", ") : "None"}</p>
+          <p><strong>Vocabulary version:</strong> {summary.target_classification?.vocabulary_version ?? "Not available"}</p>
+          <p><strong>Automation / CLM / event count:</strong> {summary.version} / {clm.version ?? "not available"} / {onboardingCase.events?.length ?? 0}</p>
+          <p>{clm.submission ? `Snapshot ${clm.submission.snapshot_id} - readiness ${clm.submission.readiness_policy_version}` : "A submission snapshot has not been created."}</p>
+          {preview?.operations.map((operation) => (
+            <div key={`technical:${operation.operation}`}>
+              <strong>{operation.operation}</strong>
+              <ul>{operation.fields.map((field) => (
+                <li key={`technical:${operation.operation}:${field.target_field}`}>
+                  {field.target_field}: {field.provenance} / {field.authority} / {field.validation}
+                </li>
+              ))}</ul>
+            </div>
+          ))}
+          {ownershipReceipt && (
+            <p>Manual ownership reviewed by {ownershipReceipt.actor_id} on {new Date(ownershipReceipt.reviewed_at).toLocaleString()}{` - document ${ownershipReceipt.evidence_document_id} version ${ownershipReceipt.evidence_document_version} - ${ownershipReceipt.evidence_reference} - as of ${ownershipReceipt.as_of_date}`}</p>
+          )}
+          {policyRebind && <p>POC configuration revision {policyRebind.revision} - {policyRebind.configuration_status}</p>}
+          {policyRebind?.last_rebound_by && policyRebind.last_rebound_at && <p>Configuration rebound by {policyRebind.last_rebound_by} on {new Date(policyRebind.last_rebound_at).toLocaleString()}</p>}
+          {nonBlockingDecisions.map((decision) => (
+            <p key={decision.decision_id}>{decisionLabel(decision.metadata.classification)} decision {decision.decision_id} - {decision.metadata.policy_version} - rule {decision.metadata.rule_version} - recorded {new Date(decision.recorded_at).toLocaleString()}</p>
+          ))}
+          {nonBlockingDependencies.length > 0 && <p><strong>Invalidated dependencies:</strong> {nonBlockingDependencies.map(decisionLabel).join(", ")}</p>}
+          <p>{confirmation ? `Confirmed by ${confirmation.actor_id} on ${new Date(confirmation.confirmed_at).toLocaleString()} - review digest ${confirmation.review_digest}` : "The server will compute and validate the review digest when you confirm."}</p>
+        </div>
+  );
+
+  const main = (
     <section id="case-review-and-send" tabIndex={-1} className="review-and-send" aria-labelledby="review-and-send-title">
       <header className="review-and-send__header">
         <div>
@@ -417,12 +460,7 @@ export default function ReviewAndSend({
             ))}
           </ul>
         </section>
-        <section>
-          <h3>Corrections</h3>
-          {(onboardingCase.identity_corrections?.length ?? 0) === 0
-            ? <p>No retained identity corrections.</p>
-            : <ul>{onboardingCase.identity_corrections?.map((correction) => <li key={correction.correction_id}>{correction.corrected_identity.legal_name} - user-supplied same-case correction - not provider verified - {new Date(correction.corrected_at).toLocaleString()}</li>)}</ul>}
-        </section>
+        {disclosureScopeKey === undefined && moreDetails}
       </div>
 
       <section className="review-and-send__notes" aria-labelledby="review-notes-title">
@@ -438,35 +476,10 @@ export default function ReviewAndSend({
         ))}</ul>
       </section>
 
-      <details ref={technicalDetailsRef} className="review-and-send__technical">
+      {disclosureScopeKey === undefined && <details ref={technicalDetailsRef} className="review-and-send__technical">
         <summary>Technical details and audit appendix</summary>
-        <div className="review-and-send__technical-content">
-          <p><strong>Retained codes:</strong> {technicalCodes.length > 0 ? technicalCodes.join(", ") : "None"}</p>
-          <p><strong>Vocabulary version:</strong> {summary.target_classification?.vocabulary_version ?? "Not available"}</p>
-          <p><strong>Automation / CLM / event count:</strong> {summary.version} / {clm.version ?? "not available"} / {onboardingCase.events?.length ?? 0}</p>
-          <p>{clm.submission ? `Snapshot ${clm.submission.snapshot_id} - readiness ${clm.submission.readiness_policy_version}` : "A submission snapshot has not been created."}</p>
-          {preview?.operations.map((operation) => (
-            <div key={`technical:${operation.operation}`}>
-              <strong>{operation.operation}</strong>
-              <ul>{operation.fields.map((field) => (
-                <li key={`technical:${operation.operation}:${field.target_field}`}>
-                  {field.target_field}: {field.provenance} / {field.authority} / {field.validation}
-                </li>
-              ))}</ul>
-            </div>
-          ))}
-          {ownershipReceipt && (
-            <p>Manual ownership reviewed by {ownershipReceipt.actor_id} on {new Date(ownershipReceipt.reviewed_at).toLocaleString()}{` - document ${ownershipReceipt.evidence_document_id} version ${ownershipReceipt.evidence_document_version} - ${ownershipReceipt.evidence_reference} - as of ${ownershipReceipt.as_of_date}`}</p>
-          )}
-          {policyRebind && <p>POC configuration revision {policyRebind.revision} - {policyRebind.configuration_status}</p>}
-          {policyRebind?.last_rebound_by && policyRebind.last_rebound_at && <p>Configuration rebound by {policyRebind.last_rebound_by} on {new Date(policyRebind.last_rebound_at).toLocaleString()}</p>}
-          {nonBlockingDecisions.map((decision) => (
-            <p key={decision.decision_id}>{decisionLabel(decision.metadata.classification)} decision {decision.decision_id} - {decision.metadata.policy_version} - rule {decision.metadata.rule_version} - recorded {new Date(decision.recorded_at).toLocaleString()}</p>
-          ))}
-          {nonBlockingDependencies.length > 0 && <p><strong>Invalidated dependencies:</strong> {nonBlockingDependencies.map(decisionLabel).join(", ")}</p>}
-          <p>{confirmation ? `Confirmed by ${confirmation.actor_id} on ${new Date(confirmation.confirmed_at).toLocaleString()} - review digest ${confirmation.review_digest}` : "The server will compute and validate the review digest when you confirm."}</p>
-        </div>
-      </details>
+        {technicalDetails}
+      </details>}
 
       <div className="review-and-send__actions">
         {eligibleForConfirmation && canAccessCase && !projectionFrozen ? (
@@ -487,4 +500,10 @@ export default function ReviewAndSend({
       </div>
     </section>
   );
+  return disclosureScopeKey === undefined ? main : <StageDisclosure
+    title="Final review & send" scopeKey={disclosureScopeKey} final
+    main={<>{readNotice}{main}</>}
+    moreDetails={<>{readNotice}{moreDetails}</>}
+    technicalDetails={<>{readNotice}{technicalDetails}</>}
+  />;
 }

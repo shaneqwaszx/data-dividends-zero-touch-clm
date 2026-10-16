@@ -186,9 +186,10 @@ test("Slice C retained finalization recovery makes no target replay", { tag: "@s
   expect(resumed.status()).toBe(200);
   expect((await resumed.json()).status).toBe("COMPLETED");
   expect(resumeCalls).toBe(1);
-  // Completion retires the active target stage; its receipt must be revealed explicitly.
-  await expect(page.getByRole("button", { name: /^GoldTier submission package/ }))
-    .toHaveAttribute("aria-expanded", "false");
+  // Completion remains visible in persistent Main; optional supports stay closed.
+  const targetStage = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+  await expect(targetStage.locator(":scope > h2")).toBeVisible();
+  await expect(targetStage.locator(":scope > details[open]")).toHaveCount(0);
   await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
   expect((await metadata(page)).operations).toEqual(before.operations);

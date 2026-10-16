@@ -84,7 +84,7 @@ import RegistryProvenancePanel from "./RegistryProvenancePanel";
 import TargetClassificationPanel, { TargetClassificationDetails } from "./TargetClassificationPanel";
 import HumanInterventionPanel from "./HumanInterventionPanel";
 import ReviewAndSend from "./ReviewAndSend";
-import TargetRecoveryPanel from "./TargetRecoveryPanel";
+import TargetRecoveryPanel, { TargetRecoveryDetails } from "./TargetRecoveryPanel";
 import StageDisclosure, { revealStage } from "./StageDisclosure";
 import OnboardingWorkspace, { onboardingExecutionMessage, onboardingIsExecuting } from "./OnboardingWorkspace";
 import IdentityCorrectionForm from "./IdentityCorrectionForm";
@@ -1079,7 +1079,7 @@ export default function CaseDetail({
   }
 
   // Read notices project the existing query owners; no local data retention or polling.
-  function readNotice(label: "Ownership" | "Readiness", pending: boolean, fetching: boolean, failed: boolean, retained: boolean) {
+  function readNotice(label: "Ownership" | "Readiness" | "Target" | "Final review", pending: boolean, fetching: boolean, failed: boolean, retained: boolean) {
     const lower = label.toLowerCase();
     if (failed) return <p className="ds-banner ds-banner-warn" role="alert">{label} information could not be loaded. {retained ? `Last-confirmed ${lower} information remains visible and may be stale.` : "Current evidence is unavailable; absence has not been confirmed."}</p>;
     if (pending || fetching) return <p className="control-help" role="status">Loading {lower} information… {retained ? `Last-confirmed ${lower} information remains visible while it is refreshed.` : "Current evidence is not yet confirmed."}</p>;
@@ -1089,6 +1089,8 @@ export default function CaseDetail({
   const readinessReadUnconfirmed = detailQuery.isPending || detailQuery.isFetching || detailQuery.isError;
   const ownershipReadNotice = readNotice("Ownership", ownershipQuery.isPending, ownershipQuery.isFetching || detailQuery.isFetching, ownershipQuery.isError || detailQuery.isError, ownershipQuery.data !== undefined);
   const readinessReadNotice = readNotice("Readiness", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
+  const targetReadNotice = readNotice("Target", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
+  const finalReadNotice = readNotice("Final review", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
   const confirmedOwnershipEmpty = !ownershipReadUnconfirmed && ownership === null;
   const loadError = detailQuery.error ?? documentQuery.error ?? ownershipQuery.error;
   if (caseUnavailable) return <div className="ds-root ds-page"><button type="button" className="btn btn-ghost" onClick={onBack}>← Back to Cases</button><div className="ds-banner ds-banner-warn">The case is unavailable.</div></div>;
@@ -1523,7 +1525,11 @@ export default function CaseDetail({
             {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="technical" />}
           </>}
         />
-        <StageDisclosure title="GoldTier submission package" active={stageIsActive(["MOCK_GOLDTIER"]) || targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" || summary.status === "RECOVERY_PENDING" || confirmationUnknown || preflightUnavailable}>
+        <StageDisclosure title="GoldTier submission package" scopeKey={disclosureIdentity} main={<>
+          {targetReadNotice}
+          <p>Submission environment: {summary.clm.submission_plan.environment}</p>
+          <p>Backend submission state: {targetSubmission?.state ?? "Not available in retained evidence"}</p>
+
         {preflightUnavailable && <section className="ds-banner ds-banner-warn" aria-labelledby="target-preflight-title">
           <h3 id="target-preflight-title">GoldTier availability check needed</h3>
           <p>GoldTier could not be checked safely before sending. No target write was attempted. Your case data is preserved; check again when GoldTier is available.</p>
@@ -1539,7 +1545,7 @@ export default function CaseDetail({
           <button type="button" className="btn btn-secondary" disabled={isBusy || mutationBlocked} onClick={() => void verifySubmissionAgain()}>Verify submission outcome</button>
         </div>}
         {targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" && <TargetRecoveryPanel
-          key={targetStatusIdentity} summary={summary} actor={actor}
+          key={targetStatusIdentity} summary={summary} actor={actor} presentation="main"
           busy={isBusy || mutationBlocked || confirmationUnknown}
           checking={currentTargetStatusCheck?.checking ?? false}
           result={currentTargetStatusCheck?.result ?? null} error={currentTargetStatusCheck?.error ?? null}
@@ -1547,9 +1553,7 @@ export default function CaseDetail({
           onRecover={recoverTarget}
         />}
           {renderInterventions(["MOCK_GOLDTIER"])}
-        {targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" && (safeContinuation
-          ? <details className="evidence-details"><summary>Technical details</summary><ProcessingBlockerPanels summary={summary} stage="TARGET" /></details>
-          : <ProcessingBlockerPanels summary={summary} stage="TARGET" />)}
+        {targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" && <ProcessingBlockerPanels summary={summary} stage="TARGET" />}
         {safeContinuation && <section className="ds-banner" aria-labelledby="target-continuation-title" aria-live="polite" style={{ marginBottom: 16 }}>
           <h3 id="target-continuation-title" tabIndex={-1}>Verified work is saved</h3>
           <p>Continue the same submission to complete the remaining steps. Previously completed or verified steps will not be sent again.</p>
@@ -1559,11 +1563,26 @@ export default function CaseDetail({
           && !targetSubmission && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
 
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
-        <OperationalTiming summary={summary} />
 
-          <details className="evidence-details"><summary>Backend execution details</summary>
           <div key={`${evidenceIdentity}:recovery`} id={EVIDENCE_TARGET_IDS.recovery} className="evidence-focus-target evidence-workbench-column" tabIndex={-1}>
             <CaseStateExplanationPanel summary={summary} onNavigate={focusEvidence} />
+          </div>
+        </>}
+          moreDetails={<>
+            {targetReadNotice}
+            <h3>Retained operation summaries</h3>
+            <ul>{summary.target_operations.map(item => <li key={item.operation}>{item.operation}: {item.status}</li>)}</ul>
+            <OperationalTiming summary={summary} />
+          </>}
+          technicalDetails={<>
+            {targetReadNotice}
+            <TargetRecoveryDetails summary={summary} result={currentTargetStatusCheck?.result ?? null} />
+            {targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" && <dl>
+              <div><dt>Submission ID</dt><dd>{targetSubmission?.submission_id ?? "Not retained"}</dd></div>
+              <div><dt>Ledger state</dt><dd>{targetSubmission?.ledger_state ?? "Not retained"}</dd></div>
+            </dl>}
+            <h3>Target operation state and sequence</h3>
+            <ol>{summary.target_operations.map(item => <li key={item.operation}>{item.operation}: {item.status}</li>)}</ol>
             <aside className="readiness-panel evidence-run-record" aria-label="Retained execution record">
             <h4>Submission plan</h4>
             <p className="control-help">{summary.clm.submission_plan.environment} · {summary.clm.submission_plan.base_operations.join(" → ")}</p>
@@ -1578,20 +1597,16 @@ export default function CaseDetail({
             <div className="kv-row"><span className="kv-label">Exceptions</span><span className="kv-value">{summary.metrics.exceptions_resolved}/{summary.metrics.exceptions_raised} resolved</span></div>
             <div className="kv-row"><span className="kv-label">Final outcome</span><span className="kv-value">{summary.metrics.final_outcome ? targetOutcomeLabel(summary.metrics.final_outcome, summary.clm.submission_plan.environment) : "—"}</span></div>
             </aside>
-          </div>          </details>
-        </StageDisclosure>
+          </>}
+        />
         <StageDisclosure title="Historical / resolved issues">
           {renderInterventions(undefined, true)}
           <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
         <h4 style={{ marginTop: 24 }}>Automation timeline</h4><div className="table-card"><table className="table"><thead><tr><th>Timestamp</th><th>Stage</th><th>Event</th><th>Outcome</th></tr></thead><tbody>{summary.timeline.map((event) => <tr key={event.sequence}><td>{formatTimestamp(event.timestamp)}</td><td>{event.stage}</td><td>{event.message}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>          {intelligence && <details className="evidence-details"><summary>Advisory intelligence</summary><IntelligencePanel record={intelligence} /></details>}
         </StageDisclosure>
-        <StageDisclosure title="Final review & send" final active={showFinalReview}
-          summary={!showFinalReview ? (
-            remainingIssueCount > 0
-              ? `Not yet available — resolve ${remainingIssueCount} remaining issues.`
-              : "Not yet available — complete the current stage."
-          ) : undefined}>
-        {showFinalReview && <ReviewAndSend
+        {showFinalReview ? <ReviewAndSend
+          disclosureScopeKey={disclosureIdentity}
+          readNotice={finalReadNotice}
           summary={summary}
           documents={documents}
           ownership={ownership}
@@ -1617,8 +1632,11 @@ export default function CaseDetail({
           onEditClassification={() => editFromFinalReview("classification")}
           onEditDocuments={() => editFromFinalReview("documents")}
           onEditOwnership={() => editFromFinalReview("ownership")}
-        />}
-        </StageDisclosure>
+        /> : <StageDisclosure title="Final review & send" scopeKey={disclosureIdentity} final
+          main={<>{finalReadNotice}<p>{remainingIssueCount > 0
+            ? `Not yet available — resolve ${remainingIssueCount} remaining issues.`
+            : "Not yet available — complete the current stage."}</p></>}
+        /> }
       </div>
       </OnboardingWorkspace>
 
