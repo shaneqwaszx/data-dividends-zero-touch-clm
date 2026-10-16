@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { caseQueryKeys } from "./caseQueries";
 import CaseDetail from "./pages/CaseDetail";
-import { createSessionQueryClient } from "./queryClient";
+import { clearSessionQueries, createSessionQueryClient } from "./queryClient";
 import attentionProjections from "./test-fixtures/attention-projections.json";
 import type {
   AuthenticatedProfile,
@@ -1052,5 +1052,180 @@ describe("Document persistent disclosure migration", () => {
       if (state === "loading") await act(async () => { release(response([])); });
     },
   );
+
+});
+
+
+describe("Automation polling document read authority", () => {
+  const rejectionEvents = (globalThis as unknown as { process: {
+    on: (event: "unhandledRejection", listener: (reason: unknown) => void) => void;
+    removeListener: (event: "unhandledRejection", listener: (reason: unknown) => void) => void;
+  } }).process;
+  const clients: QueryClient[] = [];
+  const unhandled: unknown[] = [];
+  const recordUnhandled = (reason: unknown) => { unhandled.push(reason); };
+  beforeEach(() => { vi.useFakeTimers(); unhandled.length = 0; rejectionEvents.on("unhandledRejection", recordUnhandled); });
+  afterEach(() => {
+    clients.splice(0).forEach(client => client.clear());
+    rejectionEvents.removeListener("unhandledRejection", recordUnhandled);
+    vi.useRealTimers();
+  });
+  function deferred() {
+    let resolve!: (value: Response) => void;
+    const promise = new Promise<Response>(done => { resolve = done; });
+    return { promise, resolve };
+  }
+  async function tick(ms = 1) { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); }
+  function setup(documents: DocumentProcessingRecord[] = [documentFixture(CASE_A)], productionDefaults = false) {
+    const client = productionDefaults ? createSessionQueryClient() : createTestClient(); clients.push(client);
+    seedCase(client, actorA, CASE_A, "analysis-a", "a");
+    const running = { ...summaryFixture(CASE_A), status: "RUNNING" as const };
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), running);
+    client.setQueryData(caseQueryKeys.documents(actorA.user_id, CASE_A), documents);
+    const docRead = vi.fn<(...args: [RequestInit | undefined]) => Promise<Response>>().mockImplementation(async () => response(documents));
+    const ownerRead = vi.fn().mockImplementation(async () => response(ownershipFixture(CASE_A, "polled-owner", "polled")));
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
+      const url = String(input);
+      if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) return response(running);
+      if (url.endsWith(`/api/onboarding/cases/${CASE_A}/documents`)) return docRead(init);
+      if (url.endsWith(`/api/onboarding/cases/${CASE_A}/ownership`)) return ownerRead();
+      if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}/intelligence`)) return response(null);
+      throw new Error("Unexpected synthetic polling route");
+    });
+    renderCase(client, actorA, CASE_A);
+    return { client, docRead, ownerRead, fetch, key: caseQueryKeys.documents(actorA.user_id, CASE_A) };
+  }
+  function panels() {
+    const stage = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")]
+      .find(item => item.querySelector(":scope > h2")?.textContent === "Document verification")!;
+    expect(stage).toBeTruthy();
+    const details = [...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")];
+    act(() => { details.forEach(section => { section.open = true; }); });
+    expect(details).toHaveLength(2); expect(details.every(section => section.open)).toBe(true);
+    return [stage.querySelector<HTMLElement>(".document-evidence-panel")!,
+      ...details.map(section => section.querySelector<HTMLElement>(".document-support-panel")!)];
+  }
+  function failed(retained: boolean) {
+    const visible = panels();
+    for (const panel of visible) {
+      const alert = panel.querySelector<HTMLElement>("[role=alert]");
+      expect(alert).not.toBeNull(); expect(alert!.closest("[hidden], [aria-hidden=true]")).toBeNull();
+      expect(alert!.textContent).toContain("Document information could not be loaded.");
+      if (retained) expect(alert!.textContent).toContain("Last-confirmed document information remains visible");
+      expect(panel.textContent).not.toContain("No current document is retained.");
+      expect(panel.textContent).not.toContain("No document processing evidence is retained.");
+    }
+    if (!retained) for (const panel of visible.slice(1)) {
+      expect(panel.textContent).toContain("Document availability cannot currently be confirmed.");
+      expect(panel.querySelector("article")).toBeNull();
+    }
+  }
+  it.each([true, false])("shows truthful polling document failure in all visible projections, retained=%s", async retained => {
+    const { client, docRead, key } = setup(retained ? [documentFixture(CASE_A)] : []);
+    docRead.mockImplementation(async () => new Response("", { status: 503 }));
+    await tick(1000); await tick();
+    expect(client.getQueryState(key)?.status).toBe("error"); failed(retained);
+  });
+  it("labels retained information refreshing while the actual polling read is pending", async () => {
+    const { docRead } = setup(); const pending = deferred(); docRead.mockReturnValue(pending.promise);
+    await tick(1000); await tick();
+    for (const panel of panels()) expect(panel.querySelector("[role=status]")?.textContent).toContain("Loading document information");
+    for (const panel of panels().slice(1)) expect(panel.textContent).toContain("Last-confirmed document information remains visible");
+    pending.resolve(response([documentFixture(CASE_A)])); await tick();
+  });
+  it("keeps successful completed empty polling results truthful", async () => {
+    const { client, key } = setup([]); await tick(1000); await tick();
+    expect(client.getQueryState(key)?.status).toBe("success");
+    const [main, more, technical] = panels();
+    expect(main.textContent).toContain("No document uploaded"); expect(more.textContent).toContain("No current document is retained.");
+    expect(technical.textContent).toContain("No document processing evidence is retained.");
+    for (const panel of [main, more, technical]) expect(panel.querySelector("[role=alert], [role=status]")).toBeNull();
+  });
+  it("retains the polling failure until a current successful recovery finishes", async () => {
+    const { docRead, client, key } = setup(); const pending = deferred();
+    docRead.mockImplementationOnce(async () => new Response("", { status: 503 })).mockReturnValueOnce(pending.promise);
+    await tick(1000); await tick(); failed(true);
+    await tick(1000); failed(true);
+    pending.resolve(response([{ ...documentFixture(CASE_A), display_name: "fresh-evidence.pdf" }])); await tick();
+    expect(client.getQueryState(key)?.status).toBe("success");
+    for (const panel of panels()) { expect(panel.textContent).toContain("fresh-evidence.pdf"); expect(panel.querySelector("[role=alert]")).toBeNull(); }
+  });
+  it("does not let an older polling failure mark a newer query success stale", async () => {
+    const { docRead, client, key } = setup(); const old = deferred();
+    docRead.mockReturnValueOnce(old.promise).mockImplementationOnce(async () => response([{ ...documentFixture(CASE_A), display_name: "newer-evidence.pdf" }]));
+    await tick(1000); const signal = docRead.mock.calls[0][0]?.signal;
+    await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }, { cancelRefetch: true, throwOnError: true }); }); await tick();
+    old.resolve(new Response("", { status: 503 })); await tick();
+    expect(signal?.aborted).toBe(true); expect(client.getQueryState(key)?.status).toBe("success");
+    for (const panel of panels()) { expect(panel.textContent).toContain("newer-evidence.pdf"); expect(panel.querySelector("[role=alert]")).toBeNull(); }
+    expect(unhandled).toEqual([]);
+  });
+  it.each(["case", "actor", "logout", "unmount"] as const)("cancels polling support and rejects late publication after %s", async change => {
+    const { docRead, client, key } = setup(); const old = deferred(); docRead.mockReturnValue(old.promise); await tick(1000);
+    const signal = docRead.mock.calls[0][0]?.signal;
+    if (change === "unmount" || change === "logout") act(() => { root!.unmount(); root = null; if (change === "logout") clearSessionQueries(client); });
+    const nextActor = change === "actor" || change === "logout" ? actorB : actorA;
+    const nextCase = change === "case" || change === "logout" ? CASE_B : CASE_A;
+    if (change !== "unmount") {
+      seedCase(client, nextActor, nextCase, "next-owner", "next");
+      client.setQueryData(caseQueryKeys.documents(nextActor.user_id, nextCase), [{ ...documentFixture(nextCase), display_name: "next-identity.pdf" }]);
+      renderCase(client, nextActor, nextCase);
+    }
+    old.resolve(response([{ ...documentFixture(CASE_A), display_name: "late-old-evidence.pdf" }])); await tick();
+    expect(signal?.aborted).toBe(true);
+    if (change === "logout") expect(client.getQueryData(key)).toBeUndefined();
+    if (change === "unmount") expect(client.getQueryData<DocumentProcessingRecord[]>(key)?.[0].display_name).toBe("evidence-package.pdf");
+    else { expect(container!.textContent).not.toContain("late-old-evidence.pdf"); for (const panel of panels()) expect(panel.querySelector("[role=alert]")).toBeNull(); }
+    expect(unhandled).toEqual([]);
+  });
+  it("publishes a successful ownership read independently of a failed document read", async () => {
+    const { docRead, client } = setup(); docRead.mockImplementation(async () => new Response("", { status: 503 }));
+    await tick(1000); await tick();
+    expect(client.getQueryData<OwnershipAnalysisRecord>(caseQueryKeys.ownership(actorA.user_id, CASE_A))?.analysis_id).toBe("polled-owner");
+    expect(unhandled).toEqual([]);
+  });
+  it("handles rejected polling work without an implicit retry, business write or automatic submission", async () => {
+    const { docRead, fetch, client, key } = setup(undefined, true); docRead.mockImplementation(async () => new Response("", { status: 503 }));
+    await tick(1000); await tick();
+    expect(client.getQueryState(key)?.fetchStatus).toBe("idle"); expect(client.getQueryState(key)?.status).toBe("error");
+    expect(docRead).toHaveBeenCalledTimes(1); expect(unhandled).toEqual([]);
+    expect(fetch.mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
+  });
+  it("shares a slow in-flight supporting read across unchanged polling cadence", async () => {
+    const { docRead } = setup(); const pending: ReturnType<typeof deferred>[] = [];
+    docRead.mockImplementation(() => { const read = deferred(); pending.push(read); return read.promise; });
+    await tick(1000); await tick(1000);
+    const count = docRead.mock.calls.length;
+    pending.forEach(read => read.resolve(response([documentFixture(CASE_A)]))); await tick();
+    expect(count).toBe(1);
+  });
+  it("classifies an explicit read-only failure through the same document query authority", async () => {
+    const client = createTestClient(); clients.push(client); seedCase(client, actorA, CASE_A, "analysis-a", "a");
+    const key = caseQueryKeys.documents(actorA.user_id, CASE_A); let rejectDocuments = true;
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if ((init?.method ?? "GET") !== "GET") return new Response("", { status: 503 });
+      if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}`)) return response(summaryFixture(CASE_A));
+      if (url.endsWith(`/api/onboarding/cases/${CASE_A}/documents`)) return rejectDocuments
+        ? new Response("", { status: 503 }) : response([documentFixture(CASE_A)]);
+      if (url.endsWith(`/api/onboarding/cases/${CASE_A}/ownership`)) return response(ownershipFixture(CASE_A, "refreshed-owner", "refreshed"));
+      if (url.endsWith(`/api/clm/zero-touch/cases/${CASE_A}/intelligence`)) return response(null);
+      throw new Error("Unexpected synthetic explicit refresh route");
+    });
+    renderCase(client, actorA, CASE_A);
+    const choice = container!.querySelector<HTMLSelectElement>('select[data-review-field="legal_name"]')!;
+    act(() => { choice.value = "ACCEPTED"; choice.dispatchEvent(new Event("change", { bubbles: true })); });
+    act(() => button("Confirm decisions & continue onboarding").click()); await tick(10);
+    expect(container!.textContent).toContain("Evidence reload could not be confirmed.");
+    rejectDocuments = false;
+    await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }); }); await tick();
+    expect(client.getQueryState(key)?.status).toBe("success");
+    const writes = fetch.mock.calls.filter(([, init]) => (init?.method ?? "GET") !== "GET").length;
+    rejectDocuments = true; act(() => button("Refresh case evidence").click()); await tick(10);
+    expect(client.getQueryState(key)?.status).toBe("error"); failed(true);
+    expect(fetch.mock.calls.filter(([, init]) => (init?.method ?? "GET") !== "GET")).toHaveLength(writes);
+    expect(unhandled).toEqual([]);
+  });
 
 });

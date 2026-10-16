@@ -16,7 +16,6 @@ import {
   completeZeroTouchIntake,
   correctRegistryIdentity,
   deleteZeroTouchCase,
-  fetchDocuments,
   fetchIntelligence,
   fetchOwnership,
   fetchZeroTouchCase,
@@ -38,7 +37,6 @@ import { confirmationResponseMayBeLost, observeSubmissionOutcome } from "../subm
 import {
   caseDeletedEffect,
   publishCaseDetail,
-  retainNewestDocuments,
   retainNewestVersionedEvidence,
   caseDetailQueryOptions,
   caseSummaryMutationEffect,
@@ -270,12 +268,12 @@ export default function CaseDetail({
       }
       return latest;
     });
-    const latestDocuments = fetchDocuments(action.caseId).then((documents) => {
+    const latestDocuments = queryClient.fetchQuery({
+      ...documentQueryOptions(action.actorUserId, action.caseId),
+      staleTime: 0,
+      retry: false,
+    }).then((documents) => {
       if (isCurrentCaseAction(action)) {
-        queryClient.setQueryData(
-          documentQueryOptions(action.actorUserId, action.caseId).queryKey,
-          (current: DocumentProcessingRecord[] | undefined) => retainNewestDocuments(current, documents),
-        );
         if (import.meta.env.VITE_E2E_DIAGNOSTICS === "1") {
           const reviewedFieldCount = documents
             .find((document) => document.superseded_by_document_id === null)
@@ -458,14 +456,16 @@ export default function CaseDetail({
       fetchCase: fetchZeroTouchCase,
       onUpdate: (latest) => {
         caseSummaryMutationEffect(queryClient, actor.user_id, latest);
-        void Promise.all([fetchDocuments(caseId), fetchOwnership(caseId)]).then(([docs, owner]) => {
-          if (activeGeneration === generation.current) {
-            queryClient.setQueryData(documentQueryOptions(actor.user_id, caseId).queryKey,
-              (current: DocumentProcessingRecord[] | undefined) => retainNewestDocuments(current, docs));
-            queryClient.setQueryData(ownershipQueryOptions(actor.user_id, caseId).queryKey,
-              (current: unknown) => retainNewestVersionedEvidence(current, owner));
-          }
-        });
+        // Each existing query owns cancellation, newest-evidence retention and visible
+        // failure/recovery. A failed read cannot suppress its successful sibling.
+        void Promise.allSettled([
+          queryClient.fetchQuery({
+            ...documentQueryOptions(actor.user_id, caseId), staleTime: 0, retry: false,
+          }),
+          queryClient.fetchQuery({
+            ...ownershipQueryOptions(actor.user_id, caseId), staleTime: 0, retry: false,
+          }),
+        ]);
       },
       onWarning: (warning) => setError(warning),
       shouldContinue: shouldPollAutomation,
@@ -1378,13 +1378,13 @@ export default function CaseDetail({
         <div key={`${evidenceIdentity}:documents`} id={EVIDENCE_TARGET_IDS.documents} className="evidence-focus-target" tabIndex={-1}>
           {error && reviewEdit.current?.target === "documents" && isCurrentCaseAction(reviewEdit.current)
             && <p role="alert" className="ds-banner ds-banner-warn">{error}</p>}
-          <DocumentEvidencePanel presentation="main" reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRecoverRefresh={handleRecoverDocumentRefresh} onRefresh={() => void handleReadOnlyRefresh()} />
+          <DocumentEvidencePanel presentation="main" reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending || documentQuery.isFetching} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRecoverRefresh={handleRecoverDocumentRefresh} onRefresh={() => void handleReadOnlyRefresh()} />
         </div>
 
           </>}
-          moreDetails={<DocumentEvidencePanel presentation="more" summary={summary} documents={documents} busy={isBusy} busyLabel={null} mutationBlocked={mutationBlocked} loading={documentQuery.isPending} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />}
+          moreDetails={<DocumentEvidencePanel presentation="more" summary={summary} documents={documents} busy={isBusy} busyLabel={null} mutationBlocked={mutationBlocked} loading={documentQuery.isPending || documentQuery.isFetching} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />}
           technicalDetails={<>
-            <DocumentEvidencePanel presentation="technical" summary={summary} documents={documents} busy={isBusy} busyLabel={null} mutationBlocked={mutationBlocked} loading={documentQuery.isPending} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />
+            <DocumentEvidencePanel presentation="technical" summary={summary} documents={documents} busy={isBusy} busyLabel={null} mutationBlocked={mutationBlocked} loading={documentQuery.isPending || documentQuery.isFetching} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />
             <ConfirmDetailsPanel presentation="technical" summary={summary} />
           </>}
         />
