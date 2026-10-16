@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
-import { focusPipelineAction, openStage } from "./stage-disclosures";
+import { focusPipelineAction, openStage, openStageSupport } from "./stage-disclosures";
 
 const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../backend/tests/fixtures/uat/garden-business-clean-onboarding-profile.pdf");
 let violations: string[];
@@ -209,7 +209,9 @@ test("S2 document proposals require deliberate creator source selection and reta
   expect(revised.document_discrepancies.every((item: any) => item.verification_state === "REVIEWED")).toBe(true);
   expect(revised.prior_analyses.at(-1).document_observations).toEqual(proposed.document_observations);
   await openStage(page, "Document verification");
+  await openStageSupport(page, "Document verification", "More");
   const proposals = page.getByText("Proposed ownership observations (2)", { exact: true }); await proposals.click();
+  await openStageSupport(page, "Document verification", "Technical");
   await expect(page.getByText("Source agreement", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Evidence score", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Verification state", { exact: true }).first()).toBeVisible();

@@ -178,6 +178,9 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   const caseId = page.url().split("/").at(-1)!;
   await page.getByRole("button", { name: "Open full case", exact: true }).click();
   const before = await read(page, caseId);
+  const documentsBeforeResponse = await page.request.get(`/api/onboarding/cases/${caseId}/documents`);
+  expect(documentsBeforeResponse.status()).toBe(200);
+  const documentsBefore = await documentsBeforeResponse.json();
   await openStage(page, "Registry verification");
   await openStageSupport(page, "Registry verification", "More");
   const provenance = page.locator('[aria-labelledby="registry-provenance-more-heading"]');
@@ -220,6 +223,14 @@ test("AM05 AM09 AM10 real registry audit and responsive bulk document drafts req
   await review.getByRole("button", { name: "Confirm decisions & continue onboarding", exact: true }).click();
   const response = await confirmed; expect(response.status()).toBe(200);
   const payload = response.request().postDataJSON();
+  expect(payload.expected_automation_version).toBe(before.version);
+  expect(payload.expected_case_event_count).toBe(before.case.events.length);
+  for (const request of payload.documents) {
+    const retained = documentsBefore.find((doc: any) => doc.document_id === request.document_id);
+    expect(retained).toBeDefined();
+    expect(request.source_fingerprint).toBe(retained.review_source_fingerprint);
+    expect(request.expected_event_count).toBe(retained.events.length);
+  }
   const decisions = payload.documents[0].decisions;
   expect(decisions.find((item: any) => item.field_key === "legal_name")).toEqual({ field_key: "legal_name", decision: "CORRECTED", corrected_value: company.name, note: "Reviewed synthetic field deliberately." });
   expect(decisions.find((item: any) => item.field_key === "registered_address").decision).toBe("REJECTED");

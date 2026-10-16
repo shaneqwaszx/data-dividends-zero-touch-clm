@@ -8,6 +8,7 @@ export interface ReviewDraftHandle {
 interface Draft { decision: string; correction: string; note: string }
 interface ReviewDraftState {
   choices: Record<string, Draft>;
+  bindings: Record<string, string>;
   bulkResult: { filled: number; skipped: number; remaining: number } | null;
 }
 
@@ -31,9 +32,22 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
   const fields = reviewable.flatMap(doc => doc.fields.filter(field => field.review_status === "PENDING")
     .map(field => ({ doc, field, id: `${doc.document_id}:${field.field_key}` })));
   const [family, setFamily] = useState<"document" | "source">(fields.length ? "document" : "source");
-  const [draftState, setDraftState] = useState<ReviewDraftState>({ choices: {}, bulkResult: null });
+  const bindings: Record<string, string> = Object.fromEntries([
+    ...fields.map(({ id, doc }) => [id, JSON.stringify([doc.review_source_fingerprint, doc.events.length, doc.document_version])]),
+    ...sources.map(item => [item.discrepancy_id, JSON.stringify([reconciliation?.reconciliation_id, reconciliation?.version, item.evidence_fingerprint, item.allowed_actions])]),
+  ]);
+  const [draftState, setDraftState] = useState<ReviewDraftState>({ choices: {}, bindings, bulkResult: null });
   const drafts = draftState.choices;
   const [saved, setSaved] = useState(false);
+  // Reconcile before rendering or confirming: retire only changed/removed evidence.
+  // Version expectations still come from the current backend projection in confirm().
+  if (Object.keys(bindings).length !== Object.keys(draftState.bindings).length
+    || Object.keys(bindings).some(id => bindings[id] !== draftState.bindings[id])) {
+    setDraftState({ bindings, bulkResult: null, choices: Object.fromEntries(
+      Object.entries(draftState.choices).filter(([id]) => bindings[id] !== undefined && bindings[id] === draftState.bindings[id]),
+    ) });
+    setSaved(false);
+  }
   const disabled = busy || summary.evidence_decision_authorized !== true;
   const items = family === "document" ? fields.map(item => item.id) : sources.map(item => item.discrepancy_id);
   const selected = items.filter(id => drafts[id]?.decision).length;
@@ -41,7 +55,7 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
   const complete = selected === items.length && items.length > 0 && !invalid;
 
   function change(id: string, update: Partial<Draft>) {
-    setDraftState(current => ({ choices: { ...current.choices,
+    setDraftState(current => ({ ...current, choices: { ...current.choices,
       [id]: { ...(current.choices[id] ?? { decision: "", correction: "", note: "" }), ...update } }, bulkResult: null }));
     setSaved(false);
   }
@@ -61,7 +75,7 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
           filled += 1;
         }
       }
-      return { choices, bulkResult: { filled, skipped,
+      return { choices, bindings: current.bindings, bulkResult: { filled, skipped,
         remaining: fields.filter(({ id }) => !choices[id]?.decision).length } };
     });
     setSaved(false);
@@ -159,12 +173,12 @@ const BlockerDecisionReview = forwardRef<ReviewDraftHandle, {
     </div>
     <footer className="blocker-review__footer">
       <p role="status">{selected} selected / {items.length} required · {items.length - selected} remaining · {saved ? "Draft saved in this tab" : "Draft not saved"}</p>
-      <p>Your selections are a draft. The onboarding system has not processed them yet. Drafts stay in this tab while this case is open and are cleared when you leave the case, refresh, change session or receive changed evidence.</p>
+      <p>Your selections are a draft. The onboarding system has not processed them yet. Drafts stay in this tab while this case is open. Leaving the case, reloading the page, changing session or receiving changed review evidence clears this batch. An unchanged in-app refresh retains your choices.</p>
       <p>Confirming applies these decisions and continues the onboarding workflow. GoldTier Review & Send is a separate confirmation.</p>
       {!complete && <p id="batch-confirm-disabled">{invalid ? "Enter each correction before confirming." : "Select all required decisions before confirming."}</p>}
       <div className="document-card__actions">
         <button type="button" className="btn btn-secondary" disabled={disabled || selected === 0} onClick={() => setSaved(true)}>Save draft in this tab</button>
-        <button type="button" className="btn btn-ghost" disabled={disabled || selected === 0} onClick={() => { setDraftState({ choices: {}, bulkResult: null }); setSaved(false); }}>Clear draft</button>
+        <button type="button" className="btn btn-ghost" disabled={disabled || selected === 0} onClick={() => { setDraftState({ choices: {}, bindings, bulkResult: null }); setSaved(false); }}>Clear draft</button>
         <button type="button" className="btn btn-primary blocker-review-confirm" disabled={disabled || !complete} aria-describedby={!complete ? "batch-confirm-disabled" : undefined} onClick={confirm}>Confirm decisions & continue onboarding</button>
       </div>
     </footer>

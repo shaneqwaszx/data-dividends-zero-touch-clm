@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute, retainedEvidencePath } from "../playwright.config";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { openStage } from "./stage-disclosures";
+import { openStage, openStageSupport } from "./stage-disclosures";
 import { confirmBatch, reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
 import type { OwnershipAnalysisRecord } from "../src/types";
 
@@ -193,6 +193,7 @@ for (const replace of [false, true]) {
       await page.getByLabel("Replace current document", { exact: true }).setInputFiles({ name: "synthetic-replacement.txt", mimeType: "text/plain", buffer: Buffer.from(clean) });
       expect((await replacement).status()).toBe(200);
       await expect(page.locator(".case-action-progress")).toHaveCount(0);
+      await openStageSupport(page, "Document verification", "More");
       await expect(page.getByText("Evidence history (1)", { exact: true })).toBeVisible();
       await page.locator(".document-evidence-panel").screenshot({ path: path.join(evidence, "replacement-after.png") });
     } else {

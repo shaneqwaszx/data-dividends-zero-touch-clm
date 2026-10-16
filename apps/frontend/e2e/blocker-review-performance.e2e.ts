@@ -57,7 +57,9 @@ async function runPerformanceGroup(page: Page, group: number) {
       if (group === 0 && sample === 0) {
         await page.screenshot({ path: path.join(evidence, batch ? "candidate-before-navigation.png" : "baseline-before-navigation.png") });
         if (batch) {
-          await page.locator(".stage-disclosure > h2 > button").filter({ hasText: "Document verification" }).click();
+          const documents = page.getByRole("region", { name: "Document verification", exact: true });
+          await expect(documents.locator(":scope > div").first()).toBeVisible();
+          await expect(documents.locator(":scope > details[open]")).toHaveCount(0);
           const stage = page.locator('.ds-stage[data-node-id="DOCUMENT_IDP"]');
           await stage.locator("summary").click();
           await stage.getByRole("button", { name: "Open case stage details" }).click();

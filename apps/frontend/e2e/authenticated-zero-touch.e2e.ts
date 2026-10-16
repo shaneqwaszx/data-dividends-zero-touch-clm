@@ -1390,8 +1390,9 @@ test("current document review progresses authoritatively and keeps superseded hi
       && documents.filter((document) => document.superseded_by_document_id !== null).length === 1;
   }, { timeout: 120_000 }).toBe(true);
   await openStage(page, "Document verification");
+  await openStageSupport(page, "Document verification", "More");
   const history = page.getByText(/Evidence history \(1\)/);
-  await history.click();
+  await expect(history).toBeVisible();
   const historicalCard = page.locator(".document-card--history");
   await expect(historicalCard).toBeVisible();
   await expect(historicalCard.getByRole("button")).toHaveCount(0);
@@ -1403,9 +1404,9 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({
     timeout: 30_000,
   });
+  await openStageSupport(page, "Document verification", "More");
   const reloadedHistory = page.getByText(/Evidence history \(1\)/);
   await expect(reloadedHistory).toBeVisible({ timeout: 30_000 });
-  await reloadedHistory.click();
   await expect(page.locator(".document-card--history")).toBeVisible();
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
   await openStage(page, "GoldTier submission package");
