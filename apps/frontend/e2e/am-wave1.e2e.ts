@@ -274,6 +274,16 @@ async function verifyWave5Disclosure(page: Page, caseId: string) {
       }
       const ids = await stage.locator("[id]").evaluateAll(items => items.map(item => item.id)); expect(new Set(ids).size).toBe(ids.length);
     }
+    const targetToggle = target.locator(":scope > h2 > button");
+    await targetToggle.focus(); await page.keyboard.press("Enter");
+    await expect(targetToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(target.locator(":scope > div")).toBeHidden();
+    const targetDescription = target.locator(":scope > .stage-disclosure__summary");
+    await expect(targetDescription).toBeVisible();
+    await expect(targetDescription).toContainText(/Submission not started|Target intervention requires review/);
+    await expect(targetToggle).toHaveAccessibleDescription(await targetDescription.innerText());
+    await expect(targetToggle).toBeFocused();
+    await page.keyboard.press("Space"); await expect(targetToggle).toHaveAttribute("aria-expanded", "true");
     await expect(confirm).toBeEnabled(); await expect(final.locator("#review-notes-title")).toBeVisible();
     await expect(final.getByRole("heading", { name: "What will be sent", exact: true })).toBeVisible();
     const fields = retained.clm.submission_plan.request_preview.operations.flatMap((operation: any) => operation.fields);

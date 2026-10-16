@@ -1550,6 +1550,94 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     client.setQueryData(caseQueryKeys.detail(profile.user_id, CASE_A), summary);
     renderCase(client, profile, CASE_A); return client;
   }
+  function collapsedTargetHeader() {
+    const { region, main } = partitions("GoldTier submission package");
+    const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+    if (toggle.getAttribute("aria-expanded") === "true") act(() => toggle.click());
+    expect(main.hidden).toBe(true);
+    const description = document.getElementById(toggle.getAttribute("aria-describedby")!)!;
+    expect(description).toBe(region.querySelector(":scope > .stage-disclosure__summary"));
+    expect(description.hidden).toBe(false);
+    expect(description.closest("[hidden]")).toBeNull();
+    return description.textContent!;
+  }
+  it.each([
+    ["NOT_SUBMITTED", "Submission not started"],
+    ["SENDING", "Submission in progress — do not send again"],
+    ["SUBMISSION_FAILED", "Submission failed — review required"],
+    ["SUBMISSION_CONFIRMED", "Submission confirmed"],
+    ["SUBMISSION_OUTCOME_UNCERTAIN", "Submission outcome uncertain — verification required"],
+    ["FINALIZATION_PENDING", "Submission finalization pending — review required"],
+  ] as const)("collapsed target header describes backend %s", (state, message) => {
+    const summary = targetSummary(state); summary.active_exceptions = [];
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => response({ submission_id: summary.target_submission!.submission_id, result: "CHECK_FAILED", message: "Synthetic observation unavailable", checked_at: NOW }));
+    const client = setup(summary, { ...actorA, capabilities: [] });
+    expect(collapsedTargetHeader()).toContain(message);
+    expect(collapsedTargetHeader()).toContain("MOCK");
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each([true, false])("collapsed target header exposes preflight attention for authorized=%s without granting an action", authorized => {
+    const summary = targetSummary(); summary.active_exceptions = [];
+    summary.case.initial_identity = { legal_name: "Synthetic identity", registration_number: "202400001A", country_of_incorporation: "SG" };
+    summary.clm.target_search_checkpoint = { status: "FAILED", disposition: "FAILED" } as NonNullable<ZeroTouchCaseSummary["clm"]["target_search_checkpoint"]>;
+    const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary, { ...actorA, capabilities: authorized ? ["CASE_ACCESS"] : [] });
+    expect(collapsedTargetHeader()).toContain("Attention required — GoldTier availability check needed");
+    expect(collapsedTargetHeader()).not.toContain("available.");
+    expect([...partitions("GoldTier submission package").main.querySelectorAll("button")].some(item => item.textContent === "Check GoldTier availability")).toBe(authorized);
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each([true, false])("collapsed target header retains projection-only intervention with action authorized=%s", authorized => {
+    const summary = targetSummary(); summary.active_exceptions = []; summary.evidence_decision_authorized = authorized;
+    summary.interventions = [{ intervention_id: "target-review", owning_stage: "MOCK_GOLDTIER", owning_stage_label: "GoldTier", title: "Review target evidence", blocker_code: "MOCK_GOLDTIER_REVIEW_REQUIRED", explanation: "Synthetic target evidence needs review", required_evidence_or_input: [], authorized_actions: [], no_action_reason: "No correction is currently authorized.", expected_next_step: "Review retained evidence", candidate_summaries: [] }];
+    const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary);
+    expect(collapsedTargetHeader()).toContain("Target intervention requires review");
+    expect(collapsedTargetHeader()).not.toContain("available");
+    expect(partitions("GoldTier submission package").main.querySelector(".intervention-card button")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each(["NOT_SUBMITTED", "SUBMISSION_CONFIRMED", "SUBMISSION_OUTCOME_UNCERTAIN", "SENDING"] as const)("collapsed target header prioritizes intervention and uncertainty over routine %s", state => {
+    const summary = targetSummary(state); summary.active_exceptions = [];
+    summary.interventions = [{ intervention_id: "target-priority", owning_stage: "MOCK_GOLDTIER", owning_stage_label: "GoldTier", title: "Review target", blocker_code: "MOCK_GOLDTIER_REVIEW_REQUIRED", explanation: "Retained target review", required_evidence_or_input: [], authorized_actions: [], no_action_reason: "No correction authorized", expected_next_step: "Review", candidate_summaries: [] }];
+    const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary, { ...actorA, capabilities: [] });
+    expect(collapsedTargetHeader()).toContain(state === "SUBMISSION_OUTCOME_UNCERTAIN" ? "Submission outcome uncertain — verification required"
+      : state === "SENDING" ? "Submission in progress — do not send again" : "Target intervention requires review");
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each([true, false])("collapsed target header exposes pending recovery with submission projection=%s", retained => {
+    const summary = targetSummary("FINALIZATION_PENDING"); summary.status = "RECOVERY_PENDING"; summary.active_exceptions = [];
+    if (!retained) summary.target_submission = undefined;
+    const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary);
+    expect(collapsedTargetHeader()).toContain(retained ? "Verified work retained — safe continuation requires review" : "Backend recovery pending — review required");
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each(["pending", "failed"] as const)("collapsed target header qualifies %s refresh and retains attention without new confirmation", async state => {
+    const summary = targetSummary(); summary.active_exceptions = [];
+    summary.clm.target_search_checkpoint = { status: "FAILED", disposition: "FAILED" } as NonNullable<ZeroTouchCaseSummary["clm"]["target_search_checkpoint"]>;
+    const client = setup(summary); collapsedTargetHeader();
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => state === "pending" ? pending : Promise.resolve(new Response("", { status: 503 })));
+    let refresh: Promise<void> | undefined;
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: caseQueryKeys.detail(actorA.user_id, CASE_A), exact: true }); if (state === "failed") await refresh; });
+    await vi.waitFor(() => expect(collapsedTargetHeader()).toContain(state === "pending" ? "refresh in progress" : "refresh failed; may be stale"));
+    expect(collapsedTargetHeader()).toContain("Last-confirmed target information");
+    expect(collapsedTargetHeader()).toContain("GoldTier availability check needed");
+    expect(collapsedTargetHeader()).not.toContain("Submission confirmed");
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+    if (state === "pending") await act(async () => { release(response(summary)); await refresh; }); client.clear();
+  });
+  it("collapsed target header updates retained state without reopening or mutating", async () => {
+    const summary = targetSummary(); summary.active_exceptions = [];
+    const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary);
+    expect(collapsedTargetHeader()).toContain("Submission not started");
+    const next = targetSummary("SUBMISSION_CONFIRMED"); next.version += 1; next.active_exceptions = [];
+    await act(async () => { client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), next); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(partitions("GoldTier submission package").region.querySelector(":scope > h2 button")!.getAttribute("aria-expanded")).toBe("false");
+    expect(collapsedTargetHeader()).toContain("Submission confirmed");
+    expect([...container!.querySelectorAll("button")].some(item => item.textContent?.startsWith("Confirm and send"))).toBe(false);
+    const toggle = partitions("GoldTier submission package").region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+    act(() => { toggle.click(); toggle.click(); });
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
   it.each(["NOT_SUBMITTED", "SENDING", "SUBMISSION_CONFIRMED", "SUBMISSION_FAILED", "SUBMISSION_OUTCOME_UNCERTAIN", "FINALIZATION_PENDING"] as const)(
     "keeps %s target/review state and one authorized action owner visible with support closed", state => {
       const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => response({ submission_id: "00000000-0000-4000-8000-00000000f001", result: "CHECK_FAILED", message: "Synthetic read-only observation unavailable", checked_at: NOW })); const client = setup(targetSummary(state));
@@ -1673,6 +1761,7 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     expect(signal?.aborted).toBe(true); expect(client.getQueryData(key)).toBeUndefined();
     expect(container!.textContent).not.toContain("LATE_OLD");
     for (const name of ["GoldTier submission package", "Final review & send"]) expect(partitions(name).support.every(item => !item.open)).toBe(true);
+    expect(collapsedTargetHeader()).toContain("Submission not started");
     expect(partitions("GoldTier submission package").main.textContent).toContain("NOT_SUBMITTED"); client.clear();
   });
 

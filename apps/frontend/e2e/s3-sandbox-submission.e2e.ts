@@ -301,6 +301,12 @@ async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
   const check = panel.getByRole("button", { name: "Check GoldTier status", exact: true });
   await expect(check).toBeEnabled();
   await page.getByRole("region", { name: "GoldTier submission package", exact: true }).locator(":scope > h2 > button").click();
+  const targetHeader = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+  const targetDescription = targetHeader.locator(":scope > .stage-disclosure__summary");
+  await expect(targetDescription).toBeVisible();
+  await expect(targetDescription).toContainText("Submission outcome uncertain — verification required");
+  await expect(targetHeader.locator(":scope > h2 > button")).toHaveAccessibleDescription(await targetDescription.innerText());
+
   await focusPipelineAction(page, "GOLDTIER_TARGET", check);
   await page.route("**/target-status-check", async (route) => {
     const response = await route.fetch();
@@ -422,6 +428,16 @@ async function runLostConfirmationResponse(
     await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "Verify submission outcome", exact: true })).toBeDisabled();
     await expect(page.getByRole("alert")).toHaveCount(0);
+    const target = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+    const toggle = target.locator(":scope > h2 > button");
+    await toggle.focus(); await page.keyboard.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(target.locator(":scope > div")).toBeHidden();
+    const description = target.locator(":scope > .stage-disclosure__summary");
+    await expect(description).toBeVisible();
+    await expect(description).toContainText("Submission confirmation is being verified — do not send again");
+    await expect(toggle).toHaveAccessibleDescription(await description.innerText());
+    await page.keyboard.press("Space"); await expect(toggle).toHaveAttribute("aria-expanded", "true");
     recoveryMilestone(`LOST_${loss}_SCREENSHOT_START`);
     await page.screenshot({ path: retainedEvidencePath("goldtier-recovery", `verifying-${loss}.png`) });
     recoveryMilestone(`LOST_${loss}_SCREENSHOT_COMPLETE`);

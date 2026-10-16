@@ -1179,6 +1179,30 @@ export default function CaseDetail({
   const showFinalReview = reviewReady || frozenReview || summary.status === "COMPLETED";
   const preflightUnavailable = summary.clm.target_search_checkpoint?.status === "FAILED"
     && targetSubmission?.state === "NOT_SUBMITTED" && !frozenReview;
+  // Summarize existing target projections; action eligibility stays with Main's owners.
+  const targetAttention = summary.interventions?.some(item => item.owning_stage === "MOCK_GOLDTIER")
+    || summary.active_exceptions.some(item => item.stage === "MOCK_GOLDTIER"
+      && item.exception_type !== "TARGET_CONFIRMATION_REQUIRED");
+  const targetHeaderStatus = (() => {
+    if (confirmationUnknown) return "Submission confirmation is being verified — do not send again.";
+    if (targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN") return "Submission outcome uncertain — verification required.";
+    if (targetSubmission?.state === "SENDING") return "Submission in progress — do not send again.";
+    if (preflightUnavailable) return "Attention required — GoldTier availability check needed.";
+    if (targetAttention) return "Target intervention requires review.";
+    if (safeContinuation) return "Verified work retained — safe continuation requires review.";
+    if (summary.status === "RECOVERY_PENDING" && !targetSubmission) return "Backend recovery pending — review required.";
+    switch (targetSubmission?.state) {
+      case "SUBMISSION_FAILED": return "Submission failed — review required.";
+      case "SUBMISSION_CONFIRMED": return "Submission confirmed.";
+      case "FINALIZATION_PENDING": return "Submission finalization pending — review required.";
+      case "NOT_SUBMITTED": return "Submission not started.";
+      default: return "Submission state not available in retained evidence.";
+    }
+  })();
+  const targetHeaderFreshness = detailQuery.isError
+    ? "Last-confirmed target information (refresh failed; may be stale). "
+    : detailQuery.isPending || detailQuery.isFetching
+      ? "Last-confirmed target information (refresh in progress). " : "";
   const currentTargetStatusCheck = targetStatusCheck?.identity === targetStatusIdentity
     ? targetStatusCheck : null;
   const remainingIssueCount = summary.active_exceptions.filter(
@@ -1527,7 +1551,7 @@ export default function CaseDetail({
             {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="technical" />}
           </>}
         />
-        <StageDisclosure title="GoldTier submission package" summary={`GoldTier: ${targetSubmission?.state.replaceAll("_", " ") ?? "Not available in retained evidence"} · ${summary.clm.submission_plan.environment}. Review target status and any recovery requirements.`} scopeKey={disclosureIdentity} main={<>
+        <StageDisclosure title="GoldTier submission package" summary={`${targetHeaderFreshness}${targetHeaderStatus} · ${summary.clm.submission_plan.environment}`} scopeKey={disclosureIdentity} main={<>
           {targetReadNotice}
           <p>Submission environment: {summary.clm.submission_plan.environment}</p>
           <p>Backend submission state: {targetSubmission?.state ?? "Not available in retained evidence"}</p>
