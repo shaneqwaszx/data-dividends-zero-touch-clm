@@ -1199,10 +1199,29 @@ export default function CaseDetail({
       default: return "Submission state not available in retained evidence.";
     }
   })();
-  const targetHeaderFreshness = detailQuery.isError
-    ? "Last-confirmed target information (refresh failed; may be stale). "
-    : detailQuery.isPending || detailQuery.isFetching
-      ? "Last-confirmed target information (refresh in progress). " : "";
+  // Freshness belongs to the existing query owners, including supporting package reads.
+  function headerReadSummary(label: string, queries: Array<{
+    isPending: boolean; isFetching: boolean; isError: boolean; data: unknown;
+  }>) {
+    const retained = queries.every(query => query.data !== undefined);
+    if (queries.some(query => query.isError)) return retained
+      ? "Last-confirmed " + label + " information (refresh failed; may be stale). "
+      : "Current evidence unavailable; absence not confirmed. ";
+    if (queries.some(query => query.isPending || query.isFetching)) return retained
+      ? "Last-confirmed " + label + " information (refresh in progress). "
+      : "Loading " + label + " information — current evidence not yet confirmed. ";
+    return "";
+  }
+  const detailHeaderQueries = [detailQuery];
+  const ownershipHeaderFreshness = headerReadSummary("ownership", [detailQuery, ownershipQuery]);
+  const documentHeaderFreshness = headerReadSummary("document", [detailQuery, documentQuery]);
+  const targetHeaderFreshness = headerReadSummary("target", detailHeaderQueries);
+  const finalHeaderContext = headerReadSummary("final review", [detailQuery, documentQuery, ownershipQuery])
+    + targetHeaderStatus + " " + (frozenReview || summary.status === "COMPLETED" ? "Reviewed package frozen. " : "");
+  const ownershipHeaderStatus = ownership
+    ? "Ownership: " + ownership.state.replaceAll("_", " ") + ". " + (stageNeedsAttention(["OWNERSHIP"]) || ["REVIEW_REQUIRED", "FAILED"].includes(ownership.state) || ownership.issues.length > 0 ? "Attention required — review ownership evidence." : "Provisional ownership and UBO analysis.")
+    : confirmedOwnershipEmpty ? "No ownership analysis retained in the confirmed response."
+      : "Ownership analysis not confirmed.";
   const currentTargetStatusCheck = targetStatusCheck?.identity === targetStatusIdentity
     ? targetStatusCheck : null;
   const remainingIssueCount = summary.active_exceptions.filter(
@@ -1306,7 +1325,7 @@ export default function CaseDetail({
         )}
 
         <div id={SEARCH_TARGET_ID} role="group" aria-label="Existing-customer search" className="evidence-focus-target" tabIndex={-1}>
-        <StageDisclosure title="Existing-customer search" summary={`Search: ${summary.clm.target_search_checkpoint?.status.replaceAll("_", " ") ?? "No result retained"}. ${identityInSearch || stageNeedsAttention(["GOLDTIER_SEARCH"]) ? "Attention required — review Search identity or decision." : "GoldTier Search evidence."}`} scopeKey={`${disclosureIdentity}:${summary.clm.target_search_checkpoint?.request_id ?? "no-request"}`}
+        <StageDisclosure title="Existing-customer search" summary={`${headerReadSummary("Search", detailHeaderQueries)}Search: ${summary.clm.target_search_checkpoint?.status.replaceAll("_", " ") ?? "No result retained"}. ${identityInSearch || stageNeedsAttention(["GOLDTIER_SEARCH"]) ? "Attention required — review Search identity or decision." : "GoldTier Search evidence."}`} scopeKey={`${disclosureIdentity}:${summary.clm.target_search_checkpoint?.request_id ?? "no-request"}`}
           main={<>
             <p className="control-help">{summary.clm.target_search_checkpoint
               ? `Retained Search status: ${summary.clm.target_search_checkpoint.status.replaceAll("_", " ")}.`
@@ -1341,7 +1360,7 @@ export default function CaseDetail({
           </>}
         />
         </div>
-        <StageDisclosure title="Registry verification" summary={`Registry: ${summary.clm.readiness.registry.status}. ${stageNeedsAttention(["REGISTRY"]) ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source."}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
+        <StageDisclosure title="Registry verification" summary={`${headerReadSummary("registry", detailHeaderQueries)}Registry: ${summary.clm.readiness.registry.status}. ${stageNeedsAttention(["REGISTRY"]) ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source."}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
           main={<>
             {renderInterventions(["REGISTRY"])}
             {!identityInSearch && identityEditor}
@@ -1359,7 +1378,7 @@ export default function CaseDetail({
           </>}
           technicalDetails={<RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="technical" />}
         />
-        <StageDisclosure title="Document verification" summary={`Documents: ${summary.clm.readiness.document.status}. ${stageNeedsAttention(["DOCUMENT"]) ? "Attention required — review document evidence and required actions." : summary.current_stage === "DOCUMENT" ? "Current stage — review document evidence and required actions." : "Document evidence and reconciliation."}`} scopeKey={disclosureIdentity}
+        <StageDisclosure title="Document verification" summary={`${documentHeaderFreshness}Documents: ${summary.clm.readiness.document.status}. ${stageNeedsAttention(["DOCUMENT"]) ? "Attention required — review document evidence and required actions." : summary.current_stage === "DOCUMENT" ? "Current stage — review document evidence and required actions." : "Document evidence and reconciliation."}`} scopeKey={disclosureIdentity}
           main={<>
           <p className="control-help">Document readiness: {summary.clm?.readiness.document.status ?? "Not available"}. Current case checkpoint: {summary.status.replaceAll("_", " ")} / {summary.current_stage}.</p>
           {renderInterventions(["DOCUMENT"])}
@@ -1428,7 +1447,7 @@ export default function CaseDetail({
             <ConfirmDetailsPanel presentation="technical" summary={summary} />
           </>}
         />
-        <StageDisclosure title="Ownership & UBO" summary={`Ownership: ${ownership?.state.replaceAll("_", " ") ?? "Not available"}. ${stageNeedsAttention(["OWNERSHIP"]) ? "Attention required — review ownership evidence." : "Provisional ownership and UBO analysis."}`} scopeKey={disclosureIdentity} main={<>
+        <StageDisclosure title="Ownership & UBO" summary={`${ownershipHeaderFreshness}${ownershipHeaderStatus}`} scopeKey={disclosureIdentity} main={<>
           {ownershipReadNotice}
           {confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}
           {renderInterventions(["OWNERSHIP"])}
@@ -1486,7 +1505,7 @@ export default function CaseDetail({
           moreDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails record={ownership} presentation="more" /></>}
           technicalDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails key={ownership?.analysis_id ?? "none"} record={ownership} presentation="technical" /></>}
         />
-        <StageDisclosure title="Submission readiness" summary={`Readiness checkpoint: ${summary.status.replaceAll("_", " ")}. ${summary.clm.readiness.blockers.length} retained blockers. ${stageNeedsAttention(["READINESS"]) ? "Attention required — review required inputs and configuration." : "Review required inputs and configuration."}`} scopeKey={disclosureIdentity} main={<>
+        <StageDisclosure title="Submission readiness" summary={`${headerReadSummary("readiness", detailHeaderQueries)}Readiness checkpoint: ${summary.status.replaceAll("_", " ")}. ${summary.clm.readiness.blockers.length} retained blockers. ${stageNeedsAttention(["READINESS"]) ? "Attention required — review required inputs and configuration." : "Review required inputs and configuration."}`} scopeKey={disclosureIdentity} main={<>
           {readinessReadNotice}
           <section aria-label="Backend-projected readiness">
             <p>Registry: {summary.clm.readiness.registry.status} · Documents: {summary.clm.readiness.document.status} · Ownership: {summary.clm.readiness.ownership.status} · GoldTier: {summary.clm.readiness.goldtier.status}</p>
@@ -1633,6 +1652,7 @@ export default function CaseDetail({
         {showFinalReview ? <ReviewAndSend
           disclosureScopeKey={disclosureIdentity}
           readNotice={finalReadNotice}
+          headerContext={finalHeaderContext}
           summary={summary}
           documents={documents}
           ownership={ownership}
@@ -1658,7 +1678,7 @@ export default function CaseDetail({
           onEditClassification={() => editFromFinalReview("classification")}
           onEditDocuments={() => editFromFinalReview("documents")}
           onEditOwnership={() => editFromFinalReview("ownership")}
-        /> : <StageDisclosure title="Final review & send" summary={remainingIssueCount > 0 ? `Not yet available — ${remainingIssueCount} remaining issues.` : "Not yet available — complete the current stage."} scopeKey={disclosureIdentity} final
+        /> : <StageDisclosure title="Final review & send" summary={finalHeaderContext + (remainingIssueCount > 0 ? `Not yet available — ${remainingIssueCount} remaining issues.` : "Not yet available — complete the current stage.")} scopeKey={disclosureIdentity} final
           main={<>{finalReadNotice}<p>{remainingIssueCount > 0
             ? `Not yet available — resolve ${remainingIssueCount} remaining issues.`
             : "Not yet available — complete the current stage."}</p></>}

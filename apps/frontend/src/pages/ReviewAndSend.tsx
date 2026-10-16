@@ -118,6 +118,7 @@ export default function ReviewAndSend({
   onCheckStatus,
   disclosureScopeKey,
   readNotice,
+  headerContext = "",
 }: {
   summary: ZeroTouchCaseSummary;
   documents: DocumentProcessingRecord[];
@@ -139,6 +140,7 @@ export default function ReviewAndSend({
   /** Opt in to persistent disclosure; direct consumers retain the legacy layout. */
   disclosureScopeKey?: string;
   readNotice?: ReactNode;
+  headerContext?: string;
 }) {
   const technicalDetailsRef = useRef<HTMLDetailsElement>(null);
   const technicalDetailsWasOpen = useRef(false);
@@ -501,7 +503,7 @@ export default function ReviewAndSend({
     </section>
   );
   return disclosureScopeKey === undefined ? main : <StageDisclosure
-    title="Final review & send" summary={confirmation ? "Dispatch confirmation retained — review the current submission status." : eligibleForConfirmation && canAccessCase && !projectionFrozen ? "Action required — review the package before Confirm and send." : "Review current blockers, frozen status and outstanding items before sending."} scopeKey={disclosureScopeKey} final
+    title="Final review & send" summary={headerContext + (confirmation ? "Dispatch confirmation retained — review the current submission status." : eligibleForConfirmation && canAccessCase && !projectionFrozen ? "Action required — review the package before Confirm and send." : "Review current blockers, frozen status and outstanding items before sending.")} scopeKey={disclosureScopeKey} final
     main={<>{readNotice}{main}</>}
     moreDetails={<>{readNotice}{moreDetails}</>}
     technicalDetails={<>{readNotice}{technicalDetails}</>}

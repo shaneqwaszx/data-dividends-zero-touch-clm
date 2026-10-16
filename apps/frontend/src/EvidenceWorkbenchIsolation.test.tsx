@@ -1766,3 +1766,100 @@ describe("GoldTier and Final Review persistent disclosure", () => {
   });
 
 });
+
+
+describe("Round3 collapsed header read truthfulness", () => {
+  const titles = ["Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO", "Submission readiness", "GoldTier submission package", "Final review & send"];
+  function header(title: string, collapse = true) {
+    const region = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === title)!;
+    expect(region).toBeTruthy(); const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+    if (collapse && toggle.getAttribute("aria-expanded") === "true") act(() => toggle.click());
+    const description = region.querySelector<HTMLElement>(":scope > .stage-disclosure__summary")!;
+    expect(description).not.toBeNull(); expect(description.closest("[hidden]")).toBeNull(); expect(toggle.getAttribute("aria-describedby")).toBe(description.id);
+    if (collapse) { expect(toggle.getAttribute("aria-expanded")).toBe("false"); expect(region.querySelector<HTMLElement>(":scope > div")!.hidden).toBe(true); }
+    return { region, toggle, text: description.textContent! };
+  }
+  function setup(final = false, profile = actorA) {
+    const client = createTestClient(); seedCase(client, profile, CASE_A, "analysis-current", "CURRENT");
+    const summary = summaryFixture(CASE_A);
+    if (final) {
+      summary.active_exceptions = [{ ...summary.active_exceptions[0], stage: "MOCK_GOLDTIER", exception_type: "TARGET_CONFIRMATION_REQUIRED", blocker_code: "TARGET_CONFIRMATION_REQUIRED" }];
+      summary.clm.readiness.blockers = [];
+      summary.clm.submission_plan.request_preview = { environment: "MOCK", dispatch_ready: true, policy_version: 2, operations: [] };
+    }
+    client.setQueryData(caseQueryKeys.detail(profile.user_id, CASE_A), summary);
+    renderCase(client, profile, CASE_A); return { client, summary };
+  }
+  async function flush() { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); }
+  it.each([false, true])("qualifies actual detail refresh failure and recovery in all seven collapsed headers; final=%s", async final => {
+    const { client, summary } = setup(final); titles.forEach(title => header(title));
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending); let refresh: Promise<void> | undefined;
+    const key = caseQueryKeys.detail(actorA.user_id, CASE_A);
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); }); await flush();
+    for (const title of titles) { const h = header(title, false); expect(h.toggle.getAttribute("aria-expanded")).toBe("false"); expect.soft(h.text).toContain("refresh in progress"); expect.soft(h.text).toContain("Last-confirmed"); }
+    await act(async () => { release(new Response("", { status: 503 })); await refresh; }); await flush();
+    for (const title of titles) { expect.soft(header(title, false).text).toContain("refresh failed; may be stale"); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false"); }
+    fetch.mockImplementation(async () => response(summary)); await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }); }); await flush();
+    for (const title of titles) { expect.soft(header(title, false).text).not.toMatch(/Last-confirmed|may be stale|refresh in progress/); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false"); }
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
+  it.each(["ownership", "documents"] as const)("qualifies independent %s refresh/failure/recovery in its collapsed header and final", async resource => {
+    const { client } = setup(true); const key = caseQueryKeys[resource](actorA.user_id, CASE_A);
+    const affected = [resource === "ownership" ? "Ownership & UBO" : "Document verification", "Final review & send"]; affected.forEach(title => header(title));
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending); let refresh: Promise<void> | undefined;
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); }); await flush();
+    for (const title of affected) { expect.soft(header(title, false).text).toContain("refresh in progress"); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false"); }
+    await act(async () => { release(new Response("", { status: 503 })); await refresh; }); await flush();
+    for (const title of affected) { expect.soft(header(title, false).text).toContain("refresh failed; may be stale"); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false"); }
+    fetch.mockImplementation(async () => response(resource === "ownership" ? ownershipFixture(CASE_A, "restored", "FRESH") : [documentFixture(CASE_A)]));
+    await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }); }); await flush();
+    for (const title of affected) { expect.soft(header(title, false).text).not.toContain("Last-confirmed"); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false"); }
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
+  it.each(["ownership", "documents"] as const)("does not claim retained %s during initial loading or failed initial read", async resource => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis", "A"); const key = caseQueryKeys[resource](actorA.user_id, CASE_A);
+    client.removeQueries({ queryKey: key, exact: true }); let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending); renderCase(client, actorA, CASE_A);
+    const title = resource === "ownership" ? "Ownership & UBO" : "Document verification";
+    expect(header(title).text).toContain("Loading"); expect(header(title).text).toContain("not yet confirmed"); expect(header(title).text).not.toContain("Last-confirmed");
+    await act(async () => { release(new Response("", { status: 503 })); }); await vi.waitFor(() => expect(client.getQueryState(key)?.status).toBe("error")); await flush();
+    expect.soft(header(title, false).text).toContain("Current evidence unavailable; absence not confirmed"); expect.soft(header(title, false).text).not.toContain("Last-confirmed"); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
+  it.each(["ANALYZED", "REVIEW_REQUIRED", "FAILED"] as const)("retains confirmed %s and intervention without granting actions", async state => {
+    const profile = { ...actorA, capabilities: [] }; const { client, summary } = setup(false, profile);
+    const analysis = ownershipFixture(CASE_A, "analysis", "A"); analysis.state = state; summary.active_exceptions = []; summary.evidence_decision_authorized = false;
+    summary.interventions = [{ intervention_id: "owner-review", owning_stage: "OWNERSHIP", owning_stage_label: "Ownership", title: "Review ownership", blocker_code: "OWNERSHIP_REVIEW_REQUIRED", explanation: "Retained ownership review", required_evidence_or_input: [], authorized_actions: [], no_action_reason: "No action is currently authorized", expected_next_step: "Review", candidate_summaries: [] }];
+    act(() => { client.setQueryData(caseQueryKeys.ownership(actorA.user_id, CASE_A), analysis); client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary); }); await flush();
+    const fetch = vi.spyOn(globalThis, "fetch"); const h = header("Ownership & UBO"); expect(h.text).toContain(state.replaceAll("_", " ")); expect(h.text).toContain("Attention required"); expect(h.text).not.toContain("Last-confirmed");
+    expect(h.region.querySelector(".intervention-card button")).toBeNull(); expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each(["INCOMPLETE_LEGAL_ENTITY", "CONTRADICTORY_OWNERSHIP_EVIDENCE"] as const)("exposes %s as requiring attention without an exception action", async code => {
+    const { client, summary } = setup(); summary.active_exceptions = []; summary.interventions = [];
+    const analysis = ownershipFixture(CASE_A, "analysis", "A"); analysis.state = "REVIEW_REQUIRED"; analysis.issues = [{ code, message: "Synthetic retained analysis requires review", affected_party_ids: [] }];
+    act(() => { client.setQueryData(caseQueryKeys.ownership(actorA.user_id, CASE_A), analysis); client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary); }); await flush();
+    const fetch = vi.spyOn(globalThis, "fetch"); const h = header("Ownership & UBO"); expect(h.text).toContain("REVIEW REQUIRED"); expect(h.text).toContain("Attention required"); expect(h.region.textContent).toContain("Incomplete or disputed evidence requires review."); expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it("distinguishes confirmed empty ownership from unavailable ownership", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis", "A"); client.removeQueries({ queryKey: caseQueryKeys.ownership(actorA.user_id, CASE_A), exact: true }); client.setQueryData(caseQueryKeys.ownership(actorA.user_id, CASE_A), null); renderCase(client, actorA, CASE_A); await flush();
+    expect(header("Ownership & UBO").text).toContain("No ownership analysis retained in the confirmed response"); expect(header("Ownership & UBO").text).not.toContain("unavailable"); client.clear();
+  });
+  it.each(["SUBMISSION_OUTCOME_UNCERTAIN", "SUBMISSION_CONFIRMED"] as const)("keeps %s and frozen state visible in actual Final Review", async state => {
+    const { client, summary } = setup(true); summary.target_submission = { state, submission_id: "00000000-0000-4000-8000-00000000f003", status_check_available: false, recovery_available: false, attempted_operations: ["SEARCH", "SHELL"], definitively_completed_operations: ["SEARCH"], lifecycle_resolved_operations: ["SEARCH"], ledger_state: "OUTCOME_UNCERTAIN" } as NonNullable<ZeroTouchCaseSummary["target_submission"]>;
+    if (state === "SUBMISSION_CONFIRMED") summary.status = "COMPLETED"; act(() => client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary)); await flush();
+    const h = header("Final review & send"); expect(h.text).toContain(state === "SUBMISSION_OUTCOME_UNCERTAIN" ? "Submission outcome uncertain" : "Submission confirmed"); expect(h.text).toContain("frozen");
+    expect([...h.region.querySelectorAll("button")].some(item => item.textContent?.startsWith("Confirm and send"))).toBe(false); client.clear();
+  });
+  it.each(["ownership", "documents", "detail"] as const)("retires late %s header freshness across actor/case/session replacement", async resource => {
+    const { client } = setup(true); const key = caseQueryKeys[resource](actorA.user_id, CASE_A);
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending); let refresh: Promise<void> | undefined; titles.forEach(title => header(title));
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); }); await flush(); const signal = (fetch.mock.calls[0][1] as RequestInit).signal;
+    act(() => { root!.unmount(); root = null; clearSessionQueries(client); }); seedCase(client, actorB, CASE_B, "NEW_SESSION", "NEW"); renderCase(client, actorB, CASE_B);
+    await act(async () => { release(new Response("", { status: 503 })); await refresh; }); await flush(); expect(signal?.aborted).toBe(true); expect(client.getQueryData(key)).toBeUndefined();
+    for (const title of titles) expect(header(title).text).not.toMatch(/Last-confirmed|may be stale|refresh in progress/); expect(container!.textContent).not.toContain("CURRENT Candidate");
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
+});
