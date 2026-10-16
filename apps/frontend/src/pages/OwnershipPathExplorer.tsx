@@ -29,6 +29,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
   const [candidateId, setCandidateId] = useState<string | null>(null);
   const [pathId, setPathId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  const [inspectionOpen, setInspectionOpen] = useState(false);
 
   const candidate = record?.candidates.find((item) => item.party.party_id === candidateId)
     ?? record?.candidates[0]
@@ -39,6 +40,7 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
     setCandidateId(record?.candidates[0]?.party.party_id ?? null);
     setPathId(record?.candidates[0]?.paths[0]?.path_id ?? null);
     setPage(0);
+    setInspectionOpen(false);
   }, [record?.analysis_id]);
 
   useEffect(() => {
@@ -147,12 +149,20 @@ export default function OwnershipPathExplorer({ record, acquisition, primaryBloc
       <p className="control-help">{record.candidates.slice(0, 3).map((item) => `${item.party.display_name}: ${formatOwnershipPercent(item.aggregated_ownership_percent)} effective (${item.classification})`).join("; ") || "No calculable candidate retained."}</p>
       {record.source_classification === "OFFICIAL_MOCK_PLUS_LOCAL_SUPPLEMENT" && <p className="ds-banner">Official Marketplace Mock facts with separately labelled LOCAL_SYNTHETIC_SUPPLEMENT ownership evidence. These sources remain distinct and are not Live registry evidence.</p>}
       <UboSummary record={record} />
-      <OwnershipStructure key={`structure:${record.analysis_id}`} record={record} selectedPartyId={candidate?.party.party_id ?? null} onSelectPerson={(partyId) => { setCandidateId(partyId); setPathId(null); setPage(0); }} />
+      <OwnershipStructure key={`structure:${record.analysis_id}`} record={record} selectedPartyId={candidate?.party.party_id ?? null} onSelectPerson={(partyId) => { setCandidateId(partyId); setPathId(null); setPage(0); if (candidate?.party.party_id !== partyId) setInspectionOpen(false); }} />
       {presentation === "main" ? <>
         {partialIssues.length > 0 && <div className="ds-banner ds-banner-warn" role="note"><strong>Non-definitive partial ownership view.</strong>{partialIssues.map(issue => <p key={`${issue.code}-${issue.message}`}>{issue.code}: {issue.message}</p>)}</div>}
         {record.error && !primaryBlockerVisible && <p role="alert">{record.error.code}: {record.error.message}</p>}
         <OwnershipObservations record={record} />
-        {candidateInspection}
+        {candidate && (candidate.paths.length > 1 || candidate.paths.some(item => !item.is_direct)) &&
+          <details key={`${record.analysis_id}:${candidate.party.party_id}`} className="evidence-details" onToggle={event => {
+            const details = event.currentTarget;
+            if (!details.open && details.contains(document.activeElement)) details.querySelector("summary")?.focus();
+            setInspectionOpen(details.open);
+          }}>
+            <summary>Technical retained path inspection</summary>
+            {inspectionOpen && candidateInspection}
+          </details>}
       </> : <details key={record.analysis_id} className="evidence-details s2-ownership-structure">
         <summary>Technical calculations and retained paths</summary>
         <OwnershipSupportingDetails record={record} presentation="full" primaryBlockerVisible={primaryBlockerVisible} />

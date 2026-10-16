@@ -99,6 +99,7 @@ async function confirm(page: Page, caseId: string, sandbox = false) {
     .toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
   await openStage(page, "Final review & send");
   await expect(page.locator("#case-review-and-send")).toBeVisible();
+  await page.getByRole("region", { name: "Final review & send", exact: true }).locator(":scope > h2 > button").click();
   await focusPipelineAction(page, "FINAL_REVIEW_SEND", page.getByRole("button", { name: sandbox ? "Confirm and send to GoldTier sandbox" : "Confirm and send to Mock GoldTier", exact: true }));
   const response = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/target-confirmation"));

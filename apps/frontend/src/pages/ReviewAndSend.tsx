@@ -501,7 +501,7 @@ export default function ReviewAndSend({
     </section>
   );
   return disclosureScopeKey === undefined ? main : <StageDisclosure
-    title="Final review & send" scopeKey={disclosureScopeKey} final
+    title="Final review & send" summary={confirmation ? "Dispatch confirmation retained — review the current submission status." : eligibleForConfirmation && canAccessCase && !projectionFrozen ? "Action required — review the package before Confirm and send." : "Review current blockers, frozen status and outstanding items before sending."} scopeKey={disclosureScopeKey} final
     main={<>{readNotice}{main}</>}
     moreDetails={<>{readNotice}{moreDetails}</>}
     technicalDetails={<>{readNotice}{technicalDetails}</>}

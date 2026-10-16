@@ -307,7 +307,13 @@ function button(label: string): HTMLButtonElement {
   return result!;
 }
 
+function openPathInspection(): void {
+  const details = [...container!.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "Technical retained path inspection");
+  if (details && !details.open) act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+}
+
 function click(label: string): void {
+  if (label.startsWith("Inspect ")) openPathInspection();
   act(() => button(label).click());
 }
 
@@ -586,7 +592,8 @@ describe("Evidence workbench integration isolation", () => {
     click("Inspect a-path-2");
     expect(container?.textContent).toContain("Selected retained path: a-path-2");
     click("a Candidate Two");
-    expect(container?.textContent).toContain("Selected retained path: a-candidate-two-path");
+    expect(container!.querySelector('[aria-label="Selected holder"]')?.textContent).toContain("a Candidate Two");
+    expect(container!.querySelector('[aria-label^="Ownership candidate "]')).toBeNull();
     click("Focus documents evidence");
 
     await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-review-field")).toBe("legal_name"));
@@ -641,11 +648,13 @@ describe("Evidence workbench integration isolation", () => {
     expect(container?.textContent).toContain("Selected retained path: a-path-2");
 
     renderCase(client, actorA, CASE_B);
+    openPathInspection();
     expect(container?.textContent).toContain("Selected retained path: b-path-1");
     expect(container?.textContent).not.toContain("Selected retained path: a-path-2");
     click("Inspect b-path-2");
 
     renderCase(client, actorB, CASE_B);
+    openPathInspection();
     expect(container?.textContent).toContain("Selected retained path: c-path-1");
     expect(container?.textContent).not.toContain("Selected retained path: b-path-2");
     click("Inspect c-path-2");
@@ -657,6 +666,7 @@ describe("Evidence workbench integration isolation", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    openPathInspection();
     expect(container?.textContent).toContain("Selected retained path: d-path-1");
     expect(container?.textContent).not.toContain("Selected retained path: c-path-2");
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -704,20 +714,20 @@ describe("Evidence workbench integration isolation", () => {
     ]);
   });
 
-  it("renders migrated Search after Registry with legacy disclosures in order and Review & Send last", () => {
+  it("renders Search before Registry in pipeline order with independent stage toggles", () => {
     const client = createTestClient();
     seedCase(client, actorA, CASE_A, "analysis-a", "a");
     renderCase(client, actorA, CASE_A);
     const sections = Array.from(container!.querySelectorAll(".stage-disclosure"));
     expect(sections.map((section) => section.querySelector(":scope > h2 button span")?.textContent ?? section.querySelector(":scope > h2")?.textContent)).toEqual([
-      "Registry verification", "Existing-customer search", "Document verification", "Ownership & UBO",
+      "Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO",
       "Submission readiness", "GoldTier submission package",
       "Historical / resolved issues", "Final review & send",
     ]);
-    expect(sections[2].querySelector(":scope > h2 button")).toBeNull();
+    expect(sections[2].querySelector(":scope > h2 button")).not.toBeNull();
     expect([...sections[2].querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
     expect(sections[6].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
-    expect(sections[7].querySelector(":scope > h2 button")).toBeNull();
+    expect(sections[7].querySelector(":scope > h2 button")).not.toBeNull();
     expect(sections[7].textContent).toContain("Not yet available");
     expect(sections[7].querySelector(".review-and-send")).toBeNull();
   });
@@ -743,7 +753,11 @@ describe("Case attention corrective navigation", () => {
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), projectionOnlySummary());
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
     const stage = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === "Registry verification")!;
-    expect(stage.querySelector(":scope > h2 button")).toBeNull();
+    const parent = stage.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+    act(() => parent.click());
+    expect(parent.getAttribute("aria-expanded")).toBe("false");
+    expect(stage.querySelector(".stage-disclosure__summary")?.textContent).toContain("Attention required");
+    expect(stage.querySelector<HTMLElement>(":scope > div")!.hidden).toBe(true);
     expect([...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
     const action = attentionButton("Action: Correct identity"); action.focus(); expect(document.activeElement).toBe(action);
     act(() => action.click());
@@ -797,6 +811,9 @@ describe("Case attention corrective navigation", () => {
     const value = projectionOnlySummary(); value.evidence_decision_authorized = false;
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    const stage = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === "Registry verification")!;
+    act(() => stage.querySelector<HTMLButtonElement>("h2 button")!.click());
+    expect(stage.querySelector(".stage-disclosure__summary")?.textContent).toContain("Attention required");
     act(() => attentionButton("Action: Correct identity").click());
     await vi.waitFor(() => expect(container!.textContent).toContain("No corrective input is currently authorized here"));
     expect(document.activeElement?.id).not.toBe("identity-registration-number"); expect(fetch).not.toHaveBeenCalled();
@@ -823,6 +840,9 @@ describe("Case attention corrective navigation", () => {
       evidence_actions: [], no_action_reason: "No authorized POC risk decision is available." }];
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    const stage = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === "Submission readiness")!;
+    act(() => stage.querySelector<HTMLButtonElement>("h2 button")!.click());
+    expect(stage.querySelector(".stage-disclosure__summary")?.textContent).toContain("Attention required");
     act(() => attentionButton("Blocker: Retained risk review").click());
     await vi.waitFor(() => expect(document.activeElement?.id).toBe(`case-intervention-${value.interventions![0].intervention_id}`));
     expect(container!.textContent).toContain("No corrective input is currently authorized here"); expect(fetch).not.toHaveBeenCalled();
@@ -986,7 +1006,7 @@ describe("Document persistent disclosure migration", () => {
     const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "a");
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
     const stage = documentStage(); expect(stage).toBeTruthy();
-    expect(stage.querySelector(":scope > h2 button")).toBeNull();
+    expect(stage.querySelector(":scope > h2 button")).not.toBeNull();
     const support = [...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")];
     expect(support.map(item => item.querySelector("summary")?.textContent)).toEqual([
       "More details — Document verification", "Technical details — Document verification",
@@ -1239,7 +1259,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
   }
   function partitions(title: string) {
     const region = stage(title);
-    expect(region.querySelector(":scope > h2 button")).toBeNull();
+    expect(region.querySelector(":scope > h2 button")).not.toBeNull();
     const support = [...region.querySelectorAll<HTMLDetailsElement>(":scope > details")];
     expect(support.map(item => item.querySelector("summary")?.textContent)).toEqual([
       `More details — ${title}`, `Technical details — ${title}`,
@@ -1273,12 +1293,14 @@ describe("Ownership and Readiness persistent disclosure", () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(element, value);
     element.dispatchEvent(new Event("input", { bubbles: true }));
   }
-  it("keeps the graph, candidate/path inspection and single authorized correction in Main", () => {
+  it("keeps graph and single correction in Main with lazy optional retained path inspection", () => {
     const client = setup(); const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
     const { main, support, region } = partitions("Ownership & UBO");
     expect(support.every(item => !item.open)).toBe(true);
     expect(main.querySelector(".manual-ownership form")).not.toBeNull();
     expect(main.querySelector('[aria-label="Hierarchical ownership structure"]')).not.toBeNull();
+    expect(main.querySelector('[aria-label="Selected retained path a-path-1"]')).toBeNull();
+    openPathInspection();
     expect(main.querySelector('[aria-label="Selected retained path a-path-1"]')).not.toBeNull();
     expect(main.querySelector('button[aria-pressed]')).not.toBeNull();
     expect(region.querySelectorAll(".manual-ownership form")).toHaveLength(1);
@@ -1500,7 +1522,7 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     const region = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")]
       .find(item => item.querySelector(":scope > h2")?.textContent === title)!;
     expect(region).toBeTruthy();
-    expect(region.querySelector(":scope > h2 button")).toBeNull();
+    expect(region.querySelector(":scope > h2 button")).not.toBeNull();
     const support = [...region.querySelectorAll<HTMLDetailsElement>(":scope > details")];
     expect(support.map(item => item.querySelector("summary")?.textContent)).toEqual([
       `More details — ${title}`, `Technical details — ${title}`,

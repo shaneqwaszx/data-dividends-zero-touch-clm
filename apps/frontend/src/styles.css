@@ -4094,3 +4094,7 @@ dd {
 .ds-root .blocker-review-confirm:focus-visible { outline: 3px solid var(--color-accent-700); outline-offset: 3px; }
 .document-upload-control { position: relative; }
 .document-upload-control:focus-within { outline: 3px solid var(--color-accent-700); outline-offset: 3px; }
+
+.stage-disclosure__indicator::after { content: "+"; }
+.stage-disclosure__indicator[data-open="true"]::after { content: "−"; }
+.stage-disclosure > details[hidden] { display: none; }

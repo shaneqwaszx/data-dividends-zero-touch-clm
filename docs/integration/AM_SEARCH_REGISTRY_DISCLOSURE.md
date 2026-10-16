@@ -1,5 +1,11 @@
 # Search and Registry progressive disclosure
 
+## Current owner UX correction
+
+The owner-requested UX correction on baseline `151802e` renders Existing-customer search before Registry verification to match the existing pipeline. The identity editor remains mounted once under its existing predicates, with unchanged anchors, request/rationale/decision authority and distinct Search/Registry source labels. Both stages now have independent outer toggles; Main is visible while expanded, and current header status remains visible while collapsed. The existing openStage helper opens the outer button for either current composition without changing optional support. The original migration evidence below remains attributed to its original content.
+
+## Original migration record
+
 This bounded post-PR88 presentation change starts at main66cd66fbc7be0b0425202cf5b4625b3120aa7308. It adopts the accepted StageDisclosure Main/More/Technical composition for Registry verification and Existing-customer search only. Search remains after Registry visually; backend processing order is unchanged. The other five business areas retain their current presentation.
 
 ## Content and canonical owners

@@ -300,6 +300,7 @@ async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
   await switchUser(page, "olivia-koh", caseId);
   const check = panel.getByRole("button", { name: "Check GoldTier status", exact: true });
   await expect(check).toBeEnabled();
+  await page.getByRole("region", { name: "GoldTier submission package", exact: true }).locator(":scope > h2 > button").click();
   await focusPipelineAction(page, "GOLDTIER_TARGET", check);
   await page.route("**/target-status-check", async (route) => {
     const response = await route.fetch();

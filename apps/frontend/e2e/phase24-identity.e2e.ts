@@ -115,7 +115,7 @@ test("Phase24 invalid registry identity corrects the same case and keeps final r
   }
   await expect(page.locator(".stage-disclosure--final > h2")).toHaveText("Final review & send");
   await expect(page.locator(".stage-disclosure--final")).toContainText("Not yet available");
-  await expect(page.getByText(/Not yet available —/)).toBeVisible();
+  await expect(page.locator(".stage-disclosure--final > div").getByText(/Not yet available —/)).toBeVisible();
   await expect(page.locator(".review-and-send")).toHaveCount(0);
   await page.setViewportSize({ width: 320, height: 900 });
   await expect.poll(() => page.evaluate(() =>

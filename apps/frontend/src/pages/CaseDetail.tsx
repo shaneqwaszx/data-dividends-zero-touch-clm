@@ -822,7 +822,7 @@ export default function CaseDetail({
       // Entry navigation may run before the disclosure's effect has subscribed.
       // Reveal again at the mounted frame, then focus after its committed layout.
       revealStage(current);
-      const controls = selector ?? "input:not([disabled]):not([readonly]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]):not(.review-and-send__print)";
+      const controls = selector ?? "input:not([disabled]):not([readonly]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]):not([data-stage-toggle]):not(.review-and-send__print)";
       const target = (current.matches(controls) ? [current] : Array.from(current.querySelectorAll<HTMLElement>(controls)))
         .find(element => !element.matches(":disabled"));
       if (!target) {
@@ -900,6 +900,8 @@ export default function CaseDetail({
   }, [pendingAttention, evidenceIdentity, summary?.version, documentQuery.isPending, ownershipQuery.isPending]);
 
   function focusSearch(interventionId?: string, fromPipeline = false): void {
+    const searchPanel = document.getElementById(SEARCH_TARGET_ID)?.querySelector(".stage-disclosure > div");
+    if (searchPanel) revealStage(searchPanel);
     if (document.getElementById("existing-customer-confirmation-form")) {
       focusActionControl("existing-customer-confirmation-form", "input:not([disabled])"); return;
     }
@@ -1169,8 +1171,8 @@ export default function CaseDetail({
         />
 
   );
-  const stageIsActive = (stages: readonly string[]) => summary.status !== "COMPLETED"
-    && stages.includes(summary.interventions?.find((item) => item.blocker_code !== "TARGET_CONFIRMATION_REQUIRED")?.owning_stage ?? summary.current_stage ?? "REGISTRY");
+  const stageNeedsAttention = (stages: readonly string[]) => summary.active_exceptions.some(item => stages.includes(item.stage))
+    || Boolean(summary.interventions?.some(item => stages.includes(item.owning_stage)));
   const reviewReady = summary.active_exceptions.some((item) => item.exception_type === "TARGET_CONFIRMATION_REQUIRED");
   const frozenReview = Boolean(summary.case.target_dispatch_confirmation || summary.clm.submission
     || (targetSubmission && targetSubmission.state !== "NOT_SUBMITTED"));
@@ -1279,26 +1281,8 @@ export default function CaseDetail({
           </div>
         )}
 
-        <StageDisclosure title="Registry verification" scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
-          main={<>
-            {renderInterventions(["REGISTRY"])}
-            {!identityInSearch && identityEditor}
-            <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} compact />
-            <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>
-              <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="main" />
-            </div>
-            <p>{entity?.legal_name ?? "Legal name not retained"} · {entity?.registration_number ?? summary.case.requested_uen} · {entity?.entity_status ?? "Registry status not retained"}</p>
-          </>}
-          moreDetails={<>
-        <div className="ds-two-col case-corporate-evidence"><div><h4>Corporate particulars</h4><div>
-          <div className="kv-row"><span className="kv-label">Company name</span><span className="kv-value">{entity?.legal_name ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration ID</span><span className="kv-value">{entity?.registration_number ?? summary.case.requested_uen}</span></div><div className="kv-row"><span className="kv-label">Entity type</span><span className="kv-value">{entity?.party_type ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registry status</span><span className="kv-value">{entity?.entity_status ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration date</span><span className="kv-value">{entity?.registration_date ?? "—"}</span></div>
-        </div></div><div><h4>Registry officers and roles</h4>{acquisition && acquisition.officers.length > 0 ? <div className="table-card"><table className="table"><tbody>{acquisition.officers.map((officer) => <tr key={officer.officer_id}><td>{officer.name}</td><td>{officer.role}</td></tr>)}</tbody></table></div> : <p className="text-muted" style={{ fontSize: 12 }}>Not available.</p>}</div></div>
-            <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="more" />
-          </>}
-          technicalDetails={<RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="technical" />}
-        />
         <div id={SEARCH_TARGET_ID} role="group" aria-label="Existing-customer search" className="evidence-focus-target" tabIndex={-1}>
-        <StageDisclosure title="Existing-customer search" scopeKey={`${disclosureIdentity}:${summary.clm.target_search_checkpoint?.request_id ?? "no-request"}`}
+        <StageDisclosure title="Existing-customer search" summary={`Search: ${summary.clm.target_search_checkpoint?.status.replaceAll("_", " ") ?? "No result retained"}. ${identityInSearch || stageNeedsAttention(["GOLDTIER_SEARCH"]) ? "Attention required — review Search identity or decision." : "GoldTier Search evidence."}`} scopeKey={`${disclosureIdentity}:${summary.clm.target_search_checkpoint?.request_id ?? "no-request"}`}
           main={<>
             <p className="control-help">{summary.clm.target_search_checkpoint
               ? `Retained Search status: ${summary.clm.target_search_checkpoint.status.replaceAll("_", " ")}.`
@@ -1333,7 +1317,25 @@ export default function CaseDetail({
           </>}
         />
         </div>
-        <StageDisclosure title="Document verification" scopeKey={disclosureIdentity}
+        <StageDisclosure title="Registry verification" summary={`Registry: ${summary.clm.readiness.registry.status}. ${stageNeedsAttention(["REGISTRY"]) ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source."}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
+          main={<>
+            {renderInterventions(["REGISTRY"])}
+            {!identityInSearch && identityEditor}
+            <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} compact />
+            <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>
+              <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="main" />
+            </div>
+            <p>{entity?.legal_name ?? "Legal name not retained"} · {entity?.registration_number ?? summary.case.requested_uen} · {entity?.entity_status ?? "Registry status not retained"}</p>
+          </>}
+          moreDetails={<>
+        <div className="ds-two-col case-corporate-evidence"><div><h4>Corporate particulars</h4><div>
+          <div className="kv-row"><span className="kv-label">Company name</span><span className="kv-value">{entity?.legal_name ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration ID</span><span className="kv-value">{entity?.registration_number ?? summary.case.requested_uen}</span></div><div className="kv-row"><span className="kv-label">Entity type</span><span className="kv-value">{entity?.party_type ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registry status</span><span className="kv-value">{entity?.entity_status ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration date</span><span className="kv-value">{entity?.registration_date ?? "—"}</span></div>
+        </div></div><div><h4>Registry officers and roles</h4>{acquisition && acquisition.officers.length > 0 ? <div className="table-card"><table className="table"><tbody>{acquisition.officers.map((officer) => <tr key={officer.officer_id}><td>{officer.name}</td><td>{officer.role}</td></tr>)}</tbody></table></div> : <p className="text-muted" style={{ fontSize: 12 }}>Not available.</p>}</div></div>
+            <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="more" />
+          </>}
+          technicalDetails={<RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="technical" />}
+        />
+        <StageDisclosure title="Document verification" summary={`Documents: ${summary.clm.readiness.document.status}. ${stageNeedsAttention(["DOCUMENT"]) ? "Attention required — review document evidence and required actions." : summary.current_stage === "DOCUMENT" ? "Current stage — review document evidence and required actions." : "Document evidence and reconciliation."}`} scopeKey={disclosureIdentity}
           main={<>
           <p className="control-help">Document readiness: {summary.clm?.readiness.document.status ?? "Not available"}. Current case checkpoint: {summary.status.replaceAll("_", " ")} / {summary.current_stage}.</p>
           {renderInterventions(["DOCUMENT"])}
@@ -1402,7 +1404,7 @@ export default function CaseDetail({
             <ConfirmDetailsPanel presentation="technical" summary={summary} />
           </>}
         />
-        <StageDisclosure title="Ownership & UBO" scopeKey={disclosureIdentity} main={<>
+        <StageDisclosure title="Ownership & UBO" summary={`Ownership: ${ownership?.state.replaceAll("_", " ") ?? "Not available"}. ${stageNeedsAttention(["OWNERSHIP"]) ? "Attention required — review ownership evidence." : "Provisional ownership and UBO analysis."}`} scopeKey={disclosureIdentity} main={<>
           {ownershipReadNotice}
           {confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}
           {renderInterventions(["OWNERSHIP"])}
@@ -1460,7 +1462,7 @@ export default function CaseDetail({
           moreDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails record={ownership} presentation="more" /></>}
           technicalDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails key={ownership?.analysis_id ?? "none"} record={ownership} presentation="technical" /></>}
         />
-        <StageDisclosure title="Submission readiness" scopeKey={disclosureIdentity} main={<>
+        <StageDisclosure title="Submission readiness" summary={`Readiness checkpoint: ${summary.status.replaceAll("_", " ")}. ${summary.clm.readiness.blockers.length} retained blockers. ${stageNeedsAttention(["READINESS"]) ? "Attention required — review required inputs and configuration." : "Review required inputs and configuration."}`} scopeKey={disclosureIdentity} main={<>
           {readinessReadNotice}
           <section aria-label="Backend-projected readiness">
             <p>Registry: {summary.clm.readiness.registry.status} · Documents: {summary.clm.readiness.document.status} · Ownership: {summary.clm.readiness.ownership.status} · GoldTier: {summary.clm.readiness.goldtier.status}</p>
@@ -1525,7 +1527,7 @@ export default function CaseDetail({
             {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="technical" />}
           </>}
         />
-        <StageDisclosure title="GoldTier submission package" scopeKey={disclosureIdentity} main={<>
+        <StageDisclosure title="GoldTier submission package" summary={`GoldTier: ${targetSubmission?.state.replaceAll("_", " ") ?? "Not available in retained evidence"} · ${summary.clm.submission_plan.environment}. Review target status and any recovery requirements.`} scopeKey={disclosureIdentity} main={<>
           {targetReadNotice}
           <p>Submission environment: {summary.clm.submission_plan.environment}</p>
           <p>Backend submission state: {targetSubmission?.state ?? "Not available in retained evidence"}</p>
@@ -1632,7 +1634,7 @@ export default function CaseDetail({
           onEditClassification={() => editFromFinalReview("classification")}
           onEditDocuments={() => editFromFinalReview("documents")}
           onEditOwnership={() => editFromFinalReview("ownership")}
-        /> : <StageDisclosure title="Final review & send" scopeKey={disclosureIdentity} final
+        /> : <StageDisclosure title="Final review & send" summary={remainingIssueCount > 0 ? `Not yet available — ${remainingIssueCount} remaining issues.` : "Not yet available — complete the current stage."} scopeKey={disclosureIdentity} final
           main={<>{finalReadNotice}<p>{remainingIssueCount > 0
             ? `Not yet available — resolve ${remainingIssueCount} remaining issues.`
             : "Not yet available — complete the current stage."}</p></>}
