@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { openStage } from "./stage-disclosures";
+import { openStage, openStageSupport } from "./stage-disclosures";
 import { reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
 
@@ -269,7 +269,7 @@ test("Garden happy path uses truthful offline protocol evidence and explicit Moc
   await page.evaluate(() => { document.documentElement.style.zoom = ""; });
   const focusBaseline = requests.length;
   await openStage(page, "GoldTier submission package");
-  await page.getByText("Backend execution details", { exact: true }).click();
+  await openStageSupport(page, "GoldTier submission package", "Technical");
   await page.getByRole("button", { name: "Focus registry evidence" }).click();
   await expect(page.locator("#case-evidence-registry")).toBeFocused();
   await expect(page.getByRole("heading", { name: "Registry data incomplete" })).toHaveCount(0);
@@ -375,16 +375,19 @@ test("Garden document arrival settles identity focus before explicit Documents i
     await page.getByRole("button", { name: "Open full case" }).click();
     await expect(page).toHaveURL(`/cases/${caseId}`);
     await openStage(page, "Document verification");
-    const documentsButton = page.locator(".stage-disclosure > h2 > button").filter({ hasText: "Document verification" });
-    await expect(documentsButton).toHaveAttribute("aria-expanded", "true");
+    const documents = page.getByRole("region", { name: "Document verification", exact: true });
+    await expect(documents.locator(":scope > div").first()).toBeVisible();
+    await expect(documents.locator(":scope > details[open]")).toHaveCount(0);
     release();
     await expect(page.getByRole("button", { name: "Use document UEN", exact: true })).toBeVisible();
-    await expect(documentsButton).toHaveAttribute("aria-expanded", "false");
+    await expect(documents.locator(":scope > div").first()).toBeVisible();
+    await expect(documents.locator(":scope > details[open]")).toHaveCount(0);
     expect(await page.locator("#documents-heading").count()).toBe(1);
     // The original createGarden heading assertion failed here for 15 seconds:
     // the panel is mounted, but the query-derived active-stage change hid it.
     await openGardenDocuments(page, true);
-    await expect(documentsButton).toHaveAttribute("aria-expanded", "true");
+    await expect(documents.locator(":scope > div").first()).toBeVisible();
+    await expect(documents.locator(":scope > details[open]")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible();
     expect((await summary(page, caseId)).current_stage).toBe("DOCUMENT");
   } finally {

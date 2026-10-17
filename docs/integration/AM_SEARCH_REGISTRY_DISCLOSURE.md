@@ -1,0 +1,44 @@
+# Search and Registry progressive disclosure
+
+## Current owner UX correction
+
+The owner-requested UX correction on baseline `151802e` renders Existing-customer search before Registry verification to match the existing pipeline. The identity editor remains mounted once under its existing predicates, with unchanged anchors, request/rationale/decision authority and distinct Search/Registry source labels. Both stages now have independent outer toggles; Main is visible while expanded, and current header status remains visible while collapsed. The existing openStage helper opens the outer button for either current composition without changing optional support. The original migration evidence below remains attributed to its original content.
+
+## Original migration record
+
+This bounded post-PR88 presentation change starts at main66cd66fbc7be0b0425202cf5b4625b3120aa7308. It adopts the accepted StageDisclosure Main/More/Technical composition for Registry verification and Existing-customer search only. Search remains after Registry visually; backend processing order is unchanged. The other five business areas retain their current presentation.
+
+## Content and canonical owners
+
+CaseDetail owns composition and existing guarded navigation. StageDisclosure and HumanInterventionPanel are reused unchanged. CaseStatePanels retains its existing registryPresentation/status authority and exposes compact Registry rendering and safe Search subsets. RegistryProvenancePanel owns the same availability, acquisition, binding, policy and timestamp facts in caller-selected subsets, with its default complete presentation retained.
+
+| Area | Main, always visible | More details, initially closed | Technical details, initially closed |
+|---|---|---|---|
+| Search | Retained status/outcome or truthful absence, provider classification, current failure/review explanation and failed-search-not-absence limit, Search interventions, active candidate comparison/rationale/explicit confirmation, the single editor or navigation to Registry correction, denied/frozen/no-action reasons | Actual retained disposition, provider outcome, count, match explanation, completed-choice context and supporting result steps | Existing one Search diagnostic, safe backend/node/operation/provider/status/code/time/count facts and retained checkpoint request reference |
+| Registry | Canonical current state or truthful compact retained facts, legal identity, jurisdiction/route/configured-provider versus retained source, ownership/partial/unsupported/binding/timestamp limits, required correction and Registry interventions | Corporate particulars, officers/roles, acquisition summary and shared Singapore-local case-use times | Original operations/status/count/errors/issues/provenance, binding disposition/policy/version/duration/comparator and exact original ISO UTC times |
+
+Empty, partial, unsupported, failed and unavailable remain distinct. CACHE_HIT does not add an ACRA request; Local Synthetic Seed is distinct from the configured provider. Missing binding never implies a fetch/cache miss/current validity. Invalid or missing timestamps never create freshness. PR85 formatRegistryTimestamp and registryReuseDescription remain authoritative and unchanged. Safe optional evidence is rendered explicitly; raw provider bodies, private exceptions and unprojected fields are excluded.
+
+## State, accessibility and navigation
+
+The stable case-existing-customer-search anchor remains as a named focusable group, including when no corrective control or diagnostic exists. Its single labelled persistent region has the accepted generated heading identity; attention/pipeline navigation retains the existing actor/case/generation/version guards and PR87 deliberate-focus precedence. Exactly one identity editor follows existing PR86 predicates. Search recheck and Registry correction endpoints, version/document/source-choice bodies, authorization and frozen predicates are unchanged. Essential candidate comparison, rationale and explicit confirmation remain Main.
+
+Caller scope includes actor/case/role/team presentation identity and the retained Search request or Registry acquisition/binding identity. These are evidence replacement identities, never GET observation/poll timestamps or summary.version blanket remount keys. AuthProvider already remounts the authenticated subtree on session generation; no session/cache owner is added. Same-scope refresh and optional toggles preserve drafts; genuine replacement retires the appropriate local scope. Existing form-specific currentness keys remain with their owners.
+
+Native More and Technical controls are independent and stage-qualified. Main stays visible with both closed. Existing revealStage opens only the needed ancestors for an explicit diagnostic target. Disclosure/focus/navigation/print cause no business mutation. Unmigrated legacy whole-stage controls remain supported. The browser openStage helper opens only an existing legacy button; for persistent composition it verifies Main visibility without opening optional support. Explicit openStageSupport reveals only the requested sibling.
+
+## Verification and acceptance boundary
+
+Fresh RED evidence precedes production changes: five new owner tests fail against PR88 with48 existing tests passing. Original browser selector failures are retained before adapted timestamp/cache navigation. The three separately authorized browser consumers retain exact original UTC equality, SGT labels, binding/freshness fields, cache operation counts, target readback, source classification, document drafts and no-premature-confirmation protections. Tests assert actual visibility after revealing the correct stage-qualified optional section.
+
+Required current-tree evidence includes affected Search/Registry/isolation/attention/focus tests, full frontend tests/typecheck/build, governance/tooling/secret checks, fresh complete canonical discovery and both disjoint guarded authenticated shards at the unchanged60-second lifecycle deadline. The new responsive selector checks1440/1280/900/360px, native Enter/Space/Tab, visible focus, independent support, Main visibility and zero writes. Existing candidate/wrong-UEN/partial/cache/PR87/frozen/session/target-order/no-replay journeys remain mandatory.
+
+The current implementation evidence, complete inventory, raw/native identities, runtime setup failures and cleanup receipts belong to tmp/am-search-registry-disclosure/FINAL_HANDOFF.md and its drill-down logs. The independently assigned report owns the sole gate verdict; this document does not self-issue acceptance. Exact independent PASS on unchanged content is required before authorized commit/clean pre-PR/push/one PR/current-head review. Hosted billing refusal remains NOT_EXECUTED. Human owner alone decides any exact-head exception and manually merges.
+
+Change classes: FRONTEND_UI and CI_TOOLING for the shared browser helper. API/shared types, schema, connectors, configuration, business rules, mappings, auth/security semantics, architecture owners and provider classifications are unchanged. Frontend presentation, local disclosure state/focus lifecycle and browser assertions change. Mock/Local/synthetic Sandbox evidence does not establish Live interoperability or sponsor policy. No backend or physical persistence suite is required solely for this presentation delta; disposable Mongo is only the existing canonical browser fixture prerequisite.
+
+Original AM18 incident attribution remains NOT_REPRODUCED / OPEN; passing bounded disclosure or later-regression scenarios do not close it. Potential next independently assigned slice after owner merge is document verification/reconciliation disclosure. It is not begun here.
+
+The owner separately authorized exactly three revision-bound expectations in tests/test_run_e2e.py:107 discovered selectors,9780 seconds for the computed largest-shard budget, and54 configured selectors in its complete success-output assertion. All other bytes, partition/coverage/cleanup checks, lifecycle timeouts, CI deadlines, fixtures and runner behavior remain unchanged. The exact current inventory is evidence for this revision, not a permanent project constant.
+
+The separately authorized ux-refinement.e2e.ts adaptation closes only persistent More/Technical support and retains legacy whole-stage collapse. Its two Registry assertions now verify visible Main, editable correction inputs and visible submission controls with required-field guards intact after attention navigation; exact corrective focus, endpoint/body, mobile, no-write and target-safety assertions are retained. The independent initial FAIL and one corrective cycle are recorded in the assigned gate report and task evidence. Durable fallback coverage uses keyboard attention navigation, computed accessible name, closed support and zero writes within the existing responsive selector; current discovery remains107 selectors/54+53.

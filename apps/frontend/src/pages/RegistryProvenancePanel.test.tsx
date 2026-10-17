@@ -152,7 +152,7 @@ it("shows the retained configurable duration without imposing the old fixed 90-d
 it("renders Singapore rollover timestamps with separately inspectable original UTC", () => {
   const source = { ...acquisition, retrieved_at: "2026-10-13T16:00:00Z" };
   const view = render(binding, source);
-  expect(view.querySelector(".kv-value")?.textContent).toBe("COMPLETE");
+  expect([...view.querySelectorAll(".kv-row")].find(row => row.querySelector(".kv-label")?.textContent === "Acquisition status")?.querySelector(".kv-value")?.textContent).toBe("COMPLETE");
   const row = Array.from(view.querySelectorAll(".kv-row")).find(item => item.textContent?.includes("Acquisition retrieved at"))!;
   expect(row.textContent).toContain("14 Oct 2026");
   expect(row.textContent).toContain("SGT");
@@ -176,4 +176,22 @@ it("does not infer freshness from valid binding dates when retrieval provenance 
   const view = render(binding, { ...acquisition, retrieved_at: "malformed" });
   expect(view.textContent).not.toContain("Reused fresh registry evidence");
   expect(view.textContent).toContain("valid-at-use timestamps unavailable");
+});
+
+it("exposes safe Main, business and audit subsets without nested technical controls", () => {
+  container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+  const show = (part: "main" | "more" | "technical") => act(() => root?.render(
+    <RegistryProvenancePanel acquisition={acquisition} binding={binding} part={part} />));
+  show("main");
+  expect(container.textContent).toContain("Identity retrieved");
+  expect(container.textContent).toContain("Reused fresh registry evidence");
+  expect(container.textContent).not.toContain("7776000 seconds");
+  expect(container.querySelector("details")).toBeNull();
+  show("more"); expect(container.textContent).toContain("SGT (UTC+08:00)");
+  expect(container.textContent).not.toContain("EVALUATION_NOW_LT_EXPIRES_AT");
+  show("technical");
+  expect(container.textContent).toContain("7776000 seconds");
+  expect(container.textContent).toContain("2026-09-20T00:00:01.123456Z");
+  expect(container.textContent).toContain("EVALUATION_NOW_LT_EXPIRES_AT");
+  expect(container.querySelector("details")).toBeNull();
 });

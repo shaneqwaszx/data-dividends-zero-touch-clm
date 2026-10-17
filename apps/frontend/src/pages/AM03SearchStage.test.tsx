@@ -223,7 +223,7 @@ describe("AM-03 action and adverse paths", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     act(() => button("Review identity for Search recheck", stage("Existing-customer search")).click());
     await vi.waitFor(() => expect(document.activeElement?.id).toBe("identity-registration-number"));
-    expect(stage("Registry verification").querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
+    expect(hiddenByDisclosure(container.querySelector("#case-identity-correction"))).toBe(false);
     expect(container.querySelectorAll("#case-identity-correction")).toHaveLength(1); expect(fetchSpy).not.toHaveBeenCalled();
   });
   it("retains EXISTING_REUSED candidate identity, confirmation rationale and one confirmation call", async () => {
@@ -256,7 +256,7 @@ describe("AM-03 action and adverse paths", () => {
       : button("GOLDTIER_SEARCH identity action", stage("Existing-customer search"));
     act(() => control.click());
     await vi.waitFor(() => expect(document.activeElement?.id).toBe("identity-registration-number"));
-    expect(document.activeElement?.closest("section[aria-labelledby='case-existing-customer-search-heading']")).toBe(stage("Existing-customer search"));
+    expect(document.activeElement?.closest(".stage-disclosure")).toBe(stage("Existing-customer search"));
     expect(document.activeElement?.closest("[hidden]")).toBeNull(); expect(fetchSpy).not.toHaveBeenCalled();
   });
   it("does not expose usable Search controls when backend authority denies them", async () => {
@@ -319,4 +319,116 @@ describe("AM-03 retained failed-Search correction", () => {
     await vi.waitFor(() => expect(document.activeElement?.id).toBe("identity-registration-number"));
     expect(button("Verify UEN and resume")).toBeTruthy(); expect(fetchSpy).not.toHaveBeenCalled();
   });
+});
+
+// Wave 2 tests describe caller composition; native visibility is additionally checked in Chromium.
+function hiddenByDisclosure(element: Element | null): boolean {
+  for (let item = element; item; item = item.parentElement) {
+    if (item.hasAttribute("hidden")) return true;
+    if (item instanceof HTMLDetailsElement && !item.open && element !== item.querySelector("summary")) return true;
+  }
+  return false;
+}
+function optional(title: string, kind: "More" | "Technical"): HTMLDetailsElement {
+  const result = [...stage(title).querySelectorAll<HTMLDetailsElement>(":scope > details")]
+    .find(item => item.querySelector("summary")?.textContent === `${kind} details — ${title}`);
+  expect(result, `${kind} slot missing for ${title}`).toBeTruthy(); return result!;
+}
+
+describe("Search and Registry persistent disclosure migration", () => {
+  it("keeps both Main workspaces and one correction visible with all optional support closed", () => {
+    const value = searchFixture(); value.interventions = [projection("REGISTRY"), projection("GOLDTIER_SEARCH")];
+    seed(value); render();
+    for (const title of ["Registry verification", "Existing-customer search"]) {
+      expect(stage(title).querySelector(":scope > h2 > button")).not.toBeNull();
+      expect(optional(title, "More").open).toBe(false); expect(optional(title, "Technical").open).toBe(false);
+    }
+    expect(hiddenByDisclosure(container.querySelector("#case-identity-correction"))).toBe(false);
+    expect(hiddenByDisclosure(container.querySelector("#case-intervention-REGISTRY"))).toBe(false);
+    expect(hiddenByDisclosure(container.querySelector("#case-intervention-GOLDTIER_SEARCH"))).toBe(false);
+    expect(container.querySelectorAll("#case-identity-correction")).toHaveLength(1);
+    expect(hiddenByDisclosure(stage("Registry verification").querySelector(".case-corporate-evidence"))).toBe(true);
+  });
+  it("toggles independently, keeps same-scope support state and inputs on refresh, and resets on case replacement", () => {
+    const value = searchFixture(); seed(value); render();
+    const more = optional("Existing-customer search", "More");
+    const technical = optional("Registry verification", "Technical");
+    more.open = true; technical.open = true;
+    act(() => button("Edit UEN").click());
+    const input = container.querySelector<HTMLInputElement>("#identity-registration-number")!;
+    setInput(input, "202400002B");
+    act(() => client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), { ...value }));
+    expect(optional("Existing-customer search", "More").open).toBe(true);
+    expect(optional("Registry verification", "Technical").open).toBe(true);
+    expect(optional("Existing-customer search", "Technical").open).toBe(false);
+    expect(input.value).toBe("202400002B");
+    const next = { ...searchFixture(), case: { ...searchFixture().case, case_id: CASE_B } }; seed(next); render(CASE_B);
+    expect(optional("Existing-customer search", "More").open).toBe(false);
+    expect(optional("Registry verification", "Technical").open).toBe(false);
+  });
+  it("keeps failed Search warning Main while placing its single diagnostic and checkpoint references in Technical", () => {
+    const value = searchFixture(); value.clm.target_search_checkpoint!.status = "FAILED";
+    value.processing_pipeline![0].status = "FAILED"; seed(value); render();
+    const main = stage("Existing-customer search").querySelector(":scope > div")!;
+    expect(main.textContent).toContain("A failed Search does not prove that the customer is absent");
+    expect(hiddenByDisclosure(main)).toBe(false);
+    const technical = optional("Existing-customer search", "Technical");
+    expect(technical.querySelector("#case-search-diagnostic")).not.toBeNull();
+    expect(technical.textContent).toContain("search-request-a");
+    expect(container.querySelectorAll("#case-search-diagnostic")).toHaveLength(1);
+    expect(main.textContent).not.toContain("NO_MATCH");
+  });
+  it("keeps truthful absence in Main and never invents a Search record", () => {
+    const value = searchFixture(); value.clm.target_search_checkpoint = null; value.interventions = [];
+    seed(value); render();
+    const main = stage("Existing-customer search").querySelector(":scope > div")!;
+    expect(main.textContent).toContain("No Search result is retained for this case.");
+    expect(main.textContent).not.toMatch(/NO_MATCH|CONFIRMED_EXISTING/);
+    expect(optional("Existing-customer search", "More").textContent).not.toMatch(/NO_MATCH|CONFIRMED_EXISTING/);
+  });
+});
+
+it("retires candidate drafts on a new retained request while preserving them on ordinary refresh and support toggles", async () => {
+  const value = searchFixture();
+  value.interventions = [{ ...projection("GOLDTIER_SEARCH"), evidence_actions: [],
+    candidate_summaries: [{ party_id: "synthetic-target-id", legal_name: "Synthetic entity", registration_number: "202400001A", country: "SG", legal_form: "CORPORATE" }],
+    existing_customer_confirmation_action: "CONFIRM_EXISTING_GOLDTIER_CUSTOMER" }];
+  seed(value); render();
+  const input = container.querySelector<HTMLInputElement>("#existing-customer-confirmation-rationale")!;
+  expect(hiddenByDisclosure(input)).toBe(false); setInput(input, "Retained comparison draft");
+  optional("Existing-customer search", "More").open = true;
+  optional("Existing-customer search", "Technical").open = true;
+  act(() => client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), { ...value }));
+  expect(container.querySelector<HTMLInputElement>("#existing-customer-confirmation-rationale")!.value).toBe("Retained comparison draft");
+  expect(hiddenByDisclosure(input)).toBe(false);
+  act(() => client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), { ...value,
+    clm: { ...value.clm, target_search_checkpoint: { ...value.clm.target_search_checkpoint!, request_id: "replacement-request" } } }));
+  await vi.waitFor(() => expect(container.querySelector<HTMLInputElement>("#existing-customer-confirmation-rationale")!.value).toBe(""));
+  expect(optional("Existing-customer search", "More").open).toBe(false);
+  expect(optional("Existing-customer search", "Technical").open).toBe(false);
+});
+it("does not introduce hidden raw checkpoint/provider fields into either disclosure DOM", () => {
+  const value = searchFixture();
+  Object.assign(value.clm.target_search_checkpoint!, { raw_provider_body: "FORBIDDEN_SYNTHETIC_BODY", private_exception: "FORBIDDEN_SYNTHETIC_ERROR" });
+  seed(value); render();
+  for (const title of ["Registry verification", "Existing-customer search"]) {
+    optional(title, "More").open = true; optional(title, "Technical").open = true;
+  }
+  expect(container.textContent).not.toContain("FORBIDDEN_SYNTHETIC");
+});
+
+
+it("reopens collapsed Search and focuses its named fallback when no corrective input is authorized", async () => {
+  const value = summaryFixture(CASE_A); value.current_stage = "GOLDTIER_SEARCH";
+  value.active_exceptions = [exception("GOLDTIER_SEARCH", "GT_SEARCH_REVIEW_REQUIRED")];
+  value.interventions = []; value.evidence_decision_authorized = false; value.case.error = null;
+  value.clm.target_search_checkpoint = null; seed(value); render();
+  const fetchSpy = vi.spyOn(globalThis, "fetch");
+  const parent = stage("Existing-customer search").querySelector<HTMLButtonElement>("h2 button")!;
+  act(() => parent.click()); expect(parent.getAttribute("aria-expanded")).toBe("false");
+  act(() => button("Blocker: GT SEARCH REVIEW REQUIRED").click());
+  await vi.waitFor(() => expect(document.activeElement?.id).toBe("case-existing-customer-search"));
+  expect(parent.getAttribute("aria-expanded")).toBe("true");
+  expect(container.textContent).toContain("No corrective input is currently authorized here.");
+  expect(fetchSpy).not.toHaveBeenCalled();
 });

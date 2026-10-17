@@ -5,7 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { OwnershipAnalysisRecord, OwnershipPath } from "../types";
-import OwnershipPathExplorer from "./OwnershipPathExplorer";
+import OwnershipPathExplorer, { OwnershipSupportingDetails } from "./OwnershipPathExplorer";
+import StageDisclosure from "./StageDisclosure";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -126,4 +127,139 @@ describe("OwnershipPathExplorer", () => {
   it("handles unavailable analysis without controls or side effects", () => {
     const view = render(null); expect(view.textContent).toContain("Ownership analysis is not available"); expect(view.querySelector("button")).toBeNull();
   });
+
+  it("does not enumerate hidden technical paths at the supported total/depth limits", () => {
+    const retained = record();
+    retained.candidates = Array.from({ length: 5 }, (_, candidateIndex) => ({
+      ...retained.candidates[0],
+      party: { ...retained.candidates[0].party, party_id: `candidate-${candidateIndex}` },
+      paths: Array.from({ length: 1000 }, (_, index) => {
+        const item = path(candidateIndex * 1000 + index + 1, 64);
+        Object.defineProperty(item, "edges", { get() { throw new Error("Closed Technical details enumerated retained path edges"); } });
+        return item;
+      }),
+    }));
+    container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+    act(() => root?.render(<details><summary>Technical details</summary><OwnershipSupportingDetails record={retained} presentation="technical" /></details>));
+    expect(container.querySelectorAll("*").length).toBeLessThan(100);
+    expect(container.textContent).not.toContain("exact(5000)");
+    expect(container.querySelector("details")?.open).toBe(false);
+  });
+
+  it("mounts exact technical paths only while native support is open and replaces analysis safely", () => {
+    container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+    const show = (value: OwnershipAnalysisRecord) => act(() => root?.render(<details><summary>Technical details</summary><OwnershipSupportingDetails key={value.analysis_id} record={value} presentation="technical" /></details>));
+    const first = record([path(1, 64), path(2, 64)]);
+    show(first);
+    expect(container.textContent).not.toContain("exact(2)");
+    const details = container.querySelector("details")!;
+    act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+    expect(container.textContent).toContain(first.candidates[0].paths[1].calculation);
+    expect(container.textContent).toContain("rel-2-63: 63.000000000000000001");
+    expect(container.textContent).toContain(first.candidates[0].paths[1].effective_ownership_percent);
+    show(record([path(7)], "new-analysis"));
+    expect(container.textContent).toContain("exact(7)");
+    expect(container.textContent).not.toContain("exact(2)");
+    act(() => { details.open = false; details.dispatchEvent(new Event("toggle")); });
+    expect(container.textContent).not.toContain("exact(7)");
+    expect(container.querySelector("button, input, select, textarea")).toBeNull();
+  });
+
+  it("does not enumerate a replacement analysis while native scope reset closes Technical", () => {
+    container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+    const hiddenReads: string[] = [];
+    const tracked = (id: number) => {
+      const value = record([path(id)], `analysis-${id}`);
+      const item = value.candidates[0].paths[0]; const edges = item.edges;
+      Object.defineProperty(item, "edges", { get() { if (!container?.querySelector("details")?.open) hiddenReads.push(item.path_id); return edges; } });
+      return value;
+    };
+    const show = (scope: string, value: OwnershipAnalysisRecord) => act(() => root?.render(<StageDisclosure title="Ownership & UBO" scopeKey={scope} main={<p>Main</p>} technicalDetails={<OwnershipSupportingDetails key={value.analysis_id} record={value} presentation="technical" />} />));
+    show("scope-a", tracked(1));
+    const details = container.querySelector("details")!;
+    act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+    expect(container.textContent).toContain("exact(1)");
+    show("scope-b", tracked(2));
+    expect(details.open).toBe(false);
+    expect(hiddenReads).toEqual([]);
+    expect(container.textContent).not.toContain("exact(2)");
+    act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+    expect(container.textContent).toContain("exact(2)");
+  });
+});
+
+
+describe("direct ownership primary inspection", () => {
+  it.each([[60, 40], [50, 30, 20]])("keeps Selected holder primary without a redundant direct candidate/path table for %s", (...percentages) => {
+    const value = record();
+    value.issues = []; value.state = "ANALYZED";
+    value.candidates = percentages.map((percent, index) => ({ ...value.candidates[0],
+      party: { ...value.candidates[0].party, party_id: `person-${index}`, display_name: `Person ${index}` },
+      direct_ownership_percent: String(percent), indirect_ownership_percent: "0", aggregated_ownership_percent: String(percent),
+      paths: [{ ...path(index), effective_ownership_percent: String(percent), calculation: `${percent}% = ${percent}%`,
+        edges: [{ relationship_id: `direct-${index}`, parent_party_id: "root", parent_display_name: "Synthetic root",
+          child_party_id: `person-${index}`, child_display_name: `Person ${index}`, ownership_percent: String(percent) }] }],
+    }));
+    value.parties = [{ ...value.candidates[0].party, party_id: "root", display_name: "Synthetic root", party_type: "LEGAL_ENTITY" }, ...value.candidates.map(item => item.party)];
+    value.relationships = value.candidates.map((item, index) => ({ relationship_id: `direct-${index}`, parent_party_id: "root",
+      child_party_id: item.party.party_id, ownership_percent: item.direct_ownership_percent, relationship_type: "OWNERSHIP", basis: "SHARE_OWNERSHIP",
+      provenance: { provider: "MOCK_REGISTRY", environment: "MOCK", sourced_at: "now" } }));
+    container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+    act(() => root?.render(<OwnershipPathExplorer presentation="main" record={value} />));
+    expect(container.querySelector('[aria-label^="Ownership candidate "]')).toBeNull();
+    expect(container.querySelector('[aria-label^="Selected retained path "]')).toBeNull();
+    expect([...container.querySelectorAll("caption")].some(item => item.textContent?.includes("Retained paths"))).toBe(false);
+    const panel = container.querySelector('[aria-label="Selected holder"]')!;
+    expect(panel.textContent).toContain("Person 0");
+    click("Person 1"); expect(panel.textContent).toContain("Person 1");
+    expect(panel.textContent).not.toContain("Person 0");
+    expect(panel.textContent).toContain(`${percentages[1]}%`);
+    expect(panel.textContent).toContain(`Calculation: ${percentages[1]}% = ${percentages[1]}%`);
+    expect(panel.textContent).toContain("MOCK_REGISTRY · MOCK");
+    expect(panel.textContent).toContain("GREATER_THAN_OR_EQUAL_TO");
+  });
+  it("keeps complex retained inspection optional and lazy with bounded pagination", () => {
+    container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+    act(() => root?.render(<OwnershipPathExplorer presentation="main" record={record(Array.from({ length: 21 }, (_, i) => path(i + 1, 15)))} />));
+    expect(container.querySelector('[aria-label^="Ownership candidate "]')).toBeNull();
+    const support = [...container.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "Technical retained path inspection")!;
+    expect(support).toBeTruthy();
+    act(() => { support.open = true; support.dispatchEvent(new Event("toggle")); });
+    expect(support.querySelectorAll("tbody tr")).toHaveLength(20);
+    click("Next paths"); expect(support.querySelectorAll("tbody tr")).toHaveLength(1);
+    expect(support.textContent).toContain("exact(21)");
+    act(() => { support.open = false; support.dispatchEvent(new Event("toggle")); });
+    expect(support.querySelector("tbody")).toBeNull();
+  });
+});
+
+
+it("retains open multipath inspection when the same holder or another occurrence is reselected", () => {
+  const value = record([path(1, 2), path(2, 2)]);
+  const person = value.candidates[0].party;
+  const party = (id: string) => ({ ...person, party_id: id, display_name: id, party_type: "LEGAL_ENTITY" as const });
+  value.parties = [party("root"), party("holding-1"), party("holding-2"), person];
+  value.candidates[0].paths = value.candidates[0].paths.map((item, index) => ({ ...item,
+    edges: [{ ...item.edges[0], relationship_id: `root-holding-${index}`, parent_party_id: "root", parent_display_name: "root",
+      child_party_id: `holding-${index + 1}`, child_display_name: `holding-${index + 1}` },
+    { ...item.edges[1], relationship_id: `holding-person-${index}`, parent_party_id: `holding-${index + 1}`, parent_display_name: `holding-${index + 1}`,
+      child_party_id: person.party_id, child_display_name: person.display_name }],
+  }));
+  value.relationships = value.candidates[0].paths.flatMap(item => item.edges.map(edge => ({ ...edge,
+    relationship_type: "OWNERSHIP", basis: "SHARE_OWNERSHIP", provenance: { provider: "SYNTHETIC_RETAINED", environment: "LOCAL", sourced_at: "now" } })));
+  container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+  act(() => root?.render(<OwnershipPathExplorer presentation="main" record={value} />));
+  const support = [...container.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "Technical retained path inspection")!;
+  act(() => { support.open = true; support.dispatchEvent(new Event("toggle")); });
+  expect(support.querySelectorAll("tbody tr")).toHaveLength(2);
+  const occurrences = [...container.querySelectorAll<HTMLButtonElement>('.ownership-structure__holder button')].filter(item => item.textContent === person.display_name);
+  expect(occurrences).toHaveLength(2);
+  for (const holder of occurrences) {
+    act(() => holder.click());
+    expect(support.open).toBe(true);
+    expect(support.querySelectorAll("tbody tr")).toHaveLength(2);
+    click("Inspect path-2");
+    expect(support.querySelector('button[aria-pressed="true"]')?.textContent).toBe("Inspect path-2");
+    expect(support.textContent).toContain("exact(2)");
+  }
 });

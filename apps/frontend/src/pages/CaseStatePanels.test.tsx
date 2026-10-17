@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { ProcessingNode, ZeroTouchCaseSummary } from "../types";
 import {
   CompletedOverview,
+  ConfirmDetailsPanel,
   DetailedProcessingInspector,
   OnboardingProgressPanel,
   PipelineRail,
@@ -627,3 +628,28 @@ it.each(["acquisition-missing", "acquisition-invalid", "binding-missing", "expir
     expect(registryPresentation(summary).attention).toBe(false);
   },
 );
+
+it("compact Registry preserves truthful retained absence when the legacy state panel is omitted", () => {
+  const summary = summaryWithPipeline([]);
+  expect(renderToStaticMarkup(<RegistryStatePanel summary={summary} />)).toBe("");
+  const compact = renderToStaticMarkup(<RegistryStatePanel summary={summary} compact />);
+  expect(compact).toContain("Registry acquisition is not retained. Completion and provider activity cannot be inferred.");
+  expect(compact).toContain("Retained registry state");
+  expect(compact).not.toContain("In progress");
+  expect(compact).not.toContain("Successful / data retrieved");
+  expect(compact).not.toContain("progress-list");
+  expect(compact).toContain("SG");
+});
+
+
+it("retains reconciliation status and safe lineage in Technical after the document checkpoint", () => {
+  const summary = summaryWithPipeline([]);
+  summary.current_stage = "READINESS";
+  summary.reconciliation = { reconciliation_id: "safe-reconciliation", version: 4, status: "RESOLVED", source_document_ids: ["safe-document"], source_document_event_counts: [3],
+    updated_at: "2026-10-15T12:00:00Z", fields: [{ field_name: "legal_name", outcome: "CONFLICT", observations: [{ observation_id: "safe-observation", source_kind: "DOCUMENT_IDP", source_system: "LOCAL_PDF_TEXT", environment: "LOCAL", evidence_reference: "safe:reference" }], discrepancy_id: null }], discrepancies: [] } as unknown as NonNullable<ZeroTouchCaseSummary["reconciliation"]>;
+  const technical = renderToStaticMarkup(<ConfirmDetailsPanel presentation="technical" summary={summary} />);
+  expect(technical).toContain("RESOLVED"); expect(technical).toContain("LOCAL_PDF_TEXT"); expect(technical).toContain("safe:reference");
+  expect(technical).toContain("event count 3"); expect(technical).toContain("CONFLICT");
+  expect(technical).not.toMatch(/<details|<button|<input|<select/);
+  expect(renderToStaticMarkup(<ConfirmDetailsPanel summary={summary} />)).toBe("");
+});

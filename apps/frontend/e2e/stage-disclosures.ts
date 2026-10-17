@@ -28,12 +28,31 @@ export async function expectDisclosureContrast(button: Locator): Promise<void> {
 }
 
 export async function openStage(page: Page, name: string): Promise<void> {
-  const button = page.locator(".stage-disclosure > h2 > button").filter({ hasText: name });
+  const section = page.locator(".stage-disclosure").filter({ has: page.getByRole("heading", { name, exact: true }) });
+  await expect(section).toHaveCount(1);
+  const heading = section.locator(":scope > h2");
+  await expect(heading).toBeVisible();
+  const button = heading.locator(":scope > button");
+  if (await button.count() === 0) {
+    // Persistent composition: Main is visible; optional support stays untouched.
+    await expect(heading).toHaveText(name);
+    await expect(section.locator(":scope > div").first()).toBeVisible();
+    return;
+  }
   await expect(button).toBeVisible();
   await expect(async () => {
     if (await button.getAttribute("aria-expanded") === "false") await button.click();
     await expect(button).toHaveAttribute("aria-expanded", "true", { timeout: 1000 });
   }).toPass({ timeout: 15000 });
+}
+
+export async function openStageSupport(page: Page, name: string, kind: "More" | "Technical"): Promise<void> {
+  await openStage(page, name);
+  const summary = page.getByText(`${kind} details — ${name}`, { exact: true });
+  await expect(summary).toBeVisible();
+  const details = summary.locator("..");
+  if (await details.getAttribute("open") === null) await summary.click();
+  await expect(details).toHaveAttribute("open", "");
 }
 
 export async function focusPipelineAction(page: Page, nodeId: string, control: Locator) {

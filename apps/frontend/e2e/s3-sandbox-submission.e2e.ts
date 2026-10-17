@@ -284,11 +284,12 @@ async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
   await expect(panel.getByRole("button", { name: /Resolve/ })).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "Check GoldTier status", exact: true })).toBeEnabled();
   await expect(page.locator(".case-technical-failure")).toHaveCount(0);
-  await expect(panel.locator("details")).not.toHaveAttribute("open", "");
-  await panel.getByText("Technical details", { exact: true }).focus();
+  const targetTechnical = page.getByText("Technical details — GoldTier submission package", { exact: true }).locator("..");
+  await expect(targetTechnical).not.toHaveAttribute("open", "");
+  await targetTechnical.locator(":scope > summary").focus();
   await page.keyboard.press("Enter");
-  await expect(panel.locator("details")).toHaveAttribute("open", "");
-  await expect(panel.getByText("CLM_TARGET_OUTCOME_UNCERTAIN", { exact: true })).toBeVisible();
+  await expect(targetTechnical).toHaveAttribute("open", "");
+  await expect(targetTechnical.getByText("CLM_TARGET_OUTCOME_UNCERTAIN", { exact: true })).toBeVisible();
   for (const width of [320, 720, 1280]) {
     await page.setViewportSize({ width, height: 1000 });
     expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
@@ -299,6 +300,13 @@ async function runDirectorRecovery(page: Page, operation: "shell" | "policy") {
   await switchUser(page, "olivia-koh", caseId);
   const check = panel.getByRole("button", { name: "Check GoldTier status", exact: true });
   await expect(check).toBeEnabled();
+  await page.getByRole("region", { name: "GoldTier submission package", exact: true }).locator(":scope > h2 > button").click();
+  const targetHeader = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+  const targetDescription = targetHeader.locator(":scope > .stage-disclosure__summary");
+  await expect(targetDescription).toBeVisible();
+  await expect(targetDescription).toContainText("Submission outcome uncertain — verification required");
+  await expect(targetHeader.locator(":scope > h2 > button")).toHaveAccessibleDescription(await targetDescription.innerText());
+
   await focusPipelineAction(page, "GOLDTIER_TARGET", check);
   await page.route("**/target-status-check", async (route) => {
     const response = await route.fetch();
@@ -420,6 +428,16 @@ async function runLostConfirmationResponse(
     await expect(page.getByRole("button", { name: "Confirm and send to GoldTier sandbox", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "Verify submission outcome", exact: true })).toBeDisabled();
     await expect(page.getByRole("alert")).toHaveCount(0);
+    const target = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+    const toggle = target.locator(":scope > h2 > button");
+    await toggle.focus(); await page.keyboard.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(target.locator(":scope > div")).toBeHidden();
+    const description = target.locator(":scope > .stage-disclosure__summary");
+    await expect(description).toBeVisible();
+    await expect(description).toContainText("Submission confirmation is being verified — do not send again");
+    await expect(toggle).toHaveAccessibleDescription(await description.innerText());
+    await page.keyboard.press("Space"); await expect(toggle).toHaveAttribute("aria-expanded", "true");
     recoveryMilestone(`LOST_${loss}_SCREENSHOT_START`);
     await page.screenshot({ path: retainedEvidencePath("goldtier-recovery", `verifying-${loss}.png`) });
     recoveryMilestone(`LOST_${loss}_SCREENSHOT_COMPLETE`);

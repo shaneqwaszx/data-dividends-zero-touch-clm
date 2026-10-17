@@ -135,3 +135,44 @@ it("bulk preserves a note on an undecided field and source-family switching keep
   expect(confirm.mock.calls[0][0].documents[0].decisions[0].note).toBe("Retained optional synthetic note");
   expect(confirm.mock.calls[0][0].reconciliation).toBeUndefined();
 });
+
+
+it("invalidates only replaced evidence drafts and confirms with current version bindings", () => {
+  const confirm = mount();
+  const second = { ...documents[0], document_id: "second-doc", display_name: "second.pdf" };
+  const pair = [documents[0], second];
+  const render = (docs: DocumentProcessingRecord[], version: number) => act(() => root!.render(
+    <BlockerDecisionReview summary={{ ...summary, version }} documents={docs} busy={false} onConfirm={confirm} />));
+  render(pair, 1);
+  const controls = () => [...container.querySelectorAll<HTMLSelectElement>("select[data-review-field]")];
+  choose(controls()[0], "REJECTED"); choose(controls()[4], "ACCEPTED");
+  render(pair.map(doc => ({ ...doc })), 2);
+  expect(controls()[0].value).toBe("REJECTED"); expect(controls()[4].value).toBe("ACCEPTED");
+  render([{ ...pair[0], review_source_fingerprint: "1".repeat(64) }, second], 3);
+  expect(controls()[0].value).toBe(""); expect(controls()[4].value).toBe("ACCEPTED");
+  expect(confirm).not.toHaveBeenCalled();
+  act(() => button("Reject all undecided suggestions").click());
+  act(() => button("Confirm decisions & continue onboarding").click());
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(confirm.mock.calls[0][0]).toMatchObject({ expected_automation_version: 3, expected_case_event_count: 1,
+    documents: [{ source_fingerprint: "1".repeat(64), expected_event_count: 1 }, { source_fingerprint: "0".repeat(64), expected_event_count: 1 }] });
+});
+
+
+it("keeps an explicitly selected source choice while bulk filling document drafts", () => {
+  const confirm = mount();
+  const mixed = { ...summary, active_exceptions: [{ exception_id: "source-one" }], reconciliation: { reconciliation_id: "current-source", version: 3,
+    source_document_ids: ["synthetic-doc"], source_document_event_counts: [1], discrepancies: [{ discrepancy_id: "source-one", field_name: "legal_name", status: "OPEN",
+      allowed_actions: ["KEEP_REGISTRY_VALUE", "USE_DOCUMENT_VALUE"], evidence_fingerprint: "a".repeat(64), observations: [] }] } } as unknown as ZeroTouchCaseSummary;
+  act(() => root!.render(<BlockerDecisionReview key="explicit-source" summary={mixed} documents={documents} busy={false} onConfirm={confirm} />));
+  const group = container.querySelector<HTMLSelectElement>('select[aria-label="Decision group"]')!;
+  choose(group, "source"); choose(container.querySelector<HTMLSelectElement>("select[data-discrepancy-id]")!, "USE_DOCUMENT_VALUE");
+  choose(group, "document"); act(() => button("Accept all eligible undecided suggestions").click());
+  choose(group, "source");
+  expect(container.querySelector<HTMLSelectElement>("select[data-discrepancy-id]")!.value).toBe("USE_DOCUMENT_VALUE");
+  expect(confirm).not.toHaveBeenCalled();
+  act(() => button("Confirm decisions & continue onboarding").click());
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(confirm.mock.calls[0][0]).toEqual({ expected_automation_version: 1, expected_case_event_count: 1, expected_reconciliation_version: 3,
+    reconciliation: [{ discrepancy_id: "source-one", action: "USE_DOCUMENT_VALUE", evidence_fingerprint: "a".repeat(64) }] });
+});

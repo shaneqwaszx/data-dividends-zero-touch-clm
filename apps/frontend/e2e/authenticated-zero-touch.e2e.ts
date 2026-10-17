@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { openStage } from "./stage-disclosures";
+import { openStage, openStageSupport } from "./stage-disclosures";
 import { assertRegistryBindingTimestamps } from "./registry-binding-timestamps";
 import { reviewPendingFields } from "./blocker-decisions";
 import type { OwnershipAnalysisRecord, PolicyCatalogue, RegistryEvidenceBinding } from "../src/types";
@@ -557,14 +557,22 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   const confirm = review.getByRole("button", { name: "Confirm and send to Mock GoldTier" });
   await expect(confirm).toBeEnabled();
 
+  await page.getByRole("region", { name: "Registry verification", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit company details" }).click();
+  await expect(page.getByRole("region", { name: "Registry verification", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#identity-registration-number")).toBeFocused();
   await expect(page.locator("#case-identity-correction").getByRole("heading", { name: "Registry identity" })).toBeVisible();
+  await page.getByRole("region", { name: "Submission readiness", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit classification" }).click();
+  await expect(page.getByRole("region", { name: "Submission readiness", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByLabel("KYC customer type", { exact: true })).toBeFocused();
+  await page.getByRole("region", { name: "Document verification", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit documents" }).click();
+  await expect(page.getByRole("region", { name: "Document verification", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#case-blocker-review select[data-review-field], #case-blocker-review select[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
+  await page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit ownership" }).click();
+  await expect(page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#case-manual-ownership-evidence :is(input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]))").first()).toBeFocused();
 
   const printButton = review.getByRole("button", { name: "Print / save PDF" });
@@ -604,7 +612,7 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   await expect(review).toHaveCSS("border-top-width", "0px");
   await expect(review.locator(".review-and-send__print")).toHaveCSS("display", "none");
   await expect(review.locator(".review-and-send__actions")).toHaveCSS("display", "none");
-  await expect(review.locator(".review-and-send__technical-content")).toBeVisible();
+  await expect(page.locator(".stage-disclosure--final .review-and-send__technical-content")).toBeVisible();
   const hasA4PageRule = await page.evaluate(() => {
     const containsA4Page = (rules: CSSRuleList): boolean => Array.from(rules).some((rule) => {
       const cssText = rule.cssText.toLowerCase();
@@ -1063,6 +1071,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect(expectedCandidate.paths.length).toBeGreaterThan(0);
   await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow")).toBeVisible({ timeout: 30_000 });
+  await openStageSupport(page, "GoldTier submission package", "More");
   const operationalTiming = page.getByRole("region", { name: "Operational timing" });
   await expect(operationalTiming).toBeVisible();
   await expect(operationalTiming.getByText(/^Timing observed at /)).toHaveCount(1);
@@ -1086,6 +1095,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   expect(binding).not.toBeNull();
   expect(binding?.disposition).toBe("PROVIDER_FETCH");
   expect(binding?.freshness_comparator).toBe("EVALUATION_NOW_LT_EXPIRES_AT");
+  await openStageSupport(page, "Registry verification", "Technical");
   const bindingView = page.getByLabel("Case evidence binding", { exact: true });
   await expect(bindingView).toBeVisible();
   expect(binding?.synthetic_seed_namespace).toBeNull();
@@ -1107,7 +1117,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(page.getByText("Case evidence binding not recorded.")).toHaveCount(0);
   await openStage(page, "Ownership & UBO");
   await expect(page.getByRole("heading", { name: "Ownership path explorer" })).toBeVisible();
-  await page.getByText("Backend execution details", { exact: true }).click();
+  await openStageSupport(page, "GoldTier submission package", "Technical");
   await expect(page.getByRole("heading", { name: "Why this case is in its current state" })).toBeVisible();
 
   const interactionRequestBaseline = caseRequests.length;
@@ -1115,9 +1125,15 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
     local: { ...localStorage },
     session: { ...sessionStorage },
   }));
-  const ownershipStructure = page.locator(".s2-ownership-structure");
+  const comparison = retainedEvidencePath("ux-correction-comparison");
+  await mkdir(comparison, { recursive: true });
+  const ownershipStage = page.getByRole("region", { name: "Ownership & UBO", exact: true });
+  await expect(ownershipStage.getByLabel("Hierarchical ownership structure", { exact: true })).toBeVisible();
+  const comparisonLabel = await ownershipStage.locator(":scope > h2 > button").count() ? "after" : "before";
+  await ownershipStage.screenshot({ path: path.join(comparison, `${comparisonLabel}-ownership.png`) });
+  const ownershipStructure = page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > details").filter({ has: page.getByText("Technical details — Ownership & UBO", { exact: true }) });
   await expect(ownershipStructure).not.toHaveAttribute("open", "");
-  const calculations = ownershipStructure.getByText("Technical calculations and retained paths", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
+  const calculations = ownershipStructure.getByText("Technical details — Ownership & UBO", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
   await expect(page.locator('[aria-label="Ownership candidates"]')).toHaveCount(0);
   const hierarchy = page.getByRole("table", { name: "Ownership hierarchy", exact: true });
   const candidate = hierarchy.getByRole("button", { name: expectedCandidate.party.display_name, exact: true });
@@ -1129,11 +1145,19 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(selectedHolder.getByRole("heading", { name: expectedCandidate.party.display_name, exact: true })).toBeVisible();
   await expect(selectedHolder).toContainText(expectedCandidate.classification);
   await expect(selectedHolder).toContainText(expectedCandidate.threshold_result);
-  const retainedPath = page.getByRole("button", { name: `Inspect ${expectedCandidate.paths[0].path_id}`, exact: true });
-  await expect(retainedPath).toBeVisible();
-  await retainedPath.click();
-  await expect(retainedPath).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByLabel(`Selected retained path ${expectedCandidate.paths[0].path_id}`, { exact: true })).toBeVisible();
+  if (expectedCandidate.paths.length > 1 || expectedCandidate.paths.some((item: any) => !item.is_direct)) {
+    await page.getByText("Technical retained path inspection", { exact: true }).click();
+    const retainedPath = page.getByRole("button", { name: `Inspect ${expectedCandidate.paths[0].path_id}`, exact: true });
+    await expect(retainedPath).toBeVisible();
+    await retainedPath.click();
+    await expect(retainedPath).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByLabel(`Selected retained path ${expectedCandidate.paths[0].path_id}`, { exact: true })).toBeVisible();
+  } else {
+    await expect(page.locator('[aria-label^="Ownership candidate "]')).toHaveCount(0);
+    await expect(page.getByRole("button", { name: `Inspect ${expectedCandidate.paths[0].path_id}`, exact: true })).toHaveCount(0);
+    await expect(ownershipStructure).toContainText(expectedCandidate.paths[0].calculation);
+    await expect(ownershipStructure).toContainText(expectedCandidate.paths[0].effective_ownership_percent);
+  }
   await page.getByRole("button", { name: "Focus registry evidence" }).click();
   await expect(page.locator("#case-evidence-registry")).toBeFocused();
   await page.waitForTimeout(250);
@@ -1152,7 +1176,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
     rootScrollWidth: document.documentElement.scrollWidth,
   }));
   expect(horizontalLayout.rootScrollWidth).toBeLessThanOrEqual(horizontalLayout.rootClientWidth + 1);
-  const ownershipTableScroller = page.locator("#case-evidence-ownership .table-scroll").first();
+  const ownershipTableScroller = ownershipStructure.locator(".table-scroll").first();
   const tableLayout = await ownershipTableScroller.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     return {
@@ -1303,7 +1327,7 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({ timeout: 30_000 });
   const focusRequestBaseline = reviewRequests.length + resumeRequests.length;
   await openStage(page, "GoldTier submission package");
-  await page.getByText("Backend execution details", { exact: true }).click();
+  await openStageSupport(page, "GoldTier submission package", "Technical");
   await page.getByRole("button", { name: "Focus documents evidence" }).click();
   await expect(page.locator("#case-blocker-review select[data-review-field], #case-blocker-review select[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
   expect(reviewRequests.length + resumeRequests.length).toBe(focusRequestBaseline);
@@ -1389,8 +1413,9 @@ test("current document review progresses authoritatively and keeps superseded hi
       && documents.filter((document) => document.superseded_by_document_id !== null).length === 1;
   }, { timeout: 120_000 }).toBe(true);
   await openStage(page, "Document verification");
+  await openStageSupport(page, "Document verification", "More");
   const history = page.getByText(/Evidence history \(1\)/);
-  await history.click();
+  await expect(history).toBeVisible();
   const historicalCard = page.locator(".document-card--history");
   await expect(historicalCard).toBeVisible();
   await expect(historicalCard.getByRole("button")).toHaveCount(0);
@@ -1402,13 +1427,13 @@ test("current document review progresses authoritatively and keeps superseded hi
   await expect(page.getByRole("heading", { name: "Document evidence and review" })).toBeVisible({
     timeout: 30_000,
   });
+  await openStageSupport(page, "Document verification", "More");
   const reloadedHistory = page.getByText(/Evidence history \(1\)/);
   await expect(reloadedHistory).toBeVisible({ timeout: 30_000 });
-  await reloadedHistory.click();
   await expect(page.locator(".document-card--history")).toBeVisible();
   await expect(page.getByText(/GoldTier Mock/).first()).toBeVisible();
   await openStage(page, "GoldTier submission package");
-  await page.getByText("Backend execution details", { exact: true }).click();
+  await openStageSupport(page, "GoldTier submission package", "Technical");
   await expect(page.getByText(/Ready-for-Approval: NOT AVAILABLE/i)).toBeVisible();
   expect(resumeRequests).toHaveLength(0);
 });
@@ -1536,7 +1561,7 @@ test("Cases filters exact open business-exception types without hiding other att
   await openLink.click();
   await expect(page).toHaveURL(`/cases/${ownershipCycleCaseId}`);
   await openStage(page, "GoldTier submission package");
-  await page.getByText("Backend execution details", { exact: true }).click();
+  await openStageSupport(page, "GoldTier submission package", "Technical");
   await expect(
     page.getByRole("heading", { name: "Why this case is in its current state" }),
   ).toBeVisible();

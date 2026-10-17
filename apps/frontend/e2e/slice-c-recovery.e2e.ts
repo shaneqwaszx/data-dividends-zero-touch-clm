@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { createBrowserNetworkPolicy, handleBrowserRoute } from "../playwright.config";
-import { focusPipelineAction, openStage } from "./stage-disclosures";
+import { focusPipelineAction, openStage, openStageSupport } from "./stage-disclosures";
 import { reviewPendingFields, reviewSourceChoices } from "./blocker-decisions";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -99,6 +99,7 @@ async function confirm(page: Page, caseId: string, sandbox = false) {
     .toEqual(["TARGET_CONFIRMATION_REQUIRED"]);
   await openStage(page, "Final review & send");
   await expect(page.locator("#case-review-and-send")).toBeVisible();
+  await page.getByRole("region", { name: "Final review & send", exact: true }).locator(":scope > h2 > button").click();
   await focusPipelineAction(page, "FINAL_REVIEW_SEND", page.getByRole("button", { name: sandbox ? "Confirm and send to GoldTier sandbox" : "Confirm and send to Mock GoldTier", exact: true }));
   const response = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/target-confirmation"));
@@ -152,7 +153,7 @@ test("Slice C stale policy rebind preserves selection and resumes", { tag: "@sli
     && result.url().endsWith("/policy-rebind"));
   await page.getByRole("button", { name: "Update system-set Singapore values", exact: true }).click();
   expect((await response).status()).toBe(200);
-  await page.locator("#case-policy-rebind").getByText("Technical authority and policy history", { exact: true }).click();
+  await openStageSupport(page, "Submission readiness", "Technical");
   await expect(page.getByLabel("Latest policy rebind receipt", { exact: true })).toBeVisible();
   const rebound = await summary(page, caseId);
   expect(rebound.case.policy_snapshot_revision).toBe(2);
@@ -178,6 +179,16 @@ test("Slice C retained finalization recovery makes no target replay", { tag: "@s
   await expect(page.getByText("Retained target operations are resolved. Backend recovery can finish the approved submission without repeating them.", { exact: true })).toBeVisible();
   expect(resumeCalls).toBe(0);
   await openStage(page, "GoldTier submission package");
+  const pendingTarget = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+  const pendingToggle = pendingTarget.locator(":scope > h2 > button");
+  await pendingToggle.focus(); await page.keyboard.press("Enter");
+  await expect(pendingToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(pendingTarget.locator(":scope > div")).toBeHidden();
+  const pendingDescription = pendingTarget.locator(":scope > .stage-disclosure__summary");
+  await expect(pendingDescription).toBeVisible();
+  await expect(pendingDescription).toContainText("Verified work retained — safe continuation requires review");
+  await expect(pendingToggle).toHaveAccessibleDescription(await pendingDescription.innerText());
+  await page.keyboard.press("Space"); await expect(pendingToggle).toHaveAttribute("aria-expanded", "true");
   const resume = page.waitForResponse((result) => result.request().method() === "POST"
     && result.url().endsWith("/resume"));
   await page.getByRole("button", { name: "Complete safe recovery", exact: true }).focus();
@@ -186,9 +197,10 @@ test("Slice C retained finalization recovery makes no target replay", { tag: "@s
   expect(resumed.status()).toBe(200);
   expect((await resumed.json()).status).toBe("COMPLETED");
   expect(resumeCalls).toBe(1);
-  // Completion retires the active target stage; its receipt must be revealed explicitly.
-  await expect(page.getByRole("button", { name: /^GoldTier submission package/ }))
-    .toHaveAttribute("aria-expanded", "false");
+  // Completion remains visible in persistent Main; optional supports stay closed.
+  const targetStage = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+  await expect(targetStage.locator(":scope > h2")).toBeVisible();
+  await expect(targetStage.locator(":scope > details[open]")).toHaveCount(0);
   await openStage(page, "GoldTier submission package");
   await expect(page.getByText("Completed POC workflow", { exact: true })).toBeVisible();
   expect((await metadata(page)).operations).toEqual(before.operations);
@@ -216,6 +228,16 @@ test("Slice C failed Search exposes bounded read-only recheck", { tag: "@slice-c
   page.on("request", navigationListener);
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 900 });
+    const target = page.getByRole("region", { name: "GoldTier submission package", exact: true });
+    const toggle = target.locator(":scope > h2 > button");
+    await toggle.focus(); await page.keyboard.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(target.locator(":scope > div")).toBeHidden();
+    const description = target.locator(":scope > .stage-disclosure__summary");
+    await expect(description).toBeVisible();
+    await expect(description).toContainText("Attention required — GoldTier availability check needed");
+    await expect(toggle).toHaveAccessibleDescription(await description.innerText());
+    await page.keyboard.press("Space"); await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await focusPipelineAction(page, "GOLDTIER_SEARCH", page.getByLabel("Singapore UEN", { exact: true }));
     await expect(page.locator("#case-identity-correction")).toHaveCount(1);
     await expect(registry.locator("#case-identity-correction")).toHaveCount(1);

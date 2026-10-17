@@ -81,6 +81,7 @@ function renderPanel(
   onReview = vi.fn(),
   suppliedSummary = summary(),
   uploads: { onReplace?: (document: DocumentProcessingRecord, file: File) => void; onRetry?: (document: DocumentProcessingRecord, file: File) => void; onRecoverRefresh?: () => void } = {},
+  readState: { presentation?: "more" | "technical"; loading?: boolean; loadFailed?: boolean; mutationBlocked?: boolean } = {},
 ) {
   container = document.createElement("div");
   document.body.append(container);
@@ -98,6 +99,7 @@ function renderPanel(
       onContinue={() => undefined}
       onRecoverRefresh={uploads.onRecoverRefresh}
       onRefresh={() => undefined}
+      {...readState}
     />,
   ));
   return { container, onReview };
@@ -330,5 +332,121 @@ describe("DocumentEvidencePanel", () => {
       if (control.textContent === "Refresh case evidence") expect(control.disabled).toBe(false);
       else expect(control.disabled).toBe(true);
     }
+  });
+});
+
+
+it("partitions essential actions, read-only history and safe extraction without changing legacy defaults", () => {
+  const current = documentFixture();
+  const historical = documentFixture({ document_id: HISTORY_ID, display_name: "superseded.pdf", superseded_by_document_id: CURRENT_ID });
+  renderPanel([current, historical]);
+  const props = { summary: summary(), documents: [current, historical], busy: false, busyLabel: null, mutationBlocked: false,
+    reviewInWorkspace: true, onReview: vi.fn(), onReplace: vi.fn(), onRetry: vi.fn(), onContinue: vi.fn(), onRefresh: vi.fn() };
+  const expectNamedFields = () => expect([...container!.querySelectorAll<HTMLElement>(".document-field[aria-labelledby]")].every(field =>
+    field.querySelector("[id]")?.id === field.getAttribute("aria-labelledby"))).toBe(true);
+  expectNamedFields();
+  act(() => root!.render(<DocumentEvidencePanel {...props} presentation="main" />));
+  expectNamedFields();
+  expect(container!.textContent).toContain("company-profile.pdf");
+  expect(container!.textContent).toContain("1 field remains for review");
+  expect(container!.textContent).not.toContain("superseded.pdf");
+  expect(container!.textContent).not.toContain("Score formula");
+  expect(container!.querySelector("input[type=file]")).not.toBeNull();
+  act(() => root!.render(<DocumentEvidencePanel {...props} presentation="more" />));
+  expect(container!.textContent).toContain("superseded.pdf");
+  expect(container!.textContent).toContain("Historical evidence");
+  expectNamedFields();
+  expect(container!.querySelector("button, input, select, textarea")).toBeNull();
+  act(() => root!.render(<DocumentEvidencePanel {...props} presentation="technical" />));
+  expect(container!.textContent).toContain("LOCAL_PDF_TEXT");
+  expect(container!.textContent).toContain("Score formula");
+  expect(container!.textContent).toContain("Document version");
+  expect(container!.querySelector("details")).toBeNull();
+  expect(container!.querySelector("button, input, select, textarea")).toBeNull();
+});
+
+
+it("keeps missing and low-score evidence distinct in essential presentation", () => {
+  const current = documentFixture({ fields: [
+    { ...documentFixture().fields[0], original_extracted_value: null, comparison_status: "MISSING_FROM_DOCUMENT", extraction_quality: "UNAVAILABLE" },
+    { ...documentFixture().fields[0], field_key: "registered_address", confidence: 0.54, extraction_quality: "LOW", comparison_status: "MISMATCH" },
+  ] });
+  renderPanel([current]);
+  act(() => root!.render(<DocumentEvidencePanel presentation="main" reviewInWorkspace summary={summary()} documents={[current]} busy={false} busyLabel={null} mutationBlocked={false} onReview={vi.fn()} onReplace={vi.fn()} onRetry={vi.fn()} onContinue={vi.fn()} onRefresh={vi.fn()} />));
+  expect(container!.textContent).toContain("Missing extracted evidence");
+  expect(container!.textContent).toContain("Low evidence score");
+  expect(container!.textContent).toContain("Extraction quality: UNAVAILABLE");
+  expect(container!.textContent).toContain("MISSING FROM DOCUMENT");
+  expect(container!.textContent).toContain("MISMATCH");
+  expect(container!.querySelector("details")).toBeNull();
+});
+
+
+it("shows ambiguous current candidates needed for correction directly in Main", () => {
+  const current = documentFixture({ fields: [{ ...documentFixture().fields[0], extraction_quality: "AMBIGUOUS", candidates: [
+    { value: "SYNTHETIC CANDIDATE A", page_number: 1, source_reference: "synthetic:page:1" },
+    { value: "SYNTHETIC CANDIDATE B", page_number: 2, source_reference: "synthetic:page:2" },
+  ] }] });
+  renderPanel([current]);
+  act(() => root!.render(<DocumentEvidencePanel presentation="main" reviewInWorkspace summary={summary()} documents={[current]} busy={false} busyLabel={null} mutationBlocked={false} onReview={vi.fn()} onReplace={vi.fn()} onRetry={vi.fn()} onContinue={vi.fn()} onRefresh={vi.fn()} />));
+  expect(container!.textContent).toContain("SYNTHETIC CANDIDATE A");
+  expect(container!.textContent).toContain("SYNTHETIC CANDIDATE B");
+  expect(container!.querySelector("details")).toBeNull();
+});
+
+
+describe.each(["more", "technical"] as const)("%s document support read states", presentation => {
+  const emptyText = presentation === "more" ? "No current document is retained." : "No document processing evidence is retained.";
+  function visibleNotice(role: "status" | "alert") {
+    const notice = container!.querySelector<HTMLElement>(`[role=${role}]`);
+    expect(notice).not.toBeNull();
+    expect(notice!.closest("[hidden], [aria-hidden=true]")).toBeNull();
+    expect(getComputedStyle(notice!).display).not.toBe("none");
+    return notice!.textContent;
+  }
+  it("explains initial loading without asserting absence or inventing evidence", () => {
+    renderPanel([], vi.fn(), summary(), {}, { presentation, loading: true });
+    expect(visibleNotice("status")).toContain("Loading document information");
+    expect(container!.textContent).not.toContain(emptyText);
+    expect(container!.querySelector("article")).toBeNull();
+  });
+  it("explains a failed empty read and unconfirmed document availability", () => {
+    renderPanel([], vi.fn(), summary(), {}, { presentation, loadFailed: true });
+    expect(visibleNotice("alert")).toContain("Document information could not be loaded.");
+    expect(visibleNotice("alert")).toContain("Document availability cannot currently be confirmed.");
+    expect(container!.textContent).not.toContain(emptyText);
+    expect(container!.querySelector("article")).toBeNull();
+  });
+  it("qualifies retained current and historical evidence after failed refresh", () => {
+    const history = documentFixture({ document_id: HISTORY_ID, display_name: "superseded.pdf", superseded_by_document_id: CURRENT_ID });
+    renderPanel([documentFixture(), history], vi.fn(), summary(), {}, { presentation, loadFailed: true });
+    expect(visibleNotice("alert")).toContain("Last-confirmed document information remains visible and may be stale.");
+    expect(container!.textContent).toContain("company-profile.pdf");
+    expect(container!.textContent).toContain("superseded.pdf");
+    expect(container!.textContent).toContain("Historical evidence");
+    expect(container!.querySelector("button, input, select, textarea")).toBeNull();
+  });
+  it("keeps a completed successful empty result truthful", () => {
+    renderPanel([], vi.fn(), summary(), {}, { presentation });
+    expect(container!.textContent).toContain(emptyText);
+    expect(container!.querySelector("[role=status], [role=alert]")).toBeNull();
+  });
+  it("preserves successful retained support and provenance without failure wording", () => {
+    renderPanel([documentFixture()], vi.fn(), summary(), {}, { presentation });
+    expect(container!.textContent).toContain("company-profile.pdf");
+    expect(container!.textContent).toContain(presentation === "technical" ? "LOCAL_PDF_TEXT" : "SYNTHETIC PTE. LTD.");
+    expect(container!.textContent).not.toContain(emptyText);
+    expect(container!.querySelector("[role=status], [role=alert], button, input, select, textarea")).toBeNull();
+  });
+  it("keeps mutation-blocked retained evidence explicitly unconfirmed and read-only", () => {
+    renderPanel([documentFixture()], vi.fn(), { ...summary(), evidence_decision_authorized: false }, {}, { presentation, mutationBlocked: true });
+    expect(visibleNotice("alert")).toContain("Evidence reload could not be confirmed.");
+    expect(visibleNotice("alert")).toContain("Last-confirmed document information remains visible and may be stale.");
+    expect(container!.querySelector("button, input, select, textarea")).toBeNull();
+  });
+  it("does not assert empty evidence while a blocked reload is unconfirmed", () => {
+    renderPanel([], vi.fn(), summary(), {}, { presentation, mutationBlocked: true });
+    expect(visibleNotice("alert")).toContain("Document availability cannot currently be confirmed.");
+    expect(container!.textContent).not.toContain(emptyText);
   });
 });

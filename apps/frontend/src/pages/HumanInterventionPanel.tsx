@@ -147,10 +147,16 @@ function InterventionCard({
         </div>
       )}
 
-      <details className="evidence-details"><summary>Why is this blocked?</summary>
       {evidenceRecords.map(record => relatedEvidence.length > 0 ? (
         <article className="intervention-evidence-record" data-intervention-id={record.intervention.intervention_id}
           key={record.intervention.intervention_id}>
+          <InterventionRequirements intervention={record.intervention} />
+        </article>
+      ) : <InterventionRequirements key={record.intervention.intervention_id} intervention={record.intervention} />)}
+      <details className="evidence-details"><summary>Why is this blocked?</summary>
+      {evidenceRecords.map(record => relatedEvidence.length > 0 ? (
+        <article key={record.intervention.intervention_id} data-diagnostic-intervention-id={record.intervention.intervention_id}
+          aria-label={`Diagnostics for ${record.intervention.blocker_code}`}>
           <InterventionEvidenceDetails {...record} />
         </article>
       ) : <InterventionEvidenceDetails key={record.intervention.intervention_id} {...record} />)}
@@ -211,6 +217,14 @@ function InterventionEvidenceDetails({ intervention, exception }: {
   return <>
       <code>{intervention.blocker_code}</code>
       {intervention.blocker_class && <p>{intervention.blocker_class.replaceAll("_", " ")}</p>}
+      {intervention.dependent_stages?.length ? <p>Dependent stages: {intervention.dependent_stages.join(", ")}</p> : null}
+
+      <BlockerDecisionDetails decisions={decisions} />
+  </>;
+}
+
+function InterventionRequirements({ intervention }: { intervention: HumanInterventionProjection }) {
+  return (
       <dl className="intervention-card__details">
         <div>
           <dt>Required evidence or input</dt>
@@ -220,10 +234,7 @@ function InterventionEvidenceDetails({ intervention, exception }: {
           <dt>Expected next step</dt>
           <dd>{intervention.expected_next_step}</dd>
         </div>
-        {intervention.dependent_stages?.length ? <div><dt>Dependent stages</dt><dd>{intervention.dependent_stages.join(", ")}</dd></div> : null}
         {intervention.resolution_condition && <div><dt>Resolution condition</dt><dd>{intervention.resolution_condition}</dd></div>}
       </dl>
-
-      <BlockerDecisionDetails decisions={decisions} />
-  </>;
+  );
 }

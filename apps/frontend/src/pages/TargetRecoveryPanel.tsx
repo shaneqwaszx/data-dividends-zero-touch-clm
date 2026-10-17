@@ -11,7 +11,7 @@ const observationText = {
 };
 const display = (operation: string) => operation === "READBACK" ? "Customer readback" : operation.charAt(0) + operation.slice(1).toLowerCase();
 
-export default function TargetRecoveryPanel({ summary, actor, busy, checking, result, error, onCheck, onRecover }: {
+export default function TargetRecoveryPanel({ summary, actor, busy, checking, result, error, onCheck, onRecover, presentation = "full" }: {
   summary: ZeroTouchCaseSummary;
   actor: AuthenticatedProfile;
   busy: boolean;
@@ -20,6 +20,7 @@ export default function TargetRecoveryPanel({ summary, actor, busy, checking, re
   error: string | null;
   onCheck?: () => void;
   onRecover: (input: TargetRecoveryInput) => void;
+  presentation?: "full" | "main";
 }) {
   const [confirmedCandidate, setConfirmedCandidate] = useState<string | null>(null);
   const [policyVerified, setPolicyVerified] = useState(false);
@@ -88,7 +89,25 @@ export default function TargetRecoveryPanel({ summary, actor, busy, checking, re
       <label className="target-recovery-attestation"><input type="checkbox" disabled={locked} checked={policyVerified} onChange={(event) => setPolicyVerified(event.target.checked)} /> Verified against GoldTier: this customer has the retained Policy in Requested status.</label>
       <button type="submit" className="btn btn-primary" disabled={locked || !policyVerified || policyStatus !== "Requested" || !target.goldtier_id || !target.provider_policy}>Resolve verified Policy result</button>
     </form>}
-    <details className="evidence-details"><summary>Technical details</summary>
+    {presentation === "full" && <details className="evidence-details"><summary>Technical details</summary>
+      <TargetRecoveryDetails summary={summary} result={result} />
+    </details>}
+  </section>;
+}
+
+/** Passive safe ledger projection; recovery remains owned by the single Main panel. */
+export function TargetRecoveryDetails({ summary, result }: {
+  summary: ZeroTouchCaseSummary; result: TargetSearchObservation | null;
+}) {
+  const target = summary.target_submission;
+  if (!target || target.state !== "SUBMISSION_OUTCOME_UNCERTAIN") return null;
+  const attempted = target.attempted_operations ?? [];
+  const completed = target.definitively_completed_operations ?? [];
+  const resolved = target.lifecycle_resolved_operations ?? [];
+  const affected = attempted.find(item => !resolved.includes(item))
+    ?? summary.target_operations.find(item => item.status === "OUTCOME_UNCERTAIN")?.operation;
+  const observation = result?.submission_id === target.submission_id && "message" in result ? result : null;
+  return (
       <dl className="target-recovery-facts">
         <dt>Error code</dt><dd>CLM_TARGET_OUTCOME_UNCERTAIN</dd>
         <dt>Submission ID</dt><dd>{target.submission_id ?? "Unknown historical submission"}</dd>
@@ -100,6 +119,5 @@ export default function TargetRecoveryPanel({ summary, actor, busy, checking, re
         <dt>Lifecycle-resolved prefix</dt><dd>{resolved.join(" → ") || "Unknown"}</dd>
         {observation && <><dt>Read-only observation</dt><dd>{observation.result}</dd></>}
       </dl>
-    </details>
-  </section>;
+  );
 }

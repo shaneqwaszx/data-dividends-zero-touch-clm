@@ -16,7 +16,6 @@ import {
   completeZeroTouchIntake,
   correctRegistryIdentity,
   deleteZeroTouchCase,
-  fetchDocuments,
   fetchIntelligence,
   fetchOwnership,
   fetchZeroTouchCase,
@@ -38,7 +37,6 @@ import { confirmationResponseMayBeLost, observeSubmissionOutcome } from "../subm
 import {
   caseDeletedEffect,
   publishCaseDetail,
-  retainNewestDocuments,
   retainNewestVersionedEvidence,
   caseDetailQueryOptions,
   caseSummaryMutationEffect,
@@ -79,19 +77,19 @@ import DeleteCaseDialog from "./DeleteCaseDialog";
 import DocumentEvidencePanel, {
   canContinueRecoveredIntake, isCurrentDocument, isDocumentReuploadRequired, type DocumentReviewRequest,
 } from "./DocumentEvidencePanel";
-import OwnershipPathExplorer from "./OwnershipPathExplorer";
+import OwnershipPathExplorer, { OwnershipSupportingDetails } from "./OwnershipPathExplorer";
 import IntelligencePanel from "./IntelligencePanel";
 import GoldTierRequestPreview from "./GoldTierRequestPreview";
 import RegistryProvenancePanel from "./RegistryProvenancePanel";
-import TargetClassificationPanel from "./TargetClassificationPanel";
+import TargetClassificationPanel, { TargetClassificationDetails } from "./TargetClassificationPanel";
 import HumanInterventionPanel from "./HumanInterventionPanel";
 import ReviewAndSend from "./ReviewAndSend";
-import TargetRecoveryPanel from "./TargetRecoveryPanel";
+import TargetRecoveryPanel, { TargetRecoveryDetails } from "./TargetRecoveryPanel";
 import StageDisclosure, { revealStage } from "./StageDisclosure";
 import OnboardingWorkspace, { onboardingExecutionMessage, onboardingIsExecuting } from "./OnboardingWorkspace";
 import IdentityCorrectionForm from "./IdentityCorrectionForm";
 import ManualOwnershipEvidenceForm from "./ManualOwnershipEvidenceForm";
-import PolicyRebindPanel from "./PolicyRebindPanel";
+import PolicyRebindPanel, { PolicyRebindDetails } from "./PolicyRebindPanel";
 
 const EVIDENCE_TARGET_IDS: Record<EvidenceFocusTarget, string> = {
   identity: "case-identity-correction",
@@ -155,6 +153,8 @@ export default function CaseDetail({
     nodeId: string; automationVersion: number;
   }) | null>(null);
   const evidenceIdentity = `${actor.user_id}:${caseId}`;
+  // AuthProvider remounts this subtree for each authenticated session generation.
+  const disclosureIdentity = `${evidenceIdentity}:${actor.role}:${actor.team_id}`;
   const detailQuery = useQuery(caseDetailQueryOptions(actor.user_id, caseId));
   const documentQuery = useQuery(documentQueryOptions(actor.user_id, caseId));
   const ownershipQuery = useQuery(ownershipQueryOptions(actor.user_id, caseId));
@@ -268,12 +268,12 @@ export default function CaseDetail({
       }
       return latest;
     });
-    const latestDocuments = fetchDocuments(action.caseId).then((documents) => {
+    const latestDocuments = queryClient.fetchQuery({
+      ...documentQueryOptions(action.actorUserId, action.caseId),
+      staleTime: 0,
+      retry: false,
+    }).then((documents) => {
       if (isCurrentCaseAction(action)) {
-        queryClient.setQueryData(
-          documentQueryOptions(action.actorUserId, action.caseId).queryKey,
-          (current: DocumentProcessingRecord[] | undefined) => retainNewestDocuments(current, documents),
-        );
         if (import.meta.env.VITE_E2E_DIAGNOSTICS === "1") {
           const reviewedFieldCount = documents
             .find((document) => document.superseded_by_document_id === null)
@@ -456,14 +456,16 @@ export default function CaseDetail({
       fetchCase: fetchZeroTouchCase,
       onUpdate: (latest) => {
         caseSummaryMutationEffect(queryClient, actor.user_id, latest);
-        void Promise.all([fetchDocuments(caseId), fetchOwnership(caseId)]).then(([docs, owner]) => {
-          if (activeGeneration === generation.current) {
-            queryClient.setQueryData(documentQueryOptions(actor.user_id, caseId).queryKey,
-              (current: DocumentProcessingRecord[] | undefined) => retainNewestDocuments(current, docs));
-            queryClient.setQueryData(ownershipQueryOptions(actor.user_id, caseId).queryKey,
-              (current: unknown) => retainNewestVersionedEvidence(current, owner));
-          }
-        });
+        // Each existing query owns cancellation, newest-evidence retention and visible
+        // failure/recovery. A failed read cannot suppress its successful sibling.
+        void Promise.allSettled([
+          queryClient.fetchQuery({
+            ...documentQueryOptions(actor.user_id, caseId), staleTime: 0, retry: false,
+          }),
+          queryClient.fetchQuery({
+            ...ownershipQueryOptions(actor.user_id, caseId), staleTime: 0, retry: false,
+          }),
+        ]);
       },
       onWarning: (warning) => setError(warning),
       shouldContinue: shouldPollAutomation,
@@ -820,7 +822,7 @@ export default function CaseDetail({
       // Entry navigation may run before the disclosure's effect has subscribed.
       // Reveal again at the mounted frame, then focus after its committed layout.
       revealStage(current);
-      const controls = selector ?? "input:not([disabled]):not([readonly]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]):not(.review-and-send__print)";
+      const controls = selector ?? "input:not([disabled]):not([readonly]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]):not([data-stage-toggle]):not(.review-and-send__print)";
       const target = (current.matches(controls) ? [current] : Array.from(current.querySelectorAll<HTMLElement>(controls)))
         .find(element => !element.matches(":disabled"));
       if (!target) {
@@ -898,6 +900,8 @@ export default function CaseDetail({
   }, [pendingAttention, evidenceIdentity, summary?.version, documentQuery.isPending, ownershipQuery.isPending]);
 
   function focusSearch(interventionId?: string, fromPipeline = false): void {
+    const searchPanel = document.getElementById(SEARCH_TARGET_ID)?.querySelector(".stage-disclosure > div");
+    if (searchPanel) revealStage(searchPanel);
     if (document.getElementById("existing-customer-confirmation-form")) {
       focusActionControl("existing-customer-confirmation-form", "input:not([disabled])"); return;
     }
@@ -1076,6 +1080,20 @@ export default function CaseDetail({
     }
   }
 
+  // Read notices project the existing query owners; no local data retention or polling.
+  function readNotice(label: "Ownership" | "Readiness" | "Target" | "Final review", pending: boolean, fetching: boolean, failed: boolean, retained: boolean) {
+    const lower = label.toLowerCase();
+    if (failed) return <p className="ds-banner ds-banner-warn" role="alert">{label} information could not be loaded. {retained ? `Last-confirmed ${lower} information remains visible and may be stale.` : "Current evidence is unavailable; absence has not been confirmed."}</p>;
+    if (pending || fetching) return <p className="control-help" role="status">Loading {lower} information… {retained ? `Last-confirmed ${lower} information remains visible while it is refreshed.` : "Current evidence is not yet confirmed."}</p>;
+    return null;
+  }
+  const ownershipReadUnconfirmed = ownershipQuery.isPending || ownershipQuery.isFetching || ownershipQuery.isError || detailQuery.isFetching || detailQuery.isError;
+  const readinessReadUnconfirmed = detailQuery.isPending || detailQuery.isFetching || detailQuery.isError;
+  const ownershipReadNotice = readNotice("Ownership", ownershipQuery.isPending, ownershipQuery.isFetching || detailQuery.isFetching, ownershipQuery.isError || detailQuery.isError, ownershipQuery.data !== undefined);
+  const readinessReadNotice = readNotice("Readiness", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
+  const targetReadNotice = readNotice("Target", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
+  const finalReadNotice = readNotice("Final review", detailQuery.isPending, detailQuery.isFetching, detailQuery.isError, detailQuery.data !== undefined);
+  const confirmedOwnershipEmpty = !ownershipReadUnconfirmed && ownership === null;
   const loadError = detailQuery.error ?? documentQuery.error ?? ownershipQuery.error;
   if (caseUnavailable) return <div className="ds-root ds-page"><button type="button" className="btn btn-ghost" onClick={onBack}>← Back to Cases</button><div className="ds-banner ds-banner-warn">The case is unavailable.</div></div>;
   if ((error || loadError) && !summary) return <div className="ds-root ds-page"><button type="button" className="btn btn-ghost" onClick={onBack}>← Back to Cases</button><div className="ds-banner ds-banner-warn">{error ?? (loadError instanceof Error ? loadError.message : "The case is unavailable.")}</div></div>;
@@ -1153,14 +1171,57 @@ export default function CaseDetail({
         />
 
   );
-  const stageIsActive = (stages: readonly string[]) => summary.status !== "COMPLETED"
-    && stages.includes(summary.interventions?.find((item) => item.blocker_code !== "TARGET_CONFIRMATION_REQUIRED")?.owning_stage ?? summary.current_stage ?? "REGISTRY");
+  const stageNeedsAttention = (stages: readonly string[]) => summary.active_exceptions.some(item => stages.includes(item.stage))
+    || Boolean(summary.interventions?.some(item => stages.includes(item.owning_stage)));
   const reviewReady = summary.active_exceptions.some((item) => item.exception_type === "TARGET_CONFIRMATION_REQUIRED");
   const frozenReview = Boolean(summary.case.target_dispatch_confirmation || summary.clm.submission
     || (targetSubmission && targetSubmission.state !== "NOT_SUBMITTED"));
   const showFinalReview = reviewReady || frozenReview || summary.status === "COMPLETED";
   const preflightUnavailable = summary.clm.target_search_checkpoint?.status === "FAILED"
     && targetSubmission?.state === "NOT_SUBMITTED" && !frozenReview;
+  // Summarize existing target projections; action eligibility stays with Main's owners.
+  const targetAttention = summary.interventions?.some(item => item.owning_stage === "MOCK_GOLDTIER")
+    || summary.active_exceptions.some(item => item.stage === "MOCK_GOLDTIER"
+      && item.exception_type !== "TARGET_CONFIRMATION_REQUIRED");
+  const targetHeaderStatus = (() => {
+    if (confirmationUnknown) return "Submission confirmation is being verified — do not send again.";
+    if (targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN") return "Submission outcome uncertain — verification required.";
+    if (targetSubmission?.state === "SENDING") return "Submission in progress — do not send again.";
+    if (preflightUnavailable) return "Attention required — GoldTier availability check needed.";
+    if (targetAttention) return "Target intervention requires review.";
+    if (safeContinuation) return "Verified work retained — safe continuation requires review.";
+    if (summary.status === "RECOVERY_PENDING" && !targetSubmission) return "Backend recovery pending — review required.";
+    switch (targetSubmission?.state) {
+      case "SUBMISSION_FAILED": return "Submission failed — review required.";
+      case "SUBMISSION_CONFIRMED": return "Submission confirmed.";
+      case "FINALIZATION_PENDING": return "Submission finalization pending — review required.";
+      case "NOT_SUBMITTED": return "Submission not started.";
+      default: return "Submission state not available in retained evidence.";
+    }
+  })();
+  // Freshness belongs to the existing query owners, including supporting package reads.
+  function headerReadSummary(label: string, queries: Array<{
+    isPending: boolean; isFetching: boolean; isError: boolean; data: unknown;
+  }>) {
+    const retained = queries.every(query => query.data !== undefined);
+    if (queries.some(query => query.isError)) return retained
+      ? "Last-confirmed " + label + " information (refresh failed; may be stale). "
+      : "Current evidence unavailable; absence not confirmed. ";
+    if (queries.some(query => query.isPending || query.isFetching)) return retained
+      ? "Last-confirmed " + label + " information (refresh in progress). "
+      : "Loading " + label + " information — current evidence not yet confirmed. ";
+    return "";
+  }
+  const detailHeaderQueries = [detailQuery];
+  const ownershipHeaderFreshness = headerReadSummary("ownership", [detailQuery, ownershipQuery]);
+  const documentHeaderFreshness = headerReadSummary("document", [detailQuery, documentQuery]);
+  const targetHeaderFreshness = headerReadSummary("target", detailHeaderQueries);
+  const finalHeaderContext = headerReadSummary("final review", [detailQuery, documentQuery, ownershipQuery])
+    + targetHeaderStatus + " " + (frozenReview || summary.status === "COMPLETED" ? "Reviewed package frozen. " : "");
+  const ownershipHeaderStatus = ownership
+    ? "Ownership: " + ownership.state.replaceAll("_", " ") + ". " + (stageNeedsAttention(["OWNERSHIP"]) || ["REVIEW_REQUIRED", "FAILED"].includes(ownership.state) || ownership.issues.length > 0 ? "Attention required — review ownership evidence." : "Provisional ownership and UBO analysis.")
+    : confirmedOwnershipEmpty ? "No ownership analysis retained in the confirmed response."
+      : "Ownership analysis not confirmed.";
   const currentTargetStatusCheck = targetStatusCheck?.identity === targetStatusIdentity
     ? targetStatusCheck : null;
   const remainingIssueCount = summary.active_exceptions.filter(
@@ -1263,35 +1324,15 @@ export default function CaseDetail({
           </div>
         )}
 
-        <StageDisclosure title="Registry verification" active={identityConflict || stageIsActive(["REGISTRY"])}>
-          {renderInterventions(["REGISTRY"])}
-          {!identityInSearch && identityEditor}
-
-        <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} />
-        <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>
-          <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} />
-        </div>
-        <div className="ds-two-col case-corporate-evidence"><div><h4>Corporate particulars</h4><div>
-          <div className="kv-row"><span className="kv-label">Company name</span><span className="kv-value">{entity?.legal_name ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration ID</span><span className="kv-value">{entity?.registration_number ?? summary.case.requested_uen}</span></div><div className="kv-row"><span className="kv-label">Entity type</span><span className="kv-value">{entity?.party_type ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registry status</span><span className="kv-value">{entity?.entity_status ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration date</span><span className="kv-value">{entity?.registration_date ?? "—"}</span></div>
-        </div></div><div><h4>Registry officers and roles</h4>{acquisition && acquisition.officers.length > 0 ? <div className="table-card"><table className="table"><tbody>{acquisition.officers.map((officer) => <tr key={officer.officer_id}><td>{officer.name}</td><td>{officer.role}</td></tr>)}</tbody></table></div> : <p className="text-muted" style={{ fontSize: 12 }}>Not available.</p>}</div></div>
-
-        {acquisition && (
-          <details className="evidence-details registry-evidence-details">
-            <summary>Registry operation results, issues, and safe provenance</summary>
-            {acquisition.operation_results.map((operation) => (
-              <p key={operation.operation}><strong>{operation.operation.replaceAll("_", " ")}</strong> · {operation.status} · {operation.record_count} record(s) · {operation.provenance ? `${operation.provenance.provider} ${operation.provenance.environment} · ${operation.provenance.evidence_reference}` : "provenance —"}{operation.error ? ` · ${operation.error.code}: ${operation.error.message}` : ""}</p>
-            ))}
-            {acquisition.issues.map((issue) => <p key={issue.code}><strong>{issue.code}</strong> · {issue.message}</p>)}
-          </details>
-        )}
-
-        </StageDisclosure>
-        <section id={SEARCH_TARGET_ID} className="card evidence-focus-target" tabIndex={-1}
-          aria-labelledby="case-existing-customer-search-heading">
-          <h2 id="case-existing-customer-search-heading">Existing-customer search</h2>
-          <p className="control-help">{summary.clm.target_search_checkpoint
-            ? `Retained Search status: ${summary.clm.target_search_checkpoint.status.replaceAll("_", " ")}.`
-            : "No Search result is retained for this case."}</p>
+        <div id={SEARCH_TARGET_ID} role="group" aria-label="Existing-customer search" className="evidence-focus-target" tabIndex={-1}>
+        <StageDisclosure title="Existing-customer search" summary={`${headerReadSummary("Search", detailHeaderQueries)}Search: ${summary.clm.target_search_checkpoint?.status.replaceAll("_", " ") ?? "No result retained"}. ${identityInSearch || stageNeedsAttention(["GOLDTIER_SEARCH"]) ? "Attention required — review Search identity or decision." : "GoldTier Search evidence."}`} scopeKey={`${disclosureIdentity}:${summary.clm.target_search_checkpoint?.request_id ?? "no-request"}`}
+          main={<>
+            <p className="control-help">{summary.clm.target_search_checkpoint
+              ? `Retained Search status: ${summary.clm.target_search_checkpoint.status.replaceAll("_", " ")}.`
+              : "No Search result is retained for this case."}</p>
+            {summary.clm.target_search_checkpoint && <p>Search provider: GoldTier · {summary.clm.target_search_checkpoint.provider_mode} · {summary.clm.target_search_checkpoint.provider_classification}</p>}
+            {summary.clm.target_search_checkpoint && <p>Retained Search outcome: {summary.clm.target_search_checkpoint.disposition ?? "Not recorded"}.</p>}
+            <ProcessingBlockerPanels summary={summary} stage="REGISTRY" searchPart="main" />
           {renderInterventions(["GOLDTIER_SEARCH"])}
           {identityInSearch && identityEditor}
           {!identityInSearch && identityEditor
@@ -1299,9 +1340,47 @@ export default function CaseDetail({
             className="btn btn-secondary" disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true}
             onClick={() => focusEvidence("identity")}>{identitySearchRecheck
               ? "Review identity for Search recheck" : "Review Registry identity for Search"}</button>}
-          <ProcessingBlockerPanels summary={summary} stage="REGISTRY" />
-        </section>
-        <StageDisclosure title="Document verification" active={!identityConflict && stageIsActive(["DOCUMENT"])}>
+
+          </>}
+          moreDetails={<>{summary.clm.target_search_checkpoint ? <dl aria-label="Retained Search evidence">
+            <div><dt>Retained disposition</dt><dd>{summary.clm.target_search_checkpoint.disposition}</dd></div>
+            <div><dt>Provider outcome</dt><dd>{summary.clm.target_search_checkpoint.provider_outcome}</dd></div>
+            <div><dt>Candidate count</dt><dd>{summary.clm.target_search_checkpoint.candidate_count ?? "Not recorded"}</dd></div>
+            <div><dt>Match explanation</dt><dd>{summary.clm.target_search_checkpoint.message}</dd></div>
+            {summary.clm.target_search_checkpoint.resolution_outcome && <div><dt>Retained choice</dt><dd>{summary.clm.target_search_checkpoint.resolution_outcome}</dd></div>}
+          </dl> : <p>No supporting Search result is retained.</p>}<ProcessingBlockerPanels summary={summary} stage="REGISTRY" searchPart="more" /></>}
+          technicalDetails={<>
+            <ProcessingBlockerPanels summary={summary} stage="REGISTRY" searchPart="technical" />
+            {summary.clm.target_search_checkpoint && <dl aria-label="Search checkpoint diagnostics">
+              <div><dt>Retained request</dt><dd>{summary.clm.target_search_checkpoint.request_id}</dd></div>
+              <div><dt>Safe code</dt><dd>{summary.clm.target_search_checkpoint.code ?? "None recorded"}</dd></div>
+              <div><dt>Status code</dt><dd>{summary.clm.target_search_checkpoint.status_code ?? "Not recorded"}</dd></div>
+              <div><dt>Searched at — original ISO UTC</dt><dd>{summary.clm.target_search_checkpoint.searched_at ?? "Not recorded"}</dd></div>
+            </dl>}
+          </>}
+        />
+        </div>
+        <StageDisclosure title="Registry verification" summary={`${headerReadSummary("registry", detailHeaderQueries)}Registry: ${summary.clm.readiness.registry.status}. ${stageNeedsAttention(["REGISTRY"]) ? "Attention required — review registry identity and evidence." : "Retained registry evidence and source."}`} scopeKey={`${disclosureIdentity}:${summary.case.registry_evidence_binding?.bound_to_case_at ?? "unbound"}:${acquisition?.retrieved_at ?? "no-acquisition"}`}
+          main={<>
+            {renderInterventions(["REGISTRY"])}
+            {!identityInSearch && identityEditor}
+            <RegistryStatePanel summary={summary} registryProviderMode={registryProviderMode} compact />
+            <div key={`${evidenceIdentity}:registry`} id={EVIDENCE_TARGET_IDS.registry} className="evidence-focus-target" tabIndex={-1}>
+              <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="main" />
+            </div>
+            <p>{entity?.legal_name ?? "Legal name not retained"} · {entity?.registration_number ?? summary.case.requested_uen} · {entity?.entity_status ?? "Registry status not retained"}</p>
+          </>}
+          moreDetails={<>
+        <div className="ds-two-col case-corporate-evidence"><div><h4>Corporate particulars</h4><div>
+          <div className="kv-row"><span className="kv-label">Company name</span><span className="kv-value">{entity?.legal_name ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration ID</span><span className="kv-value">{entity?.registration_number ?? summary.case.requested_uen}</span></div><div className="kv-row"><span className="kv-label">Entity type</span><span className="kv-value">{entity?.party_type ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registry status</span><span className="kv-value">{entity?.entity_status ?? "—"}</span></div><div className="kv-row"><span className="kv-label">Registration date</span><span className="kv-value">{entity?.registration_date ?? "—"}</span></div>
+        </div></div><div><h4>Registry officers and roles</h4>{acquisition && acquisition.officers.length > 0 ? <div className="table-card"><table className="table"><tbody>{acquisition.officers.map((officer) => <tr key={officer.officer_id}><td>{officer.name}</td><td>{officer.role}</td></tr>)}</tbody></table></div> : <p className="text-muted" style={{ fontSize: 12 }}>Not available.</p>}</div></div>
+            <RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="more" />
+          </>}
+          technicalDetails={<RegistryProvenancePanel acquisition={acquisition} binding={summary.case.registry_evidence_binding} entityType={entity?.party_type} providerMode={registryProviderMode} part="technical" />}
+        />
+        <StageDisclosure title="Document verification" summary={`${documentHeaderFreshness}Documents: ${summary.clm.readiness.document.status}. ${stageNeedsAttention(["DOCUMENT"]) ? "Attention required — review document evidence and required actions." : summary.current_stage === "DOCUMENT" ? "Current stage — review document evidence and required actions." : "Document evidence and reconciliation."}`} scopeKey={disclosureIdentity}
+          main={<>
+          <p className="control-help">Document readiness: {summary.clm?.readiness.document.status ?? "Not available"}. Current case checkpoint: {summary.status.replaceAll("_", " ")} / {summary.current_stage}.</p>
           {renderInterventions(["DOCUMENT"])}
           {summary.status === "PENDING_INPUTS" && !documents.some(doc => isDocumentReuploadRequired(doc, summary)) && <label id="case-document-upload" className="btn btn-secondary document-upload-control">
             Upload required document
@@ -1352,17 +1431,25 @@ export default function CaseDetail({
         />
         {summary.reconciliation && summary.current_stage === "DOCUMENT" && (
           <div key={`${evidenceIdentity}:reconciliation`} id={EVIDENCE_TARGET_IDS.reconciliation} className="evidence-focus-target" tabIndex={-1}>
-            <ConfirmDetailsPanel summary={summary} isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true} />
+            <ConfirmDetailsPanel presentation="main" summary={summary} isBusy={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true} />
           </div>
         )}
         <div key={`${evidenceIdentity}:documents`} id={EVIDENCE_TARGET_IDS.documents} className="evidence-focus-target" tabIndex={-1}>
           {error && reviewEdit.current?.target === "documents" && isCurrentCaseAction(reviewEdit.current)
             && <p role="alert" className="ds-banner ds-banner-warn">{error}</p>}
-          <DocumentEvidencePanel reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRecoverRefresh={handleRecoverDocumentRefresh} onRefresh={() => void handleReadOnlyRefresh()} />
+          <DocumentEvidencePanel presentation="main" reviewInWorkspace key={evidenceIdentity} summary={summary} documents={documents} busy={isBusy} busyLabel={busyLabel} mutationBlocked={mutationBlocked} loading={documentQuery.isPending || documentQuery.isFetching} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRecoverRefresh={handleRecoverDocumentRefresh} onRefresh={() => void handleReadOnlyRefresh()} />
         </div>
 
-        </StageDisclosure>
-        <StageDisclosure title="Ownership & UBO" active={stageIsActive(["OWNERSHIP"])}>
+          </>}
+          moreDetails={<DocumentEvidencePanel presentation="more" summary={summary} documents={documents} busy={isBusy} busyLabel={null} mutationBlocked={mutationBlocked} loading={documentQuery.isPending || documentQuery.isFetching} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />}
+          technicalDetails={<>
+            <DocumentEvidencePanel presentation="technical" summary={summary} documents={documents} busy={isBusy} busyLabel={null} mutationBlocked={mutationBlocked} loading={documentQuery.isPending || documentQuery.isFetching} loadFailed={documentQuery.isError} onReview={handleDocumentReview} onReplace={handleReplacement} onRetry={handleRetry} onContinue={handleContinueRecoveredIntake} onRefresh={() => void handleReadOnlyRefresh()} />
+            <ConfirmDetailsPanel presentation="technical" summary={summary} />
+          </>}
+        />
+        <StageDisclosure title="Ownership & UBO" summary={`${ownershipHeaderFreshness}${ownershipHeaderStatus}`} scopeKey={disclosureIdentity} main={<>
+          {ownershipReadNotice}
+          {confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}
           {renderInterventions(["OWNERSHIP"])}
         {ownershipRecovery && summary.ownership_edit_authorized === true
           && ownership?.analysis_id === ownershipRecovery.analysis_id
@@ -1374,7 +1461,7 @@ export default function CaseDetail({
               initialRootLegalName={summary.case.entity?.legal_name ?? summary.case.initial_identity?.legal_name ?? ""}
               documents={documents}
               ownership={ownership}
-              disabled={isBusy || mutationBlocked || summary.ownership_edit_authorized !== true}
+              disabled={isBusy || mutationBlocked || ownershipReadUnconfirmed || summary.ownership_edit_authorized !== true}
               onUploadEvidence={summary.interventions?.some((intervention) =>
                 intervention.evidence_actions?.some((action) => action.target === "OWNERSHIP_UPLOAD"),
               ) ? (file) => void settleEvidenceMutation(
@@ -1412,18 +1499,29 @@ export default function CaseDetail({
           </div>
         )}
           <div key={`${evidenceIdentity}:ownership`} id={EVIDENCE_TARGET_IDS.ownership} className="evidence-focus-target" tabIndex={-1}>
-            <OwnershipPathExplorer key={`${evidenceIdentity}:${ownership?.analysis_id ?? "none"}`} record={ownership} acquisition={acquisition} primaryBlockerVisible={summary.active_exceptions.some((item) => item.stage === "OWNERSHIP")} />
+            {ownership && <OwnershipPathExplorer presentation="main" key={`${evidenceIdentity}:${ownership?.analysis_id ?? "none"}`} record={ownership} acquisition={acquisition} primaryBlockerVisible={summary.active_exceptions.some((item) => item.stage === "OWNERSHIP")} />}
           </div>
-        </StageDisclosure>
-        <StageDisclosure title="Submission readiness" active={stageIsActive(["READINESS"])}>
+        </>}
+          moreDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails record={ownership} presentation="more" /></>}
+          technicalDetails={<>{ownershipReadNotice}{confirmedOwnershipEmpty && <p>No ownership analysis is retained in the confirmed response.</p>}<OwnershipSupportingDetails key={ownership?.analysis_id ?? "none"} record={ownership} presentation="technical" /></>}
+        />
+        <StageDisclosure title="Submission readiness" summary={`${headerReadSummary("readiness", detailHeaderQueries)}Readiness checkpoint: ${summary.status.replaceAll("_", " ")}. ${summary.clm.readiness.blockers.length} retained blockers. ${stageNeedsAttention(["READINESS"]) ? "Attention required — review required inputs and configuration." : "Review required inputs and configuration."}`} scopeKey={disclosureIdentity} main={<>
+          {readinessReadNotice}
+          <section aria-label="Backend-projected readiness">
+            <p>Registry: {summary.clm.readiness.registry.status} · Documents: {summary.clm.readiness.document.status} · Ownership: {summary.clm.readiness.ownership.status} · GoldTier: {summary.clm.readiness.goldtier.status}</p>
+            {summary.clm.readiness.blockers.map((blocker, index) => <p key={`blocker-${index}`} className="ds-banner ds-banner-warn">{blocker}</p>)}
+            {summary.clm.readiness.warnings.map((warning, index) => <p key={`warning-${index}`} className="control-help">{warning}</p>)}
+          </section>
           <p className="control-help">Checks whether the current case evidence and GoldTier submission inputs are complete and current enough to prepare the submission. GoldTier KYC and four-eye approval remain separate.</p>
           {renderInterventions(["READINESS"])}
         {summary.case.policy_rebind && (
           <PolicyRebindPanel
+            presentation="main"
+            key={`${disclosureIdentity}:${summary.case.policy_rebind.revision}:${summary.case.policy_rebind.configuration_status}`}
             classification={summary.target_classification}
             metadata={summary.case.policy_rebind}
             registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen}
-            disabled={isBusy || mutationBlocked}
+            disabled={isBusy || mutationBlocked || readinessReadUnconfirmed}
             onFocusClassification={() => focusEvidence("classification")}
             onSubmit={(rationale) => void runMutation(
               () => rebindZeroTouchPolicy(caseId, {
@@ -1442,10 +1540,11 @@ export default function CaseDetail({
           {error && reviewEdit.current?.target === "classification" && isCurrentCaseAction(reviewEdit.current)
             && <p role="alert" className="ds-banner ds-banner-warn">{error}</p>}
           <TargetClassificationPanel
+            presentation="main"
             reviewRequested={classificationReviewRequest !== null && isCurrentCaseAction(classificationReviewRequest)}
             key={`${summary.case.case_id}:${summary.target_classification.vocabulary_version}:${summary.target_classification.evidence_fingerprint ?? "unknown"}:${summary.target_classification.current ?? "unknown"}:${summary.target_classification.kyc_customer_type.selected_value ?? "unresolved"}:${summary.target_classification.client_segment.selected_value ?? "unresolved"}`}
             classification={summary.target_classification}
-            disabled={isBusy || mutationBlocked || summary.evidence_decision_authorized !== true || frozenReview}
+            disabled={isBusy || mutationBlocked || readinessReadUnconfirmed || summary.evidence_decision_authorized !== true || frozenReview}
             onSubmit={(input) => runMutation(
               () => updateGoldTierTargetClassification(caseId, {
                 ...input,
@@ -1457,8 +1556,25 @@ export default function CaseDetail({
           />
           </div>
         )}
-        </StageDisclosure>
-        <StageDisclosure title="GoldTier submission package" active={stageIsActive(["MOCK_GOLDTIER"]) || targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" || summary.status === "RECOVERY_PENDING" || confirmationUnknown || preflightUnavailable}>
+        </>}
+          moreDetails={<>
+            {readinessReadNotice}
+            <p>Readiness prepares the current case for submission. It does not establish GoldTier KYC verification or four-eye approval.</p>
+            {summary.target_classification && <TargetClassificationDetails classification={summary.target_classification} presentation="more" />}
+            {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="more" />}
+          </>}
+          technicalDetails={<>
+            {readinessReadNotice}
+            <p>Readiness policy version: {summary.clm.readiness.policy_version ?? "Not recorded"} · evaluated at: {summary.clm.readiness.evaluated_at ?? "Not recorded"} · CLM version: {summary.clm.version ?? "Not recorded"}</p>
+            {summary.target_classification && <TargetClassificationDetails classification={summary.target_classification} presentation="technical" />}
+            {summary.case.policy_rebind && <PolicyRebindDetails metadata={summary.case.policy_rebind} registrationNumber={summary.case.entity?.registration_number ?? summary.case.initial_identity?.registration_number ?? summary.case.requested_uen} presentation="technical" />}
+          </>}
+        />
+        <StageDisclosure title="GoldTier submission package" summary={`${targetHeaderFreshness}${targetHeaderStatus} · ${summary.clm.submission_plan.environment}`} scopeKey={disclosureIdentity} main={<>
+          {targetReadNotice}
+          <p>Submission environment: {summary.clm.submission_plan.environment}</p>
+          <p>Backend submission state: {targetSubmission?.state ?? "Not available in retained evidence"}</p>
+
         {preflightUnavailable && <section className="ds-banner ds-banner-warn" aria-labelledby="target-preflight-title">
           <h3 id="target-preflight-title">GoldTier availability check needed</h3>
           <p>GoldTier could not be checked safely before sending. No target write was attempted. Your case data is preserved; check again when GoldTier is available.</p>
@@ -1474,7 +1590,7 @@ export default function CaseDetail({
           <button type="button" className="btn btn-secondary" disabled={isBusy || mutationBlocked} onClick={() => void verifySubmissionAgain()}>Verify submission outcome</button>
         </div>}
         {targetSubmission?.state === "SUBMISSION_OUTCOME_UNCERTAIN" && <TargetRecoveryPanel
-          key={targetStatusIdentity} summary={summary} actor={actor}
+          key={targetStatusIdentity} summary={summary} actor={actor} presentation="main"
           busy={isBusy || mutationBlocked || confirmationUnknown}
           checking={currentTargetStatusCheck?.checking ?? false}
           result={currentTargetStatusCheck?.result ?? null} error={currentTargetStatusCheck?.error ?? null}
@@ -1482,9 +1598,7 @@ export default function CaseDetail({
           onRecover={recoverTarget}
         />}
           {renderInterventions(["MOCK_GOLDTIER"])}
-        {targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" && (safeContinuation
-          ? <details className="evidence-details"><summary>Technical details</summary><ProcessingBlockerPanels summary={summary} stage="TARGET" /></details>
-          : <ProcessingBlockerPanels summary={summary} stage="TARGET" />)}
+        {targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" && <ProcessingBlockerPanels summary={summary} stage="TARGET" />}
         {safeContinuation && <section className="ds-banner" aria-labelledby="target-continuation-title" aria-live="polite" style={{ marginBottom: 16 }}>
           <h3 id="target-continuation-title" tabIndex={-1}>Verified work is saved</h3>
           <p>Continue the same submission to complete the remaining steps. Previously completed or verified steps will not be sent again.</p>
@@ -1494,11 +1608,26 @@ export default function CaseDetail({
           && !targetSubmission && <div className="ds-banner" style={{ marginBottom: 16 }}><p style={{ margin: 0, fontSize: 12.5 }}>Backend recovery is pending; target operations will not be replayed by the browser.</p><button type="button" className="btn btn-primary" style={{ marginTop: 10 }} disabled={isBusy || mutationBlocked} onClick={() => void runMutation(() => resumeZeroTouchCase(caseId))}>Complete safe recovery</button></div>}
 
         <CompletedOverview summary={summary} onViewOnboarded={onViewOnboarded} onViewAudit={onViewAudit} />
-        <OperationalTiming summary={summary} />
 
-          <details className="evidence-details"><summary>Backend execution details</summary>
           <div key={`${evidenceIdentity}:recovery`} id={EVIDENCE_TARGET_IDS.recovery} className="evidence-focus-target evidence-workbench-column" tabIndex={-1}>
             <CaseStateExplanationPanel summary={summary} onNavigate={focusEvidence} />
+          </div>
+        </>}
+          moreDetails={<>
+            {targetReadNotice}
+            <h3>Retained operation summaries</h3>
+            <ul>{summary.target_operations.map(item => <li key={item.operation}>{item.operation}: {item.status}</li>)}</ul>
+            <OperationalTiming summary={summary} />
+          </>}
+          technicalDetails={<>
+            {targetReadNotice}
+            <TargetRecoveryDetails summary={summary} result={currentTargetStatusCheck?.result ?? null} />
+            {targetSubmission?.state !== "SUBMISSION_OUTCOME_UNCERTAIN" && <dl>
+              <div><dt>Submission ID</dt><dd>{targetSubmission?.submission_id ?? "Not retained"}</dd></div>
+              <div><dt>Ledger state</dt><dd>{targetSubmission?.ledger_state ?? "Not retained"}</dd></div>
+            </dl>}
+            <h3>Target operation state and sequence</h3>
+            <ol>{summary.target_operations.map(item => <li key={item.operation}>{item.operation}: {item.status}</li>)}</ol>
             <aside className="readiness-panel evidence-run-record" aria-label="Retained execution record">
             <h4>Submission plan</h4>
             <p className="control-help">{summary.clm.submission_plan.environment} · {summary.clm.submission_plan.base_operations.join(" → ")}</p>
@@ -1513,20 +1642,19 @@ export default function CaseDetail({
             <div className="kv-row"><span className="kv-label">Exceptions</span><span className="kv-value">{summary.metrics.exceptions_resolved}/{summary.metrics.exceptions_raised} resolved</span></div>
             <div className="kv-row"><span className="kv-label">Final outcome</span><span className="kv-value">{summary.metrics.final_outcome ? targetOutcomeLabel(summary.metrics.final_outcome, summary.clm.submission_plan.environment) : "—"}</span></div>
             </aside>
-          </div>          </details>
-        </StageDisclosure>
+          </>}
+        />
         <StageDisclosure title="Historical / resolved issues">
           {renderInterventions(undefined, true)}
           <DetailedProcessingInspector key={`${summary.case.case_id}:${summary.automation_id}`} summary={summary} />
         <h4 style={{ marginTop: 24 }}>Automation timeline</h4><div className="table-card"><table className="table"><thead><tr><th>Timestamp</th><th>Stage</th><th>Event</th><th>Outcome</th></tr></thead><tbody>{summary.timeline.map((event) => <tr key={event.sequence}><td>{formatTimestamp(event.timestamp)}</td><td>{event.stage}</td><td>{event.message}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>          {intelligence && <details className="evidence-details"><summary>Advisory intelligence</summary><IntelligencePanel record={intelligence} /></details>}
         </StageDisclosure>
-        <StageDisclosure title="Final review & send" final active={showFinalReview}
-          summary={!showFinalReview ? (
-            remainingIssueCount > 0
-              ? `Not yet available — resolve ${remainingIssueCount} remaining issues.`
-              : "Not yet available — complete the current stage."
-          ) : undefined}>
-        {showFinalReview && <ReviewAndSend
+        {showFinalReview ? <ReviewAndSend
+          disclosureScopeKey={disclosureIdentity}
+          readNotice={finalReadNotice}
+          headerContext={finalHeaderContext}
+          confirmationUnknown={confirmationUnknown}
+          headerReadUnconfirmed={[detailQuery, documentQuery, ownershipQuery].some(query => query.isPending || query.isFetching || query.isError)}
           summary={summary}
           documents={documents}
           ownership={ownership}
@@ -1552,8 +1680,11 @@ export default function CaseDetail({
           onEditClassification={() => editFromFinalReview("classification")}
           onEditDocuments={() => editFromFinalReview("documents")}
           onEditOwnership={() => editFromFinalReview("ownership")}
-        />}
-        </StageDisclosure>
+        /> : <StageDisclosure title="Final review & send" summary={finalHeaderContext + (remainingIssueCount > 0 ? `Not yet available — ${remainingIssueCount} remaining issues.` : "Not yet available — complete the current stage.")} scopeKey={disclosureIdentity} final
+          main={<>{finalReadNotice}<p>{remainingIssueCount > 0
+            ? `Not yet available — resolve ${remainingIssueCount} remaining issues.`
+            : "Not yet available — complete the current stage."}</p></>}
+        /> }
       </div>
       </OnboardingWorkspace>
 

@@ -32,7 +32,9 @@ export default function PolicyRebindPanel({
   disabled,
   onSubmit,
   onFocusClassification,
+  presentation = "full",
 }: {
+  presentation?: "full" | "main";
   metadata: PolicyRebindMetadata;
   classification?: GoldTierTargetClassification;
   registrationNumber: string;
@@ -92,6 +94,9 @@ export default function PolicyRebindPanel({
         </section>
       </div>
 
+      <p>Configuration status: {requiresRebind ? "Requires rebind" : "Current accepted POC"}</p>
+      {presentation === "main" && <p className="control-help">Updating system values preserves retained classifications and history.</p>}
+      {presentation === "full" && <>
       <details><summary>Technical authority and policy history</summary>
       <footer className="policy-rebind__receipt">
         <p>Registration number · {registrationNumber}</p>
@@ -108,6 +113,8 @@ export default function PolicyRebindPanel({
         )}
       </footer>
       </details>
+      </>}
+
 
       {requiresRebind && (
         <form onSubmit={submit}>
@@ -130,4 +137,29 @@ export default function PolicyRebindPanel({
       )}
     </section>
   );
+}
+
+/** Passive policy receipt; no rationale state or action is duplicated. */
+export function PolicyRebindDetails({ metadata, registrationNumber, presentation }: {
+  metadata: PolicyRebindMetadata; registrationNumber: string; presentation: "more" | "technical";
+}) {
+  return <section className="policy-rebind__receipt">
+    <h4>{presentation === "more" ? "Retained policy review" : "Policy authority metadata"}</h4>
+    {presentation === "more" ? <>
+      <p>Updating system values preserves retained classifications and history.</p>
+      {metadata.configuration_status !== "REQUIRES_REBIND" && metadata.last_rebound_by && metadata.last_rebound_at
+        ? <p>Completed policy review: {metadata.last_rationale ?? "No rationale retained"} · changed accepted fields: {metadata.last_changed_fields.map(fieldLabel).join(", ") || "None"}</p>
+        : <p>No completed policy rebind receipt is projected.</p>}
+    </> : <>
+      <p>Registration number · {registrationNumber}</p>
+      <p><strong>Policy snapshot revision:</strong> {metadata.revision}</p>
+      <p><strong>Configuration status:</strong> {metadata.configuration_status === "REQUIRES_REBIND" ? "Requires rebind" : "Current accepted POC"}</p>
+      {metadata.configuration_status !== "REQUIRES_REBIND" && metadata.last_rebound_by && metadata.last_rebound_at && <div aria-label="Latest policy rebind receipt">
+        <p><strong>Last rebound by:</strong> {metadata.last_rebound_by}</p>
+        <p><strong>Last rebound at:</strong> {new Date(metadata.last_rebound_at).toLocaleString()} · original {metadata.last_rebound_at}</p>
+        <p><strong>Rationale:</strong> {metadata.last_rationale ?? "Not retained"}</p>
+        <p><strong>Changed accepted fields:</strong> {metadata.last_changed_fields.map(fieldLabel).join(", ") || "None"}</p>
+      </div>}
+    </>}
+  </section>;
 }

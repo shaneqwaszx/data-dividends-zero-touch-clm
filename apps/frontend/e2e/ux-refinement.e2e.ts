@@ -25,8 +25,20 @@ async function create(page: Page, headers: Record<string, string>, uen: string, 
   expect(response.status()).toBe(201); return (await response.json()).case.case_id as string;
 }
 async function collapse(page: Page, title: string) {
-  const control = page.getByRole("button", { name: title, exact: true });
-  if (await control.getAttribute("aria-expanded") === "true") await control.click();
+  const stage = page.locator(".stage-disclosure").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+  await expect(stage).toHaveCount(1);
+  const control = stage.getByRole("button", { name: title, exact: true });
+  if (await control.count()) {
+    if (await control.getAttribute("aria-expanded") === "true") await control.click();
+    await expect(control).toHaveAttribute("aria-expanded", "false");
+    return;
+  }
+  await expect(stage.locator(":scope > h2")).toHaveText(title);
+  for (const details of await stage.locator(":scope > details").all()) {
+    if (await details.getAttribute("open") !== null) await details.locator(":scope > summary").click();
+    await expect(details).not.toHaveAttribute("open", "");
+  }
+  await expect(stage.locator(":scope > div").first()).toBeVisible();
 }
 
 test("UX refinement attention identity, sticky twelve-stage rail and mobile keyboard routing", async ({ page }) => {
@@ -47,7 +59,12 @@ test("UX refinement attention identity, sticky twelve-stage rail and mobile keyb
   await collapse(page, "Registry verification");
   const action = attention.getByRole("button", { name: /^Blocker:/ }).first();
   await action.focus(); await action.press("Enter"); await expect(page.locator("#identity-registration-number")).toBeFocused();
-  await expect(page.getByRole("button", { name: "Registry verification", exact: true })).toHaveAttribute("aria-expanded", "true");
+  const registry = page.getByRole("region", { name: "Registry verification", exact: true });
+  await expect(registry.locator(":scope > div").first()).toBeVisible();
+  await expect(registry.getByLabel("Singapore UEN", { exact: true })).toBeVisible();
+  await expect(registry.getByLabel("Singapore UEN", { exact: true })).toBeEnabled();
+  await expect(registry.getByRole("button", { name: "Verify UEN and resume", exact: true })).toBeVisible();
+  await expect(registry.getByRole("button", { name: "Verify UEN and resume", exact: true })).toBeDisabled();
   // Open retained sections to make the page tall, then scroll main content independently.
   await openStage(page, "Ownership & UBO"); await openStage(page, "GoldTier submission package");
   await page.evaluate(() => window.scrollTo(0, 500));
@@ -145,7 +162,12 @@ for (const withDocument of [false, true]) {
       await page.setViewportSize({ width, height: 900 }); await collapse(page, "Registry verification");
       await action.focus(); await action.press("Enter");
       await expect(page.locator("#identity-registration-number")).toBeFocused();
-      await expect(page.getByRole("button", { name: "Registry verification", exact: true })).toHaveAttribute("aria-expanded", "true");
+      const registry = page.getByRole("region", { name: "Registry verification", exact: true });
+      await expect(registry.locator(":scope > div").first()).toBeVisible();
+      await expect(registry.getByLabel("Singapore UEN", { exact: true })).toBeVisible();
+      await expect(registry.getByLabel("Singapore UEN", { exact: true })).toBeEnabled();
+      await expect(registry.getByRole("button", { name: "Save details and recheck Search", exact: true })).toBeVisible();
+      await expect(registry.getByRole("button", { name: "Save details and recheck Search", exact: true })).toBeDisabled();
       await expect(page.getByRole("button", { name: "Save details and recheck Search", exact: true })).toHaveCount(1);
       expect(await page.evaluate(() => document.body.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
       await page.screenshot({ path: path.join(evidence, `projection-${withDocument ? "document" : "identity"}-${width}.png`) });

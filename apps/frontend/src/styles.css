@@ -3587,7 +3587,9 @@ dd {
   }
   body * { visibility: hidden; }
   .review-and-send,
-  .review-and-send * { visibility: visible; }
+  .review-and-send *,
+  .stage-disclosure--final > details,
+  .stage-disclosure--final > details * { visibility: visible; }
   .review-and-send {
     position: static;
     width: 100%;
@@ -3881,7 +3883,7 @@ dd {
 
 /* Current document cards stack their sections; the older document-card layout
    belongs to the separate legacy document surface. */
-.document-evidence-panel .document-card {
+:is(.document-evidence-panel, .document-support-panel) .document-card {
   min-width: 0;
   width: 100%;
   margin: 0;
@@ -3889,37 +3891,37 @@ dd {
   gap: 12px;
 }
 
-.document-evidence-panel .document-fields,
-.document-evidence-panel .document-field {
+:is(.document-evidence-panel, .document-support-panel) .document-fields,
+:is(.document-evidence-panel, .document-support-panel) .document-field {
   min-width: 0;
 }
 
-.document-evidence-panel .document-field__evidence {
+:is(.document-evidence-panel, .document-support-panel) .document-field__evidence {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
 }
 
-.document-evidence-panel .document-field__evidence > div {
+:is(.document-evidence-panel, .document-support-panel) .document-field__evidence > div {
   grid-template-columns: minmax(0, 1fr);
   gap: 4px;
 }
 
-.document-evidence-panel .document-card__header,
-.document-evidence-panel .document-field__heading {
+:is(.document-evidence-panel, .document-support-panel) .document-card__header,
+:is(.document-evidence-panel, .document-support-panel) .document-field__heading {
   flex-wrap: wrap;
 }
 
-.document-evidence-panel .document-card__header > *,
-.document-evidence-panel .document-field__heading > *,
-.document-evidence-panel .document-field__actions > *,
-.document-evidence-panel .document-card__actions > * {
+:is(.document-evidence-panel, .document-support-panel) .document-card__header > *,
+:is(.document-evidence-panel, .document-support-panel) .document-field__heading > *,
+:is(.document-evidence-panel, .document-support-panel) .document-field__actions > *,
+:is(.document-evidence-panel, .document-support-panel) .document-card__actions > * {
   min-width: 0;
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
 }
 
-.document-evidence-panel .document-correction,
-.document-evidence-panel .document-correction .input {
+:is(.document-evidence-panel, .document-support-panel) .document-correction,
+:is(.document-evidence-panel, .document-support-panel) .document-correction .input {
   min-width: 0;
   max-width: 100%;
 }
@@ -4092,3 +4094,7 @@ dd {
 .ds-root .blocker-review-confirm:focus-visible { outline: 3px solid var(--color-accent-700); outline-offset: 3px; }
 .document-upload-control { position: relative; }
 .document-upload-control:focus-within { outline: 3px solid var(--color-accent-700); outline-offset: 3px; }
+
+.stage-disclosure__indicator::after { content: "+"; }
+.stage-disclosure__indicator[data-open="true"]::after { content: "−"; }
+.stage-disclosure > details[hidden] { display: none; }
