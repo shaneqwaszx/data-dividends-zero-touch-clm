@@ -1435,29 +1435,6 @@ export function ReconciliationPanel({ summary, isResolving = false, onResolve }:
   return <section className="reconciliation-panel"><p className="section-label">Multi-source reconciliation</p><h2>Registry and document observations</h2><strong>{reconciliation.status}</strong><p>Neither source is authoritative by default. Values remain separate until an explicitly advertised backend action records a decision.</p>{reconciliation.fields.map((field) => { const discrepancy = field.discrepancy_id ? discrepancies.get(field.discrepancy_id) : undefined; const registry = field.observations.filter((item) => item.source_kind === "REGISTRY").map((item) => item.normalized_value ?? "Not available").join(" · "); const document = field.observations.filter((item) => item.source_kind === "DOCUMENT_IDP").map((item) => item.normalized_value ?? "Not available").join(" · "); return <div key={field.field_name}><strong>{fieldLabel(field.field_name)}</strong><span> Registry observation: {registry || "Not observed"}</span><span> Document observation: {document || "Not observed"}</span><span> {field.outcome}</span>{discrepancy?.decision && <small>Decision: {discrepancy.decision.action.replaceAll("_", " ")}</small>}</div>; })}{reconciliation.discrepancies.filter((item) => item.status !== "CANCELLED").map((discrepancy) => <article key={discrepancy.discrepancy_id}><p>Registry: {reconciliationSourceValue(discrepancy, "REGISTRY")} · Document: {reconciliationSourceValue(discrepancy, "DOCUMENT_IDP")}</p>{discrepancy.status === "OPEN" && onResolve && discrepancy.allowed_actions.map((action) => <button type="button" key={action} disabled={isResolving} onClick={() => onResolve(discrepancy, action)}>{action === "KEEP_REGISTRY_VALUE" ? "Keep registry value" : "Use document value"}</button>)}{discrepancy.decision && <p>Resolved by explicit POC operator action: {discrepancy.decision.action.replaceAll("_", " ")}. No reviewer identity or compliance authority is claimed.</p>}</article>)}</section>;
 }
 
-export function DashboardSnapshot({ summary }: { summary: ZeroTouchCaseSummary | null }) {
-  const metrics = summary
-    ? [
-        [summary.current_stage.replaceAll("_", " "), "Current stage"],
-        [summary.active_exceptions.length, "Open exceptions"],
-        [summary.metrics.human_interventions, "Human interventions"],
-        [summary.metrics.total_duration_ms === null ? "In progress" : `${summary.metrics.total_duration_ms} ms`, "Local run time"],
-      ]
-    : [["—", "Current stage"], [0, "Open exceptions"], [0, "Human interventions"], ["—", "Local run time"]];
-  return (
-    <section className="dashboard-snapshot" aria-labelledby="dashboard-snapshot-heading">
-      <div>
-        <p className="section-label">Current session overview</p>
-        <h2 id="dashboard-snapshot-heading">Work at a glance</h2>
-        <p>Case health for the currently loaded local case. A database-backed portfolio and real queue totals are not part of this POC.</p>
-      </div>
-      <div className="dashboard-metrics">
-        {metrics.map(([value, label]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}
-      </div>
-    </section>
-  );
-}
-
 export function CaseIdentityStrip({ summary }: { summary: ZeroTouchCaseSummary }) {
   return (
     <section className="case-identity-strip" aria-label="Current case identity">

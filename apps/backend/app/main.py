@@ -695,7 +695,9 @@ def create_app(
         ),
         clock=active_clock,
     )
-    dashboard = DashboardService(case_query, administration.directory)
+    dashboard = DashboardService(
+        case_query, administration.directory, zero_touch.automation_repository
+    )
     case_deletion = CaseDeletionService(
         cases=service,
         access_policy=access_policy,
@@ -2058,6 +2060,7 @@ def create_app(
         outcome: Annotated[EventOutcome | None, Query(alias="outcome")] = None,
         from_at: Annotated[datetime | None, Query(alias="from")] = None,
         to_at: Annotated[datetime | None, Query(alias="to")] = None,
+        created_by: Annotated[str | None, Query(alias="created_by", max_length=32)] = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
         offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
     ) -> CaseActivityPage:
@@ -2071,6 +2074,7 @@ def create_app(
                 outcome=outcome,
                 from_at=from_at,
                 to_at=to_at,
+                created_by=created_by,
                 limit=limit,
                 offset=offset,
             )
@@ -2197,11 +2201,15 @@ def create_app(
     def get_zero_touch_dashboard(
         actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
         team_filter: Annotated[str | None, Query(alias="team_filter", max_length=64)] = None,
+        scope: Annotated[Literal["team", "mine"], Query(alias="scope")] = "team",
+        date_range: Annotated[Literal["7d", "30d", "90d", "all"], Query(alias="date_range")] = "30d",
     ) -> DashboardSnapshot:
         """Return a provider-free historical view of the caller's authorized cases."""
 
         try:
-            return dashboard.get_dashboard(actor, team_filter=team_filter)
+            return dashboard.get_dashboard(
+                actor, team_filter=team_filter, scope=scope, date_range=date_range
+            )
         except CaseTeamFilterForbiddenError:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

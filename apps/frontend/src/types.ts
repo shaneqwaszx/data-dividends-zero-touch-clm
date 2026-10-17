@@ -1613,14 +1613,69 @@ export interface DashboardCaseItem {
   team_display_name: string | null;
   priority: number | null;
   status: AutomationStatus;
+  current_stage: AutomationStage;
+  progress_percent: number;
   final_outcome: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  delay_note: string | null;
+  created_by_display_name: string | null;
+}
+
+export interface DashboardTimingSummary {
+  mean_total_duration_ms: number | null;
+  zero_touch_mean_duration_ms: number | null;
+  zero_touch_count: number;
+  blocked_mean_duration_ms: number | null;
+  blocked_count: number;
+}
+
+export interface DashboardStageCaseTiming {
+  case_id: string;
+  requested_uen: string;
+  legal_name: string | null;
+  duration_ms: number;
+  had_blocker: boolean;
+}
+
+export interface DashboardStageTiming {
+  stage: AutomationStage;
+  clean_mean_ms: number | null;
+  clean_count: number;
+  with_blocker_mean_ms: number | null;
+  with_blocker_count: number;
+  combined_mean_ms: number | null;
+  blocked_count: number;
+  top_cases: DashboardStageCaseTiming[];
+}
+
+export interface DashboardExceptionCount {
+  exception_type: BusinessExceptionType;
+  count: number;
+}
+
+export type JurisdictionCode = "SG" | "AU" | "MY" | "HK";
+
+export interface DashboardWeeklyOnboarded {
+  week_start: string;
+  by_jurisdiction: Partial<Record<JurisdictionCode, number>>;
+  unresolved_count: number;
+}
+
+export interface DashboardWorkloadRow {
+  user_id: string;
+  display_name: string;
+  open_cases: number;
+  oldest_open_age_ms: number | null;
+  completed_cases: number;
+  blockers_resolved: number;
+  mean_fix_time_ms: number | null;
 }
 
 export interface DashboardSnapshot {
   scope: DashboardScope;
+  view: "team" | "mine";
   data_as_of: string;
   totals: {
     total_cases: number;
@@ -1630,6 +1685,8 @@ export interface DashboardSnapshot {
     prioritised_cases: number;
     unprioritised_cases: number;
   };
+  zero_touch_rate: number;
+  timing: DashboardTimingSummary;
   status_breakdown: Array<{ status: AutomationStatus; count: number }>;
   priority_breakdown: Array<{ priority: number | null; count: number }>;
   team_breakdown: Array<{
@@ -1638,13 +1695,13 @@ export interface DashboardSnapshot {
     client_scope_label: string;
     count: number;
   }>;
+  stage_timing: DashboardStageTiming[];
+  exception_breakdown: DashboardExceptionCount[];
+  weekly_onboarded: DashboardWeeklyOnboarded[];
+  workload_by_person: DashboardWorkloadRow[];
   recent_cases: DashboardCaseItem[];
   top_active_cases: DashboardCaseItem[];
-  historical_trend: Array<{
-    day: string;
-    created_count: number;
-    completed_count: number;
-  }>;
+  scoped_cases: DashboardCaseItem[];
 }
 
 export interface UatEvidenceExport {

@@ -20,6 +20,14 @@ from app.domain.zero_touch import (
     AutomationMetrics,
     AutomationStage,
     AutomationStatus,
+    BlockerDecisionClassification,
+    BlockerDecisionMetadata,
+    BlockerDecisionOwner,
+    BlockerDecisionRecord,
+    BusinessException,
+    BusinessExceptionStatus,
+    BusinessExceptionType,
+    ResumeTransition,
     ZeroTouchAutomationRecord,
 )
 from app.main import create_app
@@ -76,11 +84,20 @@ def _record(
     *,
     created_days_ago: int,
     updated_hours_ago: int,
+    created_by_actor_id: str | None = None,
+    stage_durations_ms: dict[AutomationStage, int] | None = None,
+    exceptions: tuple[BusinessException, ...] = (),
+    human_interventions: int = 0,
+    automated_stages_completed: int = 0,
+    current_stage: AutomationStage | None = None,
 ) -> tuple[OnboardingCase, ZeroTouchAutomationRecord]:
     case_id = uuid4()
     created_at = NOW - timedelta(days=created_days_ago)
     updated_at = NOW - timedelta(hours=updated_hours_ago)
     completed_at = updated_at if status == AutomationStatus.COMPLETED else None
+    total_duration_ms = (
+        int((completed_at - created_at).total_seconds() * 1000) if completed_at else None
+    )
     case = OnboardingCase(
         case_id=case_id,
         source_case_id=f"CASE-{case_id}",
@@ -88,6 +105,7 @@ def _record(
         requested_uen=f"2024{str(case_id.int)[-5:]}A",
         team_id=team_id,
         priority=priority,
+        created_by_actor_id=created_by_actor_id,
         state=WorkflowState.REQUESTED,
         created_at=created_at,
         updated_at=updated_at,
@@ -98,20 +116,104 @@ def _record(
         ownership_provider_binding_id="a" * 32,
         status=status,
         current_stage=(
-            AutomationStage.COMPLETE
-            if status == AutomationStatus.COMPLETED
-            else AutomationStage.REGISTRY
+            current_stage
+            if current_stage is not None
+            else (
+                AutomationStage.COMPLETE
+                if status == AutomationStatus.COMPLETED
+                else AutomationStage.REGISTRY
+            )
         ),
         metrics=AutomationMetrics(
             final_outcome=(
                 "MOCK_GOLDTIER_SUBMITTED" if status == AutomationStatus.COMPLETED else None
-            )
+            ),
+            human_interventions=human_interventions,
+            automated_stages_completed=automated_stages_completed,
+            stage_durations_ms=stage_durations_ms or {},
+            total_duration_ms=total_duration_ms,
         ),
+        exceptions=list(exceptions),
         created_at=created_at,
         updated_at=updated_at,
         completed_at=completed_at,
     )
     return case, automation
+
+
+def _resolved_exception(
+    case_id,
+    exception_type: BusinessExceptionType,
+    stage: AutomationStage,
+    *,
+    created_at: datetime,
+    resolved_at: datetime,
+    actor_id: str,
+    blocker_code: str = "TEST_BLOCKER",
+) -> BusinessException:
+    """Build a RESOLVED BusinessException with one bound BlockerDecisionRecord."""
+
+    exception = BusinessException(
+        exception_id=uuid4(),
+        case_id=case_id,
+        exception_type=exception_type,
+        stage=stage,
+        status=BusinessExceptionStatus.RESOLVED,
+        blocker_code=blocker_code,
+        blocker_codes=(blocker_code,),
+        explanation="Synthetic test blocker.",
+        evidence_version="v1",
+        authoritative_evidence_digest="a" * 64,
+        automation_version=1,
+        created_at=created_at,
+        resolved_at=resolved_at,
+    )
+    metadata = BlockerDecisionMetadata(
+        blocker_code=blocker_code,
+        exception_type=exception_type,
+        classification=BlockerDecisionClassification.USER_ACTION_REQUIRED,
+        policy_version="BLOCKER_DECISION_POC_V1",
+        rule_version="RULE1",
+        owner=BlockerDecisionOwner.CASE_OPERATOR,
+        minimum_inputs=(),
+        permitted_actions=(),
+        currently_available_actions=(),
+        resume_stage=None,
+        resume_transition=ResumeTransition.NO_AUTOMATIC_RESUME,
+        resume_ready=False,
+        invalidated_dependencies=(),
+        explanation="Synthetic resolution.",
+    )
+    decision = BlockerDecisionRecord(
+        decision_id=uuid4(),
+        case_id=case_id,
+        exception_id=exception.exception_id,
+        evidence_version=exception.evidence_version,
+        automation_version=exception.automation_version,
+        recorded_at=resolved_at,
+        metadata=metadata,
+        actor_id=actor_id,
+    )
+    return exception.model_copy(update={"decisions": (decision,)})
+
+
+def _service_for(
+    fixtures: list[tuple[OnboardingCase, ZeroTouchAutomationRecord]],
+) -> tuple[DashboardService, StaticAutomationRepository]:
+    cases = InMemoryOnboardingCaseRepository()
+    for case, _ in fixtures:
+        cases.create(case)
+    onboarding = build_onboarding_service(settings=ordinary_test_settings(), repository=cases)
+    automations = StaticAutomationRepository([record for _, record in fixtures])
+    teams = _teams()
+    query = CaseQueryService(
+        cases=onboarding,
+        case_repository=cases,
+        automation_repository=automations,  # type: ignore[arg-type]
+        access_policy=CaseAccessPolicy(),
+        teams=teams,
+    )
+    return DashboardService(query, TeamDirectoryService(teams), automations, clock=lambda: NOW), automations
 
 
 def _dashboard() -> tuple[DashboardService, StaticAutomationRepository]:
@@ -145,20 +247,7 @@ def _dashboard() -> tuple[DashboardService, StaticAutomationRepository]:
             updated_hours_ago=3,
         ),
     ]
-    cases = InMemoryOnboardingCaseRepository()
-    for case, _ in fixtures:
-        cases.create(case)
-    onboarding = build_onboarding_service(settings=ordinary_test_settings(), repository=cases)
-    automations = StaticAutomationRepository([record for _, record in fixtures])
-    teams = _teams()
-    query = CaseQueryService(
-        cases=onboarding,
-        case_repository=cases,
-        automation_repository=automations,  # type: ignore[arg-type]
-        access_policy=CaseAccessPolicy(),
-        teams=teams,
-    )
-    return DashboardService(query, TeamDirectoryService(teams), clock=lambda: NOW), automations
+    return _service_for(fixtures)
 
 
 def test_empty_dashboard_is_deterministic_and_safe() -> None:
@@ -175,6 +264,7 @@ def test_empty_dashboard_is_deterministic_and_safe() -> None:
             teams=teams,
         ),
         TeamDirectoryService(teams),
+        automations,
         clock=lambda: NOW,
     )
 
@@ -190,15 +280,20 @@ def test_empty_dashboard_is_deterministic_and_safe() -> None:
     }
     assert [item.count for item in result.status_breakdown] == [0] * len(AutomationStatus)
     assert [item.priority for item in result.priority_breakdown] == [*range(10, 0, -1), None]
-    assert result.recent_cases == result.top_active_cases == ()
-    assert len(result.historical_trend) == 30
+    assert result.recent_cases == result.top_active_cases == result.scoped_cases == ()
+    assert result.zero_touch_rate == 0.0
+    assert result.timing.mean_total_duration_ms is None
+    assert len(result.stage_timing) == 6
+    assert result.exception_breakdown == ()
+    assert len(result.weekly_onboarded) == 8
+    assert result.workload_by_person == ()
 
 
 def test_team_dashboards_are_server_scoped_across_every_metric_and_list() -> None:
     service, repository = _dashboard()
 
-    team_a = service.get_dashboard(_actor("maya-lim"))
-    team_b = service.get_dashboard(_actor("sophia-ng"))
+    team_a = service.get_dashboard(_actor("maya-lim"), date_range="all")
+    team_b = service.get_dashboard(_actor("sophia-ng"), date_range="all")
 
     assert team_a.scope.access == "TEAM"
     assert team_a.scope.team_display_name == "Alpha"
@@ -209,8 +304,7 @@ def test_team_dashboards_are_server_scoped_across_every_metric_and_list() -> Non
     assert {item.team_id for item in (*team_a.recent_cases, *team_a.top_active_cases)} == {
         TeamId.TEAM_A
     }
-    assert sum(item.created_count for item in team_a.historical_trend) == 2
-    assert sum(item.completed_count for item in team_a.historical_trend) == 1
+    assert sum(sum(week.by_jurisdiction.values()) + week.unresolved_count for week in team_a.weekly_onboarded) == 1
 
     assert team_b.scope.team_display_name == "Beta"
     assert team_b.totals.total_cases == 2
@@ -218,15 +312,14 @@ def test_team_dashboards_are_server_scoped_across_every_metric_and_list() -> Non
     assert {item.team_id for item in (*team_b.recent_cases, *team_b.top_active_cases)} == {
         TeamId.TEAM_B
     }
-    assert sum(item.created_count for item in team_b.historical_trend) == 1
-    assert sum(item.completed_count for item in team_b.historical_trend) == 1
-    assert repository.read_count == 2
+    assert sum(sum(week.by_jurisdiction.values()) + week.unresolved_count for week in team_b.weekly_onboarded) == 1
+    assert repository.read_count == 4
 
 
 def test_director_gets_exact_status_priority_team_recent_and_active_views() -> None:
     service, _ = _dashboard()
 
-    result = service.get_dashboard(_actor("olivia-koh"))
+    result = service.get_dashboard(_actor("olivia-koh"), date_range="all")
 
     assert result.scope.access == "GLOBAL"
     assert result.totals.model_dump() == {
@@ -252,6 +345,265 @@ def test_director_gets_exact_status_priority_team_recent_and_active_views() -> N
         AutomationStatus.WAITING_FOR_REVIEW,
     ]
     assert result.recent_cases[0].updated_at > result.recent_cases[-1].updated_at
+
+
+def test_stage_timing_splits_clean_and_blocked_durations_with_top_cases() -> None:
+    clean_case, clean_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.RUNNING,
+        created_days_ago=1,
+        updated_hours_ago=1,
+        stage_durations_ms={AutomationStage.DOCUMENT: 600_000},
+    )
+    blocked_case, blocked_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.RUNNING,
+        created_days_ago=1,
+        updated_hours_ago=1,
+        stage_durations_ms={AutomationStage.DOCUMENT: 1_800_000},
+    )
+    exception = _resolved_exception(
+        blocked_case.case_id,
+        BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+        AutomationStage.DOCUMENT,
+        created_at=blocked_case.created_at,
+        resolved_at=blocked_case.created_at + timedelta(hours=2),
+        actor_id="maya-lim",
+    )
+    blocked_automation = blocked_automation.model_copy(update={"exceptions": [exception]})
+
+    service, _ = _service_for(
+        [(clean_case, clean_automation), (blocked_case, blocked_automation)]
+    )
+    result = service.get_dashboard(_actor("maya-lim"), date_range="all")
+
+    document_row = next(
+        row for row in result.stage_timing if row.stage == AutomationStage.DOCUMENT
+    )
+    assert document_row.clean_mean_ms == 600_000
+    assert document_row.clean_count == 1
+    assert document_row.with_blocker_mean_ms == 1_800_000
+    assert document_row.with_blocker_count == 1
+    assert document_row.combined_mean_ms == 1_200_000
+    assert document_row.blocked_count == 1
+    assert [item.duration_ms for item in document_row.top_cases] == [1_800_000, 600_000]
+    assert document_row.top_cases[0].had_blocker is True
+    assert document_row.top_cases[1].had_blocker is False
+
+
+def test_exception_breakdown_counts_by_type_sorted_by_frequency() -> None:
+    fixtures = []
+    for exception_type in (
+        BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+        BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+        BusinessExceptionType.OWNERSHIP_CYCLE,
+    ):
+        case, automation = _record(
+            TeamId.TEAM_A,
+            None,
+            AutomationStatus.RUNNING,
+            created_days_ago=1,
+            updated_hours_ago=1,
+        )
+        exception = _resolved_exception(
+            case.case_id,
+            exception_type,
+            AutomationStage.DOCUMENT,
+            created_at=case.created_at,
+            resolved_at=case.created_at + timedelta(hours=1),
+            actor_id="maya-lim",
+        )
+        automation = automation.model_copy(update={"exceptions": [exception]})
+        fixtures.append((case, automation))
+
+    service, _ = _service_for(fixtures)
+    result = service.get_dashboard(_actor("maya-lim"), date_range="all")
+
+    assert [(item.exception_type, item.count) for item in result.exception_breakdown] == [
+        (BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE, 2),
+        (BusinessExceptionType.OWNERSHIP_CYCLE, 1),
+    ]
+
+
+def test_workload_by_person_tracks_cases_and_blocker_fix_time() -> None:
+    maya_open, maya_open_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.RUNNING,
+        created_days_ago=5,
+        updated_hours_ago=1,
+        created_by_actor_id="maya-lim",
+    )
+    maya_completed, maya_completed_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.COMPLETED,
+        created_days_ago=2,
+        updated_hours_ago=1,
+        created_by_actor_id="maya-lim",
+    )
+    exception = _resolved_exception(
+        maya_completed.case_id,
+        BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+        AutomationStage.DOCUMENT,
+        created_at=maya_completed.created_at,
+        resolved_at=maya_completed.created_at + timedelta(hours=2),
+        actor_id="maya-lim",
+    )
+    maya_completed_automation = maya_completed_automation.model_copy(
+        update={"exceptions": [exception]}
+    )
+    ethan_open, ethan_open_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.RUNNING,
+        created_days_ago=1,
+        updated_hours_ago=1,
+        created_by_actor_id="ethan-tan",
+    )
+
+    service, _ = _service_for(
+        [
+            (maya_open, maya_open_automation),
+            (maya_completed, maya_completed_automation),
+            (ethan_open, ethan_open_automation),
+        ]
+    )
+    result = service.get_dashboard(_actor("maya-lim"), date_range="all")
+
+    rows = {row.user_id: row for row in result.workload_by_person}
+    assert rows["maya-lim"].open_cases == 1
+    assert rows["maya-lim"].completed_cases == 1
+    assert rows["maya-lim"].blockers_resolved == 1
+    assert rows["maya-lim"].mean_fix_time_ms == 7_200_000
+    assert rows["maya-lim"].oldest_open_age_ms == int(timedelta(days=5).total_seconds() * 1000)
+    assert rows["ethan-tan"].open_cases == 1
+    assert rows["ethan-tan"].completed_cases == 0
+    assert rows["ethan-tan"].blockers_resolved == 0
+    assert rows["ethan-tan"].mean_fix_time_ms is None
+
+    scoped_by_case = {item.case_id: item for item in result.scoped_cases}
+    assert scoped_by_case[maya_open.case_id].created_by_display_name == "Maya Lim"
+    assert scoped_by_case[ethan_open.case_id].created_by_display_name == "Ethan Tan"
+
+
+def test_scope_mine_filters_to_cases_created_by_the_caller() -> None:
+    mine_a, mine_a_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.RUNNING,
+        created_days_ago=1,
+        updated_hours_ago=1,
+        created_by_actor_id="maya-lim",
+    )
+    mine_b, mine_b_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.COMPLETED,
+        created_days_ago=2,
+        updated_hours_ago=1,
+        created_by_actor_id="maya-lim",
+    )
+    other, other_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.RUNNING,
+        created_days_ago=1,
+        updated_hours_ago=1,
+        created_by_actor_id="ethan-tan",
+    )
+
+    service, _ = _service_for(
+        [(mine_a, mine_a_automation), (mine_b, mine_b_automation), (other, other_automation)]
+    )
+    mine = service.get_dashboard(_actor("maya-lim"), scope="mine", date_range="all")
+    team = service.get_dashboard(_actor("maya-lim"), scope="team", date_range="all")
+
+    assert mine.view == "mine"
+    assert mine.totals.total_cases == 2
+    assert {item.case_id for item in mine.scoped_cases} == {mine_a.case_id, mine_b.case_id}
+    assert mine.team_breakdown == ()
+    assert team.view == "team"
+    assert team.totals.total_cases == 3
+
+
+def test_zero_touch_rate_and_timing_split_zero_touch_vs_blocked() -> None:
+    zero_touch, zero_touch_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.COMPLETED,
+        created_days_ago=1,
+        updated_hours_ago=23,
+        human_interventions=0,
+    )
+    blocked, blocked_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.COMPLETED,
+        created_days_ago=1,
+        updated_hours_ago=19,
+        human_interventions=2,
+    )
+
+    service, _ = _service_for(
+        [(zero_touch, zero_touch_automation), (blocked, blocked_automation)]
+    )
+    result = service.get_dashboard(_actor("maya-lim"), date_range="all")
+
+    assert result.zero_touch_rate == 0.5
+    assert result.timing.zero_touch_count == 1
+    assert result.timing.zero_touch_mean_duration_ms == 3_600_000
+    assert result.timing.blocked_count == 1
+    assert result.timing.blocked_mean_duration_ms == 18_000_000
+    assert result.timing.mean_total_duration_ms == 10_800_000
+
+
+def test_progress_percent_reflects_automated_stages_or_completion() -> None:
+    in_progress, in_progress_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.RUNNING,
+        created_days_ago=1,
+        updated_hours_ago=1,
+        automated_stages_completed=3,
+    )
+    completed, completed_automation = _record(
+        TeamId.TEAM_A,
+        None,
+        AutomationStatus.COMPLETED,
+        created_days_ago=1,
+        updated_hours_ago=1,
+        automated_stages_completed=2,
+    )
+
+    service, _ = _service_for(
+        [(in_progress, in_progress_automation), (completed, completed_automation)]
+    )
+    result = service.get_dashboard(_actor("maya-lim"), date_range="all")
+
+    progress_by_case = {item.case_id: item.progress_percent for item in result.scoped_cases}
+    assert progress_by_case[in_progress.case_id] == 50
+    assert progress_by_case[completed.case_id] == 100
+
+
+def test_date_range_filters_cases_by_creation_date() -> None:
+    recent, recent_automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.RUNNING, created_days_ago=5, updated_hours_ago=1
+    )
+    old, old_automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.RUNNING, created_days_ago=45, updated_hours_ago=1
+    )
+
+    service, _ = _service_for([(recent, recent_automation), (old, old_automation)])
+    default_30d = service.get_dashboard(_actor("maya-lim"))
+    last_90d = service.get_dashboard(_actor("maya-lim"), date_range="90d")
+    everything = service.get_dashboard(_actor("maya-lim"), date_range="all")
+
+    assert default_30d.totals.total_cases == 1
+    assert last_90d.totals.total_cases == 2
+    assert everything.totals.total_cases == 2
 
 
 def test_dashboard_route_requires_authentication_and_accepts_no_scope_authority() -> None:

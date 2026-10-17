@@ -179,6 +179,7 @@ class CaseQueryService:
         outcome: EventOutcome | None = None,
         from_at: datetime | None = None,
         to_at: datetime | None = None,
+        created_by: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> CaseActivityPage:
@@ -194,6 +195,7 @@ class CaseQueryService:
                 outcome=outcome,
                 from_at=from_at,
                 to_at=to_at,
+                created_by=created_by,
                 limit=limit,
                 offset=offset,
             )

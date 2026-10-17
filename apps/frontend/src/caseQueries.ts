@@ -10,6 +10,7 @@ import {
   fetchIntelligence,
   fetchZeroTouchCase,
   fetchZeroTouchCases,
+  type DashboardDateRange,
   type PriorityFilter,
   type PrioritySort,
   type CaseActivityFilters,
@@ -35,9 +36,9 @@ function dashboardTeamScope(teamFilter?: string): string {
 export const caseQueryKeys = {
   auth: (userId: string) => ["auth", userId] as const,
   dashboards: (userId: string) => ["auth", userId, "dashboard"] as const,
-  dashboard: (userId: string, teamFilter?: string) => [
+  dashboard: (userId: string, teamFilter?: string, scope?: "team" | "mine", dateRange?: DashboardDateRange) => [
     ...caseQueryKeys.dashboards(userId),
-    { teamFilter: dashboardTeamScope(teamFilter) },
+    { teamFilter: dashboardTeamScope(teamFilter), scope: scope ?? "team", dateRange: dateRange ?? "30d" },
   ] as const,
   caseLists: (userId: string) => ["auth", userId, "cases", "list"] as const,
   casePortfolio: (userId: string, filters: CasePortfolioFilters) => [
@@ -96,6 +97,7 @@ export const caseQueryKeys = {
       outcome: filters.outcome ?? absent,
       from: filters.from ?? absent,
       to: filters.to ?? absent,
+      createdBy: filters.createdBy ?? absent,
       offset: filters.offset ?? 0,
       limit: filters.limit ?? 50,
     },
@@ -104,11 +106,11 @@ export const caseQueryKeys = {
     ["auth", userId, "system", "execution-profile"] as const,
 };
 
-export function dashboardQueryOptions(userId: string, teamFilter?: string) {
-  const scope = dashboardTeamScope(teamFilter);
+export function dashboardQueryOptions(userId: string, teamFilter?: string, scope: "team" | "mine" = "team", dateRange: DashboardDateRange = "30d") {
+  const team = dashboardTeamScope(teamFilter);
   return {
-    queryKey: caseQueryKeys.dashboard(userId, scope),
-    queryFn: ({ signal }: { signal: AbortSignal }) => fetchDashboard(scope, signal),
+    queryKey: caseQueryKeys.dashboard(userId, team, scope, dateRange),
+    queryFn: ({ signal }: { signal: AbortSignal }) => fetchDashboard(team, scope, dateRange, signal),
   };
 }
 
