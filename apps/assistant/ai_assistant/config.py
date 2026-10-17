@@ -12,7 +12,7 @@ class AiAssistantSettings(BaseSettings):
     clm_backend_url: str = "http://127.0.0.1:8000"
     backend_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
 
-    # Any OpenAI-compatible chat API: Ollama locally by default, or a cloud provider later.
+    # Explicit chat uses an OpenAI-compatible API; deployment data handling is separate.
     llm_enabled: bool = True
     llm_base_url: str = "http://127.0.0.1:11434/v1"
     llm_model: str = "ministral-3:8b"
@@ -28,8 +28,8 @@ class AiAssistantSettings(BaseSettings):
         default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"]
     )
 
-    # Opening the panel has the model read the rules and case facts in the background, so the
-    # first question is quicker. The same case is not re-read more often than this.
+    # Optional case-fact warm-up is restricted at the transport to literal loopback URLs.
+    # Enabling this never authorizes remote disclosure. The same case is throttled below.
     llm_warm_up: bool = True
     llm_warm_up_interval_seconds: float = Field(default=120.0, ge=0, le=3600)
 

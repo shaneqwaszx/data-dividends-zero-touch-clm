@@ -17,8 +17,9 @@ Case page chat panel ──/assistant──▶ AI Assistant service (this folder
 - **No-AI fallback.** The opening summary is built straight from the case data, so it is
   instant. If the model is off, missing or slow, chat answers come from the case data and
   say so.
-- **Swappable model.** Any OpenAI-compatible endpoint works: Ollama (default), LM Studio,
-  or a cloud provider. Only the `AI_ASSISTANT_LLM_*` settings change.
+- **Swappable model.** Explicit questions use an OpenAI-compatible endpoint, such as
+  Ollama (default) or LM Studio. Configuring an endpoint does not establish approved
+  data handling. Remote/cloud deployment authorization remains a separate policy boundary.
 - **Document text is data.** Document values never extend the allowed output catalog.
   Streaming validates complete catalog lines before displaying them. Unknown lines are
   dropped; if no verified line remains, the service uses the case-data answer.
@@ -84,9 +85,20 @@ A small model on a laptop is slow, so the AI Assistant keeps the model's work sm
 | **Glossary only when asked** | A page label's meaning is added only if the question mentions it (a small keyword retrieval step). |
 | **Cache-friendly order** | Rules, then case facts, then history, then the question. The start stays the same, so Ollama reuses what it already read. |
 | **History budget** | The opening summary is not sent back (it repeats the facts), and only recent turns that fit about 2,400 characters are sent. The RM still sees the whole chat. |
-| **Pre-warming** | Opening the panel has the model read the rules and case facts in the background, so the first question only needs the question read. |
+| **Pre-warming** | Optional background reading of rules and case facts is restricted to literal loopback model URLs. Remote and ambiguous destinations are skipped even when enabled. |
 | **Streaming** | The answer appears one complete catalog line at a time. Exact validation happens before display. |
 | **Length safety limit** | `AI_ASSISTANT_LLM_MAX_ANSWER_TOKENS` (600) only stops a runaway answer; if reached, the RM is told it was cut short. Answers are asked to be concise but complete. |
+
+`AI_ASSISTANT_LLM_WARM_UP=true` retains local warm-up for literal loopback IPv4
+(`127.0.0.0/8`) or IPv6 (`::1`) HTTP(S) URLs. The model adapter checks the actual
+call destination, ignores environment proxies and refuses redirects for warm-up.
+DNS names (including `localhost`), wildcard/private/remote IPs, credentials in URLs,
+query/fragment routing and malformed or ambiguous URLs fail closed. Use a numeric
+loopback URL for a controlled local inference server. A loopback forwarding gateway
+is not verification of local inference; deployment must ensure the model runs locally.
+Set the flag false to disable local warm-up too. There is no remote warm-up override
+or cloud approval mechanism. Explicit user questions and their deployment data-handling
+authorization remain separate and unchanged. A brief still comes from backend case data.
 
 Recommended Ollama settings on a Mac (quit Ollama, run these, then open Ollama again):
 

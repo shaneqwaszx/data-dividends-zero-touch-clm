@@ -6,7 +6,7 @@
 Every request re-reads the case, so answers reflect the case as it is now. The RM's own
 session is forwarded to the CLM backend, which stays the authority for access.
 
-Opening the panel (/brief) also pre-warms the model in the background, and the chat panel
+Opening the panel (/brief) may pre-warm a literal loopback model in the background; the chat panel
 uses /chat/stream so the answer appears while it is written (see README "Speed").
 """
 
@@ -28,7 +28,7 @@ from .clm_client import SESSION_COOKIE_NAME, CaseSnapshot, ClmBackendClient, Clm
 from .config import AiAssistantSettings
 from .context import build_case_facts
 from .guardrails import StreamingGuard, guard_answer
-from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel
+from .llm import ChatModel, LlmUnavailableError, OpenAICompatibleChatModel, is_local_model_url
 from .prompts import build_messages, prefix_messages
 from .small_talk import small_talk_reply
 
@@ -173,7 +173,7 @@ def create_app(
         same facts were read recently (the model server still has them cached).
         """
 
-        if model is None or not config.llm_warm_up:
+        if model is None or not config.llm_warm_up or not is_local_model_url(config.llm_base_url):
             return
         messages = prefix_messages(facts)
         key = hashlib.sha256(json.dumps(messages).encode()).hexdigest()

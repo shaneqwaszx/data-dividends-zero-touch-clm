@@ -4,9 +4,46 @@ import json
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
+from ipaddress import ip_address
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 import httpx
+
+
+def is_local_model_url(url: str) -> bool:
+    """Allow implicit case-data warm-up only to unambiguous literal loopback URLs.
+
+    DNS names (including localhost), encoded/scoped hosts and URL routing metadata
+    are not proof of a local model. This is a fixed restriction, not a cloud opt-in.
+    """
+
+    if any(ord(char) <= 32 or ord(char) >= 127 for char in url) or any(
+        char in url for char in ("\\", "?", "#")
+    ):
+        return False
+    try:
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or "%" in parsed.netloc
+            or parsed.netloc.endswith(":")
+            or (parsed.port is not None and not 1 <= parsed.port <= 65535)
+        ):
+            return False
+        host = parsed.hostname or ""
+        authority = f"[{host}]" if ":" in host else host
+        if parsed.port is not None:
+            authority += f":{parsed.port}"
+        if parsed.netloc != authority:
+            return False
+        address = ip_address(host)
+        return address.is_loopback and (address.version == 4 or address.compressed == "::1")
+    except ValueError:
+        return False
 
 
 class LlmUnavailableError(Exception):
@@ -74,8 +111,13 @@ class OpenAICompatibleChatModel:
             "stream": stream,
         }
 
-    def _client(self) -> httpx.Client:
-        return httpx.Client(timeout=self._timeout, transport=self._transport)
+    def _client(self, *, trust_env: bool = True) -> httpx.Client:
+        return httpx.Client(
+            timeout=self._timeout,
+            transport=self._transport,
+            trust_env=trust_env,
+            follow_redirects=False,
+        )
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._credential}"}
@@ -168,11 +210,16 @@ class OpenAICompatibleChatModel:
     def warm(self, messages: list[dict[str, str]]) -> None:
         """Have the model read the fixed start of the prompt now, so a later question that
         starts the same way only needs the new part read (the server caches what it read).
-        Best effort: any failure is ignored."""
+        Only literal loopback destinations are eligible; a warm-up flag never grants
+        remote data-handling authority. Best effort: transport failures are ignored."""
 
+        # Check the actual transport destination even when callers bypass /brief or
+        # supply settings that disagree with this adapter. Never proxy or redirect it.
+        if not is_local_model_url(self._url):
+            return
         payload = self._payload(messages, stream=False, max_tokens=1)
         try:
-            with self._client() as client:
+            with self._client(trust_env=False) as client:
                 client.post(self._url, json=payload, headers=self._headers())
         except httpx.HTTPError:
             return
