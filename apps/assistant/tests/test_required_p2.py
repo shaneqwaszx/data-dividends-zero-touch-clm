@@ -1,5 +1,6 @@
 """PR89 required regressions: synthetic protocol and authority evidence only."""
 
+import asyncio
 import json
 from typing import Any
 
@@ -12,6 +13,7 @@ from ai_assistant.context import build_case_facts
 from ai_assistant.guardrails import StreamingGuard, guard_answer
 from ai_assistant.llm import LlmUnavailableError, OpenAICompatibleChatModel, Piece
 from tests.test_ai_assistant import ME, SUMMARY
+from tests.test_streaming_resources import Bytes, collect
 
 
 def facts() -> dict[str, Any]:
@@ -25,7 +27,7 @@ def model(body: str) -> OpenAICompatibleChatModel:
         credential="test",
         timeout_seconds=1,
         temperature=0,
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, text=body)),
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=Bytes([body.encode()]))),
     )
 
 
@@ -45,13 +47,13 @@ def test_r1_search_destination(code: str) -> None:
 @pytest.mark.parametrize("text", ["", "partial", "A complete sentence. "])
 def test_r2_eof_is_owned_failure(text: str) -> None:
     with pytest.raises(LlmUnavailableError):
-        list(model(event({"content": text})).stream([]))
+        collect(model(event({"content": text})))
 
 
 @pytest.mark.parametrize("delta", [["bad"], [], "bad", 7, None, False])
 def test_r3_invalid_delta_is_owned_failure(delta: Any) -> None:
     with pytest.raises(LlmUnavailableError):
-        list(model(event(delta)).stream([]))
+        collect(model(event(delta)))
 
 
 @pytest.mark.parametrize(
@@ -78,11 +80,11 @@ def test_r4_unverifiable_advice_never_displayed(text: str) -> None:
 
 def test_r2_legitimate_terminals_and_length() -> None:
     for terminal in ["data: [DONE]\n\n", event({}, "stop")]:
-        assert list(model(event({"content": "Hello"}) + terminal).stream([])) == [
+        assert collect(model(event({"content": "Hello"}) + terminal)) == [
             Piece("Hello"),
             Piece(),
         ]
-    assert list(model(event({"content": "Hello"}, "length")).stream([]))[-1].cut_short
+    assert collect(model(event({"content": "Hello"}, "length")))[-1].cut_short
 
 
 @pytest.mark.parametrize(
@@ -103,12 +105,12 @@ def test_r2_legitimate_terminals_and_length() -> None:
 )
 def test_r3_malformed_event_containment(event_body: Any) -> None:
     with pytest.raises(LlmUnavailableError):
-        list(model("data: " + json.dumps(event_body) + "\n\n").stream([]))
+        collect(model("data: " + json.dumps(event_body) + "\n\n"))
 
 
 def test_r3_invalid_json_is_owned() -> None:
     with pytest.raises(LlmUnavailableError):
-        list(model("data: {broken\n\n").stream([]))
+        collect(model("data: {broken\n\n"))
 
 
 @pytest.mark.parametrize(
@@ -181,8 +183,8 @@ def test_stream_partial_or_fallback_on_model_failure(prefix: str, failure: str) 
 
     if failure == "timeout":
 
-        class TimeoutStream(httpx.SyncByteStream):
-            def __iter__(self):
+        class TimeoutStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
                 if prefix:
                     yield event({"content": prefix}).encode()
                 raise httpx.ReadTimeout("synthetic private diagnostic")
@@ -221,12 +223,12 @@ def test_stream_partial_or_fallback_on_model_failure(prefix: str, failure: str) 
 def test_stream_cancellation_closes_provider_without_manufactured_completion() -> None:
     closed = []
 
-    class Source(httpx.SyncByteStream):
-        def __iter__(self):
+    class Source(httpx.AsyncByteStream):
+        async def __aiter__(self):
             yield event({"content": "first"}).encode()
             yield event({"content": "second"}).encode()
 
-        def close(self) -> None:
+        async def aclose(self) -> None:
             closed.append(True)
 
     provider = OpenAICompatibleChatModel(
@@ -237,9 +239,13 @@ def test_stream_cancellation_closes_provider_without_manufactured_completion() -
         temperature=0,
         transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=Source())),
     )
-    stream = provider.stream([])
-    assert next(stream) == Piece("first")
-    stream.close()
+
+    async def cancel() -> None:
+        stream = provider.stream([])
+        assert await anext(stream) == Piece("first")
+        await stream.aclose()
+
+    asyncio.run(cancel())
     assert closed == [True]
 
 
@@ -274,13 +280,19 @@ def test_real_http_sse_framing(terminal: str) -> None:
             timeout_seconds=2,
             temperature=0,
         )
-        pieces = provider.stream([])
-        assert next(pieces).text == "A complete sentence. "
-        if not terminal or "malformed" in terminal:
-            with pytest.raises(LlmUnavailableError):
-                list(pieces)
-        else:
-            assert list(pieces) == [Piece(cut_short='"length"' in terminal)]
+
+        async def read() -> None:
+            pieces = provider.stream([])
+            assert (await anext(pieces)).text == "A complete sentence. "
+            if not terminal or "malformed" in terminal:
+                with pytest.raises(LlmUnavailableError):
+                    [piece async for piece in pieces]
+            else:
+                assert [piece async for piece in pieces] == [
+                    Piece(cut_short='"length"' in terminal)
+                ]
+
+        asyncio.run(read())
     finally:
         server.shutdown()
         server.server_close()

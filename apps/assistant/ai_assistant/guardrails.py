@@ -9,6 +9,7 @@ This is bounded statement selection, not general semantic verification.
 from typing import Any
 
 from .guide import CASE_PAGE_SECTIONS, DOCUMENT_REVIEW_CHOICES, READINESS_NEEDS, RULE_PLAIN
+from .llm import LlmUnavailableError
 
 
 def compact_facts(value: Any) -> Any:
@@ -74,25 +75,46 @@ def guard_answer(answer: str, facts: dict[str, Any]) -> str:
     )
 
 
+MAX_MODEL_TEXT_BYTES = 64 * 1024
+
+
 class StreamingGuard:
-    """Validate each complete line before display, including the final unterminated line."""
+    """Select new complete catalog lines once; bound even newline-free model output."""
 
     def __init__(self, facts: dict[str, Any]) -> None:
-        self._facts = facts
+        self._allowed = set(allowed_guidance(facts))
         self._raw = ""
+        self._accepted: dict[str, None] = {}
         self._shown = ""
+        self._total_bytes = 0
+
+    def _accept(self, text: str) -> None:
+        for line in text.splitlines():
+            line = line.strip()
+            if line in self._allowed:
+                self._accepted[line] = None
+        self._shown = "\n".join(self._accepted)
 
     def feed(self, text: str) -> str | None:
+        if self._total_bytes + len(text) > MAX_MODEL_TEXT_BYTES:
+            raise LlmUnavailableError("model text limit exceeded")
+        try:
+            size = len(text.encode("utf-8"))
+        except UnicodeError:
+            raise LlmUnavailableError("unreadable model reply") from None
+        if self._total_bytes + size > MAX_MODEL_TEXT_BYTES:
+            raise LlmUnavailableError("model text limit exceeded")
+        self._total_bytes += size
         self._raw += text
         boundary = self._raw.rfind("\n")
         if boundary < 0:
             return None
-        checked = guard_answer(self._raw[:boundary], self._facts)
-        if checked == self._shown:
-            return None
-        self._shown = checked
-        return checked
+        previous = self._shown
+        self._accept(self._raw[:boundary])
+        self._raw = self._raw[boundary + 1 :]
+        return self._shown if self._shown != previous else None
 
     def finish(self) -> str:
-        self._shown = guard_answer(self._raw, self._facts)
+        self._accept(self._raw)
+        self._raw = ""
         return self._shown

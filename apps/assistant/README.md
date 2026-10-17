@@ -100,6 +100,29 @@ Set the flag false to disable local warm-up too. There is no remote warm-up over
 or cloud approval mechanism. Explicit user questions and their deployment data-handling
 authorization remain separate and unchanged. A brief still comes from backend case data.
 
+Streaming resource limits are enforced independently of the model's requested token
+budget (600 by default, at most 4,000 in settings). The adapter accepts at most 64 KiB
+per SSE frame/line and 1 MiB of raw response bytes, including comments and empty-delta
+frames. The server guard accepts at most 64 KiB of UTF-8 model text, retains only the
+pending line and distinct approved lines, and processes completed lines once. These
+fixed safety ceilings leave generous room for the approved concise catalog answers;
+provider compliance with `max_tokens` is never assumed.
+
+The configured model timeout bounds the complete network request, from connection and
+headers through the final event. Each pending async read is cancellable at the remaining
+deadline; HTTPX also keeps the configured connect/read/write/pool timeouts. UTF-8,
+LF/CRLF/CR boundaries and multiline SSE data are handled incrementally. A terminal
+`[DONE]`, `stop` or `length` must arrive in a complete SSE frame. Malformed, oversized,
+uncompleted and timed-out streams close their HTTP resources. Already guarded text
+keeps the cut-short notice; otherwise the deterministic case-data answer is returned.
+The adapter requests identity encoding and rejects compressed SSE, so decompression
+cannot expand input outside the byte limits. Cancellation closes the model stream.
+
+The browser adds 128 KiB per NDJSON line and 2 MiB per response, scans only new bytes,
+validates incremental UTF-8, and cancels/releases its reader on completion, failure or
+abort. The same limits cover the buffered-response compatibility path. These browser
+limits supplement the independent server limits and do not authorize model output.
+
 Recommended Ollama settings on a Mac (quit Ollama, run these, then open Ollama again):
 
 ```
@@ -129,3 +152,20 @@ cd apps/assistant
 
 One-click actions, resuming the pipeline, navigation links and the audit log are Phase 2.
 They will call the existing CLM endpoints only after the RM clicks.
+
+### Browser HTTP error and finite JSON containment
+
+All Assistant non-2xx bodies are limited to 16 KiB before strict UTF-8 decoding and
+JSON parsing, regardless of Content-Length. Brief and explicit nonstream chat JSON
+are independently limited to 128 KiB. Each finite JSON body has an absolute five-second
+deadline after response headers, including stalled and continuous trickle bodies.
+Overflow, malformed data, missing bodies and deadlines fail safely; cancellation is
+initiated and readers, timers and abort listeners are released. Cleanup never waits
+for an uncooperative source's cancellation promise.
+
+Only the seven fixed safe messages currently emitted by the Assistant's origin/backend
+error projection may be displayed from an error body (at most 256 characters). Other
+bodies use fixed local HTTP-status messages; raw diagnostics are never displayed.
+HTTP status is preserved, including 401, 403, 404, 502 and 503. The existing authenticated
+transport still owns session-generation and 401 invalidation. These are local resource
+controls, without a sponsor, provider or Live interoperability claim.

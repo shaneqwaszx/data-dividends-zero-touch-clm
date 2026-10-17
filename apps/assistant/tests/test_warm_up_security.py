@@ -11,6 +11,7 @@ from ai_assistant.config import AiAssistantSettings
 from ai_assistant.llm import OpenAICompatibleChatModel
 from ai_assistant.main import create_app
 from tests.test_ai_assistant import CASE_ID, ORIGIN, FakeBackend, FakeModel
+from tests.test_streaming_resources import Bytes
 
 MESSAGES = [{"role": "system", "content": "CASE FACTS: synthetic document value PRIVATE_TEST"}]
 BRIEF = f"/assistant/cases/{CASE_ID}/brief"
@@ -23,7 +24,9 @@ def model(url: str, requests: list[httpx.Request]) -> OpenAICompatibleChatModel:
         payload = json.loads(request.content)
         if payload.get("stream"):
             chunk = {"choices": [{"delta": {"content": FakeModel.ANSWER}, "finish_reason": "stop"}]}
-            return httpx.Response(200, text="data: " + json.dumps(chunk) + "\n\n")
+            return httpx.Response(
+                200, stream=Bytes([("data: " + json.dumps(chunk) + "\n\n").encode()])
+            )
         return httpx.Response(200, json={"choices": [{"message": {"content": FakeModel.ANSWER}}]})
 
     return OpenAICompatibleChatModel(

@@ -2,12 +2,13 @@
 
 import json
 import time
-from collections.abc import Iterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass
 from ipaddress import ip_address
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+import anyio
 import httpx
 
 
@@ -46,6 +47,10 @@ def is_local_model_url(url: str) -> bool:
         return False
 
 
+MAX_SSE_FRAME_BYTES = 64 * 1024
+MAX_STREAM_BYTES = 1024 * 1024
+
+
 class LlmUnavailableError(Exception):
     """The model could not answer (not running, not installed, too slow, bad reply)."""
 
@@ -71,7 +76,7 @@ class ChatModel(Protocol):
 
     def complete(self, messages: list[dict[str, str]]) -> ModelAnswer: ...
 
-    def stream(self, messages: list[dict[str, str]]) -> Iterator[Piece]: ...
+    def stream(self, messages: list[dict[str, str]]) -> AsyncGenerator[Piece, None]: ...
 
     def warm(self, messages: list[dict[str, str]]) -> None: ...
 
@@ -155,55 +160,123 @@ class OpenAICompatibleChatModel:
             raise LlmUnavailableError("empty model reply")
         return ModelAnswer(content.strip(), cut_short=choice.get("finish_reason") == "length")
 
-    def stream(self, messages: list[dict[str, str]]) -> Iterator[Piece]:
-        """Yield the answer as the model writes it (server-sent events, OpenAI format).
+    @staticmethod
+    async def _sse_frames(reply: httpx.Response, deadline: float) -> AsyncIterator[str]:
+        """Bound bytes before decoding/framing; accept LF, CRLF and CR across reads."""
+        total = 0
+        frame_size = 0
+        line = bytearray()
+        data: list[str] = []
+        skip_lf = False
+        first_line = True
+        chunks = reply.aiter_raw()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise LlmUnavailableError("model too slow")
+            try:
+                with anyio.fail_after(remaining):
+                    chunk = await anext(chunks)
+            except StopAsyncIteration:
+                return  # EOF never supplies a missing SSE event terminator.
+            total += len(chunk)
+            if total > MAX_STREAM_BYTES:
+                raise LlmUnavailableError("model response limit exceeded")
+            for byte in chunk:
+                frame_size += 1
+                if frame_size > MAX_SSE_FRAME_BYTES:
+                    raise LlmUnavailableError("model frame limit exceeded")
+                if skip_lf and byte == 10:
+                    skip_lf = False
+                    continue
+                skip_lf = byte == 13
+                if byte not in (10, 13):
+                    line.append(byte)
+                    continue
+                if time.monotonic() >= deadline:
+                    raise LlmUnavailableError("model too slow")
+                decoded = line.decode("utf-8", errors="strict")
+                line.clear()
+                if first_line:
+                    decoded = decoded.removeprefix("\ufeff")
+                    first_line = False
+                if not decoded:
+                    frame_size = 0
+                    if data:
+                        yield "\n".join(data)
+                        data.clear()
+                elif decoded.startswith("data:"):
+                    value = decoded[5:]
+                    data.append(value[1:] if value.startswith(" ") else value)
 
-        The timeout is the longest wait for the next piece, and also for the whole answer.
-        """
-
+    async def stream(self, messages: list[dict[str, str]]) -> AsyncGenerator[Piece, None]:
+        """Cancellable raw SSE reads, with independent frame, total and elapsed bounds."""
         payload = self._payload(messages, stream=True, max_tokens=self._max_answer_tokens)
-        deadline = time.monotonic() + self._timeout
         cut_short = False
         completed = False
+        if self._transport is not None and not isinstance(
+            self._transport, httpx.AsyncBaseTransport
+        ):
+            raise LlmUnavailableError("unsupported model transport")
         try:
-            with (
-                self._client() as client,
-                client.stream("POST", self._url, json=payload, headers=self._headers()) as reply,
-            ):
-                if reply.status_code != 200:
-                    raise LlmUnavailableError(f"model returned {reply.status_code}")
-                for line in reply.iter_lines():
-                    if time.monotonic() > deadline:
-                        raise LlmUnavailableError("model too slow")
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[len("data:") :].strip()
-                    if data == "[DONE]":
-                        completed = True
-                        break
-                    try:
-                        event = json.loads(data)
-                    except ValueError:
-                        raise LlmUnavailableError("unreadable model reply") from None
-                    choice = self._choice(event)
-                    delta = choice.get("delta")
-                    if not isinstance(delta, dict):
-                        raise LlmUnavailableError("unreadable model reply")
-                    piece = delta.get("content")
-                    if piece is not None and not isinstance(piece, str):
-                        raise LlmUnavailableError("unreadable model reply")
-                    finish = choice.get("finish_reason")
-                    if finish not in (None, "stop", "length"):
-                        raise LlmUnavailableError("unsupported model completion")
-                    if piece:
-                        yield Piece(piece)
-                    if finish is not None:
-                        completed = True
-                        cut_short = finish == "length"
-                        break
-                if not completed:
-                    raise LlmUnavailableError("model stream ended early")
-                yield Piece(cut_short=cut_short)
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(self._timeout),
+                transport=self._transport,
+                follow_redirects=False,
+            ) as client:
+                # Include connection, request write, response headers and every body read.
+                deadline = time.monotonic() + self._timeout
+                request = client.build_request(
+                    "POST",
+                    self._url,
+                    json=payload,
+                    headers={**self._headers(), "Accept-Encoding": "identity"},
+                )
+                with anyio.fail_after(max(0.0, deadline - time.monotonic())):
+                    reply = await client.send(request, stream=True)
+                try:
+                    if reply.status_code != 200:
+                        raise LlmUnavailableError(f"model returned {reply.status_code}")
+                    if reply.headers.get("content-encoding", "identity").lower() != "identity":
+                        raise LlmUnavailableError("unsupported model encoding")
+                    async for data in self._sse_frames(reply, deadline):
+                        if time.monotonic() >= deadline:
+                            raise LlmUnavailableError("model too slow")
+                        if data.strip() == "[DONE]":
+                            completed = True
+                            break
+                        try:
+                            event = json.loads(data)
+                        except (ValueError, RecursionError):
+                            raise LlmUnavailableError("unreadable model reply") from None
+                        choice = self._choice(event)
+                        delta = choice.get("delta")
+                        if not isinstance(delta, dict):
+                            raise LlmUnavailableError("unreadable model reply")
+                        piece = delta.get("content")
+                        if piece is not None and not isinstance(piece, str):
+                            raise LlmUnavailableError("unreadable model reply")
+                        finish = choice.get("finish_reason")
+                        if finish not in (None, "stop", "length"):
+                            raise LlmUnavailableError("unsupported model completion")
+                        if piece:
+                            piece.encode("utf-8", errors="strict")
+                            yield Piece(piece)
+                        if finish is not None:
+                            completed = True
+                            cut_short = finish == "length"
+                            break
+                    if not completed:
+                        raise LlmUnavailableError("model stream ended early")
+                finally:
+                    # ASGI disconnect cancellation must also release the model connection.
+                    with anyio.CancelScope(shield=True):
+                        await reply.aclose()
+            yield Piece(cut_short=cut_short)
+        except TimeoutError:
+            raise LlmUnavailableError("model too slow") from None
+        except UnicodeError:
+            raise LlmUnavailableError("unreadable model reply") from None
         except httpx.HTTPError:
             raise LlmUnavailableError("model unreachable") from None
 

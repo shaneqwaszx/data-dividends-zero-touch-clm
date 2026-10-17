@@ -14,7 +14,8 @@ import hashlib
 import json
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import aclosing
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -187,12 +188,12 @@ def create_app(
                 del warmed[old]
         model.warm(messages)
 
-    def stream_answer(
+    async def stream_answer(
         messages: list[dict[str, str]],
         fallback: str,
         suggestions: list[str],
         facts: dict[str, object],
-    ) -> Iterator[str]:
+    ) -> AsyncIterator[str]:
         """The answer as newline-delimited JSON: "text" updates while the model writes,
         then one "done" with the final answer (the same fields as the /chat reply)."""
 
@@ -207,11 +208,12 @@ def create_app(
             guard = StreamingGuard(facts)
             cut_short = False
             try:
-                for piece in model.stream(messages):
-                    cut_short = cut_short or piece.cut_short
-                    shown = guard.feed(piece.text) if piece.text else None
-                    if shown is not None:
-                        yield line({"type": "text", "text": shown})
+                async with aclosing(model.stream(messages)) as source:
+                    async for piece in source:
+                        cut_short = cut_short or piece.cut_short
+                        shown = guard.feed(piece.text) if piece.text else None
+                        if shown is not None:
+                            yield line({"type": "text", "text": shown})
                 answer = guard.finish()
                 if not answer:
                     fallback_notice = POLICY_NOTICE
@@ -308,7 +310,7 @@ def create_app(
                 notice=None,
                 suggested_questions=suggestions,
             )
-            events: Iterator[str] = iter(
+            events: Iterator[str] | AsyncIterator[str] = iter(
                 [json.dumps({"type": "done", **reply.model_dump()}, ensure_ascii=False) + "\n"]
             )
         else:

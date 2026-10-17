@@ -1,7 +1,7 @@
 """AI Assistant behaviour against a fake CLM backend and a fake model (no network)."""
 
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
@@ -71,7 +71,7 @@ class FakeModel:
             raise LlmUnavailableError("down")
         return ModelAnswer(self.answer, cut_short=self.cut_short)
 
-    def stream(self, messages: list[dict[str, str]]) -> Iterator[Piece]:
+    async def stream(self, messages: list[dict[str, str]]) -> AsyncGenerator[Piece, None]:
         self.calls.append(messages)
         if self.fail:
             raise LlmUnavailableError("down")
