@@ -71,6 +71,7 @@ class HealthResponse(BaseModel):
 
 
 FALLBACK_NOTICE = "The AI model is not available, so this answer comes straight from the case data."
+POLICY_NOTICE = "The model response could not be verified, so this answer comes from the case data."
 CUT_SHORT_NOTICE = "This answer was cut short. Ask me to continue for the rest."
 
 
@@ -137,11 +138,13 @@ def create_app(
         suggestions: list[str],
         facts: dict[str, object],
     ) -> ChatResponse:
+        fallback_notice = FALLBACK_NOTICE
         if model is not None:
             try:
                 reply = model.complete(messages)
                 answer = guard_answer(reply.text, facts)
                 if not answer:
+                    fallback_notice = POLICY_NOTICE
                     raise LlmUnavailableError("nothing left after guardrails")
                 return ChatResponse(
                     answer=answer,
@@ -156,7 +159,7 @@ def create_app(
             answer=fallback,
             answered_by="case_data",
             model=None,
-            notice=FALLBACK_NOTICE,
+            notice=fallback_notice,
             suggested_questions=suggestions,
         )
 
@@ -199,6 +202,7 @@ def create_app(
         def done(response: ChatResponse) -> str:
             return line({"type": "done", **response.model_dump()})
 
+        fallback_notice = FALLBACK_NOTICE
         if model is not None:
             guard = StreamingGuard(facts)
             cut_short = False
@@ -209,6 +213,8 @@ def create_app(
                     if shown is not None:
                         yield line({"type": "text", "text": shown})
                 answer = guard.finish()
+                if not answer:
+                    fallback_notice = POLICY_NOTICE
                 if answer:
                     yield done(
                         ChatResponse(
@@ -239,7 +245,7 @@ def create_app(
                 answer=fallback,
                 answered_by="case_data",
                 model=None,
-                notice=FALLBACK_NOTICE,
+                notice=fallback_notice,
                 suggested_questions=suggestions,
             )
         )

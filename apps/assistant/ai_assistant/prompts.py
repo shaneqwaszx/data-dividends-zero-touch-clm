@@ -18,7 +18,7 @@ import re
 from typing import Any
 
 from .context import readable_time as when
-from .guardrails import compact_facts
+from .guardrails import allowed_guidance, compact_facts
 from .instructions import system_prompt
 
 # The rules live in instructions/persona_and_rules.md so they can be edited as plain text.
@@ -128,6 +128,7 @@ def facts_for_model(facts: dict[str, Any]) -> dict[str, Any]:
 
     readiness = facts.get("readiness") or {}
     view = {
+        "allowed_guidance": allowed_guidance(facts),
         "viewer": facts.get("viewer"),
         "company": facts.get("company"),
         "overall": {

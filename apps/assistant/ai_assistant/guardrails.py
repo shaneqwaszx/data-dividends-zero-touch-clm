@@ -1,42 +1,14 @@
-"""Code-level safety net for model answers.
+"""Exact output policy over current backend actions and reviewed explanations.
 
-Small local models do not always follow the prompt rules, so answers are checked
-against the case facts before they reach the RM:
-
-- internal field names (snake_case keys such as ``who_resolves``) are removed;
-- a sentence that names a button, screen or label in quotes that does not exist in
-  the case facts is dropped (the model must not invent UI);
-- a sentence that sends the RM to a person or team the facts never mention
-  ("contact the support team") is dropped;
-- generic example lists in brackets ("e.g., business licence") are removed, and
-  numbered steps are renumbered after any removal.
-
-Facts sent to the model are also stripped of empty values, so the model is not
-prompted to fill gaps such as an empty ``who_resolves``.
+Generated prose is untrusted, including paraphrases. Only whole catalog lines may
+be displayed. Document/company values, history and model output never extend the
+catalog. The deterministic case-data answer handles unsupported responses.
+This is bounded statement selection, not general semantic verification.
 """
 
-import json
-import re
 from typing import Any
 
-_SNAKE = re.compile(r"\s*\(?`?\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b`?\)?")
-_QUOTED = re.compile(r"[\"“”']([^\"“”'\n]{2,60})[\"“”']")
-_OR_SIMILAR = re.compile(r"\s*\((?:or similar|if available[^)]*)\)", re.IGNORECASE)
-# Generic example lists the model adds from its own knowledge, e.g. "(e.g., business licence)".
-_EXAMPLES = re.compile(r"\s*\((?:e\.g\.|eg\.|for example|such as|like)[^)]*\)", re.IGNORECASE)
-_CONTACTS = (
-    "support team",
-    "help desk",
-    "helpdesk",
-    "it team",
-    "compliance team",
-    "your manager",
-    "your supervisor",
-    "case owner",
-    "administrator",
-    "contact support",
-)
-_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+from .guide import CASE_PAGE_SECTIONS, DOCUMENT_REVIEW_CHOICES, READINESS_NEEDS, RULE_PLAIN
 
 
 def compact_facts(value: Any) -> Any:
@@ -51,65 +23,59 @@ def compact_facts(value: Any) -> Any:
     return value
 
 
-def _clean_sentence(sentence: str, known: str) -> str | None:
-    lowered = sentence.lower()
-    for phrase in _CONTACTS:
-        if phrase in lowered and phrase not in known:
-            return None
-    for quoted in _QUOTED.findall(sentence):
-        label = quoted.strip().lower()
-        if label and label not in known and not any(ch.isdigit() for ch in label):
-            return None
-    cleaned = _EXAMPLES.sub("", _OR_SIMILAR.sub("", sentence))
-    cleaned = _SNAKE.sub("", cleaned)
-    cleaned = re.sub(r"\(\s*\)", "", cleaned)
-    cleaned = re.sub(r"\s+([.,;:!?])", r"\1", cleaned)
-    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
-    return cleaned if cleaned.strip(" -*•.") else None
+def allowed_guidance(facts: dict[str, Any]) -> list[str]:
+    """Build advice only from trusted templates and this request's backend projection."""
+
+    allowed = [
+        "Ownership and UBO analysis is provisional; it does not establish legal verification.",
+        "Mock, Local and Sandbox evidence do not establish Live integration or KYC approval.",
+        "Successful mock submission does not establish GoldTier-internal "
+        "or regulatory/KYC approval.",
+        "Registry and document differences require the current case decision; neither source "
+        "automatically overrides the other.",
+        "For uncertain or frozen GoldTier submissions, use only the recovery actions currently "
+        "offered by the case; do not resend.",
+        "The seven case page stages are distinct from the backend processing steps.",
+    ]
+    for need in facts.get("still_needed_before_goldtier") or []:
+        for what, where in READINESS_NEEDS.values():
+            if need.get("what") == what and need.get("where_on_the_case_page") == where:
+                allowed.append(f"{what} (section: {where})")
+    for blocker in facts.get("blockers") or []:
+        explanation = blocker.get("plain_explanation")
+        if explanation in RULE_PLAIN.values():
+            allowed.append(explanation)
+        # Labels originate only in authorized_actions, never document evidence.
+        for action in blocker.get("actions_available_to_this_user") or []:
+            label = action.get("label")
+            if isinstance(label, str) and label and not any(c in label for c in "\n\r"):
+                allowed.append(f'The current case offers "{label}".')
+        if blocker.get("why_no_action"):
+            allowed.append("No action is currently available to you for this blocker.")
+    review = facts.get("document_field_review") or {}
+    for field in review.get("fields") or []:
+        for choice in field.get("choices") or []:
+            if choice in DOCUMENT_REVIEW_CHOICES:
+                allowed.append(
+                    f'Document verification offers "{choice}" to review the extracted field; '
+                    "this does not decide registry/document precedence."
+                )
+    for section in CASE_PAGE_SECTIONS:
+        allowed.append(f'Open the "{section}" section to inspect the current case evidence.')
+    return list(dict.fromkeys(allowed))
 
 
 def guard_answer(answer: str, facts: dict[str, Any]) -> str:
-    """Remove internal names, invented UI labels and invented contacts from an answer."""
+    """Select exact approved lines; unknown wording cannot become operational advice."""
 
-    known = json.dumps(facts, ensure_ascii=False, default=str).lower()
-    lines_out: list[str] = []
-    for line in answer.splitlines():
-        if not line.strip():
-            lines_out.append("")
-            continue
-        prefix_match = re.match(r"^(\s*(?:[-*•]|\d+[.)])\s+)", line)
-        prefix = prefix_match.group(1) if prefix_match else ""
-        body = line[len(prefix) :]
-        kept = [s for s in (_clean_sentence(p, known) for p in _SENTENCE.split(body)) if s]
-        if kept:
-            lines_out.append(prefix + " ".join(kept))
-    # Renumber ordered lists so dropped steps leave no gaps.
-    number = 0
-    for i, line in enumerate(lines_out):
-        m = re.match(r"^(\s*)\d+([.)])\s+(.*)$", line)
-        if m:
-            number += 1
-            lines_out[i] = f"{m.group(1)}{number}{m.group(2)} {m.group(3)}"
-        elif line.strip():
-            number = 0
-    text = "\n".join(lines_out)
-    text = re.sub(r"\n{3,}", "\n\n", text).strip()
-    # Drop a heading left with nothing under it (e.g. "Next steps:" at the end).
-    text = re.sub(r"(?:\n|^)\s*\**[A-Za-z ]{2,30}:\**\s*$", "", text).strip()
-    return text
-
-
-_SAFE_END = re.compile(r"(?:\n|[.!?](?=\s))")
+    allowed = set(allowed_guidance(facts))
+    return "\n".join(
+        dict.fromkeys(line.strip() for line in answer.splitlines() if line.strip() in allowed)
+    )
 
 
 class StreamingGuard:
-    """Checks a streamed answer one finished sentence (or line) at a time.
-
-    Only text up to the last finished sentence is checked and shown, so a sentence that the
-    guardrails would drop is never displayed, not even briefly. Each update is the whole
-    checked answer so far (not just the new part), because removing a sentence can renumber
-    the list below it.
-    """
+    """Validate each complete line before display, including the final unterminated line."""
 
     def __init__(self, facts: dict[str, Any]) -> None:
         self._facts = facts
@@ -117,20 +83,16 @@ class StreamingGuard:
         self._shown = ""
 
     def feed(self, text: str) -> str | None:
-        """Add new model text; return the checked answer so far if it changed."""
-
         self._raw += text
-        ends = [match.end() for match in _SAFE_END.finditer(self._raw)]
-        if not ends:
+        boundary = self._raw.rfind("\n")
+        if boundary < 0:
             return None
-        checked = guard_answer(self._raw[: ends[-1]], self._facts)
+        checked = guard_answer(self._raw[:boundary], self._facts)
         if checked == self._shown:
             return None
         self._shown = checked
         return checked
 
     def finish(self) -> str:
-        """The final checked answer, including a last sentence without a full stop."""
-
         self._shown = guard_answer(self._raw, self._facts)
         return self._shown

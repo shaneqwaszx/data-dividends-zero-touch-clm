@@ -80,6 +80,18 @@ class OpenAICompatibleChatModel:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._credential}"}
 
+    @staticmethod
+    def _choice(event: Any) -> dict[str, Any]:
+        if not isinstance(event, dict):
+            raise LlmUnavailableError("unreadable model reply")
+        choices = event.get("choices")
+        if not isinstance(choices, list) or len(choices) != 1:
+            raise LlmUnavailableError("unreadable model reply")
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            raise LlmUnavailableError("unreadable model reply")
+        return choice
+
     def complete(self, messages: list[dict[str, str]]) -> ModelAnswer:
         payload = self._payload(messages, stream=False, max_tokens=self._max_answer_tokens)
         try:
@@ -90,8 +102,11 @@ class OpenAICompatibleChatModel:
         if response.status_code != 200:
             raise LlmUnavailableError(f"model returned {response.status_code}")
         try:
-            choice = response.json()["choices"][0]
-            content = choice["message"]["content"]
+            choice = self._choice(response.json())
+            message = choice.get("message")
+            if not isinstance(message, dict):
+                raise LlmUnavailableError("unreadable model reply")
+            content = message.get("content")
         except (ValueError, KeyError, IndexError, TypeError):
             raise LlmUnavailableError("unreadable model reply") from None
         if not isinstance(content, str) or not content.strip():
@@ -107,6 +122,7 @@ class OpenAICompatibleChatModel:
         payload = self._payload(messages, stream=True, max_tokens=self._max_answer_tokens)
         deadline = time.monotonic() + self._timeout
         cut_short = False
+        completed = False
         try:
             with (
                 self._client() as client,
@@ -121,17 +137,30 @@ class OpenAICompatibleChatModel:
                         continue
                     data = line[len("data:") :].strip()
                     if data == "[DONE]":
+                        completed = True
                         break
                     try:
-                        choice = json.loads(data)["choices"][0]
-                        delta = choice.get("delta") or {}
-                    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+                        event = json.loads(data)
+                    except ValueError:
                         raise LlmUnavailableError("unreadable model reply") from None
+                    choice = self._choice(event)
+                    delta = choice.get("delta")
+                    if not isinstance(delta, dict):
+                        raise LlmUnavailableError("unreadable model reply")
                     piece = delta.get("content")
-                    if isinstance(piece, str) and piece:
+                    if piece is not None and not isinstance(piece, str):
+                        raise LlmUnavailableError("unreadable model reply")
+                    finish = choice.get("finish_reason")
+                    if finish not in (None, "stop", "length"):
+                        raise LlmUnavailableError("unsupported model completion")
+                    if piece:
                         yield Piece(piece)
-                    if choice.get("finish_reason") == "length":
-                        cut_short = True
+                    if finish is not None:
+                        completed = True
+                        cut_short = finish == "length"
+                        break
+                if not completed:
+                    raise LlmUnavailableError("model stream ended early")
                 yield Piece(cut_short=cut_short)
         except httpx.HTTPError:
             raise LlmUnavailableError("model unreachable") from None

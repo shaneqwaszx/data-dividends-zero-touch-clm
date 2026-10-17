@@ -39,12 +39,11 @@ def test_invented_buttons_contacts_and_field_names_are_removed() -> None:
     assert "Support Team" not in answer
     assert "who_resolves" not in answer
     assert "e.g." not in answer
-    assert answer.splitlines()[2].startswith("1. Ensure the file is a valid company document.")
-    assert answer.splitlines()[3].startswith("2. Verify the file appears")
+    assert answer == ""  # Free-form guidance has no authority, even with known nouns.
 
 
 def test_real_labels_and_facts_are_kept() -> None:
-    good = 'Use "Keep registry value" in the Document verification section (from ACRA).'
+    good = 'The current case offers "Keep registry value".'
 
     assert guard_answer(good, CONFLICT) == good
 
@@ -52,7 +51,7 @@ def test_real_labels_and_facts_are_kept() -> None:
 def test_snake_case_names_are_stripped_from_otherwise_good_sentences() -> None:
     answer = guard_answer("The next step is listed in actions_available_to_this_user.", CONFLICT)
 
-    assert answer == "The next step is listed in."
+    assert answer == ""  # Do not repair arbitrary prose into apparent advice.
 
 
 def test_empty_values_are_not_sent_to_the_model() -> None:

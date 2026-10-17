@@ -10,8 +10,8 @@ Case page chat panel ──/assistant──▶ AI Assistant service (this folder
 ```
 
 - **The backend stays the authority.** Blockers, owners, next steps and allowed actions are
-  copied from what the CLM backend already computed. The model only puts them into plain
-  English. Access is still decided by the backend, because the RM's own session is
+  copied from what the CLM backend already computed. The model selects exact reviewed guidance statements grounded in the current actions.
+  Arbitrary generated prose is replaced with a deterministic case-data answer. Access is still decided by the backend, because the RM's own session is
   forwarded.
 - **Read-only.** Only `GET` requests are made to the CLM backend.
 - **No-AI fallback.** The opening summary is built straight from the case data, so it is
@@ -19,7 +19,13 @@ Case page chat panel ──/assistant──▶ AI Assistant service (this folder
   say so.
 - **Swappable model.** Any OpenAI-compatible endpoint works: Ollama (default), LM Studio,
   or a cloud provider. Only the `AI_ASSISTANT_LLM_*` settings change.
-- **Document text is data.** The model is told never to follow instructions found in it.
+- **Document text is data.** Document values never extend the allowed output catalog.
+  Streaming validates complete catalog lines before displaying them. Unknown lines are
+  dropped; if no verified line remains, the service uses the case-data answer.
+- **Truthful completion.** The model adapter requires `[DONE]` or a supported terminal
+  `finish_reason` (`stop` or `length`). EOF without a terminal marker is a failure.
+  Already verified partial text is retained with a cut-short notice; malformed provider
+  objects are contained by the same owned failure boundary.
 
 ## Run it locally (Mac)
 
@@ -41,7 +47,8 @@ Settings are in `.env.example` (copy to `.env` to change them).
 
 ## Changing how the AI Assistant behaves
 
-The bot's behaviour is written in plain English in `ai_assistant/instructions/`, not in code:
+The model instructions live in `ai_assistant/instructions/`. The code-owned output policy in
+`guardrails.py` remains authoritative: editing prose cannot extend the allowed guidance catalog.
 
 | File | What it controls |
 |---|---|
@@ -73,12 +80,12 @@ A small model on a laptop is slow, so the AI Assistant keeps the model's work sm
 
 | What | Why it helps |
 |---|---|
-| **Short case view for the model** (`prompts.py`) | About 35% fewer characters than the full fact sheet. The full facts are still used for the guardrails and the no-AI answers. |
+| **Short case view for the model** (`prompts.py`) | Selected facts plus the current allowed guidance catalog. The full facts support deterministic no-AI answers. |
 | **Glossary only when asked** | A page label's meaning is added only if the question mentions it (a small keyword retrieval step). |
 | **Cache-friendly order** | Rules, then case facts, then history, then the question. The start stays the same, so Ollama reuses what it already read. |
 | **History budget** | The opening summary is not sent back (it repeats the facts), and only recent turns that fit about 2,400 characters are sent. The RM still sees the whole chat. |
 | **Pre-warming** | Opening the panel has the model read the rules and case facts in the background, so the first question only needs the question read. |
-| **Streaming** | The answer appears sentence by sentence. Each sentence is checked by the guardrails before it is shown. |
+| **Streaming** | The answer appears one complete catalog line at a time. Exact validation happens before display. |
 | **Length safety limit** | `AI_ASSISTANT_LLM_MAX_ANSWER_TOKENS` (600) only stops a runaway answer; if reached, the RM is told it was cut short. Answers are asked to be concise but complete. |
 
 Recommended Ollama settings on a Mac (quit Ollama, run these, then open Ollama again):
