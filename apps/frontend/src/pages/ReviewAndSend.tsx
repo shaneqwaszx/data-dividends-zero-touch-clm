@@ -119,6 +119,8 @@ export default function ReviewAndSend({
   disclosureScopeKey,
   readNotice,
   headerContext = "",
+  confirmationUnknown = false,
+  headerReadUnconfirmed = false,
 }: {
   summary: ZeroTouchCaseSummary;
   documents: DocumentProcessingRecord[];
@@ -141,6 +143,9 @@ export default function ReviewAndSend({
   disclosureScopeKey?: string;
   readNotice?: ReactNode;
   headerContext?: string;
+  /** Existing parent observation/read state; presentation only, never action authority. */
+  confirmationUnknown?: boolean;
+  headerReadUnconfirmed?: boolean;
 }) {
   const technicalDetailsRef = useRef<HTMLDetailsElement>(null);
   const technicalDetailsWasOpen = useRef(false);
@@ -502,8 +507,23 @@ export default function ReviewAndSend({
       </div>
     </section>
   );
+  // Status and action guidance are mutually exclusive: retained eligibility must
+  // never suggest another confirmation while its first outcome is unknown/frozen.
+  const headerSummary = confirmationUnknown
+    ? headerContext || "Submission confirmation is being verified — do not send again."
+    : projectionFrozen
+      ? headerContext || (submissionCopy
+        ? `${submissionCopy.title}. Reviewed package frozen. Do not send again.`
+        : "Dispatch confirmation retained — review the current submission status.")
+      : !canAccessCase
+        ? headerContext + "You do not have the case capability required to confirm this dispatch."
+        : headerReadUnconfirmed || busy
+          ? headerContext || "Review current submission status."
+          : headerContext + (eligibleForConfirmation
+            ? "Action required — review the package before Confirm and send."
+            : "Review current blockers and outstanding items.");
   return disclosureScopeKey === undefined ? main : <StageDisclosure
-    title="Final review & send" summary={headerContext + (confirmation ? "Dispatch confirmation retained — review the current submission status." : eligibleForConfirmation && canAccessCase && !projectionFrozen ? "Action required — review the package before Confirm and send." : "Review current blockers, frozen status and outstanding items before sending.")} scopeKey={disclosureScopeKey} final
+    title="Final review & send" summary={headerSummary} scopeKey={disclosureScopeKey} final
     main={<>{readNotice}{main}</>}
     moreDetails={<>{readNotice}{moreDetails}</>}
     technicalDetails={<>{readNotice}{technicalDetails}</>}

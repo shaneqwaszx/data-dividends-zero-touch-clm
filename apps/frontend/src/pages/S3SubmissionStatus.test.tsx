@@ -475,6 +475,16 @@ describe("Lost confirmation response", () => {
     expect(description.closest("[hidden]")).toBeNull();
     expect(description.textContent).toContain("Submission confirmation is being verified — do not send again");
     expect(confirmation).toHaveBeenCalledOnce(); expect(read).toHaveBeenCalledOnce(); expect(resume).not.toHaveBeenCalled();
+    const final = [...host!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector("h2")?.textContent === "Final review & send")!;
+    const finalToggle = final.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+    await act(async () => { if (finalToggle.getAttribute("aria-expanded") === "true") finalToggle.click(); });
+    const finalDescription = document.getElementById(finalToggle.getAttribute("aria-describedby")!)!;
+    expect(finalDescription.textContent!.trim()).toBe("Submission confirmation is being verified — do not send again.");
+    expect(finalDescription.closest("[hidden]")).toBeNull();
+    expect(finalDescription.textContent).not.toMatch(/before sending|before Confirm and send|Action required/);
+    expect(send.disabled).toBe(true);
+    await act(async () => { send.click(); window.dispatchEvent(new Event("beforeprint")); window.dispatchEvent(new Event("afterprint")); });
+    expect(confirmation).toHaveBeenCalledOnce(); expect(resume).not.toHaveBeenCalled();
     const completed = fixture("SUBMISSION_CONFIRMED"); completed.status = "COMPLETED"; completed.version += 1;
     await act(async () => complete(completed)); await settle();
     expect(description.textContent).toContain("Submission confirmed");

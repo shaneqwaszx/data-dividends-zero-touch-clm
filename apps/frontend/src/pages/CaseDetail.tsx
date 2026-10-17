@@ -1653,6 +1653,8 @@ export default function CaseDetail({
           disclosureScopeKey={disclosureIdentity}
           readNotice={finalReadNotice}
           headerContext={finalHeaderContext}
+          confirmationUnknown={confirmationUnknown}
+          headerReadUnconfirmed={[detailQuery, documentQuery, ownershipQuery].some(query => query.isPending || query.isFetching || query.isError)}
           summary={summary}
           documents={documents}
           ownership={ownership}

@@ -270,8 +270,17 @@ function response(value: unknown): Response {
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
+let scrollIntoView: ReturnType<typeof vi.fn>;
+let scrollDescriptor: PropertyDescriptor | undefined;
 
 beforeEach(() => {
+  // jsdom has no scroll/layout implementation. Keep this adapter file-local and
+  // restore its descriptor; real focus, target lookup and disclosure still run.
+  scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+  scrollIntoView = vi.fn();
+  if (typeof HTMLElement.prototype.scrollIntoView !== "function") {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+  }
   container = document.createElement("div");
   document.body.append(container);
 });
@@ -281,6 +290,8 @@ afterEach(() => {
   container?.remove();
   root = null;
   container = null;
+  if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", scrollDescriptor);
+  else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
   vi.restoreAllMocks();
 });
 
@@ -1562,6 +1573,82 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     return description.textContent!;
   }
   it.each([
+    ["NOT_SUBMITTED", "Submission not started."],
+    ["SENDING", "Submission in progress — do not send again. Reviewed package frozen."],
+    ["SUBMISSION_CONFIRMED", "Submission confirmed. Reviewed package frozen."],
+    ["SUBMISSION_FAILED", "Submission failed — review required. Reviewed package frozen."],
+    ["SUBMISSION_OUTCOME_UNCERTAIN", "Submission outcome uncertain — verification required. Reviewed package frozen."],
+    ["FINALIZATION_PENDING", "Submission finalization pending — review required. Reviewed package frozen."],
+  ] as const)("Round4 complete Final header for %s across current, pending and failed reads", async (state, status) => {
+    const summary = targetSummary(state); const client = setup(summary);
+    const key = caseQueryKeys.documents(actorA.user_id, CASE_A);
+    const fetch = vi.spyOn(globalThis, "fetch");
+    function inspect(prefix: string, current: boolean) {
+      const { region, main } = partitions("Final review & send");
+      const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+      if (toggle.getAttribute("aria-expanded") === "true") act(() => toggle.click());
+      const description = region.querySelector<HTMLElement>(":scope > .stage-disclosure__summary")!;
+      expect(main.hidden).toBe(true); expect(description.closest("[hidden]")).toBeNull();
+      expect(document.getElementById(toggle.getAttribute("aria-describedby")!)).toBe(description);
+      const ready = current && state === "NOT_SUBMITTED";
+      expect(description.textContent!.trim()).toBe(prefix + status + (ready ? " Action required — review the package before Confirm and send." : ""));
+      if (!ready) expect(description.textContent).not.toMatch(/before sending|before Confirm and send|Action required — review the package/);
+      const sends = [...main.querySelectorAll("button")].filter(item => item.textContent?.startsWith("Confirm and send"));
+      expect(sends).toHaveLength(state === "NOT_SUBMITTED" ? 1 : 0);
+      expect(main.textContent).toContain("What will be sent"); expect(main.textContent).toContain("Synthetic review identity");
+      act(() => { window.dispatchEvent(new Event("beforeprint")); window.dispatchEvent(new Event("afterprint")); });
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      expect(fetch).not.toHaveBeenCalled();
+    }
+    inspect("", true);
+    let reject!: (error: Error) => void;
+    const pending = new Promise<unknown>((_resolve, fail) => { reject = fail; });
+    let read!: Promise<unknown>;
+    await act(async () => { read = client.fetchQuery({ queryKey: key, queryFn: () => pending, staleTime: 0, retry: false }).catch(() => undefined); });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    inspect("Last-confirmed final review information (refresh in progress). ", false);
+    await act(async () => { reject(new Error("Synthetic unavailable supporting read")); await read; });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    inspect("Last-confirmed final review information (refresh failed; may be stale). ", false);
+    client.clear();
+  });
+  it.each(["blocked", "unauthorized", "confirmation", "legacy-frozen", "intervention-frozen", "safe-continuation"] as const)(
+    "Round4 complete Final header preserves %s priority without another Send", mode => {
+      const summary = targetSummary(mode === "intervention-frozen" ? "SUBMISSION_FAILED" : mode === "safe-continuation" ? "FINALIZATION_PENDING" : "NOT_SUBMITTED");
+      let expected = "Submission not started. ";
+      if (mode === "blocked") { summary.clm.readiness.blockers = ["Retained blocker"]; expected += "Review current blockers and outstanding items."; }
+      if (mode === "unauthorized") expected += "You do not have the case capability required to confirm this dispatch.";
+      if (mode === "confirmation") {
+        summary.case.target_dispatch_confirmation = { confirmation_id: "retained", actor_id: "synthetic", confirmed_at: NOW, case_event_count: 1, clm_version: 4, destination: "GOLDTIER_MOCK", warnings: [], review_digest: "a".repeat(64), classification: "USER_AUTHORIZED_POC" };
+        expected += "Reviewed package frozen.";
+      }
+      if (mode === "legacy-frozen") { summary.target_submission = undefined; summary.clm.submission = {} as NonNullable<ZeroTouchCaseSummary["clm"]["submission"]>; expected = "Submission state not available in retained evidence. Reviewed package frozen."; }
+      if (mode === "intervention-frozen") { summary.interventions = [{ intervention_id: "r4-target", owning_stage: "MOCK_GOLDTIER", owning_stage_label: "Target", title: "Review", blocker_code: "TARGET_REVIEW", explanation: "Retained review", required_evidence_or_input: [], authorized_actions: [], no_action_reason: "No action", expected_next_step: "Review", candidate_summaries: [] }]; expected = "Target intervention requires review. Reviewed package frozen."; }
+      if (mode === "safe-continuation") { summary.status = "RECOVERY_PENDING"; expected = "Verified work retained — safe continuation requires review. Reviewed package frozen."; }
+      const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary, mode === "unauthorized" ? { ...actorA, capabilities: [] } : actorA);
+      const { region, main } = partitions("Final review & send"); const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+      act(() => toggle.click()); const description = document.getElementById(toggle.getAttribute("aria-describedby")!)!;
+      expect(description.textContent!.trim()).toBe(expected); expect(description.closest("[hidden]")).toBeNull(); expect(main.hidden).toBe(true);
+      expect(description.textContent).not.toMatch(/before sending|before Confirm and send/);
+      expect([...main.querySelectorAll("button")].some(item => item.textContent?.startsWith("Confirm and send"))).toBe(false);
+      expect(fetch).not.toHaveBeenCalled(); client.clear();
+    },
+  );
+  it.each(["ownership", "documents"] as const)("Round4 missing %s read omits confirmation guidance while loading and unavailable", async resource => {
+    const summary = targetSummary(); const client = createTestClient(); seedCase(client, actorA, CASE_A, "r4", "R4");
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    const key = caseQueryKeys[resource](actorA.user_id, CASE_A); client.removeQueries({ queryKey: key, exact: true });
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending); renderCase(client, actorA, CASE_A);
+    const { region } = partitions("Final review & send"); const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!; act(() => toggle.click());
+    const description = document.getElementById(toggle.getAttribute("aria-describedby")!)!;
+    expect(description.textContent!.trim()).toBe("Loading final review information — current evidence not yet confirmed. Submission not started.");
+    await act(async () => { release(new Response("", { status: 503 })); });
+    await vi.waitFor(() => expect(description.textContent!.trim()).toBe("Current evidence unavailable; absence not confirmed. Submission not started."));
+    expect(description.textContent).not.toMatch(/before sending|before Confirm and send|Last-confirmed/);
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
+  it.each([
     ["NOT_SUBMITTED", "Submission not started"],
     ["SENDING", "Submission in progress — do not send again"],
     ["SUBMISSION_FAILED", "Submission failed — review required"],
@@ -1727,6 +1814,9 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     expect(target.main.textContent).toContain("Previously completed or verified steps will not be sent again"); client.clear();
   });
   it("ignores an older failed target read after a newer confirmed current read", async () => {
+    const frames = new Map<number, FrameRequestCallback>(); let frameId = 0;
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(callback => { const id = ++frameId; frames.set(id, callback); return id; });
+    vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(id => { frames.delete(id); });
     const client = setup(); const key = caseQueryKeys.detail(actorA.user_id, CASE_A);
     let release!: (value: Response) => void; const old = new Promise<Response>(resolve => { release = resolve; });
     const next = targetSummary("SUBMISSION_CONFIRMED"); next.version = 2;
@@ -1742,6 +1832,13 @@ describe("GoldTier and Final Review persistent disclosure", () => {
       for (const panel of [main, ...support]) { expect(panel.textContent).not.toContain("information could not be loaded"); expect(panel.textContent).not.toContain("Last-confirmed"); }
     }
     expect(partitions("GoldTier submission package").main.textContent).toContain("SUBMISSION_CONFIRMED");
+    const target = document.getElementById("submission-state-title")!;
+    expect(target).toBeInstanceOf(HTMLElement);
+    expect(frames.size).toBe(1);
+    act(() => { for (const callback of frames.values()) callback(16); frames.clear(); });
+    expect(document.activeElement).toBe(target);
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "center", behavior: "auto" });
+    expect(scrollIntoView.mock.instances[0]).toBe(target);
     expect([...container!.querySelectorAll("button")].some(item => item.textContent?.startsWith("Confirm and send"))).toBe(false);
     expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
   });
