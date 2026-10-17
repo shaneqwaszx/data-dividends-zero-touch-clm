@@ -82,7 +82,7 @@ async function fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<
   return response;
 }
 
-// Reuse the session owner for read-only consumers such as Copilot.
+// Reuse the session owner for read-only consumers such as AI Assistant.
 export { fetch as authenticatedFetch };
 
 export async function login(userId: string, credential: string): Promise<AuthSession> {

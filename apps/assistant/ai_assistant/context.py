@@ -1,4 +1,4 @@
-"""Turn the CLM API responses into a small set of case facts for the copilot.
+"""Turn the CLM API responses into a small set of case facts for the AI assistant.
 
 The backend is the authority: blockers, owners, next steps and allowed actions are copied
 from what it already computed, never re-derived here. Every fact carries where it came
@@ -11,9 +11,14 @@ from .clm_client import CaseSnapshot
 from .guide import (
     AUTOMATION_STATUS,
     CASE_PAGE_SECTIONS,
+    DOCUMENT_REVIEW_CHOICES,
+    DOCUMENT_REVIEW_GROUP,
     OWNER,
     READINESS_NEEDS,
+    REVIEW_PANEL,
     RULE_PLAIN,
+    SCREEN_TERMS,
+    SOURCE_DECISION_GROUP,
     STEP_STATUS,
     field_label,
 )
@@ -55,8 +60,23 @@ def _source_label(source: Any) -> str | None:
         return None
     environment = data.get("environment")
     label = f"{system} ({environment})" if environment else str(system)
-    retrieved = data.get("retrieved_at")
+    retrieved = readable_time(data.get("retrieved_at"))
     return f"{label}, retrieved {retrieved}" if retrieved else label
+
+
+def readable_time(value: Any) -> str | None:
+    """'2026-10-12T18:08:11.4Z' -> '12 Oct 2026, 18:08 UTC' (left as is if unreadable)."""
+
+    if not value:
+        return None
+    from datetime import datetime
+
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(value)
+    zone = "UTC" if moment.utcoffset() is not None and not moment.utcoffset() else ""
+    return f"{moment.day} {moment:%b %Y, %H:%M} {zone}".strip()
 
 
 def _company(summary: dict[str, Any]) -> dict[str, Any]:
@@ -191,9 +211,10 @@ def _discrepancies(summary: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _documents(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
-    for document in documents[:MAX_DOCUMENTS]:
-        if document.get("superseded_by_document_id"):
-            continue
+    current_documents = [
+        document for document in documents if document.get("superseded_by_document_id") is None
+    ]
+    for document in current_documents[:MAX_DOCUMENTS]:
         fields = []
         for field in _list(document.get("fields"))[:MAX_FIELDS_PER_DOCUMENT]:
             data = _dict(field)
@@ -217,6 +238,61 @@ def _documents(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def _document_field_review(
+    summary: dict[str, Any], documents: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    """Document fields this user can review on the case page, and the choices offered.
+
+    Uses the same conditions as the case page's review panel, so the AI Assistant offers
+    exactly the choices the RM can see there, no more and no fewer.
+    """
+
+    if summary.get("evidence_decision_authorized") is not True:
+        return None
+    rows = []
+    for document in documents:
+        if (
+            document.get("superseded_by_document_id") is not None
+            or document.get("state") != "REVIEW_REQUIRED"
+            or document.get("semantic_completion")
+            or not document.get("review_source_fingerprint")
+        ):
+            continue
+        for field in _list(document.get("fields")):
+            data = _dict(field)
+            if data.get("review_status") != "PENDING":
+                continue
+            choices = [
+                label
+                for label in DOCUMENT_REVIEW_CHOICES
+                if label != "Accept document suggestion"
+                or data.get("original_extracted_value") is not None
+            ]
+            rows.append(
+                {
+                    "document": document.get("display_name"),
+                    "field": field_label(data.get("field_key")),
+                    "document_value": _text(data.get("original_extracted_value"), 160),
+                    "acra_value": _text(data.get("canonical_value"), 160),
+                    "choices": choices,
+                }
+            )
+    if not rows:
+        return None
+    return {
+        "where": f'{REVIEW_PANEL} panel, decision group "{DOCUMENT_REVIEW_GROUP}"',
+        "what_it_decides": "whether the system read the document correctly",
+        "not_the_same_as": (
+            f'the decision group "{SOURCE_DECISION_GROUP}", which decides which value the '
+            'case uses (for example "Keep registry value")'
+        ),
+        "choice_meanings": {
+            label: DOCUMENT_REVIEW_CHOICES[label] for label in DOCUMENT_REVIEW_CHOICES
+        },
+        "fields": rows,
+    }
 
 
 def _timeline(summary: dict[str, Any]) -> list[dict[str, Any]]:
@@ -277,6 +353,7 @@ def build_case_facts(snapshot: CaseSnapshot) -> dict[str, Any]:
         "blockers": _blockers(summary),
         "still_needed_before_goldtier": _still_needed(summary),
         "case_page_sections": list(CASE_PAGE_SECTIONS),
+        "case_page_terms": dict(SCREEN_TERMS),
         "system_problem": (
             {"code": failure.get("code"), "message": _text(failure.get("message"))}
             if failure
@@ -285,6 +362,7 @@ def build_case_facts(snapshot: CaseSnapshot) -> dict[str, Any]:
         "readiness": _readiness(summary),
         "discrepancies": _discrepancies(summary),
         "documents": _documents(snapshot.documents),
+        "document_field_review": _document_field_review(summary, snapshot.documents),
         "goldtier": (
             {"state": target.get("state"), "goldtier_id": target.get("goldtier_id")}
             if target

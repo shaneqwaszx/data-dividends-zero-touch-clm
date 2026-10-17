@@ -922,14 +922,14 @@ compatibility predicate is shared in the pure selection model, not duplicated. S
 retains current selection receipts; no extra classifier, repository, workflow stage,
 cache, provider, ownership calculator or dependency direction is introduced.
 
-## Read-only Copilot main-integration candidate — 2026-10-06
+## Read-only AI Assistant main-integration candidate — 2026-10-06
 
 The owner-authorized integration imports main PR74 at1fc097f into the existing
-zero-touch branch without rewriting acceptedccff747/859f218. The separate Copilot
+zero-touch branch without rewriting acceptedccff747/859f218. The separate AI Assistant
 service reads existing authenticated CLM APIs through GET only; backend authorization,
 case/document/ownership/currentness and target-ledger owners remain authoritative.
 It has no case or target mutation endpoint, persistence owner or business-rule engine.
-Frontend App supplies only route/intake case context. Copilot reuses the existing
+Frontend App supplies only route/intake case context. AI Assistant reuses the existing
 api.ts authenticated transport for session-generation-aware401 cleanup; no parallel
 auth/cache owner is added. Either current inaccessible-case404 cancels retained
 summary/chat requests and clears only that local conversation; aborted replies cannot

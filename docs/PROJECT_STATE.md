@@ -853,12 +853,12 @@ isolation; protected/owner database investigation and dotenv read remain prohibi
 ## Historical main-integration candidate — 2026-10-06
 
 At that checkpoint, fetch confirmed origin/main 1fc097f12c84af52b1e6d70a336cc22b03f3bef4
-(read-only Onboarding Copilot PR74). The feature at859f218 integrates that commit
+(read-only AI Assistant PR74). The feature at859f218 integrates that commit
 through a conflict-free merge while preserving both accepted feature commits.
 At that checkpoint, the local merge required fresh independent PASS and owner review
 before publication.
 No exact-file overlap; shared frontend root/proxy/session/case context is reviewed.
-Bounded adaptations reuse the existing authenticated transport for Copilot401 cleanup,
+Bounded adaptations reuse the existing authenticated transport for AI Assistant 401 cleanup,
 align guide/pending-step wording with current backend/UI projections, and contain
 inaccessible-case404 and cancelled responses in the existing local conversation owner.
 Schema10, source fingerprints, classification review/currentness, final Send, ledger

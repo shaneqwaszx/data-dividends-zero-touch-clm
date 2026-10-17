@@ -5,6 +5,8 @@ apps/backend/app/services/blocker_decision_policy.py). They add no business rule
 backend's own explanation, owner and authorized actions stay the authority.
 """
 
+from .instructions import case_page_terms
+
 AUTOMATION_STATUS = {
     "PENDING_INPUTS": "waiting for required inputs",
     "RUNNING": "running automatically",
@@ -91,6 +93,7 @@ RULE_PLAIN = {
 
 # The case page's own section titles (apps/frontend/src/pages/CaseDetail.tsx).
 CASE_PAGE_SECTIONS = (
+    "Existing-customer search",
     "Registry verification",
     "Document verification",
     "Ownership & UBO",
@@ -135,16 +138,16 @@ READINESS_NEEDS: dict[str, tuple[str, str]] = {
     "OWNERSHIP_ANALYSIS_FAILED": ("The UBO check failed.", "Ownership & UBO"),
     "GOLDTIER_SEARCH_REQUIRED": (
         "The GoldTier existing-customer search has not run.",
-        "Registry verification",
+        "Existing-customer search",
     ),
     "GOLDTIER_SEARCH_REVIEW_REQUIRED": (
         "GoldTier may already have this customer; this needs confirming.",
-        "Registry verification",
+        "Existing-customer search",
     ),
-    "GOLDTIER_SEARCH_FAILED": ("The GoldTier customer search failed.", "Registry verification"),
+    "GOLDTIER_SEARCH_FAILED": ("The GoldTier customer search failed.", "Existing-customer search"),
     "GOLDTIER_SEARCH_STALE": (
         "The GoldTier customer search is out of date and must be re-run.",
-        "Registry verification",
+        "Existing-customer search",
     ),
     "GOLDTIER_CLASSIFICATION_REQUIRED": (
         "The GoldTier customer classification (KYC customer type and client segment) "
@@ -161,6 +164,33 @@ FIELD_LABEL = {
     "legal_name": "legal name",
     "country_of_incorporation": "country of incorporation",
 }
+
+
+# Labels shown on the case page's document check, explained in plain words.
+# The case page's "Review blocker decisions" panel. Its two decision groups answer different
+# questions, so the AI Assistant must not merge them. Labels are exactly as the page shows them
+# (apps/frontend/src/pages/BlockerDecisionReview.tsx); meanings follow how the backend uses each
+# review decision (services/document_processing.py, services/reconciliation.py).
+REVIEW_PANEL = "Review blocker decisions"
+DOCUMENT_REVIEW_GROUP = "Review extracted document fields"
+SOURCE_DECISION_GROUP = "Compare registry and document values"
+DOCUMENT_REVIEW_CHOICES = {
+    "Accept document suggestion": (
+        "confirms the system read this value correctly from the document; the value is then "
+        "still compared with ACRA"
+    ),
+    "Reject document suggestion": (
+        "says the value read from the document should not be used, so the case has no document "
+        "value for this field"
+    ),
+    "Record correction": (
+        "lets the reviewer type the value the document really shows; it replaces what the "
+        "system read and is compared with ACRA again"
+    ),
+}
+
+# Meanings of case page labels live in instructions/case_page_terms.md.
+SCREEN_TERMS = case_page_terms()
 
 
 def sentence_case(text: str) -> str:

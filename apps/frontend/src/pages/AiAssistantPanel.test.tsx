@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import CopilotPanel from "./CopilotPanel";
+import AiAssistantPanel from "./AiAssistantPanel";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -41,12 +41,12 @@ function render(caseId: string | null, onOpenCases: () => void = noop): HTMLDivE
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  act(() => root?.render(<CopilotPanel caseId={caseId} onOpenCases={onOpenCases} />));
+  act(() => root?.render(<AiAssistantPanel caseId={caseId} onOpenCases={onOpenCases} />));
   return container;
 }
 
 function rerender(caseId: string | null): void {
-  act(() => root?.render(<CopilotPanel caseId={caseId} onOpenCases={noop} />));
+  act(() => root?.render(<AiAssistantPanel caseId={caseId} onOpenCases={noop} />));
 }
 
 function click(element: Element | null | undefined): void {
@@ -58,19 +58,87 @@ function brief(company: string, message: string) {
   return { company, message, suggested_questions: ["Why is this case blocked?"], blocker_count: 1, steps_done: 5, steps_total: 12 };
 }
 
-describe("CopilotPanel", () => {
+function ndjsonStream(): { response: Response; send: (event: unknown) => void; end: () => void } {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({ start: (c) => { controller = c; } });
+  const encoder = new TextEncoder();
+  return {
+    response: new Response(body, { status: 200, headers: { "Content-Type": "application/x-ndjson" } }),
+    send: (event) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`)),
+    end: () => controller.close(),
+  };
+}
+
+describe("AiAssistantPanel", () => {
+  it("shows the answer while it is being written, then the final answer", async () => {
+    const stream = ndjsonStream();
+    const sent: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/brief")) return json(brief("GARDEN BUSINESS", "Summary of Garden."));
+      if (url.endsWith("/chat/stream")) {
+        sent.push(JSON.parse(String(init?.body)));
+        return stream.response;
+      }
+      return json({}, 404);
+    }));
+
+    const view = render("case-1");
+    click(view.querySelector(".ai-assistant-launcher"));
+    await flush();
+    click(view.querySelector(".ai-assistant-chip"));
+    await flush();
+    expect(view.textContent).toContain("Thinking");
+
+    stream.send({ type: "text", text: "Keep the registry value." });
+    await flush();
+    expect(view.textContent).toContain("Keep the registry value.");
+    expect(view.textContent).not.toContain("Thinking");
+    expect(view.querySelector("textarea + button")?.hasAttribute("disabled")).toBe(true);
+
+    stream.send({
+      type: "done",
+      answer: "Keep the registry value. Then upload ownership evidence.",
+      answered_by: "model",
+      model: "ministral-3:8b",
+      notice: null,
+      suggested_questions: ["Where are we now?"],
+    });
+    stream.end();
+    await flush();
+    expect(view.textContent).toContain("Then upload ownership evidence.");
+    expect(view.querySelectorAll(".ai-assistant-assistant")).toHaveLength(2);
+    expect(view.textContent).toContain("Where are we now?");
+
+    // The next question sends the earlier exchange, but not the opening summary.
+    act(() => {
+      const box = view.querySelector("textarea") as HTMLTextAreaElement;
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(box, "And after that?");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    click(view.querySelector(".ai-assistant-send"));
+    await flush();
+    expect(sent[1]).toEqual({
+      message: "And after that?",
+      history: [
+        { role: "user", content: "Why is this case blocked?" },
+        { role: "assistant", content: "Keep the registry value. Then upload ownership evidence." },
+      ],
+    });
+  });
+
   it("opens with the case brief and answers a suggested question", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/assistant/cases/case-1/brief") {
         return json(brief("GARDEN BUSINESS", "I found 1 issue stopping the onboarding of GARDEN BUSINESS:"));
       }
-      if (url === "/api/assistant/cases/case-1/chat") {
+      if (url === "/api/assistant/cases/case-1/chat/stream") {
         const body = JSON.parse(String(init?.body));
         expect(body.message).toBe("Why is this case blocked?");
-        expect(body.history).toEqual([
-          { role: "assistant", content: "I found 1 issue stopping the onboarding of GARDEN BUSINESS:" },
-        ]);
+        // The opening summary is not sent back: the service re-reads the case anyway.
+        expect(body.history).toEqual([]);
         return json({
           answer: "The document address differs from ACRA.",
           answered_by: "case_data",
@@ -86,14 +154,14 @@ describe("CopilotPanel", () => {
     const view = render("case-1");
     await flush();
     expect(fetchMock).not.toHaveBeenCalled();
-    click(view.querySelector(".copilot-launcher"));
+    click(view.querySelector(".ai-assistant-launcher"));
     await flush();
 
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "GET", credentials: "include" });
     expect(view.textContent).toContain("I found 1 issue stopping the onboarding of GARDEN BUSINESS");
-    expect(view.querySelector(".copilot-subtitle")?.textContent).toBe("GARDEN BUSINESS · read-only");
+    expect(view.querySelector(".ai-assistant-subtitle")?.textContent).toBe("GARDEN BUSINESS · read-only");
 
-    click([...view.querySelectorAll(".copilot-chip")].find((b) => b.textContent === "Why is this case blocked?"));
+    click([...view.querySelectorAll(".ai-assistant-chip")].find((b) => b.textContent === "Why is this case blocked?"));
     await flush();
 
     expect(view.textContent).toContain("The document address differs from ACRA.");
@@ -111,14 +179,14 @@ describe("CopilotPanel", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const view = render("case-1");
-    click(view.querySelector(".copilot-launcher"));
+    click(view.querySelector(".ai-assistant-launcher"));
     await flush();
     expect(view.textContent).toContain("About Garden.");
 
     rerender(null);
     await flush();
-    expect(view.querySelector(".copilot-panel")).not.toBeNull();
-    expect(view.querySelector(".copilot-panel-compact")).not.toBeNull();
+    expect(view.querySelector(".ai-assistant-panel")).not.toBeNull();
+    expect(view.querySelector(".ai-assistant-panel-compact")).not.toBeNull();
     expect(view.textContent).toContain("Open a case and I'll explain");
     expect(view.textContent).not.toContain("About Garden.");
     expect(view.querySelector("textarea")).toBeNull();
@@ -140,13 +208,13 @@ describe("CopilotPanel", () => {
     const onOpenCases = vi.fn();
 
     const view = render(null, onOpenCases);
-    click(view.querySelector(".copilot-launcher"));
+    click(view.querySelector(".ai-assistant-launcher"));
     await flush();
 
     expect(view.textContent).toContain("Open a case and I'll explain where it stands");
     expect(view.querySelector("textarea")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
-    click(view.querySelector(".copilot-open-cases"));
+    click(view.querySelector(".ai-assistant-open-cases"));
     expect(onOpenCases).toHaveBeenCalledTimes(1);
   });
 
@@ -156,25 +224,25 @@ describe("CopilotPanel", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    act(() => root?.render(<CopilotPanel caseId={null} onboardingWithoutCase onOpenCases={noop} />));
-    click(container.querySelector(".copilot-launcher"));
+    act(() => root?.render(<AiAssistantPanel caseId={null} onboardingWithoutCase onOpenCases={noop} />));
+    click(container.querySelector(".ai-assistant-launcher"));
     await flush();
 
     expect(container.textContent).toContain("Enter the company's details to start");
-    expect(container.querySelector(".copilot-open-cases")).toBeNull();
+    expect(container.querySelector(".ai-assistant-open-cases")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("explains when the copilot service is not running", async () => {
+  it("explains when the AI assistant service is not running", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
       throw new TypeError("Failed to fetch");
     }));
 
     const view = render("case-1");
-    click(view.querySelector(".copilot-launcher"));
+    click(view.querySelector(".ai-assistant-launcher"));
     await flush();
 
-    expect(view.querySelector("[role=alert]")?.textContent).toBe("The copilot service is not running.");
+    expect(view.querySelector("[role=alert]")?.textContent).toBe("The AI assistant service is not running.");
   });
 
 
@@ -186,21 +254,21 @@ describe("CopilotPanel", () => {
         : json({ detail: { message: "This case was not found." } }, 404);
     }));
     const view = render("case-1");
-    click(view.querySelector(".copilot-launcher"));
+    click(view.querySelector(".ai-assistant-launcher"));
     await flush();
     expect(view.textContent).toContain("Previously accessible case summary.");
     click(view.querySelector('[aria-label="Refresh the summary"]'));
     await flush();
     expect(view.querySelector("[role=alert]")?.textContent).toBe("This case was not found.");
     expect(view.textContent).not.toContain("Previously accessible case summary.");
-    expect(view.querySelector(".copilot-subtitle")?.textContent).not.toContain("OLD CASE");
+    expect(view.querySelector(".ai-assistant-subtitle")?.textContent).not.toContain("OLD CASE");
   });
 
   it("does not publish an aborted earlier brief over the current evidence refresh", async () => {
     const pending: ((response: Response) => void)[] = [];
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve))));
     const view = render("case-1");
-    click(view.querySelector(".copilot-launcher"));
+    click(view.querySelector(".ai-assistant-launcher"));
     await flush();
     click(view.querySelector('[aria-label="Refresh the summary"]'));
     await flush();
@@ -225,9 +293,9 @@ describe("CopilotPanel", () => {
       return new Promise<Response>((resolve) => { chat = { resolve, signal: init?.signal as AbortSignal }; });
     }));
     const view = render("case-1");
-    click(view.querySelector(".copilot-launcher"));
+    click(view.querySelector(".ai-assistant-launcher"));
     await flush();
-    click(view.querySelector(".copilot-chip"));
+    click(view.querySelector(".ai-assistant-chip"));
     await flush();
     click(view.querySelector('[aria-label="Refresh the summary"]'));
     await flush();
@@ -242,7 +310,7 @@ describe("CopilotPanel", () => {
       : json(brief("OLD CASE", "Late inaccessible summary.")));
     await flush();
     expect(view.textContent).not.toContain("Late inaccessible");
-    expect(view.querySelector(".copilot-subtitle")?.textContent).not.toContain("OLD CASE");
+    expect(view.querySelector(".ai-assistant-subtitle")?.textContent).not.toContain("OLD CASE");
     expect(peer.signal.aborted).toBe(true);
     expect(view.textContent).not.toContain("Thinking");
     expect(view.querySelector("[role=alert]")?.textContent).toBe("This case was not found.");

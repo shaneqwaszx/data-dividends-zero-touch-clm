@@ -287,7 +287,7 @@ function developmentNavigationFallback(): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
   const backendProxyTarget = env.VITE_BACKEND_PROXY_TARGET || "http://127.0.0.1:8000";
-  const copilotProxyTarget = env.VITE_COPILOT_PROXY_TARGET || "http://127.0.0.1:8100";
+  const aiAssistantProxyTarget = env.VITE_AI_ASSISTANT_PROXY_TARGET || "http://127.0.0.1:8100";
   const guardedE2eBackendAgent = env.CLM_E2E_FRONTEND_PORT
     ? new HttpAgent({ keepAlive: true, maxFreeSockets: 1 })
     : undefined;
@@ -297,10 +297,10 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), developmentNavigationFallback()],
     server: {
       proxy: {
-        // Separate Onboarding Copilot service (apps/assistant). It sits under /api so the
+        // Separate AI Assistant service (apps/assistant). It sits under /api so the
         // browser sends the session cookie (scoped to /api); listed before "/api" to win.
         "/api/assistant": {
-          target: copilotProxyTarget,
+          target: aiAssistantProxyTarget,
           rewrite: (path: string) => path.replace(/^\/api\/assistant/, "/assistant"),
         },
         "/api": {

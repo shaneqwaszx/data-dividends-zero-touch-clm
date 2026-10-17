@@ -18,7 +18,7 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
   });
 }
 
-export function CopilotText({ text }: { text: string }) {
+export function AiAssistantText({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
   let list: { ordered: boolean; items: ReactNode[] } | null = null;
 
@@ -47,7 +47,7 @@ export function CopilotText({ text }: { text: string }) {
     flush();
     if (!line.trim()) return;
     if (heading) {
-      blocks.push(<p key={`h-${lineIndex}`} className="copilot-heading"><strong>{inline(heading[1].replaceAll("**", ""), `h-${lineIndex}`)}</strong></p>);
+      blocks.push(<p key={`h-${lineIndex}`} className="ai-assistant-heading"><strong>{inline(heading[1].replaceAll("**", ""), `h-${lineIndex}`)}</strong></p>);
       return;
     }
     blocks.push(<p key={`p-${lineIndex}`}>{inline(line, `p-${lineIndex}`)}</p>);
