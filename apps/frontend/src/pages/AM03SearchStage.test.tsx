@@ -340,7 +340,7 @@ describe("Search and Registry persistent disclosure migration", () => {
     const value = searchFixture(); value.interventions = [projection("REGISTRY"), projection("GOLDTIER_SEARCH")];
     seed(value); render();
     for (const title of ["Registry verification", "Existing-customer search"]) {
-      expect(stage(title).querySelector(":scope > h2 > button")).toBeNull();
+      expect(stage(title).querySelector(":scope > h2 > button")).not.toBeNull();
       expect(optional(title, "More").open).toBe(false); expect(optional(title, "Technical").open).toBe(false);
     }
     expect(hiddenByDisclosure(container.querySelector("#case-identity-correction"))).toBe(false);
@@ -415,4 +415,20 @@ it("does not introduce hidden raw checkpoint/provider fields into either disclos
     optional(title, "More").open = true; optional(title, "Technical").open = true;
   }
   expect(container.textContent).not.toContain("FORBIDDEN_SYNTHETIC");
+});
+
+
+it("reopens collapsed Search and focuses its named fallback when no corrective input is authorized", async () => {
+  const value = summaryFixture(CASE_A); value.current_stage = "GOLDTIER_SEARCH";
+  value.active_exceptions = [exception("GOLDTIER_SEARCH", "GT_SEARCH_REVIEW_REQUIRED")];
+  value.interventions = []; value.evidence_decision_authorized = false; value.case.error = null;
+  value.clm.target_search_checkpoint = null; seed(value); render();
+  const fetchSpy = vi.spyOn(globalThis, "fetch");
+  const parent = stage("Existing-customer search").querySelector<HTMLButtonElement>("h2 button")!;
+  act(() => parent.click()); expect(parent.getAttribute("aria-expanded")).toBe("false");
+  act(() => button("Blocker: GT SEARCH REVIEW REQUIRED").click());
+  await vi.waitFor(() => expect(document.activeElement?.id).toBe("case-existing-customer-search"));
+  expect(parent.getAttribute("aria-expanded")).toBe("true");
+  expect(container.textContent).toContain("No corrective input is currently authorized here.");
+  expect(fetchSpy).not.toHaveBeenCalled();
 });

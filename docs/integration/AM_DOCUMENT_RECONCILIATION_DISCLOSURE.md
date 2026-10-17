@@ -1,5 +1,11 @@
 # Document verification and reconciliation progressive disclosure
 
+## Current owner UX correction
+
+The owner-requested UX correction on baseline `151802e` restores the outer Document stage toggle in StageDisclosure. Main is visible while the parent is expanded; collapsing the parent hides Main and both independent supports while preserving drafts. Current document readiness and current-stage meaning remain in the visible header summary. Existing guarded navigation reveals the stage before focusing the actual authorized document/reconciliation control. The original migration evidence below remains attributed to its original content.
+
+## Original migration record
+
 This bounded presentation migration starts from PR90 main `74da1b139d649c825d127385b3a8651cd9ce6b27`, tree `6acb4d5642683f2ebd4f2ea51f494ed248dd1d27`. Document verification adopts the existing persistent StageDisclosure composition. Reconciliation remains inside that workspace. Search and Registry retain their accepted composition; Ownership, readiness, package and Final Review are outside this migration.
 
 ## Content and owners

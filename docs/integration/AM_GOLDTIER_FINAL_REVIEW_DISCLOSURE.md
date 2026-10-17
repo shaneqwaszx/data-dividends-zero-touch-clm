@@ -1,5 +1,11 @@
 # GoldTier Submission Package and Final Review progressive disclosure
 
+## Current owner UX correction
+
+The owner-requested UX correction on baseline `151802e` restores independent outer stage toggles in the existing StageDisclosure. Main and optional content are hidden while collapsed; current target/review status remains visible. Explicit guarded navigation opens the owning stage before the actual control receives focus. Final print temporarily expands the parent and both support partitions, then restores all eight prior combinations exactly; the complete request preview, single Send and audit appendix retain their existing owner. The original migration evidence below remains attributed to its original content.
+
+## Original migration record
+
 The bounded Wave 5 frontend migration starts from post-PR92 main
 `0381257a6c9c13e641ee1c4fdd1ec16f8bc5e7d5`, tree
 `f48f916902669e36d51f6de21d095bbe71a87962`. Both remaining stages adopt the

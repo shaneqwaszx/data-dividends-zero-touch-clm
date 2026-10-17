@@ -254,11 +254,11 @@ async function verifyWave5Disclosure(page: Page, caseId: string) {
   page.on("request", request => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(new URL(request.url()).pathname); });
   const final = page.locator(".stage-disclosure--final");
   const target = page.locator(".stage-disclosure").filter({ has: page.locator("h2").filter({ hasText: /^GoldTier submission package$/ }) });
-  const confirm = final.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true });
+  const confirm = final.getByRole("button", { name: "Confirm and send to Mock GoldTier", exact: true, includeHidden: true });
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 1000 });
     for (const [name, stage] of [["GoldTier submission package", target], ["Final review & send", final]] as const) {
-      await expect(stage.locator(":scope > h2 > button")).toHaveCount(0);
+      await expect(stage.locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
       await expect(stage.locator(":scope > div").first()).toBeVisible();
       const more = stage.locator(":scope > details").nth(0), technical = stage.locator(":scope > details").nth(1);
       await expect(more.locator(":scope > summary")).toHaveText(`More details — ${name}`);
@@ -274,6 +274,16 @@ async function verifyWave5Disclosure(page: Page, caseId: string) {
       }
       const ids = await stage.locator("[id]").evaluateAll(items => items.map(item => item.id)); expect(new Set(ids).size).toBe(ids.length);
     }
+    const targetToggle = target.locator(":scope > h2 > button");
+    await targetToggle.focus(); await page.keyboard.press("Enter");
+    await expect(targetToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(target.locator(":scope > div")).toBeHidden();
+    const targetDescription = target.locator(":scope > .stage-disclosure__summary");
+    await expect(targetDescription).toBeVisible();
+    await expect(targetDescription).toContainText(/Submission not started|Target intervention requires review/);
+    await expect(targetToggle).toHaveAccessibleDescription(await targetDescription.innerText());
+    await expect(targetToggle).toBeFocused();
+    await page.keyboard.press("Space"); await expect(targetToggle).toHaveAttribute("aria-expanded", "true");
     await expect(confirm).toBeEnabled(); await expect(final.locator("#review-notes-title")).toBeVisible();
     await expect(final.getByRole("heading", { name: "What will be sent", exact: true })).toBeVisible();
     const fields = retained.clm.submission_plan.request_preview.operations.flatMap((operation: any) => operation.fields);
@@ -283,7 +293,9 @@ async function verifyWave5Disclosure(page: Page, caseId: string) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   }
   const supports = final.locator(":scope > details");
-  for (const states of [[false, false], [true, false], [false, true], [true, true]]) {
+  const parent = final.locator(":scope > h2 > button");
+  for (const parentOpen of [true, false]) for (const states of [[false, false], [true, false], [false, true], [true, true]]) {
+    if ((await parent.getAttribute("aria-expanded") === "true") !== parentOpen) await parent.click();
     for (let index = 0; index < 2; index++) await supports.nth(index).evaluate((element, open) => { (element as HTMLDetailsElement).open = open; }, states[index]);
     await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")));
     await page.emulateMedia({ media: "print" });
@@ -296,8 +308,11 @@ async function verifyWave5Disclosure(page: Page, caseId: string) {
     await page.emulateMedia({ media: "screen" });
     await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
     expect(await supports.evaluateAll(items => items.map(item => (item as HTMLDetailsElement).open))).toEqual(states);
+    await expect(parent).toHaveAttribute("aria-expanded", String(parentOpen));
     await expect(confirm).toBeEnabled();
+    if (!parentOpen) await expect(confirm).toBeHidden();
   }
+  await parent.click(); await expect(parent).toHaveAttribute("aria-expanded", "true");
   expect(await page.getByRole("button", { name: /^Confirm and send/ }).count()).toBe(1);
   expect((await read(page, caseId)).case.target_dispatch_confirmation).toBeNull();
   expect((await read(page, caseId)).target_operations).toEqual(retained.target_operations);
@@ -306,5 +321,5 @@ async function verifyWave5Disclosure(page: Page, caseId: string) {
   const evidence = retainedEvidencePath("wave5"); await mkdir(evidence, { recursive: true });
   await final.screenshot({ path: path.join(evidence, "final-review-360.png") });
   await target.screenshot({ path: path.join(evidence, "target-package-360.png") });
-  await writeFile(path.join(evidence, "disclosure-print.json"), JSON.stringify({ caseId, widths: [1440, 1280, 900, 360], printCombinations: 4, confirmations: 0, mutations }, null, 2));
+  await writeFile(path.join(evidence, "disclosure-print.json"), JSON.stringify({ caseId, widths: [1440, 1280, 900, 360], printCombinations: 8, confirmations: 0, mutations }, null, 2));
 }

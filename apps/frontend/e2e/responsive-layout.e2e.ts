@@ -1,9 +1,11 @@
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { openStage } from "./stage-disclosures";
+import { expectDisclosureContrast, openStage } from "./stage-disclosures";
 import {
+  retainedEvidencePath,
   createBrowserNetworkPolicy,
   handleBrowserRoute,
   type BrowserNetworkPolicy,
@@ -600,7 +602,7 @@ test("disclosure foundation browser fixture preserves Main, independent native c
     }));
     const fixture = {
       actions: 0,
-      render(scopeKey: string, active = false, revision = "one", omitted?: "more" | "technical") {
+      render(scopeKey: string, active = true, revision = "one", omitted?: "more" | "technical") {
         root.render(React.createElement(Stage, {
           title: "Foundation readiness", scopeKey, active, final: true,
           main: React.createElement("section", { className: "review-and-send" },
@@ -647,6 +649,15 @@ test("disclosure foundation browser fixture preserves Main, independent native c
         else await expect(fixture.getByRole("button", { name: "Safe fixture diagnostic" })).toBeHidden();
         await expectDocumentContained(page);
         await expectBoxContained(page, fixture.getByRole("button", { name: "Required fixture correction" }));
+        const parent = fixture.locator(":scope > section > h2 > button");
+        await parent.focus(); await expect(parent).toBeFocused();
+        expect(await parent.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe("none");
+        await parent.press("Enter"); await expect(parent).toHaveAttribute("aria-expanded", "false");
+        await expect(fixture.locator("#fixture-main")).toBeHidden(); await expect(draft).toBeHidden();
+        await expect(fixture.locator("#fixture-diagnostic")).toBeHidden();
+        await parent.press("Space"); await expect(parent).toHaveAttribute("aria-expanded", "true");
+        expect(await more.evaluate(element => (element as HTMLDetailsElement).open)).toBe(moreOpen);
+        expect(await technical.evaluate(element => (element as HTMLDetailsElement).open)).toBe(technicalOpen);
       }
     }
     await fixture.getByRole("button", { name: "Safe fixture diagnostic" }).focus();
@@ -683,9 +694,12 @@ test("disclosure foundation browser fixture preserves Main, independent native c
         else {
           await fixture.locator("details summary").last().focus();
           await page.keyboard.press("Tab");
+          const externalParent = page.locator("#disclosure-unrelated-workspace h2 > button");
+          await expect(externalParent).toBeFocused();
+          await page.keyboard.press("Tab");
         }
         await expect(externalAction).toBeFocused();
-        await page.evaluate(({ scopeKey, removed }) => (window as DisclosureBrowser).__disclosureFoundation.render(scopeKey, false, "changed", removed), { scopeKey: nextScope, removed: omitted });
+        await page.evaluate(({ scopeKey, removed }) => (window as DisclosureBrowser).__disclosureFoundation.render(scopeKey, true, "changed", removed), { scopeKey: nextScope, removed: omitted });
         await expect(fixture.locator("#fixture-main")).toHaveText("Blocked changed");
         await expect(externalAction).toBeFocused();
         scope = nextScope;
@@ -697,11 +711,13 @@ test("disclosure foundation browser fixture preserves Main, independent native c
     await expect(technical).toHaveAttribute("open", ""); await expect(more).not.toHaveAttribute("open", "");
     // Real print media must include Final support, preserve exclusions and restore every prior combination.
     await page.locator("#disclosure-unrelated-workspace details").evaluate(element => { (element as HTMLDetailsElement).open = true; });
-    for (const [moreOpen, technicalOpen] of [[false, false], [true, false], [true, true], [false, true]]) {
+    const parent = fixture.locator(":scope > section > h2 > button");
+    for (const parentOpen of [true, false]) for (const [moreOpen, technicalOpen] of [[false, false], [true, false], [true, true], [false, true]]) {
+      if ((await parent.getAttribute("aria-expanded") === "true") !== parentOpen) await parent.click();
       await more.evaluate((element, open) => { (element as HTMLDetailsElement).open = open; }, moreOpen);
       await technical.evaluate((element, open) => { (element as HTMLDetailsElement).open = open; }, technicalOpen);
-      await fixture.locator("#fixture-main").focus();
       await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")));
+      await fixture.locator("#fixture-main").focus();
       await expect(more).toHaveAttribute("open", ""); await expect(technical).toHaveAttribute("open", "");
       try {
         await page.emulateMedia({ media: "print" });
@@ -727,8 +743,14 @@ test("disclosure foundation browser fixture preserves Main, independent native c
       }
       expect(await more.evaluate(element => (element as HTMLDetailsElement).open)).toBe(moreOpen);
       expect(await technical.evaluate(element => (element as HTMLDetailsElement).open)).toBe(technicalOpen);
-      await expect(fixture.locator("#fixture-required")).toBeVisible();
-      await expect(fixture.locator("#fixture-main")).toBeFocused();
+      await expect(parent).toHaveAttribute("aria-expanded", String(parentOpen));
+      if (parentOpen) {
+        await expect(fixture.locator("#fixture-required")).toBeVisible();
+        await expect(fixture.locator("#fixture-main")).toBeFocused();
+      } else {
+        await expect(fixture.locator("#fixture-required")).toBeHidden();
+        await expect(parent).toBeFocused();
+      }
     }
     expect(await page.evaluate(() => (window as DisclosureBrowser).__disclosureFoundation.actions)).toBe(0);
     expect(mutations).toEqual([]);
@@ -750,13 +772,33 @@ test("Search and Registry disclosure keeps Main visible with independent native 
   page.on("request", request => {
     if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) mutations.push(request.method());
   });
+  const comparison = retainedEvidencePath("ux-correction-comparison");
+  await mkdir(comparison, { recursive: true });
+  await expect(page.getByRole("heading", { name: "Existing-customer search", exact: true })).toBeVisible();
+  const label = await page.locator(".stage-disclosure > h2 > button").count() === 8 ? "after" : "before";
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: path.join(comparison, `${label}-case-sections.png`), fullPage: true });
+  expect(await page.locator(".stage-disclosure > h2").evaluateAll(items => items.map(item => item.querySelector("button > span")?.textContent ?? item.textContent))).toEqual([
+    "Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO",
+    "Submission readiness", "GoldTier submission package", "Historical / resolved issues", "Final review & send",
+  ]);
   for (const width of [1440, 1280, 900, 360]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const name of ["Registry verification", "Existing-customer search", "Document verification", "Ownership & UBO", "Submission readiness", "GoldTier submission package"]) {
+    for (const name of ["Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO", "Submission readiness", "GoldTier submission package"]) {
       const section = page.getByRole("region", { name, exact: true });
       const more = section.locator(":scope > details").filter({ has: page.getByText(`More details — ${name}`, { exact: true }) });
       const technical = section.locator(":scope > details").filter({ has: page.getByText(`Technical details — ${name}`, { exact: true }) });
       await expect(section.getByRole("heading", { name, exact: true })).toBeVisible();
+      const parent = section.locator(":scope > h2 > button");
+      await expect(parent).toHaveAttribute("aria-expanded", "true");
+      const describedBy = await parent.getAttribute("aria-describedby");
+      expect(describedBy).toBeTruthy();
+      await parent.focus(); await expectDisclosureContrast(parent);
+      await parent.press("Enter"); await expect(parent).toHaveAttribute("aria-expanded", "false");
+      await expect(section.locator(":scope > div").first()).toBeHidden();
+      await expect(more).toBeHidden(); await expect(technical).toBeHidden();
+      await expect(section.locator(":scope > .stage-disclosure__summary")).toBeVisible();
+      await parent.press("Space"); await expect(parent).toHaveAttribute("aria-expanded", "true");
       await expect(section.locator(":scope > div").first()).toBeVisible();
       if (name === "Document verification") {
         await expect(section.locator("#case-blocker-review")).toBeVisible();
@@ -822,6 +864,10 @@ test("Search and Registry disclosure keeps Main visible with independent native 
       await expect(technical.locator(":scope > div")).toBeHidden();
     }
   }
+  const finalParent = page.getByRole("region", { name: "Final review & send", exact: true }).locator(":scope > h2 > button");
+  await finalParent.press("Enter"); await expect(finalParent).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("region", { name: "Final review & send", exact: true }).locator(":scope > div")).toBeHidden();
+  await finalParent.press("Space"); await expect(finalParent).toHaveAttribute("aria-expanded", "true");
   // Bounded legacy/empty GET projection exercises the real no-action focus fallback.
   // Auth, HTTP and navigation remain real; no backend state is changed by this fixture.
   await page.route(`**/api/clm/zero-touch/cases/${caseId}`, async route => {
@@ -839,6 +885,7 @@ test("Search and Registry disclosure keeps Main visible with independent native 
   await page.goto(`/cases/${caseId}`);
   const fallback = page.locator("#case-existing-customer-search");
   const action = page.getByRole("button", { name: "Blocker: GT SEARCH REVIEW REQUIRED", exact: true });
+  await page.getByRole("region", { name: "Existing-customer search", exact: true }).locator(":scope > h2 > button").click();
   await action.focus(); await action.press("Enter");
   await expect(fallback).toBeFocused();
   await expect(fallback).toHaveAccessibleName("Existing-customer search");

@@ -1,5 +1,11 @@
 # Progressive-disclosure foundation
 
+## Current owner UX correction
+
+The owner-requested UX correction on baseline `151802e` restores an accessible outer button in this same opt-in component. All seven business stages use it. Main is immediately visible while the parent is expanded; parent collapse hides Main and both optional sections without unmounting forms. Existing opt-in callers start expanded unless they supply `active={false}`. The active/actionable stage therefore stays initially visible; completed stages can be collapsed manually. Same-scope active changes and polling do not reopen a manual collapse. Header status remains visible and describes the toggle. Attention projects both current backend intervention ownership and active exceptions, including disabled/no-action projections; it grants no capability. Explicit reveal opens the parent and only required optional ancestors; corrective navigation excludes presentation toggles. Scope replacement resets parent state to its supplied initial value and retires support/draft state through existing keys. Final print saves and restores all eight parent/More/Technical combinations, returning hidden focus to the parent toggle when necessary. Legacy child composition remains unchanged.
+
+## Original migration record
+
 This bounded presentation foundation starts from post-PR87 main `87bb5537d1764ca16c3aef5d7a1f7560e62b6131`. It adds an opt-in composition to the existing StageDisclosure owner and exposes current intervention requirements. Existing CaseDetail stages retain their legacy composition. Adoption by all seven stages requires a separate assignment.
 
 ## Composition and compatibility

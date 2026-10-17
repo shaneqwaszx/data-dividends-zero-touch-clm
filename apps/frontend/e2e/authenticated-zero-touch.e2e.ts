@@ -557,14 +557,22 @@ test("ordinary RM repairs same-case identity, resolves evidence, and reviews wit
   const confirm = review.getByRole("button", { name: "Confirm and send to Mock GoldTier" });
   await expect(confirm).toBeEnabled();
 
+  await page.getByRole("region", { name: "Registry verification", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit company details" }).click();
+  await expect(page.getByRole("region", { name: "Registry verification", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#identity-registration-number")).toBeFocused();
   await expect(page.locator("#case-identity-correction").getByRole("heading", { name: "Registry identity" })).toBeVisible();
+  await page.getByRole("region", { name: "Submission readiness", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit classification" }).click();
+  await expect(page.getByRole("region", { name: "Submission readiness", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByLabel("KYC customer type", { exact: true })).toBeFocused();
+  await page.getByRole("region", { name: "Document verification", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit documents" }).click();
+  await expect(page.getByRole("region", { name: "Document verification", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#case-blocker-review select[data-review-field], #case-blocker-review select[data-reconciliation-field], #case-evidence-documents input[type=file]").first()).toBeFocused();
+  await page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > h2 > button").click();
   await review.getByRole("button", { name: "Edit ownership" }).click();
+  await expect(page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > h2 > button")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#case-manual-ownership-evidence :is(input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]))").first()).toBeFocused();
 
   const printButton = review.getByRole("button", { name: "Print / save PDF" });
@@ -1117,6 +1125,12 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
     local: { ...localStorage },
     session: { ...sessionStorage },
   }));
+  const comparison = retainedEvidencePath("ux-correction-comparison");
+  await mkdir(comparison, { recursive: true });
+  const ownershipStage = page.getByRole("region", { name: "Ownership & UBO", exact: true });
+  await expect(ownershipStage.getByLabel("Hierarchical ownership structure", { exact: true })).toBeVisible();
+  const comparisonLabel = await ownershipStage.locator(":scope > h2 > button").count() ? "after" : "before";
+  await ownershipStage.screenshot({ path: path.join(comparison, `${comparisonLabel}-ownership.png`) });
   const ownershipStructure = page.getByRole("region", { name: "Ownership & UBO", exact: true }).locator(":scope > details").filter({ has: page.getByText("Technical details — Ownership & UBO", { exact: true }) });
   await expect(ownershipStructure).not.toHaveAttribute("open", "");
   const calculations = ownershipStructure.getByText("Technical details — Ownership & UBO", { exact: true }); await expect(calculations).toBeVisible(); await calculations.click();
@@ -1131,11 +1145,19 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
   await expect(selectedHolder.getByRole("heading", { name: expectedCandidate.party.display_name, exact: true })).toBeVisible();
   await expect(selectedHolder).toContainText(expectedCandidate.classification);
   await expect(selectedHolder).toContainText(expectedCandidate.threshold_result);
-  const retainedPath = page.getByRole("button", { name: `Inspect ${expectedCandidate.paths[0].path_id}`, exact: true });
-  await expect(retainedPath).toBeVisible();
-  await retainedPath.click();
-  await expect(retainedPath).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByLabel(`Selected retained path ${expectedCandidate.paths[0].path_id}`, { exact: true })).toBeVisible();
+  if (expectedCandidate.paths.length > 1 || expectedCandidate.paths.some((item: any) => !item.is_direct)) {
+    await page.getByText("Technical retained path inspection", { exact: true }).click();
+    const retainedPath = page.getByRole("button", { name: `Inspect ${expectedCandidate.paths[0].path_id}`, exact: true });
+    await expect(retainedPath).toBeVisible();
+    await retainedPath.click();
+    await expect(retainedPath).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByLabel(`Selected retained path ${expectedCandidate.paths[0].path_id}`, { exact: true })).toBeVisible();
+  } else {
+    await expect(page.locator('[aria-label^="Ownership candidate "]')).toHaveCount(0);
+    await expect(page.getByRole("button", { name: `Inspect ${expectedCandidate.paths[0].path_id}`, exact: true })).toHaveCount(0);
+    await expect(ownershipStructure).toContainText(expectedCandidate.paths[0].calculation);
+    await expect(ownershipStructure).toContainText(expectedCandidate.paths[0].effective_ownership_percent);
+  }
   await page.getByRole("button", { name: "Focus registry evidence" }).click();
   await expect(page.locator("#case-evidence-registry")).toBeFocused();
   await page.waitForTimeout(250);
@@ -1154,7 +1176,7 @@ test("Singapore clean fixture completes the truthful Mock target path", async ({
     rootScrollWidth: document.documentElement.scrollWidth,
   }));
   expect(horizontalLayout.rootScrollWidth).toBeLessThanOrEqual(horizontalLayout.rootClientWidth + 1);
-  const ownershipTableScroller = page.locator("#case-evidence-ownership .table-scroll").first();
+  const ownershipTableScroller = ownershipStructure.locator(".table-scroll").first();
   const tableLayout = await ownershipTableScroller.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     return {

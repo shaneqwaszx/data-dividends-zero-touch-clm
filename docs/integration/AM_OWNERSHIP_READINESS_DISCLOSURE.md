@@ -1,5 +1,11 @@
 # Ownership and Submission Readiness progressive disclosure
 
+## Current owner UX correction
+
+The owner-requested UX correction on baseline `151802e` restores independent outer toggles. Main is visible while expanded, with current status retained above hidden content. For a single direct-path candidate the graph Selected holder is the primary inspection view: the redundant lower candidate/path summary and one-row path table are absent. Multi-path or indirect inspection remains in an optional Technical retained path inspection disclosure inside the same OwnershipPathExplorer; its candidate/path/page state has not moved or been copied. Opening mounts at most twenty retained rows and a bounded selected edge visual; closing unmounts this optional inspection. The stage Technical projection still lazily exposes exact original backend Decimal values and provenance. Ordinary parent collapse preserves graph/candidate/path/page/form state. Reselecting the same candidate or another graph occurrence preserves coherent open inspection content; candidate/analysis replacement still closes incompatible inspection. Analysis/actor/case/session replacement retains existing retirement boundaries. No second explorer, handler, calculation or business mutation is introduced. The original migration evidence below remains historical evidence for its original content.
+
+## Original migration record
+
 This bounded presentation migration starts from PR91 main `7356d1566350dbaffaca30399686d0c3c26e9f7e`, tree `ca73b1b54510a553916ab68a5fedd1522d44736d`. It adopts the existing StageDisclosure persistent Main/More/Technical composition for Ownership & UBO and Submission readiness. Search, Registry and Documents retain their accepted behavior.
 
 | Stage | Main, always visible | More details, initially closed | Technical details, initially closed |

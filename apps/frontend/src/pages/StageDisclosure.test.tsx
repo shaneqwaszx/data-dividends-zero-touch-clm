@@ -43,7 +43,7 @@ function visible(element: Element): boolean {
 async function fixture() {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
-  const render = async (scopeKey = "actor-a:session-a:case-a", active = false, final = false, revision = "one") => {
+  const render = async (scopeKey = "actor-a:session-a:case-a", active = true, final = false, revision = "one") => {
     await act(async () => root.render(<StageDisclosure title="Submission readiness" active={active} final={final}
       scopeKey={scopeKey} main={<><p id="main-status">Blocked {revision}</p><button id="required">Required correction</button></>}
       moreDetails={<label>Optional draft<input id="draft" defaultValue="retained" /></label>}
@@ -58,11 +58,14 @@ async function fixture() {
   return { host, render, details, toggle, dispose };
 }
 
-describe("persistent stage Main", () => {
-  it("keeps Main visible in all four independent support combinations with stage-qualified native names", async () => {
+describe("collapsible stage Main", () => {
+  it("toggles the parent independently of all four supporting combinations with stage-qualified native names", async () => {
     const f = await fixture();
     try {
-      expect(f.host.querySelector("h2 button")).toBeNull();
+      await f.render(undefined, true);
+      const parent = f.host.querySelector<HTMLButtonElement>("h2 button")!;
+      expect(parent.type).toBe("button");
+      expect(parent.getAttribute("aria-expanded")).toBe("true");
       expect(f.details().map(d => d.open)).toEqual([false, false]);
       expect(f.details().map(d => d.querySelector("summary")?.textContent)).toEqual([
         "More details — Submission readiness", "Technical details — Submission readiness",
@@ -72,6 +75,13 @@ describe("persistent stage Main", () => {
         expect(visible(f.host.querySelector("#required")!)).toBe(true);
         expect(visible(f.host.querySelector("#draft")!)).toBe(more);
         expect(visible(f.host.querySelector("#diagnostic")!)).toBe(technical);
+        await act(async () => parent.click());
+        expect(parent.getAttribute("aria-expanded")).toBe("false");
+        for (const id of ["required", "draft", "diagnostic"]) expect(visible(f.host.querySelector(`#${id}`)!)).toBe(false);
+        await f.render(undefined, true, false, "refreshed");
+        expect(parent.getAttribute("aria-expanded")).toBe("false");
+        await act(async () => parent.click());
+        expect(f.details().map(d => d.open)).toEqual([more, technical]);
       }
     } finally { await f.dispose(); }
   });
@@ -79,9 +89,13 @@ describe("persistent stage Main", () => {
   it("preserves mounted drafts and support state through toggles, active changes and same-scope evidence refresh", async () => {
     const f = await fixture();
     try {
+      await f.render(undefined, true);
       await f.toggle(0, true);
       const draft = f.host.querySelector<HTMLInputElement>("#draft")!; draft.value = "unsaved local draft";
       await f.toggle(0, false); await f.toggle(0, true);
+      const parent = f.host.querySelector<HTMLButtonElement>("h2 button")!;
+      await act(async () => parent.click());
+      await act(async () => parent.click());
       await f.render(undefined, true, false, "two");
       expect(f.details().map(d => d.open)).toEqual([true, false]);
       expect(f.host.querySelector("#draft")).toBe(draft);
@@ -120,12 +134,14 @@ describe("persistent stage Main", () => {
   it("opens Final support temporarily for print and restores the exact pre-print combination", async () => {
     const f = await fixture();
     try {
-      await f.render(undefined, false, true); await f.toggle(1, true);
+      await f.render(undefined, false, true);
+      await act(async () => f.host.querySelector<HTMLButtonElement>("h2 button")!.click());
+      await f.toggle(1, true);
       await act(async () => window.dispatchEvent(new Event("beforeprint")));
       expect(f.details().map(d => d.open)).toEqual([true, true]);
       await act(async () => window.dispatchEvent(new Event("afterprint")));
       expect(f.details().map(d => d.open)).toEqual([false, true]);
-      expect(visible(f.host.querySelector("#required")!)).toBe(true);
+      expect(visible(f.host.querySelector("#required")!)).toBe(false);
     } finally { await f.dispose(); }
   });
 });
@@ -224,7 +240,61 @@ describe("scope and external focus boundaries", () => {
       await f.render("actor-b:session-b:case-b:analysis-b", false, true);
       await act(async () => window.dispatchEvent(new Event("afterprint")));
       expect(f.details().map(d => d.open)).toEqual([false, false]);
-      expect(visible(f.host.querySelector("#required")!)).toBe(true);
+      expect(visible(f.host.querySelector("#required")!)).toBe(false);
     } finally { await f.dispose(); }
   });
+});
+
+
+describe("outer stage focus and reveal", () => {
+  it("returns hidden focus to the outer toggle, reopens for explicit navigation and preserves optional state", async () => {
+    const f = await fixture();
+    try {
+      await f.render(undefined, true); await f.toggle(0, true);
+      const draft = f.host.querySelector<HTMLInputElement>("#draft")!; draft.value = "unsaved"; draft.focus();
+      const parent = f.host.querySelector<HTMLButtonElement>("h2 button")!;
+      await act(async () => parent.click());
+      expect(document.activeElement).toBe(parent);
+      expect(visible(draft)).toBe(false);
+      await act(async () => revealStage(draft));
+      expect(parent.getAttribute("aria-expanded")).toBe("true");
+      expect(visible(draft)).toBe(true); expect(draft.value).toBe("unsaved");
+      expect(f.details().map(d => d.open)).toEqual([true, false]);
+      const controlled = parent.getAttribute("aria-controls")!.split(" ");
+      expect(controlled.every(id => document.getElementById(id) !== null)).toBe(true);
+    } finally { await f.dispose(); }
+  });
+  it("restores every parent/More/Technical print combination", async () => {
+    const f = await fixture();
+    try {
+      await f.render(undefined, true, true);
+      const parent = f.host.querySelector<HTMLButtonElement>("h2 button")!;
+      for (const expanded of [false, true]) for (const more of [false, true]) for (const technical of [false, true]) {
+        if ((parent.getAttribute("aria-expanded") === "true") !== expanded) await act(async () => parent.click());
+        await f.toggle(0, more); await f.toggle(1, technical);
+        await act(async () => window.dispatchEvent(new Event("beforeprint")));
+        expect(parent.getAttribute("aria-expanded")).toBe("true");
+        expect(visible(f.host.querySelector("#required")!)).toBe(true);
+        expect(f.details().map(d => d.open)).toEqual([true, true]);
+        await act(async () => window.dispatchEvent(new Event("afterprint")));
+        expect(parent.getAttribute("aria-expanded")).toBe(String(expanded));
+        expect(f.details().map(d => d.open)).toEqual([more, technical]);
+      }
+    } finally { await f.dispose(); }
+  });
+});
+
+
+it("returns focus from print-expanded content before restoring a collapsed parent", async () => {
+  const f = await fixture();
+  try {
+    await f.render(undefined, true, true);
+    const parent = f.host.querySelector<HTMLButtonElement>("h2 button")!;
+    await act(async () => parent.click());
+    await act(async () => window.dispatchEvent(new Event("beforeprint")));
+    f.host.querySelector<HTMLElement>("#required")!.focus();
+    await act(async () => window.dispatchEvent(new Event("afterprint")));
+    expect(document.activeElement).toBe(parent);
+    expect(visible(document.activeElement!)).toBe(true);
+  } finally { await f.dispose(); }
 });

@@ -270,8 +270,17 @@ function response(value: unknown): Response {
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
+let scrollIntoView: ReturnType<typeof vi.fn>;
+let scrollDescriptor: PropertyDescriptor | undefined;
 
 beforeEach(() => {
+  // jsdom has no scroll/layout implementation. Keep this adapter file-local and
+  // restore its descriptor; real focus, target lookup and disclosure still run.
+  scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+  scrollIntoView = vi.fn();
+  if (typeof HTMLElement.prototype.scrollIntoView !== "function") {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+  }
   container = document.createElement("div");
   document.body.append(container);
 });
@@ -281,6 +290,8 @@ afterEach(() => {
   container?.remove();
   root = null;
   container = null;
+  if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", scrollDescriptor);
+  else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
   vi.restoreAllMocks();
 });
 
@@ -307,7 +318,13 @@ function button(label: string): HTMLButtonElement {
   return result!;
 }
 
+function openPathInspection(): void {
+  const details = [...container!.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "Technical retained path inspection");
+  if (details && !details.open) act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+}
+
 function click(label: string): void {
+  if (label.startsWith("Inspect ")) openPathInspection();
   act(() => button(label).click());
 }
 
@@ -586,7 +603,8 @@ describe("Evidence workbench integration isolation", () => {
     click("Inspect a-path-2");
     expect(container?.textContent).toContain("Selected retained path: a-path-2");
     click("a Candidate Two");
-    expect(container?.textContent).toContain("Selected retained path: a-candidate-two-path");
+    expect(container!.querySelector('[aria-label="Selected holder"]')?.textContent).toContain("a Candidate Two");
+    expect(container!.querySelector('[aria-label^="Ownership candidate "]')).toBeNull();
     click("Focus documents evidence");
 
     await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-review-field")).toBe("legal_name"));
@@ -641,11 +659,13 @@ describe("Evidence workbench integration isolation", () => {
     expect(container?.textContent).toContain("Selected retained path: a-path-2");
 
     renderCase(client, actorA, CASE_B);
+    openPathInspection();
     expect(container?.textContent).toContain("Selected retained path: b-path-1");
     expect(container?.textContent).not.toContain("Selected retained path: a-path-2");
     click("Inspect b-path-2");
 
     renderCase(client, actorB, CASE_B);
+    openPathInspection();
     expect(container?.textContent).toContain("Selected retained path: c-path-1");
     expect(container?.textContent).not.toContain("Selected retained path: b-path-2");
     click("Inspect c-path-2");
@@ -657,6 +677,7 @@ describe("Evidence workbench integration isolation", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    openPathInspection();
     expect(container?.textContent).toContain("Selected retained path: d-path-1");
     expect(container?.textContent).not.toContain("Selected retained path: c-path-2");
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -704,20 +725,20 @@ describe("Evidence workbench integration isolation", () => {
     ]);
   });
 
-  it("renders migrated Search after Registry with legacy disclosures in order and Review & Send last", () => {
+  it("renders Search before Registry in pipeline order with independent stage toggles", () => {
     const client = createTestClient();
     seedCase(client, actorA, CASE_A, "analysis-a", "a");
     renderCase(client, actorA, CASE_A);
     const sections = Array.from(container!.querySelectorAll(".stage-disclosure"));
     expect(sections.map((section) => section.querySelector(":scope > h2 button span")?.textContent ?? section.querySelector(":scope > h2")?.textContent)).toEqual([
-      "Registry verification", "Existing-customer search", "Document verification", "Ownership & UBO",
+      "Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO",
       "Submission readiness", "GoldTier submission package",
       "Historical / resolved issues", "Final review & send",
     ]);
-    expect(sections[2].querySelector(":scope > h2 button")).toBeNull();
+    expect(sections[2].querySelector(":scope > h2 button")).not.toBeNull();
     expect([...sections[2].querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
     expect(sections[6].querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
-    expect(sections[7].querySelector(":scope > h2 button")).toBeNull();
+    expect(sections[7].querySelector(":scope > h2 button")).not.toBeNull();
     expect(sections[7].textContent).toContain("Not yet available");
     expect(sections[7].querySelector(".review-and-send")).toBeNull();
   });
@@ -743,7 +764,11 @@ describe("Case attention corrective navigation", () => {
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), projectionOnlySummary());
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
     const stage = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === "Registry verification")!;
-    expect(stage.querySelector(":scope > h2 button")).toBeNull();
+    const parent = stage.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+    act(() => parent.click());
+    expect(parent.getAttribute("aria-expanded")).toBe("false");
+    expect(stage.querySelector(".stage-disclosure__summary")?.textContent).toContain("Attention required");
+    expect(stage.querySelector<HTMLElement>(":scope > div")!.hidden).toBe(true);
     expect([...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")].every(item => !item.open)).toBe(true);
     const action = attentionButton("Action: Correct identity"); action.focus(); expect(document.activeElement).toBe(action);
     act(() => action.click());
@@ -797,6 +822,9 @@ describe("Case attention corrective navigation", () => {
     const value = projectionOnlySummary(); value.evidence_decision_authorized = false;
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    const stage = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === "Registry verification")!;
+    act(() => stage.querySelector<HTMLButtonElement>("h2 button")!.click());
+    expect(stage.querySelector(".stage-disclosure__summary")?.textContent).toContain("Attention required");
     act(() => attentionButton("Action: Correct identity").click());
     await vi.waitFor(() => expect(container!.textContent).toContain("No corrective input is currently authorized here"));
     expect(document.activeElement?.id).not.toBe("identity-registration-number"); expect(fetch).not.toHaveBeenCalled();
@@ -823,6 +851,9 @@ describe("Case attention corrective navigation", () => {
       evidence_actions: [], no_action_reason: "No authorized POC risk decision is available." }];
     client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), value);
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
+    const stage = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === "Submission readiness")!;
+    act(() => stage.querySelector<HTMLButtonElement>("h2 button")!.click());
+    expect(stage.querySelector(".stage-disclosure__summary")?.textContent).toContain("Attention required");
     act(() => attentionButton("Blocker: Retained risk review").click());
     await vi.waitFor(() => expect(document.activeElement?.id).toBe(`case-intervention-${value.interventions![0].intervention_id}`));
     expect(container!.textContent).toContain("No corrective input is currently authorized here"); expect(fetch).not.toHaveBeenCalled();
@@ -986,7 +1017,7 @@ describe("Document persistent disclosure migration", () => {
     const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis-a", "a");
     const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
     const stage = documentStage(); expect(stage).toBeTruthy();
-    expect(stage.querySelector(":scope > h2 button")).toBeNull();
+    expect(stage.querySelector(":scope > h2 button")).not.toBeNull();
     const support = [...stage.querySelectorAll<HTMLDetailsElement>(":scope > details")];
     expect(support.map(item => item.querySelector("summary")?.textContent)).toEqual([
       "More details — Document verification", "Technical details — Document verification",
@@ -1239,7 +1270,7 @@ describe("Ownership and Readiness persistent disclosure", () => {
   }
   function partitions(title: string) {
     const region = stage(title);
-    expect(region.querySelector(":scope > h2 button")).toBeNull();
+    expect(region.querySelector(":scope > h2 button")).not.toBeNull();
     const support = [...region.querySelectorAll<HTMLDetailsElement>(":scope > details")];
     expect(support.map(item => item.querySelector("summary")?.textContent)).toEqual([
       `More details — ${title}`, `Technical details — ${title}`,
@@ -1273,12 +1304,14 @@ describe("Ownership and Readiness persistent disclosure", () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(element, value);
     element.dispatchEvent(new Event("input", { bubbles: true }));
   }
-  it("keeps the graph, candidate/path inspection and single authorized correction in Main", () => {
+  it("keeps graph and single correction in Main with lazy optional retained path inspection", () => {
     const client = setup(); const fetch = vi.spyOn(globalThis, "fetch"); renderCase(client, actorA, CASE_A);
     const { main, support, region } = partitions("Ownership & UBO");
     expect(support.every(item => !item.open)).toBe(true);
     expect(main.querySelector(".manual-ownership form")).not.toBeNull();
     expect(main.querySelector('[aria-label="Hierarchical ownership structure"]')).not.toBeNull();
+    expect(main.querySelector('[aria-label="Selected retained path a-path-1"]')).toBeNull();
+    openPathInspection();
     expect(main.querySelector('[aria-label="Selected retained path a-path-1"]')).not.toBeNull();
     expect(main.querySelector('button[aria-pressed]')).not.toBeNull();
     expect(region.querySelectorAll(".manual-ownership form")).toHaveLength(1);
@@ -1500,7 +1533,7 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     const region = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")]
       .find(item => item.querySelector(":scope > h2")?.textContent === title)!;
     expect(region).toBeTruthy();
-    expect(region.querySelector(":scope > h2 button")).toBeNull();
+    expect(region.querySelector(":scope > h2 button")).not.toBeNull();
     const support = [...region.querySelectorAll<HTMLDetailsElement>(":scope > details")];
     expect(support.map(item => item.querySelector("summary")?.textContent)).toEqual([
       `More details — ${title}`, `Technical details — ${title}`,
@@ -1528,6 +1561,170 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     client.setQueryData(caseQueryKeys.detail(profile.user_id, CASE_A), summary);
     renderCase(client, profile, CASE_A); return client;
   }
+  function collapsedTargetHeader() {
+    const { region, main } = partitions("GoldTier submission package");
+    const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+    if (toggle.getAttribute("aria-expanded") === "true") act(() => toggle.click());
+    expect(main.hidden).toBe(true);
+    const description = document.getElementById(toggle.getAttribute("aria-describedby")!)!;
+    expect(description).toBe(region.querySelector(":scope > .stage-disclosure__summary"));
+    expect(description.hidden).toBe(false);
+    expect(description.closest("[hidden]")).toBeNull();
+    return description.textContent!;
+  }
+  it.each([
+    ["NOT_SUBMITTED", "Submission not started."],
+    ["SENDING", "Submission in progress — do not send again. Reviewed package frozen."],
+    ["SUBMISSION_CONFIRMED", "Submission confirmed. Reviewed package frozen."],
+    ["SUBMISSION_FAILED", "Submission failed — review required. Reviewed package frozen."],
+    ["SUBMISSION_OUTCOME_UNCERTAIN", "Submission outcome uncertain — verification required. Reviewed package frozen."],
+    ["FINALIZATION_PENDING", "Submission finalization pending — review required. Reviewed package frozen."],
+  ] as const)("Round4 complete Final header for %s across current, pending and failed reads", async (state, status) => {
+    const summary = targetSummary(state); const client = setup(summary);
+    const key = caseQueryKeys.documents(actorA.user_id, CASE_A);
+    const fetch = vi.spyOn(globalThis, "fetch");
+    function inspect(prefix: string, current: boolean) {
+      const { region, main } = partitions("Final review & send");
+      const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+      if (toggle.getAttribute("aria-expanded") === "true") act(() => toggle.click());
+      const description = region.querySelector<HTMLElement>(":scope > .stage-disclosure__summary")!;
+      expect(main.hidden).toBe(true); expect(description.closest("[hidden]")).toBeNull();
+      expect(document.getElementById(toggle.getAttribute("aria-describedby")!)).toBe(description);
+      const ready = current && state === "NOT_SUBMITTED";
+      expect(description.textContent!.trim()).toBe(prefix + status + (ready ? " Action required — review the package before Confirm and send." : ""));
+      if (!ready) expect(description.textContent).not.toMatch(/before sending|before Confirm and send|Action required — review the package/);
+      const sends = [...main.querySelectorAll("button")].filter(item => item.textContent?.startsWith("Confirm and send"));
+      expect(sends).toHaveLength(state === "NOT_SUBMITTED" ? 1 : 0);
+      expect(main.textContent).toContain("What will be sent"); expect(main.textContent).toContain("Synthetic review identity");
+      act(() => { window.dispatchEvent(new Event("beforeprint")); window.dispatchEvent(new Event("afterprint")); });
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      expect(fetch).not.toHaveBeenCalled();
+    }
+    inspect("", true);
+    let reject!: (error: Error) => void;
+    const pending = new Promise<unknown>((_resolve, fail) => { reject = fail; });
+    let read!: Promise<unknown>;
+    await act(async () => { read = client.fetchQuery({ queryKey: key, queryFn: () => pending, staleTime: 0, retry: false }).catch(() => undefined); });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    inspect("Last-confirmed final review information (refresh in progress). ", false);
+    await act(async () => { reject(new Error("Synthetic unavailable supporting read")); await read; });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    inspect("Last-confirmed final review information (refresh failed; may be stale). ", false);
+    client.clear();
+  });
+  it.each(["blocked", "unauthorized", "confirmation", "legacy-frozen", "intervention-frozen", "safe-continuation"] as const)(
+    "Round4 complete Final header preserves %s priority without another Send", mode => {
+      const summary = targetSummary(mode === "intervention-frozen" ? "SUBMISSION_FAILED" : mode === "safe-continuation" ? "FINALIZATION_PENDING" : "NOT_SUBMITTED");
+      let expected = "Submission not started. ";
+      if (mode === "blocked") { summary.clm.readiness.blockers = ["Retained blocker"]; expected += "Review current blockers and outstanding items."; }
+      if (mode === "unauthorized") expected += "You do not have the case capability required to confirm this dispatch.";
+      if (mode === "confirmation") {
+        summary.case.target_dispatch_confirmation = { confirmation_id: "retained", actor_id: "synthetic", confirmed_at: NOW, case_event_count: 1, clm_version: 4, destination: "GOLDTIER_MOCK", warnings: [], review_digest: "a".repeat(64), classification: "USER_AUTHORIZED_POC" };
+        expected += "Reviewed package frozen.";
+      }
+      if (mode === "legacy-frozen") { summary.target_submission = undefined; summary.clm.submission = {} as NonNullable<ZeroTouchCaseSummary["clm"]["submission"]>; expected = "Submission state not available in retained evidence. Reviewed package frozen."; }
+      if (mode === "intervention-frozen") { summary.interventions = [{ intervention_id: "r4-target", owning_stage: "MOCK_GOLDTIER", owning_stage_label: "Target", title: "Review", blocker_code: "TARGET_REVIEW", explanation: "Retained review", required_evidence_or_input: [], authorized_actions: [], no_action_reason: "No action", expected_next_step: "Review", candidate_summaries: [] }]; expected = "Target intervention requires review. Reviewed package frozen."; }
+      if (mode === "safe-continuation") { summary.status = "RECOVERY_PENDING"; expected = "Verified work retained — safe continuation requires review. Reviewed package frozen."; }
+      const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary, mode === "unauthorized" ? { ...actorA, capabilities: [] } : actorA);
+      const { region, main } = partitions("Final review & send"); const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+      act(() => toggle.click()); const description = document.getElementById(toggle.getAttribute("aria-describedby")!)!;
+      expect(description.textContent!.trim()).toBe(expected); expect(description.closest("[hidden]")).toBeNull(); expect(main.hidden).toBe(true);
+      expect(description.textContent).not.toMatch(/before sending|before Confirm and send/);
+      expect([...main.querySelectorAll("button")].some(item => item.textContent?.startsWith("Confirm and send"))).toBe(false);
+      expect(fetch).not.toHaveBeenCalled(); client.clear();
+    },
+  );
+  it.each(["ownership", "documents"] as const)("Round4 missing %s read omits confirmation guidance while loading and unavailable", async resource => {
+    const summary = targetSummary(); const client = createTestClient(); seedCase(client, actorA, CASE_A, "r4", "R4");
+    client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary);
+    const key = caseQueryKeys[resource](actorA.user_id, CASE_A); client.removeQueries({ queryKey: key, exact: true });
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending); renderCase(client, actorA, CASE_A);
+    const { region } = partitions("Final review & send"); const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!; act(() => toggle.click());
+    const description = document.getElementById(toggle.getAttribute("aria-describedby")!)!;
+    expect(description.textContent!.trim()).toBe("Loading final review information — current evidence not yet confirmed. Submission not started.");
+    await act(async () => { release(new Response("", { status: 503 })); });
+    await vi.waitFor(() => expect(description.textContent!.trim()).toBe("Current evidence unavailable; absence not confirmed. Submission not started."));
+    expect(description.textContent).not.toMatch(/before sending|before Confirm and send|Last-confirmed/);
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
+  it.each([
+    ["NOT_SUBMITTED", "Submission not started"],
+    ["SENDING", "Submission in progress — do not send again"],
+    ["SUBMISSION_FAILED", "Submission failed — review required"],
+    ["SUBMISSION_CONFIRMED", "Submission confirmed"],
+    ["SUBMISSION_OUTCOME_UNCERTAIN", "Submission outcome uncertain — verification required"],
+    ["FINALIZATION_PENDING", "Submission finalization pending — review required"],
+  ] as const)("collapsed target header describes backend %s", (state, message) => {
+    const summary = targetSummary(state); summary.active_exceptions = [];
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => response({ submission_id: summary.target_submission!.submission_id, result: "CHECK_FAILED", message: "Synthetic observation unavailable", checked_at: NOW }));
+    const client = setup(summary, { ...actorA, capabilities: [] });
+    expect(collapsedTargetHeader()).toContain(message);
+    expect(collapsedTargetHeader()).toContain("MOCK");
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each([true, false])("collapsed target header exposes preflight attention for authorized=%s without granting an action", authorized => {
+    const summary = targetSummary(); summary.active_exceptions = [];
+    summary.case.initial_identity = { legal_name: "Synthetic identity", registration_number: "202400001A", country_of_incorporation: "SG" };
+    summary.clm.target_search_checkpoint = { status: "FAILED", disposition: "FAILED" } as NonNullable<ZeroTouchCaseSummary["clm"]["target_search_checkpoint"]>;
+    const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary, { ...actorA, capabilities: authorized ? ["CASE_ACCESS"] : [] });
+    expect(collapsedTargetHeader()).toContain("Attention required — GoldTier availability check needed");
+    expect(collapsedTargetHeader()).not.toContain("available.");
+    expect([...partitions("GoldTier submission package").main.querySelectorAll("button")].some(item => item.textContent === "Check GoldTier availability")).toBe(authorized);
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each([true, false])("collapsed target header retains projection-only intervention with action authorized=%s", authorized => {
+    const summary = targetSummary(); summary.active_exceptions = []; summary.evidence_decision_authorized = authorized;
+    summary.interventions = [{ intervention_id: "target-review", owning_stage: "MOCK_GOLDTIER", owning_stage_label: "GoldTier", title: "Review target evidence", blocker_code: "MOCK_GOLDTIER_REVIEW_REQUIRED", explanation: "Synthetic target evidence needs review", required_evidence_or_input: [], authorized_actions: [], no_action_reason: "No correction is currently authorized.", expected_next_step: "Review retained evidence", candidate_summaries: [] }];
+    const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary);
+    expect(collapsedTargetHeader()).toContain("Target intervention requires review");
+    expect(collapsedTargetHeader()).not.toContain("available");
+    expect(partitions("GoldTier submission package").main.querySelector(".intervention-card button")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each(["NOT_SUBMITTED", "SUBMISSION_CONFIRMED", "SUBMISSION_OUTCOME_UNCERTAIN", "SENDING"] as const)("collapsed target header prioritizes intervention and uncertainty over routine %s", state => {
+    const summary = targetSummary(state); summary.active_exceptions = [];
+    summary.interventions = [{ intervention_id: "target-priority", owning_stage: "MOCK_GOLDTIER", owning_stage_label: "GoldTier", title: "Review target", blocker_code: "MOCK_GOLDTIER_REVIEW_REQUIRED", explanation: "Retained target review", required_evidence_or_input: [], authorized_actions: [], no_action_reason: "No correction authorized", expected_next_step: "Review", candidate_summaries: [] }];
+    const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary, { ...actorA, capabilities: [] });
+    expect(collapsedTargetHeader()).toContain(state === "SUBMISSION_OUTCOME_UNCERTAIN" ? "Submission outcome uncertain — verification required"
+      : state === "SENDING" ? "Submission in progress — do not send again" : "Target intervention requires review");
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each([true, false])("collapsed target header exposes pending recovery with submission projection=%s", retained => {
+    const summary = targetSummary("FINALIZATION_PENDING"); summary.status = "RECOVERY_PENDING"; summary.active_exceptions = [];
+    if (!retained) summary.target_submission = undefined;
+    const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary);
+    expect(collapsedTargetHeader()).toContain(retained ? "Verified work retained — safe continuation requires review" : "Backend recovery pending — review required");
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each(["pending", "failed"] as const)("collapsed target header qualifies %s refresh and retains attention without new confirmation", async state => {
+    const summary = targetSummary(); summary.active_exceptions = [];
+    summary.clm.target_search_checkpoint = { status: "FAILED", disposition: "FAILED" } as NonNullable<ZeroTouchCaseSummary["clm"]["target_search_checkpoint"]>;
+    const client = setup(summary); collapsedTargetHeader();
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => state === "pending" ? pending : Promise.resolve(new Response("", { status: 503 })));
+    let refresh: Promise<void> | undefined;
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: caseQueryKeys.detail(actorA.user_id, CASE_A), exact: true }); if (state === "failed") await refresh; });
+    await vi.waitFor(() => expect(collapsedTargetHeader()).toContain(state === "pending" ? "refresh in progress" : "refresh failed; may be stale"));
+    expect(collapsedTargetHeader()).toContain("Last-confirmed target information");
+    expect(collapsedTargetHeader()).toContain("GoldTier availability check needed");
+    expect(collapsedTargetHeader()).not.toContain("Submission confirmed");
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+    if (state === "pending") await act(async () => { release(response(summary)); await refresh; }); client.clear();
+  });
+  it("collapsed target header updates retained state without reopening or mutating", async () => {
+    const summary = targetSummary(); summary.active_exceptions = [];
+    const fetch = vi.spyOn(globalThis, "fetch"); const client = setup(summary);
+    expect(collapsedTargetHeader()).toContain("Submission not started");
+    const next = targetSummary("SUBMISSION_CONFIRMED"); next.version += 1; next.active_exceptions = [];
+    await act(async () => { client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), next); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(partitions("GoldTier submission package").region.querySelector(":scope > h2 button")!.getAttribute("aria-expanded")).toBe("false");
+    expect(collapsedTargetHeader()).toContain("Submission confirmed");
+    expect([...container!.querySelectorAll("button")].some(item => item.textContent?.startsWith("Confirm and send"))).toBe(false);
+    const toggle = partitions("GoldTier submission package").region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+    act(() => { toggle.click(); toggle.click(); });
+    expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
   it.each(["NOT_SUBMITTED", "SENDING", "SUBMISSION_CONFIRMED", "SUBMISSION_FAILED", "SUBMISSION_OUTCOME_UNCERTAIN", "FINALIZATION_PENDING"] as const)(
     "keeps %s target/review state and one authorized action owner visible with support closed", state => {
       const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => response({ submission_id: "00000000-0000-4000-8000-00000000f001", result: "CHECK_FAILED", message: "Synthetic read-only observation unavailable", checked_at: NOW })); const client = setup(targetSummary(state));
@@ -1617,6 +1814,9 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     expect(target.main.textContent).toContain("Previously completed or verified steps will not be sent again"); client.clear();
   });
   it("ignores an older failed target read after a newer confirmed current read", async () => {
+    const frames = new Map<number, FrameRequestCallback>(); let frameId = 0;
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(callback => { const id = ++frameId; frames.set(id, callback); return id; });
+    vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(id => { frames.delete(id); });
     const client = setup(); const key = caseQueryKeys.detail(actorA.user_id, CASE_A);
     let release!: (value: Response) => void; const old = new Promise<Response>(resolve => { release = resolve; });
     const next = targetSummary("SUBMISSION_CONFIRMED"); next.version = 2;
@@ -1632,6 +1832,13 @@ describe("GoldTier and Final Review persistent disclosure", () => {
       for (const panel of [main, ...support]) { expect(panel.textContent).not.toContain("information could not be loaded"); expect(panel.textContent).not.toContain("Last-confirmed"); }
     }
     expect(partitions("GoldTier submission package").main.textContent).toContain("SUBMISSION_CONFIRMED");
+    const target = document.getElementById("submission-state-title")!;
+    expect(target).toBeInstanceOf(HTMLElement);
+    expect(frames.size).toBe(1);
+    act(() => { for (const callback of frames.values()) callback(16); frames.clear(); });
+    expect(document.activeElement).toBe(target);
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "center", behavior: "auto" });
+    expect(scrollIntoView.mock.instances[0]).toBe(target);
     expect([...container!.querySelectorAll("button")].some(item => item.textContent?.startsWith("Confirm and send"))).toBe(false);
     expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
   });
@@ -1651,7 +1858,105 @@ describe("GoldTier and Final Review persistent disclosure", () => {
     expect(signal?.aborted).toBe(true); expect(client.getQueryData(key)).toBeUndefined();
     expect(container!.textContent).not.toContain("LATE_OLD");
     for (const name of ["GoldTier submission package", "Final review & send"]) expect(partitions(name).support.every(item => !item.open)).toBe(true);
+    expect(collapsedTargetHeader()).toContain("Submission not started");
     expect(partitions("GoldTier submission package").main.textContent).toContain("NOT_SUBMITTED"); client.clear();
   });
 
+});
+
+
+describe("Round3 collapsed header read truthfulness", () => {
+  const titles = ["Existing-customer search", "Registry verification", "Document verification", "Ownership & UBO", "Submission readiness", "GoldTier submission package", "Final review & send"];
+  function header(title: string, collapse = true) {
+    const region = [...container!.querySelectorAll<HTMLElement>(".stage-disclosure")].find(item => item.querySelector(":scope > h2")?.textContent === title)!;
+    expect(region).toBeTruthy(); const toggle = region.querySelector<HTMLButtonElement>(":scope > h2 button")!;
+    if (collapse && toggle.getAttribute("aria-expanded") === "true") act(() => toggle.click());
+    const description = region.querySelector<HTMLElement>(":scope > .stage-disclosure__summary")!;
+    expect(description).not.toBeNull(); expect(description.closest("[hidden]")).toBeNull(); expect(toggle.getAttribute("aria-describedby")).toBe(description.id);
+    if (collapse) { expect(toggle.getAttribute("aria-expanded")).toBe("false"); expect(region.querySelector<HTMLElement>(":scope > div")!.hidden).toBe(true); }
+    return { region, toggle, text: description.textContent! };
+  }
+  function setup(final = false, profile = actorA) {
+    const client = createTestClient(); seedCase(client, profile, CASE_A, "analysis-current", "CURRENT");
+    const summary = summaryFixture(CASE_A);
+    if (final) {
+      summary.active_exceptions = [{ ...summary.active_exceptions[0], stage: "MOCK_GOLDTIER", exception_type: "TARGET_CONFIRMATION_REQUIRED", blocker_code: "TARGET_CONFIRMATION_REQUIRED" }];
+      summary.clm.readiness.blockers = [];
+      summary.clm.submission_plan.request_preview = { environment: "MOCK", dispatch_ready: true, policy_version: 2, operations: [] };
+    }
+    client.setQueryData(caseQueryKeys.detail(profile.user_id, CASE_A), summary);
+    renderCase(client, profile, CASE_A); return { client, summary };
+  }
+  async function flush() { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); }
+  it.each([false, true])("qualifies actual detail refresh failure and recovery in all seven collapsed headers; final=%s", async final => {
+    const { client, summary } = setup(final); titles.forEach(title => header(title));
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending); let refresh: Promise<void> | undefined;
+    const key = caseQueryKeys.detail(actorA.user_id, CASE_A);
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); }); await flush();
+    for (const title of titles) { const h = header(title, false); expect(h.toggle.getAttribute("aria-expanded")).toBe("false"); expect.soft(h.text).toContain("refresh in progress"); expect.soft(h.text).toContain("Last-confirmed"); }
+    await act(async () => { release(new Response("", { status: 503 })); await refresh; }); await flush();
+    for (const title of titles) { expect.soft(header(title, false).text).toContain("refresh failed; may be stale"); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false"); }
+    fetch.mockImplementation(async () => response(summary)); await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }); }); await flush();
+    for (const title of titles) { expect.soft(header(title, false).text).not.toMatch(/Last-confirmed|may be stale|refresh in progress/); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false"); }
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
+  it.each(["ownership", "documents"] as const)("qualifies independent %s refresh/failure/recovery in its collapsed header and final", async resource => {
+    const { client } = setup(true); const key = caseQueryKeys[resource](actorA.user_id, CASE_A);
+    const affected = [resource === "ownership" ? "Ownership & UBO" : "Document verification", "Final review & send"]; affected.forEach(title => header(title));
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending); let refresh: Promise<void> | undefined;
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); }); await flush();
+    for (const title of affected) { expect.soft(header(title, false).text).toContain("refresh in progress"); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false"); }
+    await act(async () => { release(new Response("", { status: 503 })); await refresh; }); await flush();
+    for (const title of affected) { expect.soft(header(title, false).text).toContain("refresh failed; may be stale"); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false"); }
+    fetch.mockImplementation(async () => response(resource === "ownership" ? ownershipFixture(CASE_A, "restored", "FRESH") : [documentFixture(CASE_A)]));
+    await act(async () => { await client.refetchQueries({ queryKey: key, exact: true }); }); await flush();
+    for (const title of affected) { expect.soft(header(title, false).text).not.toContain("Last-confirmed"); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false"); }
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
+  it.each(["ownership", "documents"] as const)("does not claim retained %s during initial loading or failed initial read", async resource => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis", "A"); const key = caseQueryKeys[resource](actorA.user_id, CASE_A);
+    client.removeQueries({ queryKey: key, exact: true }); let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending); renderCase(client, actorA, CASE_A);
+    const title = resource === "ownership" ? "Ownership & UBO" : "Document verification";
+    expect(header(title).text).toContain("Loading"); expect(header(title).text).toContain("not yet confirmed"); expect(header(title).text).not.toContain("Last-confirmed");
+    await act(async () => { release(new Response("", { status: 503 })); }); await vi.waitFor(() => expect(client.getQueryState(key)?.status).toBe("error")); await flush();
+    expect.soft(header(title, false).text).toContain("Current evidence unavailable; absence not confirmed"); expect.soft(header(title, false).text).not.toContain("Last-confirmed"); expect(header(title, false).toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
+  it.each(["ANALYZED", "REVIEW_REQUIRED", "FAILED"] as const)("retains confirmed %s and intervention without granting actions", async state => {
+    const profile = { ...actorA, capabilities: [] }; const { client, summary } = setup(false, profile);
+    const analysis = ownershipFixture(CASE_A, "analysis", "A"); analysis.state = state; summary.active_exceptions = []; summary.evidence_decision_authorized = false;
+    summary.interventions = [{ intervention_id: "owner-review", owning_stage: "OWNERSHIP", owning_stage_label: "Ownership", title: "Review ownership", blocker_code: "OWNERSHIP_REVIEW_REQUIRED", explanation: "Retained ownership review", required_evidence_or_input: [], authorized_actions: [], no_action_reason: "No action is currently authorized", expected_next_step: "Review", candidate_summaries: [] }];
+    act(() => { client.setQueryData(caseQueryKeys.ownership(actorA.user_id, CASE_A), analysis); client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary); }); await flush();
+    const fetch = vi.spyOn(globalThis, "fetch"); const h = header("Ownership & UBO"); expect(h.text).toContain(state.replaceAll("_", " ")); expect(h.text).toContain("Attention required"); expect(h.text).not.toContain("Last-confirmed");
+    expect(h.region.querySelector(".intervention-card button")).toBeNull(); expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it.each(["INCOMPLETE_LEGAL_ENTITY", "CONTRADICTORY_OWNERSHIP_EVIDENCE"] as const)("exposes %s as requiring attention without an exception action", async code => {
+    const { client, summary } = setup(); summary.active_exceptions = []; summary.interventions = [];
+    const analysis = ownershipFixture(CASE_A, "analysis", "A"); analysis.state = "REVIEW_REQUIRED"; analysis.issues = [{ code, message: "Synthetic retained analysis requires review", affected_party_ids: [] }];
+    act(() => { client.setQueryData(caseQueryKeys.ownership(actorA.user_id, CASE_A), analysis); client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary); }); await flush();
+    const fetch = vi.spyOn(globalThis, "fetch"); const h = header("Ownership & UBO"); expect(h.text).toContain("REVIEW REQUIRED"); expect(h.text).toContain("Attention required"); expect(h.region.textContent).toContain("Incomplete or disputed evidence requires review."); expect(fetch).not.toHaveBeenCalled(); client.clear();
+  });
+  it("distinguishes confirmed empty ownership from unavailable ownership", async () => {
+    const client = createTestClient(); seedCase(client, actorA, CASE_A, "analysis", "A"); client.removeQueries({ queryKey: caseQueryKeys.ownership(actorA.user_id, CASE_A), exact: true }); client.setQueryData(caseQueryKeys.ownership(actorA.user_id, CASE_A), null); renderCase(client, actorA, CASE_A); await flush();
+    expect(header("Ownership & UBO").text).toContain("No ownership analysis retained in the confirmed response"); expect(header("Ownership & UBO").text).not.toContain("unavailable"); client.clear();
+  });
+  it.each(["SUBMISSION_OUTCOME_UNCERTAIN", "SUBMISSION_CONFIRMED"] as const)("keeps %s and frozen state visible in actual Final Review", async state => {
+    const { client, summary } = setup(true); summary.target_submission = { state, submission_id: "00000000-0000-4000-8000-00000000f003", status_check_available: false, recovery_available: false, attempted_operations: ["SEARCH", "SHELL"], definitively_completed_operations: ["SEARCH"], lifecycle_resolved_operations: ["SEARCH"], ledger_state: "OUTCOME_UNCERTAIN" } as NonNullable<ZeroTouchCaseSummary["target_submission"]>;
+    if (state === "SUBMISSION_CONFIRMED") summary.status = "COMPLETED"; act(() => client.setQueryData(caseQueryKeys.detail(actorA.user_id, CASE_A), summary)); await flush();
+    const h = header("Final review & send"); expect(h.text).toContain(state === "SUBMISSION_OUTCOME_UNCERTAIN" ? "Submission outcome uncertain" : "Submission confirmed"); expect(h.text).toContain("frozen");
+    expect([...h.region.querySelectorAll("button")].some(item => item.textContent?.startsWith("Confirm and send"))).toBe(false); client.clear();
+  });
+  it.each(["ownership", "documents", "detail"] as const)("retires late %s header freshness across actor/case/session replacement", async resource => {
+    const { client } = setup(true); const key = caseQueryKeys[resource](actorA.user_id, CASE_A);
+    let release!: (value: Response) => void; const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(pending); let refresh: Promise<void> | undefined; titles.forEach(title => header(title));
+    await act(async () => { refresh = client.invalidateQueries({ queryKey: key, exact: true }); }); await flush(); const signal = (fetch.mock.calls[0][1] as RequestInit).signal;
+    act(() => { root!.unmount(); root = null; clearSessionQueries(client); }); seedCase(client, actorB, CASE_B, "NEW_SESSION", "NEW"); renderCase(client, actorB, CASE_B);
+    await act(async () => { release(new Response("", { status: 503 })); await refresh; }); await flush(); expect(signal?.aborted).toBe(true); expect(client.getQueryData(key)).toBeUndefined();
+    for (const title of titles) expect(header(title).text).not.toMatch(/Last-confirmed|may be stale|refresh in progress/); expect(container!.textContent).not.toContain("CURRENT Candidate");
+    expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true); client.clear();
+  });
 });
