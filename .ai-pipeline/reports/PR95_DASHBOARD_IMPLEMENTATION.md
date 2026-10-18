@@ -10,7 +10,7 @@ after this report-only commit. No publication or merge is authorized.
 - Repository: shaneqwaszx/data-dividends-zero-touch-clm; original PR95 remains OPEN.
 - Task branch: `codex/pr95-dashboard-remediation-20261018`.
 - Isolated worktree: `C:/Users/shane/.codex-clean2/worktrees/pr95-dashboard-remediation-20261018/data-dividends-zero-touch-clm`.
-- Main/BASE_SHA: `cc10a2b626ef92d2dd44600d488c1f15cc4f04f8`.
+- Assigned initial main/BASE_SHA: `cc10a2b626ef92d2dd44600d488c1f15cc4f04f8`.
 - Original published PR95 branch `ui-enhancement-v1`, HEAD
   `1c1fd9fbf1a68f79137d150ac8609cf811b10938`, is preserved.
 - Original common ancestor: `12ba994b8128a4777e12fcc764bafc8f39b9292a`.
@@ -276,3 +276,39 @@ report-only additions, preserving the reviewed source bytes and identities.
 | `tests/test_run_e2e.py` | SUPPORTING |
 | `.ai-pipeline/reports/PR95_DASHBOARD_LOCAL_ACCEPTANCE.md` | SUPPORTING (later report-only) |
 | `.ai-pipeline/reports/PR95_DASHBOARD_IMPLEMENTATION.md` | SUPPORTING (later report-only) |
+
+
+## Latest-main reconciliation after initial local acceptance
+
+The mandatory final fetch found main had advanced to
+`4a280da473dcdbeb345ffdfa79aaa4c001e75f62` through the already-merged PR96 Claude
+compatibility/governance layer. The initial clean pre-PR gate was stopped before
+execution. Read-only reconciliation found15 paths disjoint from the40 PR95 candidate
+paths, no product code/dependencies/contracts/persistence change and no canonical
+AGENTS/workflow/skill/merge-policy change. Its pointers defer to the same canonical
+skills. Its settings apply to Claude Code; this Codex task's existing owner authorization
+and boundaries are unchanged. No PR96 code, configuration, review or remote state was
+modified.
+
+Normal task-branch merge `8041e3db602efb4ed22d99c142da0d72ae80f01f` has parents the
+report-only accepted checkpoint7f84aa6 and latest main4a280da. No conflict occurred.
+All15 accepted-main blobs match origin/main exactly. All38 previous raw accepted
+product/source/test/doc hashes matched immediately after the merge. Only this handoff
+and the PR95 planner are subsequently updated to record reconciliation; the independent
+PASS report is immutable. All runtime source, backend/frontend tests, fixture data,
+package inputs and scripts remain byte-identical to the executed43b313d content.
+
+Affected new pointer/governance tests and configured governance checks are rerun on
+this combined content. The full backend2785PASS, fresh physical156PASS, frontend940PASS,
+browser9PASS and independentSSR150 results remain tied to their exact unchanged
+runtime inputs; they are not described as newly rerun after a governance-only merge.
+The new independent complete-content integration gate is
+`PR95_DASHBOARD_MAIN_INTEGRATION_GATE.md`; its frozen identity and verdict supersede the
+initial baseline gate for final latest-main readiness. The earlier runtime acceptance
+and its history remain valid for their recorded hashes. Final receipt reports exact
+committed HEAD/tree, current-main ancestry, integration verdict and actual clean
+pre-PR/checklist execution. This supplement grants no publication or PR96 authority.
+
+The final complete PR95 inventory is the preceding40 paths plus the new independent
+main-integration gate report (SUPPORTING, later report-only). The15 PR96 paths are
+accepted main baseline content, not PR95 changes. There is no PR95 delta to them.

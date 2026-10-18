@@ -60,3 +60,11 @@ formatter for returned ages, stage/run and resolver durations; preserve nullable
 absence and all layout/labels/controls. Zero/sub-second values must not become 1h/1m.
 Seven real-render regressions fail first. Fresh review uses
 PR95_DASHBOARD_LOCAL_ACCEPTANCE.md; four earlier FAIL reports remain immutable.
+
+Final fetch discovered main4a280da473dcdbeb345ffdfa79aaa4c001e75f62, the already-merged
+PR96 governance compatibility layer. Read-only reconciliation found15 disjoint
+governance paths, no product/canonical-authority changes. Normal merge8041e3d
+preserves every new-main blob unchanged; PR96 is not edited. Re-run the affected
+governance/pointer checks and obtain fresh independent integration acceptance in
+PR95_DASHBOARD_MAIN_INTEGRATION_GATE.md on the final combined content. All product
+source/tests remain byte-identical to the43b313d runtime acceptance. No publication.
