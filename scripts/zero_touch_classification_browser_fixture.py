@@ -4,9 +4,6 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import SecretStr
-from pymongo import MongoClient
-
 from app.config import Settings
 from app.connectors.acra import (
     AcraAddressPayload,
@@ -14,6 +11,9 @@ from app.connectors.acra import (
     AcraOfficersPayload,
 )
 from app.persistence.composition import build_persistence_bundle
+from pydantic import SecretStr
+from pymongo import MongoClient
+
 from scripts.mongo_test_safety import (
     cleanup_ephemeral_mongo_database,
     require_ephemeral_mongo_database,

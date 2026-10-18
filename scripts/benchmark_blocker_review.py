@@ -11,9 +11,9 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "apps/backend"), str(ROOT / "apps/backend/tests")]
 
-import conftest  # noqa: E402, F401 - existing guarded synthetic auth/test environment
-from app.connectors.mock_idp import MockIdpProvider  # noqa: E402
-from test_zero_touch_orchestration import PDF, build_system  # noqa: E402
+import conftest  # noqa: F401 - existing guarded synthetic auth/test environment
+from app.connectors.mock_idp import MockIdpProvider
+from test_zero_touch_orchestration import PDF, build_system
 
 
 class FourFieldReviewIdp(MockIdpProvider):
