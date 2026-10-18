@@ -213,7 +213,10 @@ def _service_for(
         access_policy=CaseAccessPolicy(),
         teams=teams,
     )
-    return DashboardService(query, TeamDirectoryService(teams), automations, clock=lambda: NOW), automations
+    service = DashboardService(
+        query, TeamDirectoryService(teams), automations, clock=lambda: NOW
+    )
+    return service, automations
 
 
 def _dashboard() -> tuple[DashboardService, StaticAutomationRepository]:
@@ -281,6 +284,7 @@ def test_empty_dashboard_is_deterministic_and_safe() -> None:
     assert [item.count for item in result.status_breakdown] == [0] * len(AutomationStatus)
     assert [item.priority for item in result.priority_breakdown] == [*range(10, 0, -1), None]
     assert result.recent_cases == result.top_active_cases == result.scoped_cases == ()
+    assert len(result.historical_trend) == 30
     assert result.zero_touch_rate == 0.0
     assert result.timing.mean_total_duration_ms is None
     assert len(result.stage_timing) == 6
@@ -304,7 +308,10 @@ def test_team_dashboards_are_server_scoped_across_every_metric_and_list() -> Non
     assert {item.team_id for item in (*team_a.recent_cases, *team_a.top_active_cases)} == {
         TeamId.TEAM_A
     }
-    assert sum(sum(week.by_jurisdiction.values()) + week.unresolved_count for week in team_a.weekly_onboarded) == 1
+    assert sum(
+        sum(week.by_jurisdiction.values()) + week.unresolved_count
+        for week in team_a.weekly_onboarded
+    ) == 1
 
     assert team_b.scope.team_display_name == "Beta"
     assert team_b.totals.total_cases == 2
@@ -312,7 +319,14 @@ def test_team_dashboards_are_server_scoped_across_every_metric_and_list() -> Non
     assert {item.team_id for item in (*team_b.recent_cases, *team_b.top_active_cases)} == {
         TeamId.TEAM_B
     }
-    assert sum(sum(week.by_jurisdiction.values()) + week.unresolved_count for week in team_b.weekly_onboarded) == 1
+    assert sum(
+        sum(week.by_jurisdiction.values()) + week.unresolved_count
+        for week in team_b.weekly_onboarded
+    ) == 1
+    assert sum(item.created_count for item in team_a.historical_trend) == 2
+    assert sum(item.completed_count for item in team_a.historical_trend) == 1
+    assert sum(item.created_count for item in team_b.historical_trend) == 1
+    assert sum(item.completed_count for item in team_b.historical_trend) == 1
     assert repository.read_count == 4
 
 
@@ -597,7 +611,7 @@ def test_date_range_filters_cases_by_creation_date() -> None:
     )
 
     service, _ = _service_for([(recent, recent_automation), (old, old_automation)])
-    default_30d = service.get_dashboard(_actor("maya-lim"))
+    default_30d = service.get_dashboard(_actor("maya-lim"), date_range="30d")
     last_90d = service.get_dashboard(_actor("maya-lim"), date_range="90d")
     everything = service.get_dashboard(_actor("maya-lim"), date_range="all")
 
@@ -632,3 +646,114 @@ def test_dashboard_route_requires_authentication_and_accepts_no_scope_authority(
         "team_display_name": "Alpha",
         "client_scope_label": "Alpha",
     }
+
+
+def test_workload_attributes_teammate_case_fix_to_resolver_once_and_ignores_open() -> None:
+    case, automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.RUNNING,
+        created_days_ago=2, updated_hours_ago=1, created_by_actor_id="ethan-tan",
+    )
+    resolved = _resolved_exception(
+        case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE, AutomationStage.DOCUMENT,
+        created_at=case.created_at, resolved_at=case.created_at + timedelta(hours=2),
+        actor_id="maya-lim",
+    )
+    # Multiple retained decisions are one resolved exception, not multiple fixes.
+    duplicate = resolved.decisions[0].model_copy(update={"decision_id": uuid4()})
+    resolved = resolved.model_copy(update={"decisions": (*resolved.decisions, duplicate)})
+    open_blocker = resolved.model_copy(update={
+        "exception_id": uuid4(), "status": BusinessExceptionStatus.OPEN, "resolved_at": None,
+    })
+    automation = automation.model_copy(update={"exceptions": [resolved, open_blocker]})
+    service, _ = _service_for([(case, automation)])
+    result = service.get_dashboard(_actor("maya-lim"), date_range="all")
+    rows = {row.user_id: row for row in result.workload_by_person}
+    assert rows["maya-lim"].open_cases == 0
+    assert rows["maya-lim"].blockers_resolved == 1
+    assert rows["maya-lim"].mean_fix_time_ms == 7_200_000
+    assert rows["ethan-tan"].open_cases == 1
+    assert rows["ethan-tan"].blockers_resolved == 0
+    assert service.get_dashboard(_actor("sophia-ng")).workload_by_person == ()
+
+
+def test_date_range_contains_exactly_selected_singapore_calendar_days() -> None:
+    from datetime import date
+
+    from app.domain.case_management import case_created_date_bounds
+
+    start, _ = case_created_date_bounds(date(2026, 9, 2), None)
+    assert start is not None
+    fixtures = []
+    for created in (start - timedelta(microseconds=1), start):
+        case, automation = _record(
+            TeamId.TEAM_A, None, AutomationStatus.RUNNING,
+            created_days_ago=1, updated_hours_ago=1,
+        )
+        automation = automation.model_copy(update={"created_at": created})
+        fixtures.append((case, automation))
+    service, _ = _service_for(fixtures)
+    result = service.get_dashboard(_actor("maya-lim"), date_range="7d")
+    assert result.totals.total_cases == 1
+
+
+def test_legacy_dashboard_default_and_trend_keep_all_history_with_v2_filters() -> None:
+    old, automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.COMPLETED,
+        created_days_ago=45, updated_hours_ago=1, created_by_actor_id="maya-lim",
+    )
+    service, _ = _service_for([(old, automation)])
+    legacy = service.get_dashboard(_actor("maya-lim"))
+    assert legacy.totals.total_cases == 1
+    assert len(legacy.historical_trend) == 30
+    assert legacy.historical_trend[0].day == (NOW - timedelta(days=29)).date()
+    assert sum(row.created_count for row in legacy.historical_trend) == 0
+    assert sum(row.completed_count for row in legacy.historical_trend) == 1
+    v2 = service.get_dashboard(_actor("maya-lim"), date_range="30d")
+    assert v2.totals.total_cases == 0
+    assert v2.historical_trend == legacy.historical_trend
+
+
+def test_draft_actor_and_cancelled_blocker_do_not_become_successful_fixes() -> None:
+    case, automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.COMPLETED,
+        created_days_ago=2, updated_hours_ago=1, created_by_actor_id="ethan-tan",
+        human_interventions=1,
+    )
+    resolved = _resolved_exception(
+        case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE, AutomationStage.DOCUMENT,
+        created_at=case.created_at, resolved_at=case.created_at + timedelta(hours=2),
+        actor_id="maya-lim",
+    )
+    draft = resolved.decisions[0].model_copy(update={
+        "recorded_at": case.created_at + timedelta(hours=1),
+    })
+    resolved = resolved.model_copy(update={"decisions": (draft,)})
+    cancelled = resolved.model_copy(update={
+        "exception_id": uuid4(), "status": BusinessExceptionStatus.CANCELLED,
+    })
+    automation = automation.model_copy(update={"exceptions": [resolved, cancelled]})
+    service, _ = _service_for([(case, automation)])
+    result = service.get_dashboard(_actor("maya-lim"))
+    assert all(row.blockers_resolved == 0 for row in result.workload_by_person)
+    assert result.scoped_cases[0].delay_note.endswith("2.0h fix")
+
+
+def test_api_omitted_date_range_retains_all_history_and_legacy_trend() -> None:
+    from phase13_test_credentials import TEST_PASSWORD
+
+    now = [NOW - timedelta(days=45)]
+    app = create_app(
+        ordinary_test_settings(), e2e_portfolio_seed_count=3, clock=lambda: now[0],
+    )
+    now[0] = NOW
+    client = RawTestClient(app)
+    assert client.post("/api/auth/login", json={
+        "user_id": "maya-lim", "password": TEST_PASSWORD,
+    }).status_code == 200
+    legacy = client.get("/api/clm/zero-touch/dashboard")
+    v2 = client.get("/api/clm/zero-touch/dashboard?date_range=30d")
+    assert legacy.status_code == v2.status_code == 200
+    assert legacy.json()["totals"]["total_cases"] == 3
+    assert v2.json()["totals"]["total_cases"] == 0
+    assert len(legacy.json()["historical_trend"]) == 30
+    assert legacy.json()["historical_trend"] == v2.json()["historical_trend"]

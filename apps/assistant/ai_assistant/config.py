@@ -1,0 +1,37 @@
+"""AI Assistant settings, read from AI_ASSISTANT_* environment variables or apps/assistant/.env."""
+
+from pydantic import Field, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class AiAssistantSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="AI_ASSISTANT_", env_file=".env", extra="ignore")
+
+    # The CLM backend the AI assistant reads from. The RM's own session is forwarded, so the
+    # backend still decides what this user may see.
+    clm_backend_url: str = "http://127.0.0.1:8000"
+    backend_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+
+    # Explicit chat uses an OpenAI-compatible API; deployment data handling is separate.
+    llm_enabled: bool = True
+    llm_base_url: str = "http://127.0.0.1:11434/v1"
+    llm_model: str = "ministral-3:8b"
+    llm_api_key: SecretStr = SecretStr("ollama")
+    llm_timeout_seconds: float = Field(default=90.0, gt=0, le=600)
+    llm_temperature: float = Field(default=0.2, ge=0, le=1)
+    # Safety limit on answer length, well above a normal answer: it only stops a runaway
+    # reply. If an answer reaches it, the RM is told the answer was cut short.
+    llm_max_answer_tokens: int = Field(default=600, ge=16, le=4000)
+
+    # Browser pages allowed to call the AI assistant (the Vite dev server by default).
+    allowed_origins: list[str] = Field(
+        default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"]
+    )
+
+    # Optional case-fact warm-up is restricted at the transport to literal loopback URLs.
+    # Enabling this never authorizes remote disclosure. The same case is throttled below.
+    llm_warm_up: bool = True
+    llm_warm_up_interval_seconds: float = Field(default=120.0, ge=0, le=3600)
+
+    max_history_messages: int = Field(default=8, ge=0, le=20)
+    max_question_chars: int = Field(default=600, ge=20, le=4000)

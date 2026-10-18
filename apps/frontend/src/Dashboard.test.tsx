@@ -74,6 +74,7 @@ function snapshot(actor: AuthenticatedProfile, total = 2): DashboardSnapshot {
   const cases = total === 0 ? [] : actor.role === "DIRECTOR" ? [teamA, teamB] : [teamA];
   const completedCount = cases.filter((item) => item.status === "COMPLETED").length;
   return {
+    historical_trend: [],
     scope: {
       actor_role: actor.role,
       access: actor.role === "DIRECTOR" ? "GLOBAL" : "TEAM",
@@ -204,7 +205,7 @@ describe("historical RBAC dashboard", () => {
     const mineSnapshot = { ...snapshot(maya), view: "mine" as const };
     const markup = renderToStaticMarkup(<MemoryRouter><QueryClientProvider client={createSessionQueryClient()}><DashboardView actor={maya} dashboard={mineSnapshot} dashScope="mine" onScopeChange={() => undefined} dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all" onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined} /></QueryClientProvider></MemoryRouter>);
     expect(markup).toContain("Your open cases");
-    expect(markup).toContain("Onboarded by you");
+    expect(markup).toContain("Your created cases onboarded");
     expect(markup).toContain("Your cases");
     expect(markup).toContain("Blocked cases");
     expect(markup).toContain("Recent activity on your cases");
@@ -239,7 +240,7 @@ describe("historical RBAC dashboard", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/clm/zero-touch/dashboard?scope=mine", expect.objectContaining({ credentials: "include" }));
   });
 
-  it("appends date_range only when it differs from the 30-day default", async () => {
+  it("appends an explicitly selected date_range", async () => {
     const value = snapshot(maya);
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(value), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -251,4 +252,32 @@ describe("historical RBAC dashboard", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: { code: "DASHBOARD_UNAVAILABLE", message: "Dashboard data is unavailable." } }), { status: 503 })));
     await expect(fetchDashboard()).rejects.toMatchObject({ message: "Dashboard data is unavailable.", status: 503 });
   });
+});
+
+
+it("Dashboard v2 explicitly requests its 30-day initial cohort", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(snapshot(maya))));
+  vi.stubGlobal("fetch", fetchMock);
+  await fetchDashboard(undefined, "team", "30d");
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/clm/zero-touch/dashboard?date_range=30d",
+    expect.objectContaining({ credentials: "include" }),
+  );
+});
+
+
+it("renders the authorized weekly response instead of illustrative jurisdiction data", () => {
+  const value = snapshot(maya);
+  value.weekly_onboarded = [{
+    week_start: "2026-10-12", by_jurisdiction: { SG: 3 }, unresolved_count: 0,
+  }];
+  const markup = renderToStaticMarkup(<MemoryRouter><DashboardView
+    actor={maya} dashboard={value} dashScope="team" onScopeChange={() => undefined}
+    dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all"
+    onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+  /></MemoryRouter>);
+  expect(markup).toContain('title="Singapore: 3"');
+  expect(markup).toContain("10-12");
+  expect(markup).not.toContain("Illustrative mix");
+  expect(markup).not.toContain("Australia");
 });

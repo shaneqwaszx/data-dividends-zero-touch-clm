@@ -1673,7 +1673,14 @@ export interface DashboardWorkloadRow {
   mean_fix_time_ms: number | null;
 }
 
+export interface DashboardTrendDay {
+  day: string;
+  created_count: number;
+  completed_count: number;
+}
+
 export interface DashboardSnapshot {
+  historical_trend: DashboardTrendDay[];
   scope: DashboardScope;
   view: "team" | "mine";
   data_as_of: string;

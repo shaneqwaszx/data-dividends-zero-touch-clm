@@ -186,3 +186,197 @@ def test_real_mongo_restart_preserves_team_scope_priority_and_provider_free_read
             cleanup_ephemeral_mongo_database(cleanup, database)
         finally:
             cleanup.close()
+
+
+@pytest.mark.parametrize("mode", ["memory", "mongo"])
+def test_pr95_creator_dashboard_activity_parity_and_authorization(mode: str) -> None:
+    """The exact same HTTP assertions exercise both repository implementations."""
+    assert MONGO_URI is not None
+    database = generate_ephemeral_mongo_database("p13")
+    settings = Settings(
+        _env_file=None, app_env="test", clm_persistence_mode=mode,
+        mongo_uri=MONGO_URI if mode == "mongo" else None, mongo_database=database,
+        acra_connector_mode="mock", goldtier_connector_mode="mock",
+    )
+    cleanup: MongoClient[dict[str, Any]] = MongoClient(MONGO_URI)
+    try:
+        with RawTestClient(create_app(settings)) as maya:
+            app = maya.app
+            ethan, sophia = RawTestClient(app), RawTestClient(app)
+            director, hr = RawTestClient(app), RawTestClient(app)
+            maya_id = _create(maya, _login(maya, "maya-lim"), "202400001A")
+            ethan_id = _create(ethan, _login(ethan, "ethan-tan"), "202400002B")
+            sophia_id = _create(sophia, _login(sophia, "sophia-ng"), "202400007G")
+            _login(director, "olivia-koh")
+            _login(hr, "hr-admin")
+            endpoint = "/api/clm/zero-touch/dashboard?date_range=all"
+            assert maya.get(endpoint + "&scope=mine").json()["totals"]["total_cases"] == 1
+            team = ethan.get(endpoint).json()
+            assert {row["case_id"] for row in team["scoped_cases"]} == {maya_id, ethan_id}
+            assert {row["user_id"] for row in team["workload_by_person"]} == {
+                "maya-lim", "ethan-tan",
+            }
+            assert all(row["created_by_display_name"] for row in team["scoped_cases"])
+            assert director.get(endpoint).json()["totals"]["total_cases"] == 3
+            assert director.get(endpoint + "&team_filter=TEAM_B").json()["totals"][
+                "total_cases"
+            ] == 1
+            assert maya.get(endpoint + "&team_filter=TEAM_B").status_code == 403
+            assert hr.get(endpoint).status_code == 403
+            activity = "/api/clm/zero-touch/activity"
+            filtered = ethan.get(activity + "?created_by=maya-lim").json()
+            assert {row["case_id"] for row in filtered["items"]} == {maya_id}
+            assert maya.get(activity + "?created_by=sophia-ng").json()["items"] == []
+            selected = director.get(activity + "?created_by=sophia-ng&team_filter=TEAM_B")
+            assert {row["case_id"] for row in selected.json()["items"]} == {sophia_id}
+            assert hr.get(activity + "?created_by=maya-lim").status_code == 403
+            assert maya.get(activity + "?created_by=%7B%22%24ne%22:null%7D").status_code == 422
+            hidden = maya.get(activity + f"?case_id={sophia_id}&created_by=maya-lim")
+            absent = maya.get(activity + "?case_id=00000000-0000-4000-8000-000000000095")
+            assert hidden.status_code == absent.status_code == 404
+            assert hidden.json() == absent.json()
+    finally:
+        try:
+            cleanup_ephemeral_mongo_database(cleanup, database)
+        finally:
+            cleanup.close()
+
+
+def test_pr95_physical_creator_validation_and_legacy_unknown() -> None:
+    from test_phase17_case_activity_real_mongo import _event
+    from test_phase18_case_portfolio import _mongo_portfolio_row
+
+    from app.domain.case_management import (
+        CaseActivityQuery,
+        CasePortfolioQuery,
+        CasePortfolioScope,
+        PortfolioScopeKind,
+    )
+    from app.persistence.errors import PersistenceDataInvalidError
+    from app.persistence.mongo_case_store import MongoCaseStore
+
+    assert MONGO_URI is not None
+    database = generate_ephemeral_mongo_database("p13")
+    client: MongoClient[dict[str, Any]] = MongoClient(MONGO_URI)
+    collection = client[database]["clm_case_snapshots"]
+    store = MongoCaseStore(client, database=database, collection="clm_case_snapshots")
+    scope = CasePortfolioScope(kind=PortfolioScopeKind.TEAM, team_id=TeamId.TEAM_A)
+    try:
+        raw = _mongo_portfolio_row()
+        raw["schema_version"] = 10
+        raw["onboarding"]["created_by_actor_id"] = "maya-lim"
+        raw["automation"]["events"] = [
+            _event(UUID(raw["case_id"]), 1, "2026-09-21T12:00:00Z")
+        ]
+        collection.insert_one(raw)
+        assert store.list_portfolio(scope)[0].created_by_actor_id == "maya-lim"
+        assert store.list_portfolio_page(CasePortfolioQuery(scope=scope)).items[
+            0
+        ].created_by_actor_id == "maya-lim"
+        assert len(store.list_activity(CaseActivityQuery(
+            scope=scope, created_by="maya-lim",
+        )).items) == 1
+        for invalid in (True, 123, [], {}, "INVALID", ""):
+            collection.update_one({"_id": raw["_id"]}, {
+                "$set": {"onboarding.created_by_actor_id": invalid},
+            })
+            for read in (
+                lambda: store.list_portfolio(scope),
+                lambda: store.list_portfolio_page(CasePortfolioQuery(scope=scope)),
+                lambda: store.list_activity(CaseActivityQuery(scope=scope)),
+            ):
+                with pytest.raises(PersistenceDataInvalidError):
+                    read()
+        collection.update_one({"_id": raw["_id"]}, {
+            "$set": {"schema_version": 8}, "$unset": {"onboarding.created_by_actor_id": ""},
+        })
+        assert store.list_portfolio(scope)[0].created_by_actor_id is None
+        assert store.list_activity(CaseActivityQuery(
+            scope=scope, created_by="maya-lim",
+        )).items == ()
+    finally:
+        try:
+            cleanup_ephemeral_mongo_database(client, database)
+        finally:
+            client.close()
+
+
+def test_pr95_physical_workload_and_legacy_trend_match_memory_after_restart() -> None:
+    from datetime import timedelta
+    from uuid import uuid4
+
+    from test_phase13_dashboard import (
+        NOW,
+        _actor,
+        _record,
+        _resolved_exception,
+        _service_for,
+        _teams,
+    )
+
+    from app.domain.zero_touch import AutomationStage, AutomationStatus, BusinessExceptionType
+    from app.persistence.models import DurableCaseSnapshot
+    from app.persistence.mongo_case_store import MongoCaseStore
+    from app.persistence.repositories import (
+        MongoCasePortfolioRepository,
+        MongoOnboardingCaseRepository,
+        MongoZeroTouchAutomationRepository,
+    )
+    from app.services.administration import TeamDirectoryService
+    from app.services.authorization import CaseAccessPolicy
+    from app.services.case_query import CaseQueryService
+    from app.services.dashboard import DashboardService
+
+    assert MONGO_URI is not None
+    database = generate_ephemeral_mongo_database("p13")
+    client: MongoClient[dict[str, Any]] = MongoClient(MONGO_URI)
+    try:
+        store = MongoCaseStore(client, database=database, collection="clm_case_snapshots")
+        case, automation = _record(
+            TeamId.TEAM_A, None, AutomationStatus.RUNNING,
+            created_days_ago=45, updated_hours_ago=1, created_by_actor_id="ethan-tan",
+        )
+        resolution = _resolved_exception(
+            case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+            AutomationStage.DOCUMENT, created_at=case.created_at,
+            resolved_at=case.created_at + timedelta(hours=2), actor_id="maya-lim",
+        )
+        duplicate = resolution.decisions[0].model_copy(update={"decision_id": uuid4()})
+        resolution = resolution.model_copy(update={
+            "decisions": (*resolution.decisions, duplicate),
+        })
+        automation = automation.model_copy(update={
+            "started_at": case.created_at, "exceptions": [resolution],
+        })
+        store.create(DurableCaseSnapshot(
+            case_id=case.case_id, revision=0, onboarding=case, automation=automation,
+            created_at=case.created_at, updated_at=case.updated_at,
+        ))
+        # Reconstruct independent adapters from retained bytes, without a write or provider.
+        restored = MongoCaseStore(client, database=database, collection="clm_case_snapshots")
+        teams = _teams()
+        automation_repository = MongoZeroTouchAutomationRepository(restored)
+        service = DashboardService(CaseQueryService(
+            cases=object(), case_repository=MongoOnboardingCaseRepository(restored),
+            automation_repository=automation_repository, access_policy=CaseAccessPolicy(),
+            teams=teams, portfolio_repository=MongoCasePortfolioRepository(restored),
+        ), TeamDirectoryService(teams), automation_repository, clock=lambda: NOW)
+        memory, _ = _service_for([(case, automation)])
+        for actor_id in ("maya-lim", "ethan-tan", "sophia-ng", "olivia-koh"):
+            for date_range in ("all", "7d", "30d", "90d"):
+                assert service.get_dashboard(_actor(actor_id), date_range=date_range) == (
+                    memory.get_dashboard(_actor(actor_id), date_range=date_range)
+                )
+        result = service.get_dashboard(_actor("maya-lim"))
+        assert result.totals.total_cases == 1
+        assert len(result.historical_trend) == 30
+        rows = {row.user_id: row for row in result.workload_by_person}
+        assert rows["maya-lim"].open_cases == 0
+        assert rows["maya-lim"].blockers_resolved == 1
+        assert rows["maya-lim"].mean_fix_time_ms == 7_200_000
+        assert rows["ethan-tan"].open_cases == 1
+    finally:
+        try:
+            cleanup_ephemeral_mongo_database(client, database)
+        finally:
+            client.close()

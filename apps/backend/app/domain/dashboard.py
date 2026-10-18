@@ -76,7 +76,7 @@ class DashboardCaseItem(BaseModel):
 
 
 class DashboardTimingSummary(BaseModel):
-    """Mean onboarding duration, split by whether a blocker was ever hit."""
+    """Mean onboarding duration, split by recorded exception interventions."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -141,6 +141,14 @@ class DashboardWorkloadRow(BaseModel):
     mean_fix_time_ms: int | None = Field(default=None, ge=0)
 
 
+class DashboardTrendDay(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    day: date
+    created_count: int = Field(ge=0)
+    completed_count: int = Field(ge=0)
+
+
 class DashboardSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -148,6 +156,7 @@ class DashboardSnapshot(BaseModel):
     view: Literal["team", "mine"]
     data_as_of: datetime
     totals: DashboardTotals
+    historical_trend: tuple[DashboardTrendDay, ...]
     zero_touch_rate: float = Field(ge=0.0, le=1.0)
     timing: DashboardTimingSummary
     status_breakdown: tuple[DashboardStatusCount, ...]

@@ -184,6 +184,7 @@ class MongoCaseStore:
             "onboarding.case_id": 1,
             "onboarding.team_id": 1,
             "onboarding.priority": 1,
+        "onboarding.created_by_actor_id": 1,
             "onboarding.requested_uen": 1,
             "onboarding.entity.legal_name": 1,
             "onboarding.jurisdiction_resolution.resolved_jurisdiction": 1,
@@ -331,6 +332,8 @@ class MongoCaseStore:
             candidate_match["onboarding.team_id"] = None
         if query.case_id is not None:
             candidate_match["_id"] = str(query.case_id)
+        if query.created_by is not None:
+            candidate_match["onboarding.created_by_actor_id"] = query.created_by
 
         valid_candidate = _activity_candidate_valid_expression()
         row_match = _activity_row_match(query)
@@ -345,6 +348,7 @@ class MongoCaseStore:
                     "onboarding.case_id": 1,
                     "onboarding.team_id": 1,
                     "onboarding.priority": 1,
+                    "onboarding.created_by_actor_id": 1,
                     "automation.case_id": 1,
                     "automation.events": 1,
                 }
@@ -605,6 +609,8 @@ class MongoCaseStore:
             required_onboarding = {"case_id", "requested_uen"}
             v2_fields = {"team_id", "priority"}
             optional_onboarding = {"entity", "jurisdiction_resolution", "goldtier_result"}
+            if schema_version >= 9:
+                optional_onboarding.add("created_by_actor_id")
             keys = set(onboarding)
             if not required_onboarding <= keys or keys - (
                 required_onboarding | v2_fields | optional_onboarding
@@ -684,6 +690,7 @@ class MongoCaseStore:
                 ),
                 team_id=team_id,
                 priority=priority,
+                created_by_actor_id=onboarding.get("created_by_actor_id"),
                 status=AutomationStatus(automation["status"]),
                 current_stage=AutomationStage(automation["current_stage"]),
                 created_at=_utc_datetime(automation["created_at"]),
@@ -1083,6 +1090,7 @@ def _portfolio_projection() -> dict[str, int]:
         "onboarding.case_id": 1,
         "onboarding.team_id": 1,
         "onboarding.priority": 1,
+        "onboarding.created_by_actor_id": 1,
         "onboarding.requested_uen": 1,
         "onboarding.entity.legal_name": 1,
         "onboarding.jurisdiction_resolution.resolved_jurisdiction": 1,
@@ -1177,6 +1185,27 @@ def _portfolio_exception_valid_expression() -> dict[str, Any]:
     }
 
 
+def _creator_valid_expression() -> dict[str, Any]:
+    value = "$onboarding.created_by_actor_id"
+    value_type = {"$type": value}
+    return {
+        "$cond": [
+            {"$lt": ["$schema_version", 9]},
+            {"$eq": [value_type, "missing"]},
+            {"$or": [
+                {"$in": [value_type, ["missing", "null"]]},
+                {"$and": [
+                    {"$eq": [value_type, "string"]},
+                    {"$regexMatch": {
+                        "input": {"$cond": [{"$eq": [value_type, "string"]}, value, ""]},
+                        "regex": "^[a-z][a-z0-9-]{2,31}$",
+                    }},
+                ]},
+            ]},
+        ]
+    }
+
+
 def _portfolio_candidate_valid_expression() -> dict[str, Any]:
     schema_type = {"$type": "$schema_version"}
     revision_type = {"$type": "$revision"}
@@ -1197,6 +1226,7 @@ def _portfolio_candidate_valid_expression() -> dict[str, Any]:
     jurisdiction_type = {"$type": "$onboarding.jurisdiction_resolution.resolved_jurisdiction"}
     return {
         "$and": [
+            _creator_valid_expression(),
             {"$in": [schema_type, ["int", "long"]]},
             {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, 7, 8, 9, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},
@@ -1491,6 +1521,7 @@ def _activity_candidate_valid_expression() -> dict[str, Any]:
     priority_type = {"$type": "$onboarding.priority"}
     return {
         "$and": [
+            _creator_valid_expression(),
             {"$in": [schema_type, ["int", "long"]]},
             {"$in": ["$schema_version", [1, 2, 3, 4, 5, 6, 7, 8, 9, CASE_SNAPSHOT_SCHEMA_VERSION]]},
             {"$in": [revision_type, ["int", "long"]]},

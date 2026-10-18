@@ -149,6 +149,18 @@ independent gates remain tied to their recorded content; Phase 25 and Phase 26 h
 
 ## Current status
 
+PR95 Dashboard v2 integration/remediation is an unmerged candidate from assigned
+main`cc10a2b626ef92d2dd44600d488c1f15cc4f04f8` and PR95
+`1c1fd9fbf1a68f79137d150ac8609cf811b10938`. The existing dashboard owner projects
+selected creator cohorts, retained timings, exception history and creator/resolver
+workload in memory/Mongo with existing backend RBAC. The API retains all-history default totals and its original UTC daily trend; v2
+explicitly requests30 selected Singapore created dates. New metrics are additive,
+as recorded in the current access contract. Existing Assistant behavior is retained.
+Acceptance belongs only to the task's final implementation and independent gate
+reports. This candidate does not change the historical verified-main metadata,
+provider classifications, schema10, connectors or sponsor decisions.
+
+
 PR #77 reliability/recovery is merged and verified on the main baseline above.
 The current recovery runbook and exact acceptance/CI references are linked in
 Verification metadata; the earlier closeout checkpoints below retain their own evidence.
@@ -853,12 +865,12 @@ isolation; protected/owner database investigation and dotenv read remain prohibi
 ## Historical main-integration candidate — 2026-10-06
 
 At that checkpoint, fetch confirmed origin/main 1fc097f12c84af52b1e6d70a336cc22b03f3bef4
-(read-only Onboarding Copilot PR74). The feature at859f218 integrates that commit
+(read-only AI Assistant PR74). The feature at859f218 integrates that commit
 through a conflict-free merge while preserving both accepted feature commits.
 At that checkpoint, the local merge required fresh independent PASS and owner review
 before publication.
 No exact-file overlap; shared frontend root/proxy/session/case context is reviewed.
-Bounded adaptations reuse the existing authenticated transport for Copilot401 cleanup,
+Bounded adaptations reuse the existing authenticated transport for AI Assistant 401 cleanup,
 align guide/pending-step wording with current backend/UI projections, and contain
 inaccessible-case404 and cancelled responses in the existing local conversation owner.
 Schema10, source fingerprints, classification review/currentness, final Send, ledger

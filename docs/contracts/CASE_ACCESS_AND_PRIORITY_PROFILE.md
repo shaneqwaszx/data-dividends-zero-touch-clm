@@ -93,9 +93,55 @@ rewritten by reads. Existing team IDs and priorities retain their prior meaning.
 
 ## Dashboard contract
 
-Dashboard calculations occur only after authorization and the Director team filter.
-The response carries backend-authored team/scope metadata, UTC `data_as_of`, canonical
-status and priority counts, completion ratio, authorized team counts, bounded recent
-case projections, and a zero-filled 30-day UTC trend. The endpoint is provider-free
-and read-only. Team-scoped responses contain no global or other-team totals or case
-data; HR is denied.
+PR95 Dashboard v2 is a project-defined operational read model. Authorization and
+Director `team_filter` run before `scope=team|mine` and created-date filtering.
+`mine` means immutable creator equals the authenticated user; legacy unknown creator
+is never inferred. HR is denied, RM/onboarder scope remains exact own-team, and
+inaccessible case activity retains the same safe404 as an absent case.
+
+`date_range=7d|30d|90d|all` defaults toall for backward compatibility.
+Dashboard v2 explicitly requests30d on initial load. Bounded ranges include exactly N Singapore
+calendar dates ending today, using the existing UTC+08:00 half-open portfolio bounds.
+Totals, lists and metric denominators all use this same selected case set; `all`
+includes historical cases. Weekly completion buckets remain eight UTC Monday weeks
+within that selected set. A case created before the selected range is excluded even
+if completed recently. No completion-date cohort is implied.
+
+The original `historical_trend` schema and calculation remain:30 zero-filled UTC
+calendar days through `data_as_of`, counting creation and recorded completion dates
+over the full authorized view before the new created-date cohort filter. Thus a case
+created45days ago and completed today still contributes to the legacy completion
+trend even when the v2 selected30-day cohort excludes it. Callers without new
+parameters retain all-history totals and existing default team scope.
+New `view`, `zero_touch_rate`, `timing`, `stage_timing`, `exception_breakdown`,
+`weekly_onboarded`, `workload_by_person` and `scoped_cases` fields are additive.
+The shipped browser and shared types consume v2 atomically. Recent cases are capped
+at10, active cases at5, selected cases at200, and slowest stage cases at3. Counts use
+the full selected cohort even when lists are truncated.
+
+Zero-touch rate is completed cases with zero recorded exception interventions divided
+by completed cases; empty denominator gives0. Final human Review & Send remains
+required and is not an exception intervention. Means use recorded non-null durations;
+unknown timings stay null. Progress is recorded automated stages/6, capped at100,
+with COMPLETED always100. It is a project-defined display metric, not approval proof.
+Stage timing distinguishes cases with retained blockers from clean recorded durations.
+Exceptions include retained history; none of these metrics is a sponsor SLA,
+compliance calculation, staff-performance rating or Live-integration claim.
+
+Workload open/completed case counts belong to the immutable creator. Fix counts and
+mean fix time belong to the last recorded resolver, once per RESOLVED exception,
+within the selected authorized case set, including a teammate's created cases.
+Only actor evidence recorded at/after retained resolution can attribute that fix;
+earlier draft decisions and cancelled/open blockers are excluded. Missing historical
+actor evidence remains unattributed. Display names use the existing
+synthetic profile labels, with recorded identifiers for other actors. Mine view uses
+the authenticated actor's workload row by ID, never array position. Timing is elapsed
+recorded resolution time minus blocker creation, not active working time.
+
+Memory and Mongo expose the validated nullable creator internally; Mongo portfolio
+projections and activity aggregation enforce schema9/10 identity grammar and reject
+later creator fields on schemas1..8. The activity `created_by` filter intersects role,
+team, case, action, stage, outcome and date filters before paging. It is a creator
+filter, not event-actor attribution. No schema version, migration or write changes.
+The endpoint is provider-free and read-only; no out-of-scope totals or identities are
+returned. Case/scoped automation aggregation remains linear in retained POC inventory.

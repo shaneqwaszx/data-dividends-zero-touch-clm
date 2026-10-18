@@ -82,7 +82,7 @@ async function fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<
   return response;
 }
 
-// Reuse the session owner for read-only consumers such as Copilot.
+// Reuse the session owner for read-only consumers such as AI Assistant.
 export { fetch as authenticatedFetch };
 
 export async function login(userId: string, credential: string): Promise<AuthSession> {
@@ -430,7 +430,7 @@ export async function fetchDashboard(teamFilter?: string, scope?: "team" | "mine
   const query = new URLSearchParams();
   if (teamFilter && teamFilter !== "all") query.set("team_filter", teamFilter);
   if (scope && scope !== "team") query.set("scope", scope);
-  if (dateRange && dateRange !== "30d") query.set("date_range", dateRange);
+  if (dateRange) query.set("date_range", dateRange);
   const suffix = query.size ? `?${query.toString()}` : "";
   const response = await fetch(`${API_BASE_URL}/api/clm/zero-touch/dashboard${suffix}`, { signal });
   return parseResponse<DashboardSnapshot>(response);

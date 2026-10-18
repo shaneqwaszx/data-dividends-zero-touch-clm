@@ -501,6 +501,17 @@ multi-instance locks, regulatory retention, or production audit guarantees.
 
 ## 13. Portfolio and dashboard architecture
 
+PR95's unmerged Dashboard v2 candidate extends the same DashboardService and portfolio
+owners. The current metric/cohort/API compatibility contract is in
+`contracts/CASE_ACCESS_AND_PRIORITY_PROFILE.md#dashboard-contract`. It consumes retained
+automation records only after selecting authorized case IDs; creator load and recorded
+resolver activity are separate projections. Mongo validates creator identity in its
+bounded projections and intersects activity creator predicates with authorized scope.
+Frontend query identity adds view/date range and activity creator. Existing auth,
+QueryClient, cancellation, deletion and target owners remain unchanged. No new owner,
+schema, dependency, provider or sponsor-policy authority is introduced.
+
+
 The backend applies actor/team authorization before filters, ordering, projection and
 aggregation. A lightweight repository projection avoids complete-envelope N+1 reads.
 Dashboard metrics are factual POC counts/trends, not risk, SLA, compliance, or staff
@@ -922,14 +933,14 @@ compatibility predicate is shared in the pure selection model, not duplicated. S
 retains current selection receipts; no extra classifier, repository, workflow stage,
 cache, provider, ownership calculator or dependency direction is introduced.
 
-## Read-only Copilot main-integration candidate — 2026-10-06
+## Read-only AI Assistant main-integration candidate — 2026-10-06
 
 The owner-authorized integration imports main PR74 at1fc097f into the existing
-zero-touch branch without rewriting acceptedccff747/859f218. The separate Copilot
+zero-touch branch without rewriting acceptedccff747/859f218. The separate AI Assistant
 service reads existing authenticated CLM APIs through GET only; backend authorization,
 case/document/ownership/currentness and target-ledger owners remain authoritative.
 It has no case or target mutation endpoint, persistence owner or business-rule engine.
-Frontend App supplies only route/intake case context. Copilot reuses the existing
+Frontend App supplies only route/intake case context. AI Assistant reuses the existing
 api.ts authenticated transport for session-generation-aware401 cleanup; no parallel
 auth/cache owner is added. Either current inaccessible-case404 cancels retained
 summary/chat requests and clears only that local conversation; aborted replies cannot

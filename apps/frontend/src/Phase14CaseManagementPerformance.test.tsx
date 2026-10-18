@@ -136,8 +136,8 @@ describe("Phase 14 session query cache", () => {
     expect(queryClient.getQueryData(teamAOptions.queryKey)).toMatchObject({ marker: "TEAM_A" });
     expect(queryClient.getQueryData(teamBOptions.queryKey)).toMatchObject({ marker: "TEAM_B" });
     expect(request.mock.calls.map(([url]) => String(url))).toEqual([
-      "/api/clm/zero-touch/dashboard?team_filter=TEAM_A",
-      "/api/clm/zero-touch/dashboard?team_filter=TEAM_B",
+      "/api/clm/zero-touch/dashboard?team_filter=TEAM_A&date_range=30d",
+      "/api/clm/zero-touch/dashboard?team_filter=TEAM_B&date_range=30d",
     ]);
     expect(caseQueryKeys.dashboard("olivia-koh", "all")).not.toEqual(teamAOptions.queryKey);
     expect(caseQueryKeys.dashboard("olivia-koh", "unassigned")).not.toEqual(teamAOptions.queryKey);

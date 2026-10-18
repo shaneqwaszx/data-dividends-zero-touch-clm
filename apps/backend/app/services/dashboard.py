@@ -2,12 +2,12 @@
 
 from collections import Counter
 from collections.abc import Callable, Iterable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID
 
 from app.domain.access import SYNTHETIC_PROFILE_BY_ID, AuthenticatedActor, Role, TeamId
-from app.domain.case_management import CasePortfolioRecord
+from app.domain.case_management import CasePortfolioRecord, case_created_date_bounds
 from app.domain.dashboard import (
     DashboardCaseItem,
     DashboardExceptionCount,
@@ -20,6 +20,7 @@ from app.domain.dashboard import (
     DashboardTeamCount,
     DashboardTimingSummary,
     DashboardTotals,
+    DashboardTrendDay,
     DashboardWeeklyOnboarded,
     DashboardWorkloadRow,
 )
@@ -39,6 +40,7 @@ DASHBOARD_RECENT_LIMIT = 10
 DASHBOARD_TOP_ACTIVE_LIMIT = 5
 DASHBOARD_SCOPED_CASES_LIMIT = 200
 DASHBOARD_WEEKLY_WEEKS = 8
+DASHBOARD_TREND_DAYS = 30
 DASHBOARD_STAGE_TOP_CASES = 3
 DASHBOARD_DATE_RANGE_DAYS: dict[str, int | None] = {"7d": 7, "30d": 30, "90d": 90, "all": None}
 AUTOMATION_STAGES_TOTAL = 6
@@ -66,19 +68,30 @@ class DashboardService:
         *,
         team_filter: str | None = None,
         scope: Literal["team", "mine"] = "team",
-        date_range: Literal["7d", "30d", "90d", "all"] = "30d",
+        date_range: Literal["7d", "30d", "90d", "all"] = "all",
     ) -> DashboardSnapshot:
         data_as_of = self._clock()
         range_days = DASHBOARD_DATE_RANGE_DAYS[date_range]
-        created_from = (data_as_of - timedelta(days=range_days)).date() if range_days else None
-        records = self._case_query.list_cases(
-            actor, team_filter=team_filter, created_from=created_from
-        )
+        # Match the portfolio's inclusive Singapore created-calendar-day contract.
+        today = data_as_of.astimezone(timezone(timedelta(hours=8))).date()
+        created_from = today - timedelta(days=range_days - 1) if range_days else None
+        records = self._case_query.list_cases(actor, team_filter=team_filter)
         if scope == "mine":
             records = [
                 item for item in records if item.created_by_actor_id == actor.profile.user_id
             ]
 
+        # The legacy UTC trend retains its established history independently of
+        # the new created-date cohort selector.
+        historical_trend = _trend(records, data_as_of.date())
+        from_at, to_at = case_created_date_bounds(
+            created_from, today if range_days else None,
+        )
+        records = [
+            item for item in records
+            if (from_at is None or item.created_at >= from_at)
+            and (to_at is None or item.created_at < to_at)
+        ]
         total = len(records)
         completed = sum(item.status == AutomationStatus.COMPLETED for item in records)
         prioritised = sum(item.priority is not None for item in records)
@@ -102,6 +115,7 @@ class DashboardService:
         return DashboardSnapshot(
             scope=self._dashboard_scope(actor, team_filter),
             view=scope,
+            historical_trend=historical_trend,
             data_as_of=data_as_of,
             totals=DashboardTotals(
                 total_cases=total,
@@ -131,7 +145,8 @@ class DashboardService:
             recent_cases=tuple(self._case_item(item, automations) for item in recent),
             top_active_cases=tuple(self._case_item(item, automations) for item in top_active),
             scoped_cases=tuple(
-                self._case_item(item, automations) for item in records[:DASHBOARD_SCOPED_CASES_LIMIT]
+                self._case_item(item, automations)
+                for item in records[:DASHBOARD_SCOPED_CASES_LIMIT]
             ),
         )
 
@@ -236,6 +251,30 @@ class DashboardService:
             if item.created_by_actor_id is None:
                 continue
             by_person.setdefault(item.created_by_actor_id, []).append(item)
+        # Case load belongs to the creator; retained resolution evidence belongs to
+        # its recorded resolver even when a teammate created the case. Only records
+        # in the selected authorized scope enter either aggregation.
+        fixes: dict[str, list[int]] = {}
+        for automation in automations.values():
+            for exception in automation.exceptions:
+                if (
+                    exception.status != BusinessExceptionStatus.RESOLVED
+                    or exception.resolved_at is None
+                ):
+                    continue
+                decision = next(
+                    (item for item in reversed(exception.decisions)
+                     if item.actor_id is not None and item.recorded_at >= exception.resolved_at),
+                    None,
+                )
+                if decision is None or decision.actor_id is None:
+                    continue  # Unknown historical attribution stays unknown.
+                user_id = decision.actor_id
+                duration = int(
+                    (exception.resolved_at - exception.created_at).total_seconds() * 1000
+                )
+                fixes.setdefault(user_id, []).append(duration)
+                by_person.setdefault(user_id, [])
         now = self._clock()
         rows: list[DashboardWorkloadRow] = []
         for user_id, items in by_person.items():
@@ -243,22 +282,9 @@ class DashboardService:
             completed_items = [item for item in items if item.status == AutomationStatus.COMPLETED]
             oldest_open_age_ms = (
                 max(int((now - item.created_at).total_seconds() * 1000) for item in open_items)
-                if open_items
-                else None
+                if open_items else None
             )
-            blockers_resolved = 0
-            fix_durations_ms: list[int] = []
-            for item in items:
-                automation = automations.get(item.case_id)
-                if automation is None:
-                    continue
-                for exception in automation.exceptions:
-                    for decision in exception.decisions:
-                        if decision.actor_id == user_id:
-                            blockers_resolved += 1
-                            fix_durations_ms.append(
-                                int((decision.recorded_at - exception.created_at).total_seconds() * 1000)
-                            )
+            fix_durations_ms = fixes.get(user_id, [])
             profile = SYNTHETIC_PROFILE_BY_ID.get(user_id)
             rows.append(
                 DashboardWorkloadRow(
@@ -267,7 +293,7 @@ class DashboardService:
                     open_cases=len(open_items),
                     oldest_open_age_ms=oldest_open_age_ms,
                     completed_cases=len(completed_items),
-                    blockers_resolved=blockers_resolved,
+                    blockers_resolved=len(fix_durations_ms),
                     mean_fix_time_ms=_mean_ms(fix_durations_ms),
                 )
             )
@@ -291,10 +317,19 @@ def _timing_summary(records: list[CasePortfolioRecord]) -> DashboardTimingSummar
     zero_touch = [item for item in completed if item.human_interventions == 0]
     blocked = [item for item in completed if item.human_interventions > 0]
     return DashboardTimingSummary(
-        mean_total_duration_ms=_mean_ms(item.recorded_total_duration_ms for item in completed),
-        zero_touch_mean_duration_ms=_mean_ms(item.recorded_total_duration_ms for item in zero_touch),
+        mean_total_duration_ms=_mean_ms(
+            item.recorded_total_duration_ms for item in completed
+            if item.recorded_total_duration_ms is not None
+        ),
+        zero_touch_mean_duration_ms=_mean_ms(
+            item.recorded_total_duration_ms for item in zero_touch
+            if item.recorded_total_duration_ms is not None
+        ),
         zero_touch_count=len(zero_touch),
-        blocked_mean_duration_ms=_mean_ms(item.recorded_total_duration_ms for item in blocked),
+        blocked_mean_duration_ms=_mean_ms(
+            item.recorded_total_duration_ms for item in blocked
+            if item.recorded_total_duration_ms is not None
+        ),
         blocked_count=len(blocked),
     )
 
@@ -395,7 +430,9 @@ def _weekly_onboarded(
             unresolved[week_start] = unresolved.get(week_start, 0) + 1
         else:
             week_counts = buckets.setdefault(week_start, {})
-            week_counts[item.resolved_jurisdiction] = week_counts.get(item.resolved_jurisdiction, 0) + 1
+            week_counts[item.resolved_jurisdiction] = (
+                week_counts.get(item.resolved_jurisdiction, 0) + 1
+            )
     return tuple(
         DashboardWeeklyOnboarded(
             week_start=week_start,
@@ -417,16 +454,18 @@ def _delay_note(
             return None
         slowest: tuple[BusinessExceptionType, int] | None = None
         for exception in automation.exceptions:
-            for decision in exception.decisions:
-                duration_ms = int(
-                    (decision.recorded_at - exception.created_at).total_seconds() * 1000
-                )
-                if slowest is None or duration_ms > slowest[1]:
-                    slowest = (exception.exception_type, duration_ms)
+            if (
+                exception.status != BusinessExceptionStatus.RESOLVED
+                or exception.resolved_at is None
+            ):
+                continue
+            duration_ms = int((exception.resolved_at - exception.created_at).total_seconds() * 1000)
+            if slowest is None or duration_ms > slowest[1]:
+                slowest = (exception.exception_type, duration_ms)
         if slowest is None:
             return None
         exception_type, duration_ms = slowest
-        return f"{_exception_label(exception_type)} · {_format_hours(duration_ms)} fix"
+        return f"{_exception_label(exception_type)} \u00b7 {_format_hours(duration_ms)} fix"
     if automation is None:
         return None
     open_exceptions = [
@@ -463,3 +502,24 @@ def _exception_label(exception_type: BusinessExceptionType) -> str:
 
 def _format_hours(duration_ms: int) -> str:
     return f"{duration_ms / 3_600_000:.1f}h"
+
+
+def _trend(records: list[CasePortfolioRecord], end_day: date) -> tuple[DashboardTrendDay, ...]:
+    start_day = end_day - timedelta(days=DASHBOARD_TREND_DAYS - 1)
+    created = Counter(_utc_day(item.created_at) for item in records)
+    completed = Counter(
+        _utc_day(item.completed_at) for item in records if item.completed_at is not None
+    )
+    return tuple(
+        DashboardTrendDay(
+            day=day,
+            created_count=created[day],
+            completed_count=completed[day],
+        )
+        for offset in range(DASHBOARD_TREND_DAYS)
+        if (day := start_day + timedelta(days=offset)) <= end_day
+    )
+
+
+def _utc_day(value: datetime) -> date:
+    return value.astimezone(UTC).date()

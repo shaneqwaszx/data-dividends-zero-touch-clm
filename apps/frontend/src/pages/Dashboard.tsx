@@ -289,19 +289,7 @@ function StageTimingTable({ stageTiming }: { stageTiming: DashboardStageTiming[]
   );
 }
 
-const MOCK_WEEKLY_ONBOARDED: DashboardSnapshot["weekly_onboarded"] = [
-  { week_start: "2026-07-06", by_jurisdiction: { SG: 1, AU: 1 }, unresolved_count: 0 },
-  { week_start: "2026-07-13", by_jurisdiction: { SG: 2 }, unresolved_count: 0 },
-  { week_start: "2026-07-20", by_jurisdiction: { SG: 1, AU: 2 }, unresolved_count: 0 },
-  { week_start: "2026-07-27", by_jurisdiction: { SG: 2, AU: 1 }, unresolved_count: 0 },
-  { week_start: "2026-08-03", by_jurisdiction: { SG: 3, AU: 1 }, unresolved_count: 0 },
-  { week_start: "2026-08-10", by_jurisdiction: { SG: 2, AU: 1 }, unresolved_count: 0 },
-  { week_start: "2026-08-17", by_jurisdiction: { SG: 2, AU: 2 }, unresolved_count: 0 },
-  { week_start: "2026-08-24", by_jurisdiction: { SG: 1 }, unresolved_count: 0 },
-];
-
-function WeeklyOnboardedChart() {
-  const weeks = MOCK_WEEKLY_ONBOARDED;
+function WeeklyOnboardedChart({ weeks }: { weeks: DashboardSnapshot["weekly_onboarded"] }) {
   const totals = weeks.map((week) => Object.values(week.by_jurisdiction).reduce((sum, count) => sum + (count ?? 0), 0) + week.unresolved_count);
   const max = Math.max(1, ...totals);
   const jurisdictionsPresent = Array.from(
@@ -333,7 +321,7 @@ function WeeklyOnboardedChart() {
         })}
       </div>
       <div className="weekly-chart-axis">{weeks.map((week) => <span key={week.week_start} className="weekly-chart-label">{week.week_start.slice(5)}</span>)}</div>
-      <p className="text-muted" style={{ fontSize: 10.5, margin: "8px 0 0" }}>Illustrative mix — this POC currently routes only Singapore cases; other jurisdictions are shown for layout only.</p>
+      <p className="text-muted" style={{ fontSize: 10.5, margin: "8px 0 0" }}>Recorded completions in the selected case cohort · UTC weeks starting Monday.</p>
     </article>
   );
 }
@@ -376,7 +364,7 @@ function WorkloadTable({ rows }: { rows: DashboardSnapshot["workload_by_person"]
 
   return (
     <article className="card">
-      <h2>Workload by person</h2>
+      <h2>Workload by person</h2><p className="text-muted">Case counts use the creator; blocker fixes use the recorded resolver within the selected case scope.</p>
       {rows.length === 0 && <p className="empty-copy">No cases have been created in this scope yet.</p>}
       {rows.length > 0 && (
         <div className="table-scroll">
@@ -485,7 +473,7 @@ function AllCasesTable({ cases, actor }: { cases: DashboardCaseItem[]; actor: Au
               <tr>
                 <SortableTh label="Case" sortKey="case" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 {actor.role === "DIRECTOR" && <SortableTh label="Team" sortKey="team" activeKey={sortKey} dir={sortDir} onSort={onSort} />}
-                <SortableTh label="Person in charge" sortKey="person" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+                <SortableTh label="Created by" sortKey="person" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortableTh label="Age" sortKey="age" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <th></th>
@@ -655,8 +643,8 @@ function TeamDashboard({ dashboard, actor }: { dashboard: DashboardSnapshot; act
       <div className="dashboard-kpis dashboard-kpis--4" aria-label="Dashboard totals">
         <article className="dashboard-kpi"><span>Open cases</span><strong>{totals.non_completed_cases}</strong><p className="text-muted">{runningCount} running · {blockedCount} blocked</p></article>
         <article className="dashboard-kpi"><span>Onboarded</span><strong>{totals.completed_cases}</strong></article>
-        <article className="dashboard-kpi"><span>Zero-touch rate</span><strong>{formatPercent(dashboard.zero_touch_rate)}</strong><p className="text-muted">{dashboard.timing.zero_touch_count} of {totals.completed_cases} cleared with no reviewer</p></article>
-        <article className="dashboard-kpi"><span>Mean time to onboard</span><strong>{formatDuration(dashboard.timing.mean_total_duration_ms)}</strong><p className="text-muted">{formatDuration(dashboard.timing.zero_touch_mean_duration_ms)} zero-touch · {formatDuration(dashboard.timing.blocked_mean_duration_ms)} for {dashboard.timing.blocked_count} cases that hit a blocker</p></article>
+        <article className="dashboard-kpi"><span>Zero-touch rate</span><strong>{formatPercent(dashboard.zero_touch_rate)}</strong><p className="text-muted">Completed cases with no recorded exception interventions; final review still required.</p></article>
+        <article className="dashboard-kpi"><span>Mean time to onboard</span><strong>{formatDuration(dashboard.timing.mean_total_duration_ms)}</strong><p className="text-muted">{formatDuration(dashboard.timing.zero_touch_mean_duration_ms)} zero-touch · {formatDuration(dashboard.timing.blocked_mean_duration_ms)} for {dashboard.timing.blocked_count} cases with exception interventions</p></article>
       </div>
 
       {totals.total_cases === 0 && <div className="ds-banner">No onboarding cases are available for your current scope.</div>}
@@ -664,7 +652,7 @@ function TeamDashboard({ dashboard, actor }: { dashboard: DashboardSnapshot; act
       <StageTimingTable stageTiming={dashboard.stage_timing} />
 
       <div className="dashboard-grid dashboard-grid--distributions">
-        <WeeklyOnboardedChart />
+        <WeeklyOnboardedChart weeks={dashboard.weekly_onboarded} />
         <ExceptionBreakdown exceptions={dashboard.exception_breakdown} />
       </div>
 
@@ -675,14 +663,14 @@ function TeamDashboard({ dashboard, actor }: { dashboard: DashboardSnapshot; act
   );
 }
 
-function RecentActivity({ actor }: { actor: AuthenticatedProfile }) {
-  const query = useQuery(activityQueryOptions(actor.user_id, { createdBy: actor.user_id, limit: 100 }));
+function RecentActivity({ actor, teamFilter }: { actor: AuthenticatedProfile; teamFilter: string }) {
+  const query = useQuery(activityQueryOptions(actor.user_id, { createdBy: actor.user_id, teamFilter, limit: 100 }));
   const items = query.data?.items ?? [];
   const { pageRows, page, setPage, pageCount, total, pageSize } = usePagination(items);
   return (
     <article className="card">
       <div className="row-between">
-        <h2>Recent activity on your cases</h2>
+        <h2>Recent activity on your cases · all dates</h2>
         <Link className="btn btn-ghost" to={paths.audit}>Audit →</Link>
       </div>
       {query.isPending && <p className="text-muted">Loading…</p>}
@@ -700,15 +688,15 @@ function RecentActivity({ actor }: { actor: AuthenticatedProfile }) {
   );
 }
 
-function MyWorkDashboard({ dashboard, actor }: { dashboard: DashboardSnapshot; actor: AuthenticatedProfile }) {
+function MyWorkDashboard({ dashboard, actor, teamFilter }: { dashboard: DashboardSnapshot; actor: AuthenticatedProfile; teamFilter: string }) {
   const totals = dashboard.totals;
-  const mine = dashboard.workload_by_person[0];
+  const mine = dashboard.workload_by_person.find((row) => row.user_id === actor.user_id);
 
   return (
     <>
       <div className="dashboard-kpis dashboard-kpis--4" aria-label="Your dashboard totals">
         <article className="dashboard-kpi"><span>Your open cases</span><strong>{totals.non_completed_cases}</strong></article>
-        <article className="dashboard-kpi"><span>Onboarded by you</span><strong>{totals.completed_cases}</strong></article>
+        <article className="dashboard-kpi"><span>Your created cases onboarded</span><strong>{totals.completed_cases}</strong></article>
         <article className="dashboard-kpi"><span>Time to resolve a blocker</span><strong>{formatDuration(mine?.mean_fix_time_ms)}</strong><p className="text-muted">mean · {mine?.blockers_resolved ?? 0} blockers resolved</p></article>
         <article className="dashboard-kpi"><span>Time to onboard</span><strong>{formatDuration(dashboard.timing.mean_total_duration_ms)}</strong><p className="text-muted">mean · creation to Completed</p></article>
       </div>
@@ -718,7 +706,7 @@ function MyWorkDashboard({ dashboard, actor }: { dashboard: DashboardSnapshot; a
       <YourCasesTable cases={dashboard.scoped_cases} />
       <div className="dashboard-grid dashboard-grid--distributions">
         <BlockedCases cases={dashboard.scoped_cases} />
-        <RecentActivity actor={actor} />
+        <RecentActivity actor={actor} teamFilter={actor.role === "DIRECTOR" ? teamFilter : "all"} />
       </div>
     </>
   );
@@ -773,7 +761,7 @@ export function DashboardView({
         </div>
       </header>
 
-      {dashScope === "team" ? <TeamDashboard dashboard={dashboard} actor={actor} /> : <MyWorkDashboard dashboard={dashboard} actor={actor} />}
+      {dashScope === "team" ? <TeamDashboard dashboard={dashboard} actor={actor} /> : <MyWorkDashboard dashboard={dashboard} actor={actor} teamFilter={teamFilter} />}
     </section>
   );
 }

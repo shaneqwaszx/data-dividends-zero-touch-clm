@@ -696,7 +696,7 @@ def create_app(
         clock=active_clock,
     )
     dashboard = DashboardService(
-        case_query, administration.directory, zero_touch.automation_repository
+        case_query, administration.directory, zero_touch.automation_repository, clock=active_clock
     )
     case_deletion = CaseDeletionService(
         cases=service,
@@ -2202,7 +2202,9 @@ def create_app(
         actor: Annotated[AuthenticatedActor, Depends(authenticated_actor)],
         team_filter: Annotated[str | None, Query(alias="team_filter", max_length=64)] = None,
         scope: Annotated[Literal["team", "mine"], Query(alias="scope")] = "team",
-        date_range: Annotated[Literal["7d", "30d", "90d", "all"], Query(alias="date_range")] = "30d",
+        date_range: Annotated[
+            Literal["7d", "30d", "90d", "all"], Query(alias="date_range")
+        ] = "all",
     ) -> DashboardSnapshot:
         """Return a provider-free historical view of the caller's authorized cases."""
 
