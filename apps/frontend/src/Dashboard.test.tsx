@@ -290,11 +290,11 @@ it("qualifies recorded timing samples and availability without Live claims", () 
   /></MemoryRouter>);
   expect(picker).toContain("Available");
   expect(picker).not.toContain(">Live<");
-  const markup = renderToStaticMarkup(<MemoryRouter><DashboardView
+  const markup = renderToStaticMarkup(<QueryClientProvider client={createSessionQueryClient()}><MemoryRouter><DashboardView
     actor={maya} dashboard={value} dashScope="mine" onScopeChange={() => undefined}
     dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all"
     onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
-  /></MemoryRouter>);
+  /></MemoryRouter></QueryClientProvider>);
   expect(markup).toContain("recorded workflow start to completion");
   expect(markup).not.toContain("creation to Completed");
   const manager = renderToStaticMarkup(<MemoryRouter><DashboardView
