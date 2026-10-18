@@ -519,6 +519,8 @@ button.tag {
 /* -- sortable table headers -- */
 .sortable-th { cursor: pointer; user-select: none; white-space: nowrap; }
 .ds-root .sortable-th:hover { color: var(--color-text); }
+.ds-root .sort-control { appearance: none; border: 0; background: transparent; padding: 0; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.ds-root .sort-control:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
 .sort-caret { display: inline-block; margin-left: 4px; font-size: 9px; color: var(--color-neutral-400); }
 .sort-caret.active { color: var(--color-accent); }
 

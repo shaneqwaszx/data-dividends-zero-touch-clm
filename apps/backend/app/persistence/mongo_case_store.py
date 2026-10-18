@@ -332,8 +332,6 @@ class MongoCaseStore:
             candidate_match["onboarding.team_id"] = None
         if query.case_id is not None:
             candidate_match["_id"] = str(query.case_id)
-        if query.created_by is not None:
-            candidate_match["onboarding.created_by_actor_id"] = query.created_by
 
         valid_candidate = _activity_candidate_valid_expression()
         row_match = _activity_row_match(query)
@@ -362,6 +360,11 @@ class MongoCaseStore:
                     ],
                     "rows": [
                         {"$match": {"$expr": valid_candidate}},
+                        # Validate the authorized envelope before creator filtering.
+                        *(
+                            [{"$match": {"onboarding.created_by_actor_id": query.created_by}}]
+                            if query.created_by is not None else []
+                        ),
                         {"$unwind": "$automation.events"},
                         {"$match": row_match},
                         {

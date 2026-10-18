@@ -427,6 +427,109 @@ def test_pr95_physical_workload_and_legacy_trend_match_memory_after_restart() ->
         assert resolver.totals.total_cases == 0 and resolver.scoped_cases == ()
         assert resolver.workload_by_person[0].blockers_resolved == 3
         assert resolver.workload_by_person[0].mean_fix_time_ms == 2_400_334
+        # Reversed chronology is accepted by retained domain loading, but may never
+        # produce a negative workload/delay projection. Compare both storage modes.
+        from app.domain.case_management import CaseTimingDataInvalidError
+
+        for invalid_case, retained in ((case, automation), (completed, completion)):
+            original_automation = client[database]["clm_case_snapshots"].find_one(
+                {"_id": str(invalid_case.case_id)},
+            )["automation"]
+            for recorded_resolver in (True, False):
+                bad = retained.exceptions[0].model_copy(update={
+                    "resolved_at": retained.exceptions[0].created_at - timedelta(seconds=1),
+                    "decisions": retained.exceptions[0].decisions if recorded_resolver else (),
+                })
+                invalid = retained.model_copy(update={"exceptions": [bad]})
+                client[database]["clm_case_snapshots"].update_one(
+                    {"_id": str(invalid_case.case_id)},
+                    {"$set": {
+                        "automation.exceptions.0.resolved_at": bad.resolved_at.isoformat(),
+                        "automation.exceptions.0.decisions": (
+                            original_automation["exceptions"][0]["decisions"]
+                            if recorded_resolver else []
+                        ),
+                    }},
+                )
+                memory_invalid, _ = _service_for([(invalid_case, invalid)])
+                for dashboard in (service, memory_invalid):
+                    with pytest.raises(CaseTimingDataInvalidError):
+                        dashboard.get_dashboard(_actor("maya-lim"))
+            client[database]["clm_case_snapshots"].update_one(
+                {"_id": str(invalid_case.case_id)},
+                {"$set": {"automation": original_automation}},
+            )
+
+    finally:
+        try:
+            cleanup_ephemeral_mongo_database(client, database)
+        finally:
+            client.close()
+
+
+@pytest.mark.parametrize("schema_version", [9, 10])
+def test_pr95_r2_activity_validates_creator_before_filter_in_physical_mongo(schema_version):
+    from test_phase17_case_activity_real_mongo import _event
+    from test_phase18_case_portfolio import _mongo_portfolio_row
+
+    from app.domain.case_management import (
+        CaseActivityQuery,
+        CasePortfolioScope,
+        PortfolioScopeKind,
+    )
+    from app.persistence.errors import PersistenceDataInvalidError
+    from app.persistence.mongo_case_store import MongoCaseStore
+
+    assert MONGO_URI is not None
+    database = generate_ephemeral_mongo_database("p13")
+    client: MongoClient[dict[str, Any]] = MongoClient(MONGO_URI)
+    collection = client[database]["clm_case_snapshots"]
+    store = MongoCaseStore(client, database=database, collection="clm_case_snapshots")
+    scope = CasePortfolioScope(kind=PortfolioScopeKind.TEAM, team_id=TeamId.TEAM_A)
+
+    def row(creator, *, team="TEAM_A", version=schema_version):
+        from uuid import uuid4
+
+        raw = _mongo_portfolio_row(uuid4())
+        raw["schema_version"] = version
+        raw["onboarding"]["team_id"] = team
+        raw["onboarding"]["created_by_actor_id"] = creator
+        raw["automation"]["events"] = [
+            _event(UUID(raw["case_id"]), seq, f"2026-09-21T12:00:0{seq}Z")
+            for seq in (1, 2, 3)
+        ]
+        collection.insert_one(raw)
+        return raw
+
+    try:
+        matching = row("maya-lim")
+        row("ethan-tan")  # Valid nonmatching rows never leak into the page.
+        row(None)  # Retained nullable creator.
+        row(None, version=8)  # Legacy absent creator.
+        collection.update_many({"schema_version": 8}, {
+            "$unset": {"onboarding.created_by_actor_id": ""},
+        })
+        row("INVALID", team="TEAM_B")  # Other-team malformed data is irrelevant.
+        query = CaseActivityQuery(scope=scope, created_by="maya-lim", limit=2)
+        page = store.list_activity(query)
+        assert [item.sequence for item in page.items] == [3, 2]
+        assert all(str(item.case_id) == matching["case_id"] for item in page.items)
+        assert page.has_more
+        tail = store.list_activity(query.model_copy(update={"offset": 2}))
+        assert [item.sequence for item in tail.items] == [1]
+        assert not tail.has_more
+        assert store.list_activity(query.model_copy(update={"offset": 3})).items == ()
+        malformed = row("INVALID")
+        # Creator filtering must not suppress the invalid authorized envelope.
+        for bad in ("INVALID", True, 123, [], {}, ""):
+            collection.update_one({"_id": malformed["_id"]}, {
+                "$set": {"onboarding.created_by_actor_id": bad},
+            })
+            with pytest.raises(PersistenceDataInvalidError):
+                store.list_activity(query)
+        # Case selection is still an authorization-constrained validation boundary.
+        selected = query.model_copy(update={"case_id": UUID(matching["case_id"])})
+        assert len(store.list_activity(selected).items) == 2
     finally:
         try:
             cleanup_ephemeral_mongo_database(client, database)

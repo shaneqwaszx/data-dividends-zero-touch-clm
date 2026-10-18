@@ -4,6 +4,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from phase13_test_clients import RawTestClient
 from phase13_test_credentials import build_test_authentication_service
 from phase13_test_settings import ordinary_test_settings
@@ -965,3 +966,99 @@ def test_resolution_milliseconds_and_mean_are_exact_with_submillisecond_floor() 
         assert row.user_id == "maya-lim"
         assert row.blockers_resolved == len(durations)
         assert row.mean_fix_time_ms == expected
+
+
+def _r2_dashboard_response(monkeypatch, service, *, query=""):
+    from phase13_test_credentials import TEST_PASSWORD
+
+    original = service.get_dashboard
+    monkeypatch.setattr(DashboardService, "get_dashboard", lambda self, actor, **kwargs:
+                        original(actor, **kwargs))
+    client = RawTestClient(create_app(ordinary_test_settings(), clock=lambda: NOW))
+    assert client.post("/api/auth/login", json={
+        "user_id": "maya-lim", "password": TEST_PASSWORD,
+    }).status_code == 200
+    return client.get("/api/clm/zero-touch/dashboard" + query)
+
+
+def _r2_assert_unavailable(response):
+    assert response.status_code == 503
+    assert response.json() == {"detail": {
+        "code": "DASHBOARD_UNAVAILABLE", "message": "Dashboard data is temporarily unavailable.",
+    }}
+
+
+@pytest.mark.parametrize("resolver", ["maya-lim", None])
+@pytest.mark.parametrize("status", [AutomationStatus.RUNNING, AutomationStatus.COMPLETED])
+def test_pr95_r2_reversed_resolution_fails_closed_for_resolver_and_delay(
+    monkeypatch, resolver, status,
+):
+    case, automation = _record(
+        TeamId.TEAM_A, None, status, created_days_ago=2, updated_hours_ago=1,
+        human_interventions=1, created_by_actor_id="ethan-tan",
+    )
+    exception = _resolved_exception(
+        case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+        AutomationStage.DOCUMENT, created_at=case.created_at + timedelta(hours=2),
+        resolved_at=case.created_at + timedelta(hours=1), actor_id="maya-lim",
+    )
+    if resolver is None:
+        exception = exception.model_copy(update={"decisions": ()})
+    automation = automation.model_copy(update={"exceptions": [exception]})
+    service, _ = _service_for([(case, automation)])
+    with monkeypatch.context() as patch:
+        _r2_assert_unavailable(_r2_dashboard_response(patch, service))
+
+
+def test_pr95_r2_invalid_completed_timing_beyond_display_cap_fails_closed(monkeypatch):
+    fixtures = [_record(
+        TeamId.TEAM_A, 10, AutomationStatus.COMPLETED,
+        created_days_ago=2, updated_hours_ago=1,
+    ) for _ in range(200)]
+    case, automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.COMPLETED,
+        created_days_ago=2, updated_hours_ago=24,
+    )
+    automation = automation.model_copy(update={
+        "completed_at": case.created_at - timedelta(seconds=1),
+    })
+    service, _ = _service_for([*fixtures, (case, automation)])
+    selected = service._case_query.list_cases(_actor("maya-lim"))
+    assert len(selected) == 201 and selected[-1].case_id == case.case_id
+    _r2_assert_unavailable(_r2_dashboard_response(monkeypatch, service))
+
+
+def test_pr95_r2_valid_large_cohort_keeps_cap_totals_and_trend():
+    fixtures = [_record(
+        TeamId.TEAM_A, None, AutomationStatus.COMPLETED,
+        created_days_ago=2, updated_hours_ago=1,
+    ) for _ in range(201)]
+    service, automation = _service_for(fixtures)
+    result = service.get_dashboard(_actor("maya-lim"))
+    assert len(result.scoped_cases) == 200
+    assert result.totals.total_cases == result.totals.completed_cases == 201
+    assert sum(row.created_count for row in result.historical_trend) == 201
+    assert automation.read_count == 2  # Existing case-query plus dashboard automation reads.
+
+
+def test_pr95_r2_invalid_out_of_team_and_out_of_date_evidence_is_not_disclosed():
+    fixtures = []
+    for team, age in ((TeamId.TEAM_A, 1), (TeamId.TEAM_A, 45), (TeamId.TEAM_B, 1)):
+        case, automation = _record(
+            team, None, AutomationStatus.COMPLETED,
+            created_days_ago=age, updated_hours_ago=1,
+        )
+        if team == TeamId.TEAM_B or age == 45:
+            exception = _resolved_exception(
+                case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+                AutomationStage.DOCUMENT, created_at=case.created_at + timedelta(hours=2),
+                resolved_at=case.created_at + timedelta(hours=1), actor_id="maya-lim",
+            )
+            automation = automation.model_copy(update={"exceptions": [exception],
+                "completed_at": case.created_at - timedelta(seconds=1)})
+        fixtures.append((case, automation))
+    service, _ = _service_for(fixtures)
+    result = service.get_dashboard(_actor("maya-lim"), date_range="7d")
+    assert result.totals.total_cases == 1
+    assert len(result.scoped_cases) == 1
+    assert len(result.historical_trend) == 30

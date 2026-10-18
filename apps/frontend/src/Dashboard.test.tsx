@@ -344,7 +344,7 @@ it.each(["team", "mine"] as const)("keeps %s case ages, sorting and filters fixe
     expect(rows()[0].textContent).toContain("2d");
     expect(rows()[1].textContent).toContain("1d");
     const age = Array.from(article.querySelectorAll("label")).find(item =>
-      item.textContent?.trim().startsWith("Age"))!.querySelector("select")!;
+      item.textContent?.trim().startsWith("Case age / duration"))!.querySelector("select")!;
     await act(async () => { age.value = "lt7"; age.dispatchEvent(new Event("change", { bubbles: true })); });
     expect(rows()).toHaveLength(2);
     const observed = article.innerHTML;
@@ -400,5 +400,79 @@ it.each([
       expect(kpi("Time to resolve a blocker")).toBe(expected);
     }
     client.clear();
+  }
+});
+
+
+it.each(["team", "mine"] as const)("PR95-R2 labels %s ongoing ages and completed durations truthfully", scope => {
+  const value = snapshot(maya);
+  const base = value.scoped_cases[0];
+  value.scoped_cases = [
+    { ...base, legal_name: "ACTIVE", case_elapsed_ms: 0 },
+    { ...base, case_id: "blocked", legal_name: "BLOCKED", status: "WAITING_FOR_REVIEW", case_elapsed_ms: 999 },
+    { ...base, case_id: "complete", legal_name: "COMPLETED", status: "COMPLETED", case_elapsed_ms: 1_001 },
+    // Defensive display of a missing legacy value does not broaden the API type.
+    Object.assign({ ...base, case_id: "unknown", legal_name: "UNKNOWN", status: "COMPLETED" as const }, { case_elapsed_ms: undefined }),
+  ];
+  const client = createSessionQueryClient();
+  const markup = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter><DashboardView
+    actor={maya} dashboard={value} dashScope={scope} onScopeChange={() => undefined}
+    dateRange="all" onDateRangeChange={() => undefined} teamFilter="all"
+    onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+  /></MemoryRouter></QueryClientProvider>);
+  const container = document.createElement("div");
+  container.innerHTML = markup;
+  const table = Array.from(container.querySelectorAll("article")).find(item =>
+    item.querySelector("h2")?.textContent === (scope === "team" ? "All cases" : "Your cases"))!;
+  expect(table.querySelector("thead")!.textContent).toContain("Case age / duration");
+  const rows = Array.from(table.querySelectorAll("tbody tr"));
+  for (const [name, label, duration] of [
+    ["ACTIVE", "Case age", "< 1s"], ["BLOCKED", "Case age", "< 1s"],
+    ["COMPLETED", "Case duration", "1s"], ["UNKNOWN", "Case duration", "—"],
+  ]) {
+    const row = rows.find(item => item.querySelector("strong")?.textContent === name)!;
+    expect(row.querySelector(`[aria-label="${label}: ${duration}"]`)?.textContent).toBe(duration);
+  }
+  client.clear();
+});
+
+it.each(["team", "mine"] as const)("PR95-R2 exposes native sort buttons and semantic headers in %s tables", async scope => {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.stubGlobal("fetch", vi.fn(async (url) => new Response(JSON.stringify(String(url).includes("/teams") ? [] : { items: [] }))));
+  const client = createSessionQueryClient();
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><DashboardView
+      actor={olivia} dashboard={snapshot(olivia)} dashScope={scope} onScopeChange={() => undefined}
+      dateRange="all" onDateRangeChange={() => undefined} teamFilter="all"
+      onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+    /></MemoryRouter></QueryClientProvider>));
+    const headings = scope === "team" ? ["Time per pipeline step", "Workload by person", "All cases"] : ["Your cases"];
+    for (const heading of headings) {
+      const article = Array.from(container.querySelectorAll("article")).find(item => item.querySelector("h2")?.textContent === heading)!;
+      const headers = Array.from(article.querySelectorAll<HTMLTableCellElement>("thead th.sortable-th"));
+      expect(headers.length).toBeGreaterThan(0);
+      for (const header of headers) {
+        const button = header.querySelector("button");
+        expect(button, `${heading}: ${header.textContent}`).not.toBeNull();
+        expect(header.getAttribute("scope")).toBe("col");
+        expect(button!.type).toBe("button");
+        expect(button!.tabIndex).toBe(0);
+        button!.focus();
+        expect(document.activeElement).toBe(button);
+        const before = header.getAttribute("aria-sort");
+        await act(async () => button!.click());
+        expect(header.getAttribute("aria-sort")).toBe(before === "ascending" ? "descending" : "ascending");
+        await act(async () => button!.click());
+        expect(header.getAttribute("aria-sort")).toBe(before === "ascending" ? "ascending" : "descending");
+        expect(article.querySelectorAll('th[aria-sort="ascending"], th[aria-sort="descending"]')).toHaveLength(1);
+      }
+    }
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    container.remove();
   }
 });

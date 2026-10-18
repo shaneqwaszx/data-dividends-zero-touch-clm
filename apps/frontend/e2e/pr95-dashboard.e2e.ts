@@ -55,7 +55,44 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
   expect(dashboardRanges.every(value => value === "30d")).toBe(true);
   // Browser-clock skew must not change the same server duration or its age filters.
   const allCases = page.locator("article").filter({ has: page.getByRole("heading", { name: "All cases", exact: true }) });
-  const ageFilter = allCases.locator(".filter-label").filter({ hasText: "Age" }).locator("select");
+  // Every sortable header is reachable and works with native keyboard activation.
+  const exerciseSorts = async (heading: string) => {
+    const article = page.locator("article").filter({ has: page.getByRole("heading", { name: heading, exact: true }) });
+    const headers = article.locator("thead th.sortable-th");
+    expect(await headers.count()).toBeGreaterThan(0);
+    for (let i = 0; i < await headers.count(); i++) {
+      const header = headers.nth(i);
+      const button = header.getByRole("button");
+      await expect(button).toHaveCount(1);
+      await expect(header).toHaveAttribute("scope", "col");
+      await button.focus();
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
+      await expect(button).toBeFocused();
+      const before = await header.getAttribute("aria-sort");
+      await page.keyboard.press("Enter");
+      await expect(header).toHaveAttribute("aria-sort", before === "ascending" ? "descending" : "ascending");
+      await page.keyboard.press("Space");
+      await expect(header).toHaveAttribute("aria-sort", before === "ascending" ? "ascending" : "descending");
+      await expect(article.locator('th[aria-sort="ascending"], th[aria-sort="descending"]')).toHaveCount(1);
+    }
+  };
+  await exerciseSorts("Time per pipeline step");
+  await exerciseSorts("Workload by person");
+  await exerciseSorts("All cases");
+  await expect(allCases.getByRole("columnheader", { name: "Case age / duration" })).toBeVisible();
+  await allCases.getByRole("button", { name: "Completed", exact: true }).click();
+  await expect(allCases.locator('td[aria-label^="Case duration:"]').first()).toBeVisible();
+  await allCases.getByRole("button", { name: "All", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  // Wide tables remain contained in their own scroll boxes at narrow widths.
+  for (const scroll of await page.locator(".dashboard-page .table-scroll").all()) {
+    const box = await scroll.boundingBox();
+    expect(box!.width).toBeLessThanOrEqual(390);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const ageFilter = allCases.locator(".filter-label").filter({ hasText: "Case age / duration" }).locator("select");
   await ageFilter.selectOption("lt7");
   await expect(allCases.locator("tbody tr").first()).toBeVisible();
   const observedCount = await allCases.locator("tbody tr").count();
@@ -72,6 +109,7 @@ test("PR95 Dashboard v2 filters preserve navigation and authenticated scope", as
   const mineResponse = await mine;
   expect(mineResponse.status()).toBe(200);
   expect((await mineResponse.json()).view).toBe("mine");
+  await exerciseSorts("Your cases");
   const range = page.waitForResponse(r => r.url().includes("/zero-touch/dashboard?")
     && new URL(r.url()).searchParams.get("date_range") === "all");
   await page.locator(".dashboard-date-range").selectOption("all");

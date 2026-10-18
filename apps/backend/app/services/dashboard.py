@@ -95,6 +95,9 @@ class DashboardService:
             if (from_at is None or item.created_at >= from_at)
             and (to_at is None or item.created_at < to_at)
         ]
+        # Validate every selected authorized case before any display-list cap.
+        for item in cohort_records:
+            _case_elapsed_ms(item, data_as_of)
         # Mine limits creator counts/lists, not the actor's authorized resolver work.
         records = [
             item for item in cohort_records
@@ -124,6 +127,23 @@ class DashboardService:
             case_id: record for case_id, record in cohort_automations.items()
             if case_id in scoped_ids
         }
+
+        # One chronology guard covers resolver workload and completed delay notes,
+        # including successful resolutions whose resolver was not recorded.
+        for automation in cohort_automations.values():
+            for exception in automation.exceptions:
+                if (
+                    exception.status == BusinessExceptionStatus.RESOLVED
+                    and exception.resolved_at is not None
+                ):
+                    project_case_timing(
+                        created_at=exception.created_at,
+                        updated_at=exception.resolved_at,
+                        started_at=None,
+                        completed_at=exception.resolved_at,
+                        recorded_total_duration_ms=None,
+                        observed_at=data_as_of,
+                    )
 
         return DashboardSnapshot(
             scope=self._dashboard_scope(actor, team_filter),

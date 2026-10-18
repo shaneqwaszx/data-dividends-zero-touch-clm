@@ -114,8 +114,10 @@ function SortableTh({ label, sortKey: key, activeKey, dir, onSort, align }: {
 }) {
   const active = key === activeKey;
   return (
-    <th className="sortable-th" style={align === "right" ? { textAlign: "right" } : undefined} onClick={() => onSort(key)}>
-      {label}<span className={`sort-caret${active ? " active" : ""}`}>{active ? (dir === "asc" ? "▲" : "▼") : "↕"}</span>
+    <th scope="col" className="sortable-th" aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : undefined} style={align === "right" ? { textAlign: "right" } : undefined}>
+      <button type="button" className="sort-control" onClick={() => onSort(key)}>
+        {label}<span aria-hidden="true" className={`sort-caret${active ? " active" : ""}`}>{active ? (dir === "asc" ? "▲" : "▼") : "↕"}</span>
+      </button>
     </th>
   );
 }
@@ -435,7 +437,7 @@ function AllCasesTable({ cases, actor }: { cases: DashboardCaseItem[]; actor: Au
             {people.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         </label>
-        <label className="filter-label">Age
+        <label className="filter-label">Case age / duration
           <select className="input" value={ageFilter} onChange={(event) => { setAgeFilter(event.target.value as AgeFilter); setPage(0); }}>
             {AGE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
@@ -451,7 +453,7 @@ function AllCasesTable({ cases, actor }: { cases: DashboardCaseItem[]; actor: Au
                 <SortableTh label="Case" sortKey="case" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 {actor.role === "DIRECTOR" && <SortableTh label="Team" sortKey="team" activeKey={sortKey} dir={sortDir} onSort={onSort} />}
                 <SortableTh label="Created by" sortKey="person" activeKey={sortKey} dir={sortDir} onSort={onSort} />
-                <SortableTh label="Age" sortKey="age" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+                <SortableTh label="Case age / duration" sortKey="age" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <th></th>
               </tr>
@@ -462,7 +464,7 @@ function AllCasesTable({ cases, actor }: { cases: DashboardCaseItem[]; actor: Au
                   <td><strong>{item.legal_name ?? item.requested_uen}</strong><span className="cell-note">{item.requested_uen}{item.delay_note ? ` · ${item.delay_note}` : ""}</span></td>
                   {actor.role === "DIRECTOR" && <td>{item.team_display_name ?? "Unassigned"}</td>}
                   <td>{item.created_by_display_name ?? "—"}</td>
-                  <td>{formatDuration(item.case_elapsed_ms)}</td>
+                  <td aria-label={`${item.status === "COMPLETED" ? "Case duration" : "Case age"}: ${formatDuration(item.case_elapsed_ms)}`}>{formatDuration(item.case_elapsed_ms)}</td>
                   <td><span className={statusTagClass(item.status)}>{item.status.replaceAll("_", " ")}</span></td>
                   <td style={{ textAlign: "right" }}><Link className="btn open-btn" to={paths.caseDetail(item.case_id)}>Open</Link></td>
                 </tr>
@@ -539,7 +541,7 @@ function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
       <h2>Your cases</h2>
       <div className="ds-toolbar">
         <SegToggle value={statusFilter} onChange={(value) => { setStatusFilter(value); setPage(0); }} options={STATUS_FILTERS as unknown as Array<{ value: StatusFilter; label: string }>} />
-        <label className="filter-label">Age
+        <label className="filter-label">Case age / duration
           <select className="input" value={ageFilter} onChange={(event) => { setAgeFilter(event.target.value as AgeFilter); setPage(0); }}>
             {AGE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
@@ -559,7 +561,7 @@ function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
               <tr>
                 <SortableTh label="Case" sortKey="case" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortableTh label="Stage" sortKey="stage" activeKey={sortKey} dir={sortDir} onSort={onSort} />
-                <SortableTh label="Age" sortKey="age" activeKey={sortKey} dir={sortDir} onSort={onSort} />
+                <SortableTh label="Case age / duration" sortKey="age" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortableTh label="Progress" sortKey="progress" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <th></th>
@@ -570,7 +572,7 @@ function YourCasesTable({ cases }: { cases: DashboardCaseItem[] }) {
                 <tr key={item.case_id} className="clickable">
                   <td><strong>{item.legal_name ?? item.requested_uen}</strong><span className="cell-note">{item.requested_uen}</span></td>
                   <td>{STAGE_LABELS[item.current_stage]}</td>
-                  <td>{formatDuration(item.case_elapsed_ms)}</td>
+                  <td aria-label={`${item.status === "COMPLETED" ? "Case duration" : "Case age"}: ${formatDuration(item.case_elapsed_ms)}`}>{formatDuration(item.case_elapsed_ms)}</td>
                   <td>{item.progress_percent}%</td>
                   <td><span className={statusTagClass(item.status)}>{item.status.replaceAll("_", " ")}</span></td>
                   <td style={{ textAlign: "right" }}><Link className="btn open-btn" to={paths.caseDetail(item.case_id)}>Open</Link></td>
