@@ -757,3 +757,60 @@ def test_api_omitted_date_range_retains_all_history_and_legacy_trend() -> None:
     assert v2.json()["totals"]["total_cases"] == 0
     assert len(legacy.json()["historical_trend"]) == 30
     assert legacy.json()["historical_trend"] == v2.json()["historical_trend"]
+
+
+def test_mine_keeps_authorized_resolver_work_without_widening_creator_lists() -> None:
+    fixtures = []
+    for team, age, hours in (
+        (TeamId.TEAM_A, 1, 2), (TeamId.TEAM_A, 45, 4), (TeamId.TEAM_B, 1, 8),
+    ):
+        case, automation = _record(
+            team, None, AutomationStatus.RUNNING, created_days_ago=age,
+            updated_hours_ago=1, created_by_actor_id="ethan-tan",
+        )
+        resolved = _resolved_exception(
+            case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+            AutomationStage.DOCUMENT, created_at=case.created_at,
+            resolved_at=case.created_at + timedelta(hours=hours), actor_id="maya-lim",
+        )
+        automation = automation.model_copy(update={"exceptions": [resolved]})
+        fixtures.append((case, automation))
+    service, _ = _service_for(fixtures)
+    mine = service.get_dashboard(_actor("maya-lim"), scope="mine", date_range="30d")
+    assert mine.totals.total_cases == 0
+    assert mine.scoped_cases == mine.recent_cases == mine.top_active_cases == ()
+    assert len(mine.workload_by_person) == 1
+    row = mine.workload_by_person[0]
+    assert row.user_id == "maya-lim"
+    assert row.open_cases == row.completed_cases == 0
+    assert row.oldest_open_age_ms is None
+    assert row.blockers_resolved == 1
+    assert row.mean_fix_time_ms == 7_200_000
+    assert mine.exception_breakdown == ()
+    rm = service.get_dashboard(_actor("ethan-tan"), scope="mine", date_range="30d")
+    assert rm.totals.total_cases == 1
+    assert all(row.user_id == "ethan-tan" for row in rm.workload_by_person)
+
+
+def test_recorded_timings_keep_processing_and_started_clock_semantics() -> None:
+    case, automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.COMPLETED,
+        created_days_ago=2, updated_hours_ago=1, human_interventions=1,
+        stage_durations_ms={AutomationStage.DOCUMENT: 12},
+    )
+    resolved = _resolved_exception(
+        case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE, AutomationStage.DOCUMENT,
+        created_at=case.created_at, resolved_at=case.created_at + timedelta(hours=2),
+        actor_id="maya-lim",
+    )
+    started_at = automation.completed_at - timedelta(hours=1)
+    automation = automation.model_copy(update={
+        "started_at": started_at, "exceptions": [resolved],
+        "metrics": automation.metrics.model_copy(update={"total_duration_ms": 3_600_000}),
+    })
+    service, _ = _service_for([(case, automation)])
+    result = service.get_dashboard(_actor("maya-lim"))
+    assert result.timing.mean_total_duration_ms == 3_600_000
+    document = next(row for row in result.stage_timing if row.stage == AutomationStage.DOCUMENT)
+    assert document.with_blocker_mean_ms == 12
+    assert result.scoped_cases[0].delay_note.endswith("2.0h fix")

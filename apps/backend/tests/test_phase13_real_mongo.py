@@ -364,9 +364,19 @@ def test_pr95_physical_workload_and_legacy_trend_match_memory_after_restart() ->
         memory, _ = _service_for([(case, automation)])
         for actor_id in ("maya-lim", "ethan-tan", "sophia-ng", "olivia-koh"):
             for date_range in ("all", "7d", "30d", "90d"):
-                assert service.get_dashboard(_actor(actor_id), date_range=date_range) == (
-                    memory.get_dashboard(_actor(actor_id), date_range=date_range)
-                )
+                for view in ("team", "mine"):
+                    assert service.get_dashboard(
+                        _actor(actor_id), date_range=date_range, scope=view,
+                    ) == memory.get_dashboard(_actor(actor_id), date_range=date_range, scope=view)
+        mine = service.get_dashboard(_actor("maya-lim"), scope="mine", date_range="90d")
+        assert mine.totals.total_cases == 0 and mine.scoped_cases == ()
+        assert len(mine.workload_by_person) == 1
+        assert mine.workload_by_person[0].user_id == "maya-lim"
+        assert mine.workload_by_person[0].blockers_resolved == 1
+        assert mine.workload_by_person[0].mean_fix_time_ms == 7_200_000
+        assert service.get_dashboard(
+            _actor("maya-lim"), scope="mine", date_range="30d",
+        ).workload_by_person == ()
         result = service.get_dashboard(_actor("maya-lim"))
         assert result.totals.total_cases == 1
         assert len(result.historical_trend) == 30

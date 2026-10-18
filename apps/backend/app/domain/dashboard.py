@@ -76,7 +76,7 @@ class DashboardCaseItem(BaseModel):
 
 
 class DashboardTimingSummary(BaseModel):
-    """Mean onboarding duration, split by recorded exception interventions."""
+    """Recorded workflow-start-to-completion duration, split by exception interventions."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -98,7 +98,7 @@ class DashboardStageCaseTiming(BaseModel):
 
 
 class DashboardStageTiming(BaseModel):
-    """Factual elapsed time cases spent in one pipeline stage, from recorded durations only."""
+    """Recorded processing-attempt durations; excludes blocker-resolution and waiting time."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

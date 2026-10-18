@@ -75,22 +75,25 @@ class DashboardService:
         # Match the portfolio's inclusive Singapore created-calendar-day contract.
         today = data_as_of.astimezone(timezone(timedelta(hours=8))).date()
         created_from = today - timedelta(days=range_days - 1) if range_days else None
-        records = self._case_query.list_cases(actor, team_filter=team_filter)
-        if scope == "mine":
-            records = [
-                item for item in records if item.created_by_actor_id == actor.profile.user_id
-            ]
-
-        # The legacy UTC trend retains its established history independently of
-        # the new created-date cohort selector.
-        historical_trend = _trend(records, data_as_of.date())
+        authorized_records = self._case_query.list_cases(actor, team_filter=team_filter)
+        history_records = [
+            item for item in authorized_records
+            if scope == "team" or item.created_by_actor_id == actor.profile.user_id
+        ]
+        # Preserve the legacy view's UTC trend before the new created-date filter.
+        historical_trend = _trend(history_records, data_as_of.date())
         from_at, to_at = case_created_date_bounds(
             created_from, today if range_days else None,
         )
-        records = [
-            item for item in records
+        cohort_records = [
+            item for item in authorized_records
             if (from_at is None or item.created_at >= from_at)
             and (to_at is None or item.created_at < to_at)
+        ]
+        # Mine limits creator counts/lists, not the actor's authorized resolver work.
+        records = [
+            item for item in cohort_records
+            if scope == "team" or item.created_by_actor_id == actor.profile.user_id
         ]
         total = len(records)
         completed = sum(item.status == AutomationStatus.COMPLETED for item in records)
@@ -106,10 +109,15 @@ class DashboardService:
             :DASHBOARD_TOP_ACTIVE_LIMIT
         ]
         scoped_ids = {item.case_id for item in records}
-        automations = {
+        cohort_ids = {item.case_id for item in cohort_records}
+        cohort_automations = {
             record.case_id: record
             for record in self._automation.list_records()
-            if record.case_id in scoped_ids
+            if record.case_id in cohort_ids
+        }
+        automations = {
+            case_id: record for case_id, record in cohort_automations.items()
+            if case_id in scoped_ids
         }
 
         return DashboardSnapshot(
@@ -141,7 +149,10 @@ class DashboardService:
             stage_timing=_stage_timing(records, automations),
             exception_breakdown=_exception_breakdown(automations),
             weekly_onboarded=_weekly_onboarded(records, data_as_of.date()),
-            workload_by_person=self._workload_by_person(records, automations),
+            workload_by_person=tuple(
+                row for row in self._workload_by_person(cohort_records, cohort_automations)
+                if scope == "team" or row.user_id == actor.profile.user_id
+            ),
             recent_cases=tuple(self._case_item(item, automations) for item in recent),
             top_active_cases=tuple(self._case_item(item, automations) for item in top_active),
             scoped_cases=tuple(

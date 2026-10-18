@@ -95,42 +95,46 @@ rewritten by reads. Existing team IDs and priorities retain their prior meaning.
 
 PR95 Dashboard v2 is a project-defined operational read model. Authorization and
 Director `team_filter` run before `scope=team|mine` and created-date filtering.
-`mine` means immutable creator equals the authenticated user; legacy unknown creator
+`mine` case counts/lists mean immutable creator equals the authenticated user; legacy unknown creator
 is never inferred. HR is denied, RM/onboarder scope remains exact own-team, and
-inaccessible case activity retains the same safe404 as an absent case.
+inaccessible case activity retains the same safe `404` as an absent case.
 
-`date_range=7d|30d|90d|all` defaults toall for backward compatibility.
-Dashboard v2 explicitly requests30d on initial load. Bounded ranges include exactly N Singapore
+`date_range=7d|30d|90d|all` defaults to `all` for backward compatibility.
+Dashboard v2 explicitly requests `30d` on initial load. Bounded ranges include exactly N Singapore
 calendar dates ending today, using the existing UTC+08:00 half-open portfolio bounds.
 Totals, lists and metric denominators all use this same selected case set; `all`
 includes historical cases. Weekly completion buckets remain eight UTC Monday weeks
 within that selected set. A case created before the selected range is excluded even
 if completed recently. No completion-date cohort is implied.
 
-The original `historical_trend` schema and calculation remain:30 zero-filled UTC
+The original `historical_trend` schema and calculation remain: 30 zero-filled UTC
 calendar days through `data_as_of`, counting creation and recorded completion dates
 over the full authorized view before the new created-date cohort filter. Thus a case
-created45days ago and completed today still contributes to the legacy completion
-trend even when the v2 selected30-day cohort excludes it. Callers without new
+created 45 days ago and completed today still contributes to the legacy completion
+trend even when the v2 selected 30-day cohort excludes it. Callers without new
 parameters retain all-history totals and existing default team scope.
 New `view`, `zero_touch_rate`, `timing`, `stage_timing`, `exception_breakdown`,
 `weekly_onboarded`, `workload_by_person` and `scoped_cases` fields are additive.
 The shipped browser and shared types consume v2 atomically. Recent cases are capped
-at10, active cases at5, selected cases at200, and slowest stage cases at3. Counts use
+at 10, active cases at 5, selected cases at 200, and slowest stage cases at 3. Counts use
 the full selected cohort even when lists are truncated.
 
 Zero-touch rate is completed cases with zero recorded exception interventions divided
-by completed cases; empty denominator gives0. Final human Review & Send remains
-required and is not an exception intervention. Means use recorded non-null durations;
-unknown timings stay null. Progress is recorded automated stages/6, capped at100,
-with COMPLETED always100. It is a project-defined display metric, not approval proof.
-Stage timing distinguishes cases with retained blockers from clean recorded durations.
+by completed cases; empty denominator gives 0. Final human Review & Send remains
+required and is not an exception intervention. Means use recorded non-null workflow-start-to-completion durations;
+intake before start is excluded, and unknown timings stay null. Progress is recorded automated stages / 6, capped at 100,
+with COMPLETED always 100. It is a project-defined display metric, not approval proof.
+Stage timing groups recorded processing-attempt durations by retained blocker history;
+it excludes waiting and resolution time.
 Exceptions include retained history; none of these metrics is a sponsor SLA,
 compliance calculation, staff-performance rating or Live-integration claim.
 
 Workload open/completed case counts belong to the immutable creator. Fix counts and
 mean fix time belong to the last recorded resolver, once per RESOLVED exception,
-within the selected authorized case set, including a teammate's created cases.
+within the authorized/date-selected case cohort, including a teammate's created cases.
+Mine returns only the requesting actor's workload row; its own resolver aggregate
+still includes authorized teammate cases, while its creator counts and case lists
+remain creator-only. Other-team and excluded-date fixes never enter that aggregate.
 Only actor evidence recorded at/after retained resolution can attribute that fix;
 earlier draft decisions and cancelled/open blockers are excluded. Missing historical
 actor evidence remains unattributed. Display names use the existing
@@ -139,8 +143,8 @@ the authenticated actor's workload row by ID, never array position. Timing is el
 recorded resolution time minus blocker creation, not active working time.
 
 Memory and Mongo expose the validated nullable creator internally; Mongo portfolio
-projections and activity aggregation enforce schema9/10 identity grammar and reject
-later creator fields on schemas1..8. The activity `created_by` filter intersects role,
+projections and activity aggregation enforce schema 9/10 identity grammar and reject
+later creator fields on schemas 1..8. The activity `created_by` filter intersects role,
 team, case, action, stage, outcome and date filters before paging. It is a creator
 filter, not event-actor attribution. No schema version, migration or write changes.
 The endpoint is provider-free and read-only; no out-of-scope totals or identities are

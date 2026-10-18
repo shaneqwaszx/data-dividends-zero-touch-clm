@@ -172,7 +172,7 @@ describe("historical RBAC dashboard", () => {
     expect(markup).not.toContain("Global / cross-team");
     expect(markup).toContain("Open cases");
     expect(markup).toContain("Zero-touch rate");
-    expect(markup).toContain("Mean time to onboard");
+    expect(markup).toContain("Mean recorded run time");
     expect(markup).toContain("Time per pipeline step");
     expect(markup).toContain("Registry verification");
     expect(markup).toContain("Existing-customer search");
@@ -280,4 +280,28 @@ it("renders the authorized weekly response instead of illustrative jurisdiction 
   expect(markup).toContain("10-12");
   expect(markup).not.toContain("Illustrative mix");
   expect(markup).not.toContain("Australia");
+});
+
+
+it("qualifies recorded timing samples and availability without Live claims", () => {
+  const value = snapshot(maya);
+  const picker = renderToStaticMarkup(<MemoryRouter><DashboardCategoryPicker
+    dashboard={value} onSelectOnboarding={() => undefined}
+  /></MemoryRouter>);
+  expect(picker).toContain("Available");
+  expect(picker).not.toContain(">Live<");
+  const markup = renderToStaticMarkup(<MemoryRouter><DashboardView
+    actor={maya} dashboard={value} dashScope="mine" onScopeChange={() => undefined}
+    dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all"
+    onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+  /></MemoryRouter>);
+  expect(markup).toContain("recorded workflow start to completion");
+  expect(markup).not.toContain("creation to Completed");
+  const manager = renderToStaticMarkup(<MemoryRouter><DashboardView
+    actor={maya} dashboard={value} dashScope="team" onScopeChange={() => undefined}
+    dateRange="30d" onDateRangeChange={() => undefined} teamFilter="all"
+    onTeamFilterChange={() => undefined} onRefresh={() => undefined} onBack={() => undefined}
+  /></MemoryRouter>);
+  expect(manager).toContain("Waiting and blocker-resolution time are not included");
+  expect(manager).not.toContain("including the time to fix it");
 });

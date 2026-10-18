@@ -202,7 +202,7 @@ export function DashboardCategoryPicker({
           onClick={onSelectOnboarding}
           onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectOnboarding(); } }}
         >
-          <div className="category-card-top"><span className="dashboard-kicker">02</span><span className="tag tag-accent">Live</span></div>
+          <div className="category-card-top"><span className="dashboard-kicker">02</span><span className="tag tag-accent">Available</span></div>
           <h2>Onboarding</h2>
           <p className="text-muted">Registry extract, automatic checks, blockers and time per pipeline step</p>
           <div className="category-card-foot">
@@ -243,7 +243,7 @@ function StageTimingTable({ stageTiming }: { stageTiming: DashboardStageTiming[]
   return (
     <article className="card">
       <h2>Time per pipeline step</h2>
-      <p className="text-muted">Clean averages runs that passed without a blocker; With blocker averages runs that hit one, including the time to fix it; Combined averages every run at that step.</p>
+      <p className="text-muted">Clean and With blocker group recorded processing-duration samples by retained blocker history. Waiting and blocker-resolution time are not included. Combined averages the available recorded samples.</p>
       <div className="table-scroll">
         <table className="table stage-timing-table">
           <thead>
@@ -644,7 +644,7 @@ function TeamDashboard({ dashboard, actor }: { dashboard: DashboardSnapshot; act
         <article className="dashboard-kpi"><span>Open cases</span><strong>{totals.non_completed_cases}</strong><p className="text-muted">{runningCount} running · {blockedCount} blocked</p></article>
         <article className="dashboard-kpi"><span>Onboarded</span><strong>{totals.completed_cases}</strong></article>
         <article className="dashboard-kpi"><span>Zero-touch rate</span><strong>{formatPercent(dashboard.zero_touch_rate)}</strong><p className="text-muted">Completed cases with no recorded exception interventions; final review still required.</p></article>
-        <article className="dashboard-kpi"><span>Mean time to onboard</span><strong>{formatDuration(dashboard.timing.mean_total_duration_ms)}</strong><p className="text-muted">{formatDuration(dashboard.timing.zero_touch_mean_duration_ms)} zero-touch · {formatDuration(dashboard.timing.blocked_mean_duration_ms)} for {dashboard.timing.blocked_count} cases with exception interventions</p></article>
+        <article className="dashboard-kpi"><span>Mean recorded run time</span><strong>{formatDuration(dashboard.timing.mean_total_duration_ms)}</strong><p className="text-muted">{formatDuration(dashboard.timing.zero_touch_mean_duration_ms)} zero-touch · {formatDuration(dashboard.timing.blocked_mean_duration_ms)} for {dashboard.timing.blocked_count} cases with exception interventions</p></article>
       </div>
 
       {totals.total_cases === 0 && <div className="ds-banner">No onboarding cases are available for your current scope.</div>}
@@ -698,7 +698,7 @@ function MyWorkDashboard({ dashboard, actor, teamFilter }: { dashboard: Dashboar
         <article className="dashboard-kpi"><span>Your open cases</span><strong>{totals.non_completed_cases}</strong></article>
         <article className="dashboard-kpi"><span>Your created cases onboarded</span><strong>{totals.completed_cases}</strong></article>
         <article className="dashboard-kpi"><span>Time to resolve a blocker</span><strong>{formatDuration(mine?.mean_fix_time_ms)}</strong><p className="text-muted">mean · {mine?.blockers_resolved ?? 0} blockers resolved</p></article>
-        <article className="dashboard-kpi"><span>Time to onboard</span><strong>{formatDuration(dashboard.timing.mean_total_duration_ms)}</strong><p className="text-muted">mean · creation to Completed</p></article>
+        <article className="dashboard-kpi"><span>Recorded run time</span><strong>{formatDuration(dashboard.timing.mean_total_duration_ms)}</strong><p className="text-muted">mean · recorded workflow start to completion</p></article>
       </div>
 
       {totals.total_cases === 0 && <div className="ds-banner">You have not created any onboarding cases in this scope yet.</div>}
