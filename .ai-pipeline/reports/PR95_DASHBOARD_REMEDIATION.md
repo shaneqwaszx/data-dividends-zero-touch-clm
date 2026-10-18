@@ -58,3 +58,19 @@ active and completed case durations. No schema/write or connector change is invo
 Round 2 full backend before this fix:2780passed/162skipped (156physical+6Tesseract),
 3expected malformed-input warnings,1061.01s. It is baseline evidence only. The immutable
 round2 report records FAIL for F4; a fresh corrected-content gate remains required.
+
+Round 3 corrections (F5/F6/F7): the service reads authorized cases and its existing
+automation input once each before sampling one clock. The saved automation list is
+reused; no query, authorization or persistence owner is added. Date cohorts, the
+legacy trend, case ages and workload share that final observation. Exact timedelta
+floor division and integer means preserve recorded milliseconds and floor only
+sub-millisecond fractions. Three new regression tests failed first: overlapping
+reads, calendar/trend observation boundaries and1001ms resolution precision.
+The physical completed-case fixture now retains the full canonical stage prefix,
+start and meaningful stage metrics; canonical validation runs before create. Existing
+decode and timing/parity assertions remain strict, and physical fractional-resolution
+parity is added. The prior155/1 physical failure reproduced serially from the invalid
+fixture; it is not attributed to resource contention. The separate full-backend HTTP
+seeder body-read timeout remains an observed failed attempt requiring fresh complete
+serial execution; the isolated8.35s PASS does not clear it. Fresh independent gate
+and clean committed pre-PR verification remain required on the new frozen content.

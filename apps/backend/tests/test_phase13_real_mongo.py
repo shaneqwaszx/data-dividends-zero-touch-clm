@@ -314,7 +314,13 @@ def test_pr95_physical_workload_and_legacy_trend_match_memory_after_restart() ->
         _teams,
     )
 
-    from app.domain.zero_touch import AutomationStage, AutomationStatus, BusinessExceptionType
+    from app.domain.zero_touch import (
+        AUTOMATION_STAGE_ORDER,
+        AutomationStage,
+        AutomationStatus,
+        BusinessExceptionType,
+        validate_automation_record,
+    )
     from app.persistence.models import DurableCaseSnapshot
     from app.persistence.mongo_case_store import MongoCaseStore
     from app.persistence.repositories import (
@@ -390,6 +396,23 @@ def test_pr95_physical_workload_and_legacy_trend_match_memory_after_restart() ->
             TeamId.TEAM_A, None, AutomationStatus.COMPLETED,
             created_days_ago=2, updated_hours_ago=1, created_by_actor_id="ethan-tan",
         )
+        # Read-model helpers omit the retained completion prefix; physical fixtures
+        # must satisfy the canonical domain validator before any durable create.
+        prefix = tuple(AutomationStage(stage) for stage in AUTOMATION_STAGE_ORDER)
+        completion = completion.model_copy(update={
+            "completed_stages": prefix,
+            "started_at": completed.created_at,
+            "metrics": completion.metrics.model_copy(update={
+                "automated_stages_completed": len(prefix), "human_interventions": 2,
+            }),
+            "exceptions": [_resolved_exception(
+                completed.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+                AutomationStage.DOCUMENT, created_at=completed.created_at,
+                resolved_at=completed.created_at + timedelta(milliseconds=duration),
+                actor_id="maya-lim",
+            ) for duration in (1, 1001)],
+        })
+        validate_automation_record(completion)
         store.create(DurableCaseSnapshot(
             case_id=completed.case_id, revision=0, onboarding=completed, automation=completion,
             created_at=completed.created_at, updated_at=completed.updated_at,
@@ -400,6 +423,10 @@ def test_pr95_physical_workload_and_legacy_trend_match_memory_after_restart() ->
             assert observed == memory.get_dashboard(_actor("ethan-tan"), scope=view)
             assert next(item for item in observed.scoped_cases
                         if item.case_id == completed.case_id).case_elapsed_ms == 169_200_000
+        resolver = service.get_dashboard(_actor("maya-lim"), scope="mine")
+        assert resolver.totals.total_cases == 0 and resolver.scoped_cases == ()
+        assert resolver.workload_by_person[0].blockers_resolved == 3
+        assert resolver.workload_by_person[0].mean_fix_time_ms == 2_400_334
     finally:
         try:
             cleanup_ephemeral_mongo_database(client, database)

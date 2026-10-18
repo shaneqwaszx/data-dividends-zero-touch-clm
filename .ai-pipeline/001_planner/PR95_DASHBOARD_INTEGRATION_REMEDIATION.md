@@ -48,3 +48,9 @@ case timing profile. Remediation reuses the canonical backend projection and one
 observation for lists/workload, adds safe unavailable errors and clock/filter/sort/
 completed-duration/physical parity regressions. Preserve both FAIL reports; fresh
 acceptance writes PR95_DASHBOARD_ACCEPTANCE_QUALITY_GATE.md on the corrected freeze.
+
+Round 3 requires F5 observation after both existing state reads, F6 exact integer
+resolution/mean arithmetic, and F7 a canonically valid retained completed fixture.
+No schema/decoder relaxation is permitted. Regression evidence covers read
+interleavings, SG/UTC boundaries, millisecond precision and physical restart parity.
+Fresh acceptance uses PR95_DASHBOARD_FINAL_ACCEPTANCE.md; earlier FAILs stay immutable.

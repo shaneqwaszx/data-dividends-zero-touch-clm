@@ -863,3 +863,105 @@ def test_dashboard_rejects_future_timing_with_sanitized_api_response(monkeypatch
     assert response.json() == {"detail": {
         "code": "DASHBOARD_UNAVAILABLE", "message": "Dashboard data is temporarily unavailable.",
     }}
+
+
+
+def test_observation_follows_both_reads_and_includes_concurrent_resolution(monkeypatch) -> None:
+    case, automation = _record(
+        TeamId.TEAM_A, None, AutomationStatus.RUNNING,
+        created_days_ago=2, updated_hours_ago=1, created_by_actor_id="maya-lim",
+    )
+    service, repository = _service_for([(case, automation)])
+    actor = _actor("maya-lim")
+    records = service._case_query.list_cases(actor)
+    now = [NOW]
+    calls = []
+
+    def read_cases(*args, **kwargs):
+        calls.append("cases")
+        now[0] += timedelta(milliseconds=1)
+        return [item.model_copy(update={"updated_at": now[0]}) for item in records]
+
+    def read_automation():
+        calls.append("automation")
+        now[0] += timedelta(milliseconds=1)
+        resolved = _resolved_exception(
+            case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+            AutomationStage.DOCUMENT, created_at=case.created_at,
+            resolved_at=now[0], actor_id="maya-lim",
+        )
+        return [automation.model_copy(update={"updated_at": now[0], "exceptions": [resolved]})]
+
+    def observe():
+        calls.append("clock")
+        return now[0]
+
+    monkeypatch.setattr(service._case_query, "list_cases", read_cases)
+    monkeypatch.setattr(repository, "list_records", read_automation)
+    service._clock = observe
+    result = service.get_dashboard(actor, scope="mine")
+    assert calls == ["cases", "automation", "clock"]
+    assert result.data_as_of == NOW + timedelta(milliseconds=2)
+    assert result.scoped_cases[0].case_elapsed_ms == 172_800_002
+    assert result.workload_by_person[0].oldest_open_age_ms == 172_800_002
+    assert result.workload_by_person[0].blockers_resolved == 1
+    assert result.workload_by_person[0].mean_fix_time_ms == 172_800_002
+
+
+def test_final_observation_anchors_singapore_cohort_and_legacy_utc_trend(monkeypatch) -> None:
+    for initial, final, created, expected_total in (
+        (datetime(2026, 9, 8, 15, 59, 59, 999000, tzinfo=UTC),
+         datetime(2026, 9, 8, 16, 0, tzinfo=UTC),
+         datetime(2026, 9, 1, 16, 0, tzinfo=UTC), 0),
+        (datetime(2026, 9, 8, 23, 59, 59, 999000, tzinfo=UTC),
+         datetime(2026, 9, 9, 0, 0, tzinfo=UTC),
+         datetime(2026, 9, 7, 12, 0, tzinfo=UTC), 1),
+    ):
+        case, automation = _record(
+            TeamId.TEAM_A, None, AutomationStatus.RUNNING,
+            created_days_ago=1, updated_hours_ago=1, created_by_actor_id="maya-lim",
+        )
+        case = case.model_copy(update={"created_at": created})
+        automation = automation.model_copy(update={"created_at": created})
+        service, _ = _service_for([(case, automation)])
+        now = [initial]
+        original = service._case_query.list_cases
+
+        def read_cases(*args, original=original, now=now, final=final, **kwargs):
+            records = original(*args, **kwargs)
+            now[0] = final
+            return records
+
+        monkeypatch.setattr(service._case_query, "list_cases", read_cases)
+        service._clock = lambda now=now: now[0]
+        result = service.get_dashboard(_actor("maya-lim"), date_range="7d")
+        assert result.data_as_of == final
+        assert result.totals.total_cases == expected_total
+        assert result.historical_trend[-1].day == final.date()
+        assert len(result.historical_trend) == 30
+
+
+def test_resolution_milliseconds_and_mean_are_exact_with_submillisecond_floor() -> None:
+    for durations, expected in (
+        ([timedelta(milliseconds=1001)], 1001),
+        ([timedelta(milliseconds=1001), timedelta(milliseconds=3003)], 2002),
+        ([timedelta(microseconds=999)], 0),
+    ):
+        case, automation = _record(
+            TeamId.TEAM_A, None, AutomationStatus.RUNNING,
+            created_days_ago=2, updated_hours_ago=1, created_by_actor_id="ethan-tan",
+        )
+        exceptions = [_resolved_exception(
+            case.case_id, BusinessExceptionType.DOCUMENT_LOW_CONFIDENCE,
+            AutomationStage.DOCUMENT, created_at=case.created_at,
+            resolved_at=case.created_at + duration, actor_id="maya-lim",
+        ) for duration in durations]
+        automation = automation.model_copy(update={"exceptions": exceptions})
+        service, _ = _service_for([(case, automation)])
+        result = service.get_dashboard(_actor("maya-lim"), scope="mine")
+        assert result.totals.total_cases == 0
+        assert result.scoped_cases == ()
+        row = result.workload_by_person[0]
+        assert row.user_id == "maya-lim"
+        assert row.blockers_resolved == len(durations)
+        assert row.mean_fix_time_ms == expected

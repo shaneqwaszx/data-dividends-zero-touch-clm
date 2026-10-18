@@ -74,12 +74,13 @@ class DashboardService:
         scope: Literal["team", "mine"] = "team",
         date_range: Literal["7d", "30d", "90d", "all"] = "all",
     ) -> DashboardSnapshot:
+        authorized_records = self._case_query.list_cases(actor, team_filter=team_filter)
+        automation_records = self._automation.list_records()
         data_as_of = self._clock()
         range_days = DASHBOARD_DATE_RANGE_DAYS[date_range]
         # Match the portfolio's inclusive Singapore created-calendar-day contract.
         today = data_as_of.astimezone(timezone(timedelta(hours=8))).date()
         created_from = today - timedelta(days=range_days - 1) if range_days else None
-        authorized_records = self._case_query.list_cases(actor, team_filter=team_filter)
         history_records = [
             item for item in authorized_records
             if scope == "team" or item.created_by_actor_id == actor.profile.user_id
@@ -116,7 +117,7 @@ class DashboardService:
         cohort_ids = {item.case_id for item in cohort_records}
         cohort_automations = {
             record.case_id: record
-            for record in self._automation.list_records()
+            for record in automation_records
             if record.case_id in cohort_ids
         }
         automations = {
@@ -292,9 +293,9 @@ class DashboardService:
                 if decision is None or decision.actor_id is None:
                     continue  # Unknown historical attribution stays unknown.
                 user_id = decision.actor_id
-                duration = int(
-                    (exception.resolved_at - exception.created_at).total_seconds() * 1000
-                )
+                duration = (
+                    exception.resolved_at - exception.created_at
+                ) // timedelta(milliseconds=1)
                 fixes.setdefault(user_id, []).append(duration)
                 by_person.setdefault(user_id, [])
         rows: list[DashboardWorkloadRow] = []
@@ -370,7 +371,7 @@ def _mean_ms(values: Iterable[int]) -> int | None:
     values = list(values)
     if not values:
         return None
-    return int(sum(values) / len(values))
+    return sum(values) // len(values)
 
 
 def _stage_timing(
@@ -491,7 +492,9 @@ def _delay_note(
                 or exception.resolved_at is None
             ):
                 continue
-            duration_ms = int((exception.resolved_at - exception.created_at).total_seconds() * 1000)
+            duration_ms = (
+                exception.resolved_at - exception.created_at
+            ) // timedelta(milliseconds=1)
             if slowest is None or duration_ms > slowest[1]:
                 slowest = (exception.exception_type, duration_ms)
         if slowest is None:

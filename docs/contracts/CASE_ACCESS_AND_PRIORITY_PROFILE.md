@@ -155,3 +155,8 @@ All case lists and creator oldest-open values share the response `data_as_of` in
 The browser renders, sorts and filters these returned durations without using its clock;
 completed cases use completion minus creation. Invalid chronology or persistence reads
 return a sanitized `503 DASHBOARD_UNAVAILABLE`, without retained facts or private errors.
+
+The single dashboard observation follows both retained input reads. Cohort calendar
+bounds and the legacy UTC trend use that final observation, including midnight
+interleavings. Resolution elapsed values and means use exact integer milliseconds,
+flooring sub-millisecond remainders without a floating-point conversion.
